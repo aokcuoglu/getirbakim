@@ -1,0 +1,576 @@
+{
+  "info": {
+    "_postman_id": "08330cf0-8f6b-4d15-8134-aae908ed0667",
+    "name": "Dinamik Oto Web Servis",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "54251659",
+    "_collection_link": "https://go.postman.co/collection/54251659-08330cf0-8f6b-4d15-8134-aae908ed0667?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "getBrandList",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getBrandList",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getBrandList"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getStockList",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getStockList/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getStockList",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getStock",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"STOK_KODU\":\"TRW GDB400\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getStock",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getStock"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getPriceList",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getPriceList/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getPriceList",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getBrandListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getBrandListXml",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getBrandListXml"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getStockListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getStockListXml/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getStockListXml",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getStockXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"STOK_KODU\":\"TRW GDB400\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getStockXml",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getStockXml"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getPriceListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "ApiKey",
+            "value": "{{ApiKey}}",
+            "type": "text"
+          },
+          {
+            "key": "SecretKey",
+            "value": "{{SecretKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/getPriceListXml/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "getPriceListXml",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "BrandList",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/BrandList/xxxxxxxxxxxxxxxxxxxxxxxxx",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "BrandList",
+            "xxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "StockList",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/StockList/xxxxxxxxxxxxxxxxxxxxxxx/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "StockList",
+            "xxxxxxxxxxxxxxxxxxxxxxx",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Stock",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"STOK_KODU\":\"TRW GDB400\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/Stock/xxxxxxxxxxxxxx",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "Stock",
+            "xxxxxxxxxxxxxx"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "PriceList",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/PriceList/xxxxxxxxxxxxxxxx/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "PriceList",
+            "xxxxxxxxxxxxxxxx",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "BrandListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/BrandList/xxxxxxxxxxxxxxxxxxxxxxxxx",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "BrandList",
+            "xxxxxxxxxxxxxxxxxxxxxxxxx"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "StockListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/StockListXml/7B138CD3-11F2-49A9-B78E-E5A0E773D979/FUJI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "StockListXml",
+            "7B138CD3-11F2-49A9-B78E-E5A0E773D979",
+            "FUJI"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "StockXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"STOK_KODU\":\"TRW GDB400\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/StockXml/xxxxxxxxxxxxxx",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "StockXml",
+            "xxxxxxxxxxxxxx"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "PriceListXml",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://dinamikapp-api.dinamik.online/api/Dnmk_Customer/PriceListXml/xxxxxxxxxxxxxxxx/KRAFTVOLL%20FREN%20AYNASI",
+          "protocol": "https",
+          "host": [
+            "dinamikapp-api",
+            "dinamik",
+            "online"
+          ],
+          "path": [
+            "api",
+            "Dnmk_Customer",
+            "PriceListXml",
+            "xxxxxxxxxxxxxxxx",
+            "KRAFTVOLL%20FREN%20AYNASI"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "ApiKey",
+      "value": "XXXXXXXXXXXXXXXXXXXXXXXXX"
+    },
+    {
+      "key": "SecretKey",
+      "value": "XXXXXXXXXXXXXXXXXXXXXXXXX"
+    }
+  ]
+}
