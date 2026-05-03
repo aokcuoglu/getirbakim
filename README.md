@@ -8,6 +8,7 @@ Açık kaynak otomotiv yedek parça e-commerce platformu. Birden fazla tedarikç
 - **TypeScript**
 - **Tailwind CSS v4**
 - **Supabase** (Database, Auth, Storage)
+- **PostgreSQL (`pg` driver)** for existing catalog DB queries
 - **Docker** (Local development & VPS deployment)
 
 ## Getting Started
@@ -31,6 +32,14 @@ cp .env.example .env.local
 
 Edit `.env.local` with your Supabase credentials. The app works with mock supplier data by default — no real API keys required for local development.
 
+To enable DB-backed search with the existing Supabase catalog:
+```
+DATABASE_URL=your-supabase-pooler-url
+DIRECT_URL=your-supabase-direct-url
+USE_EXISTING_CATALOG_DB=true
+CATALOG_SEARCH_SOURCE=existing-db
+```
+
 Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` to protect admin routes. If these are not set, admin routes will be inaccessible (fail closed).
 
 ### Supplier Mode
@@ -43,15 +52,17 @@ The `SUPPLIER_MODE` environment variable controls which supplier adapters are ac
 | `live` | Only real supplier adapters (A, B, C). Mock is excluded. |
 | `hybrid` | Real adapters when enabled and configured, mock as fallback. |
 
-To enable Supplier A in `live` or `hybrid` mode:
+### Catalog DB Search
 
-```
-SUPPLIER_MODE=hybrid
-SUPPLIER_A_ENABLED=true
-SUPPLIER_A_API_KEY=your-api-key
-SUPPLIER_A_BASE_URL=https://supplier-a-api.example.com
-SUPPLIER_A_TIMEOUT_MS=8000
-```
+When `USE_EXISTING_CATALOG_DB=true` and `CATALOG_SEARCH_SOURCE=existing-db`:
+1. Product search queries the `supplier_products` table in the existing Supabase DB
+2. Supplier identity is resolved via `provider_id` → `supplier_providers.name` (not from `supplier_products.supplier_name`, which contains product descriptions)
+3. Results are normalized into the standard product DTO
+4. If DB results exist, they are returned with `dataSource: "existing-db"`
+5. If `SEARCH_LIVE_FALLBACK_ENABLED=true` and DB search returns no results, fallback to live supplier API
+6. `raw_payload` is never returned to the browser — only normalized fields
+
+Price and stock info from the catalog DB should be verified before commercial order confirmation.
 
 ### Development
 
@@ -68,6 +79,14 @@ Open [http://localhost:3000](http://localhost:3000).
 ```bash
 npm run build
 ```
+
+### Inspect Catalog DB
+
+```bash
+npx tsx scripts/inspect-existing-supabase-catalog.ts
+```
+
+This read-only script inspects the `supplier_products` table schema, row counts, and supplier distribution. It never prints credentials.
 
 ## Deployment
 
@@ -98,12 +117,12 @@ docker compose build --no-cache && docker compose up -d
 - `NEXT_PUBLIC_SITE_URL` — site URL for metadata (default: `http://localhost:3001`)
 - `NEXT_PUBLIC_SUPABASE_URL` — your Supabase project URL
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — your Supabase anon key
+- `DATABASE_URL` — Supabase connection pooler URL (server-side only)
+- `DIRECT_URL` — Supabase direct connection URL (server-side only)
 - `ADMIN_USERNAME` — choose a strong admin username
 - `ADMIN_PASSWORD` — choose a strong admin password
 
-You can pass these via `env_file: .env.local` or directly in `docker-compose.yml` environment section.
-
-**Never commit real secrets to git.** The `.env.local` file is gitignored.
+**Never commit real secrets to git.** `DATABASE_URL`, `DIRECT_URL`, and API keys must only exist in local `.env` or server environment.
 
 ### Reverse Proxy (Contabo VPS)
 
@@ -154,6 +173,7 @@ src/
 ├── app/                    # Next.js App Router pages
 │   ├── api/                # API routes (search, products, requests, supplier-health, admin)
 │   ├── admin/              # Admin pages (auth-protected)
+│   │   ├── existing-db/    # Catalog DB dashboard (v0.3.0)
 │   │   ├── requests/       # Request list with status management
 │   │   └── suppliers/      # Health dashboard & API logs
 │   ├── products/[id]/      # Product detail
@@ -165,6 +185,9 @@ src/
 │   └── distance-sales/
 ├── components/             # React components
 ├── lib/
+│   ├── admin-auth.ts       # Admin HTTP Basic Auth
+│   ├── catalog-db.ts       # Catalog DB connection pool (pg)
+│   ├── catalog-search.ts   # Catalog DB search service (v0.3.0)
 │   ├── rate-limit.ts       # In-memory per-IP rate limiter
 │   ├── supabase/           # Supabase client utilities
 │   └── utils.ts            # Shared utilities
@@ -179,7 +202,7 @@ src/
 │   ├── supplier-a.ts       # Supplier A adapter (env-driven)
 │   ├── supplier-b.ts       # Supplier B adapter
 │   └── supplier-c.ts       # Supplier C adapter
-├── proxy.ts                # Auth middleware for admin + admin API routes
+├── middleware.ts           # Next.js middleware (admin auth)
 └── types/
     ├── index.ts             # Business DTOs
     └── database.ts          # Supabase generated types

@@ -1,10 +1,27 @@
 import Link from "next/link";
 import type { NormalizedProduct } from "@/types";
 import { formatPrice } from "@/lib/utils";
-import { ArrowRight, Package } from "lucide-react";
+import { ArrowRight, Package, Database, AlertTriangle } from "lucide-react";
 
 interface ProductCardProps {
-  product: NormalizedProduct;
+  product: NormalizedProduct & { dataSource?: string };
+}
+
+const SUPPLIER_DISPLAY_NAMES: Record<string, string> = {
+  dinamik: "Dinamik",
+  "dinamik oto": "Dinamik",
+  parcatedarik: "Parçatedarik",
+  seta: "Seta",
+  basbug: "Başbuğ",
+  mock: "Mock Tedarikçi",
+};
+
+function getSupplierDisplayName(supplierName: string): string {
+  const key = supplierName.toLowerCase().trim();
+  for (const [k, v] of Object.entries(SUPPLIER_DISPLAY_NAMES)) {
+    if (key.includes(k)) return v;
+  }
+  return supplierName;
 }
 
 export function ProductCard({ product }: ProductCardProps) {
@@ -17,7 +34,8 @@ export function ProductCard({ product }: ProductCardProps) {
     (sum, offer) => sum + offer.stockQuantity,
     0
   );
-  const supplierCount = product.offers.length;
+
+  const isFromDb = product.dataSource === "existing-db";
 
   return (
     <div className="border border-gray-200 rounded-md bg-white hover:border-gray-400 transition-all group">
@@ -69,7 +87,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
           <span className="flex items-center gap-1">
             <Package className="h-3.5 w-3.5" />
-            {supplierCount} tedarikçi
+            {product.offers.length} tedarikçi
           </span>
           {totalStock > 0 ? (
             <span className="flex items-center gap-1 text-green-700">
@@ -85,6 +103,35 @@ export function ProductCard({ product }: ProductCardProps) {
             </span>
           )}
         </div>
+
+        {isFromDb && (
+          <div className="flex items-center gap-2 mb-3">
+            <span className="inline-flex items-center gap-1 text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+              <Database className="h-3 w-3" />
+              Katalog verisi
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
+          {product.offers.map((offer) => (
+            <span
+              key={offer.supplierId}
+              className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded"
+            >
+              {getSupplierDisplayName(offer.supplierName)}
+            </span>
+          ))}
+        </div>
+
+        {isFromDb && (
+          <div className="flex items-center gap-1.5 text-xs text-amber-600 mb-3">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır.
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
           <Link

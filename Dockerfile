@@ -1,9 +1,12 @@
 FROM node:20-alpine AS base
 
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat ca-certificates && update-ca-certificates
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+
+# Supplier CA certificates (for servers with incomplete chains)
+COPY src/suppliers/certs/ /app/certs/
 
 FROM base AS deps
 COPY package.json package-lock.json ./

@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { ProductCard } from "@/components/product-card";
 import Link from "next/link";
 import type { SearchResult } from "@/types";
-import { AlertCircle, Clock } from "lucide-react";
+import { AlertCircle, Clock, Database } from "lucide-react";
 
 export default function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -76,6 +76,8 @@ export default function SearchPageContent() {
     };
   }, [query]);
 
+  const isFromDb = results?.dataSource === "existing-db";
+
   return (
     <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <div className="mb-6">
@@ -139,6 +141,34 @@ export default function SearchPageContent() {
         </div>
       )}
 
+      {isFromDb && results && results.total > 0 && (
+        <div className="mb-5 p-3 bg-blue-50 border border-blue-200 rounded-md text-xs text-blue-800">
+          <div className="flex items-start gap-2">
+            <Database className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Katalog verisi ile arama</p>
+              <p className="mt-0.5">
+                Sonuçlar mevcut tedarikçi kataloğundan getirilmektedir. Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır.
+              </p>
+              {results.supplierCounts && Object.keys(results.supplierCounts).length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {Object.entries(results.supplierCounts).map(([supplier, count]) => (
+                    <span key={supplier} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                      {supplier}: {count} ürün
+                    </span>
+                  ))}
+                </div>
+              )}
+              {results.liveFallbackUsed && (
+                <p className="mt-1 text-blue-600">
+                  Canlı tedarikçi API&apos;lerinden de sonuçlar eklendi.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {results?.lastCheckedAt && (
         <div className="mb-4 flex items-center gap-1.5 text-xs text-gray-400">
           <Clock className="h-3.5 w-3.5" />
@@ -163,7 +193,10 @@ export default function SearchPageContent() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {results.products.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard
+                key={product.id}
+                product={{ ...product, dataSource: results.dataSource }}
+              />
             ))}
           </div>
           {results.products.length === 0 && query && (

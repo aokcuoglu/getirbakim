@@ -15,7 +15,7 @@ export interface SupplierProduct {
   supplier_name: string;
   supplier_brand: string | null;
   supplier_category: string | null;
-  raw_payload: Record<string, unknown> | null;
+  raw_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -109,6 +109,9 @@ export interface SearchResult {
   query: string;
   errors: SupplierSearchError[];
   lastCheckedAt?: string;
+  dataSource?: "existing-db" | "live-api" | "mock";
+  supplierCounts?: Record<string, number>;
+  liveFallbackUsed?: boolean;
 }
 
 export interface SupplierSearchError {

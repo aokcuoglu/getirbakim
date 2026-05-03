@@ -22,9 +22,16 @@ export function getAllAdapters(): SupplierAdapter[] {
   }
 
   if (mode === "live") {
-    return Object.entries(ADAPTERS)
-      .filter(([slug]) => slug !== "mock")
-      .map(([, AdapterClass]) => new AdapterClass());
+    const adapters: SupplierAdapter[] = [];
+    for (const [slug, AdapterClass] of Object.entries(ADAPTERS)) {
+      if (slug === "mock") continue;
+      if (slug === "supplier-a" && !isSupplierAEnabled()) continue;
+      const instance = new AdapterClass();
+      if (instance.apiKey && instance.baseUrl) {
+        adapters.push(instance);
+      }
+    }
+    return adapters;
   }
 
   // hybrid: use live adapters when enabled, always include mock as fallback

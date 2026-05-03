@@ -6,6 +6,7 @@ export interface SupplierLogEntry {
   durationMs: number;
   statusCode?: number;
   error?: string;
+  proxyUsed?: boolean;
 }
 
 interface MemoryLogEntry extends SupplierLogEntry {
@@ -14,6 +15,19 @@ interface MemoryLogEntry extends SupplierLogEntry {
 
 const MEMORY_LOG_MAX = 500;
 const memoryLogs: MemoryLogEntry[] = [];
+
+export function maskProxyUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      parsed.username = "***";
+      parsed.password = "***";
+    }
+    return parsed.toString();
+  } catch {
+    return "***";
+  }
+}
 
 export function logSupplierCall(entry: SupplierLogEntry): Promise<void> {
   const logWithTimestamp = {
