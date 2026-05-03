@@ -1,118 +1,112 @@
-# Release Notes — v0.3.2 Product Request & Sales Lead MVP
+# Release Notes — v0.3.2 Search Performance & Pagination Patch
 
 **Release Date:** 2026-05-03
 
 ## Overview
 
-v0.3.2 adds a working product request / sales lead flow, converting product search traffic into customer requests. Product cards now feature "Teklif Al" (Get Quote) and "Uyumluluk Kontrolü" (Compatibility Check) CTAs that lead to a pre-filled request form with product snapshot. The request is stored in the existing `product_requests` table with full product context. Admin can view and manage requests with an enhanced status workflow.
+v0.3.2 is a performance and UX patch for the catalog search. The existing DB-backed search was measuring ~9 seconds for a "Bosch" query. This patch reduces cold-uncached response time significantly through query optimization, pagination, selective enrichment, caching, and frontend debounce.
 
 ## Highlights
 
-- Added product-specific request flow with "Teklif Al" and "Uyumluluğu Kontrol Et" CTAs on product cards
-- Stored customer product requests in the existing `product_requests` table with product snapshot
-- Added product snapshot with supplier, SKU, price, stock, OEM, and data source information
-- Added admin request management with enhanced status workflow (new → reviewing → contacted → quoted → converted → cancelled)
-- Added request type field (quote vs compatibility check)
-- Added DB-backed product detail API (`/api/products/[id]`) with snapshot generation
-- Request form shows selected product summary with price, stock, brand, supplier, and SKU info
-- Trust warnings: "Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır" and "Yanlış parça riskini azaltmak için talep sonrası uyumluluk teyidi yapılır"
-- Homepage CTA updated: "Parça bulamadım / teklif iste" with both quote and compatibility links
-- Search empty state links to request form with trust warning
-- Phone field is now required on request form; email is optional
-- WhatsApp/contact placeholder: "Telefon ile dönüş yapılacaktır · WhatsApp desteği yakında"
-- Preserved DB-backed catalog search
-- Preserved raw_json safety (never exposed to browser)
+- Added fast-path DB-backed search: only queries required columns, skips OEM/facets by default
+- Added pagination with default 24 products, max 48, and `hasMore` cursor
+- Reduced default response payload by skipping OEM numbers and facet counts unless explicitly requested
+- Made facet and OEM enrichment optional via `includeFacets=true` and `includeOems=true` query params
+- Added server-side in-memory TTL search cache (`SEARCH_CACHE_ENABLED`, `SEARCH_CACHE_TTL_SECONDS`, `SEARCH_CACHE_MAX_ENTRIES`)
+- Added safe timing instrumentation to `/api/search` (logs `db_search_duration_ms`, `oem_duration_ms`, `facet_duration_ms`, `total_duration_ms`; no secrets logged)
+- Added frontend 400ms debounce and minimum 2-char query threshold
+- Added "Daha fazla göster" load-more button for paginated results
+- Cached provider names and column schema in-process to avoid repeated queries
+- Avoided `SELECT *` — only 19 required columns fetched in fast path
+- Avoided `COUNT(*)` — uses `LIMIT + 1` pattern for `hasMore`
+- Added recommended search indexes documentation (`docs/existing-db/RECOMMENDED_SEARCH_INDEXES.md`)
+- Preserved `raw_json` safety (never exposed to browser)
 - Preserved admin authentication
 - Preserved Docker local setup on http://localhost:3001
 
-## New Status Workflow
+## API Changes
 
-| Status | Turkish | Description |
-|--------|---------|-------------|
-| `new` | Yeni | Fresh request, not yet reviewed |
-| `reviewing` | İnceleniyor | Under review by team |
-| `contacted` | İletişime Geçildi | Customer contacted |
-| `quoted` | Teklif Verildi | Price quote sent |
-| `converted` | Siparişe Dönüştü | Converted to order |
-| `cancelled` | İptal Edildi | Request cancelled |
+### `/api/search` — New Query Parameters
 
-**Migration Note:** Status values have changed. Run `supabase/migrations/004_product_request_enhancements.sql` to add new columns and update the status constraint. Previous `pending` status maps to `new`.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `page` | 1 | Page number (1-based) |
+| `limit` | 24 | Products per page (max 48) |
+| `includeFacets` | false | If true, compute supplierCounts/brandCounts from full result set |
+| `includeOems` | false | If true, fetch OEM numbers for returned products |
 
-## Schema Changes
+### `/api/search` — New Response Fields
 
-### `product_requests` table
+| Field | Description |
+|-------|-------------|
+| `page` | Current page number |
+| `limit` | Products per page |
+| `hasMore` | Whether more pages are available |
+| `resultCountShown` | Number of products in this response |
+| `totalEstimate` | null (exact count avoided for performance) |
+| `timings` | Performance timings object (only when DB-backed) |
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `supplier_product_id` | INTEGER (nullable) | References catalog product ID |
-| `product_snapshot` | JSONB (nullable) | Product info snapshot at request time |
-| `request_type` | TEXT (default 'quote') | 'quote' or 'compatibility' |
+### `/api/search` — Timing Response (server logs only)
 
-### `product_snapshot` JSON structure
-
-```json
-{
-  "supplier_product_id": 12345,
-  "supplier_name": "Dinamik",
-  "supplier_sku": "ANKA20100020",
-  "product_name": "Fren Balatası",
-  "brand": "Bosch",
-  "price": 450.00,
-  "currency": "TRY",
-  "stock_quantity": 12,
-  "data_source": "existing-db",
-  "oem_numbers": ["BV6Z3504WT", "4100-1780"]
-}
+```
+[search-perf] q_len=5 type=text db=120ms oem=0ms facets=0ms map=5ms total=130ms page=1 limit=24 hasMore=true facets=false oems=false
 ```
 
-### Status constraint updated
+## Frontend Changes
 
-`product_requests_status_check` now allows: `new`, `reviewing`, `contacted`, `quoted`, `converted`, `cancelled`
+- Search input debounced at 400ms with `abortRef` for stale request cancellation
+- Results page now uses load-more pagination ("Daha fazla göster" button) instead of showing all results
+- Mobile filter drawer triggers navigation immediately on select changes
+- Desktop sidebar filters use `onBlur` for text inputs and `onChange` for selects
 
-## Pages
+## Architecture Changes
 
-| Route | Description |
-|-------|-------------|
-| `/request?supplierProductId=&type=quote` | Quote request form (pre-filled with product) |
-| `/request?supplierProductId=&type=compatibility` | Compatibility check request form |
-| `/request` | General request form (no product pre-selected) |
-| `/admin/requests` | Admin request management with product snapshot and status workflow |
+### `src/lib/search-cache.ts` (new)
 
-## API Routes
+Server-side in-memory TTL cache for DB search responses. Cache key includes query, page, limit, all filters, and catalog source mode. Only successful responses cached. Max entries configurable.
 
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/requests` | POST | Create product request (public, KVKK required) |
-| `/api/requests` | GET | List all requests (admin auth required) |
-| `/api/requests/[id]` | GET | Get single request detail (admin auth required) |
-| `/api/requests/[id]` | PATCH | Update request status (admin auth required) |
-| `/api/products/[id]` | GET | Product detail with snapshot (supports `db-` prefix IDs) |
+### `src/lib/catalog-search.ts` (revised)
 
-## Sales-Focused UI Changes
+- `searchCatalogDb()` now accepts `page`, `limit`, `includeFacets`, `includeOems` parameters
+- Fast path: queries only 19 columns, skips `COUNT(*)`, skips OEM/facets by default
+- For SKU-like queries: fetches only exact OEM matches for returned product IDs
+- `includeFacets=true`: runs separate aggregate query for full-set counts
+- `includeOems=true`: fetches all OEM codes for the returned page's product IDs
+- Uses `LIMIT limit+1` pattern and `hasMore` flag
+- Provider names cached in-process for 5 minutes
+- Column schema cached in-process for 10 minutes
+- `classifyQuery()` logs query type (sku_like/oem_like/text) for safe diagnostics
 
-- **Product cards**: "Teklif Al" (primary) and "Uyumluluk" (secondary) CTAs
-- **Product detail**: Sticky sidebar with "Teklif Al" and "Uyumluluğu Kontrol Et" links
-- **Homepage CTA**: "Parça bulamadım / teklif iste" with quote and compatibility buttons
-- **Search empty state**: "Parça Talep Et" button with trust warning
-- **Request success page**: "Telefon ile dönüş yapılacaktır · WhatsApp desteği yakında"
-- **Trust warning on request form**: "Yanlış parça riskini azaltmak için talep sonrası uyumluluk teyidi yapılır"
+### `src/app/api/search/route.ts` (revised)
+
+- Checks in-memory cache before querying DB
+- Caches successful DB responses
+- Passes pagination and enrichment params to `searchCatalogDb()`
+- Returns `page`, `limit`, `hasMore`, `resultCountShown`, `totalEstimate`, `timings`
+- Safe timing logs with query length and type only (never logs full query or secrets)
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SEARCH_CACHE_ENABLED` | true | Enable/disable search response cache |
+| `SEARCH_CACHE_TTL_SECONDS` | 60 | Cache TTL in seconds |
+| `SEARCH_CACHE_MAX_ENTRIES` | 500 | Maximum cache entries before eviction |
 
 ## Known Notes
 
-- Payment/checkout is not implemented
-- Cart is not implemented
-- Price and stock are still re-verified manually before commercial order confirmation
-- Vehicle fitment is not implemented
-- VIN/chassis and plate search are not implemented
-- Başbuğ import is not included
-- WhatsApp integration is not yet connected (placeholder only)
+- Exact total count is omitted by default for performance (`totalEstimate: null`)
+- Facet counts are optional; default response only includes per-page supplierCounts
+- Price and stock still require verification before commercial order confirmation
+- Product request flow is not included in this version
+- `raw_json` is never exposed to the browser
+- Recommended indexes in `docs/existing-db/RECOMMENDED_SEARCH_INDEXES.md` should be reviewed before production execution
 
 ## Migration from v0.3.1
 
 1. Pull the latest code
-2. Run `supabase/migrations/004_product_request_enhancements.sql` on your Supabase dashboard
-3. Rebuild Docker: `docker compose build --no-cache && docker compose up -d`
-4. Verify at `/admin/requests` — should see new status workflow
-5. Test request flow at `/request?type=quote` with a product
-
----
+2. Review and optionally apply recommended indexes from `docs/existing-db/RECOMMENDED_SEARCH_INDEXES.md`
+3. Set `SEARCH_CACHE_ENABLED=true` (default) in `.env` or Docker environment
+4. Rebuild Docker: `docker compose build --no-cache && docker compose up -d`
+5. Verify at http://localhost:3001
+6. Test: `curl -s "http://localhost:3001/api/search?q=Bosch" | jq '.products | length, .page, .hasMore'`

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.2) features a product request / sales lead MVP flow on top of the existing catalog search storefront.
+getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.2) features search performance optimization, pagination, and caching on top of the existing catalog search storefront.
 
 ## Architecture
 
@@ -12,11 +12,15 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - **Supplier Adapter Pattern** — each supplier has its own adapter implementing a common interface
 - **Mock adapter** works without real API credentials for local development
 - **SUPPLIER_MODE** env var: `mock` | `live` | `hybrid` (default: `mock`)
-- **In-memory search cache** with configurable TTL
+- **In-memory search cache** with configurable TTL and max entries (`SEARCH_CACHE_ENABLED`, `SEARCH_CACHE_TTL_SECONDS`, `SEARCH_CACHE_MAX_ENTRIES`)
 - **In-memory rate limiter** for /api/search
 - **DB-backed search** when `USE_EXISTING_CATALOG_DB=true` and `CATALOG_SEARCH_SOURCE=existing-db` — no live supplier API call on every search when DB mode is active
-- **OEM/OEN search** via `supplier_product_oems` table JOIN
+- **Fast-path query**: selects only required columns, skips OEM/facets by default, no COUNT(*)
+- **Pagination**: `page` (default 1), `limit` (default 24, max 48), `hasMore` cursor
+- **Optional enrichment**: `includeFacets=true` for supplier/brand counts, `includeOems=true` for OEM numbers
+- **OEM/OEN search** via `supplier_product_oems` table JOIN (only when `includeOems=true` or query is SKU-like)
 - **Supplier provider mapping** — `supplier_products.supplier_name` contains product descriptions, not the actual supplier name; the real supplier comes from `provider_id` → `supplier_providers.name`
+- **Search timing instrumentation** logged server-side; no secrets or full queries logged
 
 ## Key Rules
 
@@ -51,6 +55,7 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - Suppliers: `src/suppliers/`
 - Utilities: `src/lib/utils.ts`
 - Rate limiter: `src/lib/rate-limit.ts`
+- Search cache: `src/lib/search-cache.ts`
 - Catalog DB client: `src/lib/catalog-db.ts`
 - Catalog search: `src/lib/catalog-search.ts`
 - Storefront constants: `src/lib/storefront.ts`
@@ -85,7 +90,9 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - `NODE_EXTRA_CA_CERTS` — path to extra CA certificates bundle (e.g. `/app/certs/sectigo-intermediate.pem` for Dinamik Oto)
 - `SUPPLIER_B_API_KEY` / `SUPPLIER_B_BASE_URL` — Supplier B API credentials
 - `SUPPLIER_C_API_KEY` / `SUPPLIER_C_BASE_URL` — Supplier C API credentials
+- `SEARCH_CACHE_ENABLED` — `true` | `false` (default: `true`) — enable search response cache
 - `SEARCH_CACHE_TTL_SECONDS` — Search cache TTL (default: `60`)
+- `SEARCH_CACHE_MAX_ENTRIES` — Max cache entries before eviction (default: `500`)
 - `SEARCH_RATE_LIMIT_WINDOW_SECONDS` — Rate limit window (default: `60`)
 - `SEARCH_RATE_LIMIT_MAX` — Max requests per window per IP (default: `30`)
 
@@ -103,10 +110,18 @@ When query looks like a product code (alphanumeric 4+ chars), search prioritizes
 6. Fuzzy OEM ILIKE match
 7. Name/description ILIKE fallback
 
+By default, only exact OEM matches for returned products are included. Use `includeOems=true` for full OEM lookup.
+
 ### Free-text Queries
 1. ILIKE across `supplier_brand`, `supplier_name`, `normalized_name`, `supplier_sku`, `normalized_sku`, barcodes
-2. OEM ILIKE match (via EXISTS subquery on `supplier_product_oems`)
+2. OEM ILIKE match (via EXISTS subquery on `supplier_product_oems`) — only when no other matching column; for performance, default does not join OEMs
 3. Results ranked by stock availability, price existence, brand relevance
+
+### Pagination
+- Default 24 products per page, max 48
+- `hasMore` flag uses `LIMIT + 1` pattern (no COUNT(*))
+- `totalEstimate` is null by default (exact count skipped for performance)
+- Frontend uses "Daha fazla göster" button to load next page
 
 ### Filters (via query parameters)
 - `supplier` — filter by provider name (via `supplier_providers`)
@@ -114,6 +129,8 @@ When query looks like a product code (alphanumeric 4+ chars), search prioritizes
 - `inStock=true/false` — filter by stock status
 - `minPrice` / `maxPrice` — price range filter
 - `sort` — relevance (default), in_stock_first, price_asc, price_desc, updated_desc
+- `includeFacets=true` — compute supplierCounts/brandCounts from full result set
+- `includeOems=true` — fetch OEM numbers for returned product IDs only
 
 ### Relevance Ranking
 - SKU-like queries: exact SKU > prefix SKUs > others, then stock > no stock, priced > unpriced
@@ -143,6 +160,7 @@ When `USE_EXISTING_CATALOG_DB=false` or `CATALOG_SEARCH_SOURCE=mock`:
 - Run on Supabase dashboard or via `supabase` CLI
 - **Do not run destructive migrations against the existing DB**
 - Catalog DB uses `pg` driver for read-only queries against `supplier_products`
+- Recommended search indexes: `docs/existing-db/RECOMMENDED_SEARCH_INDEXES.md`
 
 ## Docker
 

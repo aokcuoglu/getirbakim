@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ProductCard } from "@/components/product-card";
 import Link from "next/link";
 import type { SearchResult, CatalogSearchFilters } from "@/types";
-import { AlertCircle, Clock, Database, X, SlidersHorizontal, Search, Tag, Hash, Filter, RotateCcw } from "lucide-react";
+import { AlertCircle, Clock, Database, X, SlidersHorizontal, Search, Tag, Hash, Filter, RotateCcw, Loader2 } from "lucide-react";
 
 const SEARCH_HINTS = [
   { label: "OEM no ile ara", example: "BV6Z3504WT", icon: Hash },
@@ -32,20 +32,29 @@ export default function SearchPageContent() {
   const minPriceFilter = searchParams.get("minPrice") ?? "";
   const maxPriceFilter = searchParams.get("maxPrice") ?? "";
   const sortFilter = searchParams.get("sort") ?? "relevance";
+  const pageParam = parseInt(searchParams.get("page") ?? "1", 10) || 1;
 
   const [inputValue, setInputValue] = useState(query);
   const [results, setResults] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [localSupplier, setLocalSupplier] = useState(supplierFilter);
-  const [localBrand, setLocalBrand] = useState(brandFilter);
-  const [localInStock, setLocalInStock] = useState(inStockFilter);
-  const [localMinPrice, setLocalMinPrice] = useState(minPriceFilter);
-  const [localMaxPrice, setLocalMaxPrice] = useState(maxPriceFilter);
-  const [localSort, setLocalSort] = useState(sortFilter);
-  const abortRef = useRef<AbortController | null>(null);
+  const [allProducts, setAllProducts] = useState<SearchResult["products"]>([]);
+  const [currentPage, setCurrentPage] = useState(pageParam);
+  const [hasMore, setHasMore] = useState(false);
+  const localSupplier = searchParams.get("supplier") ?? "";
+  const localBrand = searchParams.get("brand") ?? "";
+  const localInStock = searchParams.get("inStock") ?? "";
+  const localMinPrice = searchParams.get("minPrice") ?? "";
+  const localMaxPrice = searchParams.get("maxPrice") ?? "";
+  const localSort = searchParams.get("sort") ?? "relevance";
 
-  function buildSearchUrl(q: string, overrides?: Partial<CatalogSearchFilters & { inStock?: string }>) {
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchIdRef = useRef(0);
+  const isInitialMount = useRef(true);
+
+  function buildSearchUrl(q: string, overrides?: Partial<CatalogSearchFilters & { inStock?: string; page?: number }>) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
 
@@ -55,6 +64,7 @@ export default function SearchPageContent() {
     const mp = overrides?.minPrice?.toString() ?? localMinPrice;
     const xp = overrides?.maxPrice?.toString() ?? localMaxPrice;
     const sort = overrides?.sort ?? localSort;
+    const pg = overrides?.page;
 
     if (s) params.set("supplier", s);
     if (b) params.set("brand", b);
@@ -62,6 +72,7 @@ export default function SearchPageContent() {
     if (mp) params.set("minPrice", mp);
     if (xp) params.set("maxPrice", xp);
     if (sort && sort !== "relevance") params.set("sort", sort);
+    if (pg && pg > 1) params.set("page", String(pg));
 
     return `/search?${params.toString()}`;
   }
@@ -78,23 +89,6 @@ export default function SearchPageContent() {
     router.push(buildSearchUrl(example));
   }
 
-  function applyFilters() {
-    router.push(buildSearchUrl(query));
-    setSidebarOpen(false);
-  }
-
-  function clearFilters() {
-    setLocalSupplier("");
-    setLocalBrand("");
-    setLocalInStock("");
-    setLocalMinPrice("");
-    setLocalMaxPrice("");
-    setLocalSort("relevance");
-    const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    router.push(`/search?${params.toString()}`);
-  }
-
   function removeFilter(key: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.delete(key);
@@ -103,20 +97,23 @@ export default function SearchPageContent() {
 
   const hasActiveFilters = supplierFilter || brandFilter || inStockFilter === "true" || inStockFilter === "false" || minPriceFilter || maxPriceFilter || (sortFilter && sortFilter !== "relevance");
 
-  useEffect(() => {
-    if (!query) {
-      setResults(null);
-      return;
-    }
-
-    abortRef.current?.abort();
+  const fetchPage = useCallback(async (q: string, page: number, append: boolean) => {
+    const currentSearchId = ++searchIdRef.current;
     const controller = new AbortController();
+
+    if (abortRef.current) abortRef.current.abort();
     abortRef.current = controller;
 
-    setLoading(true);
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
 
     const params = new URLSearchParams();
-    params.set("q", query);
+    params.set("q", q);
+    params.set("page", String(page));
+    params.set("limit", "24");
     if (supplierFilter) params.set("supplier", supplierFilter);
     if (brandFilter) params.set("brand", brandFilter);
     if (inStockFilter === "true" || inStockFilter === "false") params.set("inStock", inStockFilter);
@@ -124,44 +121,91 @@ export default function SearchPageContent() {
     if (maxPriceFilter) params.set("maxPrice", maxPriceFilter);
     if (sortFilter && sortFilter !== "relevance") params.set("sort", sortFilter);
 
-    fetch(`/api/search?${params.toString()}`, { signal: controller.signal })
-      .then((res) => {
-        if (res.status === 429) {
-          return res.json().then((data) => {
-            throw new Error(data.error ?? "Çok fazla istek");
-          });
-        }
-        return res.json();
-      })
-      .then((data: SearchResult) => {
-        if (!controller.signal.aborted) {
-          setResults(data);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) {
-          setResults({
-            products: [],
-            total: 0,
-            query,
-            errors: [
-              {
-                supplierId: "system",
-                supplierName: "Sistem",
-                error: err instanceof Error ? err.message : "Arama sırasında bir hata oluştu",
-              },
-            ],
-          });
-          setLoading(false);
-        }
-      });
+    try {
+      const res = await fetch(`/api/search?${params.toString()}`, { signal: controller.signal });
+      if (res.status === 429) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Çok fazla istek");
+      }
+      const data: SearchResult = await res.json();
+
+      if (searchIdRef.current !== currentSearchId) return;
+      if (controller.signal.aborted) return;
+
+      if (append) {
+        setAllProducts((prev) => [...prev, ...data.products]);
+      } else {
+        setAllProducts(data.products);
+      }
+      setResults(data);
+      setHasMore(data.hasMore ?? false);
+      setCurrentPage(page);
+      setLoading(false);
+      setLoadingMore(false);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (searchIdRef.current !== currentSearchId) return;
+      if (!append) {
+        setResults({
+          products: [],
+          total: 0,
+          query: q,
+          errors: [
+            {
+              supplierId: "system",
+              supplierName: "Sistem",
+              error: err instanceof Error ? err.message : "Arama sırasında bir hata oluştu",
+            },
+          ],
+        });
+        setAllProducts([]);
+      }
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [supplierFilter, brandFilter, inStockFilter, minPriceFilter, maxPriceFilter, sortFilter]);
+
+  useEffect(() => {
+    if (!query) {
+      setResults(null);
+      setAllProducts([]);
+      return;
+    }
+
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      fetchPage(query, 1, false);
+      return;
+    }
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      fetchPage(query, 1, false);
+    }, 400);
 
     return () => {
-      controller.abort();
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, supplierFilter, brandFilter, inStockFilter, minPriceFilter, maxPriceFilter, sortFilter]);
 
+  function loadMore() {
+    if (loadingMore || !hasMore) return;
+    fetchPage(query, currentPage + 1, true);
+  }
+
+  function clearFilters() {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    router.push(`/search?${params.toString()}`);
+  }
+
+  const displayedProducts = allProducts.length > 0 ? allProducts : (results?.products ?? []);
   const isFromDb = results?.dataSource === "existing-db";
 
   return (
@@ -237,7 +281,11 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Tedarikçi</label>
                   <select
                     value={localSupplier}
-                    onChange={(e) => setLocalSupplier(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("supplier", e.target.value); else params.delete("supplier");
+                      router.push(`/search?${params.toString()}`);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     <option value="">Tümü</option>
@@ -250,8 +298,12 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Marka</label>
                   <input
                     type="text"
-                    value={localBrand}
-                    onChange={(e) => setLocalBrand(e.target.value)}
+                    defaultValue={localBrand}
+                    onBlur={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("brand", e.target.value); else params.delete("brand");
+                      router.push(`/search?${params.toString()}`);
+                    }}
                     placeholder="Örn: Bosch, Valeo..."
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
                   />
@@ -260,7 +312,11 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Stok Durumu</label>
                   <select
                     value={localInStock}
-                    onChange={(e) => setLocalInStock(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("inStock", e.target.value); else params.delete("inStock");
+                      router.push(`/search?${params.toString()}`);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     <option value="">Tümü</option>
@@ -273,8 +329,12 @@ export default function SearchPageContent() {
                     <label className="block text-xs font-medium text-foreground mb-1.5">Min. ₺</label>
                     <input
                       type="number"
-                      value={localMinPrice}
-                      onChange={(e) => setLocalMinPrice(e.target.value)}
+                      defaultValue={localMinPrice}
+                      onBlur={(e) => {
+                        const params = new URLSearchParams(searchParams.toString());
+                        if (e.target.value) params.set("minPrice", e.target.value); else params.delete("minPrice");
+                        router.push(`/search?${params.toString()}`);
+                      }}
                       placeholder="0"
                       min="0"
                       step="10"
@@ -285,8 +345,12 @@ export default function SearchPageContent() {
                     <label className="block text-xs font-medium text-foreground mb-1.5">Max. ₺</label>
                     <input
                       type="number"
-                      value={localMaxPrice}
-                      onChange={(e) => setLocalMaxPrice(e.target.value)}
+                      defaultValue={localMaxPrice}
+                      onBlur={(e) => {
+                        const params = new URLSearchParams(searchParams.toString());
+                        if (e.target.value) params.set("maxPrice", e.target.value); else params.delete("maxPrice");
+                        router.push(`/search?${params.toString()}`);
+                      }}
                       placeholder="10000"
                       min="0"
                       step="10"
@@ -298,7 +362,11 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Sıralama</label>
                   <select
                     value={localSort}
-                    onChange={(e) => setLocalSort(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value === "relevance") params.delete("sort"); else params.set("sort", e.target.value);
+                      router.push(`/search?${params.toString()}`);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     {SORT_OPTIONS.map((opt) => (
@@ -306,12 +374,6 @@ export default function SearchPageContent() {
                     ))}
                   </select>
                 </div>
-                <button
-                  onClick={applyFilters}
-                  className="w-full bg-accent hover:bg-accent-dark text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
-                >
-                  Filtreleri Uygula
-                </button>
               </div>
             </div>
           </aside>
@@ -322,9 +384,9 @@ export default function SearchPageContent() {
             <div className="flex items-center justify-between mb-4 gap-4">
               <div className="text-sm text-muted">
                 {loading ? (
-                  "Aranıyor..."
+                  <span className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Aranıyor...</span>
                 ) : results ? (
-                  <>&ldquo;{query}&rdquo; için <span className="font-semibold text-foreground">{results.total}</span> sonuç bulundu</>
+                  <>&ldquo;{query}&rdquo; için <span className="font-semibold text-foreground">{results.total ?? results.products.length}</span> sonuç bulundu</>
                 ) : null}
               </div>
               <div className="flex items-center gap-2">
@@ -411,7 +473,7 @@ export default function SearchPageContent() {
             )}
 
             {/* Data Source Banner */}
-            {isFromDb && results && results.total > 0 && (
+            {isFromDb && results && (results.total ?? results.products.length) > 0 && (
               <div className="mb-5 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800">
                 <div className="flex items-start gap-2">
                   <Database className="h-4 w-4 shrink-0 mt-0.5" />
@@ -480,14 +542,35 @@ export default function SearchPageContent() {
             {results && !loading && (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {results.products.map((product) => (
+                  {displayedProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={{ ...product, dataSource: results.dataSource }}
                     />
                   ))}
                 </div>
-                {results.products.length === 0 && query && (
+
+                {/* Load More Button */}
+                {hasMore && (
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      onClick={loadMore}
+                      disabled={loadingMore}
+                      className="flex items-center gap-2 bg-accent hover:bg-accent-dark text-white px-8 py-3 text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loadingMore ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Yükleniyor...
+                        </>
+                      ) : (
+                        "Daha fazla göster"
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {displayedProducts.length === 0 && query && (
                   <div className="text-center py-16">
                     <p className="text-lg font-semibold text-foreground mb-2">Sonuç bulunamadı</p>
                     <p className="text-sm text-muted mb-6">
@@ -542,7 +625,12 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Tedarikçi</label>
                   <select
                     value={localSupplier}
-                    onChange={(e) => setLocalSupplier(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("supplier", e.target.value); else params.delete("supplier");
+                      router.push(`/search?${params.toString()}`);
+                      setSidebarOpen(false);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     <option value="">Tümü</option>
@@ -555,8 +643,12 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Marka</label>
                   <input
                     type="text"
-                    value={localBrand}
-                    onChange={(e) => setLocalBrand(e.target.value)}
+                    defaultValue={localBrand}
+                    onBlur={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("brand", e.target.value); else params.delete("brand");
+                      router.push(`/search?${params.toString()}`);
+                    }}
                     placeholder="Örn: Bosch, Valeo..."
                     className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent"
                   />
@@ -565,7 +657,12 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Stok Durumu</label>
                   <select
                     value={localInStock}
-                    onChange={(e) => setLocalInStock(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value) params.set("inStock", e.target.value); else params.delete("inStock");
+                      router.push(`/search?${params.toString()}`);
+                      setSidebarOpen(false);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     <option value="">Tümü</option>
@@ -578,8 +675,12 @@ export default function SearchPageContent() {
                     <label className="block text-xs font-medium text-foreground mb-1.5">Min. ₺</label>
                     <input
                       type="number"
-                      value={localMinPrice}
-                      onChange={(e) => setLocalMinPrice(e.target.value)}
+                      defaultValue={localMinPrice}
+                      onBlur={(e) => {
+                        const params = new URLSearchParams(searchParams.toString());
+                        if (e.target.value) params.set("minPrice", e.target.value); else params.delete("minPrice");
+                        router.push(`/search?${params.toString()}`);
+                      }}
                       placeholder="0"
                       min="0"
                       step="10"
@@ -590,8 +691,12 @@ export default function SearchPageContent() {
                     <label className="block text-xs font-medium text-foreground mb-1.5">Max. ₺</label>
                     <input
                       type="number"
-                      value={localMaxPrice}
-                      onChange={(e) => setLocalMaxPrice(e.target.value)}
+                      defaultValue={localMaxPrice}
+                      onBlur={(e) => {
+                        const params = new URLSearchParams(searchParams.toString());
+                        if (e.target.value) params.set("maxPrice", e.target.value); else params.delete("maxPrice");
+                        router.push(`/search?${params.toString()}`);
+                      }}
                       placeholder="10000"
                       min="0"
                       step="10"
@@ -603,7 +708,12 @@ export default function SearchPageContent() {
                   <label className="block text-xs font-medium text-foreground mb-1.5">Sıralama</label>
                   <select
                     value={localSort}
-                    onChange={(e) => setLocalSort(e.target.value)}
+                    onChange={(e) => {
+                      const params = new URLSearchParams(searchParams.toString());
+                      if (e.target.value === "relevance") params.delete("sort"); else params.set("sort", e.target.value);
+                      router.push(`/search?${params.toString()}`);
+                      setSidebarOpen(false);
+                    }}
                     className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-accent bg-white"
                   >
                     {SORT_OPTIONS.map((opt) => (
@@ -613,14 +723,20 @@ export default function SearchPageContent() {
                 </div>
                 <div className="flex gap-2 pt-2">
                   <button
-                    onClick={applyFilters}
+                    onClick={() => {
+                      router.push(buildSearchUrl(query));
+                      setSidebarOpen(false);
+                    }}
                     className="flex-1 bg-accent hover:bg-accent-dark text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
                   >
                     Uygula
                   </button>
                   {hasActiveFilters && (
                     <button
-                      onClick={clearFilters}
+                      onClick={() => {
+                        clearFilters();
+                        setSidebarOpen(false);
+                      }}
                       className="px-4 border border-border text-sm font-medium text-foreground rounded-lg hover:bg-surface transition-colors"
                     >
                       Temizle
@@ -633,7 +749,7 @@ export default function SearchPageContent() {
         </div>
       )}
 
-      {/* Mobile Sort Dropdown (visible when no sidebar toggle needed) */}
+      {/* Mobile Sort Dropdown */}
       {query && (
         <div className="sm:hidden mt-4">
           <select

@@ -139,6 +139,11 @@ export interface SearchResult {
   brandCounts?: Record<string, number>;
   appliedFilters?: CatalogSearchFilters;
   liveFallbackUsed?: boolean;
+  page?: number;
+  limit?: number;
+  hasMore?: boolean;
+  resultCountShown?: number;
+  totalEstimate?: number | null;
 }
 
 export interface SupplierSearchError {

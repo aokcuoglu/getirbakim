@@ -3,6 +3,7 @@ import { searchProducts } from "@/suppliers/search";
 import { searchCatalogDb } from "@/lib/catalog-search";
 import { isCatalogDbEnabled, getCatalogSearchSource, isLiveFallbackEnabled } from "@/lib/catalog-db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { getCachedSearchResult, setCachedSearchResult } from "@/lib/search-cache";
 import type { NormalizedProduct, NormalizedOffer } from "@/types";
 import type { CatalogSearchFilters } from "@/lib/catalog-search";
 
@@ -11,6 +12,7 @@ interface SearchResponseProduct extends NormalizedProduct {
 }
 
 export async function GET(request: NextRequest) {
+  const totalStart = Date.now();
   const ip = getClientIp(request.headers);
   const rateLimit = checkRateLimit(ip);
 
@@ -42,6 +44,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const page = Math.max(parseInt(searchParams.get("page") ?? "1", 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(searchParams.get("limit") ?? "24", 10) || 24, 1), 48);
+  const includeFacets = searchParams.get("includeFacets") === "true";
+  const includeOems = searchParams.get("includeOems") === "true";
+
   const filters: CatalogSearchFilters = {
     supplier: searchParams.get("supplier") ?? undefined,
     brand: searchParams.get("brand") ?? undefined,
@@ -51,7 +58,6 @@ export async function GET(request: NextRequest) {
     sort: (searchParams.get("sort") as CatalogSearchFilters["sort"]) ?? undefined,
   };
 
-  // Clean up undefined/null filters
   if (!filters.supplier) delete (filters as Record<string, unknown>).supplier;
   if (!filters.brand) delete (filters as Record<string, unknown>).brand;
   if (filters.minPrice !== undefined && (isNaN(filters.minPrice) || filters.minPrice <= 0)) delete (filters as Record<string, unknown>).minPrice;
@@ -59,11 +65,53 @@ export async function GET(request: NextRequest) {
   if (!filters.sort) delete (filters as Record<string, unknown>).sort;
 
   const useExistingDb = isCatalogDbEnabled() && getCatalogSearchSource() === "existing-db";
+  const catalogSource = getCatalogSearchSource();
 
   if (useExistingDb) {
-    const catalogResult = await searchCatalogDb(query, filters);
+    const cacheKey = {
+      query: query.trim(),
+      page,
+      limit,
+      supplier: filters.supplier,
+      brand: filters.brand,
+      inStock: filters.inStock,
+      minPrice: filters.minPrice,
+      maxPrice: filters.maxPrice,
+      sort: filters.sort,
+      includeFacets,
+      includeOems,
+      catalogSource,
+    };
 
-    if (catalogResult && catalogResult.total > 0) {
+    const cacheStart = Date.now();
+    const cached = getCachedSearchResult<{
+      products: SearchResponseProduct[];
+      total: number;
+      query: string;
+      errors: string[];
+      dataSource: string;
+      supplierCounts: Record<string, number>;
+      brandCounts: Record<string, number>;
+      appliedFilters: CatalogSearchFilters;
+      liveFallbackUsed: boolean;
+      lastCheckedAt: string;
+      page: number;
+      limit: number;
+      hasMore: boolean;
+      resultCountShown: number;
+      totalEstimate: number | null;
+      timings?: { total_duration_ms: number; db_search_duration_ms: number; facet_duration_ms: number; oem_duration_ms: number; cache_duration_ms: number; result_mapping_duration_ms: number; cacheHit: boolean };
+    }>(cacheKey);
+    const cacheDuration = Date.now() - cacheStart;
+
+    if (cached) {
+      console.log(`[search-perf] CACHE HIT q="${query.trim().substring(0, 20)}" cache=${cacheDuration}ms total=${Date.now() - totalStart}ms`);
+      return NextResponse.json(cached);
+    }
+
+    const catalogResult = await searchCatalogDb(query, filters, page, limit, includeFacets, includeOems);
+
+    if (catalogResult && catalogResult.products.length > 0) {
       const products: SearchResponseProduct[] = catalogResult.products.map((p) => ({
         id: p.id,
         name: p.name,
@@ -121,31 +169,50 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      return NextResponse.json({
+      const response = {
         products,
-        total: products.length,
+        total: catalogResult.total,
         query,
         errors: liveFallbackUsed ? liveErrors : catalogResult.errors,
         lastCheckedAt: new Date().toISOString(),
-        dataSource: "existing-db",
+        dataSource: "existing-db" as const,
         supplierCounts: allSupplierCounts,
         brandCounts: catalogResult.brandCounts,
         appliedFilters: catalogResult.appliedFilters,
         liveFallbackUsed,
-      });
+        page: catalogResult.page,
+        limit: catalogResult.limit,
+        hasMore: catalogResult.hasMore,
+        resultCountShown: catalogResult.resultCountShown,
+        totalEstimate: catalogResult.totalEstimate,
+        timings: catalogResult.timings ? {
+          ...catalogResult.timings,
+          cache_duration_ms: cacheDuration,
+          cacheHit: false,
+        } : undefined,
+      };
+
+      setCachedSearchResult(cacheKey, response);
+
+      return NextResponse.json(response);
     }
 
-    if (catalogResult && catalogResult.total === 0 && isLiveFallbackEnabled()) {
+    if (catalogResult && catalogResult.products.length === 0 && isLiveFallbackEnabled()) {
       const liveResult = await searchProducts(query);
       return NextResponse.json({
         ...liveResult,
         lastCheckedAt: new Date().toISOString(),
         dataSource: "live-api",
         liveFallbackUsed: true,
+        page: 1,
+        limit: 24,
+        hasMore: liveResult.products.length > 24,
+        resultCountShown: Math.min(liveResult.products.length, 24),
+        totalEstimate: null,
       });
     }
 
-    if (catalogResult && catalogResult.total === 0) {
+    if (catalogResult && catalogResult.products.length === 0) {
       return NextResponse.json({
         products: [],
         total: 0,
@@ -157,16 +224,11 @@ export async function GET(request: NextRequest) {
         brandCounts: {},
         appliedFilters: filters,
         liveFallbackUsed: false,
-      });
-    }
-
-    if (catalogResult && catalogResult.errors.length > 0 && isLiveFallbackEnabled()) {
-      const liveResult = await searchProducts(query);
-      return NextResponse.json({
-        ...liveResult,
-        lastCheckedAt: new Date().toISOString(),
-        dataSource: "live-api",
-        liveFallbackUsed: true,
+        page: 1,
+        limit,
+        hasMore: false,
+        resultCountShown: 0,
+        totalEstimate: null,
       });
     }
   }
@@ -176,5 +238,10 @@ export async function GET(request: NextRequest) {
     ...results,
     lastCheckedAt: new Date().toISOString(),
     dataSource: useExistingDb ? "existing-db" : "mock",
+    page: 1,
+    limit: 24,
+    hasMore: false,
+    resultCountShown: results.products.length,
+    totalEstimate: results.total,
   });
 }

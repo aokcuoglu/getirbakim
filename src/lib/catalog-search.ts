@@ -6,27 +6,9 @@ import {
   getCatalogSearchSource,
 } from "@/lib/catalog-db";
 
-interface CatalogSearchRow {
+interface ProviderRow {
   id: number;
-  provider_id: number;
-  supplier_product_key: string;
-  supplier_sku: string;
-  supplier_brand: string | null;
-  supplier_name: string | null;
-  normalized_sku: string | null;
-  normalized_name: string | null;
-  barcode_1: string | null;
-  barcode_2: string | null;
-  barcode_3: string | null;
-  supplier_price: number | null;
-  supplier_stock_qty: number;
-  currency: string;
-  image_url: string | null;
-  last_seen_at: string | null;
-  created_at: string;
-  updated_at: string;
-  oem_numbers: string[] | null;
-  supplier_category: string | null;
+  name: string;
 }
 
 interface ProviderRow {
@@ -43,6 +25,21 @@ export interface CatalogSearchFilters {
   sort?: "relevance" | "in_stock_first" | "price_asc" | "price_desc" | "updated_desc";
 }
 
+export interface SearchTimings {
+  total_duration_ms: number;
+  db_search_duration_ms: number;
+  facet_duration_ms: number;
+  oem_duration_ms: number;
+  cache_duration_ms: number;
+  result_mapping_duration_ms: number;
+  cacheHit: boolean;
+  page: number;
+  limit: number;
+  includeFacets: boolean;
+  includeOems: boolean;
+  dataSource: string;
+}
+
 export interface CatalogSearchResult {
   products: ReturnType<typeof normalizeCatalogRow>[];
   total: number;
@@ -53,21 +50,56 @@ export interface CatalogSearchResult {
   appliedFilters: CatalogSearchFilters;
   liveFallbackUsed: boolean;
   errors: string[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  resultCountShown: number;
+  totalEstimate: number | null;
+  timings?: SearchTimings;
+}
+
+const PREFERRED_COLUMNS = [
+  "id",
+  "provider_id",
+  "supplier_product_key",
+  "supplier_sku",
+  "supplier_brand",
+  "supplier_name",
+  "normalized_sku",
+  "normalized_name",
+  "barcode_1",
+  "barcode_2",
+  "barcode_3",
+  "supplier_price",
+  "supplier_stock_qty",
+  "currency",
+  "image_url",
+  "last_seen_at",
+  "created_at",
+  "updated_at",
+  "supplier_category",
+];
+
+function buildFastColumnsSql(existing: Set<string>): string {
+  return PREFERRED_COLUMNS.filter(c => existing.has(c)).map(c => `sp.${c}`).join(", ");
 }
 
 let providerCache: Map<number, string> | null = null;
+let providerCacheAt = 0;
+const PROVIDER_CACHE_TTL = 300_000;
 
 export async function getProviderNames(pool: InstanceType<typeof import("pg")["Pool"]>): Promise<Map<number, string>> {
-  if (providerCache) return providerCache;
+  if (providerCache && Date.now() - providerCacheAt < PROVIDER_CACHE_TTL) return providerCache;
   try {
     const result = await pool.query("SELECT id, name FROM supplier_providers ORDER BY id");
     providerCache = new Map<number, string>();
     for (const row of result.rows as ProviderRow[]) {
       providerCache.set(row.id, row.name);
     }
+    providerCacheAt = Date.now();
     return providerCache;
   } catch {
-    providerCache = new Map<number, string>();
+    if (!providerCache) providerCache = new Map<number, string>();
     return providerCache;
   }
 }
@@ -87,50 +119,80 @@ export function normalizeProviderName(name: string): string {
   return SUPPLIER_DISPLAY_NAMES[name.toLowerCase().trim()] ?? name;
 }
 
-function normalizeCatalogRow(row: CatalogSearchRow, providers: Map<number, string>) {
-  const providerName = normalizeProviderName(getProviderName(row.provider_id, providers));
-
-  const oemNumbers: string[] = row.oem_numbers ?? [];
+function normalizeCatalogRow(row: Record<string, unknown>, providers: Map<number, string>) {
+  const providerName = normalizeProviderName(getProviderName(row.provider_id as number, providers));
 
   return {
     id: `db-${row.id}`,
-    supplierProductId: row.id,
-    supplierProductCode: row.supplier_product_key,
-    supplierSku: row.supplier_sku,
-    name: row.supplier_name ?? row.supplier_sku,
-    brand: row.supplier_brand,
-    category: row.supplier_category,
+    supplierProductId: row.id as number,
+    supplierProductCode: row.supplier_product_key as string,
+    supplierSku: row.supplier_sku as string,
+    name: (row.supplier_name as string) ?? (row.supplier_sku as string),
+    brand: row.supplier_brand as string | null,
+    category: (row.supplier_category as string | null | undefined) ?? null,
     description: null,
-    image_url: row.image_url && row.image_url.trim() ? row.image_url.trim() : null,
-    oemNumbers,
+    image_url: row.image_url && (row.image_url as string).trim() ? (row.image_url as string).trim() : null,
+    oemNumbers: [] as string[],
     price: Number(row.supplier_price) || 0,
-    currency: row.currency || "TRY",
-    stockQuantity: row.supplier_stock_qty ?? 0,
-    stockStatus: (row.supplier_stock_qty ?? 0) > 0 ? ("var" as const) : ("yok" as const),
+    currency: (row.currency as string) || "TRY",
+    stockQuantity: (row.supplier_stock_qty as number) ?? 0,
+    stockStatus: ((row.supplier_stock_qty as number) ?? 0) > 0 ? ("var" as const) : ("yok" as const),
     supplierName: providerName,
-    providerId: row.provider_id,
-    barcode: row.barcode_1 ?? null,
-    barcode2: row.barcode_2 ?? null,
-    barcode3: row.barcode_3 ?? null,
-    normalizedSku: row.normalized_sku,
-    normalizedName: row.normalized_name,
-    lastCheckedAt: row.updated_at ?? row.last_seen_at ?? row.created_at,
+    providerId: row.provider_id as number,
+    barcode: row.barcode_1 as string | null ?? null,
+    barcode2: row.barcode_2 as string | null ?? null,
+    barcode3: row.barcode_3 as string | null ?? null,
+    normalizedSku: row.normalized_sku as string | null,
+    normalizedName: row.normalized_name as string | null,
+    lastCheckedAt: (row.updated_at as string) ?? (row.last_seen_at as string) ?? (row.created_at as string),
     dataSource: "existing-db" as const,
   };
 }
 
 function isSkuLike(query: string): boolean {
   const cleaned = query.replace(/[\s\-\.]/g, "");
-  return /^[A-Z0-9]{4,}$/i.test(cleaned);
+  if (cleaned.length < 4) return false;
+  if (!/^[A-Z0-9]+$/i.test(cleaned)) return false;
+  if (!/[0-9]/.test(cleaned)) return false;
+  return true;
+}
+
+function classifyQuery(query: string): "sku_like" | "oem_like" | "text" {
+  if (isSkuLike(query)) {
+    const cleaned = query.replace(/[\s\-\.]/g, "").toUpperCase();
+    if (/^[A-Z]+[0-9]/.test(cleaned)) return "sku_like";
+    return "oem_like";
+  }
+  return "text";
+}
+
+const EXISTING_COLUMNS = new Set<string>();
+let columnsFetchedAt = 0;
+const COLUMNS_CACHE_TTL = 600_000;
+
+async function getExistingColumns(pool: InstanceType<typeof import("pg")["Pool"]>, schema: string, tableName: string): Promise<Set<string>> {
+  if (EXISTING_COLUMNS.size > 0 && Date.now() - columnsFetchedAt < COLUMNS_CACHE_TTL) {
+    return EXISTING_COLUMNS;
+  }
+  const colCheck = await pool.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
+    [schema, tableName],
+  );
+  const cols = new Set(colCheck.rows.map((r: { column_name: string }) => r.column_name));
+  for (const c of cols) EXISTING_COLUMNS.add(c);
+  columnsFetchedAt = Date.now();
+  return EXISTING_COLUMNS;
 }
 
 function buildSearchRelevanceQuery(
   query: string,
   filters: CatalogSearchFilters,
-  columnNames: string[],
+  columnNames: Set<string>,
   schema: string,
   tableName: string,
   skuLike: boolean,
+  limitPlusOne: number,
+  offset: number,
 ) {
   const params: unknown[] = [];
   let paramIdx = 1;
@@ -143,7 +205,7 @@ function buildSearchRelevanceQuery(
     params.push(query);
     paramIdx++;
 
-    if (columnNames.includes("normalized_sku")) {
+    if (columnNames.has("normalized_sku")) {
       const normalizedQ = query.replace(/[\s\-\.]/g, "").toUpperCase();
       searchParts.push(`sp.normalized_sku = $${paramIdx}::text`);
       params.push(normalizedQ);
@@ -151,7 +213,7 @@ function buildSearchRelevanceQuery(
     }
 
     for (const bc of ["barcode_1", "barcode_2", "barcode_3"]) {
-      if (columnNames.includes(bc)) {
+      if (columnNames.has(bc)) {
         searchParts.push(`sp.${bc} = $${paramIdx}::text`);
         params.push(query);
         paramIdx++;
@@ -164,7 +226,7 @@ function buildSearchRelevanceQuery(
 
     const fuzzyParts: string[] = [];
     for (const col of ["supplier_sku", "normalized_sku", "barcode_1", "barcode_2", "barcode_3", "supplier_brand"]) {
-      if (columnNames.includes(col)) {
+      if (columnNames.has(col)) {
         fuzzyParts.push(`sp.${col} ILIKE $${paramIdx}::text`);
         params.push(likeParam);
         paramIdx++;
@@ -179,7 +241,7 @@ function buildSearchRelevanceQuery(
     paramIdx++;
 
     for (const col of ["supplier_name", "normalized_name"]) {
-      if (columnNames.includes(col)) {
+      if (columnNames.has(col)) {
         searchParts.push(`sp.${col} ILIKE $${paramIdx}::text`);
         params.push(likeParam);
         paramIdx++;
@@ -187,7 +249,7 @@ function buildSearchRelevanceQuery(
     }
   } else {
     for (const col of ["supplier_name", "supplier_brand", "normalized_name", "supplier_sku", "normalized_sku", "barcode_1", "barcode_2", "barcode_3"]) {
-      if (columnNames.includes(col)) {
+      if (columnNames.has(col)) {
         searchParts.push(`sp.${col} ILIKE $${paramIdx}::text`);
         params.push(likeParam);
         paramIdx++;
@@ -235,7 +297,6 @@ function buildSearchRelevanceQuery(
   }
 
   const whereClause = whereParts.length > 0 ? whereParts.join(" AND ") : "1=1";
-
   const whereParamsEnd = paramIdx;
 
   let orderByClause: string;
@@ -286,23 +347,47 @@ function buildSearchRelevanceQuery(
   }
 
   const limitParam = paramIdx;
-  params.push(100);
+  params.push(limitPlusOne);
   paramIdx++;
-  params.push(0);
+  params.push(offset);
 
   return {
     whereClause,
+    whereParams: params.slice(0, whereParamsEnd - 1),
+    allParams: params,
     orderByClause,
-    countParams: params.slice(0, whereParamsEnd - 1),
-    dataParams: params,
-    dataParamsStart: limitParam,
+    limitParam,
+    offsetParam: limitParam + 1,
+    totalParamsCount: paramIdx,
   };
 }
+
 
 export async function searchCatalogDb(
   query: string,
   filters: CatalogSearchFilters = {},
+  page: number = 1,
+  limit: number = 24,
+  includeFacets: boolean = false,
+  includeOems: boolean = false,
 ): Promise<CatalogSearchResult | null> {
+  const timings: SearchTimings = {
+    total_duration_ms: 0,
+    db_search_duration_ms: 0,
+    facet_duration_ms: 0,
+    oem_duration_ms: 0,
+    cache_duration_ms: 0,
+    result_mapping_duration_ms: 0,
+    cacheHit: false,
+    page,
+    limit,
+    includeFacets,
+    includeOems,
+    dataSource: "existing-db",
+  };
+
+  const totalStart = Date.now();
+
   if (!isCatalogDbEnabled() || getCatalogSearchSource() !== "existing-db") {
     return null;
   }
@@ -315,66 +400,106 @@ export async function searchCatalogDb(
   const schema = getCatalogSchema();
   const tableName = getCatalogTableName();
 
-  const colCheck = await pool.query(
-    `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`,
-    [schema, tableName],
-  );
-  const columnNames = colCheck.rows.map((r: { column_name: string }) => r.column_name);
-
   const q = query.trim();
   const skuLike = isSkuLike(q);
+  const safeQueryType = classifyQuery(q);
 
-  const searchBuilder = buildSearchRelevanceQuery(q, filters, columnNames, schema, tableName, skuLike);
+  const effectiveLimit = Math.min(Math.max(limit, 1), 48);
+  const effectivePage = Math.max(page, 1);
+  const limitPlusOne = effectiveLimit + 1;
+  const offset = (effectivePage - 1) * effectiveLimit;
+
+  const columnNames = await getExistingColumns(pool, schema, tableName);
+  const fastColumnsSql = buildFastColumnsSql(columnNames);
+
+  const searchBuilder = buildSearchRelevanceQuery(q, filters, columnNames, schema, tableName, skuLike, limitPlusOne, offset);
 
   try {
+    const dbSearchStart = Date.now();
     const providers = await getProviderNames(pool);
 
-    const countResult = await pool.query(
-      `SELECT COUNT(*)::bigint as count FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause}`,
-      searchBuilder.countParams,
-    );
-    const total = Number(countResult.rows[0].count);
-
     const result = await pool.query(
-      `SELECT sp.* FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} ORDER BY ${searchBuilder.orderByClause} LIMIT $${searchBuilder.dataParamsStart} OFFSET $${searchBuilder.dataParamsStart + 1}`,
-      searchBuilder.dataParams,
+      `SELECT ${fastColumnsSql} FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} ORDER BY ${searchBuilder.orderByClause} LIMIT $${searchBuilder.limitParam} OFFSET $${searchBuilder.offsetParam}`,
+      searchBuilder.allParams,
     );
+    timings.db_search_duration_ms = Date.now() - dbSearchStart;
 
-    const productIds = result.rows.map((r: Record<string, unknown>) => r.id as number);
+    const hasMore = result.rows.length > effectiveLimit;
+    const rows = hasMore ? result.rows.slice(0, effectiveLimit) : result.rows;
+    const productIds = rows.map((r: Record<string, unknown>) => r.id as number);
+
+    const oemStart = Date.now();
     const oemMap = new Map<number, string[]>();
 
-    if (productIds.length > 0) {
+    if (includeOems && productIds.length > 0) {
       const oemResult = await pool.query(
         `SELECT supplier_product_id, oem_code FROM supplier_product_oems WHERE supplier_product_id = ANY($1) AND is_active = true ORDER BY supplier_product_id, oem_code`,
         [productIds],
       );
       for (const row of oemResult.rows) {
         const pid = row.supplier_product_id as number;
-        if (!oemMap.has(pid)) {
-          oemMap.set(pid, []);
-        }
+        if (!oemMap.has(pid)) oemMap.set(pid, []);
+        oemMap.get(pid)!.push(row.oem_code as string);
+      }
+    } else if (skuLike && productIds.length > 0) {
+      const idPlaceholders = productIds.map((_, i) => `$${i + 1}`).join(", ");
+      const oemResult = await pool.query(
+        `SELECT supplier_product_id, oem_code FROM supplier_product_oems WHERE supplier_product_id IN (${idPlaceholders}) AND (oem_code = $${productIds.length + 1}::text OR normalized_oem_code = $${productIds.length + 1}::text) AND is_active = true`,
+        [...productIds, q],
+      );
+      for (const row of oemResult.rows) {
+        const pid = row.supplier_product_id as number;
+        if (!oemMap.has(pid)) oemMap.set(pid, []);
         oemMap.get(pid)!.push(row.oem_code as string);
       }
     }
+    timings.oem_duration_ms = Date.now() - oemStart;
 
-    const products = result.rows.map((row: Record<string, unknown>) => {
-      const normalized = normalizeCatalogRow(row as unknown as CatalogSearchRow, providers);
+    const mappingStart = Date.now();
+    const products = rows.map((row: Record<string, unknown>) => {
+      const normalized = normalizeCatalogRow(row, providers);
       const oems = oemMap.get(row.id as number) ?? [];
       return { ...normalized, oemNumbers: oems };
     });
+    timings.result_mapping_duration_ms = Date.now() - mappingStart;
 
-    const supplierCounts: Record<string, number> = {};
-    const brandCounts: Record<string, number> = {};
-    for (const product of products) {
-      supplierCounts[product.supplierName] = (supplierCounts[product.supplierName] || 0) + 1;
-      if (product.brand) {
-        brandCounts[product.brand] = (brandCounts[product.brand] || 0) + 1;
+    let supplierCounts: Record<string, number>;
+    let brandCounts: Record<string, number>;
+
+    if (includeFacets) {
+      const facetStart = Date.now();
+      const facetResult = await pool.query(
+        `SELECT sp.provider_id, sp.supplier_brand, COUNT(*)::bigint as cnt FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} GROUP BY sp.provider_id, sp.supplier_brand`,
+        searchBuilder.whereParams,
+      );
+      supplierCounts = {};
+      brandCounts = {};
+      for (const row of facetResult.rows) {
+        const providerName = normalizeProviderName(getProviderName(row.provider_id as number, providers));
+        supplierCounts[providerName] = (supplierCounts[providerName] || 0) + Number(row.cnt);
+        if (row.supplier_brand) {
+          brandCounts[row.supplier_brand as string] = (brandCounts[row.supplier_brand as string] || 0) + Number(row.cnt);
+        }
+      }
+      timings.facet_duration_ms = Date.now() - facetStart;
+    } else {
+      supplierCounts = {};
+      brandCounts = {};
+      for (const product of products) {
+        supplierCounts[product.supplierName] = (supplierCounts[product.supplierName] || 0) + 1;
+        if (product.brand) {
+          brandCounts[product.brand] = (brandCounts[product.brand] || 0) + 1;
+        }
       }
     }
 
+    timings.total_duration_ms = Date.now() - totalStart;
+
+    console.log(`[search-perf] q_len=${q.length} type=${safeQueryType} db=${timings.db_search_duration_ms}ms oem=${timings.oem_duration_ms}ms facets=${timings.facet_duration_ms}ms map=${timings.result_mapping_duration_ms}ms total=${timings.total_duration_ms}ms page=${effectivePage} limit=${effectiveLimit} hasMore=${hasMore} facets=${includeFacets} oems=${includeOems}`);
+
     return {
       products,
-      total,
+      total: 0,
       query,
       dataSource: "existing-db",
       supplierCounts,
@@ -382,6 +507,12 @@ export async function searchCatalogDb(
       appliedFilters: filters,
       liveFallbackUsed: false,
       errors: [],
+      page: effectivePage,
+      limit: effectiveLimit,
+      hasMore,
+      resultCountShown: products.length,
+      totalEstimate: null,
+      timings,
     };
   } catch (err) {
     console.error("[catalog-search] DB search error:", (err as Error).message);
@@ -395,6 +526,12 @@ export async function searchCatalogDb(
       appliedFilters: filters,
       liveFallbackUsed: false,
       errors: [`Catalog DB search failed: ${(err as Error).message}`],
+      page: effectivePage,
+      limit: effectiveLimit,
+      hasMore: false,
+      resultCountShown: 0,
+      totalEstimate: null,
+      timings,
     };
   }
 }
@@ -509,4 +646,10 @@ export async function getCatalogDbStats(): Promise<{
 
 export function clearProviderCache(): void {
   providerCache = null;
+  providerCacheAt = 0;
+}
+
+export function clearColumnsCache(): void {
+  EXISTING_COLUMNS.clear();
+  columnsFetchedAt = 0;
 }
