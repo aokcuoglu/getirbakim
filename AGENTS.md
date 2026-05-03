@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.1) features a redesigned professional automotive e-commerce storefront.
+getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.2) features a product request / sales lead MVP flow on top of the existing catalog search storefront.
 
 ## Architecture
 
@@ -36,7 +36,11 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - Cache only successful normalized results, never cache errors
 - `DATABASE_URL` and `DIRECT_URL` must only exist in local `.env` or server environment — never commit to git
 - Never expose `raw_payload` from `supplier_products` to the browser
+- Never expose `raw_json` from `supplier_products` to the browser
+- Product request `product_snapshot` must never contain `raw_json` or `raw_payload` fields
 - Price/stock from catalog DB should be verified before commercial order confirmation
+- Customer `product_requests` table stores request data; `supplier_product_id` links to catalog product; `product_snapshot` stores product info at request time as JSONB
+- `supplier_products.supplier_name` is product description/name, not actual supplier name; real supplier comes from `provider_id` → `supplier_providers.name`
 
 ## File Conventions
 
@@ -135,6 +139,7 @@ When `USE_EXISTING_CATALOG_DB=false` or `CATALOG_SEARCH_SOURCE=mock`:
 - Schema: `supabase/migrations/001_initial_schema.sql`
 - KVKK migration: `supabase/migrations/002_kvkk_consent.sql`
 - Request statuses migration: `supabase/migrations/003_request_statuses.sql`
+- Product request enhancements: `supabase/migrations/004_product_request_enhancements.sql`
 - Run on Supabase dashboard or via `supabase` CLI
 - **Do not run destructive migrations against the existing DB**
 - Catalog DB uses `pg` driver for read-only queries against `supplier_products`

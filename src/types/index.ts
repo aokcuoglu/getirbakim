@@ -55,15 +55,31 @@ export interface ProductOemNumber {
   created_at: string;
 }
 
+export interface ProductSnapshot {
+  supplier_product_id: number | null;
+  supplier_name: string | null;
+  supplier_sku: string | null;
+  product_name: string | null;
+  brand: string | null;
+  price: number | null;
+  currency: string | null;
+  stock_quantity: number | null;
+  data_source: string | null;
+  oem_numbers: string[];
+}
+
 export interface ProductRequest {
   id: string;
   product_id: string | null;
+  supplier_product_id: number | null;
+  product_snapshot: ProductSnapshot | null;
+  request_type: "quote" | "compatibility";
   customer_name: string;
   customer_email: string;
   customer_phone: string | null;
   vehicle_info: string | null;
   notes: string | null;
-  status: "pending" | "contacted" | "quoted" | "closed" | "cancelled";
+  status: "new" | "reviewing" | "contacted" | "quoted" | "converted" | "cancelled";
   kvkk_consent: boolean;
   kvkk_consent_at: string | null;
   created_at: string;

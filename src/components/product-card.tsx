@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { NormalizedProduct } from "@/types";
 import { formatPrice } from "@/lib/utils";
-import { ArrowRight, Package, Database, AlertTriangle, Tag } from "lucide-react";
+import { Package, Database, AlertTriangle, Tag, ShieldCheck } from "lucide-react";
 
 interface ProductCardProps {
   product: NormalizedProduct & { dataSource?: string };
@@ -149,17 +149,17 @@ export function ProductCard({ product }: ProductCardProps) {
 
           <div className="flex items-center gap-2">
             <Link
-              href={`/products/${product.id}`}
+              href={`/request?supplierProductId=${encodeURIComponent(product.id)}&type=quote`}
               className="flex-1 inline-flex items-center justify-center bg-accent hover:bg-accent-dark text-white text-xs font-semibold py-2.5 rounded-md transition-colors"
             >
-              Detayı Gör
-              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              Teklif Al
             </Link>
             <Link
-              href={`/request?productId=${encodeURIComponent(product.id)}`}
+              href={`/request?supplierProductId=${encodeURIComponent(product.id)}&type=compatibility`}
               className="flex-1 inline-flex items-center justify-center border border-border text-foreground text-xs font-semibold py-2.5 rounded-md hover:bg-surface transition-colors"
             >
-              Uyumluluğu Kontrol Et
+              <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+              Uyumluluk
             </Link>
           </div>
         </div>
@@ -180,7 +180,10 @@ export function ProductCardCompact({ product }: ProductCardProps) {
   const isFromDb = product.dataSource === "existing-db";
 
   return (
-    <div className="border border-border rounded-lg bg-white hover:shadow-md hover:border-slate-300 transition-all group p-4">
+    <Link
+      href={`/request?supplierProductId=${encodeURIComponent(product.id)}&type=quote`}
+      className="block border border-border rounded-lg bg-white hover:shadow-md hover:border-slate-300 transition-all group p-4"
+    >
       <div className="flex items-start gap-3">
         <div className="w-16 h-16 bg-surface-alt rounded-md flex items-center justify-center shrink-0 overflow-hidden">
           {product.image_url ? (
@@ -219,6 +222,6 @@ export function ProductCardCompact({ product }: ProductCardProps) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

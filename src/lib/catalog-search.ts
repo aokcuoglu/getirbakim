@@ -57,7 +57,7 @@ export interface CatalogSearchResult {
 
 let providerCache: Map<number, string> | null = null;
 
-async function getProviderNames(pool: InstanceType<typeof import("pg")["Pool"]>): Promise<Map<number, string>> {
+export async function getProviderNames(pool: InstanceType<typeof import("pg")["Pool"]>): Promise<Map<number, string>> {
   if (providerCache) return providerCache;
   try {
     const result = await pool.query("SELECT id, name FROM supplier_providers ORDER BY id");
@@ -83,7 +83,7 @@ const SUPPLIER_DISPLAY_NAMES: Record<string, string> = {
   "parca tedarik": "Parçatedarik",
 };
 
-function normalizeProviderName(name: string): string {
+export function normalizeProviderName(name: string): string {
   return SUPPLIER_DISPLAY_NAMES[name.toLowerCase().trim()] ?? name;
 }
 

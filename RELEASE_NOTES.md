@@ -1,500 +1,118 @@
-# Release Notes — v0.3.1 Automotive Storefront Redesign
+# Release Notes — v0.3.2 Product Request & Sales Lead MVP
 
 **Release Date:** 2026-05-03
 
 ## Overview
 
-v0.3.1 redesigns the public storefront to feel like a professional automotive spare parts e-commerce platform. The redesign includes a 3-level header, hero search with vehicle selector placeholder, trust benefit icons, category grid, featured products, deal zone, improved search UX with sidebar filters and OEM/OEN support, redesigned product cards, mobile responsive layout, and professional footer.
+v0.3.2 adds a working product request / sales lead flow, converting product search traffic into customer requests. Product cards now feature "Teklif Al" (Get Quote) and "Uyumluluk Kontrolü" (Compatibility Check) CTAs that lead to a pre-filled request form with product snapshot. The request is stored in the existing `product_requests` table with full product context. Admin can view and manage requests with an enhanced status workflow.
 
 ## Highlights
 
-- Redesigned public storefront with automotive e-commerce layout
-- 3-level header: utility bar, main header with search, navigation/category bar
-- Hero section with search module, vehicle selector placeholder, and helper examples
-- Trust/service benefit row: 390K+ catalog, OEM/SKU search, stock/price control, compatibility check
-- Category icon grid with 12 automotive categories
-- Featured catalog products section with filterable tabs
-- Deal/promotion zone for service & maintenance parts
-- Search results page with desktop sidebar filters and mobile filter drawer
-- Improved DB-backed catalog search with relevance ranking and OEM/OEN support
-- Added supplier, brand, stock, and price range filters to search
-- Added sorting options: relevance, in_stock_first, price_asc, price_desc, updated_desc
-- SKU-like queries prioritize exact/normalized matches over fuzzy matches
-- OEM numbers displayed in product cards and search results
-- Redesigned product cards with supplier badge, OEM chips, stock status, and image area
-- Professional footer with columns: brand, categories, support, catalog
-- Mobile responsive layout throughout
-- Dark navy / white / blue accent design language
-- New `/api/featured` endpoint for homepage featured products
-- New storefront constants module: `src/lib/storefront.ts`
-- New components: `hero-section`, `trust-benefits`, `category-grid`, `featured-products`, `deal-zone`
+- Added product-specific request flow with "Teklif Al" and "Uyumluluğu Kontrol Et" CTAs on product cards
+- Stored customer product requests in the existing `product_requests` table with product snapshot
+- Added product snapshot with supplier, SKU, price, stock, OEM, and data source information
+- Added admin request management with enhanced status workflow (new → reviewing → contacted → quoted → converted → cancelled)
+- Added request type field (quote vs compatibility check)
+- Added DB-backed product detail API (`/api/products/[id]`) with snapshot generation
+- Request form shows selected product summary with price, stock, brand, supplier, and SKU info
+- Trust warnings: "Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır" and "Yanlış parça riskini azaltmak için talep sonrası uyumluluk teyidi yapılır"
+- Homepage CTA updated: "Parça bulamadım / teklif iste" with both quote and compatibility links
+- Search empty state links to request form with trust warning
+- Phone field is now required on request form; email is optional
+- WhatsApp/contact placeholder: "Telefon ile dönüş yapılacaktır · WhatsApp desteği yakında"
 - Preserved DB-backed catalog search
-- Preserved `raw_json` safety — never exposed to browser
-- Preserved admin auth
+- Preserved raw_json safety (never exposed to browser)
+- Preserved admin authentication
 - Preserved Docker local setup on http://localhost:3001
 
-## Search Behavior
+## New Status Workflow
 
-### SKU/OEM/Barcode-like Queries
-When a query looks like a product code (alphanumeric 4+ chars, no spaces), search prioritizes:
-1. Exact `supplier_sku` match
-2. Exact `normalized_sku` match
-3. Exact `barcode_1/2/3` match
-4. Exact `oem_code` or `normalized_oem_code` match (via `supplier_product_oems` JOIN)
-5. Fuzzy SKU/barcode/brand ILIKE
-6. Fuzzy OEM ILIKE match
-7. Name/description ILIKE fallback
+| Status | Turkish | Description |
+|--------|---------|-------------|
+| `new` | Yeni | Fresh request, not yet reviewed |
+| `reviewing` | İnceleniyor | Under review by team |
+| `contacted` | İletişime Geçildi | Customer contacted |
+| `quoted` | Teklif Verildi | Price quote sent |
+| `converted` | Siparişe Dönüştü | Converted to order |
+| `cancelled` | İptal Edildi | Request cancelled |
 
-### Free-text Queries
-For general text queries (e.g., "Bosch", "filtre"):
-1. ILIKE across `supplier_brand`, `supplier_name`, `normalized_name`, `supplier_sku`, `normalized_sku`, barcodes
-2. OEM ILIKE match
-3. Results ranked by stock availability, price existence, brand relevance
+**Migration Note:** Status values have changed. Run `supabase/migrations/004_product_request_enhancements.sql` to add new columns and update the status constraint. Previous `pending` status maps to `new`.
 
-### Filters (via query parameters)
-- `supplier` — filter by provider name (via `supplier_providers`)
-- `brand` — filter by `supplier_brand`
-- `inStock=true/false` — filter by stock status
-- `minPrice` / `maxPrice` — price range filter
-- `sort` — relevance (default), in_stock_first, price_asc, price_desc, updated_desc
+## Schema Changes
 
-### Safe Frontend DTO — Fields Returned
-- `id`, `supplierProductId`, `supplierProductCode`, `supplierSku`
-- `name`, `brand`, `category`
-- `price`, `currency`, `stockQuantity`, `stockStatus`
-- `oemNumbers`, `barcode`, `imageUrl`
-- `supplierName`, `providerId`, `lastCheckedAt`
-- `dataSource`: always `"existing-db"` for catalog results
+### `product_requests` table
 
-### Never Exposed
-- `raw_json` — never sent to browser
-- `raw_payload` — never sent to browser
-- Full DB row — never sent to browser
-- Internal credentials — never sent to browser
+| Column | Type | Description |
+|--------|------|-------------|
+| `supplier_product_id` | INTEGER (nullable) | References catalog product ID |
+| `product_snapshot` | JSONB (nullable) | Product info snapshot at request time |
+| `request_type` | TEXT (default 'quote') | 'quote' or 'compatibility' |
 
-## New Components
+### `product_snapshot` JSON structure
 
-| Component | Path | Description |
-|-----------|------|-------------|
-| `HeroSection` | `src/components/hero-section.tsx` | Homepage hero with search and vehicle selector |
-| `TrustBenefitRow` | `src/components/trust-benefits.tsx` | Trust/service benefit icons |
-| `CategoryGrid` | `src/components/category-grid.tsx` | Automotive category icon grid |
-| `FeaturedProducts` | `src/components/featured-products.tsx` | Featured catalog products with tabs |
-| `DealZone` | `src/components/deal-zone.tsx` | Promotional deal zone |
-| Storefront constants | `src/lib/storefront.ts` | Categories, benefits, tabs, site config |
+```json
+{
+  "supplier_product_id": 12345,
+  "supplier_name": "Dinamik",
+  "supplier_sku": "ANKA20100020",
+  "product_name": "Fren Balatası",
+  "brand": "Bosch",
+  "price": 450.00,
+  "currency": "TRY",
+  "stock_quantity": 12,
+  "data_source": "existing-db",
+  "oem_numbers": ["BV6Z3504WT", "4100-1780"]
+}
+```
 
-## Redesigned Components
+### Status constraint updated
 
-| Component | Changes |
-|-----------|---------|
-| `Header` | 3-level: utility bar, main header with search+icons, nav/category bar; mobile hamburger with search |
-| `Footer` | Dark navy, 4-column layout with catalog/brand/support/categories; disclaimer banner; live indicator |
-| `ProductCard` | Image area, supplier badge, brand tag, OEM chips, stock badge, price, "Katalog verisi" badge, CTAs |
-| `SearchBar` | "hero" size variant, accent-colored search button, "Parça Ara" text on hero variant |
-| Search page | Desktop sidebar filters, mobile filter drawer, improved sort, active filter chips |
-
-## New API Route
-
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/featured` | GET | Featured catalog products (DB-backed, in-stock, priced, branded) |
-
-## `/api/search` — New Query Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `q` | string | required | Search query |
-| `supplier` | string | — | Filter by supplier name |
-| `brand` | string | — | Filter by brand |
-| `inStock` | "true"/"false" | — | Filter by stock status |
-| `minPrice` | number | — | Minimum price |
-| `maxPrice` | number | — | Maximum price |
-| `sort` | string | "relevance" | Sort order |
-
-### Response — New Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `brandCounts` | `Record<string, number>` | Brand distribution in results |
-| `appliedFilters` | `CatalogSearchFilters` | Filters applied to the search |
-
-## Design Language
-
-- Primary: Dark navy (`#0f172a`, `#1e3a5f`)
-- Accent: Blue (`#2563eb`)
-- Surfaces: White, slate-50, slate-100
-- Typography: Geist Sans, Geist Mono
-- Cards: White with border, hover shadow, rounded-lg
-- Badges: Blue for catalog data, green for stock, amber for warnings
-
-## Known Notes
-
-- Vehicle selector is UI-only placeholder in this version
-- Cart/checkout is not implemented
-- Featured products depend on DB configuration
-- Price and stock still require verification before commercial order confirmation
-- Başbuğ supplier import is not included
-- VIN/chassis and plate search are not included
-- `<img>` used for external catalog images (cannot use next/image with dynamic external URLs)
-
-## Recommended Indexes
-
-See `docs/existing-db/RECOMMENDED_INDEXES.md` for performance-optimizing indexes. These should be reviewed and applied manually on staging/production.
-
----
-
-# Release Notes — v0.3.0 Existing Supabase Catalog DB Integration
-
-**Release Date:** 2026-05-03
-
-## Overview
-
-v0.3.0 integrates the existing Supabase PostgreSQL database as the main product catalog source. The `supplier_products` table (populated by Dinamik, SETA, and ParcaTedarik) is now the primary search data source when `USE_EXISTING_CATALOG_DB=true`. This eliminates the need to call supplier APIs on every search, making product search fast and reliable.
-
-**Note:** Price and stock information from the catalog DB should still be verified before commercial order confirmation. DB-backed search provides catalog data; live supplier APIs remain available for future price/stock validation.
-
-## Highlights
-
-- Integrated existing Supabase catalog database as the main product search source
-- Validated against 390,993 catalog products from Dinamik, SETA, and ParcaTedarik
-- Implemented DB-backed search over `supplier_products`
-- Supplier identity is resolved through `provider_id` → `supplier_providers.name` (not `supplier_products.supplier_name`, which contains product descriptions)
-- Added protected admin page for catalog DB status
-- Added safe normalized search responses; `raw_json` is never exposed to the browser
-- Preserved mock/live fallback architecture for future supplier validation
-- Docker verified on http://localhost:3001
-
-## Known Notes
-
-- Price and stock should still be re-verified before commercial order confirmation
-- Başbuğ supplier catalog import is planned for a future release
-- Vehicle fitment, VIN/chassis, and plate search are not included in this release
-
-## Breaking Changes
-
-- Search API response now includes optional `dataSource`, `supplierCounts`, and `liveFallbackUsed` fields
-- Product card UI shows "Katalog verisi" badge and supplier name tags when results come from DB
-- New env vars required for DB-backed search: `DATABASE_URL`, `DIRECT_URL`, `USE_EXISTING_CATALOG_DB`, `CATALOG_SEARCH_SOURCE`
-
-## Features
-
-### DB-Backed Catalog Search
-- Searches `supplier_products` table using `pg` driver (read-only, no migrations)
-- Configurable via `USE_EXISTING_CATALOG_DB` and `CATALOG_SEARCH_SOURCE` env vars
-- Searches across `supplier_sku`, `supplier_name`, `supplier_brand`, `supplier_category`, and `raw_payload` (ILIKE)
-- Results normalized into standard product DTO — `raw_payload` never sent to browser
-- Live fallback: if `SEARCH_LIVE_FALLBACK_ENABLED=true` and DB returns no results, falls back to live supplier APIs
-- DB results include per-supplier counts and data source metadata
-
-### Catalog DB Connection Module
-- `src/lib/catalog-db.ts` — server-only PostgreSQL connection pool using `pg` driver
-- `src/lib/catalog-search.ts` — catalog search service with field mapping
-- Works with Supabase Shared Connection Pooler (`DATABASE_URL` with pgbouncer)
-- `DIRECT_URL` used for schema inspection and possible future migrations
-- Safe error handling, no credential exposure
-
-### Admin: Catalog DB Dashboard
-- New admin page: `/admin/existing-db` (protected by admin auth)
-- Shows: DB connection status, total row count, count by supplier, detected supplier column, column schema, and search test
-- New admin API: `GET /api/admin/catalog-db` (protected by admin auth)
-
-### Search UI Updates
-- "Katalog verisi" (catalog data) badge shown when results come from DB
-- Supplier name tags displayed on each product card (Dinamik, Parçatedarik, Seta)
-- Warning: "Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır" for DB-backed results
-- Live fallback notice shown when both DB and live results are combined
-
-### DB Inspection Script
-- `scripts/inspect-existing-supabase-catalog.ts` — read-only schema and data inspection
-- Lists columns, indexes, row count, supplier distribution, and sample rows
-- Masks `raw_payload` and never prints credentials
-- Run with: `npx tsx scripts/inspect-existing-supabase-catalog.ts`
-
-### Environment Variables
-- `DATABASE_URL` — Supabase connection pooler URL (server-side only, never expose to browser)
-- `DIRECT_URL` — Supabase direct connection URL (server-side only)
-- `USE_EXISTING_CATALOG_DB` — `true` | `false` (default: `false`)
-- `CATALOG_SEARCH_SOURCE` — `mock` | `existing-db` (default: `mock`)
-- `SUPPLIER_CATALOG_TABLE` — table name (default: `supplier_products`)
-- `SUPPLIER_DB_SCHEMA` — schema (default: `public`)
-- `SEARCH_LIVE_FALLBACK_ENABLED` — `true` | `false` (default: `false`)
-
-## Infrastructure
-
-### Docker
-- All new env vars passed through `docker-compose.yml`
-- Host port remains 3001, container port 3000
-- Rebuild: `docker compose build --no-cache && docker compose up -d`
+`product_requests_status_check` now allows: `new`, `reviewing`, `contacted`, `quoted`, `converted`, `cancelled`
 
 ## Pages
 
 | Route | Description |
 |-------|-------------|
-| `/` | Homepage with search hero |
-| `/search?q=` | Product search results (DB-backed when enabled) |
-| `/products/[id]` | Product detail with offers |
-| `/request` | Product request form |
-| `/admin/requests` | Admin request list |
-| `/admin/suppliers/health` | Supplier health status |
-| `/admin/suppliers/logs` | Supplier API call logs |
-| `/admin/existing-db` | **NEW** Catalog DB dashboard |
-| `/privacy` | Privacy policy |
-| `/kvkk` | KVKK disclosure |
-| `/returns` | Return policy |
-| `/distance-sales` | Distance sales agreement |
+| `/request?supplierProductId=&type=quote` | Quote request form (pre-filled with product) |
+| `/request?supplierProductId=&type=compatibility` | Compatibility check request form |
+| `/request` | General request form (no product pre-selected) |
+| `/admin/requests` | Admin request management with product snapshot and status workflow |
 
 ## API Routes
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/api/search` | GET | Search products (DB-backed, rate limited, cached) |
-| `/api/products/[id]` | GET | Product detail |
-| `/api/requests` | GET, POST | List/create requests |
-| `/api/requests/[id]` | PATCH | Update request status |
-| `/api/supplier-health` | GET | Supplier health check |
-| `/api/admin/supplier-logs` | GET | Supplier API logs (admin auth) |
-| `/api/admin/catalog-db` | GET | **NEW** Catalog DB stats (admin auth) |
+| `/api/requests` | POST | Create product request (public, KVKK required) |
+| `/api/requests` | GET | List all requests (admin auth required) |
+| `/api/requests/[id]` | GET | Get single request detail (admin auth required) |
+| `/api/requests/[id]` | PATCH | Update request status (admin auth required) |
+| `/api/products/[id]` | GET | Product detail with snapshot (supports `db-` prefix IDs) |
 
-## Known Limitations
+## Sales-Focused UI Changes
 
-- No payment integration (future release)
-- No VIN/chassis search (future release)
-- No plate search (future release)
-- No vehicle fitment data (future release)
-- No user authentication (future release)
-- Search cache is in-memory only; Redis recommended for production multi-instance
-- Rate limiter is in-memory only; Redis recommended for production multi-instance
-- Catalog DB search uses ILIKE which may be slow on very large datasets — consider adding full-text search indexes
-- Price/stock from catalog DB should be verified before commercial order confirmation
-- Supplier B and C adapters are stubs (not connected to real APIs)
-- `raw_payload` field extraction is best-effort — different suppliers may use different field names
+- **Product cards**: "Teklif Al" (primary) and "Uyumluluk" (secondary) CTAs
+- **Product detail**: Sticky sidebar with "Teklif Al" and "Uyumluluğu Kontrol Et" links
+- **Homepage CTA**: "Parça bulamadım / teklif iste" with quote and compatibility buttons
+- **Search empty state**: "Parça Talep Et" button with trust warning
+- **Request success page**: "Telefon ile dönüş yapılacaktır · WhatsApp desteği yakında"
+- **Trust warning on request form**: "Yanlış parça riskini azaltmak için talep sonrası uyumluluk teyidi yapılır"
 
-## Migration from v0.2.x
+## Known Notes
+
+- Payment/checkout is not implemented
+- Cart is not implemented
+- Price and stock are still re-verified manually before commercial order confirmation
+- Vehicle fitment is not implemented
+- VIN/chassis and plate search are not implemented
+- Başbuğ import is not included
+- WhatsApp integration is not yet connected (placeholder only)
+
+## Migration from v0.3.1
 
 1. Pull the latest code
-2. Add new env vars to `.env` or `.env.local`:
-
-```
-DATABASE_URL=<your-supabase-pooler-url>
-DIRECT_URL=<your-supabase-direct-url>
-USE_EXISTING_CATALOG_DB=true
-CATALOG_SEARCH_SOURCE=existing-db
-SUPPLIER_CATALOG_TABLE=supplier_products
-SUPPLIER_DB_SCHEMA=public
-SEARCH_LIVE_FALLBACK_ENABLED=false
-```
-
+2. Run `supabase/migrations/004_product_request_enhancements.sql` on your Supabase dashboard
 3. Rebuild Docker: `docker compose build --no-cache && docker compose up -d`
-4. Verify at `/admin/existing-db` — connection status and supplier counts should display
-
-**Important:** Never commit real `DATABASE_URL` or `DIRECT_URL` values to git. They must only exist in local `.env` or server environment.
-
----
-
-# Release Notes — v0.2.0 Real Supplier API Integration Foundation
-
-**Release Date:** 2026-05-03
-
-## Overview
-
-v0.2.0 completes the real Supplier A (Dinamik Oto) API integration foundation. Supplier A live search is validated and operational. This release includes supplier mode configuration, search caching, rate limiting, admin supplier log visibility, proxy support, and UI trust signals.
-
-**Note:** Supplier A live search validated with selected queries (BOSCH, 3M, ABA, TRW). Some field semantics such as VAT/stock interpretation require supplier confirmation.
-
-## Breaking Changes
-
-- `SupplierAdapter` interface now includes `apiKey` and `baseUrl` readonly properties (for mode-aware adapter registry)
-- Search API response now includes `lastCheckedAt` field
-- Product detail API response now includes `lastCheckedAt` field
-
-## Features
-
-### Supplier Mode Configuration
-- `SUPPLIER_MODE` environment variable: `mock` | `live` | `hybrid` (default: `mock`)
-  - `mock`: Only mock supplier data. No real API calls.
-  - `live`: Only real supplier adapters. Mock is excluded.
-  - `hybrid`: Real adapters when enabled/configured, mock as fallback.
-- `SUPPLIER_A_ENABLED` flag (default: `false`) to explicitly enable Supplier A
-- `SUPPLIER_A_TIMEOUT_MS` (default: 8000) per-supplier timeout configuration
-- New `src/suppliers/config.ts` module for mode and config resolution
-
-### Supplier A Adapter Hardening
-- Per-supplier timeout via `SUPPLIER_A_TIMEOUT_MS` env var
-- Per-supplier try/catch wrapping on all adapter methods
-- Safe error message normalization (never exposes API keys)
-- Only active when `SUPPLIER_A_ENABLED=true` and credentials are configured
-- Supplier B and C adapters also updated with the same safety patterns
-
-### Search Caching
-- In-memory TTL cache for identical search queries
-- Default TTL: 60 seconds, configurable via `SEARCH_CACHE_TTL_SECONDS`
-- Cache key includes query and supplier mode
-- Only successful results are cached; errors are never cached
-- `src/suppliers/cache.ts` — simple v0.2.0 cache, Redis can replace for multi-instance
-
-### Rate Limiting
-- In-memory per-IP rate limiting for `/api/search`
-- Default: 30 requests per 60 seconds per IP
-- Configurable via `SEARCH_RATE_LIMIT_WINDOW_SECONDS` and `SEARCH_RATE_LIMIT_MAX`
-- Respects `x-forwarded-for` and `x-real-ip` headers
-- Returns 429 with friendly Turkish message when exceeded
-- `src/lib/rate-limit.ts`
-
-### getProductDetails Hardening
-- Each adapter `getProduct()` call wrapped in isolated try/catch
-- One supplier throwing no longer aborts the entire product detail lookup
-- Partial result behavior preserved
-
-### Supplier API Logging
-- All supplier adapters now log to both in-memory buffer and `supplier_api_logs` Supabase table
-- Log entries include: supplier name, operation, success/failure, duration_ms, status_code, error message
-- API keys are never logged
-- In-memory log buffer (last 500 entries) accessible via admin API
-- New admin page: `/admin/suppliers/logs` showing latest API calls and failures
-- New admin API: `GET /api/admin/supplier-logs` (protected by admin auth)
-- Shows: supplier mode, log count, cache stats, rate limit stats, and individual log entries
-
-### Admin Auth Protection
-- `/api/admin/*` routes now require HTTP Basic Auth
-- Middleware matcher updated to include `/api/admin/:path*`
-
-### Admin Request Operations
-- Existing request status management with dropdown already implemented
-- Status options: pending, contacted, quoted, closed, cancelled
-- Protected by admin auth via middleware + `src/lib/admin-auth.ts`
-
-### UI Trust Updates
-- Search results page shows "Son kontrol zamanı" (last checked time) with clock icon
-- Product detail page shows "Son kontrol zamanı" with clock icon
-- Partial supplier failure message now clearly states: "Bazı tedarikçilerden yanıt alınamadı, mevcut sonuçlar gösteriliyor."
-- Rate limit 429 responses show friendly Turkish error message
-
-### Environment Variables
-- Added to `.env.example` and `docker-compose.yml`:
-  - `SUPPLIER_MODE=mock`
-  - `SUPPLIER_A_ENABLED=false`
-  - `SUPPLIER_A_TIMEOUT_MS=8000`
-  - `SEARCH_CACHE_TTL_SECONDS=60`
-  - `SEARCH_RATE_LIMIT_WINDOW_SECONDS=60`
-  - `SEARCH_RATE_LIMIT_MAX=30`
-
-## Infrastructure
-
-### Docker
-- All new env vars added to `docker-compose.yml`
-- Host port remains 3001, container port 3000
-- Rebuild after changes: `docker compose build --no-cache && docker compose up -d`
-
-## Pages
-
-| Route | Description |
-|-------|-------------|
-| `/` | Homepage with search hero |
-| `/search?q=` | Product search results (with cache + rate limit) |
-| `/products/[id]` | Product detail with offers |
-| `/request` | Product request form |
-| `/admin/requests` | Admin request list (status management) |
-| `/admin/suppliers/health` | Supplier health status |
-| `/admin/suppliers/logs` | **NEW** Supplier API call logs |
-| `/privacy` | Privacy policy |
-| `/kvkk` | KVKK disclosure |
-| `/returns` | Return policy |
-| `/distance-sales` | Distance sales agreement |
-
-## API Routes
-
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/search` | GET | Search products (rate limited, cached) |
-| `/api/products/[id]` | GET | Product detail |
-| `/api/requests` | GET, POST | List/create requests |
-| `/api/requests/[id]` | PATCH | Update request status |
-| `/api/supplier-health` | GET | Supplier health check |
-| `/api/admin/supplier-logs` | GET | **NEW** Supplier API logs (admin auth) |
-
-## Known Limitations
-
-- No payment integration (future release)
-- No VIN/chassis search (future release)
-- No plate search (future release)
-- No vehicle fitment data (future release)
-- No user authentication (future release)
-- Search cache is in-memory only (not shared across instances); Redis recommended for production multi-instance
-- Rate limiter is in-memory only; Redis recommended for production multi-instance
-- Supplier A has no free-text search — only brand name and exact stock code lookup are supported
-- Supplier A stock availability is binary (available/unavailable), not real quantity
-- Supplier A OEM numbers (`oemListe`) are empty for major brands (BOSCH, TRW, 3M, ABA)
-- Supplier A images (`resimUrl`) are empty for tested brands
-- Price VAT inclusion and price type (net/list/discounted) are unconfirmed — require supplier documentation
-- Supplier B and C adapters are stubs (not connected to real APIs)
-
-## Migration from v0.1.x
-
-1. Pull the latest code
-2. Update environment variables (see `.env.example` for new vars)
-3. Set `SUPPLIER_MODE=mock` for existing deployments (this is the default)
-4. Run `supabase/migrations/003_request_statuses.sql` if not already applied
-5. Rebuild Docker: `docker compose build --no-cache && docker compose up -d`
+4. Verify at `/admin/requests` — should see new status workflow
+5. Test request flow at `/request?type=quote` with a product
 
 ---
-
-# Release Notes — v0.1.0 Supplier Search MVP
-
-**Release Date:** 2025-05-01
-
-## Overview
-
-Initial MVP release of getirbakim.com — an open-source automotive spare parts search platform for Türkiye. This release focuses on live supplier search, product detail pages, request collection, and admin visibility.
-
-## Features
-
-### Core Search
-- Multi-supplier parallel product search with partial failure tolerance
-- Product search by name, brand, category, and OEM number
-- Real-time aggregation of results from all active suppliers
-- Automatic sorting by best price
-
-### Product Detail Pages
-- Unified product view with all supplier offers
-- OEM number display
-- Stock and delivery time information per supplier
-- Direct link to create a product request
-
-### Product Requests
-- Customer-facing request form for products not found or needing follow-up
-- Vehicle info and notes fields
-- Email and phone collection for contact-back
-
-### Admin
-- Request list page (`/admin/requests`) with status tracking — **protected by HTTP Basic Auth**
-- Supplier health dashboard (`/admin/suppliers/health`) — **protected by HTTP Basic Auth**
-- Real-time API health monitoring per supplier
-- Middleware-based auth: `ADMIN_USERNAME` / `ADMIN_PASSWORD` env vars
-- Fail-closed: if password not set, admin routes return 401
-- `POST /api/requests` remains public; `GET/PATCH/DELETE` require admin auth
-
-### Privacy & Compliance
-- KVKK consent checkbox required on request form before submission
-- Consent timestamp recorded in database (`kvkk_consent`, `kvkk_consent_at`)
-- API validates `kvkk_consent === true`, returns 400 if missing
-- Customer PII never exposed without authentication
-
-### Supplier Adapter Architecture
-- Common `SupplierAdapter` interface for all suppliers
-- Mock adapter for local development (zero-config)
-- Placeholder adapters for Supplier A, B, and C (activate with env vars)
-- Adapter registry for easy addition of new suppliers
-- Server-side API logging to `supplier_api_logs`
-
-### Legal Pages
-- Privacy Policy (`/privacy`)
-- KVKK Disclosure (`/kvkk`)
-- Return Policy (`/returns`)
-- Distance Sales Agreement (`/distance-sales`)
-
-### Infrastructure
-- Docker + Docker Compose for deployment (no `.env.local` file required to build)
-- `.dockerignore` for clean builds
-- MIT License
-- Supabase database schema with RLS policies
-- Standalone Next.js build for containerized deployment

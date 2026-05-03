@@ -59,14 +59,25 @@ export default function HomePage() {
             Aradığınız parçayı bulamadınız mı?
           </h2>
           <p className="text-sm sm:text-base text-muted mb-6 max-w-xl mx-auto">
-            Talep oluşturun, sizin için tedarikçilerden fiyat ve stok araştırması yapalım.
+            Talep oluşturun, sizin için tedarikçilerden fiyat ve stok araştırması yapalım. Uyumluluk teyidi ile yanlış parça riskini azaltalım.
           </p>
-          <Link
-            href="/request"
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-dark text-white px-8 py-3 text-sm font-semibold rounded-lg transition-colors"
-          >
-            Parça Talep Et
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link
+              href="/request?type=quote"
+              className="inline-flex items-center gap-2 bg-accent hover:bg-accent-dark text-white px-8 py-3 text-sm font-semibold rounded-lg transition-colors"
+            >
+              Teklif Al
+            </Link>
+            <Link
+              href="/request?type=compatibility"
+              className="inline-flex items-center gap-2 border border-gray-300 text-black px-8 py-3 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Uyumluluğu Kontrol Et
+            </Link>
+          </div>
+          <p className="mt-4 text-xs text-gray-400">
+            Telefon ile dönüş yapılacaktır · WhatsApp desteği yakında
+          </p>
         </div>
       </section>
     </div>

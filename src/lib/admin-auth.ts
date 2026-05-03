@@ -5,11 +5,11 @@ function isAdminPath(pathname: string): boolean {
 }
 
 function isProtectedApiRequest(pathname: string, method: string): boolean {
-  if (pathname === "/api/requests") {
-    return ["GET", "PATCH", "DELETE"].includes(method.toUpperCase());
+  if (pathname === "/api/requests" && method.toUpperCase() !== "POST") {
+    return true;
   }
   if (pathname.match(/^\/api\/requests\/[^/]+$/)) {
-    return ["PATCH", "DELETE"].includes(method.toUpperCase());
+    return true;
   }
   if (pathname.startsWith("/api/admin/")) {
     return true;

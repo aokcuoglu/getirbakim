@@ -86,7 +86,7 @@ export function HeroSection() {
               href="/request"
               className="inline-flex items-center gap-2 text-sm text-blue-200 hover:text-white transition-colors border border-white/20 rounded-lg px-4 py-2 hover:bg-white/10"
             >
-              Parça bulamadım
+              Parça bulamadım / teklif iste
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>

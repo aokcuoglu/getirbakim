@@ -190,17 +190,17 @@ export default function ProductDetailContent({
             </div>
 
             <Link
-              href={`/request?productId=${encodeURIComponent(product.id)}`}
+              href={`/request?supplierProductId=${encodeURIComponent(product.id)}&type=quote`}
               className="block w-full bg-black text-white text-center px-6 py-3 text-sm font-medium hover:bg-gray-800 transition-colors rounded mb-3"
             >
-              Talep Oluştur
+              Teklif Al
             </Link>
             <Link
-              href={`/request?productId=${encodeURIComponent(product.id)}`}
+              href={`/request?supplierProductId=${encodeURIComponent(product.id)}&type=compatibility`}
               className="flex items-center justify-center gap-1.5 w-full border border-gray-300 text-black text-center px-6 py-3 text-sm font-medium hover:bg-gray-50 transition-colors rounded"
             >
               <ShieldCheck className="h-4 w-4" />
-              Uyumluluk Kontrolü İçin Talep Et
+              Uyumluluğu Kontrol Et
             </Link>
           </div>
         </div>

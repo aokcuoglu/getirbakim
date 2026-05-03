@@ -198,6 +198,9 @@ export type Database = {
         Row: {
           id: string;
           product_id: string | null;
+          supplier_product_id: number | null;
+          product_snapshot: Record<string, unknown> | null;
+          request_type: string;
           customer_name: string;
           customer_email: string;
           customer_phone: string | null;
@@ -212,6 +215,9 @@ export type Database = {
         Insert: {
           id?: string;
           product_id?: string | null;
+          supplier_product_id?: number | null;
+          product_snapshot?: Record<string, unknown> | null;
+          request_type?: string;
           customer_name: string;
           customer_email: string;
           customer_phone?: string | null;
@@ -226,6 +232,9 @@ export type Database = {
         Update: {
           id?: string;
           product_id?: string | null;
+          supplier_product_id?: number | null;
+          product_snapshot?: Record<string, unknown> | null;
+          request_type?: string;
           customer_name?: string;
           customer_email?: string;
           customer_phone?: string | null;

@@ -510,6 +510,9 @@ export default function SearchPageContent() {
                     >
                       Parça Talep Et
                     </Link>
+                    <p className="mt-3 text-xs text-muted">
+                      Yanlış parça riskini azaltmak için talep sonrası uyumluluk teyidi yapılır.
+                    </p>
                   </div>
                 )}
               </>

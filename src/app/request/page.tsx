@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import RequestFormContent from "./request-content";
 
 export const metadata = {
-  title: "Talep Oluştur",
+  title: "Teklif Al — getirbakim.com",
 };
 
 export default function RequestPage() {
