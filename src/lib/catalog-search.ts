@@ -11,11 +11,6 @@ interface ProviderRow {
   name: string;
 }
 
-interface ProviderRow {
-  id: number;
-  name: string;
-}
-
 export interface CatalogSearchFilters {
   supplier?: string;
   brand?: string;
@@ -403,6 +398,7 @@ export async function searchCatalogDb(
   const q = query.trim();
   const skuLike = isSkuLike(q);
   const safeQueryType = classifyQuery(q);
+  const likeParam = `%${q}%`;
 
   const effectiveLimit = Math.min(Math.max(limit, 1), 48);
   const effectivePage = Math.max(page, 1);
@@ -416,13 +412,171 @@ export async function searchCatalogDb(
 
   try {
     const dbSearchStart = Date.now();
+    const providerStart = Date.now();
     const providers = await getProviderNames(pool);
+    const providerMs = Date.now() - providerStart;
 
+    let queryStart: number;
+    let queryMs: number;
+
+    if (!skuLike) {
+      const idSearchStart = Date.now();
+
+      const trgmCols: string[] = [];
+      for (const col of ["normalized_name", "supplier_name"]) {
+        if (columnNames.has(col)) trgmCols.push(col);
+      }
+
+      const idResult = trgmCols.length >= 2
+        ? await pool.query(
+            `WITH matches AS (
+              SELECT sp.id, 0 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.normalized_name ILIKE $1::text
+              UNION
+              SELECT sp.id, 0 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.supplier_name ILIKE $1::text
+              UNION
+              SELECT sp.id, 0 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.supplier_brand ILIKE $1::text
+              UNION
+              SELECT sp.id, 1 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.supplier_sku ILIKE $1::text
+              UNION
+              SELECT sp.id, 1 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.normalized_sku ILIKE $1::text
+              ${columnNames.has("barcode_1") ? `UNION SELECT sp.id, 1 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.barcode_1 ILIKE $1::text` : ""}
+              ${columnNames.has("barcode_2") ? `UNION SELECT sp.id, 1 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.barcode_2 ILIKE $1::text` : ""}
+              ${columnNames.has("barcode_3") ? `UNION SELECT sp.id, 1 AS rank_boost FROM ${schema}.${tableName} sp WHERE sp.barcode_3 ILIKE $1::text` : ""}
+              UNION
+              SELECT spo.supplier_product_id AS id, 2 AS rank_boost FROM supplier_product_oems spo WHERE spo.is_active = true AND (spo.oem_code ILIKE $1::text OR spo.normalized_oem_code ILIKE $1::text)
+            ),
+            ranked AS (
+              SELECT m.id, MIN(m.rank_boost) AS best_rank FROM matches m GROUP BY m.id
+            )
+            SELECT r.id FROM ranked r
+            JOIN ${schema}.${tableName} sp ON sp.id = r.id
+            ${filters.supplier ? `WHERE sp.provider_id IN (SELECT sp2.id FROM supplier_providers sp2 WHERE sp2.name ILIKE $2::text)` : ""}
+            ORDER BY r.best_rank ASC, sp.supplier_stock_qty > 0 DESC, COALESCE(sp.supplier_price, 0) > 0 DESC, sp.updated_at DESC NULLS LAST
+            LIMIT $${filters.supplier ? 3 : 2} OFFSET $${filters.supplier ? 4 : 3}`,
+            filters.supplier
+              ? [likeParam, `%${filters.supplier}%`, limitPlusOne, offset]
+              : [likeParam, limitPlusOne, offset]
+          )
+        : await pool.query(
+            `SELECT sp.id FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} ORDER BY ${searchBuilder.orderByClause} LIMIT $${searchBuilder.limitParam} OFFSET $${searchBuilder.offsetParam}`,
+            searchBuilder.allParams,
+          );
+
+      const idSearchMs = Date.now() - idSearchStart;
+
+      const matchingIds = idResult.rows.map((r: Record<string, unknown>) => r.id as number);
+      const hasMore = matchingIds.length > effectiveLimit;
+      const pageIds = hasMore ? matchingIds.slice(0, effectiveLimit) : matchingIds;
+
+      let rows: Record<string, unknown>[];
+      if (pageIds.length > 0) {
+        queryStart = Date.now();
+        const detailResult = await pool.query(
+          `SELECT ${fastColumnsSql} FROM ${schema}.${tableName} sp WHERE sp.id = ANY($1)`,
+          [pageIds],
+        );
+        queryMs = Date.now() - queryStart;
+
+        const idOrder = new Map(pageIds.map((id, idx) => [id, idx]));
+        rows = detailResult.rows.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+          return (idOrder.get(a.id as number) ?? 0) - (idOrder.get(b.id as number) ?? 0);
+        });
+      } else {
+        rows = [];
+        queryMs = 0;
+      }
+
+      timings.db_search_duration_ms = Date.now() - dbSearchStart;
+      console.log(`[search-perf-detail] provider=${providerMs}ms id_search=${idSearchMs}ms detail=${queryMs}ms total_db=${timings.db_search_duration_ms}ms`);
+
+      const productIds = pageIds;
+
+      const oemStart = Date.now();
+      const oemMap = new Map<number, string[]>();
+
+      if (includeOems && productIds.length > 0) {
+        const oemResult = await pool.query(
+          `SELECT supplier_product_id, oem_code FROM supplier_product_oems WHERE supplier_product_id = ANY($1) AND is_active = true ORDER BY supplier_product_id, oem_code`,
+          [productIds],
+        );
+        for (const row of oemResult.rows) {
+          const pid = row.supplier_product_id as number;
+          if (!oemMap.has(pid)) oemMap.set(pid, []);
+          oemMap.get(pid)!.push(row.oem_code as string);
+        }
+      }
+      timings.oem_duration_ms = Date.now() - oemStart;
+
+      const mappingStart = Date.now();
+      const products = rows.map((row: Record<string, unknown>) => {
+        const normalized = normalizeCatalogRow(row, providers);
+        const oems = oemMap.get(row.id as number) ?? [];
+        return { ...normalized, oemNumbers: oems };
+      });
+      timings.result_mapping_duration_ms = Date.now() - mappingStart;
+
+      let supplierCounts: Record<string, number>;
+      let brandCounts: Record<string, number>;
+
+      if (includeFacets) {
+        const facetStart = Date.now();
+        const facetResult = await pool.query(
+          `SELECT sp.provider_id, sp.supplier_brand, COUNT(*)::bigint as cnt FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} GROUP BY sp.provider_id, sp.supplier_brand`,
+          searchBuilder.whereParams,
+        );
+        supplierCounts = {};
+        brandCounts = {};
+        for (const row of facetResult.rows) {
+          const providerName = normalizeProviderName(getProviderName(row.provider_id as number, providers));
+          supplierCounts[providerName] = (supplierCounts[providerName] || 0) + Number(row.cnt);
+          if (row.supplier_brand) {
+            brandCounts[row.supplier_brand as string] = (brandCounts[row.supplier_brand as string] || 0) + Number(row.cnt);
+          }
+        }
+        timings.facet_duration_ms = Date.now() - facetStart;
+      } else {
+        supplierCounts = {};
+        brandCounts = {};
+        for (const product of products) {
+          supplierCounts[product.supplierName] = (supplierCounts[product.supplierName] || 0) + 1;
+          if (product.brand) {
+            brandCounts[product.brand] = (brandCounts[product.brand] || 0) + 1;
+          }
+        }
+      }
+
+      timings.total_duration_ms = Date.now() - totalStart;
+
+      console.log(`[search-perf] q_len=${q.length} type=${safeQueryType} db=${timings.db_search_duration_ms}ms oem=${timings.oem_duration_ms}ms facets=${timings.facet_duration_ms}ms map=${timings.result_mapping_duration_ms}ms total=${timings.total_duration_ms}ms page=${effectivePage} limit=${effectiveLimit} hasMore=${hasMore} facets=${includeFacets} oems=${includeOems}`);
+
+      return {
+        products,
+        total: 0,
+        query,
+        dataSource: "existing-db",
+        supplierCounts,
+        brandCounts,
+        appliedFilters: filters,
+        liveFallbackUsed: false,
+        errors: [],
+        page: effectivePage,
+        limit: effectiveLimit,
+        hasMore,
+        resultCountShown: products.length,
+        totalEstimate: null,
+        timings,
+      };
+    }
+
+    queryStart = Date.now();
     const result = await pool.query(
       `SELECT ${fastColumnsSql} FROM ${schema}.${tableName} sp WHERE ${searchBuilder.whereClause} ORDER BY ${searchBuilder.orderByClause} LIMIT $${searchBuilder.limitParam} OFFSET $${searchBuilder.offsetParam}`,
       searchBuilder.allParams,
     );
+    queryMs = Date.now() - queryStart;
     timings.db_search_duration_ms = Date.now() - dbSearchStart;
+
+    console.log(`[search-perf-detail] provider=${providerMs}ms query=${queryMs}ms total_db=${timings.db_search_duration_ms}ms`);
 
     const hasMore = result.rows.length > effectiveLimit;
     const rows = hasMore ? result.rows.slice(0, effectiveLimit) : result.rows;

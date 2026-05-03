@@ -31,6 +31,9 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_supplier_products_normalized_name_tr
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_supplier_products_supplier_name_trgm
   ON supplier_products USING gin (supplier_name gin_trgm_ops);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_supplier_products_supplier_brand_trgm
+  ON supplier_products USING gin (supplier_brand gin_trgm_ops);
 ```
 
 ## 3. B-tree Indexes (exact match and prefix lookups)

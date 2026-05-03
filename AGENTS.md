@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.2) features search performance optimization, pagination, and caching on top of the existing catalog search storefront.
+getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.3) features Supabase search index optimization on top of the existing catalog search storefront with pagination and caching.
 
 ## Architecture
 
