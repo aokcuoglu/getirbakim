@@ -69,11 +69,46 @@ The `supplier_name` column contains product descriptions, NOT the supplier/vendo
 
 Run `npx tsx scripts/inspect-existing-supabase-catalog.ts` for live samples. All `raw_json` fields are masked/redacted in the output.
 
+## OEM Table: supplier_product_oems
+
+**Total OEM rows:** 2,879
+**Products with OEM data:** 1,394 (out of 390,993)
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | integer | NO | `nextval(...)` | Primary key |
+| `provider_id` | integer | NO | — | FK to `supplier_providers.id` |
+| `supplier_product_id` | integer | NO | — | FK to `supplier_products.id` |
+| `oem_code` | text | NO | — | Original OEM number |
+| `normalized_oem_code` | text | NO | — | Normalized OEM for search |
+| `oem_brand` | text | YES | — | OEM brand |
+| `source` | text | NO | 'API' | Data source (API, MANUAL) |
+| `is_active` | boolean | NO | true | Active flag |
+| `created_at` | timestamp | NO | CURRENT_TIMESTAMP | |
+| `updated_at` | timestamp | NO | CURRENT_TIMESTAMP | |
+
+### OEM Indexes
+
+- `supplier_product_oems_pkey` — Unique btree on `id`
+- `supplier_product_oems_provider_product_code_source_key` — Unique btree on `(provider_id, supplier_product_id, normalized_oem_code, source)`
+- `idx_supplier_product_oems_normalized_oem_code` — B-tree on `normalized_oem_code`
+- `idx_supplier_product_oems_provider_normalized_oem_code` — B-tree on `(provider_id, normalized_oem_code)`
+- `idx_supplier_product_oems_supplier_product_id` — B-tree on `supplier_product_id`
+
+## Product Statistics
+
+- **With OEM:** 1,394 products
+- **Without OEM:** 389,599 products
+- **With price:** 378,622 products
+- **Without price:** 12,371 products
+- **With stock:** 190,290 products
+- **Without stock:** 200,703 products
+
 ## Related Tables
 
 The database contains additional tables that could support future features:
-- `supplier_providers` — Provider/supplier names
-- `supplier_product_oems` — OEM number mappings
+- `supplier_providers` — Provider/supplier names (columns: id, code, name, status, priority, schedule, base_url, config, last_sync_at, created_at, updated_at)
+- `supplier_product_oems` — OEM number mappings (2,879 rows, linked via `supplier_product_id`)
 - `supplier_part_mappings` — Part cross-references
 - `supplier_brand_aliases` — Brand aliases
 - `parts` — Normalized product catalog

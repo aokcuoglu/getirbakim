@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.0) integrates the existing Supabase PostgreSQL database as the main product catalog.
+getirbakim.com is an open-source automotive spare parts e-commerce platform for Türkiye. The current release (v0.3.1) features a redesigned professional automotive e-commerce storefront.
 
 ## Architecture
 
@@ -15,6 +15,7 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - **In-memory search cache** with configurable TTL
 - **In-memory rate limiter** for /api/search
 - **DB-backed search** when `USE_EXISTING_CATALOG_DB=true` and `CATALOG_SEARCH_SOURCE=existing-db` — no live supplier API call on every search when DB mode is active
+- **OEM/OEN search** via `supplier_product_oems` table JOIN
 - **Supplier provider mapping** — `supplier_products.supplier_name` contains product descriptions, not the actual supplier name; the real supplier comes from `provider_id` → `supplier_providers.name`
 
 ## Key Rules
@@ -25,7 +26,7 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - Product search must support partial failure
 - Use mock supplier data until real API credentials are added
 - Keep architecture ready for future: OEM/OEN matching, vehicle fitment, VIN/chassis search, plate search
-- UI: clean, minimal, trustworthy — black, white, gray
+- UI: professional automotive e-commerce — dark navy, white, blue accent, clean typography, trust-focused
 - Admin routes are protected by HTTP Basic Auth via `ADMIN_USERNAME`/`ADMIN_PASSWORD` env vars
 - Admin API routes under `/api/admin/` require admin auth
 - If `ADMIN_PASSWORD` is not set, admin routes fail closed (401)
@@ -48,6 +49,7 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 - Rate limiter: `src/lib/rate-limit.ts`
 - Catalog DB client: `src/lib/catalog-db.ts`
 - Catalog search: `src/lib/catalog-search.ts`
+- Storefront constants: `src/lib/storefront.ts`
 - Supabase clients: `src/lib/supabase/server.ts`, `src/lib/supabase/client.ts`
 - Middleware: `src/middleware.ts` → `src/lib/admin-auth.ts` (admin auth + /api/admin/ protection)
 
@@ -86,11 +88,38 @@ getirbakim.com is an open-source automotive spare parts e-commerce platform for 
 ## Search Behavior
 
 When `USE_EXISTING_CATALOG_DB=true` and `CATALOG_SEARCH_SOURCE=existing-db`:
-1. Search first queries the `supplier_products` table in the existing Supabase DB
-2. Results are normalized into the standard product DTO
-3. If DB results exist, they are returned with `dataSource: "existing-db"`
-4. If `SEARCH_LIVE_FALLBACK_ENABLED=true` and DB search returns no results, fallback to live supplier API
-5. `raw_payload` is never returned to the browser — only normalized fields
+
+### SKU/OEM/Barcode-like Queries
+When query looks like a product code (alphanumeric 4+ chars), search prioritizes exact matches:
+1. Exact `supplier_sku` match
+2. Exact `normalized_sku` match
+3. Exact `barcode_1/2/3` match
+4. Exact `oem_code` or `normalized_oem_code` match (via `supplier_product_oems`)
+5. Fuzzy SKU/barcode/brand ILIKE
+6. Fuzzy OEM ILIKE match
+7. Name/description ILIKE fallback
+
+### Free-text Queries
+1. ILIKE across `supplier_brand`, `supplier_name`, `normalized_name`, `supplier_sku`, `normalized_sku`, barcodes
+2. OEM ILIKE match (via EXISTS subquery on `supplier_product_oems`)
+3. Results ranked by stock availability, price existence, brand relevance
+
+### Filters (via query parameters)
+- `supplier` — filter by provider name (via `supplier_providers`)
+- `brand` — filter by `supplier_brand`
+- `inStock=true/false` — filter by stock status
+- `minPrice` / `maxPrice` — price range filter
+- `sort` — relevance (default), in_stock_first, price_asc, price_desc, updated_desc
+
+### Relevance Ranking
+- SKU-like queries: exact SKU > prefix SKUs > others, then stock > no stock, priced > unpriced
+- Free-text: stock > no stock, priced > unpriced, brand match priority, then updated_at
+
+### Result Safety
+- If DB results exist, they are returned with `dataSource: "existing-db"`
+- If `SEARCH_LIVE_FALLBACK_ENABLED=true` and DB search returns no results, fallback to live supplier API
+- `raw_json` is never returned to the browser — only normalized fields
+- `supplier_product_oems` OEM codes are included in `oemNumbers` array
 
 When `USE_EXISTING_CATALOG_DB=false` or `CATALOG_SEARCH_SOURCE=mock`:
 - Preserves existing mock/live behavior (no DB queries)

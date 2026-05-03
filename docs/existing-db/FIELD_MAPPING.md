@@ -73,16 +73,46 @@ The DB also contains these related tables that could be used for future enhancem
 - `part_pricing_inventory` — Pricing and inventory
 - `part_images` — Product images
 
+### OEM Table: supplier_product_oems
+
+| OEM Column | Type | DTO Field | Mapping Status | Notes |
+|-----------|------|-----------|----------------|-------|
+| `id` | integer | — | — | Primary key |
+| `provider_id` | integer | — | — | FK to supplier_providers |
+| `supplier_product_id` | integer | — | — | FK to supplier_products.id |
+| `oem_code` | text | `oemNumbers[]` | **VERIFIED** | Original OEM number |
+| `normalized_oem_code` | text | — | **VERIFIED** | Normalized for search |
+| `oem_brand` | text | — | **VERIFIED** | OEM brand association |
+| `source` | text | — | — | Data source (API/MANUAL) |
+| `is_active` | boolean | — | — | Only active OEMs are returned |
+
 ### Search Strategy
 
-The catalog search covers these columns with ILIKE:
-- `supplier_sku` — exact/partial stock code
-- `supplier_name` — product description
-- `supplier_brand` — brand name
-- `normalized_sku` — normalized SKU
-- `normalized_name` — normalized product name
-- `barcode_1` / `barcode_2` / `barcode_3` — barcode search
-- `raw_json` — full JSON ILIKE (fallback)
+The catalog search covers these columns:
+
+**SKU/OEM/barcode-like queries (prioritized exact matches):**
+1. Exact `supplier_sku` match
+2. Exact `normalized_sku` match
+3. Exact `barcode_1/2/3` match
+4. Exact `oem_code` or `normalized_oem_code` match (via JOIN)
+5. Fuzzy ILIKE across `supplier_sku`, `normalized_sku`, `barcode_1/2/3`, `supplier_brand`
+6. Fuzzy OEM ILIKE match
+7. Name/description ILIKE fallback
+
+**Free-text queries:**
+1. ILIKE across `supplier_brand`, `supplier_name`, `normalized_name`, `supplier_sku`, `normalized_sku`, `barcode_1/2/3`
+2. OEM ILIKE match (via EXISTS subquery)
+
+**Filters supported:**
+- `supplier` — filter by provider name (via `supplier_providers`)
+- `brand` — filter by `supplier_brand`
+- `inStock` — filter by `supplier_stock_qty > 0`
+- `minPrice` / `maxPrice` — filter by `supplier_price` range
+- `sort` — relevance, in_stock_first, price_asc, price_desc, updated_desc
+
+**Relevance ranking (default):**
+- SKU-like queries: exact SKU > prefix SKUs > others, then stock available > no stock, priced > unpriced
+- Free-text: stock available > no stock, priced > unpriced, brand match priority, then updated_at
 
 A GIN trigram index (`idx_supplier_products_search_trgm`) exists for full-text search performance.
 

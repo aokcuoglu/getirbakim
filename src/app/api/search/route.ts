@@ -4,6 +4,7 @@ import { searchCatalogDb } from "@/lib/catalog-search";
 import { isCatalogDbEnabled, getCatalogSearchSource, isLiveFallbackEnabled } from "@/lib/catalog-db";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { NormalizedProduct, NormalizedOffer } from "@/types";
+import type { CatalogSearchFilters } from "@/lib/catalog-search";
 
 interface SearchResponseProduct extends NormalizedProduct {
   dataSource?: string;
@@ -24,11 +25,12 @@ export async function GET(request: NextRequest) {
         headers: {
           "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
         },
-      }
+      },
     );
   }
 
-  const query = request.nextUrl.searchParams.get("q") ?? "";
+  const searchParams = request.nextUrl.searchParams;
+  const query = searchParams.get("q") ?? "";
 
   if (!query.trim()) {
     return NextResponse.json({
@@ -40,10 +42,26 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const filters: CatalogSearchFilters = {
+    supplier: searchParams.get("supplier") ?? undefined,
+    brand: searchParams.get("brand") ?? undefined,
+    inStock: searchParams.get("inStock") === "true" ? true : searchParams.get("inStock") === "false" ? false : undefined,
+    minPrice: searchParams.has("minPrice") ? Number(searchParams.get("minPrice")) : undefined,
+    maxPrice: searchParams.has("maxPrice") ? Number(searchParams.get("maxPrice")) : undefined,
+    sort: (searchParams.get("sort") as CatalogSearchFilters["sort"]) ?? undefined,
+  };
+
+  // Clean up undefined/null filters
+  if (!filters.supplier) delete (filters as Record<string, unknown>).supplier;
+  if (!filters.brand) delete (filters as Record<string, unknown>).brand;
+  if (filters.minPrice !== undefined && (isNaN(filters.minPrice) || filters.minPrice <= 0)) delete (filters as Record<string, unknown>).minPrice;
+  if (filters.maxPrice !== undefined && (isNaN(filters.maxPrice) || filters.maxPrice <= 0)) delete (filters as Record<string, unknown>).maxPrice;
+  if (!filters.sort) delete (filters as Record<string, unknown>).sort;
+
   const useExistingDb = isCatalogDbEnabled() && getCatalogSearchSource() === "existing-db";
 
   if (useExistingDb) {
-    const catalogResult = await searchCatalogDb(query);
+    const catalogResult = await searchCatalogDb(query, filters);
 
     if (catalogResult && catalogResult.total > 0) {
       const products: SearchResponseProduct[] = catalogResult.products.map((p) => ({
@@ -81,7 +99,7 @@ export async function GET(request: NextRequest) {
           const existing = products.find((np) => np.id === lp.id);
           if (existing) {
             const newOffers = lp.offers.filter(
-              (lo) => !existing.offers.some((eo) => eo.supplierId === lo.supplierId)
+              (lo) => !existing.offers.some((eo) => eo.supplierId === lo.supplierId),
             );
             existing.offers.push(...newOffers);
           } else {
@@ -111,6 +129,8 @@ export async function GET(request: NextRequest) {
         lastCheckedAt: new Date().toISOString(),
         dataSource: "existing-db",
         supplierCounts: allSupplierCounts,
+        brandCounts: catalogResult.brandCounts,
+        appliedFilters: catalogResult.appliedFilters,
         liveFallbackUsed,
       });
     }
@@ -134,6 +154,8 @@ export async function GET(request: NextRequest) {
         lastCheckedAt: new Date().toISOString(),
         dataSource: "existing-db",
         supplierCounts: {},
+        brandCounts: {},
+        appliedFilters: filters,
         liveFallbackUsed: false,
       });
     }

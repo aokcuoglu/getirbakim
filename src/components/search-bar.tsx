@@ -6,10 +6,10 @@ import { Search } from "lucide-react";
 
 interface SearchBarProps {
   initialQuery?: string;
-  size?: "lg" | "md";
+  size?: "lg" | "md" | "hero";
 }
 
-export function SearchBar({ initialQuery = "", size = "lg" }: SearchBarProps) {
+export function SearchBar({ initialQuery = "", size = "md" }: SearchBarProps) {
   const [query, setQuery] = useState(initialQuery);
   const router = useRouter();
 
@@ -20,21 +20,32 @@ export function SearchBar({ initialQuery = "", size = "lg" }: SearchBarProps) {
     }
   }
 
+  const heightClass = size === "hero" ? "h-14" : size === "lg" ? "h-12" : "h-10";
+  const btnSize = size === "hero" ? "h-14 w-20" : size === "lg" ? "h-12 w-12" : "h-10 w-10";
+  const inputText = size === "hero" ? "text-base" : size === "lg" ? "text-sm" : "text-sm";
+
   return (
     <form onSubmit={handleSubmit} className="w-full">
-      <div className={`flex items-center border border-gray-300 bg-white rounded-md overflow-hidden focus-within:border-black transition-colors ${size === "lg" ? "h-14" : "h-10"}`}>
+      <div className={`flex items-center border-2 border-primary rounded-lg overflow-hidden focus-within:border-accent transition-colors bg-white ${heightClass}`}>
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Parça adı, OEM numarası veya marka ara..."
-          className={`flex-1 border-0 bg-transparent px-4 text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 ${size === "lg" ? "text-lg" : "text-sm"}`}
+          placeholder={size === "hero" ? "OEM no, parça kodu, marka veya ürün adı ara" : "Parça adı, OEM numarası veya marka ara..."}
+          className={`flex-1 border-0 bg-transparent px-4 text-foreground placeholder:text-muted focus:outline-none focus:ring-0 ${inputText}`}
         />
         <button
           type="submit"
-          className={`flex items-center justify-center bg-black text-white hover:bg-gray-800 transition-colors ${size === "lg" ? "h-14 w-14" : "h-10 w-10"}`}
+          className={`flex items-center justify-center bg-accent hover:bg-accent-dark text-white transition-colors shrink-0 ${btnSize}`}
         >
-          <Search className={size === "lg" ? "h-6 w-6" : "h-4 w-4"} />
+          {size === "hero" ? (
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <Search className="h-5 w-5" />
+              Parça Ara
+            </span>
+          ) : (
+            <Search className={size === "lg" ? "h-5 w-5" : "h-4 w-4"} />
+          )}
         </button>
       </div>
     </form>

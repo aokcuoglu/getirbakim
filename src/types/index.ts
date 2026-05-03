@@ -103,6 +103,15 @@ export interface NormalizedOffer {
   isAvailable: boolean;
 }
 
+export interface CatalogSearchFilters {
+  supplier?: string;
+  brand?: string;
+  inStock?: boolean;
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: "relevance" | "in_stock_first" | "price_asc" | "price_desc" | "updated_desc";
+}
+
 export interface SearchResult {
   products: NormalizedProduct[];
   total: number;
@@ -111,6 +120,8 @@ export interface SearchResult {
   lastCheckedAt?: string;
   dataSource?: "existing-db" | "live-api" | "mock";
   supplierCounts?: Record<string, number>;
+  brandCounts?: Record<string, number>;
+  appliedFilters?: CatalogSearchFilters;
   liveFallbackUsed?: boolean;
 }
 

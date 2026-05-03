@@ -171,7 +171,7 @@ Admin pages (`/admin/*`) and admin API endpoints (`/api/admin/*`, `GET/PATCH/DEL
 ```
 src/
 ├── app/                    # Next.js App Router pages
-│   ├── api/                # API routes (search, products, requests, supplier-health, admin)
+│   ├── api/                # API routes (search, products, requests, featured, supplier-health, admin)
 │   ├── admin/              # Admin pages (auth-protected)
 │   │   ├── existing-db/    # Catalog DB dashboard (v0.3.0)
 │   │   ├── requests/       # Request list with status management
@@ -184,10 +184,21 @@ src/
 │   ├── returns/
 │   └── distance-sales/
 ├── components/             # React components
+│   ├── header.tsx          # 3-level e-commerce header
+│   ├── footer.tsx          # Professional footer with columns
+│   ├── hero-section.tsx    # Homepage hero with search & vehicle selector
+│   ├── trust-benefits.tsx  # Trust/service benefit icons
+│   ├── category-grid.tsx   # Automotive category icon grid
+│   ├── featured-products.tsx # Featured products with tabs
+│   ├── deal-zone.tsx      # Promotional deal zone
+│   ├── search-bar.tsx      # Search bar (hero/md/lg sizes)
+│   ├── product-card.tsx    # Product card with image, badges, CTAs
+│   └── offer-table.tsx     # Offer comparison table
 ├── lib/
 │   ├── admin-auth.ts       # Admin HTTP Basic Auth
 │   ├── catalog-db.ts       # Catalog DB connection pool (pg)
 │   ├── catalog-search.ts   # Catalog DB search service (v0.3.0)
+│   ├── storefront.ts       # Storefront constants & category data (v0.3.1)
 │   ├── rate-limit.ts       # In-memory per-IP rate limiter
 │   ├── supabase/           # Supabase client utilities
 │   └── utils.ts            # Shared utilities

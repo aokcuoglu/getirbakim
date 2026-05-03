@@ -1,3 +1,148 @@
+# Release Notes — v0.3.1 Automotive Storefront Redesign
+
+**Release Date:** 2026-05-03
+
+## Overview
+
+v0.3.1 redesigns the public storefront to feel like a professional automotive spare parts e-commerce platform. The redesign includes a 3-level header, hero search with vehicle selector placeholder, trust benefit icons, category grid, featured products, deal zone, improved search UX with sidebar filters and OEM/OEN support, redesigned product cards, mobile responsive layout, and professional footer.
+
+## Highlights
+
+- Redesigned public storefront with automotive e-commerce layout
+- 3-level header: utility bar, main header with search, navigation/category bar
+- Hero section with search module, vehicle selector placeholder, and helper examples
+- Trust/service benefit row: 390K+ catalog, OEM/SKU search, stock/price control, compatibility check
+- Category icon grid with 12 automotive categories
+- Featured catalog products section with filterable tabs
+- Deal/promotion zone for service & maintenance parts
+- Search results page with desktop sidebar filters and mobile filter drawer
+- Improved DB-backed catalog search with relevance ranking and OEM/OEN support
+- Added supplier, brand, stock, and price range filters to search
+- Added sorting options: relevance, in_stock_first, price_asc, price_desc, updated_desc
+- SKU-like queries prioritize exact/normalized matches over fuzzy matches
+- OEM numbers displayed in product cards and search results
+- Redesigned product cards with supplier badge, OEM chips, stock status, and image area
+- Professional footer with columns: brand, categories, support, catalog
+- Mobile responsive layout throughout
+- Dark navy / white / blue accent design language
+- New `/api/featured` endpoint for homepage featured products
+- New storefront constants module: `src/lib/storefront.ts`
+- New components: `hero-section`, `trust-benefits`, `category-grid`, `featured-products`, `deal-zone`
+- Preserved DB-backed catalog search
+- Preserved `raw_json` safety — never exposed to browser
+- Preserved admin auth
+- Preserved Docker local setup on http://localhost:3001
+
+## Search Behavior
+
+### SKU/OEM/Barcode-like Queries
+When a query looks like a product code (alphanumeric 4+ chars, no spaces), search prioritizes:
+1. Exact `supplier_sku` match
+2. Exact `normalized_sku` match
+3. Exact `barcode_1/2/3` match
+4. Exact `oem_code` or `normalized_oem_code` match (via `supplier_product_oems` JOIN)
+5. Fuzzy SKU/barcode/brand ILIKE
+6. Fuzzy OEM ILIKE match
+7. Name/description ILIKE fallback
+
+### Free-text Queries
+For general text queries (e.g., "Bosch", "filtre"):
+1. ILIKE across `supplier_brand`, `supplier_name`, `normalized_name`, `supplier_sku`, `normalized_sku`, barcodes
+2. OEM ILIKE match
+3. Results ranked by stock availability, price existence, brand relevance
+
+### Filters (via query parameters)
+- `supplier` — filter by provider name (via `supplier_providers`)
+- `brand` — filter by `supplier_brand`
+- `inStock=true/false` — filter by stock status
+- `minPrice` / `maxPrice` — price range filter
+- `sort` — relevance (default), in_stock_first, price_asc, price_desc, updated_desc
+
+### Safe Frontend DTO — Fields Returned
+- `id`, `supplierProductId`, `supplierProductCode`, `supplierSku`
+- `name`, `brand`, `category`
+- `price`, `currency`, `stockQuantity`, `stockStatus`
+- `oemNumbers`, `barcode`, `imageUrl`
+- `supplierName`, `providerId`, `lastCheckedAt`
+- `dataSource`: always `"existing-db"` for catalog results
+
+### Never Exposed
+- `raw_json` — never sent to browser
+- `raw_payload` — never sent to browser
+- Full DB row — never sent to browser
+- Internal credentials — never sent to browser
+
+## New Components
+
+| Component | Path | Description |
+|-----------|------|-------------|
+| `HeroSection` | `src/components/hero-section.tsx` | Homepage hero with search and vehicle selector |
+| `TrustBenefitRow` | `src/components/trust-benefits.tsx` | Trust/service benefit icons |
+| `CategoryGrid` | `src/components/category-grid.tsx` | Automotive category icon grid |
+| `FeaturedProducts` | `src/components/featured-products.tsx` | Featured catalog products with tabs |
+| `DealZone` | `src/components/deal-zone.tsx` | Promotional deal zone |
+| Storefront constants | `src/lib/storefront.ts` | Categories, benefits, tabs, site config |
+
+## Redesigned Components
+
+| Component | Changes |
+|-----------|---------|
+| `Header` | 3-level: utility bar, main header with search+icons, nav/category bar; mobile hamburger with search |
+| `Footer` | Dark navy, 4-column layout with catalog/brand/support/categories; disclaimer banner; live indicator |
+| `ProductCard` | Image area, supplier badge, brand tag, OEM chips, stock badge, price, "Katalog verisi" badge, CTAs |
+| `SearchBar` | "hero" size variant, accent-colored search button, "Parça Ara" text on hero variant |
+| Search page | Desktop sidebar filters, mobile filter drawer, improved sort, active filter chips |
+
+## New API Route
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/featured` | GET | Featured catalog products (DB-backed, in-stock, priced, branded) |
+
+## `/api/search` — New Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `q` | string | required | Search query |
+| `supplier` | string | — | Filter by supplier name |
+| `brand` | string | — | Filter by brand |
+| `inStock` | "true"/"false" | — | Filter by stock status |
+| `minPrice` | number | — | Minimum price |
+| `maxPrice` | number | — | Maximum price |
+| `sort` | string | "relevance" | Sort order |
+
+### Response — New Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `brandCounts` | `Record<string, number>` | Brand distribution in results |
+| `appliedFilters` | `CatalogSearchFilters` | Filters applied to the search |
+
+## Design Language
+
+- Primary: Dark navy (`#0f172a`, `#1e3a5f`)
+- Accent: Blue (`#2563eb`)
+- Surfaces: White, slate-50, slate-100
+- Typography: Geist Sans, Geist Mono
+- Cards: White with border, hover shadow, rounded-lg
+- Badges: Blue for catalog data, green for stock, amber for warnings
+
+## Known Notes
+
+- Vehicle selector is UI-only placeholder in this version
+- Cart/checkout is not implemented
+- Featured products depend on DB configuration
+- Price and stock still require verification before commercial order confirmation
+- Başbuğ supplier import is not included
+- VIN/chassis and plate search are not included
+- `<img>` used for external catalog images (cannot use next/image with dynamic external URLs)
+
+## Recommended Indexes
+
+See `docs/existing-db/RECOMMENDED_INDEXES.md` for performance-optimizing indexes. These should be reviewed and applied manually on staging/production.
+
+---
+
 # Release Notes — v0.3.0 Existing Supabase Catalog DB Integration
 
 **Release Date:** 2026-05-03

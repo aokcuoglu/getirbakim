@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { NormalizedProduct } from "@/types";
 import { formatPrice } from "@/lib/utils";
-import { ArrowRight, Package, Database, AlertTriangle } from "lucide-react";
+import { ArrowRight, Package, Database, AlertTriangle, Tag } from "lucide-react";
 
 interface ProductCardProps {
   product: NormalizedProduct & { dataSource?: string };
@@ -27,126 +27,196 @@ function getSupplierDisplayName(supplierName: string): string {
 export function ProductCard({ product }: ProductCardProps) {
   const bestOffer = product.offers.reduce(
     (best, offer) => (offer.price < best.price ? offer : best),
-    product.offers[0]
+    product.offers[0],
   );
-  const availableOffers = product.offers.filter((o) => o.isAvailable);
   const totalStock = product.offers.reduce(
     (sum, offer) => sum + offer.stockQuantity,
-    0
+    0,
   );
-
   const isFromDb = product.dataSource === "existing-db";
 
   return (
-    <div className="border border-gray-200 rounded-md bg-white hover:border-gray-400 transition-all group">
-      <div className="p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-base text-black group-hover:underline truncate">
-              {product.name}
-            </h3>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {product.brand && (
-                <span className="text-sm text-gray-600">{product.brand}</span>
-              )}
-              {product.category && (
-                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                  {product.category}
-                </span>
-              )}
-            </div>
+    <div className="border border-border rounded-lg bg-white hover:shadow-md hover:border-slate-300 transition-all group flex flex-col">
+      {/* Image area */}
+      <div className="relative bg-surface-alt rounded-t-lg h-40 flex items-center justify-center overflow-hidden">
+        {product.image_url ? (
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="w-full h-full object-contain p-4 group-hover:scale-105 transition-transform"
+            loading="lazy"
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-muted">
+            <Package className="h-10 w-10 opacity-30" />
+            <span className="text-xs opacity-50">Ürün görseli</span>
           </div>
-          {bestOffer && (
-            <div className="text-right shrink-0">
-              <p className="font-bold text-lg text-black">
-                {formatPrice(bestOffer.price, bestOffer.currency)}
-              </p>
-              <p className="text-xs text-gray-500">en düşük fiyat</p>
-            </div>
+        )}
+        {isFromDb && (
+          <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+            <Database className="h-3 w-3" />
+            Katalog verisi
+          </span>
+        )}
+        {totalStock > 0 ? (
+          <span className="absolute top-2 right-2 inline-flex items-center gap-1 text-[10px] font-semibold bg-green-50 text-green-700 px-2 py-0.5 rounded border border-green-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            Stokta
+          </span>
+        ) : (
+          <span className="absolute top-2 right-2 inline-flex items-center gap-1 text-[10px] font-semibold bg-red-50 text-red-600 px-2 py-0.5 rounded border border-red-200">
+            Stokta yok
+          </span>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="flex flex-col flex-1 p-4">
+        {/* Supplier Badge */}
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          {product.offers.map((offer) => (
+            <span
+              key={offer.supplierId}
+              className="text-[10px] font-semibold bg-primary/5 text-primary px-2 py-0.5 rounded border border-primary/10"
+            >
+              {getSupplierDisplayName(offer.supplierName)}
+            </span>
+          ))}
+          {product.brand && (
+            <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+              {product.brand}
+            </span>
           )}
         </div>
 
+        {/* Product Name */}
+        <h3 className="font-semibold text-sm text-foreground leading-snug mb-2 line-clamp-2 group-hover:text-accent transition-colors">
+          {product.name}
+        </h3>
+
+        {/* SKU */}
+        {bestOffer?.supplierSku && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <Tag className="h-3 w-3 text-muted" />
+            <code className="text-xs font-mono text-muted bg-surface px-1.5 py-0.5 rounded">
+              {bestOffer.supplierSku}
+            </code>
+          </div>
+        )}
+
+        {/* OEM Chips */}
         {product.oem_numbers.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-3">
+          <div className="flex flex-wrap gap-1 mb-2">
             {product.oem_numbers.slice(0, 3).map((oem) => (
               <span
                 key={oem}
-                className="text-xs font-mono bg-gray-50 border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded"
+                className="text-[10px] font-mono bg-surface border border-border text-muted px-1.5 py-0.5 rounded"
               >
                 {oem}
               </span>
             ))}
             {product.oem_numbers.length > 3 && (
-              <span className="text-xs text-gray-400">
+              <span className="text-[10px] text-muted">
                 +{product.oem_numbers.length - 3}
               </span>
             )}
           </div>
         )}
 
-        <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
-          <span className="flex items-center gap-1">
-            <Package className="h-3.5 w-3.5" />
-            {product.offers.length} tedarikçi
-          </span>
-          {totalStock > 0 ? (
-            <span className="flex items-center gap-1 text-green-700">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-              {availableOffers.length > 0
-                ? `${availableOffers.length} tedarikçide stokta`
-                : `${totalStock} adet`}
-            </span>
+        {/* Price */}
+        <div className="mt-auto pt-3 border-t border-border">
+          {bestOffer && bestOffer.price > 0 ? (
+            <div className="flex items-baseline justify-between mb-2">
+              <p className="font-bold text-lg text-foreground">
+                {formatPrice(bestOffer.price, bestOffer.currency)}
+              </p>
+              {product.offers.length > 1 && (
+                <span className="text-xs text-muted">
+                  {product.offers.length} tedarikçi
+                </span>
+              )}
+            </div>
           ) : (
-            <span className="flex items-center gap-1 text-red-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-              Stokta yok
-            </span>
+            <p className="text-sm text-muted mb-2">Fiyat için teklif alınız</p>
+          )}
+
+          {isFromDb && (
+            <div className="flex items-center gap-1.5 text-[10px] text-amber-600 mb-2">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span>Fiyat ve stok talep öncesi tekrar doğrulanır</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/products/${product.id}`}
+              className="flex-1 inline-flex items-center justify-center bg-accent hover:bg-accent-dark text-white text-xs font-semibold py-2.5 rounded-md transition-colors"
+            >
+              Detayı Gör
+              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+            </Link>
+            <Link
+              href={`/request?productId=${encodeURIComponent(product.id)}`}
+              className="flex-1 inline-flex items-center justify-center border border-border text-foreground text-xs font-semibold py-2.5 rounded-md hover:bg-surface transition-colors"
+            >
+              Uyumluluğu Kontrol Et
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ProductCardCompact({ product }: ProductCardProps) {
+  const bestOffer = product.offers.reduce(
+    (best, offer) => (offer.price < best.price ? offer : best),
+    product.offers[0],
+  );
+  const totalStock = product.offers.reduce(
+    (sum, offer) => sum + offer.stockQuantity,
+    0,
+  );
+  const isFromDb = product.dataSource === "existing-db";
+
+  return (
+    <div className="border border-border rounded-lg bg-white hover:shadow-md hover:border-slate-300 transition-all group p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-16 h-16 bg-surface-alt rounded-md flex items-center justify-center shrink-0 overflow-hidden">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name} className="w-full h-full object-contain p-1" loading="lazy" />
+          ) : (
+            <Package className="h-6 w-6 text-muted opacity-30" />
           )}
         </div>
-
-        {isFromDb && (
-          <div className="flex items-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-1 text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
-              <Database className="h-3 w-3" />
-              Katalog verisi
-            </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+            {product.brand && (
+              <span className="text-[10px] font-medium bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{product.brand}</span>
+            )}
+            {isFromDb && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                <Database className="h-2.5 w-2.5" />
+                Katalog
+              </span>
+            )}
           </div>
-        )}
-
-        <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
-          {product.offers.map((offer) => (
-            <span
-              key={offer.supplierId}
-              className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded"
-            >
-              {getSupplierDisplayName(offer.supplierName)}
+          <h3 className="font-medium text-sm text-foreground leading-snug truncate group-hover:text-accent transition-colors">
+            {product.name}
+          </h3>
+          {totalStock > 0 ? (
+            <span className="text-[10px] text-green-700 flex items-center gap-1 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              Stokta
             </span>
-          ))}
-        </div>
-
-        {isFromDb && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-600 mb-3">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span>
-              Fiyat ve stok bilgisi talep öncesinde tekrar doğrulanır.
-            </span>
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 border-t border-gray-100 pt-3">
-          <Link
-            href={`/products/${product.id}`}
-            className="flex-1 inline-flex items-center justify-center bg-black text-white text-sm font-medium py-2.5 rounded hover:bg-gray-800 transition-colors"
-          >
-            Detayı Gör
-            <ArrowRight className="h-4 w-4 ml-1.5" />
-          </Link>
-          <Link
-            href={`/request?productId=${encodeURIComponent(product.id)}`}
-            className="flex-1 inline-flex items-center justify-center border border-gray-300 text-black text-sm font-medium py-2.5 rounded hover:bg-gray-50 transition-colors"
-          >
-            Uyumluluğu Kontrol Et
-          </Link>
+          ) : (
+            <span className="text-[10px] text-red-600">Stokta yok</span>
+          )}
+          {bestOffer && bestOffer.price > 0 && (
+            <p className="font-bold text-sm text-foreground mt-1">
+              {formatPrice(bestOffer.price, bestOffer.currency)}
+            </p>
+          )}
         </div>
       </div>
     </div>
