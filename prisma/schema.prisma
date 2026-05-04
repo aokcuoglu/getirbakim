@@ -1,0 +1,975 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["public", "trodo", "parcatedarik"]
+}
+
+model engines {
+  id           Int        @id
+  fuel_type_id Int
+  name         String
+  created_at   DateTime?  @default(now()) @db.Timestamp(6)
+  fuel_types   fuel_types @relation(fields: [fuel_type_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "engines_fuel_type_id_fuel_types_id_fk")
+  variants     variants[]
+
+  @@schema("public")
+}
+
+model fuel_types {
+  id         Int       @id
+  vehicle_id Int
+  name       String
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  engines    engines[]
+  vehicles   vehicles  @relation(fields: [vehicle_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fuel_types_vehicle_id_vehicles_id_fk")
+
+  @@schema("public")
+}
+
+model makes {
+  id         Int       @id
+  name       String
+  url_key    String?
+  is_popular Boolean?  @default(false)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  models     models[]
+
+  @@schema("public")
+}
+
+model models {
+  id         Int        @id
+  make_id    Int
+  name       String
+  year_from  Int?
+  year_to    Int?
+  url_key    String?
+  created_at DateTime?  @default(now()) @db.Timestamp(6)
+  makes      makes      @relation(fields: [make_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "models_make_id_makes_id_fk")
+  vehicles   vehicles[]
+
+  @@schema("public")
+}
+
+model order_items {
+  id       Int     @id @default(autoincrement())
+  order_id Int
+  part_id  BigInt
+  quantity Int
+  price    Decimal @db.Decimal(10, 2)
+  orders   orders  @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parts    parts   @relation(fields: [part_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+model order_payments {
+  id                       Int       @id @default(autoincrement())
+  order_id                 Int
+  provider                 String
+  provider_payment_id      String?
+  provider_conversation_id String?
+  status                   String
+  amount                   Decimal   @db.Decimal(10, 2)
+  currency                 String    @default("TRY")
+  raw_payload              Json?
+  paid_at                  DateTime? @db.Timestamp(6)
+  failure_reason           String?
+  created_at               DateTime  @default(now()) @db.Timestamp(6)
+  updated_at               DateTime  @default(now()) @db.Timestamp(6)
+  orders                   orders    @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([order_id, created_at])
+  @@index([provider_conversation_id])
+  @@index([provider_payment_id])
+  @@schema("public")
+}
+
+model orders {
+  id                    Int              @id @default(autoincrement())
+  user_id               String?
+  guest_name            String?
+  guest_email           String?
+  guest_phone           String?
+  subtotal_amount       Decimal          @default(0) @db.Decimal(10, 2)
+  shipping_fee          Decimal          @default(0) @db.Decimal(10, 2)
+  total_amount          Decimal          @db.Decimal(10, 2)
+  currency              String           @default("TRY")
+  status                String           @default("PENDING_PAYMENT")
+  payment_status        String           @default("PENDING")
+  shipping_method       String?
+  payment_method        String?
+  shipping_address_json Json?
+  note                  String?          @db.Text
+  last_payment_error    String?
+  stock_released_at     DateTime?        @db.Timestamp(6)
+  created_at            DateTime         @default(now()) @db.Timestamp(6)
+  updated_at            DateTime         @default(now()) @db.Timestamp(6)
+  order_items           order_items[]
+  order_payments        order_payments[]
+  users                 users?           @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([user_id])
+  @@index([status])
+  @@index([payment_status])
+  @@index([guest_email])
+  @@schema("public")
+}
+
+model customer_requests {
+  id                    Int       @id @default(autoincrement())
+  user_id               String?
+  request_type          String
+  status                String    @default("NEW")
+  source                String
+  name                  String
+  email                 String
+  phone                 String?
+  part_id               BigInt?
+  part_name_snapshot    String?
+  brand_name_snapshot   String?
+  category_name_snapshot String?
+  page_url              String?
+  locale                String?
+  vehicle_json          Json?
+  search_query          String?
+  requested_sku_or_oem  String?
+  message               String?   @db.Text
+  admin_note            String?   @db.Text
+  assigned_to           String?
+  resolved_at           DateTime? @db.Timestamp(6)
+  created_at            DateTime  @default(now()) @db.Timestamp(6)
+  updated_at            DateTime  @updatedAt @db.Timestamp(6)
+  parts                 parts?    @relation(fields: [part_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  users                 users?    @relation(fields: [user_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([status])
+  @@index([request_type])
+  @@index([source])
+  @@index([created_at])
+  @@index([user_id])
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_brands {
+  id                     Int                      @id
+  name                   String                   @unique
+  logo_url               String?
+  parts                  parts[]
+  supplier_brand_aliases supplier_brand_aliases[]
+
+  @@schema("public")
+}
+
+model part_categories {
+  id                       Int                        @id
+  name                     String
+  is_active                Boolean                    @default(true)
+  has_childs               Boolean                    @default(false)
+  parent_id                Int?
+  name_tr                  String?
+  url_key                  String?
+  is_main_nav              Boolean                    @default(false)
+  image                    String?                    @db.Text
+  parts                    parts[]
+  vehicle_types_categories vehicle_types_categories[]
+
+  @@index([name])
+  @@index([name_tr])
+  @@index([is_active])
+  @@index([parent_id])
+  @@index([url_key])
+  @@index([is_main_nav])
+  @@schema("public")
+}
+
+model part_cross_references {
+  id             Int    @id @default(autoincrement())
+  brand_name     String
+  article_number String
+  part_id        BigInt
+  parts          parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([article_number])
+  @@index([brand_name])
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_documents {
+  id                 Int     @id @default(autoincrement())
+  doc_file_name      String
+  doc_file_type_name String
+  doc_id             String
+  doc_type_id        Int
+  doc_type_name      String
+  doc_url            String?
+  part_id            BigInt
+  parts              parts   @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_eans {
+  id      Int    @id @default(autoincrement())
+  code    String
+  part_id BigInt
+  parts   parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([part_id, code])
+  @@index([code])
+  @@schema("public")
+}
+
+model part_images {
+  id      Int     @id @default(autoincrement())
+  image   String?
+  thumb   String?
+  part_id BigInt
+  parts   parts   @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_infos {
+  id      Int    @id @default(autoincrement())
+  content String
+  part_id BigInt
+  parts   parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_oens {
+  id      Int    @id @default(autoincrement())
+  brand   String
+  code    String
+  part_id BigInt
+  parts   parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([code])
+  @@index([brand])
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_properties {
+  id      Int    @id @default(autoincrement())
+  key     String
+  value   String
+  part_id BigInt
+  parts   parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([part_id, key], map: "part_properties_part_id_key_unique")
+  @@index([part_id])
+  @@schema("public")
+}
+
+model part_vehicle_types {
+  id              Int           @id @default(autoincrement())
+  part_id         BigInt
+  vehicle_type_id Int
+  parts           parts         @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vehicle_types   vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([part_id, vehicle_type_id])
+  @@index([vehicle_type_id, part_id])
+  @@schema("public")
+}
+
+model parts {
+  id                     BigInt                   @id
+  tecdoc_article_id      BigInt?
+  name                   String
+  part_no                BigInt?
+  article_link_id        BigInt
+  price                  Decimal?                 @db.Decimal(10, 2)
+  in_basket              Boolean                  @default(false)
+  brand_id               Int
+  category_id            Int
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamp(6)
+  p2w_last_seen_at       DateTime?                @db.Timestamp(6)
+  p2w_last_seen_run_id   BigInt?
+  p2w_article_info_synced_at DateTime?            @db.Timestamp(6)
+  p2w_article_info_run_id BigInt?
+  p2w_sync_version       Int                      @default(1)
+  order_items            order_items[]
+  part_supplier_offers   part_supplier_offers[]
+  part_admin_overrides   part_admin_overrides?
+  part_cross_references  part_cross_references[]
+  customer_requests      customer_requests[]
+  part_documents         part_documents[]
+  part_eans              part_eans[]
+  part_images            part_images[]
+  part_infos             part_infos[]
+  part_oens              part_oens[]
+  part_pricing_inventory part_pricing_inventory?
+  part_reference_links_derived part_reference_links[] @relation("part_reference_links_derived")
+  part_reference_links_source  part_reference_links[] @relation("part_reference_links_source")
+  supplier_part_mappings supplier_part_mappings[]
+  part_properties        part_properties[]
+  part_vehicle_types     part_vehicle_types[]
+  part_brands            part_brands              @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  part_categories        part_categories          @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([article_link_id])
+  @@index([tecdoc_article_id])
+  @@index([category_id])
+  @@index([brand_id])
+  @@index([updated_at])
+  @@index([p2w_last_seen_at])
+  @@index([p2w_last_seen_run_id])
+  @@index([p2w_article_info_synced_at])
+  @@index([p2w_article_info_run_id])
+  @@index([category_id, updated_at])
+  @@index([category_id, brand_id])
+  @@index([category_id, brand_id, updated_at])
+  @@index([category_id, price])
+  @@schema("public")
+}
+
+model part_pricing_inventory {
+  part_id                       BigInt              @id
+  supplier_price                Decimal?            @db.Decimal(10, 2)
+  computed_cost_ex_vat          Decimal?            @db.Decimal(10, 2)
+  computed_selling_price_ex_vat Decimal?            @db.Decimal(10, 2)
+  supplier_stock_qty            Int                 @default(0)
+  reserved_stock_qty            Int                 @default(0)
+  min_stock_level               Int                 @default(3)
+  currency                      String              @default("TRY")
+  sync_status                   String              @default("OK")
+  source_provider_id            Int?
+  source_supplier_product_id    Int?
+  last_synced_at                DateTime?           @db.Timestamp(6)
+  last_policy_at                DateTime?           @db.Timestamp(6)
+  created_at                    DateTime            @default(now()) @db.Timestamp(6)
+  updated_at                    DateTime            @updatedAt @db.Timestamp(6)
+  parts                         parts               @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_providers            supplier_providers? @relation(fields: [source_provider_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  supplier_products             supplier_products?  @relation(fields: [source_supplier_product_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([sync_status])
+  @@index([supplier_stock_qty])
+  @@index([supplier_stock_qty, part_id])
+  @@index([source_provider_id])
+  @@index([source_supplier_product_id])
+  @@index([part_id, computed_selling_price_ex_vat])
+  @@schema("public")
+}
+
+model part_admin_overrides {
+  part_id                BigInt   @id
+  selling_price_override Decimal? @db.Decimal(10, 2)
+  is_visible             Boolean  @default(true)
+  lock_price             Boolean  @default(false)
+  lock_visibility        Boolean  @default(false)
+  note                   String?  @db.Text
+  updated_by             String?
+  created_at             DateTime @default(now()) @db.Timestamp(6)
+  updated_at             DateTime @updatedAt @db.Timestamp(6)
+  parts                  parts    @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([is_visible])
+  @@index([lock_price])
+  @@schema("public")
+}
+
+model sync_runs {
+  id            Int       @id @default(autoincrement())
+  source        String
+  status        String    @default("SUCCESS")
+  started_at    DateTime  @default(now()) @db.Timestamp(6)
+  ended_at      DateTime? @db.Timestamp(6)
+  total_count   Int       @default(0)
+  success_count Int       @default(0)
+  failed_count  Int       @default(0)
+  error_summary String?   @db.Text
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([source])
+  @@index([status])
+  @@index([started_at])
+  @@schema("public")
+}
+
+model supplier_providers {
+  id                     Int                      @id @default(autoincrement())
+  code                   String                   @unique
+  name                   String
+  status                 String                   @default("ACTIVE")
+  priority               Int                      @default(100)
+  schedule               String?                  @default("HOURLY")
+  base_url               String?
+  config                 Json?
+  last_sync_at           DateTime?                @db.Timestamp(6)
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @updatedAt @db.Timestamp(6)
+  part_pricing_inventory part_pricing_inventory[]
+  part_reference_links   part_reference_links[]
+  part_supplier_offers   part_supplier_offers[]
+  supplier_brand_aliases supplier_brand_aliases[]
+  supplier_part_mappings supplier_part_mappings[]
+  supplier_product_oems  supplier_product_oems[]
+  supplier_products      supplier_products[]
+  supplier_sync_runs     supplier_sync_runs[]
+
+  @@index([status])
+  @@index([priority])
+  @@schema("public")
+}
+
+model supplier_brand_aliases {
+  id                 Int                @id @default(autoincrement())
+  provider_id        Int
+  supplier_brand     String
+  normalized_brand   String?
+  part_brand_id      Int?
+  mapping_status     String             @default("PENDING")
+  confidence         Decimal?           @db.Decimal(5, 4)
+  created_at         DateTime           @default(now()) @db.Timestamp(6)
+  updated_at         DateTime           @updatedAt @db.Timestamp(6)
+  part_brands        part_brands?       @relation(fields: [part_brand_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  supplier_providers supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([provider_id, supplier_brand])
+  @@index([part_brand_id])
+  @@index([mapping_status])
+  @@schema("public")
+}
+
+model supplier_products {
+  id                     Int                      @id @default(autoincrement())
+  provider_id            Int
+  supplier_product_key   String
+  supplier_sku           String
+  supplier_brand         String?
+  supplier_name          String?
+  normalized_sku         String?
+  normalized_name        String?
+  barcode_1              String?
+  barcode_2              String?
+  barcode_3              String?
+  supplier_price         Decimal?                 @db.Decimal(10, 2)
+  supplier_stock_qty     Int                      @default(0)
+  currency               String                   @default("TRY")
+  image_url              String?
+  raw_json               Json
+  last_seen_at           DateTime                 @default(now()) @db.Timestamp(6)
+  created_at             DateTime                 @default(now()) @db.Timestamp(6)
+  updated_at             DateTime                 @updatedAt @db.Timestamp(6)
+  part_pricing_inventory part_pricing_inventory[]
+  part_reference_links   part_reference_links[]
+  part_supplier_offers   part_supplier_offers[]
+  supplier_product_oems  supplier_product_oems[]
+  supplier_providers     supplier_providers       @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_part_mappings supplier_part_mappings[]
+
+  @@unique([provider_id, supplier_product_key])
+  @@unique([provider_id, supplier_sku])
+  @@index([provider_id, supplier_sku])
+  @@index([supplier_brand])
+  @@index([provider_id, updated_at(sort: Desc)])
+  @@schema("public")
+}
+
+model supplier_product_oems {
+  id                    Int                @id @default(autoincrement())
+  provider_id           Int
+  supplier_product_id   Int
+  oem_code              String
+  normalized_oem_code   String
+  oem_brand             String?
+  source                String             @default("API")
+  is_active             Boolean            @default(true)
+  created_at            DateTime           @default(now()) @db.Timestamp(6)
+  updated_at            DateTime           @updatedAt @db.Timestamp(6)
+  supplier_products     supplier_products  @relation(fields: [supplier_product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_providers    supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([provider_id, supplier_product_id, normalized_oem_code, source])
+  @@index([normalized_oem_code])
+  @@index([provider_id, normalized_oem_code])
+  @@index([supplier_product_id])
+  @@schema("public")
+}
+
+model supplier_part_mappings {
+  id                  Int                @id @default(autoincrement())
+  provider_id         Int
+  supplier_product_id Int
+  supplier_sku        String
+  part_id             BigInt?
+  status              String             @default("QUEUE")
+  workflow_status     String             @default("NEW")
+  confidence          Decimal?           @db.Decimal(5, 4)
+  match_reason        String?            @db.Text
+  is_manual           Boolean            @default(false)
+  approved_by         String?
+  approved_at         DateTime?          @db.Timestamp(6)
+  ignored_reason      String?            @db.Text
+  created_at          DateTime           @default(now()) @db.Timestamp(6)
+  updated_at          DateTime           @updatedAt @db.Timestamp(6)
+  parts               parts?             @relation(fields: [part_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  supplier_products   supplier_products  @relation(fields: [supplier_product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_providers  supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([provider_id, supplier_product_id])
+  @@unique([provider_id, supplier_sku])
+  @@unique([supplier_product_id])
+  @@index([status])
+  @@index([workflow_status])
+  @@index([part_id])
+  @@index([confidence])
+  @@index([status, part_id])
+  @@index([status, provider_id, supplier_product_id])
+  @@schema("public")
+}
+
+model part_reference_links {
+  id                  BigInt              @id @default(autoincrement())
+  source_part_id      BigInt
+  derived_part_id     BigInt              @unique
+  provider_id         Int
+  supplier_product_id Int
+  relation_type       String              @default("SUPPLIER_REFERENCE_CLONE")
+  copy_mode           String              @default("FULL_COPY_EDITABLE")
+  created_by          String?
+  is_active           Boolean             @default(true)
+  created_at          DateTime            @default(now()) @db.Timestamp(6)
+  updated_at          DateTime            @updatedAt @db.Timestamp(6)
+  parts_part_reference_links_derived parts @relation("part_reference_links_derived", fields: [derived_part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parts_part_reference_links_source  parts @relation("part_reference_links_source", fields: [source_part_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplier_products   supplier_products  @relation(fields: [supplier_product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_providers  supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([source_part_id])
+  @@index([provider_id, supplier_product_id])
+  @@schema("public")
+}
+
+model part_supplier_offers {
+  id                  Int                @id @default(autoincrement())
+  provider_id         Int
+  supplier_product_id Int
+  part_id             BigInt
+  supplier_price      Decimal?           @db.Decimal(10, 2)
+  supplier_stock_qty  Int                @default(0)
+  currency            String             @default("TRY")
+  campaign_rate       Decimal?           @db.Decimal(5, 4)
+  is_active           Boolean            @default(true)
+  last_synced_at      DateTime?          @db.Timestamp(6)
+  created_at          DateTime           @default(now()) @db.Timestamp(6)
+  updated_at          DateTime           @updatedAt @db.Timestamp(6)
+  parts               parts              @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_products   supplier_products  @relation(fields: [supplier_product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  supplier_providers  supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([provider_id, supplier_product_id])
+  @@index([part_id])
+  @@index([provider_id])
+  @@index([is_active])
+  @@schema("public")
+}
+
+model supplier_sync_runs {
+  id                 Int                @id @default(autoincrement())
+  provider_id        Int
+  trigger_type       String             @default("MANUAL")
+  endpoint           String?
+  status             String             @default("RUNNING")
+  started_at         DateTime           @default(now()) @db.Timestamp(6)
+  ended_at           DateTime?          @db.Timestamp(6)
+  total_count        Int                @default(0)
+  success_count      Int                @default(0)
+  failed_count       Int                @default(0)
+  error_summary      String?            @db.Text
+  meta               Json?
+  created_at         DateTime           @default(now()) @db.Timestamp(6)
+  supplier_providers supplier_providers @relation(fields: [provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([provider_id])
+  @@index([status])
+  @@index([started_at])
+  @@schema("public")
+}
+
+model user_vehicles {
+  id           Int       @id @default(autoincrement())
+  user_id      String
+  vehicle_data Json
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  users        users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "user_vehicles_user_id_users_id_fk")
+
+  @@schema("public")
+}
+
+model users {
+  id             String          @id
+  name           String
+  email          String          @unique(map: "users_email_unique")
+  email_verified Boolean         @default(false)
+  image          String?
+  created_at     DateTime        @db.Timestamp(6)
+  updated_at     DateTime        @db.Timestamp(6)
+  role           String?         @default("CUSTOMER")
+  customer_requests customer_requests[]
+  notifications  notifications[]
+  orders         orders[]
+  user_vehicles  user_vehicles[]
+
+  @@schema("public")
+}
+
+model notifications {
+  id         BigInt    @id @default(autoincrement())
+  user_id    String
+  type       String
+  title      String
+  message    String
+  payload    Json?
+  read_at    DateTime? @db.Timestamp(6)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, created_at])
+  @@index([user_id, read_at])
+  @@schema("public")
+}
+
+model variants {
+  id               Int       @id
+  engine_id        Int
+  name             String
+  year_from        Int?
+  year_to          Int?
+  ccm              String?
+  kw_ps            String?
+  engine_code      String?
+  url_key          String?
+  tecdoc_id        Int?
+  magento_id       Int?
+  tags             String?
+  popularity_order Int?
+  is_popular       Boolean?  @default(false)
+  dropdown_id      Int?
+  liters           String?
+  engine_fuel      String?
+  engine_liters    String?
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  category_tree_nodes category_tree[]
+  engines          engines   @relation(fields: [engine_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "variants_engine_id_engines_id_fk")
+
+  @@schema("trodo")
+}
+
+model category_tree {
+  id                   BigInt        @id @default(autoincrement())
+  variant_id           Int
+  category_id          Int
+  parent_category_id   Int?
+  tree_parent_key      String
+  child_position       Int
+  child_category_ids   Int[]
+  children_count       Int           @default(0)
+  is_extra_branch      Boolean       @default(false)
+  root_category_id     Int?
+  current_category_id  Int?
+  base_url             String?
+  car_title            String?
+  car_link             String?
+  empty_message        String?
+  name                 String
+  url_key              String
+  path                 String
+  path_ids             Int[]
+  path_depth           Int
+  image_name           String?
+  inherited_image_name String?
+  position             Int?
+  page_type            String?
+  intro_html           String?
+  seo_title            String?
+  headline             String?
+  dynamic_text         String?
+  content_html         String?
+  raw_attributes       Json
+  created_at           DateTime      @default(now()) @db.Timestamp(6)
+  updated_at           DateTime      @updatedAt @db.Timestamp(6)
+  variants             variants      @relation(fields: [variant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([variant_id, category_id])
+  @@index([variant_id])
+  @@index([category_id])
+  @@index([variant_id, parent_category_id])
+  @@index([variant_id, tree_parent_key])
+  @@index([variant_id, url_key])
+  @@index([variant_id, page_type])
+  @@index([variant_id, is_extra_branch])
+  @@schema("trodo")
+}
+
+model vehicle_types_categories {
+  id               Int             @id @default(autoincrement())
+  vehicle_types_id Int
+  category_id      Int
+  created_at       DateTime        @default(now()) @db.Timestamp(6)
+  updated_at       DateTime        @updatedAt @db.Timestamp(6)
+  part_categories  part_categories @relation(fields: [category_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vehicle_types    vehicle_types   @relation(fields: [vehicle_types_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([vehicle_types_id, category_id])
+  @@index([vehicle_types_id])
+  @@index([category_id])
+  @@schema("public")
+}
+
+model vehicle_brands {
+  id             Int              @id
+  name           String           @unique
+  vehicle_models vehicle_models[]
+
+  @@schema("public")
+}
+
+model vehicle_models {
+  id             Int             @id
+  name           String
+  date_from      String?
+  date_to        String?
+  brand_id       Int
+  vehicle_brands vehicle_brands  @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vehicle_types  vehicle_types[]
+
+  @@schema("public")
+}
+
+model vehicle_types {
+  id                       Int                        @id
+  name                     String
+  cc                       Int?
+  fuel_type                String?
+  hp                       Int?
+  kwt                      Int?
+  year_of_constr_from      String?
+  year_of_constr_to        String?
+  model_id                 Int
+  part_vehicle_types       part_vehicle_types[]
+  vehicle_types_categories vehicle_types_categories[]
+  oil_capacities           oil_capacities?
+  vehicle_type_modification vehicle_type_modifications?
+  vehicle_models           vehicle_models             @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+model vehicle_type_modifications {
+  id                      BigInt       @id @default(autoincrement())
+  vehicle_type_id         Int          @unique
+  brake_system            String?
+  car_id                  Int?
+  ccm_tech                Int?
+  construction_type       String?
+  cylinder                Int?
+  cylinder_capacity_ccm   Int?
+  cylinder_capacity_liter Int?
+  fuel_type               String?
+  fuel_type_process       String?
+  impulsion_type          String?
+  manu_id                 Int?
+  manu_name               String?
+  mod_id                  Int?
+  model_name              String?
+  motor_type              String?
+  power_hp_from           Int?
+  power_hp_to             Int?
+  power_kw_from           Int?
+  power_kw_to             Int?
+  type_name               String?
+  type_number             Int?
+  valves                  Int?
+  year_of_constr_from     String?
+  year_of_constr_to       String?
+  rmi_type_id             Int?
+  motor_codes             Json?
+  raw_payload             Json?
+  created_at              DateTime     @default(now()) @db.Timestamp(6)
+  updated_at              DateTime     @updatedAt @db.Timestamp(6)
+  vehicle_types           vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([manu_id])
+  @@index([mod_id])
+  @@schema("public")
+}
+
+model parts2world_sync_runs {
+  id                 BigInt    @id @default(autoincrement())
+  script_name        String
+  status             String
+  resume_key         String?
+  args_json          Json?
+  host               String?
+  pid                Int?
+  started_at         DateTime  @default(now()) @db.Timestamp(6)
+  updated_at         DateTime  @updatedAt @db.Timestamp(6)
+  finished_at        DateTime? @db.Timestamp(6)
+  processed          Int       @default(0)
+  created            Int       @default(0)
+  updated            Int       @default(0)
+  failed             Int       @default(0)
+  skipped            Int       @default(0)
+  checkpoint_cursor  String?
+  checkpoint_payload Json?
+
+  @@index([script_name, started_at])
+  @@index([status, started_at])
+  @@schema("public")
+}
+
+model parts2world_sync_checkpoints {
+  id             BigInt   @id @default(autoincrement())
+  script_name    String
+  resume_key     String
+  run_id         BigInt?
+  cursor         String?
+  payload        Json?
+  updated_at     DateTime @updatedAt @db.Timestamp(6)
+
+  @@unique([script_name, resume_key])
+  @@index([run_id])
+  @@schema("public")
+}
+
+model parts2world_sync_errors {
+  id            BigInt   @id @default(autoincrement())
+  run_id        BigInt
+  script_name   String
+  stage         String?
+  entity_type   String?
+  entity_id     String?
+  request_url   String?
+  message       String
+  context       Json?
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([run_id, created_at])
+  @@index([script_name, created_at])
+  @@schema("public")
+}
+
+model oil_capacities {
+  id              Int           @id @default(autoincrement())
+  vehicle_type_id Int           @unique
+  brand           String
+  capacity        String?
+  viscosity1      String?
+  viscosity2      String?
+  viscosity3      String?
+  created_at      DateTime      @default(now()) @db.Timestamp(6)
+  updated_at      DateTime      @default(now()) @db.Timestamp(6)
+  vehicle_types   vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+model vehicles {
+  id         Int          @id
+  model_id   Int
+  name       String
+  year_from  Int?
+  year_to    Int?
+  url_key    String?
+  created_at DateTime?    @default(now()) @db.Timestamp(6)
+  fuel_types fuel_types[]
+  models     models       @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "vehicles_model_id_models_id_fk")
+
+  @@schema("public")
+}
+
+model scrape_progress {
+  id              Int      @id @default(autoincrement())
+  vehicle_type_id Int
+  category_id     Int
+  parts_count     Int      @default(0)
+  scraped_at      DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([vehicle_type_id, category_id])
+  @@index([vehicle_type_id])
+  @@schema("public")
+}
+
+model dinamik_sync_jobs {
+  id           Int      @id @default(autoincrement())
+  status       String   @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  mode         String   // full or delta
+  brand        String?
+  limit_brands Int?
+  created_at   DateTime @default(now()) @db.Timestamp(6)
+  started_at   DateTime? @db.Timestamp(6)
+  completed_at DateTime? @db.Timestamp(6)
+  error_message String? @db.Text
+  result       Json?
+
+  @@index([status])
+  @@index([created_at])
+  @@index([status, created_at])
+  @@schema("public")
+}
+
+// ==========================================
+// parcatedarik schema
+// ==========================================
+
+// Üreticiler (Manufacturer)
+model manufacturer {
+  id              Int        @id @default(autoincrement())
+  name            String     @unique
+  url_key         String?    @unique
+  created_at      DateTime?  @default(now()) @db.Timestamp(6)
+  updated_at      DateTime?  @default(now()) @db.Timestamp(6)
+  products        product[]
+
+  @@schema("parcatedarik")
+}
+
+// Ürünler (Product)
+model product {
+  id              Int           @id @default(autoincrement())
+  manufacturer_id Int
+  product_id      String        @unique  // parcatedarik.com'daki ürün ID'si
+  title           String
+  url             String        @unique
+  image_url       String?
+  ref_no          String?       // Referans numaraları (virgülle ayrılmış)
+  price           Decimal?      @db.Decimal(10, 2)
+  created_at      DateTime?     @default(now()) @db.Timestamp(6)
+  updated_at      DateTime?     @default(now()) @db.Timestamp(6)
+
+  manufacturer    manufacturer  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
+  price_histories price_history[]
+
+  @@index([manufacturer_id])
+  @@index([product_id])
+  @@schema("parcatedarik")
+}
+
+// Fiyat geçmişi (Price History)
+model price_history {
+  id              Int         @id @default(autoincrement())
+  product_id      Int
+  price           Decimal     @db.Decimal(10, 2)
+  recorded_at     DateTime    @default(now()) @db.Timestamp(6)
+
+  product         product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@index([recorded_at])
+  @@schema("parcatedarik")
+}

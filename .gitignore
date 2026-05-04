@@ -1,0 +1,88 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production
+build
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files
+.env.local
+.env*.local
+
+# Vercel
+.vercel
+
+# Production env
+.env.production
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project Specific
+public/*
+!public/logo.png
+tecdoc-data/*
+# lib/db/scripts/*
+
+.venv-trodo/
+# docs/ is tracked — contains architecture and secret-management guides
+.venv/
+
+/generated/prisma
+
+# Local Data & Dumps
+data.ms
+dumps
+package-lock.json
+
+# DB Scripts
+lib/db/scripts
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+.env.bak-*
+.parts2world-checkpoints/*
+.codex/*
+.claude/
+proxies.txt
+nohup.out
+aux*

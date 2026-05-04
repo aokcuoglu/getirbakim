@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.gitignore
+.env*
+.claude
+.vscode
+data
+docs
+logs
+dumps
+data.ms
+.venv*
+*.md
+!README.md
+scripts

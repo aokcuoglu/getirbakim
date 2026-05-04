@@ -1,0 +1,14 @@
+services:
+  nextjs:
+    image: ghcr.io/aokcuoglu/zupv2:latest
+    container_name: getirbakim-app
+    restart: unless-stopped
+    env_file: .env.production
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
