@@ -1,5 +1,38 @@
 # Release Notes
 
+## v0.1.2 - Clean Contabo VPS Staging Deployment
+
+### Infrastructure
+- Clean Contabo VPS reinstall and provisioning verified
+- Docker Engine installation verified (`docker --version`, `docker compose version`)
+- Repository cloned to `/opt/getirbakim-v2` via GitHub read-only deploy key
+- `.env.production` kept only on VPS (never committed to repository)
+- Docker app container running and reachable at `http://127.0.0.1:3000`
+- Database health check OK (`/api/health` returns `checks.database: ok`, `version: v0.1.2`)
+- nginx HTTP reverse proxy working on `http://getirbakim.com`
+- `/tr` and `/en` pages verified (HTTP 200)
+- `/api/health` verified through nginx (HTTP 200, database OK)
+- HTTPS/SSL status: **pending** (Not yet configured; Certbot/Cloudflare setup to be done separately)
+
+### Added
+- `docs/nginx/getirbakim.conf.example` — example nginx reverse proxy configuration with SSL, gzip, and caching headers
+- `scripts/vps-deploy.sh` — VPS deployment script (git pull, rebuild, health check)
+- `scripts/vps-smoke.sh` — VPS smoke test script (internal + external HTTP/HTTPS checks)
+
+### Changed
+- `docker-compose.yml`: updated default `NEXT_PUBLIC_BUILD_VERSION` to `v0.1.2`, updated GHCR image name to `ghcr.io/aokcuoglu/getirbakim-v2:latest`
+- `docs/DEPLOYMENT_CONTABO.md`: updated git clone URL, directory references, and version references to match current repository
+
+### Deployment
+- GitHub push/tag/release does not automatically update the VPS. Production update requires manual deploy via `scripts/vps-deploy.sh` or the documented `git pull` + `docker compose` workflow.
+- CI/CD deployment automation should be a future release.
+
+### No product feature changes
+- No pricing, payment, supplier sync, vehicle compatibility, auth, search, or UI changes
+- No landing page modifications
+
+---
+
 ## v0.1.1 - Docker-first Local Runtime and Contabo VPS Deployment Readiness
 
 ### Hardened

@@ -27,8 +27,8 @@ services:
         NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
         NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
         NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
-        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-v0.1.1}
-    image: ghcr.io/aokcuoglu/zupv2:latest
+        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-v0.1.2}
+    image: ghcr.io/aokcuoglu/getirbakim-v2:latest
     container_name: getirbakim-app
     restart: unless-stopped
     env_file: .env.production

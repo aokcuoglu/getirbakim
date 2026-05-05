@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.2] - 2026-05-05
+
+### Added
+- `docs/nginx/getirbakim.conf.example` — example nginx reverse proxy configuration with SSL, gzip, and caching headers
+- `scripts/vps-deploy.sh` — VPS deployment script (git pull, rebuild, health check)
+- `scripts/vps-smoke.sh` — VPS smoke test script (internal + external HTTP/HTTPS checks)
+
+### Changed
+- `docker-compose.yml`: updated default `NEXT_PUBLIC_BUILD_VERSION` to `v0.1.2`, updated GHCR image name to `ghcr.io/aokcuoglu/getirbakim-v2:latest`
+- `docs/DEPLOYMENT_CONTABO.md`: updated git clone URL, directory references, and version references
+
+### Infrastructure
+- Clean Contabo VPS reinstall and provisioning verified
+- Docker Engine and Docker Compose installed and verified
+- Repository cloned via GitHub read-only deploy key
+- `.env.production` kept only on VPS
+- Docker container running and healthy on `http://127.0.0.1:3000`
+- nginx HTTP reverse proxy configured and working on `http://getirbakim.com`
+- `/api/health`, `/tr`, `/en` verified through nginx
+- HTTPS/SSL: pending (to be configured in future release)
+- GitHub push/tag/release does not auto-update VPS; manual deploy required
+
 ## [0.1.1] - 2026-05-04
 
 ### Hardened

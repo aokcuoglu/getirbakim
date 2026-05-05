@@ -50,8 +50,8 @@ sudo apt install -y certbot python3-certbot-nginx
 ### Clone the repository
 
 ```bash
-git clone https://github.com/aokcuoglu/zupv2.git
-cd zupv2
+git clone https://github.com/aokcuoglu/getirbakim-v2.git
+cd getirbakim-v2
 ```
 
 ### Create production environment
@@ -71,7 +71,7 @@ nano .env.production
 - `DATABASE_URL` — Supabase session pooler (port 5432, NOT 6543)
 - `NEXT_PUBLIC_SITE_URL` — `https://getirbakim.com`
 - `NEXT_PUBLIC_APP_URL` — `https://getirbakim.com`
-- `NEXT_PUBLIC_BUILD_VERSION` — `v0.1.1`
+- `NEXT_PUBLIC_BUILD_VERSION` — `v0.1.2`
 - All supplier API keys and secrets
 - `NODE_ENV=production`
 
@@ -243,7 +243,7 @@ docker inspect --format='{{.State.Health.Status}}' getirbakim-app
 ## 8. Update / Redeploy
 
 ```bash
-cd zupv2
+cd getirbakim-v2
 git pull origin main
 docker compose build
 docker compose up -d
@@ -255,10 +255,10 @@ Zero-downtime is not guaranteed with a single container. For zero-downtime, add 
 
 ```bash
 # 1. Find the previous image
-docker images | grep zupv2
+docker images | grep getirbakim-v2
 
 # 2. Tag and run the previous version
-docker tag <previous-image-id> ghcr.io/aokcuoglu/zupv2:latest
+docker tag <previous-image-id> ghcr.io/aokcuoglu/getirbakim-v2:latest
 docker compose up -d
 
 # Or via git:
@@ -272,7 +272,7 @@ docker compose up -d
 - **`.env.production`** is the single source of truth for production config.
 - Keep a backup of `.env.production` in a secure location (not in the repo).
 - Document all env var changes in `docs/ENVIRONMENT.md`.
-- Use git tags for release tracking: `git tag v0.1.1`.
+- Use git tags for release tracking: `git tag v0.1.2`.
 - Database backups are managed by Supabase — verify their backup schedule.
 
 ## 11. Firewall
