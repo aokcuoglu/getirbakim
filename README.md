@@ -106,10 +106,29 @@ bun run env:check:production
 ## Production Setup
 
 - [Production Secret Management](docs/production-secret-management.md)
+- [Auth Production Readiness](docs/AUTH_PRODUCTION.md)
+- [Tami Payment Production Readiness](docs/PAYMENT_TAMI_PRODUCTION.md)
+- [Production Security Checklist](docs/PRODUCTION_SECURITY_CHECKLIST.md)
+- [Operations Runbook](docs/OPERATIONS_RUNBOOK.md)
+- [Contabo VPS Deployment](docs/DEPLOYMENT_CONTABO.md)
+
+## Production Go-Live
+
+Before going live, ensure:
+
+1. **Environment**: `bun run env:check:production` passes
+2. **Domain**: `NEXT_PUBLIC_SITE_URL=https://getirbakim.com` and `NEXT_PUBLIC_APP_URL=https://getirbakim.com` (no duplicates)
+3. **SEO Indexing**: `NEXT_PUBLIC_ALLOW_INDEXING=true` in `.env.production`
+4. **SSL**: Certbot installed and `certbot renew --dry-run` passes
+5. **Tami**: Production API URLs (`https://paymentapi.tami.com.tr`) set in `.env.production`
+6. **Auth**: Supabase Site URL and Redirect URLs configured for `https://getirbakim.com`
+7. **Security**: All secrets server-only, security headers verified
+8. **Smoke**: `bash scripts/vps-smoke.sh` passes all checks
+9. **Rollback**: Previous git tag documented, rollback tested
 
 ## Database Architecture
 
 - Prisma 7 with `@prisma/adapter-pg` (pg driver adapter)
 - PostgreSQL via Supabase with multi-schema support: `public`, `trodo`, `parcatedarik`
 - Connection mode: Supabase IPv4 session pooler (port 5432)
-- Pool size: 10 connections (within Supabase free tier limit of 15)
+- Pool size: configurable via `DATABASE_POOL_MAX` / `PG_POOL_MAX`; recommended local Docker value is 2, VPS production value is 4, with an upper clamp of 10

@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.3] - 2026-05-05
+
+### Hardened
+- Production domain/canonical consistency: replaced hardcoded `https://www.getirbakim.com` fallbacks with `resolveSiteUrl()` calls in `lib/supabase/storage.ts` and `lib/actions/category-actions.ts`
+- SEO indexing control: added `NEXT_PUBLIC_ALLOW_INDEXING` env variable; robots.txt, sitemap, and metadata respect this flag
+- `scripts/vps-deploy.sh`: improved with repo validation, git HEAD display, container logs, longer wait, structured output
+- `scripts/vps-smoke.sh`: accepts `DOMAIN` parameter, uses `set -euo pipefail`
+
+### Added
+- `NEXT_PUBLIC_ALLOW_INDEXING` env variable and `isIndexingAllowed()` in `lib/site-url.ts`
+- `scripts/vps-rollback.sh` — git tag-based rollback with health check
+- `docs/AUTH_PRODUCTION.md` — Supabase auth production checklist
+- `docs/PAYMENT_TAMI_PRODUCTION.md` — Tami payment production checklist
+- `docs/PRODUCTION_SECURITY_CHECKLIST.md` — admin access, secrets, headers, rate limiting
+- `docs/OPERATIONS_RUNBOOK.md` — healthcheck, logs, deploy, rollback, common failures
+- Production Go-Live section in README with pre-launch checklist
+- SSL/HTTPS verification and security header checks in `docs/DEPLOYMENT_CONTABO.md`
+
+### Changed
+- `app/robots.ts`: respects `NEXT_PUBLIC_ALLOW_INDEXING` flag
+- `app/[locale]/layout.tsx`: adds noindex metadata when indexing disabled
+- `app/sitemap.xml/route.ts`: returns empty sitemap with noindex when indexing disabled
+- `app/[locale]/sitemap.xml/route.ts`: returns empty sitemap with noindex when indexing disabled
+- `scripts/validate-env.ts`: warns if `NEXT_PUBLIC_ALLOW_INDEXING` is not `true` in production
+- `.env.example`: added `NEXT_PUBLIC_ALLOW_INDEXING`
+- `lib/db.ts`: PrismaPg pool size is now env-configurable via `DATABASE_POOL_MAX` / `PG_POOL_MAX` (replaces hardcoded `max: 10`)
+
+### Fixed
+- Local Docker Supabase session pool exhaustion: PrismaPg pool size is now configurable to prevent `EMAXCONNSESSION` when local Docker and VPS production share the same Supabase project
+
 ## [0.1.2] - 2026-05-05
 
 ### Added

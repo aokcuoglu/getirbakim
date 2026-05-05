@@ -38,6 +38,11 @@ export function getRequestOrigin(headers: HeaderSource | null | undefined): stri
   return normalizeUrl(`${protocol}://${host}`)
 }
 
+export function isIndexingAllowed(): boolean {
+  const value = process.env.NEXT_PUBLIC_ALLOW_INDEXING?.trim().toLowerCase()
+  return value === 'true' || value === '1'
+}
+
 export function resolveSiteUrl(options?: {
   headers?: HeaderSource | null
   preferRequestOrigin?: boolean

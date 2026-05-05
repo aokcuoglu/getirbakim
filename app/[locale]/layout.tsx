@@ -11,7 +11,7 @@ import { ConsoleWarningSuppressor } from '@/components/ConsoleWarningSuppressor'
 import { CookieYesLoader } from '@/components/CookieYesLoader'
 import { GlobalCartDrawer } from '@/components/GlobalCartDrawer'
 import ChatAssistant from '@/components/ChatAssistant'
-import { resolveSiteUrl } from '@/lib/site-url'
+import { resolveSiteUrl, isIndexingAllowed } from '@/lib/site-url'
 import { Inter } from 'next/font/google'
 import {
   buildOrganizationJsonLd,
@@ -21,7 +21,17 @@ import {
 export const metadata: Metadata = {
   metadataBase: new URL(resolveSiteUrl()),
   title: 'GetirBakim - Automotive Commerce',
-  description: 'The modern platform for automotive parts.'
+  description: 'The modern platform for automotive parts.',
+  ...(isIndexingAllowed() ? {} : {
+    robots: {
+      index: false,
+      follow: false,
+      googleBot: {
+        index: false,
+        follow: false
+      }
+    }
+  })
 }
 
 const inter = Inter({

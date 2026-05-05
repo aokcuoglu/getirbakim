@@ -69,11 +69,16 @@ nano .env.production
 **Critical settings:**
 
 - `DATABASE_URL` — Supabase session pooler (port 5432, NOT 6543)
+- `DATABASE_POOL_MAX` — `4` (VPS production recommended; local Docker should use `2`)
 - `NEXT_PUBLIC_SITE_URL` — `https://getirbakim.com`
 - `NEXT_PUBLIC_APP_URL` — `https://getirbakim.com`
 - `NEXT_PUBLIC_BUILD_VERSION` — `v0.1.2`
 - All supplier API keys and secrets
 - `NODE_ENV=production`
+
+If local Docker is also running against the same Supabase project, ensure
+`DATABASE_POOL_MAX` across both runtimes sums to less than 15 (the Supabase
+session pool limit). Recommended: VPS `4` + local `2` = 6 < 15.
 
 ### Choose deployment strategy
 
@@ -285,3 +290,85 @@ sudo ufw enable
 ```
 
 Do NOT expose port 3000 externally. The app binds to `127.0.0.1:3000` in production compose.
+
+## 12. HTTPS / SSL Verification
+
+After initial SSL setup, verify:
+
+```bash
+# Test nginx configuration
+sudo nginx -t
+
+# Verify SSL certificate
+sudo certbot certificates
+
+# Dry-run renewal
+sudo certbot renew --dry-run
+
+# Reload nginx after cert changes
+sudo systemctl reload nginx
+```
+
+### Smoke Tests for HTTPS
+
+```bash
+# Homepage
+curl -sI https://getirbakim.com | head -1
+# Expected: HTTP/2 200
+
+# Health endpoint
+curl -s https://getirbakim.com/api/health | jq
+# Expected: {"status":"ok","version":"v0.1.3",...}
+
+# Turkish locale
+curl -sI https://getirbakim.com/tr | head -1
+# Expected: HTTP/2 200
+
+# English locale
+curl -sI https://getirbakim.com/en | head -1
+# Expected: HTTP/2 200
+
+# www redirect (should 301 or serve same content)
+curl -sI https://www.getirbakim.com | head -1
+
+# HTTP redirect to HTTPS
+curl -sI http://getirbakim.com | head -1
+# Expected: 301 redirect to https://getirbakim.com/
+```
+
+### SSL Renewal
+
+Certbot auto-renews certs. Verify the cron timer:
+```bash
+sudo systemctl list-timers | grep certbot
+```
+
+Manual renewal:
+```bash
+sudo certbot renew --nginx -d getirbakim.com -d www.getirbakim.com
+sudo systemctl reload nginx
+```
+
+## 13. Monitoring
+
+- Application health: `curl -sf http://127.0.0.1:3000/api/health`
+- Container status: `docker compose ps`
+- Container health: `docker inspect --format='{{.State.Health.Status}}' getirbakim-app`
+- Nginx error log: `sudo tail -50 /var/log/nginx/getirbakim.com.error.log`
+- App log: `docker compose logs app --tail=100`
+- See **docs/OPERATIONS_RUNBOOK.md** for full operational procedures
+
+## 14. Security Headers Verification
+
+Verify security headers are present:
+```bash
+curl -sI https://getirbakim.com | grep -iE 'strict-transport|x-content-type|x-frame|content-security|referrer-policy|permissions-policy'
+```
+
+Expected headers:
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Content-Security-Policy: default-src 'self'; ...`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=(), browsing-topics=()`

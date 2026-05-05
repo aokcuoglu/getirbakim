@@ -153,6 +153,10 @@ validateUrl('NEXT_PUBLIC_SUPABASE_URL', 'https')
 validateStartsWith('DATABASE_URL', 'postgresql://')
 validateStartsWith('DIRECT_URL', 'postgresql://')
 
+if (target === 'production' && getEnv('NEXT_PUBLIC_ALLOW_INDEXING') !== 'true') {
+  warnings.push('NEXT_PUBLIC_ALLOW_INDEXING is not "true" — search engines will be blocked from indexing in production.')
+}
+
 if (target === 'staging') {
   validateExact('TAMI_PAYMENT_API_BASE_URL', 'https://sandbox-paymentapi.tami.com.tr')
   validateExact('TAMI_PORTAL_BASE_URL', 'https://sandbox-portal.tami.com.tr')

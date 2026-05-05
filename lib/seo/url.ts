@@ -64,9 +64,11 @@ export function buildLocaleAlternates(
 }
 
 export function defaultRobotsIndexing(): NonNullable<Metadata['robots']> {
+  const allowed = process.env.NEXT_PUBLIC_ALLOW_INDEXING?.trim().toLowerCase() === 'true'
+
   return {
-    index: true,
-    follow: true
+    index: allowed,
+    follow: allowed
   }
 }
 

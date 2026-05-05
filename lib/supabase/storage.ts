@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { resolveSiteUrl } from '@/lib/site-url'
 
 const supabaseUrl = process.env['NEXT_PUBLIC_SUPABASE_URL']!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -36,7 +37,7 @@ export async function uploadImageFromUrl(
 
   try {
     // Get site URL for Referer header
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.getirbakim.com'
+    const siteUrl = resolveSiteUrl()
     
     // Fetch the image with proper headers to avoid 403 errors
     const response = await fetch(sourceUrl, {

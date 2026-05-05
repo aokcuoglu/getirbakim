@@ -44,6 +44,19 @@ DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supab
 |----------|-------|----------|-------------|
 | `DATABASE_URL` | Server | Yes | Supabase session pooler connection (port 5432) |
 | `DIRECT_URL` | Server | Yes | For Prisma migrations and direct queries |
+| `DATABASE_POOL_MAX` | Server | No | Max DB pool connections. Local: 2, VPS: 4. Upper clamp: 10. |
+
+#### `DATABASE_POOL_MAX`
+
+Controls the maximum number of concurrent database connections the PrismaPg adapter opens.
+
+- **Local Docker default:** 2 — Local Docker shares the Supabase session pool with VPS production.
+- **VPS production default:** 4 — Sufficient for production traffic without exhausting the pool.
+- **Upper clamp:** 10 — The Supabase free-tier session pool limit is 15. Do not exceed it across all runtimes.
+
+If both local Docker and VPS are connected to the same Supabase project simultaneously, their pool sizes must sum to less than 15. Otherwise, you will see `EMAXCONNSESSION max clients reached in session mode`.
+
+The `PG_POOL_MAX` env var is also accepted as a fallback alias.
 
 ### Supabase
 

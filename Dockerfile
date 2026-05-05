@@ -64,6 +64,14 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+RUN chown -R nextjs:nodejs /app/node_modules/@prisma || true
+COPY --from=builder /app/node_modules/@prisma/adapter-pg/dist/index.js /app/node_modules/@prisma/adapter-pg/dist/index.js
+COPY --from=builder /app/node_modules/@prisma/adapter-pg/package.json /app/node_modules/@prisma/adapter-pg/package.json
+COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/dist/index.js /app/node_modules/@prisma/driver-adapter-utils/dist/index.js
+COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/package.json /app/node_modules/@prisma/driver-adapter-utils/package.json
+COPY --from=builder /app/node_modules/@prisma/debug/dist/index.js /app/node_modules/@prisma/debug/dist/index.js
+COPY --from=builder /app/node_modules/@prisma/debug/package.json /app/node_modules/@prisma/debug/package.json
+
 USER nextjs
 
 EXPOSE 3000

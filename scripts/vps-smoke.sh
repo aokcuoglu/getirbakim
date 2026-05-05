@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
+
+DOMAIN="${1:-getirbakim.com}"
 
 echo "=== GetirBakim V2 VPS Smoke Test ==="
+echo "Domain: ${DOMAIN}"
 
 PASS=0
 FAIL=0
@@ -28,15 +31,15 @@ check "127.0.0.1:3000/api/health" "http://127.0.0.1:3000/api/health"
 
 echo ""
 echo "--- External HTTP checks ---"
-check "getirbakim.com/api/health"  "http://getirbakim.com/api/health"
-check "getirbakim.com /tr"         "http://getirbakim.com/tr"
-check "getirbakim.com /en"         "http://getirbakim.com/en"
+check "${DOMAIN}/api/health"  "http://${DOMAIN}/api/health"
+check "${DOMAIN} /tr"         "http://${DOMAIN}/tr"
+check "${DOMAIN} /en"         "http://${DOMAIN}/en"
 
 echo ""
 echo "--- External HTTPS checks ---"
-check "getirbakim.com HTTPS /api/health" "https://getirbakim.com/api/health" 200
-check "getirbakim.com HTTPS /tr"         "https://getirbakim.com/tr"         200
-check "getirbakim.com HTTPS /en"         "https://getirbakim.com/en"         200
+check "${DOMAIN} HTTPS /api/health" "https://${DOMAIN}/api/health" 200
+check "${DOMAIN} HTTPS /tr"         "https://${DOMAIN}/tr"         200
+check "${DOMAIN} HTTPS /en"         "https://${DOMAIN}/en"         200
 
 echo ""
 echo "=== Results: ${PASS} passed, ${FAIL} failed ==="

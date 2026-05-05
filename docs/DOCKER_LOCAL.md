@@ -79,6 +79,29 @@ Server-side env vars (DATABASE_URL, secrets, etc.) are injected at runtime via `
 
 ## Common Issues
 
+### EMAXCONNSESSION / Supabase pool exhaustion
+
+Symptom: Browser shows "Something went wrong". Docker logs show:
+```
+(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15
+```
+
+This means the Supabase session pool (limit 15) is exhausted. Common causes:
+
+- Local Docker and VPS production are both connected to the same Supabase project.
+- `DATABASE_POOL_MAX` is set too high.
+- Multiple local Docker/Bun dev instances running simultaneously.
+
+**Fix:**
+
+1. Set `DATABASE_POOL_MAX=2` in your local `.env`.
+2. Ensure VPS `.env.production` has `DATABASE_POOL_MAX=4` (2 + 4 = 6 < 15).
+3. Stop unused local Docker or dev processes:
+   ```bash
+   docker compose -f docker-compose.local.yml down --remove-orphans
+   ```
+4. Do NOT switch to transaction pooler port 6543 — PrismaPg requires prepared statements.
+
 ### OrbStack / Docker Desktop not running
 
 ```
