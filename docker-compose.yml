@@ -1,14 +1,44 @@
+# Production docker-compose — Contabo VPS deployment.
+#
+# Strategy A — Local build on VPS (preferred):
+#   git clone <repo> && cd getirbakimv2
+#   cp .env.production.template .env.production  # then fill in values
+#   docker compose build
+#   docker compose up -d
+#
+# Strategy B — GHCR pull:
+#   docker login ghcr.io -u <username> -p <token>
+#   docker compose up -d
+#
+# See docs/DEPLOYMENT_CONTABO.md for full instructions.
+
 services:
-  nextjs:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST}
+        NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY}
+        NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
+        NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
+        NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
+        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-v0.1.1}
     image: ghcr.io/aokcuoglu/zupv2:latest
     container_name: getirbakim-app
     restart: unless-stopped
     env_file: .env.production
+    environment:
+      NODE_ENV: production
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-
+      start_period: 40s

@@ -50,24 +50,37 @@ bun run dev
 
 Open [http://localhost:3000](http://localhost:3000) (or 3001 if 3000 is busy).
 
-## Docker
+## Docker (First-Class Runtime)
 
-### Local build
+This is a Docker-first project. Every release must be validated through Docker.
+
+### Local Docker
 
 ```bash
+cp .env.example .env          # then fill in credentials
 docker compose -f docker-compose.local.yml up -d --build
 ```
 
-App runs at http://localhost:3001
+App runs at **http://localhost:3001**
 
-### Production image
+Smoke check: `curl -s http://localhost:3001/api/health`
 
-The production `docker-compose.yml` uses a private GHCR image (`ghcr.io/aokcuoglu/zupv2:latest`) which requires authentication:
+See [**docs/DOCKER_LOCAL.md**](docs/DOCKER_LOCAL.md) for full local Docker instructions and troubleshooting.
+
+### Production (Contabo VPS)
 
 ```bash
-docker login ghcr.io -u <username> -p <token>
+git clone <repo> && cd getirbakimv2
+cp .env.example .env.production  # then fill in production credentials
+docker compose build
 docker compose up -d
 ```
+
+See [**docs/DEPLOYMENT_CONTABO.md**](docs/DEPLOYMENT_CONTABO.md) for VPS setup, nginx, SSL, and rollback.
+
+### Environment Variables
+
+See [**docs/ENVIRONMENT.md**](docs/ENVIRONMENT.md) for the full variable reference, Supabase pooler requirements, and secret rotation guidance.
 
 ## Quality Gates
 

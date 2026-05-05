@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1] - 2026-05-04
+
+### Hardened
+- `docker-compose.local.yml`: added CookieYes build args, `NODE_ENV=production`, healthcheck points to `/api/health`, `start_period: 40s`, fixed default URLs to `localhost:3001`
+- `docker-compose.yml`: added local build strategy alongside GHCR image, `NODE_ENV=production`, healthcheck points to `/api/health`, `start_period: 40s`
+- `/api/health` endpoint: removed rate limiting (Docker healthcheck must always pass), added `version` field
+
+### Added
+- `docs/DOCKER_LOCAL.md` — local Docker runtime guide
+- `docs/DEPLOYMENT_CONTABO.md` — Contabo VPS deployment guide (server setup, nginx, SSL, rollback, backup)
+- `docs/ENVIRONMENT.md` — environment variable reference with Supabase pooler requirements and secret rotation guidance
+
+### Changed
+- README.md Docker section rewritten as Docker-first with links to new docs
+
 ## [0.1.0] - 2026-05-04
 
 ### Fixed
