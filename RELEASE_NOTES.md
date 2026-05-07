@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.2.0 - Performance Baseline and Catalog Reliability
+
+### Performance Baseline
+- Measured baseline timings for all critical endpoints: homepage, health, search, category pages
+- Established acceptance targets for key performance metrics
+- Created `docs/PERFORMANCE_BASELINE.md` with full baseline data, cache architecture, and recommendations
+
+### Server-Side Timing Instrumentation
+- Added `lib/performance/timing.ts` — lightweight timing utility with named operations, timer groups, and threshold-based logging
+- `PERFORMANCE_LOGGING` env variable enables verbose logging (default: false)
+- `SLOW_QUERY_THRESHOLD` env variable controls slow query warning threshold (default: 500ms, was 1000ms)
+- Instrumented homepage data loading (`catalogData`, `manufacturers`, `mainNav`)
+- Instrumented `getPartCategories`, `getPartCategoriesForVehicle`, `getMainNavCategories` with cache hit/miss tracking
+- Instrumented `getCatalogCategories`, `getPopularManufacturers` with cache hit/miss tracking
+- Instrumented hierarchy service `getDropdownData` with cache hit/miss tracking
+- Updated `lib/query-monitor.ts` to use consistent threshold and removed duplicate env parsing
+- Added Redis availability check and DB timing to `/api/health` response
+
+### Catalog and Search Measurement
+- Search endpoint already had Server-Timing headers and timing logs (pre-existing)
+- Catalog category data loading paths now tracked end-to-end
+- Category page resolution (`getPartCategoryByUrlKey`) now has full timing instrumentation
+
+### Cache Improvements
+- Added Redis caching to `getPopularManufacturers` (was uncached, now 1h TTL with key `popular-manufacturers-v1`)
+- Removed `vehicle_brands.count()` debug query from `getDropdownData('vehicle_brands')` — unnecessary DB call on every invocation
+- Optimized `getPartCategoryByUrlKey` to use targeted queries instead of loading ALL categories (reduces cold-cache DB load from O(N) full-table scan to O(depth) targeted lookups)
+- Optimized `getCategorySearchIdFromUrlKey` to trace ancestry via iterative parent lookups instead of loading all categories
+- Documented all cache keys and TTLs in `docs/PERFORMANCE_BASELINE.md`
+
+### DB Index Recommendations
+- Added Prisma indexes: `part_brands(logo_url)`, `part_categories(is_active, is_main_nav)`, `part_categories(is_active, parent_id)`, `part_cross_references(article_number, part_id)`, `part_eans(part_id)`, `part_oens(code, part_id)`
+- Documented additional SQL index recommendations for future releases in `docs/PERFORMANCE_BASELINE.md`
+
+### Search Findings
+- Confirmed MeiliSearch is disabled — all search goes through Prisma fallback
+- Broad search queries (e.g., "Bosch") take 135+ seconds on cold cache due to deeply nested OR conditions across 10+ tables
+- Code-like queries (e.g., OEM numbers) use fast lookup path and are significantly faster
+- Search Redis cache mitigates repeat queries (300s TTL for Meili, 120s for Prisma fallback)
+
+### No product UI redesign
+- No pricing, payment, supplier sync, vehicle compatibility, or order behavior changes
+- No visual or UX changes to any page
+
+---
+
 ## v0.1.5 - Deploy Version Consistency and VPS Compose Hardening
 
 ### Deployment Version Consistency

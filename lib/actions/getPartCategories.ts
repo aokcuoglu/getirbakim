@@ -3,6 +3,7 @@
 import { db } from '@/lib/db'
 import { getFromCache, setCache } from '@/lib/redis'
 import { cache } from 'react'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 export interface PartCategory {
   id: number
@@ -274,15 +275,27 @@ async function fetchPartCategoriesForVehicle(
 export const getPartCategories = async (
   locale: string = 'en'
 ): Promise<PartCategory[]> => {
+  const tg = createTimerGroup('partCategories')
+  const tCache = tg.start('cacheLookup')
   const cacheKey = `part-categories-tree-${locale}-v2`
 
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) {
+    tg.end(tCache, { hit: true })
+    tg.logSummary()
     return cached
   }
+  tg.end(tCache, { hit: false })
 
+  const tDb = tg.start('dbQuery')
   const categories = await fetchPartCategories(locale)
+  tg.end(tDb)
+
+  const tCacheSet = tg.start('cacheSet')
   await setCache(cacheKey, categories, 3600)
+  tg.end(tCacheSet)
+
+  tg.logSummary()
   return categories
 }
 
@@ -291,15 +304,27 @@ export const getPartCategoriesForVehicle = async (
   vehicleTypeId: number,
   locale: string = 'en'
 ): Promise<PartCategory[]> => {
+  const tg = createTimerGroup('partCategoriesForVehicle')
+  const tCache = tg.start('cacheLookup')
   const cacheKey = `part-categories-vehicle-${vehicleTypeId}-${locale}-v2`
 
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) {
+    tg.end(tCache, { hit: true })
+    tg.logSummary()
     return cached
   }
+  tg.end(tCache, { hit: false })
 
+  const tDb = tg.start('dbQuery')
   const categories = await fetchPartCategoriesForVehicle(vehicleTypeId, locale)
-  await setCache(cacheKey, categories, 1800) // 30 minutes cache for vehicle-specific
+  tg.end(tDb)
+
+  const tCacheSet = tg.start('cacheSet')
+  await setCache(cacheKey, categories, 1800)
+  tg.end(tCacheSet)
+
+  tg.logSummary()
   return categories
 }
 
@@ -320,6 +345,8 @@ export type TrodoCategoryWithHierarchy = PartCategoryWithHierarchy
 // Legacy URL format is still supported: "air-filter-100384"
 export const getPartCategoryByUrlKey = cache(
   async (urlKey: string): Promise<PartCategoryWithHierarchy | null> => {
+    const tg = createTimerGroup('categoryByUrlKey')
+    const tCache = tg.start('cacheLookup')
     const cacheKey = `part-category-v2-${urlKey}`
     const cached = await getFromCache<PartCategoryWithHierarchy>(cacheKey)
     if (cached) {
@@ -327,142 +354,193 @@ export const getPartCategoryByUrlKey = cache(
       if (normalizedKey !== cached.urlKey) {
         const next = { ...cached, urlKey: normalizedKey }
         await setCache(cacheKey, next, 3600)
+        tg.end(tCache, { hit: true })
+        tg.logSummary()
         return next
       }
+      tg.end(tCache, { hit: true })
+      tg.logSummary()
       return cached
     }
+    tg.end(tCache, { hit: false })
 
+    const tFind = tg.start('findTarget')
     const legacyCategoryId = parseIdFromUrlKey(urlKey)
-
-    // Fetch all categories to build the tree (needed for children and breadcrumbs)
-    const allCategories = await db.part_categories.findMany({
-      where: {
-        is_active: true
-      },
-      select: {
-        id: true,
-        name: true,
-        name_tr: true,
-        is_active: true,
-        has_childs: true,
-        parent_id: true,
-        url_key: true,
-        image: true
-      }
-    })
-
-    // Build category map
-    const categoryMap = new Map<
-      number,
-      PartCategory & { children: PartCategory[] }
-    >()
-    allCategories.forEach((cat) => {
-      const catUrlKey = normalizeUrlKey(cat.url_key, cat.name)
-      categoryMap.set(cat.id, {
-        id: cat.id,
-        name: cat.name,
-        nameTr: cat.name_tr,
-        isActive: cat.is_active,
-        hasChildren: cat.has_childs,
-        parentId: cat.parent_id,
-        urlKey: catUrlKey,
-        image: cat.image,
-        children: []
-      })
-    })
-
-    // Link children to parents
-    categoryMap.forEach((cat) => {
-      if (cat.parentId) {
-        const parent = categoryMap.get(cat.parentId)
-        if (parent) {
-          parent.children.push(cat)
-        }
-      }
-    })
-
     const normalizedInput = normalizeUrlKey(urlKey, urlKey)
 
-    let targetCategory = legacyCategoryId
-      ? categoryMap.get(legacyCategoryId)
-      : null
+    let targetCategory: (PartCategory & { children: PartCategory[] }) | null = null
+
+    if (legacyCategoryId) {
+      const direct = await db.part_categories.findUnique({
+        where: { id: legacyCategoryId },
+        select: {
+          id: true, name: true, name_tr: true, is_active: true,
+          has_childs: true, parent_id: true, url_key: true, image: true
+        }
+      })
+      if (direct?.is_active) {
+        const children = await db.part_categories.findMany({
+          where: { parent_id: direct.id, is_active: true },
+          select: {
+            id: true, name: true, name_tr: true, is_active: true,
+            has_childs: true, parent_id: true, url_key: true, image: true
+          }
+        })
+        targetCategory = {
+          id: direct.id,
+          name: direct.name,
+          nameTr: direct.name_tr,
+          isActive: direct.is_active,
+          hasChildren: direct.has_childs,
+          parentId: direct.parent_id,
+          urlKey: normalizeUrlKey(direct.url_key, direct.name),
+          image: direct.image,
+          children: children.map((c) => ({
+            id: c.id,
+            name: c.name,
+            nameTr: c.name_tr,
+            isActive: c.is_active,
+            hasChildren: c.has_childs,
+            parentId: c.parent_id,
+            urlKey: normalizeUrlKey(c.url_key, c.name),
+            image: c.image,
+            children: []
+          }))
+        }
+      }
+    }
 
     if (!targetCategory) {
-      const slugMatches = Array.from(categoryMap.values()).filter(
-        (cat) => cat.urlKey === normalizedInput
-      )
-
-      if (slugMatches.length === 0) {
-        return null
-      }
-
-      slugMatches.sort((a, b) => {
-        const childDiff = (b.children?.length ?? 0) - (a.children?.length ?? 0)
-        if (childDiff !== 0) return childDiff
-
-        if (a.hasChildren !== b.hasChildren) {
-          return a.hasChildren ? -1 : 1
+      const slugMatches = await db.part_categories.findMany({
+        where: { is_active: true, url_key: urlKey },
+        select: {
+          id: true, name: true, name_tr: true, is_active: true,
+          has_childs: true, parent_id: true, url_key: true, image: true
         }
-
-        if ((a.parentId == null) !== (b.parentId == null)) {
-          return a.parentId == null ? -1 : 1
-        }
-
-        return a.id - b.id
       })
 
-      targetCategory = slugMatches[0]
+      if (slugMatches.length > 0) {
+        const candidatesWithChildren = await Promise.all(
+          slugMatches.map(async (cat) => {
+            const children = await db.part_categories.findMany({
+              where: { parent_id: cat.id, is_active: true },
+              select: { id: true }
+            })
+            return { cat, childCount: children.length }
+          })
+        )
+
+        candidatesWithChildren.sort((a, b) => {
+          const childDiff = b.childCount - a.childCount
+          if (childDiff !== 0) return childDiff
+          if (a.cat.has_childs !== b.cat.has_childs) return a.cat.has_childs ? -1 : 1
+          if ((a.cat.parent_id == null) !== (b.cat.parent_id == null)) return a.cat.parent_id == null ? -1 : 1
+          return a.cat.id - b.cat.id
+        })
+
+        const best = candidatesWithChildren[0].cat
+        const children = await db.part_categories.findMany({
+          where: { parent_id: best.id, is_active: true },
+          select: {
+            id: true, name: true, name_tr: true, is_active: true,
+            has_childs: true, parent_id: true, url_key: true, image: true
+          }
+        })
+        targetCategory = {
+          id: best.id,
+          name: best.name,
+          nameTr: best.name_tr,
+          isActive: best.is_active,
+          hasChildren: best.has_childs,
+          parentId: best.parent_id,
+          urlKey: normalizeUrlKey(best.url_key, best.name),
+          image: best.image,
+          children: children.map((c) => ({
+            id: c.id,
+            name: c.name,
+            nameTr: c.name_tr,
+            isActive: c.is_active,
+            hasChildren: c.has_childs,
+            parentId: c.parent_id,
+            urlKey: normalizeUrlKey(c.url_key, c.name),
+            image: c.image,
+            children: []
+          }))
+        }
+      }
     }
 
-    const parentMap = new Map(
-      allCategories.map((category) => [category.id, category.parent_id])
-    )
-
-    if (!hasAccessibleAncestry(targetCategory.id, parentMap)) {
+    if (!targetCategory) {
+      tg.end(tFind)
+      tg.logSummary()
       return null
     }
+    tg.end(tFind)
 
-    // Build breadcrumbs
-    const breadcrumbs: {
-      name: string
-      nameTr: string | null
-      urlKey: string
-    }[] = []
+    const tAncestry = tg.start('ancestry')
     let currentId: number | null = targetCategory.parentId
+    const breadcrumbs: { name: string; nameTr: string | null; urlKey: string }[] = []
     while (currentId) {
-      const parent = categoryMap.get(currentId)
-      if (parent) {
-        breadcrumbs.unshift({
-          name: parent.name,
-          nameTr: parent.nameTr,
-          urlKey: parent.urlKey!
-        })
-        currentId = parent.parentId
-      } else {
-        break
+      const parent = await db.part_categories.findUnique({
+        where: { id: currentId },
+        select: { id: true, name: true, name_tr: true, url_key: true, is_active: true, parent_id: true }
+      })
+      if (!parent?.is_active) {
+        tg.end(tAncestry)
+        tg.logSummary()
+        return null
       }
+      breadcrumbs.unshift({
+        name: parent.name,
+        nameTr: parent.name_tr,
+        urlKey: normalizeUrlKey(parent.url_key, parent.name)
+      })
+      currentId = parent.parent_id
     }
+    tg.end(tAncestry)
 
-    // Get siblings if it has a parent
+    const tSiblings = tg.start('siblings')
     let siblings: PartCategory[] = []
     if (targetCategory.parentId) {
-      const parent = categoryMap.get(targetCategory.parentId)
-      if (parent) {
-        siblings = parent.children
-      }
-    } else {
-      // Top-level categories are siblings of each other
-      categoryMap.forEach((cat) => {
-        if (!cat.parentId) {
-          siblings.push(cat)
+      const siblingRows = await db.part_categories.findMany({
+        where: { parent_id: targetCategory.parentId, is_active: true },
+        select: {
+          id: true, name: true, name_tr: true, is_active: true,
+          has_childs: true, parent_id: true, url_key: true, image: true
         }
       })
+      siblings = siblingRows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        nameTr: c.name_tr,
+        isActive: c.is_active,
+        hasChildren: c.has_childs,
+        parentId: c.parent_id,
+        urlKey: normalizeUrlKey(c.url_key, c.name),
+        image: c.image
+      }))
+    } else {
+      const rootRows = await db.part_categories.findMany({
+        where: { parent_id: null, is_active: true },
+        select: {
+          id: true, name: true, name_tr: true, is_active: true,
+          has_childs: true, parent_id: true, url_key: true, image: true
+        }
+      })
+      siblings = rootRows.map((c) => ({
+        id: c.id,
+        name: c.name,
+        nameTr: c.name_tr,
+        isActive: c.is_active,
+        hasChildren: c.has_childs,
+        parentId: c.parent_id,
+        urlKey: normalizeUrlKey(c.url_key, c.name),
+        image: c.image
+      }))
     }
+    siblings = sortCategoriesByName(siblings, 'en')
+    tg.end(tSiblings)
 
-    // Sort siblings by name
-    siblings = sortCategoriesByName(siblings, 'en') // Default to en, but could be passed in
-
-    // Category ids for this category (for Meilisearch)
     const searchIds = [targetCategory.id]
 
     const result: PartCategoryWithHierarchy = {
@@ -481,7 +559,11 @@ export const getPartCategoryByUrlKey = cache(
       siblings
     }
 
+    const tCacheSet = tg.start('cacheSet')
     await setCache(cacheKey, result, 3600)
+    tg.end(tCacheSet)
+
+    tg.logSummary()
     return result
   }
 )
@@ -495,10 +577,18 @@ export const getCategoryByUrlKey = getPartCategoryByUrlKey
 export const getMainNavCategories = async (
   locale: string = 'en'
 ): Promise<PartCategory[]> => {
+  const tg = createTimerGroup('mainNavCategories')
+  const tCache = tg.start('cacheLookup')
   const cacheKey = `main-nav-categories-${locale}-v2`
   const cached = await getFromCache<PartCategory[]>(cacheKey)
-  if (cached) return cached
+  if (cached) {
+    tg.end(tCache, { hit: true })
+    tg.logSummary()
+    return cached
+  }
+  tg.end(tCache, { hit: false })
 
+  const tDb = tg.start('dbQuery')
   const rows = await db.part_categories.findMany({
     where: { is_main_nav: true, is_active: true },
     select: {
@@ -524,8 +614,12 @@ export const getMainNavCategories = async (
     urlKey: normalizeUrlKey(cat.url_key, cat.name),
     image: cat.image
   }))
-
+  tg.end(tDb)
+  const tCacheSet = tg.start('cacheSet')
   await setCache(cacheKey, categories, 3600)
+  tg.end(tCacheSet)
+
+  tg.logSummary()
   return categories
 }
 
@@ -573,10 +667,8 @@ export const getTopCategories = async (
 export const getCategorySearchIdFromUrlKey = async (
   urlKey: string
 ): Promise<number | null> => {
-  // First try to parse id from urlKey format: "air-filter-100384"
   const id = parseIdFromUrlKey(urlKey)
   if (id) {
-    // Verify it exists
     const exists = await db.part_categories.findUnique({
       where: { id },
       select: { id: true, is_active: true, parent_id: true }
@@ -585,34 +677,44 @@ export const getCategorySearchIdFromUrlKey = async (
       return null
     }
 
-    const activeCategories = await db.part_categories.findMany({
-      where: { is_active: true },
-      select: { id: true, parent_id: true }
-    })
-    const parentMap = new Map(
-      activeCategories.map((category) => [category.id, category.parent_id])
-    )
+    let currentId: number | null = exists.parent_id
+    while (currentId !== null) {
+      const parent = await db.part_categories.findUnique({
+        where: { id: currentId },
+        select: { id: true, is_active: true, parent_id: true }
+      })
+      if (!parent || !parent.is_active) {
+        return null
+      }
+      currentId = parent.parent_id
+    }
 
-    return hasAccessibleAncestry(id, parentMap) ? exists.id : null
+    return exists.id
   }
 
-  // Fallback: search by canonical slug
-  const allCategories = await db.part_categories.findMany({
-    where: { is_active: true },
-    select: { id: true, name: true, url_key: true, parent_id: true }
+  const matchingCategory = await db.part_categories.findFirst({
+    where: {
+      is_active: true,
+      url_key: urlKey
+    },
+    select: { id: true, is_active: true, parent_id: true }
   })
 
-  const parentMap = new Map(
-    allCategories.map((category) => [category.id, category.parent_id])
-  )
-
-  // Find category whose canonical slug matches
-  for (const cat of allCategories) {
-    const slug = normalizeUrlKey(cat.url_key, cat.name)
-    if (slug === urlKey && hasAccessibleAncestry(cat.id, parentMap)) {
-      return cat.id
-    }
+  if (!matchingCategory || !matchingCategory.is_active) {
+    return null
   }
 
-  return null
+  let currentId: number | null = matchingCategory.parent_id
+  while (currentId !== null) {
+    const parent = await db.part_categories.findUnique({
+      where: { id: currentId },
+      select: { id: true, is_active: true, parent_id: true }
+    })
+    if (!parent || !parent.is_active) {
+      return null
+    }
+    currentId = parent.parent_id
+  }
+
+  return matchingCategory.id
 }

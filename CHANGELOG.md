@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-05-07
+
+### Added
+- `lib/performance/timing.ts` — server-side performance timing utility with `startTimer`, `endTimer`, `createTimerGroup`; logs only when `PERFORMANCE_LOGGING=true` or above `SLOW_QUERY_THRESHOLD`; never logs secrets
+- `PERFORMANCE_LOGGING` env variable (default: false) and `SLOW_QUERY_THRESHOLD` env variable (default: 500ms, was 1000ms) in `.env.example`
+- `docs/PERFORMANCE_BASELINE.md` — full performance baseline with endpoint timings, cache architecture, search analysis, index recommendations, and acceptance targets
+- Redis caching for `getPopularManufacturers` (key: `popular-manufacturers-v1`, TTL: 3600s) — was previously uncached
+- Redis availability check and DB timing to `/api/health` response
+- Timing instrumentation to homepage, category, hierarchy, and manufacturer data paths
+- Prisma indexes: `part_brands(logo_url)`, `part_categories(is_active, is_main_nav)`, `part_categories(is_active, parent_id)`, `part_cross_references(article_number, part_id)`, `part_eans(part_id)`, `part_oens(code, part_id)`
+
+### Changed
+- `getPartCategoryByUrlKey` rewritten to use targeted queries by ID/parent instead of loading ALL categories from DB on every Redis miss — reduces cold-cache queries from O(N) full-table scan to O(depth) targeted lookups
+- `getCategorySearchIdFromUrlKey` rewritten to trace ancestry via iterative parent lookups instead of loading all active categories — eliminates full-table scan for ancestry verification
+- `SLOW_QUERY_THRESHOLD` default reduced from 1000ms to 500ms
+- `lib/query-monitor.ts` — cleaned up to use consistent named constant for threshold
+
+### Removed
+- `vehicle_brands.count()` debug query removed from `getDropdownData('vehicle_brands')` in hierarchy service — was an unnecessary DB call on every invocation
+
+### Performance
+- Search endpoint (Prisma fallback) identified as critical bottleneck: 135s for broad queries on cold cache
+- MeiliSearch currently disabled — all search routed through slow Prisma fallback
+- Homepage cold cache ~1.9s, warm ~0.2s
+- Health endpoint warm ~180ms
+- Full baseline documented in `docs/PERFORMANCE_BASELINE.md`
+
 ## [0.1.5] - 2026-05-07
 
 ### Changed

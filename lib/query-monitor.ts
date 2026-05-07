@@ -1,9 +1,7 @@
-/**
- * Query Monitor - Stub for tracking database query performance
- *
- * This is a placeholder implementation. In production, you would
- * integrate with your actual monitoring solution (DataDog, NewRelic, etc.)
- */
+const SLOW_THRESHOLD = parseInt(
+  process.env.SLOW_QUERY_THRESHOLD || '500',
+  10
+)
 
 interface QueryStats {
   totalQueries: number
@@ -25,7 +23,6 @@ interface SlowQuery {
   timestamp: Date
 }
 
-// In-memory storage for development
 const queryStats: QueryStats = {
   totalQueries: 0,
   slowQueries: 0,
@@ -36,9 +33,6 @@ const queryStats: QueryStats = {
 const slowQueryLog: SlowQuery[] = []
 const MAX_SLOW_QUERIES = 1000
 
-/**
- * Record a query execution for monitoring
- */
 export function recordQuery(
   operation: string,
   duration: number,
@@ -46,12 +40,10 @@ export function recordQuery(
 ): void {
   queryStats.totalQueries++
 
-  // Update average
   queryStats.avgDuration =
     (queryStats.avgDuration * (queryStats.totalQueries - 1) + duration) /
     queryStats.totalQueries
 
-  // Track by operation
   if (!queryStats.byOperation[operation]) {
     queryStats.byOperation[operation] = {
       count: 0,
@@ -65,9 +57,7 @@ export function recordQuery(
   opStats.totalDuration += duration
   opStats.avgDuration = opStats.totalDuration / opStats.count
 
-  // Track slow queries
-  const slowThreshold = parseInt(process.env.SLOW_QUERY_THRESHOLD || '1000', 10)
-  if (duration > slowThreshold) {
+  if (duration > SLOW_THRESHOLD) {
     queryStats.slowQueries++
 
     slowQueryLog.push({
@@ -76,32 +66,21 @@ export function recordQuery(
       timestamp: new Date()
     })
 
-    // Keep only the last N slow queries
     if (slowQueryLog.length > MAX_SLOW_QUERIES) {
       slowQueryLog.shift()
     }
   }
 }
 
-/**
- * Get current query statistics
- */
 export function getQueryStats(): QueryStats {
   return { ...queryStats }
 }
 
-/**
- * Get slow queries above a threshold
- */
 export function getSlowQueries(threshold?: number): SlowQuery[] {
-  const minThreshold =
-    threshold || parseInt(process.env.SLOW_QUERY_THRESHOLD || '1000', 10)
+  const minThreshold = threshold || SLOW_THRESHOLD
   return slowQueryLog.filter((q) => q.duration >= minThreshold)
 }
 
-/**
- * Reset query statistics (useful for testing)
- */
 export function resetQueryStats(): void {
   queryStats.totalQueries = 0
   queryStats.slowQueries = 0

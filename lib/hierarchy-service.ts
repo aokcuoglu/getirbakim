@@ -20,6 +20,7 @@ import {
   type DropdownItem,
   HIERARCHY_CACHE_TTL
 } from '@/lib/types/hierarchy'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 const HIERARCHY_DEBUG = process.env.HIERARCHY_SERVICE_DEBUG === 'true'
 
@@ -297,7 +298,6 @@ export async function getDropdownData(
   entity: HierarchyLevel,
   parentId?: number
 ): Promise<DropdownItem[]> {
-  // Validate parentId requirement
   if (
     entity !== 'makes' &&
     entity !== 'vehicle_brands' &&
@@ -306,18 +306,26 @@ export async function getDropdownData(
     throw new Error(`parentId is required for entity: ${entity}`)
   }
 
+  const tg = createTimerGroup(`hierarchy:${entity}`)
+  const tCache = tg.start('cacheLookup')
   const cacheKey = getRedisKey(entity, parentId)
   debugLog(
     `[HierarchyService] getDropdownData called for ${entity} with parentId ${parentId}`
   )
 
-  let brandsCount = 0
-  if (entity === 'vehicle_brands') {
-    brandsCount = await db.vehicle_brands.count()
-    debugLog(`[HierarchyService] Total brands in DB: ${brandsCount}`)
-  }
-
   try {
+    if (isRedisAvailable()) {
+      const cached = await getFromCache<DropdownItem[]>(cacheKey)
+      if (cached !== null) {
+        debugLog(`[HierarchyService] Cache HIT: ${cacheKey}`)
+        tg.end(tCache, { hit: true })
+        tg.logSummary()
+        return cached
+      }
+      debugLog(`[HierarchyService] Cache MISS: ${cacheKey}`)
+    }
+    tg.end(tCache, { hit: false })
+
     let result: DropdownItem[] = []
     switch (entity) {
       case 'makes':
@@ -373,12 +381,13 @@ export async function getDropdownData(
         )
         break
 
-      default:
-        throw new Error(`Unknown entity: ${entity}`)
+    default:
+      throw new Error(`Unknown entity: ${entity}`)
     }
     debugLog(
       `[HierarchyService] Returning ${result.length} items for ${entity}`
     )
+    tg.logSummary()
     return result
   } catch (err) {
     console.error(

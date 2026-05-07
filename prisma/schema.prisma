@@ -162,6 +162,7 @@ model part_brands {
   parts                  parts[]
   supplier_brand_aliases supplier_brand_aliases[]
 
+  @@index([logo_url], name: "part_brands_logo_url_idx")
   @@schema("public")
 }
 
@@ -184,6 +185,8 @@ model part_categories {
   @@index([parent_id])
   @@index([url_key])
   @@index([is_main_nav])
+  @@index([is_active, is_main_nav], name: "part_categories_active_main_nav_idx")
+  @@index([is_active, parent_id], name: "part_categories_active_parent_idx")
   @@schema("public")
 }
 
@@ -197,6 +200,7 @@ model part_cross_references {
   @@index([article_number])
   @@index([brand_name])
   @@index([part_id])
+  @@index([article_number, part_id], name: "part_cross_refs_article_part_idx")
   @@schema("public")
 }
 
@@ -223,6 +227,7 @@ model part_eans {
 
   @@unique([part_id, code])
   @@index([code])
+  @@index([part_id], name: "part_eans_part_id_idx")
   @@schema("public")
 }
 
@@ -257,6 +262,7 @@ model part_oens {
   @@index([code])
   @@index([brand])
   @@index([part_id])
+  @@index([code, part_id], name: "part_oens_code_part_idx")
   @@schema("public")
 }
 
