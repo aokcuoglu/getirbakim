@@ -70,6 +70,9 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 echo ""
+echo ">>> Removing any stale container named getirbakim-app..."
+docker rm -f getirbakim-app 2>/dev/null || true
+
 echo ">>> Shutting down existing containers..."
 docker compose --env-file "${ENV_FILE}" down --remove-orphans
 
