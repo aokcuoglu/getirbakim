@@ -27,6 +27,10 @@ jobs:
              && git pull origin main \
              && PROJECT_PATH='${{ secrets.VPS_PROJECT_PATH }}' DOMAIN='${{ secrets.VPS_DOMAIN }}' bash scripts/vps-deploy.sh"
 
+      - name: Wait for container startup
+        if: success()
+        run: sleep 20
+
       - name: Run smoke tests
         if: success()
         run: |
