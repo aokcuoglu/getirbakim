@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.5] - 2026-05-07
+
+### Changed
+- `docker-compose.yml`: removed stale `image: ghcr.io/aokcuoglu/getirbakim-v2:latest`; changed `NEXT_PUBLIC_BUILD_VERSION` default from `v0.1.3` to `dev`; updated comments to document local build strategy and version injection
+- `docker-compose.local.yml`: updated comments to remove GHCR image reference
+- `.github/workflows/deploy-vps.yml`: added `version` input to `workflow_dispatch`; added version determination step (input > tag > short SHA); passes `NEXT_PUBLIC_BUILD_VERSION` to deploy script
+- `scripts/vps-deploy.sh`: computes `DEPLOY_VERSION` from `NEXT_PUBLIC_BUILD_VERSION` > `GITHUB_REF_NAME` > `VERSION` > git tag > short SHA > "dev"; exports `NEXT_PUBLIC_BUILD_VERSION` and passes it to `docker compose up --build`; reports health check version; increased startup wait to 20s
+- `docs/GITHUB_ACTIONS_DEPLOY.md`: documented version inference, manual version input, updated security checklist
+- `docs/DEPLOYMENT_CONTABO.md`: removed `NEXT_PUBLIC_BUILD_VERSION` from `.env.production` settings; added version injection docs; updated deploy/rollback commands
+- `docs/OPERATIONS_RUNBOOK.md`: updated version in health response example; added version source explanation; updated all commands to include `NEXT_PUBLIC_BUILD_VERSION`
+- `README.md`: updated production deploy instructions to use deploy script
+
+### Fixed
+- `/api/health` version now reflects the actual deployed release (not a stale hardcoded value from `.env.production`)
+- Production VPS compose no longer references stale GHCR image
+- Deploy version consistency: GitHub Actions and deploy script agree on version
+
 ## [0.1.4] - 2026-05-07
 
 ### Added

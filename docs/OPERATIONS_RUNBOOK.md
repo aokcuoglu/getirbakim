@@ -11,12 +11,14 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "v0.1.3",
+  "version": "v0.1.5",
   "checks": { "database": "ok" },
   "runtimeMs": 5,
-  "timestamp": "2026-05-05T12:00:00.000Z"
+  "timestamp": "2026-05-07T12:00:00.000Z"
 }
 ```
+
+The `version` field comes from `NEXT_PUBLIC_BUILD_VERSION` which is injected at Docker build time by the deploy script. It is NOT read from `.env.production`.
 
 ### Public Health (through nginx)
 ```bash
@@ -53,7 +55,7 @@ docker compose restart app
 ### Full Rebuild
 ```bash
 docker compose --env-file .env.production down --remove-orphans
-docker compose --env-file .env.production up -d --build
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
 ```
 
 ## Nginx Logs
@@ -119,12 +121,14 @@ With explicit options:
 PROJECT_PATH=/opt/getirbakim-v2 BRANCH=main DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
 ```
 
+The deploy script automatically determines the version from git tags, `NEXT_PUBLIC_BUILD_VERSION` env var, or falls back to the short SHA.
+
 ### Manual Deploy
 ```bash
 cd /opt/getirbakim-v2
 git pull origin main
-docker compose --env-file .env.production down --remove-orphans
-docker compose --env-file .env.production up -d --build
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production down --remove-orphans
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
 sleep 5
 docker compose --env-file .env.production ps
 curl -sf http://127.0.0.1:3000/api/health
@@ -136,21 +140,21 @@ curl -sf https://getirbakim.com/api/health
 ### Automatic Rollback via Script
 ```bash
 cd /opt/getirbakim-v2
-bash scripts/vps-rollback.sh v0.1.2
+NEXT_PUBLIC_BUILD_VERSION=v0.1.3 bash scripts/vps-rollback.sh v0.1.3
 ```
 
 Or with environment variable:
 ```bash
-ROLLBACK_REF=v0.1.2 bash scripts/vps-rollback.sh
+ROLLBACK_REF=v0.1.3 NEXT_PUBLIC_BUILD_VERSION=v0.1.3 bash scripts/vps-rollback.sh
 ```
 
 ### Manual Rollback
 ```bash
 cd /opt/getirbakim-v2
 git tag -l
-git checkout v0.1.2
-docker compose --env-file .env.production down --remove-orphans
-docker compose --env-file .env.production up -d --build
+git checkout v0.1.3
+NEXT_PUBLIC_BUILD_VERSION=v0.1.3 docker compose --env-file .env.production down --remove-orphans
+NEXT_PUBLIC_BUILD_VERSION=v0.1.3 docker compose --env-file .env.production up -d --build
 sleep 5
 curl -sf http://127.0.0.1:3000/api/health
 git checkout main

@@ -72,9 +72,16 @@ nano .env.production
 - `DATABASE_POOL_MAX` — `4` (VPS production recommended; local Docker should use `2`)
 - `NEXT_PUBLIC_SITE_URL` — `https://getirbakim.com`
 - `NEXT_PUBLIC_APP_URL` — `https://getirbakim.com`
-- `NEXT_PUBLIC_BUILD_VERSION` — `v0.1.2`
 - All supplier API keys and secrets
 - `NODE_ENV=production`
+
+**Do NOT set `NEXT_PUBLIC_BUILD_VERSION` in `.env.production`.** The deploy script (`scripts/vps-deploy.sh`) and GitHub Actions workflow inject this at build time. `/api/health` reports the version that was baked into the Docker build.
+
+If you must run `docker compose` manually without the deploy script, pass the version explicitly:
+
+```bash
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
+```
 
 If local Docker is also running against the same Supabase project, ensure
 `DATABASE_POOL_MAX` across both runtimes sums to less than 15 (the Supabase
@@ -84,15 +91,24 @@ session pool limit). Recommended: VPS `4` + local `2` = 6 < 15.
 
 #### Strategy A: Local build on VPS (recommended)
 
+The VPS clones the repo and builds from the Dockerfile. The deploy script injects the build version:
+
 ```bash
-docker compose build
-docker compose up -d
+bash scripts/vps-deploy.sh
+```
+
+Or manually with explicit version:
+
+```bash
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production build
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d
 ```
 
 Advantages:
 - No GHCR authentication needed
 - Full control over build
 - Simpler workflow
+- Build version is always explicit and traceable
 
 #### Strategy B: GHCR private image pull
 
@@ -247,11 +263,26 @@ docker inspect --format='{{.State.Health.Status}}' getirbakim-app
 
 ## 8. Update / Redeploy
 
+### Via deploy script (recommended)
+
 ```bash
-cd getirbakim-v2
+cd /opt/getirbakim-v2
+DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
+```
+
+The deploy script automatically derives the version from git tags or accepts `NEXT_PUBLIC_BUILD_VERSION` env var.
+
+### Via GitHub Actions
+
+Go to **GitHub → Actions → Deploy VPS → Run workflow**. Optionally specify a version string.
+
+### Manual deploy
+
+```bash
+cd /opt/getirbakim-v2
 git pull origin main
-docker compose build
-docker compose up -d
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production down --remove-orphans
+NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
 ```
 
 Zero-downtime is not guaranteed with a single container. For zero-downtime, add a second app instance and use nginx load balancing.
@@ -259,25 +290,20 @@ Zero-downtime is not guaranteed with a single container. For zero-downtime, add 
 ## 9. Rollback
 
 ```bash
-# 1. Find the previous image
-docker images | grep getirbakim-v2
-
-# 2. Tag and run the previous version
-docker tag <previous-image-id> ghcr.io/aokcuoglu/getirbakim-v2:latest
-docker compose up -d
-
-# Or via git:
+cd /opt/getirbakim-v2
+git tag -l
 git checkout v0.1.0
-docker compose build
-docker compose up -d
+NEXT_PUBLIC_BUILD_VERSION=v0.1.0 docker compose --env-file .env.production down --remove-orphans
+NEXT_PUBLIC_BUILD_VERSION=v0.1.0 docker compose --env-file .env.production up -d --build
 ```
 
 ## 10. Backup / Environment Strategy
 
-- **`.env.production`** is the single source of truth for production config.
+- **`.env.production`** is the single source of truth for production config (secrets, URLs, keys).
+- **`NEXT_PUBLIC_BUILD_VERSION`** should NOT be in `.env.production`. It is injected by the deploy script or GitHub Actions at build time.
 - Keep a backup of `.env.production` in a secure location (not in the repo).
 - Document all env var changes in `docs/ENVIRONMENT.md`.
-- Use git tags for release tracking: `git tag v0.1.2`.
+- Use git tags for release tracking: `git tag v0.1.5`.
 - Database backups are managed by Supabase — verify their backup schedule.
 
 ## 11. Firewall
@@ -318,7 +344,7 @@ curl -sI https://getirbakim.com | head -1
 
 # Health endpoint
 curl -s https://getirbakim.com/api/health | jq
-# Expected: {"status":"ok","version":"v0.1.3",...}
+# Expected: {"status":"ok","version":"v0.1.5",...}
 
 # Turkish locale
 curl -sI https://getirbakim.com/tr | head -1

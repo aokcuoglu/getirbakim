@@ -72,8 +72,9 @@ See [**docs/DOCKER_LOCAL.md**](docs/DOCKER_LOCAL.md) for full local Docker instr
 ```bash
 git clone <repo> && cd getirbakimv2
 cp .env.example .env.production  # then fill in production credentials
-docker compose build
-docker compose up -d
+# Note: do NOT set NEXT_PUBLIC_BUILD_VERSION in .env.production
+# The deploy script injects it automatically from git tags
+DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
 ```
 
 See [**docs/DEPLOYMENT_CONTABO.md**](docs/DEPLOYMENT_CONTABO.md) for VPS setup, nginx, SSL, and rollback.

@@ -2,6 +2,11 @@ name: Deploy VPS
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Deploy version (e.g. v0.1.5). Leave empty to use short commit SHA.'
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -12,6 +17,17 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Determine deploy version
+        id: version
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "deploy_version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "deploy_version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_version=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure SSH key
         run: |
           mkdir -p ~/.ssh
@@ -25,7 +41,7 @@ jobs:
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "cd '${{ secrets.VPS_PROJECT_PATH }}' \
              && git pull origin main \
-             && PROJECT_PATH='${{ secrets.VPS_PROJECT_PATH }}' DOMAIN='${{ secrets.VPS_DOMAIN }}' bash scripts/vps-deploy.sh"
+             && PROJECT_PATH='${{ secrets.VPS_PROJECT_PATH }}' DOMAIN='${{ secrets.VPS_DOMAIN }}' NEXT_PUBLIC_BUILD_VERSION='${{ steps.version.outputs.deploy_version }}' bash scripts/vps-deploy.sh"
 
       - name: Wait for container startup
         if: success()

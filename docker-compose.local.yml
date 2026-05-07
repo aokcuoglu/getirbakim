@@ -2,7 +2,7 @@
 # Usage: docker compose -f docker-compose.local.yml up -d --build
 #
 # This is for local Docker testing. The production docker-compose.yml
-# uses a pre-built GHCR image or local VPS build and requires .env.production.
+# builds from the local Dockerfile on VPS and requires .env.production.
 #
 # For local development without Docker, use: bun run dev
 # See docs/DOCKER_LOCAL.md for detailed instructions.
@@ -28,6 +28,7 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev-local}
     ports:
       - "127.0.0.1:3001:3000"
     healthcheck:

@@ -1,14 +1,12 @@
 # Production docker-compose — Contabo VPS deployment.
 #
-# Strategy A — Local build on VPS (preferred):
-#   git clone <repo> && cd getirbakimv2
-#   cp .env.production.template .env.production  # then fill in values
-#   docker compose build
-#   docker compose up -d
+# Build strategy: local build from Dockerfile on VPS.
+# The deploy script (scripts/vps-deploy.sh) injects NEXT_PUBLIC_BUILD_VERSION
+# at build time so /api/health reports the correct release version.
+# .env.production should NOT contain NEXT_PUBLIC_BUILD_VERSION.
 #
-# Strategy B — GHCR pull:
-#   docker login ghcr.io -u <username> -p <token>
-#   docker compose up -d
+# Usage:
+#   NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
 #
 # See docs/DEPLOYMENT_CONTABO.md for full instructions.
 
@@ -27,13 +25,13 @@ services:
         NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
         NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
         NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
-        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-v0.1.3}
-    image: ghcr.io/aokcuoglu/getirbakim-v2:latest
+        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev}
     container_name: getirbakim-app
     restart: unless-stopped
     env_file: .env.production
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev}
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:

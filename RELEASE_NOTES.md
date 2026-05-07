@@ -1,5 +1,49 @@
 # Release Notes
 
+## v0.1.5 - Deploy Version Consistency and VPS Compose Hardening
+
+### Deployment Version Consistency
+- Fixed `/api/health` version reporting: deploy script now injects `NEXT_PUBLIC_BUILD_VERSION` at Docker build time instead of relying on `.env.production`
+- GitHub Actions workflow now determines deploy version from: manual input > tag name > short commit SHA
+- Deploy script (`scripts/vps-deploy.sh`) derives version in priority order: `NEXT_PUBLIC_BUILD_VERSION` env var > `GITHUB_REF_NAME` > `VERSION` > git tag > short SHA > fallback "dev"
+- Health endpoint correctly reports the version of the deployed release, not a stale hardcoded value
+
+### VPS Compose Strategy Hardening
+- Removed stale `image: ghcr.io/aokcuoglu/getirbakim-v2:latest` from `docker-compose.yml` — production VPS builds from local Dockerfile only
+- Removed hard-coded `NEXT_PUBLIC_BUILD_VERSION:-v0.1.3` default from `docker-compose.yml` — replaced with `dev` fallback
+- Updated `docker-compose.yml` comments to document local build strategy and version injection
+- Updated `docker-compose.local.yml` comments to remove reference to GHCR image strategy
+
+### GitHub Actions Workflow Updates
+- Added `version` input to `workflow_dispatch` trigger (optional string, e.g. `v0.1.5`)
+- Added version determination step: resolves from input, tag name, or commit SHA
+- Passes `NEXT_PUBLIC_BUILD_VERSION` to deploy script via SSH command
+- Deploy script exports `NEXT_PUBLIC_BUILD_VERSION` and passes it to `docker compose up --build`
+
+### VPS Deploy Script Hardening
+- `scripts/vps-deploy.sh` now computes and exports `NEXT_PUBLIC_BUILD_VERSION` before `docker compose up --build`
+- Prints deploy version before and after build
+- Reports health check version after deploy for verification
+- Increased container startup wait from 15s to 20s
+- Does not require `.env.production` to contain `NEXT_PUBLIC_BUILD_VERSION`
+
+### Documentation Updates
+- `docs/GITHUB_ACTIONS_DEPLOY.md`: documented version inference logic, manual workflow_dispatch version input, build version priority order, updated security checklist
+- `docs/DEPLOYMENT_CONTABO.md`: removed `NEXT_PUBLIC_BUILD_VERSION` from `.env.production` critical settings, added version injection instructions, updated deploy/rollback commands to pass `NEXT_PUBLIC_BUILD_VERSION`
+- `docs/OPERATIONS_RUNBOOK.md`: updated version in example health response, updated all deploy/rollback commands to include `NEXT_PUBLIC_BUILD_VERSION`, added version source explanation
+- `README.md`: updated production deploy instructions to use deploy script and note about build version
+
+### Post-v0.1.4 Fixes
+- This release captures the version consistency fixes that were missing from v0.1.4
+- v0.1.4 deployed successfully but reported `v0.1.2` via `/api/health` due to stale `.env.production`
+- After v0.1.5, `/api/health` will correctly report the deployed version
+
+### No product feature changes
+- No pricing, payment, supplier sync, vehicle compatibility, auth, search, or UI changes
+- No landing page modifications
+
+---
+
 ## v0.1.4 - GitHub Actions SSH Deploy Automation
 
 ### GitHub Actions Deployment

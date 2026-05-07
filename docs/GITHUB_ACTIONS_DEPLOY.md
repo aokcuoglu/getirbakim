@@ -1,12 +1,12 @@
 # GitHub Actions VPS Deployment
 
-## Purpose (v0.1.4)
+## Purpose (v0.1.5)
 
-Add a controlled, SSH-based deployment automation that connects from GitHub Actions to the Contabo VPS, pulls the latest code, rebuilds Docker, restarts the app, and runs smoke tests — all without exposing secrets.
+Controlled, SSH-based deployment automation that connects from GitHub Actions to the Contabo VPS, pulls the latest code, rebuilds Docker, restarts the app, and runs smoke tests — all without exposing secrets.
 
 This workflow does **not** auto-deploy on every push to `main`. It is triggered only by:
-- **Manual `workflow_dispatch`** — click "Run workflow" in GitHub Actions UI
-- **Tag push** (`v*`) — automatically deploys on version tags
+- **Manual `workflow_dispatch`** — click "Run workflow" in GitHub Actions UI, optionally specifying a version string
+- **Tag push** (`v*`) — automatically deploys on version tags, using the tag name as the deploy version
 
 ## Required GitHub Secrets
 
@@ -77,23 +77,38 @@ These are **two separate keys** with different purposes. Do not confuse them.
 2. Select **"Deploy VPS"** workflow in the left sidebar
 3. Click **"Run workflow"** button (top right)
 4. Select the branch (usually `main`)
-5. Click **"Run workflow"** to confirm
-6. Watch the workflow run in real-time
+5. Optionally enter a **version** string (e.g. `v0.1.5`). If left empty, the short commit SHA is used.
+6. Click **"Run workflow"** to confirm
+7. Watch the workflow run in real-time
+
+## Build Version Inference
+
+The deploy version injected into the Docker build is determined in this priority order:
+
+1. **Manual `workflow_dispatch` input** — if a `version` string is provided
+2. **Tag name** — if triggered by a tag push (e.g. `v0.1.5`)
+3. **Short commit SHA** — if no version or tag is available
+
+This version is passed as `NEXT_PUBLIC_BUILD_VERSION` to the deploy script, which exports it for `docker compose build`. The `/api/health` endpoint reports this version.
+
+**Important:** `.env.production` should NOT contain `NEXT_PUBLIC_BUILD_VERSION`. The deploy script injects it at build time.
 
 ## What the Workflow Does
 
-1. Configures SSH key from `VPS_SSH_KEY` secret
-2. Adds VPS host to `known_hosts` via `ssh-keyscan`
-3. SSHs into VPS and runs `scripts/vps-deploy.sh`:
+1. Determines the deploy version (from input, tag, or commit SHA)
+2. Configures SSH key from `VPS_SSH_KEY` secret
+3. Adds VPS host to `known_hosts` via `ssh-keyscan`
+4. SSHs into VPS and runs `scripts/vps-deploy.sh` with `NEXT_PUBLIC_BUILD_VERSION` set:
    - `cd` into project directory
    - `git pull origin main`
+   - Resolve deploy version from `NEXT_PUBLIC_BUILD_VERSION`, `GITHUB_REF_NAME`, `VERSION`, git tag, or short SHA
    - Verify `.env.production` exists
    - `docker compose down --remove-orphans`
-   - `docker compose up -d --build`
-   - Health check at `http://127.0.0.1:3000/api/health`
+   - `NEXT_PUBLIC_BUILD_VERSION=<version> docker compose up -d --build`
+   - Health check at `http://127.0.0.1:3000/api/health` (reports version)
    - Public smoke at `${VPS_DOMAIN}/api/health`, `/tr`, `/en`
-4. Runs `scripts/vps-smoke.sh` for comprehensive checks
-5. Cleans up SSH key from runner
+5. Runs `scripts/vps-smoke.sh` for comprehensive checks
+6. Cleans up SSH key from runner
 
 The workflow **fails** if smoke tests fail.
 
@@ -148,6 +163,7 @@ The current deployment uses `root` as the SSH user. This is acceptable for initi
 - [ ] `VPS_SSH_KEY` is a dedicated key (not your personal key)
 - [ ] Private key is deleted from local machine after adding to GitHub
 - [ ] `.env.production` is NOT stored in GitHub Secrets or repository
+- [ ] `.env.production` does NOT contain `NEXT_PUBLIC_BUILD_VERSION` (deploy script injects it)
 - [ ] Deploy script does not `cat` or print `.env.production`
 - [ ] Deploy script exits on `.env.production` missing
 - [ ] Workflow only triggers on `workflow_dispatch` or `v*` tags
