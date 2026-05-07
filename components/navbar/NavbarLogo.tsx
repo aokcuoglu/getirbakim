@@ -27,6 +27,7 @@ export const NavbarLogo: React.FC<NavbarLogoProps> = ({
         width={0}
         height={0}
         sizes="100vw"
+        priority
         className={compact ? 'h-8 w-auto' : 'h-10 w-auto'}
       />
       {!compact && (

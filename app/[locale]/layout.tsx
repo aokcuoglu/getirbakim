@@ -20,8 +20,11 @@ import {
 
 export const metadata: Metadata = {
   metadataBase: new URL(resolveSiteUrl()),
-  title: 'GetirBakim - Automotive Commerce',
-  description: 'The modern platform for automotive parts.',
+  title: {
+    default: 'GetirBakim - Otomotiv Yedek Parca',
+    template: '%s | GetirBakim'
+  },
+  description: 'Turkiye\'nin otomotiv yedek parca platformu. Binlerce marka ve model icin orijinal ve muadil yedek parca, hizli teslimat ve uygun fiyatlar.',
   ...(isIndexingAllowed() ? {} : {
     robots: {
       index: false,
