@@ -38,7 +38,7 @@ export function CampaignCarousel() {
         className="flex gap-3 sm:gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
-        {CAMPAIGNS.map((campaign) => (
+        {CAMPAIGNS.map((campaign, index) => (
           <div
             key={campaign.id}
             className="snap-center shrink-0 w-[90vw] md:w-[calc(50%-8px)] h-[170px] sm:h-[200px] rounded-lg relative overflow-hidden group cursor-pointer border border-slate-200 shadow-sm"
@@ -46,6 +46,9 @@ export function CampaignCarousel() {
             <img
               src={campaign.image}
               alt={campaign.title}
+              loading={index === 0 ? 'eager' : 'lazy'}
+              decoding={index === 0 ? 'sync' : 'async'}
+              fetchPriority={index === 0 ? 'high' : 'low'}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-linear-to-r from-slate-900/90 via-slate-900/40 to-transparent" />

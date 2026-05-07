@@ -14,12 +14,23 @@ interface PageProps {
   params: Promise<{ locale: string }>
 }
 
+const HOME_TITLE: Record<string, string> = {
+  tr: 'GetirBakim - Otomotiv Yedek Parca',
+  en: 'GetirBakim - Automotive Spare Parts'
+}
+
+const HOME_DESCRIPTION: Record<string, string> = {
+  tr: 'Turkiye\'nin otomotiv yedek parca platformu. Binlerce marka ve model icin orijinal ve muadil yedek parca, hizli teslimat ve uygun fiyatlar.',
+  en: 'Turkey\'s automotive spare parts platform. Original and aftermarket parts for thousands of makes and models, fast delivery and competitive prices.'
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { locale } = await params
+  const safeLocale = locale === 'tr' ? 'tr' : 'en'
 
   return {
-    title: 'GetirBakim - Automotive Commerce',
-    description: 'The modern platform for automotive parts.',
+    title: HOME_TITLE[safeLocale],
+    description: HOME_DESCRIPTION[safeLocale],
     alternates: buildLocaleAlternates(locale, '/'),
     robots: defaultRobotsIndexing()
   }

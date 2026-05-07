@@ -3,7 +3,7 @@ import { resolveSiteUrl } from '@/lib/site-url'
 
 export type SupportedLocale = 'en' | 'tr'
 
-const DEFAULT_LOCALE: SupportedLocale = 'en'
+const DEFAULT_LOCALE: SupportedLocale = 'tr'
 
 export function normalizeLocale(locale: string): SupportedLocale {
   return locale === 'tr' ? 'tr' : 'en'
@@ -56,9 +56,9 @@ export function buildLocaleAlternates(
   return {
     canonical: canonicalPath,
     languages: {
-      en: enPath,
       tr: trPath,
-      'x-default': enPath
+      en: enPath,
+      'x-default': trPath
     }
   }
 }
