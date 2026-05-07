@@ -1,12 +1,5 @@
 'use client'
 
-/**
- * SearchResults
- *
- * List display of search results matching the category page format.
- * Uses the same ProductCard component as category pages.
- */
-
 import { Loader2, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SearchHit } from '@/lib/types/search'
@@ -20,7 +13,6 @@ interface SearchResultsProps {
   className?: string
 }
 
-// Convert SearchHit to ProductCard props
 function mapHitToProductCardProps(hit: SearchHit) {
   return {
     id: parseInt(hit.id, 10),
@@ -36,11 +28,14 @@ function mapHitToProductCardProps(hit: SearchHit) {
     priceSource: hit.priceSource,
     isPlaceholderPrice: hit.isPlaceholderPrice,
     isPurchasable: hit.isPurchasable,
-    properties: [], // Not indexed
+    properties: [],
     eans: hit.oemCodes || [],
     isVehicleSpecific: hit.formattedCompatibility.length > 0,
     isBestseller: false,
-    stock: hit.stockQty
+    stock: hit.stockQty,
+    availabilityStatus: hit.availabilityStatus,
+    cta: hit.cta,
+    detailUrl: hit.detailUrl
   }
 }
 

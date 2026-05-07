@@ -33,6 +33,11 @@ import {
   mergeCatalogHitsPage,
   type CatalogHitSortOption
 } from '@/lib/catalog/catalog-hit-merge'
+import {
+  runCatalogOfferSearch,
+  catalogOfferProductToSearchHit,
+  type CatalogOfferSearchResult
+} from '@/lib/search/catalog-offer-search'
 
 type SearchFiltersPayload = {
   brands?: string[]
@@ -93,6 +98,66 @@ const searchRequestSchema = z
  *   multiSearch?: boolean  // If true, returns multi-search results with facets
  * }
  */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const query = searchParams.get('q') || ''
+  const page = Number(searchParams.get('page')) || 1
+  const limit = Math.max(1, Math.min(Number(searchParams.get('limit')) || 24, 60))
+  const sort = searchParams.get('sort') || undefined
+
+  const shouldUseCatalogOfferSearch = process.env.MEILI_ENABLED !== 'true'
+  if (shouldUseCatalogOfferSearch) {
+    const start = performance.now()
+    const result = await runCatalogOfferSearch({ query, page, limit })
+    const elapsed = performance.now() - start
+
+    const hits = result.products.map(catalogOfferProductToSearchHit)
+
+    return successResponse(
+      {
+        hits,
+        totalHits: result.totalEstimate ?? hits.length,
+        facetDistribution: {},
+        processingTimeMs: elapsed,
+        query,
+        cached: false,
+        degraded: true,
+        source: 'postgres_catalog_offer_search',
+        products: result.products,
+        page: result.page,
+        limit: result.limit,
+        hasMore: result.hasMore,
+        totalEstimate: result.totalEstimate,
+        liveFallbackUsed: false,
+        durationMs: result.durationMs,
+        purchasableCount: result.purchasableCount,
+        requestPriceCount: result.requestPriceCount,
+        verifyFitmentCount: result.verifyFitmentCount,
+        outOfStockCount: result.outOfStockCount
+      },
+      {
+        requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
+        rate: { limit: 120, remaining: 119, retryAfterSeconds: 60 }
+      }
+    )
+  }
+
+  return successResponse(
+    {
+      hits: [],
+      totalHits: 0,
+      facetDistribution: {},
+      processingTimeMs: 0,
+      query,
+      cached: false
+    },
+    {
+      requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
+      rate: { limit: 120, remaining: 119, retryAfterSeconds: 60 }
+    }
+  )
+}
+
 export async function POST(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
     keyPrefix: 'api:search',
@@ -153,18 +218,56 @@ export async function POST(request: NextRequest) {
       return res
     }
 
-    const shouldUsePrismaFallback = process.env.MEILI_ENABLED !== 'true'
-    if (shouldUsePrismaFallback) {
-      const prismaStart = performance.now()
-      const fallback = await runPrismaSearchFallback({
+    const shouldUseCatalogOfferSearch = process.env.MEILI_ENABLED !== 'true'
+    if (shouldUseCatalogOfferSearch) {
+      const catalogOfferStart = performance.now()
+      const catalogOfferResult = await runCatalogOfferSearch({
         query,
         filters,
         page,
-        limit,
-        sort,
-        multiSearch
+        limit: Math.min(limit, 60)
       })
-      mark('prismaFallback', prismaStart)
+      mark('catalogOffer', catalogOfferStart)
+
+      const catalogOfferHits = catalogOfferResult.products.map(
+        catalogOfferProductToSearchHit
+      )
+
+      const fallback = multiSearch
+        ? {
+            results: [
+              {
+                hits: catalogOfferHits,
+                estimatedTotalHits: catalogOfferResult.totalEstimate ?? catalogOfferHits.length,
+                facetDistribution: {},
+                processingTimeMs: catalogOfferResult.durationMs,
+                query
+              },
+              {
+                hits: [],
+                estimatedTotalHits: 0,
+                facetDistribution: { brandName: {} as Record<string, number> },
+                processingTimeMs: 0,
+                query
+              },
+              {
+                hits: [],
+                estimatedTotalHits: 0,
+                facetDistribution: { categoryName: {} as Record<string, number> },
+                processingTimeMs: 0,
+                query
+              }
+            ],
+            cached: false
+          }
+        : {
+            hits: catalogOfferHits,
+            totalHits: catalogOfferResult.totalEstimate ?? catalogOfferHits.length,
+            facetDistribution: {},
+            processingTimeMs: catalogOfferResult.durationMs,
+            query,
+            cached: false
+          }
 
       const cacheSetStart = performance.now()
       await setCache(cacheKey, fallback, 120).catch(() => {})
@@ -173,12 +276,23 @@ export async function POST(request: NextRequest) {
       const res = successResponse({
         ...fallback,
         degraded: true,
-        source: 'search-prisma-fallback'
+        source: 'postgres_catalog_offer_search',
+        products: catalogOfferResult.products,
+        page: catalogOfferResult.page,
+        limit: catalogOfferResult.limit,
+        hasMore: catalogOfferResult.hasMore,
+        totalEstimate: catalogOfferResult.totalEstimate,
+        liveFallbackUsed: false,
+        durationMs: catalogOfferResult.durationMs,
+        purchasableCount: catalogOfferResult.purchasableCount,
+        requestPriceCount: catalogOfferResult.requestPriceCount,
+        verifyFitmentCount: catalogOfferResult.verifyFitmentCount,
+        outOfStockCount: catalogOfferResult.outOfStockCount
       }, context)
       res.headers.set('X-Cache', 'MISS')
       res.headers.set(
         'Server-Timing',
-        `redis;dur=${timingsMs.cacheLookup},prisma;dur=${timingsMs.prismaFallback},redisSet;dur=${timingsMs.cacheSet},total;dur=${Number((performance.now() - requestStart).toFixed(2))}`
+        `redis;dur=${timingsMs.cacheLookup},catalogOffer;dur=${timingsMs.catalogOffer},redisSet;dur=${timingsMs.cacheSet},total;dur=${Number((performance.now() - requestStart).toFixed(2))}`
       )
       if (isTimingDebug) {
         console.info('[search] timings (ms):', {
@@ -351,28 +465,77 @@ export async function POST(request: NextRequest) {
         multiSearch = false
       } = body
 
-      const fallback = await runPrismaSearchFallback({
+      console.warn('[search] Meilisearch unavailable, using catalog+offer fallback')
+
+      const catalogOfferResult = await runCatalogOfferSearch({
         query,
         filters,
         page,
-        limit,
-        sort,
-        multiSearch
+        limit: Math.min(limit, 60)
       })
 
-      await setCache(
-        `meilisearch:fallback:v3:${crypto
-          .createHash('md5')
-          .update(JSON.stringify({ query, filters, page, limit, sort, multiSearch }))
-          .digest('hex')}`,
-        fallback,
-        120
-      ).catch(() => {})
+      const catalogOfferHits = catalogOfferResult.products.map(
+        catalogOfferProductToSearchHit
+      )
+
+      const fallback = multiSearch
+        ? {
+            results: [
+              {
+                hits: catalogOfferHits,
+                estimatedTotalHits: catalogOfferResult.totalEstimate ?? catalogOfferHits.length,
+                facetDistribution: {},
+                processingTimeMs: catalogOfferResult.durationMs,
+                query
+              },
+              {
+                hits: [],
+                estimatedTotalHits: 0,
+                facetDistribution: { brandName: {} as Record<string, number> },
+                processingTimeMs: 0,
+                query
+              },
+              {
+                hits: [],
+                estimatedTotalHits: 0,
+                facetDistribution: { categoryName: {} as Record<string, number> },
+                processingTimeMs: 0,
+                query
+              }
+            ],
+            cached: false
+          }
+        : {
+            hits: catalogOfferHits,
+            totalHits: catalogOfferResult.totalEstimate ?? catalogOfferHits.length,
+            facetDistribution: {},
+            processingTimeMs: catalogOfferResult.durationMs,
+            query,
+            cached: false
+          }
+
+      const fallbackCacheKey = `meilisearch:fallback:v3:${crypto
+        .createHash('md5')
+        .update(JSON.stringify({ query, filters, page, limit, sort, multiSearch }))
+        .digest('hex')}`
+      await setCache(fallbackCacheKey, fallback, 120).catch(() => {})
 
       const res = successResponse({
         ...fallback,
         degraded: true,
-        source: 'search-prisma-fallback'
+        source: 'postgres_catalog_offer_search',
+        meiliFallbackReason: 'meili_unavailable',
+        products: catalogOfferResult.products,
+        page: catalogOfferResult.page,
+        limit: catalogOfferResult.limit,
+        hasMore: catalogOfferResult.hasMore,
+        totalEstimate: catalogOfferResult.totalEstimate,
+        liveFallbackUsed: false,
+        durationMs: catalogOfferResult.durationMs,
+        purchasableCount: catalogOfferResult.purchasableCount,
+        requestPriceCount: catalogOfferResult.requestPriceCount,
+        verifyFitmentCount: catalogOfferResult.verifyFitmentCount,
+        outOfStockCount: catalogOfferResult.outOfStockCount
       }, context)
       res.headers.set('X-Cache', 'MISS')
       return res

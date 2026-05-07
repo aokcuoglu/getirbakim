@@ -26,6 +26,9 @@ interface ProductProperty {
   value: string
 }
 
+import type { AvailabilityStatus } from '@/lib/search/availability'
+import type { SearchCTA } from '@/lib/search/availability'
+
 interface GridProductCardProps {
   id: number
   name: string
@@ -47,6 +50,9 @@ interface GridProductCardProps {
   isBestseller?: boolean
   stock?: number
   isPriceLoading?: boolean
+  availabilityStatus?: AvailabilityStatus
+  cta?: SearchCTA
+  detailUrl?: string | null
 }
 
 export function GridProductCard({
@@ -69,7 +75,10 @@ export function GridProductCard({
   isVehicleSpecific = true,
   isBestseller = false,
   stock,
-  isPriceLoading = false
+  isPriceLoading = false,
+  availabilityStatus,
+  cta,
+  detailUrl
 }: GridProductCardProps) {
   const t = useTranslations('ProductCard')
   const format = useFormatter()
@@ -120,6 +129,19 @@ export function GridProductCard({
     brandName,
     name
   })
+
+  const resolvedAvailability = availabilityStatus ?? (
+    canAddToCart ? 'PURCHASABLE' as AvailabilityStatus
+    : hasPrice ? 'OUT_OF_STOCK' as AvailabilityStatus
+    : 'REQUEST_PRICE' as AvailabilityStatus
+  )
+  const resolvedCta = cta ?? (
+    resolvedAvailability === 'PURCHASABLE' ? 'add_to_cart' as SearchCTA
+    : resolvedAvailability === 'OUT_OF_STOCK' ? 'notify_or_request_price' as SearchCTA
+    : resolvedAvailability === 'VERIFY_FITMENT' ? 'verify_fitment' as SearchCTA
+    : 'request_price' as SearchCTA
+  )
+  const productLink = detailUrl ?? `/part/${id}`
 
   const handleAddToCart = () => {
     if (!canAddToCart) return
@@ -203,7 +225,7 @@ export function GridProductCard({
       </div>
 
       <div className="flex flex-1 flex-col p-3 pt-2.5">
-        <Link href={`/part/${id}`} className="block group">
+        <Link href={productLink} className="block group">
           <h3 className="mb-1.5 line-clamp-2 text-[14px] font-semibold leading-snug text-slate-900 transition-colors group-hover:text-sky-600">
             {displayName}
           </h3>
@@ -330,14 +352,14 @@ export function GridProductCard({
                 disabled={!canAddToCart || isPriceLoading}
                 className="h-8 flex-1 rounded-sm bg-blue-600 text-xs font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {canAddToCart ? t('addToCart') : t('outOfStock')}
+                {resolvedCta === 'add_to_cart' ? t('addToCart') : t('outOfStock')}
               </Button>
             </div>
           ) : (
             <div className="space-y-2">
               <CustomerRequestDialog
-                requestType="PRICE_REQUEST"
-                source="PRICE_MODAL"
+                requestType={resolvedCta === 'verify_fitment' ? 'FITMENT_CHECK' : 'PRICE_REQUEST'}
+                source={resolvedCta === 'verify_fitment' ? 'FITMENT_MODAL' : 'PRICE_MODAL'}
                 product={{
                   partId: id,
                   partName: displayName,
@@ -346,7 +368,11 @@ export function GridProductCard({
                 }}
                 trigger={
                   <Button className="h-8 w-full bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700">
-                    {t('askForPrice')}
+                    {resolvedCta === 'verify_fitment'
+                      ? t('verifyFitment')
+                      : resolvedCta === 'notify_or_request_price'
+                        ? t('requestPriceWhenAvailable')
+                        : t('askForPrice')}
                   </Button>
                 }
               />
