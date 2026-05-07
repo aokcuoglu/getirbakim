@@ -24,7 +24,6 @@ build
 
 # Misc
 .DS_Store
-*.pem
 
 # Debug
 npm-debug.log*
@@ -75,11 +74,20 @@ package-lock.json
 # DB Scripts
 lib/db/scripts
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
 .env.*
 !.env.example
+!.env.*.example
 .env.bak-*
+*.env.bak
+*.env.backup
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
 .parts2world-checkpoints/*
 .codex/*
 .claude/

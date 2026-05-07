@@ -82,6 +82,10 @@ See [**docs/DEPLOYMENT_CONTABO.md**](docs/DEPLOYMENT_CONTABO.md) for VPS setup, 
 
 See [**docs/ENVIRONMENT.md**](docs/ENVIRONMENT.md) for the full variable reference, Supabase pooler requirements, and secret rotation guidance.
 
+## Automated VPS Deployment
+
+GitHub Actions can deploy to the Contabo VPS via SSH on manual trigger or version tag push. See [**docs/GITHUB_ACTIONS_DEPLOY.md**](docs/GITHUB_ACTIONS_DEPLOY.md) for setup, secrets, and rollback instructions.
+
 ## Quality Gates
 
 Before committing or releasing, all must pass:

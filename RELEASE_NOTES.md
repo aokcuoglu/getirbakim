@@ -1,6 +1,45 @@
 # Release Notes
 
+## v0.1.4 - GitHub Actions SSH Deploy Automation
+
+### GitHub Actions Deployment
+- Added `.github/workflows/deploy-vps.yml` — controlled SSH-based deployment workflow
+- Triggers on `workflow_dispatch` (manual) and `push` tags matching `v*`
+- Does NOT auto-deploy on every push to `main`
+- Deploys via SSH: pulls latest code, rebuilds Docker, restarts app, runs smoke tests
+- Uses native SSH commands (no third-party action dependencies)
+- Cleans up SSH key from runner after each run
+
+### VPS Script Hardening
+- `scripts/vps-deploy.sh`: accepts `PROJECT_PATH`, `BRANCH`, `DOMAIN` env vars; verifies `.env.production` exists before rebuild; fails cleanly on health check failure; 15s wait for container startup; shows before/after commit; does not print secrets
+- `scripts/vps-smoke.sh`: accepts `DOMAIN` env var or argument; checks internal endpoints (health, /tr, /en) plus public HTTPS if domain set; 10s curl timeout; exits non-zero on any failure
+- `scripts/vps-rollback.sh`: accepts `ROLLBACK_REF` env var or argument; fetches tags from origin; validates ref exists; verifies `.env.production` before rebuild; fails on health check failure with logs; saves rollback point
+
+### Documentation
+- Added `docs/GITHUB_ACTIONS_DEPLOY.md` — GitHub Actions deploy setup, SSH key generation, GitHub Secrets reference, deploy key vs SSH key distinction, rollback instructions, root user warning, security checklist
+- Updated `docs/OPERATIONS_RUNBOOK.md` — added GitHub Actions deploy section, script env var usage, rollback env var, GitHub Actions failure troubleshooting (SSH auth, known_hosts, .env.production missing, git pull, docker build, smoke, nginx stale)
+- Updated `docs/PRODUCTION_SECURITY_CHECKLIST.md` — added GitHub Secrets section, deploy workflow security checklist, root user documentation, SSH key rotation guidance
+- Updated `README.md` — added Automated VPS Deployment section with link to docs
+
+### Replaced Workflow
+- Removed old `.github/workflows/deploy.yml` (GHCR-based, auto-deploy on main push, had path and service name mismatches)
+- Replaced with `.github/workflows/deploy-vps.yml` (SSH-based, controlled trigger, uses existing VPS deploy scripts)
+
+### No product feature changes
+- No pricing, payment, supplier sync, vehicle compatibility, auth, search, or UI changes
+- No landing page modifications
+
+---
+
 ## v0.1.3 - Production Go-Live Hardening
+
+### Secret Hygiene Hardening
+- Added `scripts/secret-scan.sh` — release guard that scans tracked files, staged diffs, and gitignore status without broad recursive grep
+- Hardened `.gitignore`: added `!.env.*.example`, `*.env.bak`, `*.env.backup`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519` (removed duplicate `*.pem`)
+- Hardened `.dockerignore`: explicit `.env`/`.env.*`/`!.env.example` exclusions, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`
+- Clarified policy: ignored local `.env` files are allowed, but tracked/staged secrets are blocking
+- Removed `.env.bak-*` and `.env.production` from repository root (backed up externally)
+- Updated `docs/PRODUCTION_SECURITY_CHECKLIST.md` with secret hygiene policy and scan script reference
 
 ### Production Domain and Canonical Hardening
 - Hardcoded `https://www.getirbakim.com` URL fallbacks in `lib/supabase/storage.ts` and `lib/actions/category-actions.ts` replaced with `resolveSiteUrl()` calls

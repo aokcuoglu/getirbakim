@@ -4,10 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.4] - 2026-05-07
+
+### Added
+- `.github/workflows/deploy-vps.yml` — controlled SSH-based VPS deployment workflow (manual trigger + v* tag push)
+- `docs/GITHUB_ACTIONS_DEPLOY.md` — GitHub Actions deploy documentation (SSH key setup, GitHub Secrets, rollback, security)
+- GitHub Actions failure troubleshooting section in `docs/OPERATIONS_RUNBOOK.md`
+- GitHub Secrets checklist in `docs/PRODUCTION_SECURITY_CHECKLIST.md`
+
+### Changed
+- `scripts/vps-deploy.sh` — accepts `PROJECT_PATH`, `BRANCH`, `DOMAIN` env vars; verifies `.env.production` exists; 15s startup wait; fails on health check; shows before/after commit; no secret printing
+- `scripts/vps-smoke.sh` — accepts `DOMAIN` env var or argument; checks internal + public endpoints; 10s curl timeout; exits non-zero on failure
+- `scripts/vps-rollback.sh` — accepts `ROLLBACK_REF` env var; fetches origin tags; validates ref; verifies `.env.production`; fails with logs on health check; saves rollback point
+- Replaced `.github/workflows/deploy.yml` (GHCR auto-deploy) with `.github/workflows/deploy-vps.yml` (SSH controlled deploy)
+- `docs/OPERATIONS_RUNBOOK.md` — added GitHub Actions deploy, script env var usage, rollback env var, failure troubleshooting
+- `docs/PRODUCTION_SECURITY_CHECKLIST.md` — added GitHub Secrets section, deploy workflow security, root user warning
+- `README.md` — added Automated VPS Deployment section
+
 ## [0.1.3] - 2026-05-05
 
 ### Hardened
-- Production domain/canonical consistency: replaced hardcoded `https://www.getirbakim.com` fallbacks with `resolveSiteUrl()` calls in `lib/supabase/storage.ts` and `lib/actions/category-actions.ts`
+- Secret hygiene release guard: added `scripts/secret-scan.sh` for pre-commit/pre-release scanning (tracked files, staged diffs, gitignore verification) without broad recursive grep
+- Hardened `.gitignore`: added `!.env.*.example`, `*.env.bak`, `*.env.backup`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`; removed duplicate `*.pem` entry
+- Hardened `.dockerignore`: explicit `.env`/`.env.*`/`!.env.example` exclusions, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`
+- Removed `.env.bak-*` and `.env.production` from repository root (backed up externally)
+- Updated `docs/PRODUCTION_SECURITY_CHECKLIST.md` with secret hygiene policy
 - SEO indexing control: added `NEXT_PUBLIC_ALLOW_INDEXING` env variable; robots.txt, sitemap, and metadata respect this flag
 - `scripts/vps-deploy.sh`: improved with repo validation, git HEAD display, container logs, longer wait, structured output
 - `scripts/vps-smoke.sh`: accepts `DOMAIN` parameter, uses `set -euo pipefail`

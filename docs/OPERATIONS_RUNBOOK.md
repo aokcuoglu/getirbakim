@@ -102,10 +102,21 @@ Do NOT run `docker volume prune` — database is external but Redis/data volumes
 
 ## Deploy Commands
 
-### Standard Deploy
+### GitHub Actions Deploy (recommended)
+
+Go to **GitHub → Actions → Deploy VPS → Run workflow** to trigger a controlled deploy.
+
+See [docs/GITHUB_ACTIONS_DEPLOY.md](GITHUB_ACTIONS_DEPLOY.md) for setup and details.
+
+### Standard Deploy via Script
 ```bash
 cd /opt/getirbakim-v2
 bash scripts/vps-deploy.sh
+```
+
+With explicit options:
+```bash
+PROJECT_PATH=/opt/getirbakim-v2 BRANCH=main DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
 ```
 
 ### Manual Deploy
@@ -126,6 +137,11 @@ curl -sf https://getirbakim.com/api/health
 ```bash
 cd /opt/getirbakim-v2
 bash scripts/vps-rollback.sh v0.1.2
+```
+
+Or with environment variable:
+```bash
+ROLLBACK_REF=v0.1.2 bash scripts/vps-rollback.sh
 ```
 
 ### Manual Rollback
@@ -194,7 +210,19 @@ Note: After rollback, the repo will be in detached HEAD state. Run `git checkout
 - **Check**: `docker compose logs app --tail=50`
 - **Fix**: Ensure all dependencies resolve; check for TypeScript errors; try `--no-cache`
 
-## Smoke Tests
+### GitHub Actions Deploy Failure
+- **Symptom**: Workflow run shows red X in GitHub Actions
+- **Check**: Expand the failed step in the workflow run
+- **Common causes and fixes**:
+  - **SSH auth fails**: Verify `VPS_SSH_KEY` secret matches the private key; verify public key is in VPS `~/.ssh/authorized_keys`
+  - **known_hosts fails**: Verify `VPS_HOST` secret is correct IP; `ssh-keyscan` must reach the VPS on port 22
+  - **.env.production missing**: Deploy script aborts; SSH in and verify `.env.production` exists in project directory
+  - **git pull fails**: Check VPS has network access to GitHub; verify deploy key (read-only) is configured for the repo
+  - **docker build fails**: Check VPS disk space (`df -h`); check Docker daemon is running; try `docker compose build --no-cache`
+  - **smoke test fails**: Check container status, logs, nginx config; see smoke test output in workflow
+  - **nginx still serving old app**: `sudo systemctl reload nginx`; verify nginx upstream points to `127.0.0.1:3000`
+
+### Smoke Tests
 
 ### Quick Smoke
 ```bash
@@ -204,12 +232,14 @@ curl -sI https://getirbakim.com/tr | head -1
 curl -sI https://getirbakim.com/en | head -1
 ```
 
-### Full VPS Smoke
+### Full VPS Smoke (internal only)
 ```bash
 bash scripts/vps-smoke.sh
 ```
 
-### With Domain Check
+### Full VPS Smoke (with public domain)
 ```bash
 DOMAIN=getirbakim.com bash scripts/vps-smoke.sh
+# or
+bash scripts/vps-smoke.sh getirbakim.com
 ```

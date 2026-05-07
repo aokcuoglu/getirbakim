@@ -11,7 +11,11 @@
 
 ## Secret Handling
 
-- [ ] `.env.production` is gitignored (`.git`, `.env.production`, `.env.local`, `.env.bak-*` in `.gitignore`)
+- [ ] `.env.production` is gitignored (`.env`, `.env.*`, `.env.bak-*`, `*.key`, `*.pem`, `id_rsa`, `id_ed25519` in `.gitignore`)
+- [ ] `.env` is local only — never committed, never deployed to VPS
+- [ ] `.env.production` lives only on VPS or in secure secret storage — not in the repository
+- [ ] `.env.production` is NOT stored in GitHub Secrets — only on VPS
+- [ ] Backup env files (`.env.bak-*`, `*.env.backup`) must not live in the repository root
 - [ ] `.env.example` contains only placeholder values, no real secrets
 - [ ] No `NEXT_PUBLIC_` variable contains secret values (they are embedded in client bundles)
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` is only used server-side (in `lib/supabase/storage.ts`)
@@ -19,6 +23,36 @@
 - [ ] `TAMI_SECRET_KEY`, `TAMI_JWK_K`, `TAMI_JWK_KID` are only used server-side
 - [ ] `DATABASE_URL` and `DIRECT_URL` are only used server-side (Prisma)
 - [ ] `CRON_SECRET` protects internal API routes (`/api/internal/suppliers/*`)
+
+## GitHub Secrets (CI/CD Deploy)
+
+- [ ] `VPS_SSH_KEY` is a dedicated SSH key (not a personal key)
+- [ ] `VPS_SSH_KEY` private key is deleted from local machine after adding to GitHub
+- [ ] `VPS_HOST`, `VPS_USER`, `VPS_PROJECT_PATH`, `VPS_DOMAIN` are configured as GitHub Secrets
+- [ ] Deploy workflow only triggers on `workflow_dispatch` or `v*` tags — not every push to main
+- [ ] Deploy script does not `cat` or print `.env.production`
+- [ ] SSH key is cleaned up from GitHub Actions runner after every run
+- [ ] Using `root` as `VPS_USER` is documented as temporary; dedicated deploy user is recommended
+- [ ] Rotate `VPS_SSH_KEY` if it is ever exposed
+
+## Secret Hygiene Scan
+
+Before every commit and release, run:
+
+```bash
+bash scripts/secret-scan.sh
+```
+
+This script checks:
+1. No env/key files are tracked by git
+2. No secrets appear in staged diffs
+3. No secret patterns appear in tracked content
+4. All local env files are properly gitignored
+5. `.env.example` contains only placeholders
+
+The script uses `git grep` (tracked files only) and `git diff --cached` (staged changes only) — it does **not** run broad recursive grep over the working tree, so ignored local files will not create false release blockers.
+
+Docker build context excludes env/secret files via `.dockerignore`.
 
 ## Environment Configuration
 
