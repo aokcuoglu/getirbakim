@@ -14,7 +14,7 @@ check() {
   local url="$2"
   local expected_status="${3:-200}"
 
-  status=$(curl -so /dev/null -w '%{http_code}' --max-time 10 "${url}" 2>/dev/null || echo "000")
+  status=$(curl -so /dev/null -w '%{http_code}' --max-time 10 "${url}" 2>/dev/null) || status="000"
 
   if [ "${status}" = "${expected_status}" ]; then
     echo "  PASS  ${label}  (${status})"
