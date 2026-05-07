@@ -1,7 +1,8 @@
 export const CUSTOMER_REQUEST_TYPES = [
   'PRICE_REQUEST',
   'PRODUCT_QUESTION',
-  'MISSING_PRODUCT'
+  'MISSING_PRODUCT',
+  'FITMENT_CHECK'
 ] as const
 
 export type CustomerRequestType = (typeof CUSTOMER_REQUEST_TYPES)[number]
@@ -18,7 +19,8 @@ export type CustomerRequestStatus = (typeof CUSTOMER_REQUEST_STATUSES)[number]
 export const CUSTOMER_REQUEST_SOURCES = [
   'PRICE_MODAL',
   'PRODUCT_FAQ_FORM',
-  'MISSING_PRODUCT_MODAL'
+  'MISSING_PRODUCT_MODAL',
+  'FITMENT_MODAL'
 ] as const
 
 export type CustomerRequestSource = (typeof CUSTOMER_REQUEST_SOURCES)[number]

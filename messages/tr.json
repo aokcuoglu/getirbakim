@@ -181,6 +181,8 @@
     "priceLoading": "Fiyat yükleniyor...",
     "priceNotAvailable": "Fiyat mevcut değil",
     "askForPrice": "Fiyat Sor",
+    "verifyFitment": "Uygunluk Sor",
+    "requestPriceWhenAvailable": "Fiyat Al",
     "priceInquiryHint": "Fiyat için bizimle iletişime geçin.",
     "addToCart": "Sepete Ekle",
     "inStock": "Stokta var",

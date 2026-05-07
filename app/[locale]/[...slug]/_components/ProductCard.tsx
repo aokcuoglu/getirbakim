@@ -26,6 +26,9 @@ interface ProductProperty {
   value: string
 }
 
+import type { AvailabilityStatus } from '@/lib/search/availability'
+import type { SearchCTA } from '@/lib/search/availability'
+
 interface ProductCardProps {
   id: number
   name: string
@@ -47,6 +50,9 @@ interface ProductCardProps {
   isBestseller?: boolean
   stock?: number
   isPriceLoading?: boolean
+  availabilityStatus?: AvailabilityStatus
+  cta?: SearchCTA
+  detailUrl?: string | null
 }
 
 export function ProductCard({
@@ -69,7 +75,10 @@ export function ProductCard({
   isVehicleSpecific = true,
   isBestseller = false,
   stock,
-  isPriceLoading = false
+  isPriceLoading = false,
+  availabilityStatus,
+  cta,
+  detailUrl
 }: ProductCardProps) {
   const t = useTranslations('ProductCard')
   const format = useFormatter()
@@ -121,6 +130,19 @@ export function ProductCard({
     brandName,
     name
   })
+
+  const resolvedAvailability = availabilityStatus ?? (
+    canAddToCart ? 'PURCHASABLE' as AvailabilityStatus
+    : hasPrice ? 'OUT_OF_STOCK' as AvailabilityStatus
+    : 'REQUEST_PRICE' as AvailabilityStatus
+  )
+  const resolvedCta = cta ?? (
+    resolvedAvailability === 'PURCHASABLE' ? 'add_to_cart' as SearchCTA
+    : resolvedAvailability === 'OUT_OF_STOCK' ? 'notify_or_request_price' as SearchCTA
+    : resolvedAvailability === 'VERIFY_FITMENT' ? 'verify_fitment' as SearchCTA
+    : 'request_price' as SearchCTA
+  )
+  const productLink = detailUrl ?? `/part/${id}`
 
   const handleAddToCart = () => {
     if (!canAddToCart) return
@@ -206,7 +228,7 @@ export function ProductCard({
         </div>
 
         <div className="min-w-0 flex-1 lg:pt-0.5">
-          <Link href={`/part/${id}`} className="block group">
+          <Link href={productLink} className="block group">
             <h3 className="line-clamp-2 text-[18px] font-semibold leading-snug text-slate-900 transition-colors group-hover:text-sky-600">
               {displayName}
             </h3>
@@ -336,14 +358,14 @@ export function ProductCard({
                 disabled={!canAddToCart || isPriceLoading}
                 className="h-9 flex-1 rounded-sm bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed"
               >
-                {canAddToCart ? t('addToCart') : t('outOfStock')}
+                {resolvedCta === 'add_to_cart' ? t('addToCart') : t('outOfStock')}
               </Button>
             </div>
           ) : (
             <div className="mt-3.5">
               <CustomerRequestDialog
-                requestType="PRICE_REQUEST"
-                source="PRICE_MODAL"
+                requestType={resolvedCta === 'verify_fitment' ? 'FITMENT_CHECK' : 'PRICE_REQUEST'}
+                source={resolvedCta === 'verify_fitment' ? 'FITMENT_MODAL' : 'PRICE_MODAL'}
                 product={{
                   partId: id,
                   partName: displayName,
@@ -352,7 +374,11 @@ export function ProductCard({
                 }}
                 trigger={
                   <Button className="h-9 w-full rounded-sm bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700">
-                    {t('askForPrice')}
+                    {resolvedCta === 'verify_fitment'
+                      ? t('verifyFitment')
+                      : resolvedCta === 'notify_or_request_price'
+                        ? t('requestPriceWhenAvailable')
+                        : t('askForPrice')}
                   </Button>
                 }
               />

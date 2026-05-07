@@ -181,6 +181,8 @@
     "priceLoading": "Loading price...",
     "priceNotAvailable": "Price not available",
     "askForPrice": "Ask for price",
+    "verifyFitment": "Verify Fitment",
+    "requestPriceWhenAvailable": "Request Price",
     "priceInquiryHint": "Contact us for a quote.",
     "addToCart": "Add to Cart",
     "inStock": "In stock",

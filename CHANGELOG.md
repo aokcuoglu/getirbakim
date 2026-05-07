@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] - 2026-05-07
+
+### Added
+- `lib/search/availability.ts` — availability status model (`PURCHASABLE`, `REQUEST_PRICE`, `VERIFY_FITMENT`, `OUT_OF_STOCK`) with CTA mapping
+- `lib/search/catalog-offer-search.ts` — fast PostgreSQL catalog+offer search replacing slow Prisma fallback (~135s → <2s target)
+- `scripts/search-indexes.sql` — recommended pg_trgm and composite indexes for search performance
+- `docs/SUPPLIER_API_OPERATIONS.md` — supplier API operations documentation (Dinamik, SETA, Başbuğ)
+- `docs/SEARCH_CATALOG_OFFER.md` — catalog-first + offer-prioritized search strategy documentation
+- `FITMENT_CHECK` request type and `FITMENT_MODAL` source to customer requests
+- `availabilityStatus`, `cta`, `detailUrl` fields to `SearchHit` type
+- `products`, `page`, `limit`, `hasMore`, `totalEstimate`, `purchasableCount`, `requestPriceCount`, `verifyFitmentCount`, `outOfStockCount`, `durationMs` fields to search response
+- Turkish/English i18n keys: `verifyFitment`, `requestPriceWhenAvailable`
+- Tests for availability status mapping, CTA mapping, detail URL resolution, search result mapping
+
+### Changed
+- `/api/search` uses `runCatalogOfferSearch()` when `MEILI_ENABLED !== 'true'` instead of `runPrismaSearchFallback()`
+- Search response `source` field changed from `'search-prisma-fallback'` to `'postgres_catalog_offer_search'`
+- ProductCard and GridProductCard accept `availabilityStatus`, `cta`, `detailUrl` props for CTA rendering
+- ProductCard CTA: no-price products show "Fiyat Al" (or "Uygunluk Sor" for fitment check)
+- ProductCard and GridProductCard product links use `detailUrl` prop when available
+- `customer_requests` schema: `request_type` and `source` enums extended with `FITMENT_CHECK` and `FITMENT_MODAL`
+
+### Fixed
+- Broad search queries (e.g., "Bosch") no longer take ~135 seconds; target response time under 2 seconds
+- Catalog products without price/offer remain visible in search results instead of being hidden
+
 ## [0.2.0] - 2026-05-07
 
 ### Added

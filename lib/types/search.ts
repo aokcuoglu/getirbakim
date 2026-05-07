@@ -95,6 +95,12 @@ export interface SearchHit {
   rankBucket?: number
   /** Meilisearch highlight info */
   _formatted?: Partial<SearchHit>
+  /** Availability status from catalog+offer search */
+  availabilityStatus?: 'PURCHASABLE' | 'REQUEST_PRICE' | 'VERIFY_FITMENT' | 'OUT_OF_STOCK'
+  /** Call-to-action from catalog+offer search */
+  cta?: 'add_to_cart' | 'request_price' | 'verify_fitment' | 'notify_or_request_price'
+  /** Detail URL from catalog+offer search */
+  detailUrl?: string | null
 }
 
 // ============================================================================

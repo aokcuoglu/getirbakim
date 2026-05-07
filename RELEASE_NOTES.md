@@ -1,5 +1,54 @@
 # Release Notes
 
+## v0.2.1 - Catalog + Offer Search MVP
+
+### Catalog + Offer Search
+- Replaced slow Prisma fallback search (~135s for "Bosch") with fast PostgreSQL catalog+offer search (<2s target)
+- New `runCatalogOfferSearch()` uses tiered SQL queries: exact SKU/OEM/EAN, then brand, then name contains
+- Supplier-backed products with price and stock prioritized at top of results
+- Catalog-only products without offers remain visible with "Fiyat Al" (Request Price) CTA
+- No expensive joins with vehicle compatibility in search path
+- Strict limits: max 60 results per page, max 30 catalog-only results
+
+### Availability Status Model
+- Added typed `AvailabilityStatus`: `PURCHASABLE`, `REQUEST_PRICE`, `VERIFY_FITMENT`, `OUT_OF_STOCK`
+- Added typed `SearchCTA`: `add_to_cart`, `request_price`, `verify_fitment`, `notify_or_request_price`
+- CTA mapping: PURCHASABLE → Sepete Ekle, REQUEST_PRICE → Fiyat Al, VERIFY_FITMENT → Uygunluk Sor, OUT_OF_STOCK → Stok Gelince Haber Ver
+- Search results include `availabilityStatus`, `cta`, `detailUrl` fields
+- Response includes `purchasableCount`, `requestPriceCount`, `verifyFitmentCount`, `outOfStockCount`
+
+### Search Response Enhancements
+- `/api/search` returns `dataSource: "postgres_catalog_offer_search"` when using new path
+- `liveFallbackUsed: false` indicates no live supplier API calls during search
+- `durationMs` for search timing
+- `hasMore`, `totalEstimate` for pagination metadata
+
+### UI Updates
+- ProductCard and GridProductCard support new `availabilityStatus` and `cta` props
+- "Fiyat Al" button for no-price products via CustomerRequestDialog
+- "Uygunluk Sor" button for fitment verification (prepared for v0.2.2)
+- Detail URL links to `/part/[id]` or `/supplier-product/[id]`
+
+### Request Price Preparation
+- Added `FITMENT_CHECK` request type and `FITMENT_MODAL` source to customer requests
+- Prepared route/link structure for v0.2.2 full request price flow
+
+### Supplier API Documentation
+- Added `docs/SUPPLIER_API_OPERATIONS.md` with Dinamik, SETA, Başbuğ strategy
+- Covered: periodic sync schedule, live check policy, failure handling, stale data detection
+
+### Search Documentation
+- Added `docs/SEARCH_CATALOG_OFFER.md` explaining catalog-first + offer-prioritized strategy
+- Documented: result statuses, ranking rules, performance targets, index recommendations, limitations
+
+### Index Recommendations
+- Added `scripts/search-indexes.sql` with pg_trgm indexes for normalized fields
+- Recommended indexes for: supplier_products, supplier_product_oems, supplier_part_mappings, parts, part_brands, part_eans, part_oens, part_cross_references
+
+### Meilisearch
+- Meilisearch remains disabled. Integration code preserved for future re-enablement.
+- No changes to Meilisearch integration when `MEILI_ENABLED=true`.
+
 ## v0.2.0 - Performance Baseline and Catalog Reliability
 
 ### Performance Baseline
