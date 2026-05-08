@@ -1,5 +1,26 @@
 # Release Notes
 
+## v0.2.2 - Category Route Resolution Bugfix
+
+### Category Route Resolution
+- Fixed category pages (e.g., `/en/fuel-filter`) returning 404 when `url_key` is NULL in the database
+- Root cause: `normalizeUrlKey()` generated slugs from `name` when `url_key` was NULL (e.g., `generateSlug("Fuel filter")` → `"fuel-filter"`), producing valid links. But `getPartCategoryByUrlKey()` only queried `WHERE url_key = 'fuel-filter'`, which doesn't match NULL rows in SQL
+- Added name-derived slug fallback in `getPartCategoryByUrlKey()`: when `url_key` lookup fails, queries categories with `url_key = null` and matches by `generateSlug(name)` or `generateSlug(name_tr)`
+- Added same fallback in `getCategorySearchIdFromUrlKey()` for category ID resolution
+- No link generation changes needed — links already used `normalizeUrlKey()` consistently
+- No product/payment/checkout behavior changes
+- Category pages for valid categories no longer 404
+
+### Category URL Strategy
+- SEO-friendly category URLs: `/{locale}/{categorySlug}` (e.g., `/en/fuel-filter`, `/tr/yakit-filtresi`)
+- Categories with `url_key` in DB: resolved by exact `url_key` match (e.g., `fuel-filters`)
+- Categories without `url_key` in DB: resolved by name-derived slug fallback (e.g., `fuel-filter` from "Fuel filter")
+- Turkish locale: also matches `name_tr`-derived slugs (e.g., `yakit-filtresi` from "Yakıt filtresi")
+
+### Tests
+- Added 14 tests for `generateSlug`, `normalizeUrlKey`, category URL generation, and slug resolution consistency
+- Tests confirm link generation and lookup produce consistent slugs for categories without `url_key`
+
 ## v0.2.1 - Catalog + Offer Search MVP
 
 ### Catalog + Offer Search

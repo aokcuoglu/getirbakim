@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.2] - 2026-05-07
+
+### Fixed
+- Category pages (e.g., `/en/fuel-filter`) no longer return 404 when `url_key` is NULL in the database
+- `getPartCategoryByUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to matching by `generateSlug(name)` or `generateSlug(name_tr)` when `url_key` exact lookup fails
+- `getCategorySearchIdFromUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to name-derived slug matching for categories without `url_key`
+- Category links from `/en/filters` and navigation components now resolve correctly for all categories
+
+### Added
+- `lib/actions/getPartCategories.test.ts` — 14 tests for `generateSlug`, `normalizeUrlKey`, category URL generation, and slug resolution consistency
+- Name-derived slug fallback (`generateSlug(name)` and `generateSlug(name_tr)`) in category lookup when `url_key` is NULL in database
+
 ## [0.2.1] - 2026-05-07
 
 ### Added

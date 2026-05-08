@@ -471,6 +471,70 @@ export const getPartCategoryByUrlKey = cache(
     }
 
     if (!targetCategory) {
+      const nameSlugMatches = await db.part_categories.findMany({
+        where: { is_active: true, url_key: null },
+        select: {
+          id: true, name: true, name_tr: true, is_active: true,
+          has_childs: true, parent_id: true, url_key: true, image: true
+        }
+      })
+
+      const matchingByNameSlug = nameSlugMatches.filter(
+        (cat) => generateSlug(cat.name) === urlKey || (cat.name_tr && generateSlug(cat.name_tr) === urlKey)
+      )
+
+      if (matchingByNameSlug.length > 0) {
+        const candidatesWithChildren = await Promise.all(
+          matchingByNameSlug.map(async (cat) => {
+            const children = await db.part_categories.findMany({
+              where: { parent_id: cat.id, is_active: true },
+              select: { id: true }
+            })
+            return { cat, childCount: children.length }
+          })
+        )
+
+        candidatesWithChildren.sort((a, b) => {
+          const childDiff = b.childCount - a.childCount
+          if (childDiff !== 0) return childDiff
+          if (a.cat.has_childs !== b.cat.has_childs) return a.cat.has_childs ? -1 : 1
+          if ((a.cat.parent_id == null) !== (b.cat.parent_id == null)) return a.cat.parent_id == null ? -1 : 1
+          return a.cat.id - b.cat.id
+        })
+
+        const best = candidatesWithChildren[0].cat
+        const children = await db.part_categories.findMany({
+          where: { parent_id: best.id, is_active: true },
+          select: {
+            id: true, name: true, name_tr: true, is_active: true,
+            has_childs: true, parent_id: true, url_key: true, image: true
+          }
+        })
+        targetCategory = {
+          id: best.id,
+          name: best.name,
+          nameTr: best.name_tr,
+          isActive: best.is_active,
+          hasChildren: best.has_childs,
+          parentId: best.parent_id,
+          urlKey: normalizeUrlKey(best.url_key, best.name),
+          image: best.image,
+          children: children.map((c) => ({
+            id: c.id,
+            name: c.name,
+            nameTr: c.name_tr,
+            isActive: c.is_active,
+            hasChildren: c.has_childs,
+            parentId: c.parent_id,
+            urlKey: normalizeUrlKey(c.url_key, c.name),
+            image: c.image,
+            children: []
+          }))
+        }
+      }
+    }
+
+    if (!targetCategory) {
       tg.end(tFind)
       tg.logSummary()
       return null
@@ -692,13 +756,23 @@ export const getCategorySearchIdFromUrlKey = async (
     return exists.id
   }
 
-  const matchingCategory = await db.part_categories.findFirst({
+  let matchingCategory = await db.part_categories.findFirst({
     where: {
       is_active: true,
       url_key: urlKey
     },
-    select: { id: true, is_active: true, parent_id: true }
+    select: { id: true, is_active: true, parent_id: true, name: true }
   })
+
+  if (!matchingCategory || !matchingCategory.is_active) {
+    const nullUrlKeyCategories = await db.part_categories.findMany({
+      where: { is_active: true, url_key: null },
+      select: { id: true, is_active: true, parent_id: true, name: true }
+    })
+    matchingCategory = nullUrlKeyCategories.find(
+      (cat) => generateSlug(cat.name) === urlKey
+    ) || null
+  }
 
   if (!matchingCategory || !matchingCategory.is_active) {
     return null
