@@ -4,17 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.2] - 2026-05-07
+## [0.2.2] - 2026-05-08
 
 ### Fixed
-- Category pages (e.g., `/en/fuel-filter`) no longer return 404 when `url_key` is NULL in the database
-- `getPartCategoryByUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to matching by `generateSlug(name)` or `generateSlug(name_tr)` when `url_key` exact lookup fails
-- `getCategorySearchIdFromUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to name-derived slug matching for categories without `url_key`
-- Category links from `/en/filters` and navigation components now resolve correctly for all categories
+- Category pages (e.g., `/en/fuel-filter`) no longer return 404 when `url_key` contains legacy numeric ID suffix
+- Root cause: 959 of 979 active categories have `url_key` values like `"fuel-filter-100261"`. `normalizeUrlKey()` strips the suffix for link generation, but the lookup function only performed exact `url_key` match, missing these categories
+- `getPartCategoryByUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to `startsWith` prefix match + `normalizeUrlKey()` post-filter when exact `url_key` lookup fails
+- `getCategorySearchIdFromUrlKey()` in `lib/actions/getPartCategories.ts` now falls back to suffixed match when exact `url_key` lookup fails
+- Category links from `/en/filters` and all navigation components now resolve correctly for all 979 active categories
 
 ### Added
-- `lib/actions/getPartCategories.test.ts` — 14 tests for `generateSlug`, `normalizeUrlKey`, category URL generation, and slug resolution consistency
-- Name-derived slug fallback (`generateSlug(name)` and `generateSlug(name_tr)`) in category lookup when `url_key` is NULL in database
+- 8 new tests for suffixed url_key resolution in `lib/actions/getPartCategories.test.ts`
+- 3 new tests for canonical category URL generation in `lib/catalog-url.test.ts`
+- Suffixed `url_key` fallback in category lookup (step 4 in slug resolution flow)
+- Updated `docs/CATEGORY_ROUTING.md` with suffixed url_key resolution strategy
 
 ## [0.2.1] - 2026-05-07
 

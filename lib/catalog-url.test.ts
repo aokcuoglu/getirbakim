@@ -57,4 +57,23 @@ describe('catalog url helpers', () => {
       })
     ).toBe('/tr/oils-and-fluids?sort=price-asc')
   })
+
+  it('produces canonical category URLs for suffixed url_keys after normalization', () => {
+    expect(
+      buildCategoryUrl('en', { categoryUrlKey: 'fuel-filter' })
+    ).toBe('/en/fuel-filter')
+
+    expect(
+      buildCategoryPath({ categoryUrlKey: 'fuel-filter' })
+    ).toBe('/fuel-filter')
+  })
+
+  it('handles category URLs with variant slugs', () => {
+    expect(
+      buildCategoryUrl('en', {
+        categoryUrlKey: 'fuel-filter',
+        variantSlug: 'vw-golf-123-vtid'
+      })
+    ).toBe('/en/fuel-filter?variant=vw-golf-123-vtid')
+  })
 })

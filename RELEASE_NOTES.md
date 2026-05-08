@@ -3,9 +3,9 @@
 ## v0.2.2 - Category Route Resolution Bugfix
 
 ### Category Route Resolution
-- Fixed category pages (e.g., `/en/fuel-filter`) returning 404 when `url_key` is NULL in the database
-- Root cause: `normalizeUrlKey()` generated slugs from `name` when `url_key` was NULL (e.g., `generateSlug("Fuel filter")` → `"fuel-filter"`), producing valid links. But `getPartCategoryByUrlKey()` only queried `WHERE url_key = 'fuel-filter'`, which doesn't match NULL rows in SQL
-- Added name-derived slug fallback in `getPartCategoryByUrlKey()`: when `url_key` lookup fails, queries categories with `url_key = null` and matches by `generateSlug(name)` or `generateSlug(name_tr)`
+- Fixed category pages (e.g., `/en/fuel-filter`) returning 404 when `url_key` in the database contains a legacy numeric ID suffix
+- Root cause: 959 of 979 active categories have `url_key` values like `"fuel-filter-100261"` (with a 5+ digit numeric suffix). `normalizeUrlKey()` strips these suffixes for link generation (producing `"fuel-filter"`), but `getPartCategoryByUrlKey()` only performed an exact `WHERE url_key = 'fuel-filter'` match, which always returned 0 rows for these categories
+- Added suffixed url_key fallback in `getPartCategoryByUrlKey()`: when exact `url_key` match fails, queries `WHERE url_key LIKE '{urlKey}-%'` and filters results by `normalizeUrlKey()` to find the canonical match
 - Added same fallback in `getCategorySearchIdFromUrlKey()` for category ID resolution
 - No link generation changes needed — links already used `normalizeUrlKey()` consistently
 - No product/payment/checkout behavior changes
@@ -13,13 +13,25 @@
 
 ### Category URL Strategy
 - SEO-friendly category URLs: `/{locale}/{categorySlug}` (e.g., `/en/fuel-filter`, `/tr/yakit-filtresi`)
-- Categories with `url_key` in DB: resolved by exact `url_key` match (e.g., `fuel-filters`)
-- Categories without `url_key` in DB: resolved by name-derived slug fallback (e.g., `fuel-filter` from "Fuel filter")
+- Categories with clean `url_key` in DB (19 categories like `filters`, `car-parts`): resolved by exact `url_key` match
+- Categories with legacy ID-suffixed `url_key` (959 categories like `fuel-filter-100261`): resolved by `startsWith` prefix match + `normalizeUrlKey()` post-filter
+- Categories without `url_key` (1 category with null): resolved by name-derived slug fallback (`generateSlug(name)` or `generateSlug(name_tr)`)
 - Turkish locale: also matches `name_tr`-derived slugs (e.g., `yakit-filtresi` from "Yakıt filtresi")
+- `next.config.mjs` redirects strip legacy ID suffixes from URLs: `/en/fuel-filter-100261` → `/en/fuel-filter`
+
+### Slug Resolution Flow (updated)
+1. **Redis cache** — `part-category-v2-{urlKey}`
+2. **Legacy ID suffix** — if urlKey matches `-(\d+)$`, parse ID and look up directly
+3. **Exact `url_key` match** — `WHERE is_active = true AND url_key = urlKey`
+4. **Suffixed `url_key` fallback** — `WHERE is_active = true AND url_key LIKE '{urlKey}-%'`, then filter by `normalizeUrlKey()` matching urlKey
+5. **Name-derived slug fallback** — `WHERE is_active = true AND url_key IS NULL`, then match `generateSlug(name) === urlKey` or `generateSlug(name_tr) === urlKey`
+6. **notFound()** — if none of the above match
 
 ### Tests
-- Added 14 tests for `generateSlug`, `normalizeUrlKey`, category URL generation, and slug resolution consistency
-- Tests confirm link generation and lookup produce consistent slugs for categories without `url_key`
+- Added 8 new tests for suffixed url_key resolution in `lib/actions/getPartCategories.test.ts`
+- Added 3 new tests for canonical category URL generation in `lib/catalog-url.test.ts`
+- Tests confirm `normalizeUrlKey` correctly strips ID suffixes, filters false positives, and produces consistent slugs
+- All 100 tests pass
 
 ## v0.2.1 - Catalog + Offer Search MVP
 

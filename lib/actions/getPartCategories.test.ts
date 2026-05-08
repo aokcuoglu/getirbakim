@@ -139,3 +139,44 @@ describe('category slug resolution consistency', () => {
     expect(pluralUrlKey).not.toBe(singularNameSlug)
   })
 })
+
+describe('suffixed url_key resolution', () => {
+  it('normalizes suffixed url_key to canonical slug', () => {
+    expect(normalizeUrlKey('fuel-filter-100261', 'Fuel Filter')).toBe('fuel-filter')
+    expect(normalizeUrlKey('oil-filter-100259', 'Oil Filter')).toBe('oil-filter')
+    expect(normalizeUrlKey('brake-system', 'Brake System')).toBe('brake-system')
+    expect(normalizeUrlKey('engine-timing-100003', 'Engine Timing')).toBe('engine-timing')
+  })
+
+  it('does not strip short numeric suffixes', () => {
+    expect(normalizeUrlKey('filter-1234', 'Filter')).toBe('filter-1234')
+  })
+
+  it('canonical slug matches what link generation produces for suffixed url_keys', () => {
+    const dbUrlKey = 'fuel-filter-100261'
+    const dbName = 'Fuel Filter'
+    const linkSlug = normalizeUrlKey(dbUrlKey, dbName)
+    expect(linkSlug).toBe('fuel-filter')
+  })
+
+  it('startsWith pattern for suffixed lookup matches correct candidates', () => {
+    const urlKey = 'fuel-filter'
+    const prefix = urlKey + '-'
+    expect(prefix).toBe('fuel-filter-')
+    expect('fuel-filter-100261'.startsWith(prefix)).toBe(true)
+    expect('fuel-filter-housing-100253'.startsWith(prefix)).toBe(true)
+  })
+
+  it('normalizeUrlKey filters out false positive startsWith matches', () => {
+    const falsePositiveUrlKey = 'fuel-filterhousing-100253'
+    const normalized = normalizeUrlKey(falsePositiveUrlKey, 'Fuel Filter/Housing')
+    expect(normalized).toBe('fuel-filterhousing')
+    expect(normalized).not.toBe('fuel-filter')
+  })
+
+  it('handles categories where url_key equals the canonical slug', () => {
+    expect(normalizeUrlKey('filters', 'Filters')).toBe('filters')
+    expect(normalizeUrlKey('car-parts', 'Car parts')).toBe('car-parts')
+    expect(normalizeUrlKey('brake-system', 'Brake System')).toBe('brake-system')
+  })
+})
