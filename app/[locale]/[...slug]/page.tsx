@@ -9,13 +9,14 @@ import {
 } from '../_lib/category-page-data'
 import { getLocalizedCategoryName } from '@/lib/utils/category-localization'
 import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 interface LegacyCategoryPageProps {
   params: Promise<{
     locale: string
     slug: string[]
   }>
-  searchParams: Promise<Record<string, string | string[] | undefined>>
+  searchParams: Promise<Record<string, string | string[]>>
 }
 
 export const revalidate = 3600
@@ -60,6 +61,9 @@ export default async function LegacyCategoryPage({
   params,
   searchParams
 }: LegacyCategoryPageProps) {
+  const tg = createTimerGroup('categoryPage')
+  const tStart = tg.start('resolve')
+
   const { locale, slug } = await params
   const resolvedSearchParams = (await searchParams) as CategoryRouteSearchParams
 
@@ -99,6 +103,8 @@ export default async function LegacyCategoryPage({
       })
     )
   }
+
+  tg.end(tStart)
 
   return renderCategoryPage({
     locale,

@@ -187,6 +187,7 @@ model part_categories {
   @@index([is_main_nav])
   @@index([is_active, is_main_nav], name: "part_categories_active_main_nav_idx")
   @@index([is_active, parent_id], name: "part_categories_active_parent_idx")
+  @@index([is_active, url_key], name: "part_categories_active_url_key_idx")
   @@schema("public")
 }
 

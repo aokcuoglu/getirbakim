@@ -105,15 +105,16 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 | `PERFORMANCE_LOGGING` | `false` | Enable verbose performance logging |
 | `SLOW_QUERY_THRESHOLD` | `500` (was 1000) | Threshold in ms for slow query warnings |
 
-## Cache Architecture (Current State)
+## Cache Architecture (Current State — v0.2.3)
 
-| Layer | Mechanism | TTL | Scope |
-|-------|-----------|-----|-------|
-| CDN/Edge | middleware `Cache-Control` | s-maxage=300, stale-while-revalidate=900 | Anonymous HTML pages |
-| Redis (Upstash) | `lib/redis.ts` | Per-call (300s-7d) | All server data |
-| ISR/React Cache | `unstable_cache` + `cache()` | 5m-1h | Category trees, parts, search IDs |
-| In-memory | `lib/cache.ts` Map | 1-5m | Admin API only |
-| Client | `CategoryCacheProvider` | Session-scoped | Category navigation |
+| Layer | Mechanism | TTL | Scope | v0.2.3 Change |
+|-------|-----------|-----|-------|----------------|
+| CDN/Edge | middleware `Cache-Control` | s-maxage=300, stale-while-revalidate=900 | Anonymous HTML pages | Unchanged |
+| Next.js Data Cache | `unstable_cache` | 1 hour | Category by urlKey, Main nav, Popular manufacturers, Catalog data | **Expanded** to cover category, nav, manufacturers |
+| Redis (Upstash) | `lib/redis.ts` | Per-call (300s-7d) | All server data (fallback inside unstable_cache) | Unchanged |
+| React `cache()` | Per-request dedup | Single render | `getPartCategoryByUrlKey` dedup | Unchanged |
+| In-memory | `lib/cache.ts` Map | 1-5m | Admin API only | Unchanged |
+| Client | `CategoryCacheProvider` | Session-scoped | Category navigation | Unchanged |
 
 ### Cache Keys Documented
 
@@ -212,6 +213,9 @@ CREATE INDEX IF NOT EXISTS part_categories_active_parent_idx ON part_categories(
 CREATE INDEX IF NOT EXISTS part_cross_refs_article_part_idx ON part_cross_references(article_number, part_id);
 CREATE INDEX IF NOT EXISTS part_eans_part_id_idx ON part_eans(part_id);
 CREATE INDEX IF NOT EXISTS part_oens_code_part_idx ON part_oens(code, part_id);
+
+-- Added in Prisma schema (v0.2.3)
+CREATE INDEX IF NOT EXISTS part_categories_active_url_key_idx ON part_categories(is_active, url_key);
 
 -- Recommended for future (not in Prisma schema)
 CREATE INDEX IF NOT EXISTS part_oens_code_normalized_idx ON part_oens(upper(regexp_replace(code, '[^A-Z0-9]+', '', 'g')));

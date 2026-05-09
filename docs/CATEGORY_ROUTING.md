@@ -82,6 +82,34 @@ Category page indexing remains disabled (`NEXT_PUBLIC_ALLOW_INDEXING=false`) unt
 
 ## Cache
 
+### v0.2.3 Caching Improvements
+
+Category and nav data now uses a 3-layer caching architecture:
+
+1. **Next.js Data Cache (`unstable_cache`)** — ISR with 1-hour revalidation
+   - `part-category-by-urlkey-v3` — category slug resolution
+   - `main-nav-categories-v3` — main navigation categories
+   - `popular-manufacturers-v2` — popular manufacturers
+
+2. **Redis (Upstash)** — 1-hour TTL, fallback inside `unstable_cache`
+   - `part-category-v2-{urlKey}` — category hierarchy
+   - `main-nav-categories-{locale}-v2` — nav categories
+   - `popular-manufacturers-v1` — manufacturers
+   - `part-categories-tree-{locale}-v2` — category tree
+
+3. **React `cache()`** — per-request deduplication
+   - `getPartCategoryByUrlKey` deduplicates within a single server render
+
+### Slug Resolver Optimization (v0.2.3)
+
+The slug resolver was rewritten to minimize DB round trips:
+- **Before:** 4-8+ sequential DB queries per cold cache miss (N+1 for child count, iterative ancestry walk)
+- **After:** 2-3 batched queries (batch child count with `WHERE parent_id IN (...)`, batch ancestry lookup)
+
+### Database Index
+
+Added composite index `part_categories_active_url_key_idx` on `(is_active, url_key)` to support the most common slug resolution query pattern.
+
 - Category lookup results cached in Redis with key `part-category-v2-{urlKey}`, TTL 3600s
 - Category tree cached in Redis with key `part-categories-tree-{locale}-v2`, TTL 3600s
 - Client-side SPA navigation via `CategoryPageShell` with `/api/category-page` API

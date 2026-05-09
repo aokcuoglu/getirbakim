@@ -2,6 +2,52 @@
 
 ## v0.2.2 - Category Route Resolution Bugfix
 
+### Category Route Transition Optimization
+- Rewrote `getPartCategoryByUrlKey` to minimize DB round trips from 4-8+ sequential queries to 2-3 batched queries
+- Replaced N+1 child count queries with single `WHERE parent_id IN (...)` batched query
+- Replaced iterative ancestry walk (1 query per parent) with batched ancestor lookup (single `findMany` for all ancestors)
+- Siblings and ancestry data now fetched in parallel
+- Added `unstable_cache` ISR layer with 1-hour revalidation and Redis fallback
+- React `cache()` per-request deduplication still applies inside ISR function
+
+### Nav and Category Data Caching
+- Added Next.js `unstable_cache` ISR layer to `getMainNavCategories` (key: `main-nav-categories-v3`, revalidate: 3600s)
+- Added Next.js `unstable_cache` ISR layer to `getPopularManufacturers` (key: `popular-manufacturers-v2`, revalidate: 3600s)
+- Added Next.js `unstable_cache` ISR layer to `getPartCategoryByUrlKey` (key: `part-category-by-urlkey-v3`, revalidate: 3600s)
+- On warm ISR cache: 0 DB queries, 0 Redis calls for nav/category/manufacturer data
+- Redis remains as fallback inside ISR functions for cache warm-up and cross-instance sharing
+
+### Route Timing Instrumentation
+- Added `createTimerGroup` to category page (`categoryPage`), category layout (`categoryLayout`), and category page payload builder (`categoryPagePayload`)
+- Timing logs appear when `PERFORMANCE_LOGGING=true` in `.env`
+
+### Database Index
+- Added composite index `part_categories_active_url_key_idx` on `(is_active, url_key)` to Prisma schema
+- Added SQL migration `20260509000000_add_category_performance_indexes`
+- Supports the most common slug resolution query: `WHERE is_active = true AND url_key = ?`
+
+### Caching Architecture (v0.2.2)
+| Layer | Mechanism | TTL | Scope |
+|-------|-----------|-----|-------|
+| Next.js Data Cache | `unstable_cache` | 1 hour | Category by urlKey, Main nav, Popular manufacturers, Catalog data |
+| Redis (Upstash) | `lib/redis.ts` | 1 hour | All server data (fallback inside unstable_cache) |
+| React `cache()` | Per-request | Single render | `getPartCategoryByUrlKey` dedup |
+| CDN | middleware `Cache-Control` | s-maxage=300 | Anonymous HTML pages |
+
+### No Behavior Changes
+- No product, payment, supplier sync, vehicle compatibility, auth, search, or checkout changes
+- No UI redesign
+- No-price products remain visible
+- Search endpoint unchanged
+- MEILI_ENABLED=false compatible
+- Docker-first local runtime and VPS deploy workflow unchanged
+
+### Documentation
+- Added `docs/NAVIGATION_PERFORMANCE.md` with full bottleneck analysis, caching strategy, and production checklist
+- Updated `docs/CATEGORY_ROUTING.md` with v0.2.2 caching improvements and slug resolver optimization
+- Updated `docs/PERFORMANCE_BASELINE.md` with v0.2.2 cache architecture and index additions
+- Updated `RELEASE_NOTES.md` and `CHANGELOG.md`
+
 ### Category Route Resolution
 - Fixed category pages (e.g., `/en/fuel-filter`) returning 404 when `url_key` in the database contains a legacy numeric ID suffix
 - Root cause: 959 of 979 active categories have `url_key` values like `"fuel-filter-100261"` (with a 5+ digit numeric suffix). `normalizeUrlKey()` strips these suffixes for link generation (producing `"fuel-filter"`), but `getPartCategoryByUrlKey()` only performed an exact `WHERE url_key = 'fuel-filter'` match, which always returned 0 rows for these categories

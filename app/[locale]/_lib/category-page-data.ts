@@ -9,6 +9,7 @@ import {
 } from '@/lib/actions/getCatalogArticles'
 import { buildCategoryUrl } from '@/lib/catalog-url'
 import type { TrodoCategoryWithHierarchy } from '@/lib/actions/getPartCategories'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 export interface CategoryRouteSearchParams {
   [key: string]: string | string[] | undefined
@@ -123,6 +124,9 @@ export async function buildCategoryPagePayload({
   searchParams: CategoryRouteSearchParams
   preResolvedCategory?: TrodoCategoryWithHierarchy
 }): Promise<CategoryPagePayload | null> {
+  const tg = createTimerGroup('categoryPagePayload')
+  const tResolve = tg.start('resolveCategory')
+
   const variantSlug = getSearchParamValue(searchParams, 'variant')
   const resolvedVehicleId = variantSlug
     ? extractVehicleTypeIdFromSlug(variantSlug)
@@ -133,6 +137,7 @@ export async function buildCategoryPagePayload({
   if (!category?.urlKey) {
     return null
   }
+  tg.end(tResolve)
 
   const canonicalSearchParams: Record<string, string> = {}
   Object.entries(searchParams).forEach(([key, value]) => {
@@ -148,7 +153,7 @@ export async function buildCategoryPagePayload({
     canonicalSearchParams[key] = value
   })
 
-  // Run popularManufacturers and initialData in parallel
+  const tData = tg.start('fetchData')
   const [popularManufacturers, initialData] = await Promise.all([
     category.isLeaf ? Promise.resolve([]) : getPopularManufacturers(),
     category.isLeaf
@@ -160,6 +165,8 @@ export async function buildCategoryPagePayload({
         )
       : Promise.resolve(undefined)
   ])
+  tg.end(tData)
+  tg.logSummary()
 
   return {
     locale,

@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import { getMainNavCategories } from '@/lib/mainNavCategories'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 interface CategoryLayoutProps {
   children: ReactNode
@@ -70,8 +71,11 @@ export default async function CategoryLayout({
 }: CategoryLayoutProps) {
   const { locale } = await params
 
-  // Fetch main nav categories from DB (Car parts + 4 main)
+  const tg = createTimerGroup('categoryLayout')
+  const tNav = tg.start('mainNav')
   const navbarCategories = await getMainNavCategories(locale)
+  tg.end(tNav)
+  tg.logSummary()
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">

@@ -4,7 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.2.2] - 2026-05-08
+## [0.2.2] - 2026-05-09
+
+### Changed
+- Rewrote `getPartCategoryByUrlKey` in `lib/actions/getPartCategories.ts` to minimize DB round trips (4-8+ sequential queries → 2-3 batched queries)
+- Replaced N+1 child count queries with batched `WHERE parent_id IN (...)` query
+- Replaced iterative ancestry walk (1 query per parent) with single batched ancestor lookup
+- Siblings and ancestry data now fetched in parallel
+- Added `unstable_cache` ISR layer (1-hour revalidation) to `getPartCategoryByUrlKey`, `getMainNavCategories`, and `getPopularManufacturers`
+- Warm ISR cache: nav/category/manufacturer data served with 0 DB queries, 0 Redis calls
+- Redis remains as fallback inside ISR functions for cache warm-up and cross-instance sharing
+- Added route timing instrumentation to category page, category layout, and category page payload builder
+- Performance timing logs appear when `PERFORMANCE_LOGGING=true`
+
+### Added
+- Composite index `part_categories_active_url_key_idx` on `(is_active, url_key)` in Prisma schema
+- SQL migration `20260509000000_add_category_performance_indexes`
+- `docs/NAVIGATION_PERFORMANCE.md` — navigation performance bottleneck analysis, caching strategy, production checklist
+
+### Fixed
+- Nav/category data no longer requires per-request Redis calls when Next.js data cache is warm
+- Category page navigation no longer triggers multiple sequential DB queries for slug resolution on warm ISR cache
 
 ### Fixed
 - Category pages (e.g., `/en/fuel-filter`) no longer return 404 when `url_key` contains legacy numeric ID suffix
