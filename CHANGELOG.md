@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.3] - 2026-05-09
+
+### Added
+- Self-hosted Meilisearch Docker service in `docker-compose.yml` and `docker-compose.local.yml`
+- `lib/search/meilisearch-client.ts` — server-side Meili client with config validation and health check
+- `lib/search/search-document-builder.ts` — unified document builder for supplier-backed and catalog-only products
+- `scripts/meili-setup.ts` — index creation and configuration script
+- `scripts/meili-reindex.ts` — batch reindexing from PostgreSQL into Meilisearch
+- `app/api/internal/search/health/route.ts` — Meilisearch health diagnostic endpoint (CRON_SECRET protected)
+- Package scripts: `search:setup` and `search:reindex`
+- `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` — full setup, configuration, and troubleshooting guide
+
+### Changed
+- `/api/search` now queries Meilisearch first when `MEILI_ENABLED=true`, falls back to PostgreSQL catalog+offer search on Meili failure
+- `/api/search` GET and POST handlers return `source: "meilisearch"` with full `CatalogOfferProduct` response shape when using Meili
+- `/api/health` now reports Meilisearch reachability status with timing
+- `docker-compose.yml` and `docker-compose.local.yml` now include `meilisearch` service, `app-network`, and persistent volumes
+- `lib/meilisearch.ts` now delegates to `lib/search/meilisearch-client.ts` for server-side config
+- `lib/search/setup-index.ts` now uses `products` index with searchable/filterable/sortable attributes for the unified document shape
+- `lib/search/meili-admin.ts` now uses `getMeiliHost()` for consistent host resolution
+- `.env.example` updated with detailed Meilisearch env vars and security warnings
+- `MEILI_HOST` default changed to `http://127.0.0.1:7700` (outside Docker) / `http://meilisearch:7700` (inside Docker)
+- Default search sort changed from empty array to `['rankScore:desc']` — products with price/stock rank higher
+
+### Fixed
+- Broad search queries (e.g., "Bosch") now complete in < 1s warm when Meili is enabled (vs 135s cold Prisma fallback)
+- Response metadata includes `dataSource`, `liveFallbackUsed`, and `meiliFallbackReason` for observability
+- Meilisearch index name is configurable via `MEILI_INDEX_PRODUCTS` env var instead of hardcoded `parts`
+- **PostgreSQL fallback SQL**: Replaced `Prisma.sql` template interpolation in CTE strings with `escapeSqlLiteral()`/`escapeSqlLike()` helpers — prevents `[object Object]` in SQL causing `42601` syntax errors
+- **PostgreSQL query execution**: Replaced `db.$queryRawUnsafe()` with `db.$queryRaw()` in `fetchSupplierBackedHits` and `fetchCatalogOnlyHits` — `$queryRawUnsafe` does not correctly handle `Prisma.sql` tagged template objects
+- **Reindex script execution**: Removed `import 'server-only'` from `lib/search/search-document-builder.ts` so CLI scripts can run outside Next.js; removed unused imports from `scripts/meili-reindex.ts`
+- **Docker runner**: Copied Bun binary from `oven/bun:1` build stage; added `tsconfig.json`, source files, Prisma schema, and required `node_modules` for reindex scripts
+- **Docker `.dockerignore`**: Added `!scripts` and `!scripts/**` exceptions so scripts directory is available in Docker build context
+- **SQL GROUP BY**: Fixed `JSONB_AGG` subqueries using `spo.updated_at`/`spo2.updated_at` ordering that caused PostgreSQL `42803` error — wrapped in subquery selectors
+- **Reindex document IDs**: Meilisearch rejects `part:xxx` IDs containing colons (pre-existing format issue)
+
+### Security
+- `MEILI_MASTER_KEY` is server-only. Not exposed to browser. No `NEXT_PUBLIC_MEILI_*` vars required.
+- Port 7700 is bound to `127.0.0.1` only in both compose files — not publicly accessible
+- `/api/internal/search/health` requires `CRON_SECRET` authorization
+
+### Tests
+- Added `lib/search/catalog-offer-search-sql.test.ts` with 9 tests covering SQL escaping, `[object Object]` injection prevention, fallback behavior, availability status mapping, and page size caps
+
 ## [0.2.2] - 2026-05-09
 
 ### Changed

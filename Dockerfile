@@ -53,7 +53,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+RUN chmod +x /usr/local/bin/bun
 RUN npm install --os=linux --cpu=x64 sharp
 ENV NEXT_SHARP_PATH=/app/node_modules/sharp
 
@@ -65,12 +66,28 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 RUN chown -R nextjs:nodejs /app/node_modules/@prisma || true
-COPY --from=builder /app/node_modules/@prisma/adapter-pg/dist/index.js /app/node_modules/@prisma/adapter-pg/dist/index.js
-COPY --from=builder /app/node_modules/@prisma/adapter-pg/package.json /app/node_modules/@prisma/adapter-pg/package.json
-COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/dist/index.js /app/node_modules/@prisma/driver-adapter-utils/dist/index.js
-COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/package.json /app/node_modules/@prisma/driver-adapter-utils/package.json
-COPY --from=builder /app/node_modules/@prisma/debug/dist/index.js /app/node_modules/@prisma/debug/dist/index.js
-COPY --from=builder /app/node_modules/@prisma/debug/package.json /app/node_modules/@prisma/debug/package.json
+
+# Meilisearch operational scripts need source files and dependencies
+COPY --from=builder /app/tsconfig.json /app/tsconfig.json
+COPY --from=builder /app/scripts/ /app/scripts/
+COPY --from=builder /app/lib/search/search-document-builder.ts /app/lib/search/search-document-builder.ts
+COPY --from=builder /app/lib/search/availability.ts /app/lib/search/availability.ts
+COPY --from=builder /app/lib/pricing/public-pricing.ts /app/lib/pricing/public-pricing.ts
+COPY --from=builder /app/lib/db.ts /app/lib/db.ts
+COPY --from=builder /app/prisma/schema.prisma /app/prisma/schema.prisma
+COPY --from=builder /app/package.json /app/package.json
+
+# Prisma client library for reindex scripts
+COPY --from=builder /app/node_modules/.prisma/ /app/node_modules/.prisma/
+COPY --from=builder /app/node_modules/@prisma/client/ /app/node_modules/@prisma/client/
+COPY --from=builder /app/node_modules/@prisma/client-runtime-utils/ /app/node_modules/@prisma/client-runtime-utils/
+COPY --from=builder /app/node_modules/@prisma/adapter-pg/ /app/node_modules/@prisma/adapter-pg/
+COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/ /app/node_modules/@prisma/driver-adapter-utils/
+COPY --from=builder /app/node_modules/@prisma/debug/ /app/node_modules/@prisma/debug/
+COPY --from=builder /app/node_modules/meilisearch/ /app/node_modules/meilisearch/
+COPY --from=builder /app/node_modules/dotenv/ /app/node_modules/dotenv/
+COPY --from=builder /app/node_modules/pg/ /app/node_modules/pg/
+COPY --from=builder /app/node_modules/postgres/ /app/node_modules/postgres/
 
 USER nextjs
 

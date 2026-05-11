@@ -22,4 +22,5 @@ data.ms
 .venv*
 *.md
 !README.md
-scripts
+!scripts
+!scripts/**

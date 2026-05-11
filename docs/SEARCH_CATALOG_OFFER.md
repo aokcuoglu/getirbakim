@@ -1,8 +1,35 @@
-# Search: Catalog + Offer Strategy (v0.2.1)
+# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.3)
 
 ## Overview
 
-The search architecture uses a **catalog-first + offer-prioritized** strategy:
+The search architecture uses a **catalog-first + offer-prioritized** PostgreSQL strategy as fallback, and **self-hosted Meilisearch** as the primary search engine when enabled.
+
+### When `MEILI_ENABLED=true` (v0.2.3+)
+
+1. Meilisearch handles all search queries (products index)
+2. Products are indexed with availability status (PURCHASABLE, REQUEST_PRICE, OUT_OF_STOCK)
+3. Broad and OEM queries complete in < 1s warm
+4. PostgreSQL is the source of truth for pricing, stock, and product data
+5. On Meili failure, falls back to PostgreSQL catalog+offer search
+
+### When `MEILI_ENABLED=false` (v0.2.1 default)
+
+1. All search goes through PostgreSQL catalog+offer search (`runCatalogOfferSearch()`)
+2. No typo tolerance, limited faceted navigation
+3. Broad queries like "Bosch" complete in < 2s using CTE-based ranking
+
+## Meilisearch (Primary, v0.2.3+)
+
+See `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` for full setup, configuration, and troubleshooting.
+
+- Index: `products`
+- Search attributes: title, brand, supplierSku, oemCodes, eanCodes, normalizedSearchText, categoryName, name
+- Filterable: availabilityStatus, brand, categorySlug, providerName, hasPrice, hasStock, sourceType, brandId, categoryId
+- Sortable: price, stockQty, updatedAt, rankScore
+- Ranking: words, typo, proximity, attribute, sort, exactness
+- Typo tolerance: oneTypo at 5 chars, twoTypos at 9 chars
+
+## PostgreSQL Fallback
 
 1. All known catalog parts remain visible for SEO and discovery
 2. Products with supplier-backed price and stock are prioritized for purchase
@@ -77,9 +104,10 @@ See `scripts/search-indexes.sql` for pg_trgm and composite index recommendations
 - Limited faceted navigation in fallback mode
 - No real-time stock verification during search
 
-## Next Steps (v0.2.2+)
+## Next Steps (v0.2.4+)
 
 - Full request price flow
 - FITMENT_CHECK request type
 - Live stock check before add-to-cart
 - Admin sync dashboard
+- Meilisearch incremental indexing on supplier sync

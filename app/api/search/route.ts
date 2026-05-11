@@ -5,13 +5,21 @@ import {
   isMeiliUnavailableError,
   PARTS_INDEX
 } from '@/lib/meilisearch'
+import { isMeiliEnabled, getProductsIndexName } from '@/lib/search/meilisearch-client'
+import type { SearchDocument } from '@/lib/search/search-document-builder'
+import type { CatalogOfferProduct } from '@/lib/search/catalog-offer-search'
+import {
+  resolveAvailabilityStatus,
+  resolveCTA,
+  resolveDetailUrl
+} from '@/lib/search/availability'
+import { decimalToString } from '@/lib/pricing/public-pricing'
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { z } from 'zod'
 import type { SearchHit } from '@/lib/types/search'
 import {
-  decimalToString,
   REAL_PRICE_EXISTS_WHERE,
   resolvePublicPriceAndPurchasability,
   resolveRealPriceExVat
@@ -36,7 +44,6 @@ import {
 import {
   runCatalogOfferSearch,
   catalogOfferProductToSearchHit,
-  type CatalogOfferSearchResult
 } from '@/lib/search/catalog-offer-search'
 
 type SearchFiltersPayload = {
@@ -105,8 +112,7 @@ export async function GET(request: NextRequest) {
   const limit = Math.max(1, Math.min(Number(searchParams.get('limit')) || 24, 60))
   const sort = searchParams.get('sort') || undefined
 
-  const shouldUseCatalogOfferSearch = process.env.MEILI_ENABLED !== 'true'
-  if (shouldUseCatalogOfferSearch) {
+  if (!isMeiliEnabled()) {
     const start = performance.now()
     const result = await runCatalogOfferSearch({ query, page, limit })
     const elapsed = performance.now() - start
@@ -142,20 +148,86 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  return successResponse(
-    {
-      hits: [],
-      totalHits: 0,
-      facetDistribution: {},
-      processingTimeMs: 0,
-      query,
-      cached: false
-    },
-    {
-      requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
-      rate: { limit: 120, remaining: 119, retryAfterSeconds: 60 }
+  try {
+    const start = performance.now()
+    const client = getMeiliClient()
+    const indexName = getProductsIndexName()
+    const index = client.index(indexName)
+    const safeLimit = Math.min(limit, 60)
+    const offset = (page - 1) * safeLimit
+
+    const meiliSort = getMeiliSort(sort)
+    const results = await index.search(query, {
+      limit: safeLimit,
+      offset,
+      attributesToHighlight: ['title', 'brand', 'name'],
+      sort: meiliSort.length > 0 ? meiliSort : undefined
+    })
+
+    const elapsed = performance.now() - start
+    const products = meiliHitsToProducts(results.hits as unknown as SearchDocument[])
+    const hits = products.map(catalogOfferProductToSearchHit)
+    const counts = countByStatus(products)
+
+    return successResponse(
+      {
+        hits,
+        totalHits: results.estimatedTotalHits ?? hits.length,
+        facetDistribution: results.facetDistribution ?? {},
+        processingTimeMs: elapsed,
+        query,
+        cached: false,
+        source: 'meilisearch',
+        products,
+        page,
+        limit: safeLimit,
+        hasMore: (results.estimatedTotalHits ?? 0) > offset + safeLimit,
+        totalEstimate: results.estimatedTotalHits ?? hits.length,
+        liveFallbackUsed: false,
+        durationMs: elapsed,
+        ...counts
+      },
+      {
+        requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
+        rate: { limit: 120, remaining: 119, retryAfterSeconds: 60 }
+      }
+    )
+  } catch (error) {
+    if (isMeiliUnavailableError(error)) {
+      console.warn('[search/GET] Meilisearch unavailable, falling back to catalog+offer search')
+      const start = performance.now()
+      const result = await runCatalogOfferSearch({ query, page, limit })
+      const elapsed = performance.now() - start
+      const hits = result.products.map(catalogOfferProductToSearchHit)
+
+      return successResponse(
+        {
+          hits,
+          totalHits: result.totalEstimate ?? hits.length,
+          facetDistribution: {},
+          processingTimeMs: elapsed,
+          query,
+          cached: false,
+          degraded: true,
+          source: 'postgres_catalog_offer_search',
+          meiliFallbackReason: 'meili_unavailable',
+          products: result.products,
+          page: result.page,
+          limit: result.limit,
+          hasMore: result.hasMore,
+          totalEstimate: result.totalEstimate,
+          liveFallbackUsed: true,
+          durationMs: result.durationMs,
+          ...countByStatus(result.products)
+        },
+        {
+          requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
+          rate: { limit: 120, remaining: 119, retryAfterSeconds: 60 }
+        }
+      )
     }
-  )
+    throw error
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -218,7 +290,7 @@ export async function POST(request: NextRequest) {
       return res
     }
 
-    const shouldUseCatalogOfferSearch = process.env.MEILI_ENABLED !== 'true'
+    const shouldUseCatalogOfferSearch = !isMeiliEnabled()
     if (shouldUseCatalogOfferSearch) {
       const catalogOfferStart = performance.now()
       const catalogOfferResult = await runCatalogOfferSearch({
@@ -304,8 +376,9 @@ export async function POST(request: NextRequest) {
     }
 
     const client = getMeiliClient()
+    const indexName = getProductsIndexName()
+    const meiliIndex = client.index(indexName)
 
-    // Multi-search mode (for disjunctive faceting)
     if (multiSearch) {
       const meiliStart = performance.now()
       const mainFilter = buildMeilisearchFilter(filters, undefined, {
@@ -314,31 +387,28 @@ export async function POST(request: NextRequest) {
       const sortAttr = getMeiliSort(sort)
 
       const queries = [
-        // Main query - returns hits with all filters applied
         {
-          indexUid: PARTS_INDEX,
+          indexUid: indexName,
           q: query,
           filter: mainFilter || undefined,
-          limit,
-          offset: (page - 1) * limit,
+          limit: Math.min(limit, 60),
+          offset: (page - 1) * Math.min(limit, 60),
           sort: sortAttr.length > 0 ? sortAttr : undefined,
-          facets: ['brandName', 'categoryName'],
-          attributesToHighlight: ['name', 'brandName']
+          facets: ['brand', 'categoryName'],
+          attributesToHighlight: ['title', 'brand', 'name']
         },
-        // Brand facet query - exclude brand filter to get all brand counts
         {
-          indexUid: PARTS_INDEX,
+          indexUid: indexName,
           q: query,
           filter:
-            buildMeilisearchFilter(filters, 'brandName', {
+            buildMeilisearchFilter(filters, 'brand', {
               requireRealPrice
             }) || undefined,
-          limit: 0, // We only need facets, not hits
-          facets: ['brandName']
+          limit: 0,
+          facets: ['brand']
         },
-        // Category facet query - exclude category filter
         {
-          indexUid: PARTS_INDEX,
+          indexUid: indexName,
           q: query,
           filter:
             buildMeilisearchFilter(filters, 'categoryName', {
@@ -351,26 +421,51 @@ export async function POST(request: NextRequest) {
 
       const response = await client.multiSearch({ queries })
       mark('meili', meiliStart)
-      const enrichedMainHits = await enrichMeiliHitsWithPublicPricing(
-        response.results[0]?.hits ?? []
-      )
-      const filteredMainHits = requireRealPrice
-        ? enrichedMainHits.filter((hit) => hit.priceSource === 'real')
-        : enrichedMainHits
 
-      const result = {
-        results: [
-          {
-            ...response.results[0],
-            hits: filteredMainHits
-          },
-          response.results[1],
-          response.results[2]
-        ],
-        cached: false
-      }
+      const mainHits = (response.results[0]?.hits ?? []) as unknown as SearchDocument[]
+      const mainProducts = meiliHitsToProducts(mainHits)
+      const mainSearchHits = mainProducts.map(catalogOfferProductToSearchHit)
+      const counts = countByStatus(mainProducts)
 
-      // Cache in Redis (5 minutes)
+      const result = multiSearch
+        ? {
+            results: [
+              {
+                ...response.results[0],
+                hits: mainSearchHits
+              },
+              response.results[1],
+              response.results[2]
+            ],
+            cached: false,
+            source: 'meilisearch',
+            products: mainProducts,
+            page,
+            limit: Math.min(limit, 60),
+            hasMore: (response.results[0]?.estimatedTotalHits ?? 0) > page * Math.min(limit, 60),
+            totalEstimate: response.results[0]?.estimatedTotalHits ?? mainProducts.length,
+            liveFallbackUsed: false,
+            durationMs: timingsMs.meili,
+            ...counts
+          }
+        : {
+            hits: mainSearchHits,
+            totalHits: response.results[0]?.estimatedTotalHits ?? mainSearchHits.length,
+            facetDistribution: response.results[0]?.facetDistribution ?? {},
+            processingTimeMs: timingsMs.meili,
+            query,
+            cached: false,
+            source: 'meilisearch',
+            products: mainProducts,
+            page,
+            limit: Math.min(limit, 60),
+            hasMore: (response.results[0]?.estimatedTotalHits ?? 0) > page * Math.min(limit, 60),
+            totalEstimate: response.results[0]?.estimatedTotalHits ?? mainProducts.length,
+            liveFallbackUsed: false,
+            durationMs: timingsMs.meili,
+            ...counts
+          }
+
       const cacheSetStart = performance.now()
       await setCache(cacheKey, result, 300).catch((err) => {
         console.error('Failed to cache search results:', err)
@@ -392,21 +487,20 @@ export async function POST(request: NextRequest) {
       return res
     }
 
-    // Single search mode (backward compatibility)
+    // Single search mode
     const meiliFilter = buildMeilisearchFilter(filters, undefined, {
       requireRealPrice
     })
-    const index = client.index(PARTS_INDEX)
 
+    const safeLimit = Math.min(limit, 60)
     const searchOptions: any = {
       filter: meiliFilter || undefined,
-      limit,
-      offset: (page - 1) * limit,
-      facets: ['brandName', 'categoryName'],
-      attributesToHighlight: ['name', 'brandName']
+      limit: safeLimit,
+      offset: (page - 1) * safeLimit,
+      facets: ['brand', 'categoryName'],
+      attributesToHighlight: ['title', 'brand', 'name']
     }
 
-    // Add sort if provided
     if (sort) {
       const sortAttr = getMeiliSort(sort)
       if (sortAttr.length > 0) {
@@ -415,28 +509,35 @@ export async function POST(request: NextRequest) {
     }
 
     const meiliStart = performance.now()
-    const results = await index.search(query, searchOptions)
+    const results = await meiliIndex.search(query, searchOptions)
     mark('meili', meiliStart)
-    const enrichedHits = await enrichMeiliHitsWithPublicPricing(results.hits)
-    const filteredHits = requireRealPrice
-      ? enrichedHits.filter((hit) => hit.priceSource === 'real')
-      : enrichedHits
 
-    // Transform results
+    const meiliHits = results.hits as unknown as SearchDocument[]
+    const products = meiliHitsToProducts(meiliHits)
+    const hits = products.map(catalogOfferProductToSearchHit)
+    const counts = countByStatus(products)
+
     const response = {
-      hits: filteredHits,
+      hits,
       totalHits: results.estimatedTotalHits || 0,
       facetDistribution: results.facetDistribution,
       processingTimeMs: results.processingTimeMs,
       query: results.query,
-      cached: false
+      cached: false,
+      source: 'meilisearch',
+      products,
+      page,
+      limit: safeLimit,
+      hasMore: (results.estimatedTotalHits ?? 0) > page * safeLimit,
+      totalEstimate: results.estimatedTotalHits ?? hits.length,
+      liveFallbackUsed: false,
+      durationMs: Number((performance.now() - requestStart).toFixed(2)),
+      ...counts
     }
 
-    // Cache in Redis (5 minutes)
     const cacheSetStart = performance.now()
     await setCache(cacheKey, response, 300).catch((err) => {
       console.error('Failed to cache search results:', err)
-      // Don't fail the request if caching fails
     })
     mark('cacheSet', cacheSetStart)
 
@@ -2152,32 +2253,100 @@ async function runPrismaSearchFallback(input: PrismaFallbackInput) {
   }
 }
 
+type CatalogOfferProductWithStatus = CatalogOfferProduct
+
+function meiliHitsToProducts(hits: SearchDocument[]): CatalogOfferProduct[] {
+  return hits.map((hit): CatalogOfferProduct => {
+    const availability: CatalogOfferProductWithStatus['availabilityStatus'] = hit.availabilityStatus || 'REQUEST_PRICE'
+    const cta = resolveCTA(availability) || 'request_price'
+    const detailUrl = hit.detailUrl || resolveDetailUrl({
+      partId: hit.partId,
+      supplierProductId: hit.supplierProductId ?? undefined
+    })
+
+    return {
+      partId: hit.partId,
+      supplierProductId: hit.supplierProductId ?? null,
+      title: hit.title || hit.name,
+      brand: hit.brand || hit.brandName || '',
+      imageUrl: hit.imageUrl,
+      price: hit.price !== null ? String(hit.price) : null,
+      stockQty: hit.stockQty ?? 0,
+      currency: hit.currency || 'TRY',
+      availabilityStatus: availability,
+      cta,
+      providerName: hit.providerName ?? null,
+      oemCodes: hit.oemCodes || [],
+      eanCodes: hit.eanCodes || [],
+      detailUrl,
+      name: hit.name || hit.title,
+      brandName: hit.brandName || hit.brand || '',
+      brandLogo: null,
+      categoryId: hit.categoryId ?? null,
+      categoryName: hit.categoryName || null,
+      priceSource: hit.hasPrice ? 'real' : 'placeholder',
+      isPlaceholderPrice: !hit.hasPrice,
+      isPurchasable: hit.availabilityStatus === 'PURCHASABLE',
+      sourceType: hit.sourceType,
+      articleLinkId: hit.articleLinkId,
+      variantCount: 1,
+      inBasket: false,
+      brandId: hit.brandId ?? null,
+      images: [],
+      properties: []
+    }
+  })
+}
+
+function countByStatus(products: CatalogOfferProduct[]) {
+  let purchasableCount = 0
+  let requestPriceCount = 0
+  let verifyFitmentCount = 0
+  let outOfStockCount = 0
+
+  for (const product of products) {
+    switch (product.availabilityStatus) {
+      case 'PURCHASABLE':
+        purchasableCount++
+        break
+      case 'REQUEST_PRICE':
+        requestPriceCount++
+        break
+      case 'VERIFY_FITMENT':
+        verifyFitmentCount++
+        break
+      case 'OUT_OF_STOCK':
+        outOfStockCount++
+        break
+    }
+  }
+
+  return { purchasableCount, requestPriceCount, verifyFitmentCount, outOfStockCount }
+}
+
 /**
  * Build Meilisearch filter string from filters object
- * Matches the implementation in hooks/use-search.ts
+ * Updated for products index with availability/brand/category/hasPrice/hasStock
  */
 function buildMeilisearchFilter(
   filters: any,
-  excludeFacet?: 'brandName' | 'categoryName',
+  excludeFacet?: string,
   options?: { requireRealPrice?: boolean }
 ): string | null {
   const conditions: string[] = []
 
-  // Brand filter (skip if we're calculating brand facet distribution)
-  if (filters.brands && filters.brands.length > 0 && excludeFacet !== 'brandName') {
+  if (filters.brands && filters.brands.length > 0 && excludeFacet !== 'brand') {
     const brandNames = filters.brands.map((b: string) => `"${b}"`).join(', ')
-    conditions.push(`brandName IN [${brandNames}]`)
+    conditions.push(`brand IN [${brandNames}]`)
   }
 
-  // Category filter (skip if we're calculating category facet distribution)
   if (filters.categories && filters.categories.length > 0 && excludeFacet !== 'categoryName') {
     const categoryNames = filters.categories.map((c: string) => `"${c}"`).join(', ')
     conditions.push(`categoryName IN [${categoryNames}]`)
   }
 
-  // Legacy support for single brand/category
-  if (filters.brandName && excludeFacet !== 'brandName') {
-    conditions.push(`brandName = "${filters.brandName}"`)
+  if (filters.brandName && excludeFacet !== 'brand') {
+    conditions.push(`brand = "${filters.brandName}"`)
   }
 
   if (filters.categoryName && excludeFacet !== 'categoryName') {
@@ -2192,7 +2361,10 @@ function buildMeilisearchFilter(
     conditions.push(`categoryId = ${filters.categoryId}`)
   }
 
-  // Price filters
+  if (excludeFacet !== 'categorySlug' && filters.categorySlug) {
+    conditions.push(`categorySlug = "${filters.categorySlug}"`)
+  }
+
   if (filters.minPrice !== undefined) {
     conditions.push(`price >= ${filters.minPrice}`)
   }
@@ -2201,21 +2373,17 @@ function buildMeilisearchFilter(
     conditions.push(`price <= ${filters.maxPrice}`)
   }
 
-  // Vehicle filter (vehicleIds is an array field in Meilisearch)
-  // Use = to check if array contains the value
-  if (filters.vehicleIds && filters.vehicleIds.length > 0) {
-    const vehicleConditions = filters.vehicleIds
-      .map((id: number) => `vehicleIds = ${id}`)
-      .join(' OR ')
-    conditions.push(`(${vehicleConditions})`)
-  }
-
-  if (filters.inBasket !== undefined) {
-    conditions.push(`inBasket = ${filters.inBasket}`)
-  }
-
   if (options?.requireRealPrice) {
-    conditions.push('price > 0')
+    conditions.push('hasPrice = true')
+  }
+
+  if (filters.availabilityStatus) {
+    if (Array.isArray(filters.availabilityStatus)) {
+      const statuses = filters.availabilityStatus.map((s: string) => `"${s}"`).join(', ')
+      conditions.push(`availabilityStatus IN [${statuses}]`)
+    } else {
+      conditions.push(`availabilityStatus = "${filters.availabilityStatus}"`)
+    }
   }
 
   return conditions.length > 0 ? conditions.join(' AND ') : null
@@ -2238,12 +2406,12 @@ function getMeiliSort(sort?: string): string[] {
     case 'name-desc':
       return ['name:desc']
     case 'popularity':
-      return [] // Default Meilisearch relevance
+      return ['rankScore:desc']
     case 'newest':
-      return ['createdAt:desc']
+      return ['updatedAt:desc']
     case 'oldest':
-      return ['createdAt:asc']
+      return ['updatedAt:asc']
     default:
-      return []
+      return ['rankScore:desc']
   }
 }

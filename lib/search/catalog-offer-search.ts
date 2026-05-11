@@ -158,6 +158,14 @@ type CatalogHitRow = {
   rank_tier: number
 }
 
+function escapeSqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`
+}
+
+function escapeSqlLike(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "''").replace(/%/g, '\\%').replace(/_/g, '\\_')}'`
+}
+
 async function fetchSupplierBackedHits(
   query: string,
   filters: CatalogOfferSearchInput['filters'],
@@ -183,7 +191,7 @@ async function fetchSupplierBackedHits(
     SELECT sp.id, 0 AS rank_tier, 100 AS rank_score
     FROM supplier_products sp
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE sp.normalized_sku = LOWER(${Prisma.sql`'${compact}'`})
+    WHERE sp.normalized_sku = LOWER(${escapeSqlLiteral(compact)})
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -194,7 +202,7 @@ async function fetchSupplierBackedHits(
     FROM supplier_products sp
     JOIN supplier_product_oems spo ON spo.supplier_product_id = sp.id AND spo.is_active = true
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE spo.normalized_oem_code = LOWER(${Prisma.sql`'${compact}'`})
+    WHERE spo.normalized_oem_code = LOWER(${escapeSqlLiteral(compact)})
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -204,7 +212,7 @@ async function fetchSupplierBackedHits(
     SELECT sp.id, 1 AS rank_tier, 80 AS rank_score
     FROM supplier_products sp
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE (sp.barcode_1 = ${Prisma.sql`'${raw}'`} OR sp.barcode_2 = ${Prisma.sql`'${raw}'`} OR sp.barcode_3 = ${Prisma.sql`'${raw}'`})
+    WHERE (sp.barcode_1 = ${escapeSqlLiteral(raw)} OR sp.barcode_2 = ${escapeSqlLiteral(raw)} OR sp.barcode_3 = ${escapeSqlLiteral(raw)})
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -214,7 +222,7 @@ async function fetchSupplierBackedHits(
     SELECT sp.id, 2 AS rank_tier, 50 AS rank_score
     FROM supplier_products sp
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE LOWER(sp.supplier_brand) = LOWER(${Prisma.sql`'${raw}'`})
+    WHERE LOWER(sp.supplier_brand) = LOWER(${escapeSqlLiteral(raw)})
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -224,8 +232,8 @@ async function fetchSupplierBackedHits(
     SELECT sp.id, 3 AS rank_tier, 30 AS rank_score
     FROM supplier_products sp
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE (sp.normalized_name ILIKE ${Prisma.sql`'%${folded}%'`}
-           OR sp.normalized_sku ILIKE ${Prisma.sql`'%${folded}%'`})
+    WHERE (sp.normalized_name ILIKE ${escapeSqlLike(folded)}
+           OR sp.normalized_sku ILIKE ${escapeSqlLike(folded)})
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -236,7 +244,7 @@ async function fetchSupplierBackedHits(
     FROM supplier_products sp
     JOIN supplier_product_oems spo ON spo.supplier_product_id = sp.id AND spo.is_active = true
     JOIN supplier_part_mappings spm ON spm.supplier_product_id = sp.id AND spm.status = 'APPROVED'
-    WHERE spo.normalized_oem_code ILIKE ${Prisma.sql`'%${compact}%'`}
+    WHERE spo.normalized_oem_code ILIKE ${escapeSqlLike(compact)}
       AND sp.provider_id IN (SELECT id FROM supplier_providers WHERE status = 'ACTIVE')
       ${minPriceFilter}
       ${maxPriceFilter}
@@ -250,7 +258,7 @@ async function fetchSupplierBackedHits(
     FROM parts p
     JOIN part_brands pb ON pb.id = p.brand_id
     LEFT JOIN supplier_part_mappings spm2 ON spm2.part_id = p.id AND spm2.status = 'APPROVED'
-    WHERE LOWER(pb.name) = LOWER(${Prisma.sql`'${raw}'`})
+    WHERE LOWER(pb.name) = LOWER(${escapeSqlLiteral(raw)})
       AND spm2.id IS NULL
       ${brandIdFilter}
       ${categoryIdFilter}
@@ -306,11 +314,11 @@ async function fetchSupplierBackedHits(
       pc.name AS part_category_name,
       pc.name_tr AS part_category_name_tr,
       COALESCE(
-        (SELECT JSONB_AGG(spo2.oem_code)
-         FROM supplier_product_oems spo2
-         WHERE spo2.supplier_product_id = sp.id AND spo2.is_active = true
-         ORDER BY spo2.updated_at DESC
-         LIMIT 6), '[]'::jsonb
+        (SELECT JSONB_AGG(sub.oem_code) FROM (
+          SELECT spo2.oem_code FROM supplier_product_oems spo2
+          WHERE spo2.supplier_product_id = sp.id AND spo2.is_active = true
+          ORDER BY spo2.updated_at DESC LIMIT 6
+        ) sub), '[]'::jsonb
       ) AS oem_codes,
       COALESCE(
         (SELECT JSONB_AGG(pe.code)
@@ -343,10 +351,7 @@ async function fetchSupplierBackedHits(
     LIMIT ${takeLimit}
   `
 
-  const rows = await db.$queryRawUnsafe<SupplierHitRow[]>(
-    candidateSql.sql,
-    ...candidateSql.values
-  )
+  const rows = await db.$queryRaw<SupplierHitRow[]>(candidateSql)
   return rows
 }
 
@@ -362,7 +367,7 @@ async function fetchCatalogOnlyHits(
   if (/^\d+$/.test(folded)) return []
 
   const andConds: string[] = []
-  andConds.push(`(LOWER(p.name) ILIKE '%${folded.replace(/'/g, "''")}%' OR LOWER(pb.name) = LOWER('${raw.replace(/'/g, "''")}'))`)
+  andConds.push(`(LOWER(p.name) ILIKE ${escapeSqlLike(folded)} OR LOWER(pb.name) = LOWER(${escapeSqlLiteral(raw)}))`)
 
   if (existingPartIds.size > 0) {
     const idList = Array.from(existingPartIds).slice(0, 5000).join(',')
@@ -432,10 +437,7 @@ async function fetchCatalogOnlyHits(
     LIMIT ${safeLimit}
   `
 
-  const rows = await db.$queryRawUnsafe<CatalogHitRow[]>(
-    sql.sql,
-    ...sql.values
-  )
+  const rows = await db.$queryRaw<CatalogHitRow[]>(sql)
   return rows
 }
 

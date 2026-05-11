@@ -22,7 +22,9 @@
     "db:generate": "prisma generate",
     "parts2world:sync-modification-info": "bun lib/suppliers/parts2world/sync-modification-info.ts",
     "parts2world:sync-catalog": "bun lib/suppliers/parts2world/sync-catalog.ts",
-    "parts2world:sync-article-info": "bun lib/suppliers/parts2world/sync-article-info.ts"
+    "parts2world:sync-article-info": "bun lib/suppliers/parts2world/sync-article-info.ts",
+    "search:setup": "bun scripts/meili-setup.ts",
+    "search:reindex": "bun scripts/meili-reindex.ts"
   },
   "dependencies": {
     "@google/genai": "^1.32.0",

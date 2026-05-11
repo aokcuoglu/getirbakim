@@ -55,7 +55,50 @@ docker compose restart app
 ### Full Rebuild
 ```bash
 docker compose --env-file .env.production down --remove-orphans
-NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
+NEXT_PUBLIC_BUILD_VERSION=v0.2.3 docker compose --env-file .env.production up -d --build
+```
+
+## Meilisearch Operations
+
+### Check Meilisearch Status
+```bash
+# Health check
+curl -s http://127.0.0.1:7700/health
+
+# App health includes Meili status
+curl -s http://127.0.0.1:3000/api/health | jq '.checks.meilisearch'
+
+# Internal search health (requires CRON_SECRET)
+curl -s -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/internal/search/health | jq
+```
+
+### Setup Meilisearch Index
+```bash
+docker compose exec app bun run search:setup
+```
+
+### Reindex Meilisearch
+```bash
+# Full reindex
+docker compose exec app bun run search:reindex
+
+# Clear and reindex
+MEILI_REINDEX_CLEAR=true docker compose exec app bun run search:reindex
+```
+
+### Meilisearch Container Logs
+```bash
+docker compose logs meilisearch --tail=50 -f
+```
+
+### Rebuild Meilisearch (delete data volume)
+```bash
+docker compose down
+docker volume rm getirbakim-v2_meili_data
+docker compose --env-file .env.production up -d --build
+# Then reindex:
+docker compose exec app bun run search:setup
+docker compose exec app bun run search:reindex
 ```
 
 ## Nginx Logs

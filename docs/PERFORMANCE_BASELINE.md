@@ -1,4 +1,6 @@
-# Performance Baseline — v0.2.0
+# Performance Baseline — v0.2.3
+
+## Baseline Timings (v0.2.3 — Meilisearch Enabled)
 
 ## Baseline Timings (After Changes)
 
@@ -133,11 +135,11 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 
 ## Known Bottlenecks
 
-### Critical
-1. **Search endpoint without MeiliSearch** — Prisma fallback on broad queries is extremely slow (135s for "Bosch")
-2. **Search candidate fetching** — `runPrismaSearchFallback` does not limit candidate set size for broad queries
+### Resolved (v0.2.3)
+1. ~~**Search endpoint without MeiliSearch**~~ — Fixed: self-hosted Meilisearch handles broad queries
+2. ~~**Search candidate fetching**~~ — Meilisearch offloads search from PostgreSQL
 
-### High
+### Critical
 3. **Health endpoint cold start** — 1.5s on first DB connection (pool initialization)
 4. **Category page cold cache** — `getPartCategoryByUrlKey` with targeted queries is faster but still multiple DB round-trips on miss
 
@@ -145,7 +147,22 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 5. **In-memory rate limiting** — `lib/api/route-utils.ts` uses per-process Map, doesn't scale across instances
 6. **No CDN caching** for API responses — middleware skips API routes before setting Cache-Control headers
 
-## Search Endpoint Analysis
+## Search Endpoint Analysis (v0.2.3 — Meilisearch Primary)
+
+### When `MEILI_ENABLED=true`
+
+- Meilisearch handles search queries via the `products` index
+- Redis cache TTL: 5 minutes (300s)
+- Fallback to PostgreSQL catalog+offer search on Meili error
+- Response includes `source: "meilisearch"` and `liveFallbackUsed: false`
+
+### When `MEILI_ENABLED=false` (or unset)
+
+- PostgreSQL catalog+offer search via `runCatalogOfferSearch()`
+- Redis cache TTL: 2 minutes (120s)
+- Response includes `source: "postgres_catalog_offer_search"` and `degraded: true`
+
+### Search Architecture (v0.2.3)
 
 ### Response Shape
 ```json

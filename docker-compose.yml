@@ -6,7 +6,11 @@
 # .env.production should NOT contain NEXT_PUBLIC_BUILD_VERSION.
 #
 # Usage:
-#   NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
+#   NEXT_PUBLIC_BUILD_VERSION=v0.2.3 docker compose --env-file .env.production up -d --build
+#
+# Meilisearch is self-hosted on the same VPS. It is NOT exposed publicly.
+# Access is via internal Docker network only (http://meilisearch:7700).
+# Port 7700 is bound to 127.0.0.1 for admin access only.
 #
 # See docs/DEPLOYMENT_CONTABO.md for full instructions.
 
@@ -20,8 +24,8 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
-        NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST}
-        NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY}
+        NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST:-}
+        NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY:-}
         NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
         NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
         NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
@@ -32,6 +36,15 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev}
+      MEILI_ENABLED: ${MEILI_ENABLED:-false}
+      MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
+      MEILI_INDEX_PRODUCTS: ${MEILI_INDEX_PRODUCTS:-products}
+    depends_on:
+      meilisearch:
+        condition: service_started
+    networks:
+      - app-network
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
@@ -40,3 +53,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: getirbakim-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meili_data:/meili_data
+    networks:
+      - app-network
+    ports:
+      - "127.0.0.1:7700:7700"
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  meili_data:

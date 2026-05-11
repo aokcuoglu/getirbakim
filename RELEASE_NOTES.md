@@ -1,6 +1,73 @@
 # Release Notes
 
-## v0.2.2 - Category Route Resolution Bugfix
+## v0.2.3 - Self-Hosted Meilisearch Search Engine
+
+### Meilisearch (Self-Hosted)
+- Added self-hosted Meilisearch Docker service to `docker-compose.yml` and `docker-compose.local.yml`
+- Meilisearch binds to `127.0.0.1:7700` only — not exposed to public network
+- Uses internal Docker network (`app-network`) for app-to-Meili communication
+- Persists data in `meili_data` (production) / `meili_data_local` (local) Docker volumes
+- `MEILI_ENABLED=true` activates Meilisearch as primary search engine
+- `MEILI_ENABLED=false` (default) keeps PostgreSQL catalog+offer search as fallback
+- `MEILI_MASTER_KEY` is server-only — never exposed to browser
+- Added `lib/search/meilisearch-client.ts` — server-side Meili client with `isMeiliEnabled()`, `getMeiliHost()`, `getProductsIndexName()`, `checkMeiliHealth()`
+- Added `lib/search/search-document-builder.ts` — unified document builder for supplier-backed and catalog-only products
+- Document shape includes: availability status (PURCHASABLE/REQUEST_PRICE/OUT_OF_STOCK), price, stock, CTA, category, brand, OEM/EAN codes, provider name, search text
+- Added `scripts/meili-setup.ts` — creates/configures products index with searchable, filterable, and sortable attributes
+- Added `scripts/meili-reindex.ts` — batch reindexing from PostgreSQL into Meilisearch, supports `MEILI_REINDEX_CLEAR=true` and `MEILI_REINDEX_BATCH_SIZE`
+- Added package scripts: `bun run search:setup` and `bun run search:reindex`
+
+### Search API (`/api/search`)
+- When `MEILI_ENABLED=true`: Meilisearch is queried first via the `products` index
+- Response includes `source: "meilisearch"`, `liveFallbackUsed: false`, `durationMs`
+- Products mapped to `CatalogOfferProduct` shape with full availability/CTA metadata
+- When Meili fails or is unavailable: falls back to PostgreSQL catalog+offer search with `liveFallbackUsed: true`
+- When `MEILI_ENABLED=false`: PostgreSQL catalog+offer search remains the default
+- No-price products remain visible as `REQUEST_PRICE` / `Fiyat Al`
+- Both GET and POST handlers support Meili-first flow with proper fallback
+
+### Health Endpoint
+- `/api/health` now reports Meilisearch status: reachable/unreachable/disabled with timing
+- Added `/api/internal/search/health` — returns `meiliEnabled`, `meiliReachable`, `indexName`, `documentCount` (requires CRON_SECRET)
+
+### Docker Compose
+- Production (`docker-compose.yml`): added `meilisearch` service, `app-network` bridge network, `meili_data` volume, `depends_on` app→meilisearch
+- Local (`docker-compose.local.yml`): added `meilisearch` service, `app-network`, `meili_data_local`, `depends_on` app→meilisearch
+- App container environment now includes `MEILI_ENABLED`, `MEILI_HOST`, `MEILI_MASTER_KEY`, `MEILI_INDEX_PRODUCTS`
+- Both compose files bind Meilisearch port to `127.0.0.1:7700` only
+
+### Environment Variables
+- `MEILI_ENABLED` — `true`/`false` (default: `false`). Keep `false` until index is built and smoke-tested.
+- `MEILI_HOST` — Meilisearch host URL. Inside Docker: `http://meilisearch:7700`. Outside: `http://127.0.0.1:7700`.
+- `MEILI_MASTER_KEY` — Server-only admin key. **Never expose to browser.**
+- `MEILI_INDEX_PRODUCTS` — Index name (default: `products`).
+- Updated `.env.example` with detailed comments and security warnings.
+
+### Documentation
+- Added `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` — full setup guide, env vars, security, troubleshooting
+- Updated `docs/SEARCH_CATALOG_OFFER.md` — Meili primary, PostgreSQL fallback clarified
+- Updated `docs/PERFORMANCE_BASELINE.md` — Meili resolved critical search bottleneck
+- Updated `docs/DEPLOYMENT_CONTABO.md` — Meilisearch setup on VPS
+- Updated `docs/OPERATIONS_RUNBOOK.md` — Meilisearch operations (setup, reindex, health, logs, volume)
+- Updated `docs/meilisearch-switchback.md` — reflects self-hosted status
+
+### Critical Fixes (Blockers)
+- **PostgreSQL fallback SQL**: Replaced `Prisma.sql` template interpolation in CTE strings with `escapeSqlLiteral()`/`escapeSqlLike()` helpers — the old code produced `[object Object]` in SQL queries causing `42601` syntax errors
+- **PostgreSQL fallback SQL execution**: Replaced `db.$queryRawUnsafe()` with `db.$queryRaw()` in both `fetchSupplierBackedHits` and `fetchCatalogOnlyHits` — `$queryRawUnsafe` does not correctly handle `Prisma.sql` tagged template objects
+- **Reindex script execution**: Removed `import 'server-only'` from `lib/search/search-document-builder.ts` — the module is pure data transformation with no server-only guards needed; CLI scripts (`meili-reindex`, `meili-setup`) can now run outside Next.js context
+- **Docker runner lacks Bun**: Copied Bun binary from `oven/bun:1` build stage to `node:22-slim` runner stage; added source files, Prisma schema, `tsconfig.json`, and required `node_modules` subdirectories for reindex scripts to run in production containers
+- **Docker `.dockerignore` excludes scripts**: Removed `scripts` exclusion from `.dockerignore` (added `!scripts` and `!scripts/**` exceptions) — the previous exclusion caused `/app/scripts` to be missing from Docker build, breaking `bun run search:setup` and `bun run search:reindex`
+- **Reindex document IDs**: Meilisearch rejects document IDs containing colons (e.g., `part:5000001381`). This is a pre-existing data format issue — the reindex script connects and processes batches correctly, but `part:xxx` IDs fail validation. Tracked separately.
+- **SQL GROUP BY**: Fixed `spo.updated_at` / `spo2.updated_at` in `JSONB_AGG` subqueries causing PostgreSQL `42803` error — wrapped inner queries in subquery selectors to comply with GROUP BY rules
+
+### Tests
+- Added 9 new tests in `lib/search/catalog-offer-search-sql.test.ts` covering SQL escaping, `[object Object]` injection prevention, MEILI_ENABLED fallback behavior, availability status mapping, and search page size caps
+
+### No Behavior Changes
+- No UI redesign
+- PostgreSQL catalog+offer search remains available as fallback
+- No-price products remain visible
+- Docker-first local and VPS deployment workflow unchanged
 
 ### Category Route Transition Optimization
 - Rewrote `getPartCategoryByUrlKey` to minimize DB round trips from 4-8+ sequential queries to 2-3 batched queries

@@ -83,6 +83,38 @@ If you must run `docker compose` manually without the deploy script, pass the ve
 NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
 ```
 
+### Meilisearch (Self-Hosted)
+
+The production `docker-compose.yml` includes a Meilisearch service. To enable it:
+
+1. Add these variables to `.env.production`:
+```
+MEILI_ENABLED=true
+MEILI_HOST=http://meilisearch:7700
+MEILI_MASTER_KEY=<strong-random-key>
+MEILI_INDEX_PRODUCTS=products
+```
+
+2. Do NOT expose `MEILI_MASTER_KEY` to the browser. No `NEXT_PUBLIC_MEILI_*` vars needed.
+
+3. Rebuild and start:
+```bash
+NEXT_PUBLIC_BUILD_VERSION=v0.2.3 docker compose --env-file .env.production up -d --build
+```
+
+4. Set up the index and reindex:
+```bash
+docker compose exec app bun run search:setup
+docker compose exec app bun run search:reindex
+```
+
+5. Verify:
+```bash
+curl -s http://127.0.0.1:3000/api/health | jq '.checks.meilisearch'
+```
+
+See `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` for full setup guide.
+
 If local Docker is also running against the same Supabase project, ensure
 `DATABASE_POOL_MAX` across both runtimes sums to less than 15 (the Supabase
 session pool limit). Recommended: VPS `4` + local `2` = 6 < 15.
