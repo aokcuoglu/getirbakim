@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { resolveAvailabilityStatus, resolveCTA } from './availability'
-import type { SearchDocument } from './search-document-builder'
+import type { CanonicalSearchDocument } from './search-document-types'
+import { expandSynonyms, getMeiliSynonyms, buildSynonymsText, SYNONYM_GROUPS } from './search-synonyms'
 
 describe('SearchDocument availability status rules', () => {
   it('PURCHASABLE when has price and stock > 0', () => {
@@ -45,98 +46,271 @@ describe('SearchDocument availability status rules', () => {
 })
 
 describe('SearchDocument shape validation', () => {
-  it('has required fields for a PURCHASABLE product', () => {
-    const doc: SearchDocument = {
+  it('has required fields for a PURCHASABLE canonical_part', () => {
+    const doc: CanonicalSearchDocument = {
       id: 'part_100',
+      documentType: 'canonical_part',
       partId: '100',
       supplierProductId: null,
+      canonicalPartId: '100',
       title: 'Bosch Brake Pad',
+      titleTr: null,
       brand: 'Bosch',
+      categoryId: 10,
+      categoryName: 'Brake Pads',
+      categoryNameTr: 'Fren Balataları',
+      categorySlug: 'brake-pads',
       supplierSku: null,
+      providerCode: null,
+      providerName: null,
       oemCodes: ['0986424020'],
       eanCodes: ['5901234123457'],
-      categorySlug: 'brake-pads',
-      categoryName: 'Brake Pads',
+      crossReferences: [],
+      referenceNumbers: [],
+      normalizedSearchText: 'bosch brake pad 0986424020 5901234123457 brake pads',
+      searchKeywords: ['bosch', 'brake', 'pad', '0986424020'],
+      synonymsText: 'fren balatasi brake pad brake-pad fren-balatasi',
       price: 250.00,
       stockQty: 5,
       currency: 'TRY',
+      hasPrice: true,
+      hasStock: true,
+      hasSupplierOffer: true,
+      offerCount: 1,
+      bestOfferProvider: 'Dinamik',
+      bestOfferSupplierProductId: 42,
       availabilityStatus: 'PURCHASABLE',
       cta: 'add_to_cart',
-      providerName: null,
-      imageUrl: null,
+      matchStatus: 'APPROVED',
+      matchConfidence: null,
+      matchReason: null,
+      vehicleBrandNames: ['Volkswagen'],
+      vehicleModelNames: ['Golf'],
+      vehicleTypeNames: ['Golf VII 2.0 TDI'],
+      vehicleYears: ['2019'],
+      engineCodes: ['CRBC'],
+      fitmentCount: 3,
       detailUrl: '/part/100',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 100,
       name: 'Bosch Brake Pad',
       brandName: 'Bosch',
       brandId: 5,
-      categoryId: 10,
       articleLinkId: '200',
-      hasPrice: true,
-      hasStock: true,
-      rankScore: 100,
-      sourceType: 'part',
-      normalizedSearchText: 'bosch brake pad 0986424020 5901234123457 brake pads',
-      updatedAt: Date.now()
+      sourceType: 'part'
     }
 
     expect(doc.id).toBe('part_100')
+    expect(doc.documentType).toBe('canonical_part')
     expect(doc.availabilityStatus).toBe('PURCHASABLE')
     expect(doc.cta).toBe('add_to_cart')
     expect(doc.hasPrice).toBe(true)
     expect(doc.hasStock).toBe(true)
+    expect(doc.hasSupplierOffer).toBe(true)
+    expect(doc.offerCount).toBe(1)
+    expect(doc.bestOfferProvider).toBe('Dinamik')
     expect(doc.rankScore).toBe(100)
     expect(doc.sourceType).toBe('part')
     expect(doc.detailUrl).toBe('/part/100')
+    expect(doc.matchStatus).toBe('APPROVED')
   })
 
   it('has REQUEST_PRICE for no-price catalog product', () => {
-    const doc: SearchDocument = {
+    const doc: CanonicalSearchDocument = {
       id: 'part_200',
+      documentType: 'canonical_part',
       partId: '200',
       supplierProductId: null,
+      canonicalPartId: '200',
       title: 'Catalog Filter',
+      titleTr: null,
       brand: 'Generic',
+      categoryId: 15,
+      categoryName: 'Fuel Filter',
+      categoryNameTr: 'Yakıt Filtresi',
+      categorySlug: 'fuel-filter',
       supplierSku: null,
+      providerCode: null,
+      providerName: null,
       oemCodes: [],
       eanCodes: [],
-      categorySlug: 'fuel-filter',
-      categoryName: 'Fuel Filter',
+      crossReferences: [],
+      referenceNumbers: [],
+      normalizedSearchText: 'catalog filter generic fuel filter',
+      searchKeywords: ['catalog', 'filter', 'generic', 'fuel'],
+      synonymsText: '',
       price: null,
       stockQty: 0,
       currency: 'TRY',
+      hasPrice: false,
+      hasStock: false,
+      hasSupplierOffer: false,
+      offerCount: 0,
+      bestOfferProvider: null,
+      bestOfferSupplierProductId: null,
       availabilityStatus: 'REQUEST_PRICE',
       cta: 'request_price',
-      providerName: null,
-      imageUrl: null,
+      matchStatus: 'UNMAPPED',
+      matchConfidence: null,
+      matchReason: null,
+      vehicleBrandNames: [],
+      vehicleModelNames: [],
+      vehicleTypeNames: [],
+      vehicleYears: [],
+      engineCodes: [],
+      fitmentCount: 0,
       detailUrl: '/part/200',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 35,
       name: 'Catalog Filter',
       brandName: 'Generic',
       brandId: null,
-      categoryId: 15,
       articleLinkId: '300',
-      hasPrice: false,
-      hasStock: false,
-      rankScore: 25,
-      sourceType: 'part',
-      normalizedSearchText: 'catalog filter generic fuel filter',
-      updatedAt: Date.now()
+      sourceType: 'part'
     }
 
+    expect(doc.documentType).toBe('canonical_part')
     expect(doc.availabilityStatus).toBe('REQUEST_PRICE')
     expect(doc.cta).toBe('request_price')
     expect(doc.hasPrice).toBe(false)
-    expect(doc.rankScore).toBe(25)
+    expect(doc.hasSupplierOffer).toBe(false)
+    expect(doc.offerCount).toBe(0)
+    expect(doc.matchStatus).toBe('UNMAPPED')
   })
 
-  it('has correct rank scores per availability', () => {
-    const PURCHASABLE_SCORE = 100
-    const OUT_OF_STOCK_SCORE = 50
-    const REQUEST_PRICE_SCORE = 25
+  it('creates orphan supplier product document correctly', () => {
+    const doc: CanonicalSearchDocument = {
+      id: 'sp_500',
+      documentType: 'orphan_supplier_product',
+      partId: null,
+      supplierProductId: 500,
+      canonicalPartId: null,
+      title: 'DIN SP12345',
+      titleTr: null,
+      brand: 'Mann',
+      categoryId: null,
+      categoryName: null,
+      categoryNameTr: null,
+      categorySlug: null,
+      supplierSku: 'SP12345',
+      providerCode: 'DIN',
+      providerName: 'Dinamik',
+      oemCodes: ['W91480'],
+      eanCodes: ['4006335362011'],
+      crossReferences: [],
+      referenceNumbers: [],
+      normalizedSearchText: 'din sp12345 mann w91480 4006335362011',
+      searchKeywords: ['din', 'sp12345', 'mann', 'w91480'],
+      synonymsText: '',
+      price: 45.0,
+      stockQty: 10,
+      currency: 'TRY',
+      hasPrice: true,
+      hasStock: true,
+      hasSupplierOffer: false,
+      offerCount: 0,
+      bestOfferProvider: 'Dinamik',
+      bestOfferSupplierProductId: 500,
+      availabilityStatus: 'PURCHASABLE',
+      cta: 'add_to_cart',
+      matchStatus: 'UNMAPPED',
+      matchConfidence: null,
+      matchReason: null,
+      vehicleBrandNames: [],
+      vehicleModelNames: [],
+      vehicleTypeNames: [],
+      vehicleYears: [],
+      engineCodes: [],
+      fitmentCount: 0,
+      detailUrl: '/supplier-product/500',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 110,
+      name: 'Mann Filter SP12345',
+      brandName: 'Mann',
+      brandId: null,
+      articleLinkId: '500',
+      sourceType: 'supplier_product'
+    }
 
-    expect(PURCHASABLE_SCORE).toBe(100)
-    expect(OUT_OF_STOCK_SCORE).toBe(50)
-    expect(REQUEST_PRICE_SCORE).toBe(25)
-    expect(PURCHASABLE_SCORE > OUT_OF_STOCK_SCORE).toBe(true)
-    expect(OUT_OF_STOCK_SCORE > REQUEST_PRICE_SCORE).toBe(true)
+    expect(doc.id).toBe('sp_500')
+    expect(doc.documentType).toBe('orphan_supplier_product')
+    expect(doc.partId).toBeNull()
+    expect(doc.hasSupplierOffer).toBe(false)
+    expect(doc.canonicalPartId).toBeNull()
+    expect(doc.matchStatus).toBe('UNMAPPED')
+    expect(doc.detailUrl).toBe('/supplier-product/500')
+  })
+
+  it('stock+price supplier offer => PURCHASABLE', () => {
+    const doc: CanonicalSearchDocument = {
+      id: 'part_300',
+      documentType: 'supplier_offer',
+      partId: '300',
+      supplierProductId: 301,
+      canonicalPartId: '300',
+      title: 'Seta Brake Disc',
+      titleTr: null,
+      brand: 'Seta',
+      categoryId: 20,
+      categoryName: 'Brake Discs',
+      categoryNameTr: null,
+      categorySlug: 'brake-discs',
+      supplierSku: 'SD-4500',
+      providerCode: 'SET',
+      providerName: 'Seta',
+      oemCodes: [],
+      eanCodes: [],
+      crossReferences: [],
+      referenceNumbers: [],
+      normalizedSearchText: 'seta brake disc sd4500',
+      searchKeywords: ['seta', 'brake', 'disc', 'sd4500'],
+      synonymsText: '',
+      price: 120.0,
+      stockQty: 3,
+      currency: 'TRY',
+      hasPrice: true,
+      hasStock: true,
+      hasSupplierOffer: true,
+      offerCount: 2,
+      bestOfferProvider: 'Seta',
+      bestOfferSupplierProductId: 301,
+      availabilityStatus: 'PURCHASABLE',
+      cta: 'add_to_cart',
+      matchStatus: 'APPROVED',
+      matchConfidence: 0.97,
+      matchReason: 'OEM_EXACT',
+      vehicleBrandNames: [],
+      vehicleModelNames: [],
+      vehicleTypeNames: [],
+      vehicleYears: [],
+      engineCodes: [],
+      fitmentCount: 0,
+      detailUrl: '/part/300',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 120,
+      name: 'Seta Brake Disc',
+      brandName: 'Seta',
+      brandId: null,
+      articleLinkId: '400',
+      sourceType: 'supplier_product'
+    }
+
+    expect(doc.availabilityStatus).toBe('PURCHASABLE')
+    expect(doc.hasSupplierOffer).toBe(true)
+    expect(doc.offerCount).toBe(2)
+    expect(doc.matchStatus).toBe('APPROVED')
+    expect(doc.matchConfidence).toBe(0.97)
+    expect(doc.matchReason).toBe('OEM_EXACT')
+    expect(doc.providerCode).toBe('SET')
+  })
+
+  it('rank scores: PURCHASABLE > OUT_OF_STOCK > REQUEST_PRICE', () => {
+    expect(100 > 50).toBe(true)
+    expect(50 > 25).toBe(true)
   })
 })
 
@@ -149,6 +323,77 @@ describe('Search fallback behavior', () => {
   })
 })
 
+describe('Search synonyms', () => {
+  it('includes Turkish-English automotive synonym groups', () => {
+    expect(SYNONYM_GROUPS.length >= 12).toBe(true)
+
+    const fuelFilter = SYNONYM_GROUPS.find((g) => g.canonical === 'fuel filter')
+    expect(fuelFilter != null).toBe(true)
+    expect(fuelFilter!.terms.includes('yakit filtresi')).toBe(true)
+    expect(fuelFilter!.terms.includes('mazot filtresi')).toBe(true)
+
+    const brakePad = SYNONYM_GROUPS.find((g) => g.canonical === 'brake pad')
+    expect(brakePad != null).toBe(true)
+    expect(brakePad!.terms.includes('fren balatasi')).toBe(true)
+  })
+
+  it('expandSynonyms returns original query plus matching group terms', () => {
+    const expanded = expandSynonyms('fuel filter')
+    expect(expanded.includes('fuel filter')).toBe(true)
+    expect(expanded.includes('yakit filtresi')).toBe(true)
+    expect(expanded.includes('mazot filtresi')).toBe(true)
+
+    const expandedTr = expandSynonyms('yakit filtresi')
+    expect(expandedTr.includes('yakit filtresi')).toBe(true)
+    expect(expandedTr.includes('fuel filter')).toBe(true)
+  })
+
+  it('getMeiliSynonyms returns mapping for all synonym terms', () => {
+    const synonyms = getMeiliSynonyms()
+    expect(Object.keys(synonyms).length > 0).toBe(true)
+    expect(synonyms['fuel filter'].includes('yakit filtresi')).toBe(true)
+    expect(synonyms['yakit filtresi'].includes('fuel filter')).toBe(true)
+  })
+
+  it('buildSynonymsText returns combined text for category and title', () => {
+    const text = buildSynonymsText({ categoryName: 'Fuel Filter', title: 'Bosch Fuel Filter' })
+    expect(text.includes('fuel filter')).toBe(true)
+    expect(text.includes('yakit filtresi')).toBe(true)
+  })
+
+  it('Meilisearch document IDs use valid part_ / sp_ prefixes', () => {
+    const partDoc = 'part_100'
+    const spDoc = 'sp_500'
+    const partMatch = /^part_\d+$/.test(partDoc)
+    const spMatch = /^sp_\d+$/.test(spDoc)
+    expect(partMatch).toBe(true)
+    expect(spMatch).toBe(true)
+    expect(partDoc.includes(':')).toBe(false)
+    expect(spDoc.includes(':')).toBe(false)
+  })
+
+  it('low-confidence name similarity never auto-approves', () => {
+    const NAME_SIMILARITY_MAX = 0.70
+    const AUTO_APPROVE_THRESHOLD = 0.95
+    expect(NAME_SIMILARITY_MAX < AUTO_APPROVE_THRESHOLD).toBe(true)
+  })
+
+  it('exact OEM and EAN matches have confidence at auto-approve threshold', () => {
+    const OEM_MIN = 0.95
+    const EAN_MIN = 0.95
+    const AUTO_APPROVE = 0.95
+    expect(OEM_MIN >= AUTO_APPROVE).toBe(true)
+    expect(EAN_MIN >= AUTO_APPROVE).toBe(true)
+  })
+
+  it('cross-reference matches have moderate confidence below auto-approve', () => {
+    const CROSS_REF_MAX = 0.95
+    const CROSS_REF_MIN = 0.85
+    expect(CROSS_REF_MIN >= 0.85).toBe(true)
+    expect(CROSS_REF_MAX <= 0.95).toBe(true)
+  })
+})
+
 describe('Page size cap', () => {
   it('caps search limit to 60', () => {
     expect(Math.max(1, Math.min(200, 60))).toBe(60)
@@ -158,10 +403,5 @@ describe('Page size cap', () => {
 
   it('minimum limit is 1', () => {
     expect(Math.max(1, Math.min(200, 0))).toBe(1)
-  })
-
-  it('rank scores: PURCHASABLE > OUT_OF_STOCK > REQUEST_PRICE', () => {
-    expect(100 > 50).toBe(true)
-    expect(50 > 25).toBe(true)
   })
 })

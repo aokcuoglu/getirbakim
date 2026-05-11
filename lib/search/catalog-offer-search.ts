@@ -82,6 +82,7 @@ export type CatalogOfferProduct = {
   brandLogo: string | null
   categoryId: number | null
   categoryName: string | null
+  categoryNameTr?: string | null
   priceSource: 'real' | 'placeholder'
   isPlaceholderPrice: boolean
   isPurchasable: boolean
@@ -92,6 +93,19 @@ export type CatalogOfferProduct = {
   brandId: number | null
   images: { image: string | null; thumb: string | null }[]
   properties: { key: string; value: string; key_tr?: string | null; value_tr?: string | null }[]
+  documentType?: 'canonical_part' | 'supplier_offer' | 'orphan_supplier_product'
+  canonicalPartId?: string | null
+  matchStatus?: 'APPROVED' | 'CANDIDATE' | 'QUEUE' | 'NEEDS_REVIEW' | 'UNMAPPED' | 'MANUAL'
+  matchConfidence?: number | null
+  matchReason?: string | null
+  hasSupplierOffer?: boolean
+  offerCount?: number
+  bestOfferProvider?: string | null
+  crossReferences?: string[]
+  referenceNumbers?: string[]
+  vehicleBrandNames?: string[]
+  vehicleModelNames?: string[]
+  fitmentCount?: number
 }
 
 type SupplierHitRow = {
@@ -569,7 +583,7 @@ export function catalogOfferProductToSearchHit(
     brandLogo: product.brandLogo,
     categoryId: product.categoryId ?? 0,
     categoryName: product.categoryName,
-    categoryNameTr: null,
+    categoryNameTr: product.categoryNameTr ?? null,
     oemCodes: product.oemCodes,
     oemBrands: [],
     vehicleTypes: [],
@@ -598,7 +612,20 @@ export function catalogOfferProductToSearchHit(
           : 3,
     availabilityStatus: product.availabilityStatus,
     cta: product.cta,
-    detailUrl: product.detailUrl
+    detailUrl: product.detailUrl,
+    documentType: product.documentType ?? (product.sourceType === 'part' ? 'canonical_part' : 'supplier_offer'),
+    canonicalPartId: product.canonicalPartId ?? product.partId ?? null,
+    matchStatus: product.matchStatus ?? 'APPROVED',
+    matchConfidence: product.matchConfidence ?? null,
+    matchReason: product.matchReason ?? null,
+    hasSupplierOffer: product.hasSupplierOffer ?? (product.sourceType === 'supplier_product'),
+    offerCount: product.offerCount ?? 0,
+    bestOfferProvider: product.bestOfferProvider ?? null,
+    crossReferences: product.crossReferences ?? [],
+    referenceNumbers: product.referenceNumbers ?? [],
+    vehicleBrandNames: product.vehicleBrandNames ?? [],
+    vehicleModelNames: product.vehicleModelNames ?? [],
+    fitmentCount: product.fitmentCount ?? 0
   }
 }
 

@@ -1,6 +1,7 @@
 import 'server-only'
 import { getMeiliAdminClient } from './meili-admin'
 import { getProductsIndexName } from './meilisearch-client'
+import { getMeiliSynonyms } from './search-synonyms'
 
 export async function configureMeilisearchIndex(): Promise<void> {
   const client = getMeiliAdminClient()
@@ -15,30 +16,48 @@ export async function configureMeilisearchIndex(): Promise<void> {
   await index.updateSettings({
     searchableAttributes: [
       'title',
+      'titleTr',
       'brand',
+      'categoryName',
+      'categoryNameTr',
       'supplierSku',
       'oemCodes',
       'eanCodes',
+      'crossReferences',
+      'referenceNumbers',
       'normalizedSearchText',
-      'categoryName',
+      'searchKeywords',
+      'synonymsText',
+      'vehicleBrandNames',
+      'vehicleModelNames',
+      'vehicleTypeNames',
+      'engineCodes',
       'name'
     ],
     filterableAttributes: [
+      'documentType',
       'availabilityStatus',
       'brand',
       'categorySlug',
+      'categoryId',
+      'providerCode',
       'providerName',
       'hasPrice',
       'hasStock',
-      'sourceType',
+      'hasSupplierOffer',
+      'matchStatus',
+      'vehicleBrandNames',
+      'vehicleModelNames',
       'brandId',
-      'categoryId'
+      'sourceType'
     ],
     sortableAttributes: [
+      'rankScore',
       'price',
       'stockQty',
       'updatedAt',
-      'rankScore'
+      'offerCount',
+      'fitmentCount'
     ],
     typoTolerance: {
       enabled: true,
@@ -50,5 +69,10 @@ export async function configureMeilisearchIndex(): Promise<void> {
     pagination: {
       maxTotalHits: 10000
     }
+  })
+
+  const synonyms = getMeiliSynonyms()
+  await index.updateSynonyms(synonyms).catch(() => {
+    // Synonyms update may not be supported in all Meili versions
   })
 }

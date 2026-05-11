@@ -2284,6 +2284,7 @@ function meiliHitsToProducts(hits: SearchDocument[]): CatalogOfferProduct[] {
       brandLogo: null,
       categoryId: hit.categoryId ?? null,
       categoryName: hit.categoryName || null,
+      categoryNameTr: (hit as any).categoryNameTr ?? null,
       priceSource: hit.hasPrice ? 'real' : 'placeholder',
       isPlaceholderPrice: !hit.hasPrice,
       isPurchasable: hit.availabilityStatus === 'PURCHASABLE',
@@ -2293,7 +2294,20 @@ function meiliHitsToProducts(hits: SearchDocument[]): CatalogOfferProduct[] {
       inBasket: false,
       brandId: hit.brandId ?? null,
       images: [],
-      properties: []
+      properties: [],
+      documentType: (hit as any).documentType ?? (hit.sourceType === 'part' ? 'canonical_part' : 'supplier_offer'),
+      canonicalPartId: (hit as any).canonicalPartId ?? hit.partId ?? null,
+      matchStatus: (hit as any).matchStatus ?? 'APPROVED',
+      matchConfidence: (hit as any).matchConfidence ?? null,
+      matchReason: (hit as any).matchReason ?? null,
+      hasSupplierOffer: (hit as any).hasSupplierOffer ?? (hit.sourceType === 'supplier_product'),
+      offerCount: (hit as any).offerCount ?? 0,
+      bestOfferProvider: (hit as any).bestOfferProvider ?? null,
+      crossReferences: (hit as any).crossReferences ?? [],
+      referenceNumbers: (hit as any).referenceNumbers ?? [],
+      vehicleBrandNames: (hit as any).vehicleBrandNames ?? [],
+      vehicleModelNames: (hit as any).vehicleModelNames ?? [],
+      fitmentCount: (hit as any).fitmentCount ?? 0
     }
   })
 }
@@ -2335,6 +2349,15 @@ function buildMeilisearchFilter(
 ): string | null {
   const conditions: string[] = []
 
+  if (filters.documentType) {
+    if (Array.isArray(filters.documentType)) {
+      const types = filters.documentType.map((t: string) => `"${t}"`).join(', ')
+      conditions.push(`documentType IN [${types}]`)
+    } else {
+      conditions.push(`documentType = "${filters.documentType}"`)
+    }
+  }
+
   if (filters.brands && filters.brands.length > 0 && excludeFacet !== 'brand') {
     const brandNames = filters.brands.map((b: string) => `"${b}"`).join(', ')
     conditions.push(`brand IN [${brandNames}]`)
@@ -2375,6 +2398,19 @@ function buildMeilisearchFilter(
 
   if (options?.requireRealPrice) {
     conditions.push('hasPrice = true')
+  }
+
+  if (filters.hasSupplierOffer !== undefined) {
+    conditions.push(`hasSupplierOffer = ${filters.hasSupplierOffer}`)
+  }
+
+  if (filters.matchStatus) {
+    if (Array.isArray(filters.matchStatus)) {
+      const statuses = filters.matchStatus.map((s: string) => `"${s}"`).join(', ')
+      conditions.push(`matchStatus IN [${statuses}]`)
+    } else {
+      conditions.push(`matchStatus = "${filters.matchStatus}"`)
+    }
   }
 
   if (filters.availabilityStatus) {

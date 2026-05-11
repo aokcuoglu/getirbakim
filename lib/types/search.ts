@@ -101,6 +101,32 @@ export interface SearchHit {
   cta?: 'add_to_cart' | 'request_price' | 'verify_fitment' | 'notify_or_request_price'
   /** Detail URL from catalog+offer search */
   detailUrl?: string | null
+  /** Document type from Meilisearch index */
+  documentType?: 'canonical_part' | 'supplier_offer' | 'orphan_supplier_product'
+  /** Canonical part ID if mapped */
+  canonicalPartId?: string | null
+  /** Match status for supplier product mapping */
+  matchStatus?: 'APPROVED' | 'CANDIDATE' | 'QUEUE' | 'NEEDS_REVIEW' | 'UNMAPPED' | 'MANUAL'
+  /** Match confidence score */
+  matchConfidence?: number | null
+  /** Match reason */
+  matchReason?: string | null
+  /** Has active supplier offer */
+  hasSupplierOffer?: boolean
+  /** Number of active supplier offers */
+  offerCount?: number
+  /** Best offer provider name */
+  bestOfferProvider?: string | null
+  /** Cross reference codes */
+  crossReferences?: string[]
+  /** Reference numbers */
+  referenceNumbers?: string[]
+  /** Vehicle brand names */
+  vehicleBrandNames?: string[]
+  /** Vehicle model names */
+  vehicleModelNames?: string[]
+  /** Number of vehicle fitments */
+  fitmentCount?: number
 }
 
 // ============================================================================

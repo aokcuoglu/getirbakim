@@ -2,6 +2,7 @@
  * Meilisearch Index Setup Script
  *
  * Creates/updates the products index with searchable, filterable, and sortable attributes.
+ * Configures synonyms for Turkish/English bilingual search.
  * Safe to rerun. Does NOT touch documents.
  *
  * Usage:
@@ -10,6 +11,7 @@
  */
 
 import { MeiliSearch } from 'meilisearch'
+import { getMeiliSynonyms } from '../lib/search/search-synonyms'
 
 const MEILI_HOST = process.env.MEILI_HOST || 'http://127.0.0.1:7700'
 const MEILI_MASTER_KEY = process.env.MEILI_MASTER_KEY || ''
@@ -36,36 +38,54 @@ async function main() {
   console.log('[meili-setup] Configuring searchable attributes...')
   const searchableTask = await index.updateSearchableAttributes([
     'title',
+    'titleTr',
     'brand',
+    'categoryName',
+    'categoryNameTr',
     'supplierSku',
     'oemCodes',
     'eanCodes',
+    'crossReferences',
+    'referenceNumbers',
     'normalizedSearchText',
-    'categoryName',
+    'searchKeywords',
+    'synonymsText',
+    'vehicleBrandNames',
+    'vehicleModelNames',
+    'vehicleTypeNames',
+    'engineCodes',
     'name'
   ])
   console.log(`[meili-setup] Searchable attributes task: ${searchableTask.taskUid}`)
 
   console.log('[meili-setup] Configuring filterable attributes...')
   const filterableTask = await index.updateFilterableAttributes([
+    'documentType',
     'availabilityStatus',
     'brand',
     'categorySlug',
+    'categoryId',
+    'providerCode',
     'providerName',
     'hasPrice',
     'hasStock',
-    'sourceType',
+    'hasSupplierOffer',
+    'matchStatus',
+    'vehicleBrandNames',
+    'vehicleModelNames',
     'brandId',
-    'categoryId'
+    'sourceType'
   ])
   console.log(`[meili-setup] Filterable attributes task: ${filterableTask.taskUid}`)
 
   console.log('[meili-setup] Configuring sortable attributes...')
   const sortableTask = await index.updateSortableAttributes([
+    'rankScore',
     'price',
     'stockQty',
     'updatedAt',
-    'rankScore'
+    'offerCount',
+    'fitmentCount'
   ])
   console.log(`[meili-setup] Sortable attributes task: ${sortableTask.taskUid}`)
 
@@ -96,6 +116,11 @@ async function main() {
   })
   console.log(`[meili-setup] Pagination task: ${paginationTask.taskUid}`)
 
+  console.log('[meili-setup] Configuring synonyms...')
+  const synonyms = getMeiliSynonyms()
+  const synonymTask = await index.updateSynonyms(synonyms)
+  console.log(`[meili-setup] Synonyms task: ${synonymTask.taskUid}`)
+
   console.log('[meili-setup] Waiting for all tasks to complete...')
   const taskUids = [
     task.taskUid,
@@ -104,7 +129,8 @@ async function main() {
     sortableTask.taskUid,
     rankingTask.taskUid,
     typoTask.taskUid,
-    paginationTask.taskUid
+    paginationTask.taskUid,
+    synonymTask.taskUid
   ]
 
   for (const uid of taskUids) {

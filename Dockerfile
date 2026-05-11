@@ -71,6 +71,8 @@ RUN chown -R nextjs:nodejs /app/node_modules/@prisma || true
 COPY --from=builder /app/tsconfig.json /app/tsconfig.json
 COPY --from=builder /app/scripts/ /app/scripts/
 COPY --from=builder /app/lib/search/search-document-builder.ts /app/lib/search/search-document-builder.ts
+COPY --from=builder /app/lib/search/search-document-types.ts /app/lib/search/search-document-types.ts
+COPY --from=builder /app/lib/search/search-synonyms.ts /app/lib/search/search-synonyms.ts
 COPY --from=builder /app/lib/search/availability.ts /app/lib/search/availability.ts
 COPY --from=builder /app/lib/pricing/public-pricing.ts /app/lib/pricing/public-pricing.ts
 COPY --from=builder /app/lib/db.ts /app/lib/db.ts

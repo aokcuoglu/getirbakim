@@ -1,5 +1,68 @@
 # Release Notes
 
+## v0.2.4 - Canonical Part Search Index and Supplier Matching
+
+### Canonical Part Search Index
+- Meilisearch documents now follow canonical-parts-first strategy
+- Three document types: `canonical_part`, `supplier_offer`, `orphan_supplier_product`
+- Canonical part documents (`part_<partId>`) include full enrichment: OEM codes, EAN codes, cross-references, supplier offers, vehicle fitment data
+- Orphan supplier product documents (`sp_<supplierProductId>`) indexed when no part mapping exists
+- No-price canonical parts remain visible as `REQUEST_PRICE`
+- Products with stock+price are `PURCHASABLE` with `add_to_cart` CTA
+- Each document includes: `documentType`, `partId`, `supplierProductId`, `canonicalPartId`, `matchStatus`, `matchConfidence`, `matchReason`, `hasSupplierOffer`, `offerCount`, `bestOfferProvider`
+
+### Supplier Product Matching
+- Added `lib/search/supplier-part-matching.ts` — reindex-time candidate scoring for orphan supplier products
+- Match reasons: `OEM_EXACT` (0.95–0.99), `EAN_EXACT` (0.95–0.99), `CROSS_REFERENCE_EXACT` (0.85–0.95), `BRAND_ALIAS_REFERENCE` (0.75–0.90), `NAME_SIMILARITY` (0.40–0.70)
+- OEM/EAN exact matches auto-approve (≥0.95 confidence)
+- Cross-reference and brand alias matches are `CANDIDATE` (never auto-approved)
+- Name similarity matches are `NEEDS_REVIEW` (never auto-approved)
+- Existing manual/approved mappings are respected
+
+### Turkish/English Search Synonyms
+- Added `lib/search/search-synonyms.ts` — curated Turkish/English automotive synonym mappings
+- Synonym groups: fuel filter ↔ yakıt filtresi ↔ mazot filtresi, oil filter ↔ yağ filtresi, air filter ↔ hava filtresi, cabin filter ↔ polen filtresi ↔ kabin filtresi, brake pad ↔ fren balatası, brake disc ↔ fren diski, clutch ↔ debriyaj, shock absorber ↔ amortisör, spark plug ↔ buji, glow plug ↔ kızdırma bujisi, belt ↔ kayış, water pump ↔ su pompası ↔ devirdaim
+- Synonyms configured in Meilisearch index settings
+- Synonyms text included in `normalizedSearchText` and `synonymsText` fields
+
+### Search API Response
+- `/api/search` response now exposes: `documentType`, `canonicalPartId`, `matchStatus`, `matchConfidence`, `matchReason`, `hasSupplierOffer`, `offerCount`, `bestOfferProvider`, `crossReferences`, `referenceNumbers`, `vehicleBrandNames`, `vehicleModelNames`, `fitmentCount`
+- No-price canonical parts remain `REQUEST_PRICE`
+- Orphan supplier products appear only when no canonical match exists
+
+### Meilisearch Index Configuration (v0.2.4)
+- New searchable attributes: `titleTr`, `categoryNameTr`, `crossReferences`, `referenceNumbers`, `searchKeywords`, `synonymsText`, `vehicleBrandNames`, `vehicleModelNames`, `vehicleTypeNames`, `engineCodes`
+- New filterable attributes: `documentType`, `providerCode`, `providerName`, `hasSupplierOffer`, `matchStatus`, `vehicleBrandNames`, `vehicleModelNames`
+- New sortable attributes: `offerCount`, `fitmentCount`
+- Synonyms configured for Turkish/English bilingual search
+
+### Reindex Script Updates
+- Three-phase reindex: supplier-backed → catalog-only → orphan supplier products
+- Configurable limits: `MEILI_REINDEX_MAX_PARTS`, `MEILI_REINDEX_MAX_ORPHAN_SUPPLIERS`
+- Summary output includes: `canonicalPartDocuments`, `orphanSupplierDocuments`, `purchasableCount`, `requestPriceCount`, `mappedSupplierProducts`, `unmappedSupplierProducts`
+- Low DB pool pressure with batch processing
+
+### Detail URL Strategy
+- Canonical part: `/part/<partId>`
+- Orphan supplier product: `/supplier-product/<supplierProductId>`
+- Mapped supplier product: prefers canonical part URL, includes `supplierProductId` as metadata
+
+### Documentation
+- Added `docs/SUPPLIER_PART_MATCHING.md` — canonical parts strategy, match reasons, auto-approve rules, orphan behavior, admin workbench requirements
+- Updated `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` — document types, index fields, reindex phases, synonym configuration
+- Updated `docs/SEARCH_CATALOG_OFFER.md` — v0.2.4 strategy, supplier matching
+- Updated `docs/SUPPLIER_API_OPERATIONS.md` — matching strategy, new files
+
+### Tests
+- Added tests for canonical part document, orphan supplier product, document IDs, rank scores, availability, synonym expansion, Meili synonyms, match confidence thresholds, no auto-approve for name similarity
+
+### No Behavior Changes
+- No checkout/payment changes
+- PostgreSQL fallback remains functional
+- `MEILI_ENABLED=false` still works
+- Docker Compose setup unchanged
+- Self-hosted Meilisearch Docker setup unchanged
+
 ## v0.2.3 - Self-Hosted Meilisearch Search Engine
 
 ### Meilisearch (Self-Hosted)

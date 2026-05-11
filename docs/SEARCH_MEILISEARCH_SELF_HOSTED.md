@@ -14,14 +14,39 @@ Meilisearch Cloud is not affordable for this project's current stage. Self-hoste
 ```
 Client → /api/search → MEILI_ENABLED=true?
                            ├── Yes → Meilisearch (products index)
+                           │          ├── canonical_part documents
+                           │          ├── supplier_offer documents (mapped)
+                           │          ├── orphan_supplier_product documents (unmapped)
                            │          └── On error → PostgreSQL fallback
                            └── No  → PostgreSQL catalog+offer search
 ```
 
 - PostgreSQL = source of truth for pricing, stock, product data
-- Meilisearch = fast search index
+- Meilisearch = fast search index with canonical-parts-first strategy
 - Products with price/stock are prioritized (PURCHASABLE)
 - Products without price remain visible as REQUEST_PRICE
+- Canonical parts are indexed with full enrichment (OEM, EAN, cross-refs, offers, fitment)
+- Supplier products with approved mappings merge into canonical part documents
+- Orphan supplier products are indexed separately with `documentType: orphan_supplier_product`
+- Turkish/English synonyms expand search coverage
+
+### Document Types
+
+| Document Type | ID Format | Description |
+|---|---|---|
+| `canonical_part` | `part_<partId>` | Canonical catalog part with supplier offer enrichment |
+| `supplier_offer` | `part_<partId>` | Mapped supplier product merged into canonical part doc |
+| `orphan_supplier_product` | `sp_<supplierProductId>` | Unmapped supplier product indexed independently |
+
+### Index Fields (v0.2.4)
+
+**Searchable**: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, oemCodes, eanCodes, crossReferences, referenceNumbers, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
+
+**Filterable**: documentType, availabilityStatus, brand, categorySlug, categoryId, providerCode, providerName, hasPrice, hasStock, hasSupplierOffer, matchStatus, vehicleBrandNames, vehicleModelNames, brandId, sourceType
+
+**Sortable**: rankScore, price, stockQty, updatedAt, offerCount, fitmentCount
+
+**Synonyms**: Turkish/English automotive term mappings (fuel filter ↔ yakıt filtresi, brake pad ↔ fren balatası, etc.)
 
 ## Local Docker Setup
 
@@ -119,7 +144,30 @@ docker compose -f docker-compose.local.yml exec app bun run search:reindex
 Options:
 - `MEILI_REINDEX_CLEAR=true` — delete all documents before reindexing
 - `MEILI_REINDEX_BATCH_SIZE=500` — batch size (default: 500)
-- `MEILI_REINDEX_LIMIT` — max documents per source
+- `MEILI_REINDEX_MAX_PARTS=0` — max canonical part documents (0 = unlimited)
+- `MEILI_REINDEX_MAX_ORPHAN_SUPPLIERS=0` — max orphan supplier documents (0 = unlimited)
+- `MEILI_REINDEX_INCLUDE_FITMENT=true` — include vehicle fitment data (default: true)
+- `MEILI_REINDEX_FITMENT_LIMIT_PER_PART=50` — max fitment entries per part (default: 50)
+
+### Reindex Phases
+
+1. **Phase 1 - Supplier-backed**: Builds documents from `supplier_products` with approved `supplier_part_mappings` (enriched with canonical part data)
+2. **Phase 2 - Catalog-only**: Builds documents from `parts` without approved mappings (including vehicle fitment data)
+3. **Phase 3 - Orphan suppliers**: Builds documents from `supplier_products` with no mapping and no offer (unmatched products still visible in search)
+
+### Reindex Output
+
+```
+=== Summary ===
+canonicalPartDocuments: <count>
+orphanSupplierDocuments: <count>
+purchasableCount: <count>
+requestPriceCount: <count>
+outOfStockCount: <count>
+mappedSupplierProducts: <count>
+unmappedSupplierProducts: <count>
+totalDocuments: <count>
+```
 
 ## Smoke Tests
 
@@ -141,10 +189,16 @@ curl -I http://localhost:3001/en/fuel-filter
 ```
 
 Expected:
-- `dataSource: "meilisearch"`
+- `source/dataSource: "meilisearch"`
 - `liveFallbackUsed: false`
 - Broad query < 1s warm
 - OEM query < 1s warm
+- Canonical parts appear
+- Purchasable products have `hasPrice: true, hasStock: true`
+- Request-price products remain visible
+- Orphan supplier products appear only when no canonical match exists
+- Turkish/English terms return useful results (`yakıt filtresi` matches `fuel filter`)
+- Exact OEM/EAN/SKU searches are fast
 
 ## Fallback Behavior
 

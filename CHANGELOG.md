@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.4] - 2026-05-11
+
+### Added
+- `lib/search/search-document-types.ts` — canonical search document type definitions with `canonical_part`, `supplier_offer`, `orphan_supplier_product` document types
+- `lib/search/search-synonyms.ts` — Turkish/English automotive synonym mappings (21 synonym groups) and Meili synonym configuration
+- `lib/search/supplier-part-matching.ts` — reindex-time candidate scoring for orphan supplier products (OEM exact, EAN exact, cross-reference exact, brand alias, name similarity)
+- Three-phase Meilisearch reindex: supplier-backed → catalog-only → orphan supplier products
+- Meilisearch document enrichment: vehicle fitment data (brand/model/type names, years, engine codes), offer counts, best offer provider, cross-references, reference numbers, search keywords, synonyms text
+- `docs/SUPPLIER_PART_MATCHING.md` — canonical parts strategy, match reasons, auto-approve rules, orphan behavior, admin workbench requirements
+
+### Changed
+- `lib/search/search-document-builder.ts` — rewritten with canonical-parts-first document model, supplier offer enrichment, orphan supplier product indexing, vehicle fitment data, synonyms, search keywords, offer metadata
+- `lib/search/setup-index.ts` — expanded searchable/filterable/sortable attributes, added synonym configuration
+- `scripts/meili-setup.ts` — expanded index configuration with new attributes, synonyms, match status filters
+- `scripts/meili-reindex.ts` — three-phase reindex (supplier-backed, catalog-only, orphan suppliers), configurable limits, summary counts
+- `lib/search/catalog-offer-search.ts` — extended `CatalogOfferProduct` type with new search fields
+- `lib/types/search.ts` — extended `SearchHit` interface with document type, match status, offer info, vehicle data
+- `app/api/search/route.ts` — added `documentType`, `matchStatus`, `hasSupplierOffer` filters; expanded response fields
+- `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` — updated architecture, document types, index fields, reindex phases
+- `docs/SEARCH_CATALOG_OFFER.md` — updated for v0.2.4 strategy and supplier matching
+- `docs/SUPPLIER_API_OPERATIONS.md` — added matching strategy section and new file references
+
+### Tests
+- Updated `lib/search/search-document-builder.test.ts` — new tests for canonical part docs, orphan supplier product docs, no-price REQUEST_PRICE, PURCHASABLE supplier offer, match confidence thresholds, synonym expansion, document ID validity
+
 ## [0.2.3] - 2026-05-09
 
 ### Added

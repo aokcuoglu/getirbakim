@@ -44,6 +44,20 @@ GetirBakim V2 integrates with multiple supplier APIs to provide real-time pricin
 - Older than 24h: consider stock potentially stale, show "Uygunluk Sor" CTA
 - Older than 7 days: mark `part_pricing_inventory.sync_status = 'STALE'`
 
+## Matching Strategy
+
+See `docs/SUPPLIER_PART_MATCHING.md` for full matching strategy, confidence scores, auto-approve rules, and orphan product handling.
+
+Key principles:
+- `parts` is the canonical catalog
+- Supplier products enrich and sell canonical parts when matched
+- OEM exact matches auto-approve (≥0.95 confidence)
+- EAN exact matches auto-approve (≥0.95 confidence)
+- Cross-reference matches are always `CANDIDATE` (never auto-approved)
+- Brand alias matches are `CANDIDATE`
+- Name similarity matches are `NEEDS_REVIEW` (never auto-approved)
+- Orphan supplier products remain indexed and searchable until matched
+
 ## Files
 
 - `lib/suppliers/dinamik-client.ts` — Dinamik API client
@@ -51,6 +65,10 @@ GetirBakim V2 integrates with multiple supplier APIs to provide real-time pricin
 - `lib/suppliers/seta-client.ts` — SETA API client
 - `lib/suppliers/sync-seta.ts` — SETA sync pipeline
 - `lib/suppliers/parts2world/` — Parts2World sync
+- `lib/search/supplier-part-matching.ts` — Reindex-time matching candidates
+- `lib/search/search-document-builder.ts` — Meilisearch document builder
+- `lib/search/search-document-types.ts` — Document type definitions
+- `lib/search/search-synonyms.ts` — Turkish/English synonym mappings
 
 ## Future: Admin Sync Dashboard
 

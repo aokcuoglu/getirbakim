@@ -1,16 +1,18 @@
-# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.3)
+# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.4)
 
 ## Overview
 
-The search architecture uses a **catalog-first + offer-prioritized** PostgreSQL strategy as fallback, and **self-hosted Meilisearch** as the primary search engine when enabled.
+The search architecture uses a **canonical-parts-first + supplier-offer-enriched** strategy, with Meilisearch as the primary search engine when enabled, and PostgreSQL catalog+offer search as fallback.
 
-### When `MEILI_ENABLED=true` (v0.2.3+)
+### When `MEILI_ENABLED=true` (v0.2.4+)
 
 1. Meilisearch handles all search queries (products index)
-2. Products are indexed with availability status (PURCHASABLE, REQUEST_PRICE, OUT_OF_STOCK)
-3. Broad and OEM queries complete in < 1s warm
-4. PostgreSQL is the source of truth for pricing, stock, and product data
-5. On Meili failure, falls back to PostgreSQL catalog+offer search
+2. Documents are organized as **canonical_part**, **supplier_offer**, and **orphan_supplier_product**
+3. Canonical parts include full enrichment: OEM codes, EAN codes, cross-references, supplier offers, vehicle fitment
+4. Orphan supplier products are indexed separately until matched to canonical parts
+5. Turkish/English synonyms expand search coverage
+6. PostgreSQL remains the source of truth for pricing, stock, and product data
+7. On Meili failure, falls back to PostgreSQL catalog+offer search
 
 ### When `MEILI_ENABLED=false` (v0.2.1 default)
 
@@ -18,16 +20,26 @@ The search architecture uses a **catalog-first + offer-prioritized** PostgreSQL 
 2. No typo tolerance, limited faceted navigation
 3. Broad queries like "Bosch" complete in < 2s using CTE-based ranking
 
-## Meilisearch (Primary, v0.2.3+)
+## Meilisearch (Primary, v0.2.4+)
 
 See `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` for full setup, configuration, and troubleshooting.
 
 - Index: `products`
-- Search attributes: title, brand, supplierSku, oemCodes, eanCodes, normalizedSearchText, categoryName, name
-- Filterable: availabilityStatus, brand, categorySlug, providerName, hasPrice, hasStock, sourceType, brandId, categoryId
-- Sortable: price, stockQty, updatedAt, rankScore
-- Ranking: words, typo, proximity, attribute, sort, exactness
-- Typo tolerance: oneTypo at 5 chars, twoTypos at 9 chars
+- Document types: `canonical_part`, `supplier_offer`, `orphan_supplier_product`
+- Search attributes: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, oemCodes, eanCodes, crossReferences, referenceNumbers, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
+- Filterable: documentType, availabilityStatus, brand, categorySlug, categoryId, providerCode, providerName, hasPrice, hasStock, hasSupplierOffer, matchStatus, vehicleBrandNames, vehicleModelNames, brandId, sourceType
+- Sortable: rankScore, price, stockQty, updatedAt, offerCount, fitmentCount
+- Synonyms: Turkish/English automotive term mappings
+
+## Supplier Product Matching
+
+See `docs/SUPPLIER_PART_MATCHING.md` for full matching strategy, confidence scores, and auto-approve rules.
+
+Key principles:
+- `parts` is the canonical catalog
+- Supplier products enrich and sell canonical parts when matched
+- Orphan supplier products remain searchable until matched
+- Low-confidence matches require manual review
 
 ## PostgreSQL Fallback
 
@@ -104,10 +116,9 @@ See `scripts/search-indexes.sql` for pg_trgm and composite index recommendations
 - Limited faceted navigation in fallback mode
 - No real-time stock verification during search
 
-## Next Steps (v0.2.4+)
+## Next Steps (v0.2.5+)
 
-- Full request price flow
-- FITMENT_CHECK request type
+- Admin mapping workbench for candidate review
+- Incremental Meilisearch indexing on supplier sync
 - Live stock check before add-to-cart
-- Admin sync dashboard
-- Meilisearch incremental indexing on supplier sync
+- Full request price flow
