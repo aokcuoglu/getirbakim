@@ -14,8 +14,10 @@
  *   MEILI_REINDEX_BATCH_SIZE=500                      — batch size (default: 500)
  *   MEILI_REINDEX_MAX_PARTS=0                        — max canonical part documents (0 = unlimited)
  *   MEILI_REINDEX_MAX_ORPHAN_SUPPLIERS=0              — max orphan supplier documents (0 = unlimited)
- *   MEILI_REINDEX_INCLUDE_FITMENT=true               — include vehicle fitment data (default: true)
+ *   MEILI_REINDEX_INCLUDE_FITMENT=false               — include vehicle fitment data (default: false)
+ *   MEILI_REINDEX_FITMENT_BATCH_SIZE=100              — fitment enrichment batch size (default: 100)
  *   MEILI_REINDEX_FITMENT_LIMIT_PER_PART=50           — max fitment entries per part (default: 50)
+ *   MEILI_REINDEX_FITMENT_TIMEOUT_SAFE=true           — continue on fitment batch failures (default: true)
  *
  * Usage:
  *   bun run search:reindex
@@ -32,6 +34,8 @@ import {
   buildOrphanSupplierDocuments
 } from '../lib/search/search-document-builder'
 import type { CanonicalSearchDocument } from '../lib/search/search-document-types'
+import { db } from '../lib/db'
+import { Prisma } from '@prisma/client'
 
 const MEILI_HOST = process.env.MEILI_HOST || 'http://127.0.0.1:7700'
 const MEILI_MASTER_KEY = process.env.MEILI_MASTER_KEY || ''
@@ -40,6 +44,10 @@ const BATCH_SIZE = parseInt(process.env.MEILI_REINDEX_BATCH_SIZE || '500', 10)
 const CLEAR_BEFORE = process.env.MEILI_REINDEX_CLEAR === 'true'
 const MAX_PARTS = parseInt(process.env.MEILI_REINDEX_MAX_PARTS || '0', 10) || undefined
 const MAX_ORPHANS = parseInt(process.env.MEILI_REINDEX_MAX_ORPHAN_SUPPLIERS || '0', 10) || undefined
+const INCLUDE_FITMENT = process.env.MEILI_REINDEX_INCLUDE_FITMENT !== 'false'
+const FITMENT_BATCH_SIZE = parseInt(process.env.MEILI_REINDEX_FITMENT_BATCH_SIZE || '100', 10)
+const FITMENT_LIMIT_PER_PART = parseInt(process.env.MEILI_REINDEX_FITMENT_LIMIT_PER_PART || '50', 10)
+const FITMENT_TIMEOUT_SAFE = process.env.MEILI_REINDEX_FITMENT_TIMEOUT_SAFE !== 'false'
 
 async function waitForTask(client: MeiliSearch, indexName: string, taskUid: number, maxWaitMs: number = 120_000): Promise<any> {
   let elapsed = 0
@@ -80,6 +88,127 @@ async function indexInBatches(
   }
 
   return indexed
+}
+
+type FitmentRow = {
+  part_id: bigint
+  vehicle_brand_names: string[]
+  vehicle_model_names: string[]
+  vehicle_type_names: string[]
+  vehicle_years: string[]
+  engine_codes: string[]
+  fitment_count: number
+}
+
+async function enrichWithFitment(
+  documents: CanonicalSearchDocument[],
+  batchSize: number,
+  limitPerPart: number,
+  timeoutSafe: boolean
+): Promise<CanonicalSearchDocument[]> {
+  const partIdDocs = documents.filter(d => d.partId && d.documentType === 'canonical_part')
+  const partIds = partIdDocs.map(d => BigInt(d.partId!))
+
+  if (partIds.length === 0) {
+    console.log('[meili-reindex] No parts to enrich with fitment data')
+    return documents
+  }
+
+  const fitmentMap = new Map<string, FitmentRow>()
+  let batchesFailed = 0
+
+  console.log(`[meili-reindex] Enriching ${partIds.length} parts with fitment data in batches of ${batchSize}...`)
+
+  for (let i = 0; i < partIds.length; i += batchSize) {
+    const batchIds = partIds.slice(i, i + batchSize)
+    try {
+      const rows = await db.$queryRaw<FitmentRow[]>(Prisma.sql`
+        SELECT
+          pvt.part_id,
+          COALESCE(
+            (SELECT JSONB_AGG(DISTINCT vb.name) FROM (
+              SELECT DISTINCT vb2.name FROM part_vehicle_types pvt2
+              JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
+              JOIN vehicle_models vm2 ON vm2.id = vt2.model_id
+              JOIN vehicle_brands vb2 ON vb2.id = vm2.brand_id
+              WHERE pvt2.part_id = pvt.part_id
+              LIMIT 20
+            ) vb), '[]'::jsonb
+          ) AS vehicle_brand_names,
+          COALESCE(
+            (SELECT JSONB_AGG(DISTINCT vm.name) FROM (
+              SELECT DISTINCT vm2.name FROM part_vehicle_types pvt2
+              JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
+              JOIN vehicle_models vm2 ON vm2.id = vt2.model_id
+              WHERE pvt2.part_id = pvt.part_id
+              LIMIT 20
+            ) vm), '[]'::jsonb
+          ) AS vehicle_model_names,
+          COALESCE(
+            (SELECT JSONB_AGG(DISTINCT vt.name) FROM (
+              SELECT DISTINCT vt2.name FROM part_vehicle_types pvt2
+              JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
+              WHERE pvt2.part_id = pvt.part_id
+              LIMIT 20
+            ) vt), '[]'::jsonb
+          ) AS vehicle_type_names,
+          COALESCE(
+            (SELECT JSONB_AGG(DISTINCT vy.year) FROM (
+              SELECT DISTINCT COALESCE(vt2.year_of_constr_from, vt2.year_of_constr_to) AS year
+              FROM part_vehicle_types pvt2
+              JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
+              WHERE pvt2.part_id = pvt.part_id AND vt2.year_of_constr_from IS NOT NULL
+              LIMIT 20
+            ) vy), '[]'::jsonb
+          ) AS vehicle_years,
+          COALESCE(
+            (SELECT JSONB_AGG(DISTINCT vtm.motor_type) FROM (
+              SELECT DISTINCT vtm2.motor_type FROM part_vehicle_types pvt2
+              JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
+              LEFT JOIN vehicle_type_modifications vtm2 ON vtm2.vehicle_type_id = vt2.id
+              WHERE pvt2.part_id = pvt.part_id AND vtm2.motor_type IS NOT NULL
+              LIMIT ${limitPerPart}
+            ) vtm), '[]'::jsonb
+          ) AS engine_codes,
+          (SELECT COUNT(*) FROM part_vehicle_types pvt WHERE pvt.part_id = pvt.part_id) AS fitment_count
+        FROM part_vehicle_types pvt
+        WHERE pvt.part_id IN (${Prisma.join(batchIds)})
+        GROUP BY pvt.part_id
+      `)
+
+      for (const row of rows) {
+        fitmentMap.set(row.part_id.toString(), row)
+      }
+
+      console.log(`[meili-reindex] Fitment batch ${Math.floor(i / batchSize) + 1}: enriched ${rows.length} parts`)
+    } catch (err) {
+      batchesFailed++
+      console.error(`[meili-reindex] Fitment batch ${Math.floor(i / batchSize) + 1} failed:`, err instanceof Error ? err.message : err)
+      if (!timeoutSafe) {
+        throw err
+      }
+    }
+  }
+
+  if (batchesFailed > 0) {
+    console.warn(`[meili-reindex] ${batchesFailed} fitment batch(es) failed (continuing without fitment for those batches)`)
+  }
+
+  return documents.map(doc => {
+    if (!doc.partId) return doc
+    const fitment = fitmentMap.get(doc.partId)
+    if (!fitment) return doc
+
+    return {
+      ...doc,
+      vehicleBrandNames: Array.isArray(fitment.vehicle_brand_names) ? fitment.vehicle_brand_names.slice(0, 20) : [],
+      vehicleModelNames: Array.isArray(fitment.vehicle_model_names) ? fitment.vehicle_model_names.slice(0, 20) : [],
+      vehicleTypeNames: Array.isArray(fitment.vehicle_type_names) ? fitment.vehicle_type_names.slice(0, 20) : [],
+      vehicleYears: Array.isArray(fitment.vehicle_years) ? fitment.vehicle_years.slice(0, 20) : [],
+      engineCodes: Array.isArray(fitment.engine_codes) ? fitment.engine_codes.slice(0, limitPerPart) : [],
+      fitmentCount: Number(fitment.fitment_count) || 0
+    }
+  })
 }
 
 async function main() {
@@ -125,13 +254,12 @@ async function main() {
       .map((d) => d.partId)
       .filter((id): id is string => id !== null)
   )
-  const includeFitment = process.env.MEILI_REINDEX_INCLUDE_FITMENT !== 'false'
+  const includeFitment = INCLUDE_FITMENT
   console.log(`[meili-reindex] Phase 2: Building catalog-only documents (excluding ${supplierPartIds.size} supplier-mapped parts, fitment=${includeFitment})...`)
   const catalogLimit = MAX_PARTS ? Math.min(MAX_PARTS, 30000) : 30000
   const { documents: catalogDocs, total: catalogTotal } = await buildSearchDocumentsFromCatalog(
     supplierPartIds,
-    catalogLimit,
-    { includeFitment }
+    catalogLimit
   )
   console.log(`[meili-reindex] Built ${catalogDocs.length} catalog-only documents (total in DB: ${catalogTotal})`)
 
@@ -139,6 +267,18 @@ async function main() {
     if (doc.availabilityStatus === 'PURCHASABLE') totalPurchasable++
     else if (doc.availabilityStatus === 'REQUEST_PRICE') totalRequestPrice++
     else if (doc.availabilityStatus === 'OUT_OF_STOCK') totalOutOfStock++
+  }
+
+  // Phase 2b: Fitment enrichment (batched, separate from main query)
+  if (includeFitment) {
+    console.log(`[meili-reindex] Phase 2b: Enriching catalog documents with fitment data (batch_size=${FITMENT_BATCH_SIZE}, limit_per_part=${FITMENT_LIMIT_PER_PART}, timeout_safe=${FITMENT_TIMEOUT_SAFE})...`)
+    const enrichedCatalogDocs = await enrichWithFitment(catalogDocs, FITMENT_BATCH_SIZE, FITMENT_LIMIT_PER_PART, FITMENT_TIMEOUT_SAFE)
+    for (let i = 0; i < catalogDocs.length; i++) {
+      catalogDocs[i] = enrichedCatalogDocs[i]
+    }
+    console.log(`[meili-reindex] Fitment enrichment complete for catalog documents`)
+  } else {
+    console.log(`[meili-reindex] Phase 2b: Fitment enrichment SKIPPED (MEILI_REINDEX_INCLUDE_FITMENT=false)`)
   }
 
   // Phase 3: Orphan supplier products (unmatched)
@@ -179,6 +319,7 @@ async function main() {
   console.log(`[meili-reindex] outOfStockCount: ${totalOutOfStock}`)
   console.log(`[meili-reindex] mappedSupplierProducts: ${supplierDocs.length}`)
   console.log(`[meili-reindex] unmappedSupplierProducts: ${orphanDocs.length}`)
+  console.log(`[meili-reindex] fitmentEnriched: ${includeFitment ? 'YES' : 'NO'}`)
   console.log(`[meili-reindex] totalDocuments: ${allDocs.length}`)
 }
 

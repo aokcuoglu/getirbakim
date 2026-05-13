@@ -72,6 +72,7 @@ interface UseCategorySearchResult {
 // ============================================================================
 
 const DEFAULT_LIMIT = 24
+const MAX_LIMIT = 48
 // Delimiter for multi-value URL params (can't use comma since brand names may contain commas)
 const MULTI_VALUE_DELIMITER = '|'
 
@@ -112,7 +113,7 @@ function parseFiltersFromURL(
           )
       : [],
     page: Number(searchParams.get(PARAM_KEYS.PAGE)) || 1,
-    limit: limit ? parseInt(limit, 10) : DEFAULT_LIMIT,
+    limit: limit ? Math.min(parseInt(limit, 10), MAX_LIMIT) : DEFAULT_LIMIT,
     sort:
       (searchParams.get(PARAM_KEYS.SORT) as CategorySearchFilters['sort']) ||
       'popularity',
@@ -302,7 +303,7 @@ export function useCategorySearch(
       initialData && initialDataKeyRef.current === serializedFilters
         ? initialData
         : undefined,
-    staleTime: 30 * 1000,
+    staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000
   })
 
@@ -367,32 +368,15 @@ export function useCategorySearch(
   )
 
   useEffect(() => {
-    const targets: CategorySearchFilters[] = []
-
     if (filters.page < totalPages) {
-      targets.push({ ...filters, page: filters.page + 1 })
-    }
-
-    if (filters.page > 1) {
-      targets.push({ ...filters, page: filters.page - 1 })
-    }
-
-    const stockTargets: Array<'in-stock' | 'on-order'> = ['in-stock', 'on-order']
-    stockTargets.forEach((stockStatus) => {
-      const nextStock = filters.stock.includes(stockStatus)
-        ? filters.stock.filter((value) => value !== stockStatus)
-        : [...filters.stock, stockStatus]
-      targets.push({ ...filters, stock: nextStock, page: 1 })
-    })
-
-    targets.forEach((targetFilters) => {
-      const key = serializeFiltersForKey(targetFilters)
+      const nextFilters = { ...filters, page: filters.page + 1 }
+      const key = serializeFiltersForKey(nextFilters)
       void queryClient.prefetchQuery({
         queryKey: ['category-search', key],
-        queryFn: ({ signal }) => fetchCatalogArticles(targetFilters, signal),
-        staleTime: 30 * 1000
+        queryFn: ({ signal }) => fetchCatalogArticles(nextFilters, signal),
+        staleTime: 60 * 1000
       })
-    })
+    }
   }, [filters, totalPages, queryClient])
 
   // Actions
@@ -440,7 +424,7 @@ export function useCategorySearch(
 
   const setLimit = useCallback(
     (limit: number) => {
-      updateURL({ limit, page: 1 })
+      updateURL({ limit: Math.min(limit, MAX_LIMIT), page: 1 })
     },
     [updateURL]
   )

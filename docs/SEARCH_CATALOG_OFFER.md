@@ -1,4 +1,4 @@
-# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.4)
+# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.5)
 
 ## Overview
 
@@ -7,12 +7,14 @@ The search architecture uses a **canonical-parts-first + supplier-offer-enriched
 ### When `MEILI_ENABLED=true` (v0.2.4+)
 
 1. Meilisearch handles all search queries (products index)
-2. Documents are organized as **canonical_part**, **supplier_offer**, and **orphan_supplier_product**
-3. Canonical parts include full enrichment: OEM codes, EAN codes, cross-references, supplier offers, vehicle fitment
-4. Orphan supplier products are indexed separately until matched to canonical parts
-5. Turkish/English synonyms expand search coverage
-6. PostgreSQL remains the source of truth for pricing, stock, and product data
-7. On Meili failure, falls back to PostgreSQL catalog+offer search
+2. **Exact code lookup runs first** for code-like queries (OEM/EAN/SKU/reference)
+3. Exact DB results are merged at top of Meili results, deduplicated by partId/supplierProductId
+4. Documents are organized as **canonical_part**, **supplier_offer**, and **orphan_supplier_product**
+5. Canonical parts include full enrichment: OEM codes, EAN codes, cross-references, supplier offers, vehicle fitment
+6. Orphan supplier products are indexed separately until matched to canonical parts
+7. Turkish/English synonyms expand search coverage
+8. PostgreSQL remains the source of truth for pricing, stock, and product data
+9. On Meili failure, falls back to PostgreSQL catalog+offer search
 
 ### When `MEILI_ENABLED=false` (v0.2.1 default)
 
@@ -26,7 +28,7 @@ See `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` for full setup, configuration, and 
 
 - Index: `products`
 - Document types: `canonical_part`, `supplier_offer`, `orphan_supplier_product`
-- Search attributes: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, oemCodes, eanCodes, crossReferences, referenceNumbers, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
+- Search attributes: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, normalizedSku, oemCodes, eanCodes, crossReferences, referenceNumbers, exactCodes, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
 - Filterable: documentType, availabilityStatus, brand, categorySlug, categoryId, providerCode, providerName, hasPrice, hasStock, hasSupplierOffer, matchStatus, vehicleBrandNames, vehicleModelNames, brandId, sourceType
 - Sortable: rankScore, price, stockQty, updatedAt, offerCount, fitmentCount
 - Synonyms: Turkish/English automotive term mappings
@@ -40,6 +42,17 @@ Key principles:
 - Supplier products enrich and sell canonical parts when matched
 - Orphan supplier products remain searchable until matched
 - Low-confidence matches require manual review
+
+## Exact Code Lookup (v0.2.5)
+
+When a query is detected as a code (OEM/EAN/SKU/reference), the search API performs an exact PostgreSQL lookup before Meilisearch:
+
+1. `isExactCodeQuery()` checks if query looks like a code (5+ chars, 75%+ alphanumeric)
+2. `lookupExactCode()` queries part_oens, part_eans, part_cross_references, supplier_product_oems, supplier_products (SKU/barcode)
+3. Results merged with Meili results, deduplicated, exact matches first
+4. Response includes `exactCodeMatchUsed: true` and `source: "meilisearch_with_exact_code_boost"`
+
+See `docs/SEARCH_CODE_AND_FITMENT.md` for full details.
 
 ## PostgreSQL Fallback
 
@@ -116,9 +129,10 @@ See `scripts/search-indexes.sql` for pg_trgm and composite index recommendations
 - Limited faceted navigation in fallback mode
 - No real-time stock verification during search
 
-## Next Steps (v0.2.5+)
+## Next Steps (v0.2.6+)
 
 - Admin mapping workbench for candidate review
 - Incremental Meilisearch indexing on supplier sync
 - Live stock check before add-to-cart
 - Full request price flow
+- Materialized view for fitment (see `docs/SEARCH_CODE_AND_FITMENT.md`)

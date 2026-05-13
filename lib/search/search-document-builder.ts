@@ -21,6 +21,7 @@ import {
   MAX_SEARCH_KEYWORDS
 } from './search-document-types'
 import { buildSynonymsText } from './search-synonyms'
+import { normalizeCode, compactCode } from './code-normalization'
 
 export type { SearchDocumentAvailability }
 export type { CanonicalSearchDocument as SearchDocument }
@@ -51,6 +52,50 @@ function extractKeywords(text: string): string[] {
     .split(/\s+/)
     .filter((w) => w.length >= 2 && !stopWords.has(w))
   return [...new Set(words)].slice(0, MAX_SEARCH_KEYWORDS)
+}
+
+function buildExactCodes(opts: {
+  oemCodes: string[]
+  eanCodes: string[]
+  crossReferences: string[]
+  referenceNumbers: string[]
+  supplierSku: string | null
+  normalizedSku: string | null
+  partNo: string | null
+}): string[] {
+  const codes = new Set<string>()
+  for (const code of opts.oemCodes) {
+    const n = normalizeCode(code)
+    if (n) codes.add(n)
+    const c = compactCode(code)
+    if (c && c !== n.toLowerCase()) codes.add(c)
+  }
+  for (const code of opts.eanCodes) {
+    const n = normalizeCode(code)
+    if (n) codes.add(n)
+  }
+  for (const ref of opts.crossReferences) {
+    const n = normalizeCode(ref)
+    if (n) codes.add(n)
+    const c = compactCode(ref)
+    if (c && c !== n.toLowerCase()) codes.add(c)
+  }
+  for (const ref of opts.referenceNumbers) {
+    const n = normalizeCode(ref)
+    if (n) codes.add(n)
+  }
+  if (opts.supplierSku) {
+    const n = normalizeCode(opts.supplierSku)
+    if (n) codes.add(n)
+  }
+  if (opts.normalizedSku) {
+    codes.add(opts.normalizedSku)
+  }
+  if (opts.partNo) {
+    const n = normalizeCode(opts.partNo)
+    if (n) codes.add(n)
+  }
+  return Array.from(codes).slice(0, 60)
 }
 
 type SupplierRow = {
@@ -101,43 +146,6 @@ type SupplierRow = {
   offer_count: number
   best_provider_name: string | null
   best_offer_sp_id: number | null
-}
-
-type CatalogRow = {
-  p_id: bigint
-  p_name: string
-  p_article_link_id: bigint
-  p_in_basket: boolean
-  p_brand_id: number
-  p_brand_name: string
-  p_brand_logo_url: string | null
-  p_category_id: number
-  p_category_name: string | null
-  p_category_name_tr: string | null
-  p_category_url_key: string | null
-  p_price: Prisma.Decimal | null
-  pi_supplier_price: Prisma.Decimal | null
-  pi_computed_selling_price: Prisma.Decimal | null
-  pi_supplier_stock_qty: number | null
-  pi_reserved_stock_qty: number | null
-  pi_currency: string | null
-  pi_source_provider_id: number | null
-  pi_source_supplier_product_id: number | null
-  ao_lock_price: boolean | null
-  ao_selling_price_override: Prisma.Decimal | null
-  oem_codes: string[]
-  ean_codes: string[]
-  cross_refs: string[]
-  ref_numbers: string[]
-  offer_count: number
-  best_provider_name: string | null
-  best_offer_sp_id: number | null
-  vehicle_brand_names: string[]
-  vehicle_model_names: string[]
-  vehicle_type_names: string[]
-  vehicle_years: string[]
-  engine_codes: string[]
-  fitment_count: number
 }
 
 export async function buildSearchDocumentsFromSupplier(
@@ -271,6 +279,16 @@ export async function buildSearchDocumentsFromSupplier(
       ? row.ref_numbers.slice(0, MAX_REFERENCE_NUMBERS)
       : []
 
+    const exactCodes = buildExactCodes({
+      oemCodes,
+      eanCodes: allEanCodes,
+      crossReferences,
+      referenceNumbers,
+      supplierSku: row.sp_sku,
+      normalizedSku: row.sp_normalized_name,
+      partNo: row.p_article_link_id?.toString() ?? null
+    })
+
     const priceNumber = hasRealPrice ? Number(decimalToString(realPriceExVat)) : null
     const priceSafe = priceNumber !== null && Number.isFinite(priceNumber) ? priceNumber : null
 
@@ -306,12 +324,14 @@ export async function buildSearchDocumentsFromSupplier(
       categoryNameTr: row.p_category_name_tr || null,
       categorySlug: row.p_category_url_key || null,
       supplierSku: row.sp_sku,
+      normalizedSku: row.sp_normalized_name,
       providerCode: row.prv_code || null,
       providerName: row.prv_name || row.prv_code || null,
       oemCodes,
       eanCodes: allEanCodes,
       crossReferences,
       referenceNumbers,
+      exactCodes,
       normalizedSearchText: normalizedText,
       searchKeywords: keywords,
       synonymsText: synonyms,
@@ -352,8 +372,7 @@ export async function buildSearchDocumentsFromSupplier(
 
 export async function buildSearchDocumentsFromCatalog(
   excludePartIds: Set<string>,
-  limit: number = 30000,
-  options?: { includeFitment?: boolean }
+  limit: number = 30000
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
   const excludeIdList = excludePartIds.size > 0
     ? Array.from(excludePartIds).slice(0, 50000).map(id => BigInt(id))
@@ -363,136 +382,10 @@ export async function buildSearchDocumentsFromCatalog(
     ? Prisma.sql`AND p.id NOT IN (${Prisma.join(excludeIdList)})`
     : Prisma.sql``
 
-  const includeFitment = options?.includeFitment ?? (process.env.MEILI_REINDEX_INCLUDE_FITMENT !== 'false')
-
-  if (includeFitment) {
-    return buildCatalogDocumentsWithFitment(excludeClause, limit)
-  }
   return buildCatalogDocumentsWithoutFitment(excludeClause, limit)
 }
 
-async function buildCatalogDocumentsWithFitment(
-  excludeClause: Prisma.Sql,
-  limit: number
-): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
-  const FITMENT_LIMIT = parseInt(process.env.MEILI_REINDEX_FITMENT_LIMIT_PER_PART || '50', 10)
-
-  const rows = await db.$queryRaw<CatalogRow[]>(Prisma.sql`
-    SELECT
-      p.id AS p_id,
-      p.name AS p_name,
-      p.article_link_id AS p_article_link_id,
-      p.in_basket AS p_in_basket,
-      p.brand_id AS p_brand_id,
-      pb.name AS p_brand_name,
-      pb.logo_url AS p_brand_logo_url,
-      p.category_id AS p_category_id,
-      pc.name AS p_category_name,
-      pc.name_tr AS p_category_name_tr,
-      pc.url_key AS p_category_url_key,
-      p.price AS p_price,
-      pi.supplier_price AS pi_supplier_price,
-      pi.computed_selling_price_ex_vat AS pi_computed_selling_price,
-      pi.supplier_stock_qty AS pi_supplier_stock_qty,
-      pi.reserved_stock_qty AS pi_reserved_stock_qty,
-      pi.currency AS pi_currency,
-      pi.source_provider_id AS pi_source_provider_id,
-      pi.source_supplier_product_id AS pi_source_supplier_product_id,
-      ao.lock_price AS ao_lock_price,
-      ao.selling_price_override AS ao_selling_price_override,
-      COALESCE(
-        (SELECT JSONB_AGG(po.code) FROM part_oens po WHERE po.part_id = p.id LIMIT ${MAX_OEM_CODES}),
-        '[]'::jsonb
-      ) AS oem_codes,
-      COALESCE(
-        (SELECT JSONB_AGG(pe.code) FROM part_eans pe WHERE pe.part_id = p.id LIMIT ${MAX_EAN_CODES}),
-        '[]'::jsonb
-      ) AS ean_codes,
-      COALESCE(
-        (SELECT JSONB_AGG(sub.article_number) FROM (
-          SELECT pcr.article_number FROM part_cross_references pcr
-          WHERE pcr.part_id = p.id
-          ORDER BY pcr.id LIMIT ${MAX_CROSS_REFERENCES}
-        ) sub), '[]'::jsonb
-      ) AS cross_refs,
-      COALESCE(
-        (SELECT JSONB_AGG(sub.article_number) FROM (
-          SELECT pcr.article_number FROM part_cross_references pcr
-          WHERE pcr.part_id = p.id AND pcr.brand_name = pb.name
-          ORDER BY pcr.id LIMIT ${MAX_REFERENCE_NUMBERS}
-        ) sub), '[]'::jsonb
-      ) AS ref_numbers,
-      (SELECT COUNT(*) FROM part_supplier_offers pso WHERE pso.part_id = p.id AND pso.is_active = true) AS offer_count,
-      (SELECT prv2.name FROM part_supplier_offers pso2
-       JOIN supplier_providers prv2 ON prv2.id = pso2.provider_id
-       WHERE pso2.part_id = p.id AND pso2.is_active = true
-       ORDER BY pso2.supplier_stock_qty DESC, pso2.supplier_price ASC
-       LIMIT 1) AS best_provider_name,
-      (SELECT pso2.supplier_product_id FROM part_supplier_offers pso2
-       WHERE pso2.part_id = p.id AND pso2.is_active = true
-       ORDER BY pso2.supplier_stock_qty DESC, pso2.supplier_price ASC
-       LIMIT 1) AS best_offer_sp_id,
-      COALESCE(
-        (SELECT JSONB_AGG(DISTINCT vb.name) FROM (
-          SELECT DISTINCT vb2.name FROM part_vehicle_types pvt2
-          JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
-          JOIN vehicle_models vm2 ON vm2.id = vt2.model_id
-          JOIN vehicle_brands vb2 ON vb2.id = vm2.brand_id
-          WHERE pvt2.part_id = p.id
-          LIMIT ${MAX_VEHICLE_FIELDS}
-        ) vb), '[]'::jsonb
-      ) AS vehicle_brand_names,
-      COALESCE(
-        (SELECT JSONB_AGG(DISTINCT vm.name) FROM (
-          SELECT DISTINCT vm2.name FROM part_vehicle_types pvt2
-          JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
-          JOIN vehicle_models vm2 ON vm2.id = vt2.model_id
-          WHERE pvt2.part_id = p.id
-          LIMIT ${MAX_VEHICLE_FIELDS}
-        ) vm), '[]'::jsonb
-      ) AS vehicle_model_names,
-      COALESCE(
-        (SELECT JSONB_AGG(DISTINCT vt.name) FROM (
-          SELECT DISTINCT vt2.name FROM part_vehicle_types pvt2
-          JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
-          WHERE pvt2.part_id = p.id
-          LIMIT ${MAX_VEHICLE_FIELDS}
-        ) vt), '[]'::jsonb
-      ) AS vehicle_type_names,
-      COALESCE(
-        (SELECT JSONB_AGG(DISTINCT vy.year) FROM (
-          SELECT DISTINCT COALESCE(vt2.year_of_constr_from, vt2.year_of_constr_to) AS year
-          FROM part_vehicle_types pvt2
-          JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
-          WHERE pvt2.part_id = p.id AND vt2.year_of_constr_from IS NOT NULL
-          LIMIT ${MAX_VEHICLE_FIELDS}
-        ) vy), '[]'::jsonb
-      ) AS vehicle_years,
-      COALESCE(
-        (SELECT JSONB_AGG(DISTINCT vtm.motor_type) FROM (
-          SELECT DISTINCT vtm2.motor_type FROM part_vehicle_types pvt2
-          JOIN vehicle_types vt2 ON vt2.id = pvt2.vehicle_type_id
-          LEFT JOIN vehicle_type_modifications vtm2 ON vtm2.vehicle_type_id = vt2.id
-          WHERE pvt2.part_id = p.id AND vtm2.motor_type IS NOT NULL
-          LIMIT ${MAX_ENGINE_CODES}
-        ) vtm), '[]'::jsonb
-      ) AS engine_codes,
-      (SELECT COUNT(*) FROM part_vehicle_types pvt WHERE pvt.part_id = p.id) AS fitment_count
-    FROM parts p
-    JOIN part_brands pb ON pb.id = p.brand_id
-    JOIN part_categories pc ON pc.id = p.category_id
-    LEFT JOIN part_pricing_inventory pi ON pi.part_id = p.id
-    LEFT JOIN part_admin_overrides ao ON ao.part_id = p.id
-    WHERE p.id NOT IN (SELECT spm.part_id FROM supplier_part_mappings spm WHERE spm.part_id IS NOT NULL AND spm.status = 'APPROVED')
-    ${excludeClause}
-    ORDER BY p.updated_at DESC
-    LIMIT ${limit}
-  `)
-
-  return { documents: rows.map(mapCatalogRow), total: rows.length }
-}
-
-async function buildCatalogDocumentsWithoutFitment(
+export async function buildCatalogDocumentsWithoutFitment(
   excludeClause: Prisma.Sql,
   limit: number
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
@@ -619,6 +512,17 @@ async function buildCatalogDocumentsWithoutFitment(
     const referenceNumbers = Array.isArray(row.ref_numbers)
       ? row.ref_numbers.slice(0, MAX_REFERENCE_NUMBERS)
       : []
+
+    const exactCodes = buildExactCodes({
+      oemCodes,
+      eanCodes,
+      crossReferences,
+      referenceNumbers,
+      supplierSku: null,
+      normalizedSku: null,
+      partNo: row.p_article_link_id?.toString() ?? null
+    })
+
     const priceNumber = hasRealPrice ? Number(decimalToString(realPriceExVat)) : null
     const priceSafe = priceNumber !== null && Number.isFinite(priceNumber) ? priceNumber : null
 
@@ -653,12 +557,14 @@ async function buildCatalogDocumentsWithoutFitment(
       categoryNameTr: row.p_category_name_tr || null,
       categorySlug: row.p_category_url_key || null,
       supplierSku: null,
+      normalizedSku: null,
       providerCode: null,
       providerName: row.best_provider_name || null,
       oemCodes,
       eanCodes,
       crossReferences,
       referenceNumbers,
+      exactCodes,
       normalizedSearchText: normalizedText,
       searchKeywords: keywords,
       synonymsText: synonyms,
@@ -696,125 +602,6 @@ async function buildCatalogDocumentsWithoutFitment(
 
   return { documents, total: rows.length }
 }
-
-function mapCatalogRow(row: CatalogRow): CanonicalSearchDocument {
-    const partId = row.p_id.toString()
-    const realPriceExVat =
-      row.ao_lock_price && row.ao_selling_price_override
-        ? row.ao_selling_price_override
-        : row.pi_computed_selling_price ?? row.pi_supplier_price ?? row.p_price
-    const hasRealPrice = realPriceExVat != null
-    const stockQty = Math.max(0, row.pi_supplier_stock_qty ?? 0)
-    const availableStock = Math.max(stockQty - (row.pi_reserved_stock_qty ?? 0), 0)
-    const hasMapping = row.offer_count > 0
-    const availability: SearchDocumentAvailability = resolveAvailabilityStatus({
-      hasRealPrice,
-      availableStock,
-      hasSupplierOffer: hasMapping,
-      hasPartId: true
-    })
-    const cta = resolveCTA(availability)
-    const detailUrl = resolveDetailUrl({ partId })
-    const oemCodes = Array.isArray(row.oem_codes) ? row.oem_codes.slice(0, MAX_OEM_CODES) : []
-    const eanCodes = Array.isArray(row.ean_codes) ? row.ean_codes.slice(0, MAX_EAN_CODES) : []
-    const crossReferences = Array.isArray(row.cross_refs)
-      ? row.cross_refs.slice(0, MAX_CROSS_REFERENCES)
-      : []
-    const referenceNumbers = Array.isArray(row.ref_numbers)
-      ? row.ref_numbers.slice(0, MAX_REFERENCE_NUMBERS)
-      : []
-    const priceNumber = hasRealPrice ? Number(decimalToString(realPriceExVat)) : null
-    const priceSafe = priceNumber !== null && Number.isFinite(priceNumber) ? priceNumber : null
-
-    const matchStatus: MatchStatus = hasMapping ? 'APPROVED' : 'UNMAPPED'
-    const rankScore = computeRankScore(availability, true, Number(row.offer_count))
-
-    const vehicleBrandNames = Array.isArray(row.vehicle_brand_names)
-      ? row.vehicle_brand_names.slice(0, MAX_VEHICLE_FIELDS)
-      : []
-    const vehicleModelNames = Array.isArray(row.vehicle_model_names)
-      ? row.vehicle_model_names.slice(0, MAX_VEHICLE_FIELDS)
-      : []
-    const vehicleTypeNames = Array.isArray(row.vehicle_type_names)
-      ? row.vehicle_type_names.slice(0, MAX_VEHICLE_FIELDS)
-      : []
-    const vehicleYears = Array.isArray(row.vehicle_years)
-      ? row.vehicle_years.slice(0, MAX_VEHICLE_FIELDS)
-      : []
-    const engineCodes = Array.isArray(row.engine_codes)
-      ? row.engine_codes.slice(0, MAX_ENGINE_CODES)
-      : []
-
-    const synonyms = buildSynonymsText({
-      categoryName: row.p_category_name,
-      title: row.p_name
-    })
-
-    const normalizedText = normalizeSearchText(
-      row.p_name, row.p_brand_name, row.p_category_name,
-      row.p_category_name_tr,
-      ...oemCodes, ...eanCodes, ...crossReferences,
-      ...vehicleBrandNames, ...vehicleModelNames, ...vehicleTypeNames,
-      ...engineCodes,
-      synonyms
-    )
-
-    const keywords = extractKeywords(normalizedText)
-
-    return {
-      id: `part_${partId}`,
-      documentType: 'canonical_part' as DocumentType,
-      partId,
-      supplierProductId: row.pi_source_supplier_product_id ?? null,
-      canonicalPartId: partId,
-      title: row.p_name,
-      titleTr: null,
-      brand: row.p_brand_name,
-      categoryId: row.p_category_id,
-      categoryName: row.p_category_name || null,
-      categoryNameTr: row.p_category_name_tr || null,
-      categorySlug: row.p_category_url_key || null,
-      supplierSku: null,
-      providerCode: null,
-      providerName: row.best_provider_name || null,
-      oemCodes,
-      eanCodes,
-      crossReferences,
-      referenceNumbers,
-      normalizedSearchText: normalizedText,
-      searchKeywords: keywords,
-      synonymsText: synonyms,
-      price: priceSafe,
-      stockQty: availableStock,
-      currency: row.pi_currency || 'TRY',
-      hasPrice: hasRealPrice,
-      hasStock: availableStock > 0,
-      hasSupplierOffer: hasMapping,
-      offerCount: Number(row.offer_count) || 0,
-      bestOfferProvider: row.best_provider_name || null,
-      bestOfferSupplierProductId: row.best_offer_sp_id || null,
-      availabilityStatus: availability,
-      cta,
-      matchStatus,
-      matchConfidence: null,
-      matchReason: null,
-      vehicleBrandNames,
-      vehicleModelNames,
-      vehicleTypeNames,
-      vehicleYears,
-      engineCodes,
-      fitmentCount: Number(row.fitment_count) || 0,
-      detailUrl,
-      imageUrl: null,
-      updatedAt: Date.now(),
-      rankScore,
-      name: row.p_name,
-      brandName: row.p_brand_name,
-      brandId: row.p_brand_id,
-      articleLinkId: row.p_article_link_id.toString(),
-      sourceType: 'part' as const
-    }
-  }
 
 type OrphanRow = {
   sp_id: number
@@ -910,6 +697,16 @@ export async function buildOrphanSupplierDocuments(
 
     const keywords = extractKeywords(normalizedText)
 
+    const exactCodes = buildExactCodes({
+      oemCodes,
+      eanCodes,
+      crossReferences: [],
+      referenceNumbers: [],
+      supplierSku: row.sp_sku,
+      normalizedSku: row.sp_normalized_name,
+      partNo: null
+    })
+
     return {
       id: `sp_${row.sp_id}`,
       documentType: 'orphan_supplier_product' as DocumentType,
@@ -924,12 +721,14 @@ export async function buildOrphanSupplierDocuments(
       categoryNameTr: null,
       categorySlug: null,
       supplierSku: row.sp_sku,
+      normalizedSku: row.sp_normalized_name,
       providerCode: row.prv_code || null,
       providerName: row.prv_name || row.prv_code || null,
       oemCodes,
       eanCodes,
       crossReferences: [],
       referenceNumbers: [],
+      exactCodes,
       normalizedSearchText: normalizedText,
       searchKeywords: keywords,
       synonymsText: synonyms,
@@ -1011,13 +810,15 @@ export async function buildAllSearchDocumentsPaginated(
     await onBatch(supplierResult.documents, 0, supplierResult.total)
   }
 
-  const supplierPartIds = new Set(
-    supplierResult.documents
-      .map((d) => d.partId)
-      .filter((id): id is string => id !== null)
-  )
+  const supplierPartIds = supplierResult.documents.length > 0
+    ? new Set(
+        supplierResult.documents
+          .map((d) => d.partId)
+          .filter((id): id is string => id !== null)
+      )
+    : new Set<string>()
 
-  const catalogResult = await buildSearchDocumentsFromCatalog(supplierPartIds, 30000, { includeFitment: false })
+  const catalogResult = await buildSearchDocumentsFromCatalog(supplierPartIds, 30000)
   if (onBatch) {
     await onBatch(catalogResult.documents, supplierResult.total, catalogResult.total)
   }

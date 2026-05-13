@@ -38,9 +38,9 @@ Client → /api/search → MEILI_ENABLED=true?
 | `supplier_offer` | `part_<partId>` | Mapped supplier product merged into canonical part doc |
 | `orphan_supplier_product` | `sp_<supplierProductId>` | Unmapped supplier product indexed independently |
 
-### Index Fields (v0.2.4)
+### Index Fields (v0.2.5)
 
-**Searchable**: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, oemCodes, eanCodes, crossReferences, referenceNumbers, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
+**Searchable**: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, normalizedSku, oemCodes, eanCodes, crossReferences, referenceNumbers, exactCodes, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
 
 **Filterable**: documentType, availabilityStatus, brand, categorySlug, categoryId, providerCode, providerName, hasPrice, hasStock, hasSupplierOffer, matchStatus, vehicleBrandNames, vehicleModelNames, brandId, sourceType
 

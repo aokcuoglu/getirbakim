@@ -45,6 +45,11 @@ import {
   runCatalogOfferSearch,
   catalogOfferProductToSearchHit,
 } from '@/lib/search/catalog-offer-search'
+import {
+  isExactCodeQuery,
+  lookupExactCode,
+  mergeExactCodeResults,
+} from '@/lib/search/exact-code-lookup'
 
 type SearchFiltersPayload = {
   brands?: string[]
@@ -114,10 +119,35 @@ export async function GET(request: NextRequest) {
 
   if (!isMeiliEnabled()) {
     const start = performance.now()
+    let exactCodeMatchUsed = false
+    let exactCodeProducts: CatalogOfferProduct[] = []
+
+    if (isExactCodeQuery(query)) {
+      try {
+        const exactMatches = await lookupExactCode(query, 20)
+        exactCodeProducts = exactMatches.map(({ exactCodeMatchSource, exactCodeMatchScore, ...product }) => product)
+        exactCodeMatchUsed = exactCodeProducts.length > 0
+      } catch {
+        exactCodeProducts = []
+      }
+    }
+
     const result = await runCatalogOfferSearch({ query, page, limit })
     const elapsed = performance.now() - start
 
-    const hits = result.products.map(catalogOfferProductToSearchHit)
+    const catalogProducts = result.products
+    let mergedProducts: CatalogOfferProduct[]
+    let dataSource: string
+
+    if (exactCodeMatchUsed) {
+      mergedProducts = mergeExactCodeResults(exactCodeProducts, catalogProducts)
+      dataSource = 'postgres_catalog_offer_search_with_exact_code_boost'
+    } else {
+      mergedProducts = catalogProducts
+      dataSource = result.dataSource
+    }
+
+    const hits = mergedProducts.map(catalogOfferProductToSearchHit)
 
     return successResponse(
       {
@@ -128,18 +158,19 @@ export async function GET(request: NextRequest) {
         query,
         cached: false,
         degraded: true,
-        source: 'postgres_catalog_offer_search',
-        products: result.products,
+        source: dataSource,
+        exactCodeMatchUsed,
+        products: mergedProducts,
         page: result.page,
         limit: result.limit,
         hasMore: result.hasMore,
         totalEstimate: result.totalEstimate,
         liveFallbackUsed: false,
-        durationMs: result.durationMs,
-        purchasableCount: result.purchasableCount,
-        requestPriceCount: result.requestPriceCount,
-        verifyFitmentCount: result.verifyFitmentCount,
-        outOfStockCount: result.outOfStockCount
+        durationMs: elapsed,
+        purchasableCount: countByStatus(mergedProducts).purchasableCount,
+        requestPriceCount: countByStatus(mergedProducts).requestPriceCount,
+        verifyFitmentCount: countByStatus(mergedProducts).verifyFitmentCount,
+        outOfStockCount: countByStatus(mergedProducts).outOfStockCount
       },
       {
         requestId: request.headers.get('x-request-id') || crypto.randomUUID(),
@@ -156,6 +187,19 @@ export async function GET(request: NextRequest) {
     const safeLimit = Math.min(limit, 60)
     const offset = (page - 1) * safeLimit
 
+    let exactCodeMatchUsed = false
+    let exactCodeProducts: CatalogOfferProduct[] = []
+
+    if (isExactCodeQuery(query)) {
+      try {
+        const exactMatches = await lookupExactCode(query, 20)
+        exactCodeProducts = exactMatches.map(({ exactCodeMatchSource, exactCodeMatchScore, ...product }) => product)
+        exactCodeMatchUsed = exactCodeProducts.length > 0
+      } catch {
+        exactCodeProducts = []
+      }
+    }
+
     const meiliSort = getMeiliSort(sort)
     const results = await index.search(query, {
       limit: safeLimit,
@@ -165,9 +209,21 @@ export async function GET(request: NextRequest) {
     })
 
     const elapsed = performance.now() - start
-    const products = meiliHitsToProducts(results.hits as unknown as SearchDocument[])
-    const hits = products.map(catalogOfferProductToSearchHit)
-    const counts = countByStatus(products)
+    const meiliProducts = meiliHitsToProducts(results.hits as unknown as SearchDocument[])
+
+    let mergedProducts: CatalogOfferProduct[]
+    let dataSource: string
+
+    if (exactCodeMatchUsed) {
+      mergedProducts = mergeExactCodeResults(exactCodeProducts, meiliProducts)
+      dataSource = 'meilisearch_with_exact_code_boost'
+    } else {
+      mergedProducts = meiliProducts
+      dataSource = 'meilisearch'
+    }
+
+    const hits = mergedProducts.map(catalogOfferProductToSearchHit)
+    const counts = countByStatus(mergedProducts)
 
     return successResponse(
       {
@@ -177,8 +233,9 @@ export async function GET(request: NextRequest) {
         processingTimeMs: elapsed,
         query,
         cached: false,
-        source: 'meilisearch',
-        products,
+        source: dataSource,
+        exactCodeMatchUsed,
+        products: mergedProducts,
         page,
         limit: safeLimit,
         hasMore: (results.estimatedTotalHits ?? 0) > offset + safeLimit,

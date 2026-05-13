@@ -22,12 +22,14 @@ export interface CanonicalSearchDocument {
   categoryNameTr: string | null
   categorySlug: string | null
   supplierSku: string | null
+  normalizedSku: string | null
   providerCode: string | null
   providerName: string | null
   oemCodes: string[]
   eanCodes: string[]
   crossReferences: string[]
   referenceNumbers: string[]
+  exactCodes: string[]
   normalizedSearchText: string
   searchKeywords: string[]
   synonymsText: string

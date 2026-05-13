@@ -1,4 +1,30 @@
-# Performance Baseline — v0.2.3
+# Performance Baseline — v0.2.6
+
+## v0.2.6 Category Page Performance Changes
+
+### Problem
+Category pages (e.g. `/en/air-filter`, `/en/fuel-filter`) were slow on first load:
+- Unbounded limit (up to 96 products per page request)
+- Aggressive client prefetching (4 concurrent API calls per navigation)
+- Short Redis cache TTLs (60s for catalog articles)
+- Unbounded `getPopularManufacturers` query on non-leaf pages
+- No loading skeleton for category transitions
+
+### Changes
+
+| Change | Before | After |
+|--------|--------|-------|
+| Category page max limit | 96 | 48 |
+| Category page default limit | 24 | 24 (unchanged) |
+| Category initial SSR limit cap | None | `Math.min(limit ?? 24, 48)` |
+| Client prefetching | 4 targets (next/prev/stock toggles) | 1 target (next page) |
+| Client `staleTime` | 30s | 60s |
+| Redis cache TTL for catalog articles | 60s | 300s (5m) |
+| `getPopularManufacturers` limit | Unbounded | 48 |
+| Per-page dropdown options | 24/48/96 | 24/48 |
+| `hasMore` field in result | Not present | Added |
+| Loading skeleton | None | `loading.tsx` added |
+| `CATEGORY_PAYLOAD_TOO_LARGE` warning | None | Added (when `PERFORMANCE_LOGGING=true`) |
 
 ## Baseline Timings (v0.2.3 — Meilisearch Enabled)
 

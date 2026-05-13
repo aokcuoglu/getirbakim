@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { resolveAvailabilityStatus, resolveCTA } from './availability'
 import type { CanonicalSearchDocument } from './search-document-types'
 import { expandSynonyms, getMeiliSynonyms, buildSynonymsText, SYNONYM_GROUPS } from './search-synonyms'
+import { normalizeCode, compactCode } from './code-normalization'
 
 describe('SearchDocument availability status rules', () => {
   it('PURCHASABLE when has price and stock > 0', () => {
@@ -61,12 +62,14 @@ describe('SearchDocument shape validation', () => {
       categoryNameTr: 'Fren Balataları',
       categorySlug: 'brake-pads',
       supplierSku: null,
+      normalizedSku: null,
       providerCode: null,
       providerName: null,
       oemCodes: ['0986424020'],
       eanCodes: ['5901234123457'],
       crossReferences: [],
       referenceNumbers: [],
+      exactCodes: ['0986424020', '0986424020', '5901234123457'],
       normalizedSearchText: 'bosch brake pad 0986424020 5901234123457 brake pads',
       searchKeywords: ['bosch', 'brake', 'pad', '0986424020'],
       synonymsText: 'fren balatasi brake pad brake-pad fren-balatasi',
@@ -131,12 +134,14 @@ describe('SearchDocument shape validation', () => {
       categoryNameTr: 'Yakıt Filtresi',
       categorySlug: 'fuel-filter',
       supplierSku: null,
+      normalizedSku: null,
       providerCode: null,
       providerName: null,
       oemCodes: [],
       eanCodes: [],
       crossReferences: [],
       referenceNumbers: [],
+      exactCodes: [],
       normalizedSearchText: 'catalog filter generic fuel filter',
       searchKeywords: ['catalog', 'filter', 'generic', 'fuel'],
       synonymsText: '',
@@ -195,12 +200,14 @@ describe('SearchDocument shape validation', () => {
       categoryNameTr: null,
       categorySlug: null,
       supplierSku: 'SP12345',
+      normalizedSku: 'sp12345',
       providerCode: 'DIN',
       providerName: 'Dinamik',
       oemCodes: ['W91480'],
       eanCodes: ['4006335362011'],
       crossReferences: [],
       referenceNumbers: [],
+      exactCodes: ['W91480', 'w91480', '4006335362011', 'SP12345', 'sp12345'],
       normalizedSearchText: 'din sp12345 mann w91480 4006335362011',
       searchKeywords: ['din', 'sp12345', 'mann', 'w91480'],
       synonymsText: '',
@@ -259,12 +266,14 @@ describe('SearchDocument shape validation', () => {
       categoryNameTr: null,
       categorySlug: 'brake-discs',
       supplierSku: 'SD-4500',
+      normalizedSku: 'sd4500',
       providerCode: 'SET',
       providerName: 'Seta',
       oemCodes: [],
       eanCodes: [],
       crossReferences: [],
       referenceNumbers: [],
+      exactCodes: ['SD4500', 'sd4500'],
       normalizedSearchText: 'seta brake disc sd4500',
       searchKeywords: ['seta', 'brake', 'disc', 'sd4500'],
       synonymsText: '',
@@ -403,5 +412,35 @@ describe('Page size cap', () => {
 
   it('minimum limit is 1', () => {
     expect(Math.max(1, Math.min(200, 0))).toBe(1)
+  })
+})
+
+describe('exactCodes field in documents', () => {
+  it('exactCodes includes normalized and compact versions of OEM codes', () => {
+    const oemCodes = ['0 445 110 376']
+    const exactCodes = Array.from(new Set([
+      ...oemCodes.map(c => normalizeCode(c)),
+      ...oemCodes.map(c => compactCode(c)),
+    ].filter(Boolean)))
+    expect(exactCodes.includes('0445110376')).toBe(true)
+  })
+
+  it('exactCodes includes SKU in normalized and compact form', () => {
+    const sku = 'ABC-123'
+    expect(normalizeCode(sku)).toBe('ABC123')
+    expect(compactCode(sku)).toBe('abc123')
+  })
+
+  it('exactCodes deduplicates identical normalized and compact codes', () => {
+    const code = '0445110376'
+    const normalized = normalizeCode(code)
+    const compact = compactCode(code)
+    expect(normalized).toBe('0445110376')
+    expect(compact).toBe('0445110376')
+  })
+
+  it('exactCodes preserves leading zeros in compact form', () => {
+    const code = '0 445 110 376'
+    expect(compactCode(code)).toBe('0445110376')
   })
 })

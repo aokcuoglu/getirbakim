@@ -102,7 +102,7 @@ async function getInitialLeafData(
     brands: parseDelimitedParam(searchParams, 'brands'),
     stockStatuses: parseDelimitedParam(searchParams, 'stock'),
     page: parseNumberParam(searchParams, 'page'),
-    limit: parseNumberParam(searchParams, 'limit'),
+    limit: Math.min(parseNumberParam(searchParams, 'limit') ?? 24, 48),
     sort: parseSortParam(searchParams),
     minPrice: parseNumberParam(searchParams, 'minPrice'),
     maxPrice: parseNumberParam(searchParams, 'maxPrice'),
@@ -167,6 +167,12 @@ export async function buildCategoryPagePayload({
   ])
   tg.end(tData)
   tg.logSummary()
+
+  if (initialData && initialData.hits.length > 48 && process.env.PERFORMANCE_LOGGING === 'true') {
+    console.warn(
+      `[CATEGORY_PAYLOAD_TOO_LARGE] categoryPage=${categorySlug} hits=${initialData.hits.length} page=${initialData.page} limit=${initialData.limit} totalHits=${initialData.totalHits} source=${initialData.source}`
+    )
+  }
 
   return {
     locale,

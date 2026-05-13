@@ -1,5 +1,97 @@
 # Release Notes
 
+## v0.2.6 - Category Page Payload and Navigation Performance Fix
+
+### Problem
+Category and filter pages were very slow on first load. Root cause analysis revealed:
+- Unbounded limit (up to 96 products per page)
+- Triple CTE scan for facets/count (total count, brand facets, stock facets)
+- Aggressive client prefetching (4 concurrent API calls per navigation)
+- Short Redis cache TTLs (60s for catalog articles)
+- Unbounded `popularManufacturers` query on non-leaf pages
+- No loading skeleton for category transitions
+
+### Changes
+- **Product limit capped at 48** for category pages (was 96). Default remains 24.
+- **Added `hasMore` field** to `CatalogArticlesResult` for proper pagination awareness.
+- **Reduced client prefetching** from 4 concurrent requests to 1 (next page only).
+- **Increased cache TTL** for catalog articles from 60s to 300s (5 min).
+- **Capped `popularManufacturers`** at 48 results (was unbounded).
+- **Added loading skeleton** (`loading.tsx`) for category page transitions.
+- **Removed 96-product option** from per-page dropdown (now 24/48 only).
+- **Added `CATEGORY_PAYLOAD_TOO_LARGE` warning** for performance monitoring.
+- **Increased `staleTime`** from 30s to 60s in category search hook.
+
+### Category page data contract
+- Default page size: 24 products
+- Hard max page size: 48 products
+- Initial SSR render uses exactly 24 products (or user-selected limit, capped at 48)
+- `hasMore` indicates whether additional pages are available
+- No full product dataset is ever loaded for a category page
+
+### No breaking changes
+- Search API unchanged (separate limit cap of 60)
+- Checkout/payment untouched
+- No-price (REQUEST_PRICE) products remain visible
+- Meilisearch and PostgreSQL fallback paths preserved
+
+## v0.2.5 - Fitment Index Optimization and Exact Code Search Coverage
+
+### Exact Code Search Diagnostics
+- Added `scripts/search-debug-code.ts` — diagnostic script that searches all code tables (part_oens, part_eans, part_cross_references, part_no, supplier_products.sku/barcode, supplier_product_oems, supplier_part_mappings, part_supplier_offers) for a given code
+- Reports: where the code exists, matched part/supplier IDs, mapping status, whether records are included in current index, why they might be missing
+- Usage: `CODE=0445110376 bun scripts/search-debug-code.ts`
+
+### Exact Code Lookup Before Meilisearch
+- Added `lib/search/exact-code-lookup.ts` — PostgreSQL exact code lookup that runs alongside Meilisearch for code-like queries
+- Queries that look like codes (length >= 5, mostly alphanumeric, few separators) trigger exact DB lookup
+- Searched tables: part_oens, part_eans, part_cross_references, supplier_product_oems, supplier_products (SKU/barcode)
+- Exact results merged at top of Meili results, deduplicated by partId/supplierProductId
+- Response includes `exactCodeMatchUsed: true` and `source: "meilisearch_with_exact_code_boost"` when exact matches are found
+- If Meili returns 0 but exact DB lookup finds results, those results are still returned
+
+### Code Normalization
+- Added `lib/search/code-normalization.ts` — centralized code normalization
+- `normalizeCode()`: uppercase, remove spaces/dashes/dots/slashes, preserve leading zeros
+- `compactCode()`: lowercase, remove all non-alphanumeric, preserve leading zeros
+- `isExactCodeQuery()`: detects code-like queries (5+ chars, 75%+ alphanumeric, 4+ digits or 3+ letters+2+ digits)
+- Applied consistently across OEM, EAN, SKU, barcode, cross-reference lookups
+
+### Exact Codes in Meilisearch Documents
+- Added `exactCodes` field to `CanonicalSearchDocument` — array of all normalized+compact codes
+- Includes: normalized OENs, compact OENs, EANs, cross-references, reference numbers, SKUs, article link IDs
+- Added `normalizedSku` field to document type — normalized supplier SKU
+- `exactCodes` and `normalizedSku` added to Meilisearch searchable attributes
+
+### Fitment Enrichment Optimization
+- Fitment joins removed from main catalog query (fixes statement_timeout 57014)
+- Fitment now populated via separate batch enrichment in `scripts/meili-reindex.ts`
+- Fetches fitment for only current batch of part IDs (`MEILI_REINDEX_FITMENT_BATCH_SIZE=100`)
+- Limits fitment records per part (`MEILI_REINDEX_FITMENT_LIMIT_PER_PART=50`)
+- Continues on batch failure (configurable via `MEILI_REINDEX_FITMENT_TIMEOUT_SAFE=true`)
+- `MEILI_REINDEX_INCLUDE_FITMENT=false` by default in production until stable
+- `buildSearchDocumentsFromCatalog` always uses without-fitment path; fitment enrichment handled by reindex script
+
+### Diagnostic Script
+- `scripts/search-debug-code.ts` — diagnose why a code returns 0 results in search
+- Searches: part_oens, part_eans, part_cross_references, parts.article_link_id, supplier_products (sku, normalized_sku, barcodes), supplier_product_oems, supplier_part_mappings, part_supplier_offers
+- Reports mapping status and index coverage for each match
+
+### Documentation
+- Added `docs/SEARCH_CODE_AND_FITMENT.md` — exact code search strategy, code normalization, fitment batch enrichment, materialized view recommendation
+- Updated `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` — new searchable attributes, exact code lookup flow
+- Updated `docs/SUPPLIER_PART_MATCHING.md` — code normalization reference
+- Updated `docs/SEARCH_CATALOG_OFFER.md` — exact code boost in search flow
+
+### No Changes
+- Production indexing remains disabled (MEILI_REINDEX_INCLUDE_FITMENT=false)
+- No Meilisearch removal
+- No PostgreSQL fallback removal
+- No REQUEST_PRICE/no-price product hiding
+- No checkout/payment behavior changes
+
+---
+
 ## v0.2.4 - Canonical Part Search Index and Supplier Matching
 
 ### Canonical Part Search Index

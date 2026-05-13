@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.6] - 2026-05-13
+
+### Added
+- `hasMore` field in `CatalogArticlesResult` — boolean indicating whether more pages exist
+- `MAX_CATEGORY_LIMIT` constant (48) in `getCatalogArticles.ts` — hard cap on category page product count
+- `CATEGORY_PAYLOAD_TOO_LARGE` warning log when category pages return > 48 products and `PERFORMANCE_LOGGING=true`
+- `loading.tsx` skeleton for category pages (`app/[locale]/[...slug]/loading.tsx`)
+- `lib/actions/getCatalogArticles.test.ts` — tests for limit cap contract and hasMore calculation
+
+### Changed
+- Category page product limit capped to 48 (was 96) — `normalizeBody` enforces `MAX_CATEGORY_LIMIT`
+- Category page initial load limit capped to 48 via `getInitialLeafData` — `Math.min(limit ?? 24, 48)`
+- Per-page dropdown in `CategoryContent.tsx` reduced from 24/48/96 to 24/48
+- `use-category-search.ts` — `MAX_LIMIT` constant (48), limit capped in `parseFiltersFromURL` and `setLimit`
+- Prefetching in `use-category-search.ts` reduced from 4 targets (next page, prev page, 2 stock toggles) to 1 (next page only)
+- `staleTime` in `use-category-search.ts` increased from 30s to 60s
+- Redis cache TTL for catalog articles increased from 60s to 300s
+- `getPopularManufacturers.ts` — added `take: 48` limit (was unbounded)
+
+## [0.2.5] - 2026-05-12
+
+### Added
+- `lib/search/code-normalization.ts` — centralized code normalization (`normalizeCode`, `compactCode`, `isExactCodeQuery`)
+- `lib/search/exact-code-lookup.ts` — PostgreSQL exact code lookup for OEM/EAN/SKU/reference code searches, with merge and deduplication
+- `scripts/search-debug-code.ts` — diagnostic script for debugging why a code returns 0 results
+- `exactCodes` and `normalizedSku` fields in `CanonicalSearchDocument` type
+- `exactCodes` and `normalizedSku` added to Meilisearch searchable attributes in `lib/search/setup-index.ts`
+- `buildExactCodes()` helper in `lib/search/search-document-builder.ts` — generates exactCodes array from OEM, EAN, cross-ref, SKU, article link
+- Exact code lookup integration in search API GET and POST handlers via `lookupExactCode()` and `mergeExactCodeResults()`
+- `exactCodeMatchUsed` and enhanced `source` fields in search response
+- Fitment enrichment as separate batched phase in `scripts/meili-reindex.ts`
+- Configuration: `MEILI_REINDEX_FITMENT_BATCH_SIZE`, `MEILI_REINDEX_FITMENT_TIMEOUT_SAFE`
+- `docs/SEARCH_CODE_AND_FITMENT.md` — documentation for exact code search and fitment strategy
+
+### Changed
+- `lib/search/search-document-builder.ts` — added `exactCodes` and `normalizedSku` fields to all document builders (supplier, catalog, orphan); removed inline fitment query from `buildSearchDocumentsFromCatalog`
+- `lib/search/search-document-types.ts` — added `exactCodes: string[]` and `normalizedSku: string | null` fields
+- `scripts/meili-reindex.ts` — default `MEILI_REINDEX_INCLUDE_FITMENT=false`; batch fitment enrichment; `enrichWithFitment()` function; fitment batch failure resilience
+- `app/api/search/route.ts` — exact code lookup before/alongside Meilisearch for code-like queries; `exactCodeMatchUsed` in response
+- `lib/search/setup-index.ts` — added `normalizedSku` and `exactCodes` to searchable attributes
+
+### Tests
+- `lib/search/code-normalization.test.ts` — tests for normalizeCode (preserves leading zero, removes spaces/dashes/dots), compactCode, isExactCodeQuery (0445110376, natural language, short)
+- `lib/search/exact-code-lookup.test.ts` — tests for isExactCodeQuery delegation, OEM code recognition
+- `lib/search/search-document-builder.test.ts` — added exactCodes and normalizedSku fields to test documents; added exactCodes field validation tests
+
 ## [0.2.4] - 2026-05-11
 
 ### Added

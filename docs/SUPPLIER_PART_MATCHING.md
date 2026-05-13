@@ -111,3 +111,18 @@ A planned admin interface will:
 - Support bulk approval for high-confidence OEM/EAN matches
 - Track mapping history and audit trail
 - Visual diff between supplier product and candidate canonical part data
+
+## Code Normalization (v0.2.5)
+
+OEM/EAN/SKU/reference code matching uses centralized normalization from `lib/search/code-normalization.ts`:
+
+- `normalizeCode(value)`: Uppercase, remove spaces/dashes/dots/slashes, preserve leading zeros
+- `compactCode(value)`: Lowercase, remove all non-alphanumeric, preserve leading zeros
+- `isExactCodeQuery(query)`: Detects code-like queries (5+ chars, 75%+ alphanumeric)
+
+These are used in:
+- `exact-code-lookup.ts` — direct DB lookup for OEM/EAN/SKU/reference codes
+- `search-document-builder.ts` — `exactCodes` array in each search document
+- `catalog-offer-search.ts` — `toCompactCode()` and `normalizeForSearch()` (legacy)
+
+See `docs/SEARCH_CODE_AND_FITMENT.md` for full details.

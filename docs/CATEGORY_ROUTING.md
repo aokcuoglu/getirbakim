@@ -113,3 +113,14 @@ Added composite index `part_categories_active_url_key_idx` on `(is_active, url_k
 - Category lookup results cached in Redis with key `part-category-v2-{urlKey}`, TTL 3600s
 - Category tree cached in Redis with key `part-categories-tree-{locale}-v2`, TTL 3600s
 - Client-side SPA navigation via `CategoryPageShell` with `/api/category-page` API
+
+### v0.2.6 Category Page Performance
+
+Category page data contract:
+- **Default page size**: 24 products
+- **Hard max page size**: 48 products (enforced server-side in `normalizeBody` and client-side in `use-category-search`)
+- **SSR initial render**: 24 products, capped to 48
+- **`hasMore` field**: Added to `CatalogArticlesResult` for pagination awareness
+- **Client prefetching**: Only next page (reduced from 4 concurrent prefetches)
+- **Redis cache TTL for catalog articles**: 300s (was 60s)
+- **`CATEGORY_PAYLOAD_TOO_LARGE` warning**: When `PERFORMANCE_LOGGING=true` and >48 products returned

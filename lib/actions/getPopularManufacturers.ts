@@ -24,7 +24,8 @@ async function fetchPopularManufacturersFromDB(): Promise<PopularManufacturer[]>
       name: true,
       logo_url: true
     },
-    orderBy: { name: 'asc' }
+    orderBy: { name: 'asc' },
+    take: 48
   })
 
   return brands.map((b) => ({
