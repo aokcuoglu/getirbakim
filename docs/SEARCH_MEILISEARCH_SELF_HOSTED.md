@@ -146,14 +146,17 @@ Options:
 - `MEILI_REINDEX_BATCH_SIZE=500` — batch size (default: 500)
 - `MEILI_REINDEX_MAX_PARTS=0` — max canonical part documents (0 = unlimited)
 - `MEILI_REINDEX_MAX_ORPHAN_SUPPLIERS=0` — max orphan supplier documents (0 = unlimited)
-- `MEILI_REINDEX_INCLUDE_FITMENT=true` — include vehicle fitment data (default: true)
+- `MEILI_REINDEX_INCLUDE_FITMENT=false` — include vehicle fitment data (default: false)
+- `MEILI_REINDEX_FITMENT_BATCH_SIZE=100` — fitment enrichment batch size (default: 100)
 - `MEILI_REINDEX_FITMENT_LIMIT_PER_PART=50` — max fitment entries per part (default: 50)
+- `MEILI_REINDEX_FITMENT_TIMEOUT_SAFE=true` — continue on batch failure (default: true)
 
 ### Reindex Phases
 
 1. **Phase 1 - Supplier-backed**: Builds documents from `supplier_products` with approved `supplier_part_mappings` (enriched with canonical part data)
-2. **Phase 2 - Catalog-only**: Builds documents from `parts` without approved mappings (including vehicle fitment data)
-3. **Phase 3 - Orphan suppliers**: Builds documents from `supplier_products` with no mapping and no offer (unmatched products still visible in search)
+2. **Phase 2 - Catalog-only**: Builds documents from `parts` without approved mappings. Parts with OEM codes are prioritized over those without, ensuring code-bearing parts are indexed within the 30k limit.
+3. **Phase 2b - Fitment enrichment** (optional): Enriches **both supplier-backed and catalog-only documents** with vehicle fitment data in configurable batches. Disabled by default (`MEILI_REINDEX_INCLUDE_FITMENT=false`).
+4. **Phase 3 - Orphan suppliers**: Builds documents from `supplier_products` with no mapping and no offer. Products with OEM codes or barcodes are prioritized, ensuring code-bearing orphan products are indexed within the 10k limit.
 
 ### Reindex Output
 

@@ -1,4 +1,4 @@
-# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.5)
+# Search: Catalog + Offer Strategy (v0.2.1 → v0.2.6)
 
 ## Overview
 
@@ -12,9 +12,10 @@ The search architecture uses a **canonical-parts-first + supplier-offer-enriched
 4. Documents are organized as **canonical_part**, **supplier_offer**, and **orphan_supplier_product**
 5. Canonical parts include full enrichment: OEM codes, EAN codes, cross-references, supplier offers, vehicle fitment
 6. Orphan supplier products are indexed separately until matched to canonical parts
-7. Turkish/English synonyms expand search coverage
-8. PostgreSQL remains the source of truth for pricing, stock, and product data
-9. On Meili failure, falls back to PostgreSQL catalog+offer search
+7. **Code-bearing records are prioritized** in reindex to ensure exact code searches work within index limits
+8. Turkish/English synonyms expand search coverage
+9. PostgreSQL remains the source of truth for pricing, stock, and product data
+10. On Meili failure, falls back to PostgreSQL catalog+offer search
 
 ### When `MEILI_ENABLED=false` (v0.2.1 default)
 
@@ -43,14 +44,15 @@ Key principles:
 - Orphan supplier products remain searchable until matched
 - Low-confidence matches require manual review
 
-## Exact Code Lookup (v0.2.5)
+## Exact Code Lookup (v0.2.5+, improved v0.2.6)
 
 When a query is detected as a code (OEM/EAN/SKU/reference), the search API performs an exact PostgreSQL lookup before Meilisearch:
 
-1. `isExactCodeQuery()` checks if query looks like a code (5+ chars, 75%+ alphanumeric)
+1. `isExactCodeQuery()` checks if query looks like a code (5+ chars, 70%+ alphanumeric)
 2. `lookupExactCode()` queries part_oens, part_eans, part_cross_references, supplier_product_oems, supplier_products (SKU/barcode)
 3. Results merged with Meili results, deduplicated, exact matches first
 4. Response includes `exactCodeMatchUsed: true` and `source: "meilisearch_with_exact_code_boost"`
+5. Works in both GET and POST search paths, including multi-search mode
 
 See `docs/SEARCH_CODE_AND_FITMENT.md` for full details.
 

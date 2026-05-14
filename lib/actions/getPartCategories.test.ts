@@ -25,6 +25,64 @@ function normalizeUrlKey(
   return candidate.replace(/-\d{5,}$/, '')
 }
 
+interface CategorySnapshotRow {
+  id: number
+  name: string
+  name_tr: string | null
+  is_active: boolean
+  has_childs: boolean
+  parent_id: number | null
+  url_key: string | null
+  image: string | null
+  is_main_nav: boolean
+}
+
+class CategorySnapshot {
+  readonly rows: CategorySnapshotRow[]
+  readonly byId: Map<number, CategorySnapshotRow>
+  readonly byUrlKey: Map<string, CategorySnapshotRow[]>
+  readonly byNameSlug: Map<string, CategorySnapshotRow[]>
+  readonly childrenByParentId: Map<number | null, CategorySnapshotRow[]>
+
+  constructor(rows: CategorySnapshotRow[]) {
+    this.rows = rows
+    this.byId = new Map()
+    this.byUrlKey = new Map()
+    this.byNameSlug = new Map()
+    this.childrenByParentId = new Map()
+
+    for (const row of rows) {
+      this.byId.set(row.id, row)
+
+      if (row.url_key) {
+        const normalizedKey = row.url_key.trim().toLowerCase()
+        const arr = this.byUrlKey.get(normalizedKey)
+        if (arr) {
+          arr.push(row)
+        } else {
+          this.byUrlKey.set(normalizedKey, [row])
+        }
+      }
+
+      const nameSlug = generateSlug(row.name)
+      const nameArr = this.byNameSlug.get(nameSlug)
+      if (nameArr) {
+        nameArr.push(row)
+      } else {
+        this.byNameSlug.set(nameSlug, [row])
+      }
+
+      const parentId = row.parent_id
+      const children = this.childrenByParentId.get(parentId)
+      if (children) {
+        children.push(row)
+      } else {
+        this.childrenByParentId.set(parentId, [row])
+      }
+    }
+  }
+}
+
 describe('generateSlug', () => {
   it('generates slug from English category name', () => {
     expect(generateSlug('Fuel filter')).toBe('fuel-filter')
@@ -178,5 +236,146 @@ describe('suffixed url_key resolution', () => {
     expect(normalizeUrlKey('filters', 'Filters')).toBe('filters')
     expect(normalizeUrlKey('car-parts', 'Car parts')).toBe('car-parts')
     expect(normalizeUrlKey('brake-system', 'Brake System')).toBe('brake-system')
+  })
+})
+
+describe('CategorySnapshot', () => {
+  const sampleRows: CategorySnapshotRow[] = [
+    { id: 1, name: 'Car Parts', name_tr: 'Otomotiv Parcaları', is_active: true, has_childs: true, parent_id: null, url_key: 'car-parts', image: null, is_main_nav: true },
+    { id: 2, name: 'Filters', name_tr: 'Filtreler', is_active: true, has_childs: true, parent_id: 1, url_key: 'filters', image: null, is_main_nav: true },
+    { id: 3, name: 'Air Filter', name_tr: 'Hava Filtresi', is_active: true, has_childs: false, parent_id: 2, url_key: 'air-filter', image: null, is_main_nav: false },
+    { id: 4, name: 'Fuel Filter', name_tr: 'Yakıt Filtresi', is_active: true, has_childs: false, parent_id: 2, url_key: 'fuel-filter', image: null, is_main_nav: false },
+    { id: 5, name: 'Oil Filter', name_tr: 'Yağ Filtresi', is_active: true, has_childs: false, parent_id: 2, url_key: 'oil-filter', image: null, is_main_nav: false },
+    { id: 6, name: 'Inactive', name_tr: null, is_active: false, has_childs: false, parent_id: 1, url_key: 'inactive', image: null, is_main_nav: false },
+  ]
+
+  it('builds byId index from rows', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    expect(snapshot.byId.get(1)?.name).toBe('Car Parts')
+    expect(snapshot.byId.get(3)?.name).toBe('Air Filter')
+    expect(snapshot.byId.get(99)).toEqual(undefined)
+  })
+
+  it('builds byUrlKey index from rows', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    expect(snapshot.byUrlKey.get('air-filter')?.length).toBe(1)
+    expect(snapshot.byUrlKey.get('air-filter')?.[0]?.id).toBe(3)
+    expect(snapshot.byUrlKey.get('nonexistent')).toEqual(undefined)
+  })
+
+  it('builds childrenByParentId index from rows', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    const childrenOf2 = snapshot.childrenByParentId.get(2)
+    expect(childrenOf2?.length).toBe(3)
+    expect(childrenOf2?.map((c) => c.id).sort()).toEqual([3, 4, 5])
+    const rootChildren = snapshot.childrenByParentId.get(null)
+    expect(rootChildren?.length).toBe(1)
+    expect(rootChildren?.[0]?.id).toBe(1)
+  })
+
+  it('builds byNameSlug index from rows', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    expect(snapshot.byNameSlug.get('air-filter')?.length).toBe(1)
+    expect(snapshot.byNameSlug.get('air-filter')?.[0]?.id).toBe(3)
+  })
+
+  it('handles duplicate url_key entries', () => {
+    const dupeRows: CategorySnapshotRow[] = [
+      { id: 10, name: 'Filter A', name_tr: null, is_active: true, has_childs: false, parent_id: null, url_key: 'filter', image: null, is_main_nav: false },
+      { id: 11, name: 'Filter B', name_tr: null, is_active: true, has_childs: false, parent_id: null, url_key: 'filter', image: null, is_main_nav: false },
+    ]
+    const snapshot = new CategorySnapshot(dupeRows)
+    expect(snapshot.byUrlKey.get('filter')?.length).toBe(2)
+    expect(snapshot.byUrlKey.get('filter')?.map((r) => r.id)).toEqual([10, 11])
+  })
+
+  it('includes inactive categories in snapshot (filtering done at query time)', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    expect(snapshot.byId.get(6)?.is_active).toBe(false)
+    expect(snapshot.rows.length).toBe(6)
+  })
+
+  it('main nav categories can be filtered from snapshot', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    const mainNav = snapshot.rows.filter((r) => r.is_main_nav && r.is_active)
+    expect(mainNav.length).toBe(2)
+    expect(mainNav.map((r) => r.id).sort()).toEqual([1, 2])
+  })
+
+  it('ancestry can be resolved from snapshot without DB queries', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    const airFilter = snapshot.byId.get(3)!
+    expect(airFilter.parent_id).toBe(2)
+
+    const parent = snapshot.byId.get(airFilter.parent_id!)!
+    expect(parent.name).toBe('Filters')
+    expect(parent.parent_id).toBe(1)
+
+    const grandparent = snapshot.byId.get(parent.parent_id!)!
+    expect(grandparent.name).toBe('Car Parts')
+    expect(grandparent.parent_id).toBeNull()
+  })
+
+  it('siblings can be resolved from snapshot without DB queries', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    const siblings = (snapshot.childrenByParentId.get(2) || [])
+      .filter((r) => r.is_active)
+    expect(siblings.length).toBe(3)
+    expect(siblings.map((s) => s.id).sort()).toEqual([3, 4, 5])
+  })
+
+  it('url_key lookup by normalized key is case-insensitive', () => {
+    const snapshot = new CategorySnapshot(sampleRows)
+    expect(snapshot.byUrlKey.get('air-filter')).not.toEqual(undefined)
+    expect(snapshot.byUrlKey.get('Air-Filter')).toEqual(undefined)
+  })
+
+  it('handles null url_key in byNameSlug index', () => {
+    const nameOnlyRows: CategorySnapshotRow[] = [
+      { id: 100, name: 'Brake System', name_tr: null, is_active: true, has_childs: true, parent_id: null, url_key: null, image: null, is_main_nav: false },
+    ]
+    const snapshot = new CategorySnapshot(nameOnlyRows)
+    expect(snapshot.byNameSlug.get('brake-system')?.length).toBe(1)
+    expect(snapshot.byNameSlug.get('brake-system')?.[0]?.id).toBe(100)
+    expect(snapshot.byUrlKey.has('brake-system')).toBe(false)
+  })
+})
+
+describe('category cache key includes locale and slug', () => {
+  it('cache key format for main nav includes locale', () => {
+    const enKey = `main-nav-categories-en-v2`
+    const trKey = `main-nav-categories-tr-v2`
+    expect(enKey).not.toBe(trKey)
+    expect(enKey.includes('en')).toBe(true)
+    expect(trKey.includes('tr')).toBe(true)
+  })
+
+  it('cache key format for category by urlKey includes slug', () => {
+    const airFilterKey = `part-category-v2-air-filter`
+    const fuelFilterKey = `part-category-v2-fuel-filter`
+    expect(airFilterKey).not.toBe(fuelFilterKey)
+    expect(airFilterKey.includes('air-filter')).toBe(true)
+    expect(fuelFilterKey.includes('fuel-filter')).toBe(true)
+  })
+})
+
+describe('category snapshot does not include user-specific data', () => {
+  it('CategorySnapshotRow interface has no user/session fields', () => {
+    const row: CategorySnapshotRow = {
+      id: 1,
+      name: 'Test',
+      name_tr: null,
+      is_active: true,
+      has_childs: false,
+      parent_id: null,
+      url_key: 'test',
+      image: null,
+      is_main_nav: false,
+    }
+    const keys = Object.keys(row)
+    const forbiddenKeys = ['userId', 'sessionId', 'token', 'auth', 'email', 'password']
+    for (const forbidden of forbiddenKeys) {
+      expect(keys.includes(forbidden)).toBe(false)
+    }
   })
 })

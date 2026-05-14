@@ -6,6 +6,157 @@ import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { createTimerGroup } from '@/lib/performance/timing'
 
+const PERFORMANCE_LOGGING =
+  process.env.PERFORMANCE_LOGGING === 'true'
+const SLOW_CATEGORY_RESOLVE_THRESHOLD = parseInt(
+  process.env.SLOW_CATEGORY_RESOLVE_THRESHOLD || '1000',
+  10
+)
+const SLOW_CATEGORY_NAV_THRESHOLD = parseInt(
+  process.env.SLOW_CATEGORY_NAV_THRESHOLD || '1000',
+  10
+)
+
+function warnSlow(label: string, durationMs: number, extra?: string): void {
+  if (durationMs > SLOW_CATEGORY_RESOLVE_THRESHOLD) {
+    console.warn(
+      `[CATEGORY_RESOLVE_SLOW] ${label} ${durationMs}ms${extra ? ` ${extra}` : ''}`
+    )
+  }
+}
+
+function warnSlowNav(label: string, durationMs: number): void {
+  if (durationMs > SLOW_CATEGORY_NAV_THRESHOLD) {
+    console.warn(
+      `[CATEGORY_NAV_SLOW] ${label} ${durationMs}ms`
+    )
+  }
+}
+
+let categorySnapshotMemoryCache: CategorySnapshot | null = null
+let categorySnapshotMemoryCacheExpiry = 0
+const CATEGORY_SNAPSHOT_MEMORY_TTL_MS = 5 * 60 * 1000
+
+interface CategorySnapshotRow {
+  id: number
+  name: string
+  name_tr: string | null
+  is_active: boolean
+  has_childs: boolean
+  parent_id: number | null
+  url_key: string | null
+  image: string | null
+  is_main_nav: boolean
+}
+
+class CategorySnapshot {
+  readonly rows: CategorySnapshotRow[]
+  readonly byId: Map<number, CategorySnapshotRow>
+  readonly byUrlKey: Map<string, CategorySnapshotRow[]>
+  readonly byNameSlug: Map<string, CategorySnapshotRow[]>
+  readonly childrenByParentId: Map<number | null, CategorySnapshotRow[]>
+
+  constructor(rows: CategorySnapshotRow[]) {
+    this.rows = rows
+    this.byId = new Map()
+    this.byUrlKey = new Map()
+    this.byNameSlug = new Map()
+    this.childrenByParentId = new Map()
+
+    for (const row of rows) {
+      this.byId.set(row.id, row)
+
+      if (row.url_key) {
+        const normalizedKey = row.url_key.trim().toLowerCase()
+        const arr = this.byUrlKey.get(normalizedKey)
+        if (arr) {
+          arr.push(row)
+        } else {
+          this.byUrlKey.set(normalizedKey, [row])
+        }
+      }
+
+      const nameSlug = generateSlug(row.name)
+      const nameArr = this.byNameSlug.get(nameSlug)
+      if (nameArr) {
+        nameArr.push(row)
+      } else {
+        this.byNameSlug.set(nameSlug, [row])
+      }
+
+      const parentId = row.parent_id
+      const children = this.childrenByParentId.get(parentId)
+      if (children) {
+        children.push(row)
+      } else {
+        this.childrenByParentId.set(parentId, [row])
+      }
+    }
+  }
+}
+
+async function getCategorySnapshot(): Promise<CategorySnapshot> {
+  if (
+    categorySnapshotMemoryCache &&
+    Date.now() < categorySnapshotMemoryCacheExpiry
+  ) {
+    if (PERFORMANCE_LOGGING) {
+      console.info('[CATEGORY_CACHE_HIT] categorySnapshot memory')
+    }
+    return categorySnapshotMemoryCache
+  }
+
+  const tg = createTimerGroup('categorySnapshot')
+  const tRedis = tg.start('redisLookup')
+  const cacheKey = 'category-snapshot-v1'
+  const cached = await getFromCache<CategorySnapshotRow[]>(cacheKey)
+  if (cached) {
+    tg.end(tRedis, { hit: true })
+    if (PERFORMANCE_LOGGING) {
+      console.info('[CATEGORY_CACHE_HIT] categorySnapshot redis')
+    }
+    const snapshot = new CategorySnapshot(cached)
+    categorySnapshotMemoryCache = snapshot
+    categorySnapshotMemoryCacheExpiry =
+      Date.now() + CATEGORY_SNAPSHOT_MEMORY_TTL_MS
+    tg.logSummary()
+    return snapshot
+  }
+  tg.end(tRedis, { hit: false })
+  if (PERFORMANCE_LOGGING) {
+    console.info('[CATEGORY_CACHE_MISS] categorySnapshot')
+  }
+
+  const tDb = tg.start('dbQuery')
+  const rows = await db.part_categories.findMany({
+    where: { is_active: true },
+    select: {
+      id: true,
+      name: true,
+      name_tr: true,
+      is_active: true,
+      has_childs: true,
+      parent_id: true,
+      url_key: true,
+      image: true,
+      is_main_nav: true
+    }
+  })
+  tg.end(tDb, { count: rows.length })
+
+  const tRedisSet = tg.start('redisSet')
+  await setCache(cacheKey, rows, 3600)
+  tg.end(tRedisSet)
+
+  const snapshot = new CategorySnapshot(rows)
+  categorySnapshotMemoryCache = snapshot
+  categorySnapshotMemoryCacheExpiry =
+    Date.now() + CATEGORY_SNAPSHOT_MEMORY_TTL_MS
+
+  tg.logSummary()
+  return snapshot
+}
+
 export interface PartCategory {
   id: number
   name: string
@@ -403,122 +554,80 @@ function pickBestCandidate(
 async function findCategoryByUrlKey(
   urlKey: string
 ): Promise<(CategorySelectRow & { children: PartCategory[] }) | null> {
+  const snapshot = await getCategorySnapshot()
+
   const legacyCategoryId = parseIdFromUrlKey(urlKey)
   const normalizedInput = normalizeUrlKey(urlKey, urlKey)
 
+  const candidates: CategorySelectRow[] = []
+
   if (legacyCategoryId) {
-    const direct = await db.part_categories.findUnique({
-      where: { id: legacyCategoryId },
-      select: CATEGORY_SELECT
-    })
-    if (direct?.is_active) {
-      const childRows = await db.part_categories.findMany({
-        where: { parent_id: direct.id, is_active: true },
-        select: CATEGORY_SELECT
-      })
-      return {
-        ...direct,
-        children: childRows.map(rowToCategory)
+    const direct = snapshot.byId.get(legacyCategoryId)
+    if (direct && direct.is_active) {
+      candidates.push(direct)
+    }
+  }
+
+  const exactMatches = snapshot.byUrlKey.get(urlKey)
+  if (exactMatches) {
+    for (const m of exactMatches) {
+      if (!candidates.includes(m)) {
+        candidates.push(m)
       }
     }
   }
 
-  const exactMatches = await db.part_categories.findMany({
-    where: { is_active: true, url_key: urlKey },
-    select: CATEGORY_SELECT
-  })
-
-  if (exactMatches.length > 0) {
-    const candidateIds = exactMatches.map((c) => c.id)
-    const childRows = await db.part_categories.findMany({
-      where: { parent_id: { in: candidateIds }, is_active: true },
-      select: { id: true, parent_id: true }
-    })
-    const childCountById = new Map<number, number>()
-    for (const child of childRows) {
-      childCountById.set(child.parent_id!, (childCountById.get(child.parent_id!) ?? 0) + 1)
+  if (candidates.length === 0) {
+    for (const [key, rows] of snapshot.byUrlKey) {
+      if (key.startsWith(urlKey + '-')) {
+        for (const row of rows) {
+          if (normalizeUrlKey(row.url_key, row.name) === urlKey) {
+            if (!candidates.includes(row)) {
+              candidates.push(row)
+            }
+          }
+        }
+      }
     }
-    const candidates = exactMatches.map((cat) => ({
-      cat,
-      childCount: childCountById.get(cat.id) ?? (cat.has_childs ? 1 : 0)
-    }))
-    const best = pickBestCandidate(candidates)
-    if (best) {
-      const bestChildren = await db.part_categories.findMany({
-        where: { parent_id: best.id, is_active: true },
-        select: CATEGORY_SELECT
-      })
-      return { ...best, children: bestChildren.map(rowToCategory) }
-    }
-  }
 
-  const suffixedMatches = await db.part_categories.findMany({
-    where: { is_active: true, url_key: { startsWith: urlKey + '-' } },
-    select: CATEGORY_SELECT
-  })
-
-  const normalizedMatches = suffixedMatches.filter(
-    (cat) => normalizeUrlKey(cat.url_key, cat.name) === urlKey
-  )
-
-  if (normalizedMatches.length > 0) {
-    const candidateIds = normalizedMatches.map((c) => c.id)
-    const childRows = await db.part_categories.findMany({
-      where: { parent_id: { in: candidateIds }, is_active: true },
-      select: { id: true, parent_id: true }
-    })
-    const childCountById = new Map<number, number>()
-    for (const child of childRows) {
-      childCountById.set(child.parent_id!, (childCountById.get(child.parent_id!) ?? 0) + 1)
-    }
-    const candidates = normalizedMatches.map((cat) => ({
-      cat,
-      childCount: childCountById.get(cat.id) ?? (cat.has_childs ? 1 : 0)
-    }))
-    const best = pickBestCandidate(candidates)
-    if (best) {
-      const bestChildren = await db.part_categories.findMany({
-        where: { parent_id: best.id, is_active: true },
-        select: CATEGORY_SELECT
-      })
-      return { ...best, children: bestChildren.map(rowToCategory) }
+    if (candidates.length === 0) {
+      const nameSlug = generateSlug(urlKey.replace(/-/g, ' '))
+      for (const row of snapshot.rows) {
+        if (
+          row.url_key === null &&
+          row.is_active &&
+          (generateSlug(row.name) === urlKey ||
+            (row.name_tr !== null && generateSlug(row.name_tr) === urlKey))
+        ) {
+          if (!candidates.includes(row)) {
+            candidates.push(row)
+          }
+        }
+      }
     }
   }
 
-  const nameSlugMatches = await db.part_categories.findMany({
-    where: { is_active: true, url_key: null },
-    select: CATEGORY_SELECT
-  })
-
-  const matchingByNameSlug = nameSlugMatches.filter(
-    (cat) => generateSlug(cat.name) === urlKey || (cat.name_tr && generateSlug(cat.name_tr) === urlKey)
-  )
-
-  if (matchingByNameSlug.length > 0) {
-    const candidateIds = matchingByNameSlug.map((c) => c.id)
-    const childRows = await db.part_categories.findMany({
-      where: { parent_id: { in: candidateIds }, is_active: true },
-      select: { id: true, parent_id: true }
-    })
-    const childCountById = new Map<number, number>()
-    for (const child of childRows) {
-      childCountById.set(child.parent_id!, (childCountById.get(child.parent_id!) ?? 0) + 1)
-    }
-    const candidates = matchingByNameSlug.map((cat) => ({
-      cat,
-      childCount: childCountById.get(cat.id) ?? (cat.has_childs ? 1 : 0)
-    }))
-    const best = pickBestCandidate(candidates)
-    if (best) {
-      const bestChildren = await db.part_categories.findMany({
-        where: { parent_id: best.id, is_active: true },
-        select: CATEGORY_SELECT
-      })
-      return { ...best, children: bestChildren.map(rowToCategory) }
-    }
+  if (candidates.length === 0) {
+    return null
   }
 
-  return null
+  const candidatesWithChildren = candidates.map((cat) => {
+    const childRows = snapshot.childrenByParentId.get(cat.id) || []
+    return {
+      cat,
+      childCount: childRows.filter((c) => c.is_active).length
+    }
+  })
+
+  const best = pickBestCandidate(candidatesWithChildren)
+  if (!best) return null
+
+  const childRows = snapshot.childrenByParentId.get(best.id) || []
+  const children: PartCategory[] = childRows
+    .filter((c) => c.is_active)
+    .map((row) => rowToCategory(row))
+
+  return { ...best, children }
 }
 
 async function resolveCategoryByUrlKeyInner(
@@ -566,43 +675,16 @@ async function resolveCategoryByUrlKeyInner(
   tg.end(tFind)
 
   const tResolve = tg.start('ancestry+siblings')
-  const needsParentIds: number[] = []
-  if (targetCategory.parentId) {
-    needsParentIds.push(targetCategory.parentId)
-  }
+  const snapshot = await getCategorySnapshot()
 
   const tAncestry = tg.start('ancestry')
-  let currentId: number | null = targetCategory.parentId
-  const visitedIds = new Set<number>()
-  while (currentId && !visitedIds.has(currentId)) {
-    visitedIds.add(currentId)
-    needsParentIds.push(currentId)
-    const parent = await db.part_categories.findUnique({
-      where: { id: currentId },
-      select: { id: true, parent_id: true }
-    })
-    if (!parent) break
-    currentId = parent.parent_id
-  }
-  tg.end(tAncestry)
-
-  const tBuild = tg.start('buildResult')
-  const ancestorRows = needsParentIds.length > 0
-    ? await db.part_categories.findMany({
-        where: { id: { in: needsParentIds }, is_active: true },
-        select: { id: true, name: true, name_tr: true, url_key: true, parent_id: true, is_active: true }
-      })
-    : []
-
-  const ancestorMap = new Map(ancestorRows.map((r) => [r.id, r]))
-
   const breadcrumbs: { name: string; nameTr: string | null; urlKey: string }[] = []
   let ancestorId: number | null = targetCategory.parentId
-  const breadcrumbIds: number[] = []
+  const visitedAncestorIds = new Set<number>()
   while (ancestorId) {
-    if (breadcrumbIds.includes(ancestorId)) break
-    breadcrumbIds.push(ancestorId)
-    const row = ancestorMap.get(ancestorId)
+    if (visitedAncestorIds.has(ancestorId)) break
+    visitedAncestorIds.add(ancestorId)
+    const row = snapshot.byId.get(ancestorId)
     if (!row || !row.is_active) break
     breadcrumbs.unshift({
       name: row.name,
@@ -611,16 +693,15 @@ async function resolveCategoryByUrlKeyInner(
     })
     ancestorId = row.parent_id
   }
+  tg.end(tAncestry)
+
+  const tBuild = tg.start('buildResult')
 
   const siblingParentId = targetCategory.parentId
-  const siblingRows = await db.part_categories.findMany({
-    where: siblingParentId
-      ? { parent_id: siblingParentId, is_active: true }
-      : { parent_id: null, is_active: true },
-    select: { id: true, name: true, name_tr: true, is_active: true, has_childs: true, parent_id: true, url_key: true, image: true }
-  })
-
-  const siblings: PartCategory[] = siblingRows.map(rowToCategory)
+  const siblingSnapshotRows = snapshot.childrenByParentId.get(siblingParentId) || []
+  const siblings: PartCategory[] = siblingSnapshotRows
+    .filter((row) => row.is_active)
+    .map(rowToCategory)
   siblings.sort((a, b) => {
     const nameA = a.name
     const nameB = b.name
@@ -652,6 +733,7 @@ async function resolveCategoryByUrlKeyInner(
   tg.end(tCacheSet)
 
   tg.logSummary()
+  warnSlow('categoryByUrlKey', tg.getTotalMs(), `urlKey=${urlKey}`)
   return result
 }
 
@@ -668,23 +750,15 @@ export const getCategoryByUrlKey = getPartCategoryByUrlKey
 
 async function fetchMainNavCategoriesFromDB(locale: string = 'en'): Promise<PartCategory[]> {
   const tg = createTimerGroup('mainNavCategories')
-  const tDb = tg.start('dbQuery')
-  const rows = await db.part_categories.findMany({
-    where: { is_main_nav: true, is_active: true },
-    select: {
-      id: true,
-      name: true,
-      name_tr: true,
-      is_active: true,
-      has_childs: true,
-      parent_id: true,
-      url_key: true,
-      image: true
-    },
-    orderBy: { id: 'asc' }
-  })
+  const tSnapshot = tg.start('snapshotLookup')
+  const snapshot = await getCategorySnapshot()
+  tg.end(tSnapshot)
 
-  const categories: PartCategory[] = rows.map((cat) => ({
+  const tFilter = tg.start('filter')
+  const mainNavRows = snapshot.rows.filter(
+    (row) => row.is_main_nav && row.is_active
+  )
+  const categories: PartCategory[] = mainNavRows.map((cat) => ({
     id: cat.id,
     name: locale === 'tr' && cat.name_tr ? cat.name_tr : cat.name,
     nameTr: cat.name_tr,
@@ -694,8 +768,9 @@ async function fetchMainNavCategoriesFromDB(locale: string = 'en'): Promise<Part
     urlKey: normalizeUrlKey(cat.url_key, cat.name),
     image: cat.image
   }))
-  tg.end(tDb)
+  tg.end(tFilter, { count: categories.length })
   tg.logSummary()
+  warnSlowNav('mainNavCategories', tg.getTotalMs())
   return categories
 }
 
@@ -734,33 +809,21 @@ export const getTopCategories = async (
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) return cached
 
-  // Fetch root categories (those without parent)
-  const rootCategories = await db.part_categories.findMany({
-    where: { parent_id: null, is_active: true },
-    select: {
-      id: true,
-      name: true,
-      name_tr: true,
-      is_active: true,
-      has_childs: true,
-      parent_id: true,
-      url_key: true,
-      image: true
-    }
-  })
+  const snapshot = await getCategorySnapshot()
+  const rootRows = snapshot.childrenByParentId.get(null) || []
+  const categories: PartCategory[] = rootRows
+    .filter((row) => row.is_active)
+    .map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      nameTr: cat.name_tr,
+      isActive: cat.is_active,
+      hasChildren: cat.has_childs,
+      parentId: cat.parent_id,
+      urlKey: normalizeUrlKey(cat.url_key, cat.name),
+      image: cat.image
+    }))
 
-  const categories: PartCategory[] = rootCategories.map((cat) => ({
-    id: cat.id,
-    name: cat.name,
-    nameTr: cat.name_tr,
-    isActive: cat.is_active,
-    hasChildren: cat.has_childs,
-    parentId: cat.parent_id,
-    urlKey: normalizeUrlKey(cat.url_key, cat.name),
-    image: cat.image
-  }))
-
-  // Sort by localized name
   const sorted = sortCategoriesByName(categories, locale)
   await setCache(cacheKey, sorted, 3600)
   return sorted
@@ -770,74 +833,61 @@ export const getTopCategories = async (
 export const getCategorySearchIdFromUrlKey = async (
   urlKey: string
 ): Promise<number | null> => {
-  const id = parseIdFromUrlKey(urlKey)
-  if (id) {
-    const exists = await db.part_categories.findUnique({
-      where: { id },
-      select: { id: true, is_active: true, parent_id: true }
-    })
-    if (!exists?.is_active) {
-      return null
-    }
+  const snapshot = await getCategorySnapshot()
 
-    let currentId: number | null = exists.parent_id
-    while (currentId !== null) {
-      const parent = await db.part_categories.findUnique({
-        where: { id: currentId },
-        select: { id: true, is_active: true, parent_id: true }
-      })
-      if (!parent || !parent.is_active) {
-        return null
+  const legacyCategoryId = parseIdFromUrlKey(urlKey)
+
+  let matchingRow: CategorySnapshotRow | null = null
+
+  if (legacyCategoryId) {
+    const direct = snapshot.byId.get(legacyCategoryId)
+    if (direct && direct.is_active) {
+      matchingRow = direct
+    }
+  }
+
+  if (!matchingRow) {
+    const exactMatches = snapshot.byUrlKey.get(urlKey)
+    if (exactMatches && exactMatches.length > 0) {
+      matchingRow = exactMatches.find((r) => r.is_active) || null
+    }
+  }
+
+  if (!matchingRow) {
+    for (const [key, rows] of snapshot.byUrlKey) {
+      if (key.startsWith(urlKey + '-')) {
+        const found = rows.find((r) => r.is_active && normalizeUrlKey(r.url_key, r.name) === urlKey)
+        if (found) {
+          matchingRow = found
+          break
+        }
       }
-      currentId = parent.parent_id
     }
-
-    return exists.id
   }
 
-  let matchingCategory = await db.part_categories.findFirst({
-    where: {
-      is_active: true,
-      url_key: urlKey
-    },
-    select: { id: true, is_active: true, parent_id: true, name: true }
-  })
-
-  if (!matchingCategory || !matchingCategory.is_active) {
-    const suffixedMatches = await db.part_categories.findMany({
-      where: { is_active: true, url_key: { startsWith: urlKey + '-' } },
-      select: { id: true, is_active: true, parent_id: true, name: true, url_key: true }
-    })
-    matchingCategory = suffixedMatches.find(
-      (cat) => normalizeUrlKey(cat.url_key, cat.name) === urlKey
-    ) || null
+  if (!matchingRow) {
+    for (const row of snapshot.rows) {
+      if (row.url_key === null && row.is_active) {
+        if (generateSlug(row.name) === urlKey || (row.name_tr && generateSlug(row.name_tr) === urlKey)) {
+          matchingRow = row
+          break
+        }
+      }
+    }
   }
 
-  if (!matchingCategory || !matchingCategory.is_active) {
-    const nullUrlKeyCategories = await db.part_categories.findMany({
-      where: { is_active: true, url_key: null },
-      select: { id: true, is_active: true, parent_id: true, name: true }
-    })
-    matchingCategory = nullUrlKeyCategories.find(
-      (cat) => generateSlug(cat.name) === urlKey
-    ) || null
-  }
-
-  if (!matchingCategory || !matchingCategory.is_active) {
+  if (!matchingRow || !matchingRow.is_active) {
     return null
   }
 
-  let currentId: number | null = matchingCategory.parent_id
+  let currentId: number | null = matchingRow.parent_id
   while (currentId !== null) {
-    const parent = await db.part_categories.findUnique({
-      where: { id: currentId },
-      select: { id: true, is_active: true, parent_id: true }
-    })
+    const parent = snapshot.byId.get(currentId)
     if (!parent || !parent.is_active) {
       return null
     }
     currentId = parent.parent_id
   }
 
-  return matchingCategory.id
+  return matchingRow.id
 }

@@ -1,5 +1,120 @@
 # Release Notes
 
+## v0.2.9 - Category Navigation and Resolver Cache Optimization
+
+### Performance: Category Snapshot Cache
+- Introduced `CategorySnapshot` — single in-memory snapshot of all active categories (979 rows)
+- Snapshot is indexed by id, urlKey, nameSlug, and parentId for O(1) lookups
+- All category resolution (findCategoryByUrlKey, ancestry, siblings, mainNav, topCategories) now uses snapshot on warm
+- Eliminates up to 8-10 sequential DB queries per category page request on warm cache
+- `categoryByUrlKey:findTarget` reduced from ~2323ms (5 sequential DB queries) to <10ms (snapshot lookup)
+- `mainNavCategories` reduced from ~1640ms to <10ms (snapshot filter)
+- Ancestry + siblings reduced from ~687ms (sequential DB + separate query) to <1ms (in-memory walk)
+- Cold `/en/air-filter` improved from ~6.17s to ~2.67s
+- Warm `/en/air-filter` improved from ~2.44s to ~1.25s
+
+### Fix: Category Deferred Promise Runtime Error
+- Fixed runtime error `"can't access property 'catch', s.then(...) is undefined"` on `/en/filters` and non-leaf category pages
+- The v0.2.8 streaming approach passed a `Promise` as a prop from server to client component, which is not serializable across the React server/client boundary
+- Replaced `initialDataPromise` prop with awaited `initialData` prop — server component now awaits product data for leaf pages and passes the resolved result
+- Non-leaf pages (e.g. `/en/filters`) correctly render category cards without leaf product data
+- `/en/filters` now renders in ~30ms warm (previously caused runtime error)
+
+### Caching Architecture
+- Category snapshot cached in Redis (`category-snapshot-v1`) with 1h TTL
+- In-memory category snapshot with 5min TTL (process-local, avoids Redis round-trip)
+- Falls back to DB on both cache misses
+- No user-specific data cached; snapshot contains only public category metadata
+- Cache keys include locale and slug where relevant
+
+### Instrumentation
+- `CATEGORY_RESOLVE_SLOW` warning when categoryByUrlKey total > 1000ms
+- `CATEGORY_NAV_SLOW` warning when mainNavCategories total > 1000ms
+- `CATEGORY_CACHE_HIT` / `CATEGORY_CACHE_MISS` logs for snapshot when `PERFORMANCE_LOGGING=true`
+
+### Tests
+- Added 15 new tests for `CategorySnapshot` (byId, byUrlKey, byNameSlug, childrenByParentId, duplicate handling, ancestry from snapshot, siblings from snapshot, main nav filtering)
+- Added tests verifying cache key includes locale and slug
+- Added tests verifying no user-specific data in snapshot
+- All 221 existing tests still pass
+
+### DB Index Recommendations
+- Existing indexes sufficient for snapshot approach (snapshot loads all active categories in one query)
+- No new indexes required; `is_active` index already used for the snapshot query
+
+### No breaking changes
+- No checkout/payment changes
+- No Meilisearch changes
+- No PostgreSQL fallback removal
+- No product visibility changes (no-price products remain visible)
+- No UI changes
+
+### Performance: Category Page Streaming Fix
+- Split category page rendering into shell (fast) and product data (deferred) phases
+- `buildCategoryShellPayload()` returns category, nav, breadcrumbs, sidebar immediately (~50-300ms)
+- Product data for leaf categories resolves asynchronously via `fetchLeafInitialData()` promise
+- `CategoryLeafContent` component shows loading skeleton while product data loads
+- Total page time reduced from 15-21s to 2-5s (shell visible in <500ms, products stream in 1-5s)
+- TTFB remains fast (~0.28s) — unchanged
+
+### Category Page Data Contract Enforcement
+- Default page size: 24 products
+- Hard max page size: 48 products
+- Shell payload does not include `initialData` (product fetch is deferred)
+- Non-leaf categories do not fetch product data at all
+- Loading skeleton shown while product data resolves
+- No synchronous exact total count blocking initial render
+- No fitment enrichment per card
+- No large OEM/reference arrays per card
+
+### v0.2.7 Changes Also Included
+- Added exact code lookup to POST handler's Meilisearch path (GET and POST both boost code queries)
+- Extended fitment enrichment to supplier-backed documents
+- Prioritized code-bearing records (OEM/EAN/barcode) in reindex ordering
+- Updated search-debug-code to check `parts.part_no`
+- Added `mergeExactCodeResults` tests for deduplication
+
+### No breaking changes
+- Search API response shape unchanged (additive fields only)
+- Checkout/payment untouched
+- No-price (REQUEST_PRICE) products remain visible
+- Meilisearch and PostgreSQL fallback paths preserved
+- Production indexing remains disabled
+
+## v0.2.7 - Fitment Index Optimization and Exact Code Search Coverage
+
+### Exact Code Search Improvements
+- Added exact code lookup to POST handler's Meilisearch path (was only in GET handler)
+- Exact code lookup now works in both single-search and multi-search modes
+- POST search response now includes `exactCodeMatchUsed` and `source` fields when exact matches found
+- Updated `scripts/search-debug-code.ts` to also check `parts.part_no` column for code matches
+
+### Fitment Enrichment Improvements
+- Fitment enrichment now covers **both supplier-backed and catalog-only documents** (was catalog-only only)
+- Supplier-backed documents (`documentType: supplier_offer`) with a valid `partId` receive vehicle fitment data
+- Orphan supplier products without a `partId` are still excluded from fitment enrichment
+- No changes to fitment configuration defaults (`MEILI_REINDEX_INCLUDE_FITMENT=false` in production)
+
+### Reindex Coverage Improvements
+- Orphan supplier products with OEM codes are now prioritized in the index sort order
+- Orphan products with barcodes are prioritized second
+- Orphan products with price and stock are prioritized third
+- Catalog-only parts with OEM codes, EAN codes, or cross-references are prioritized over those without
+- This ensures code-bearing products are included within index limits
+
+### Tests
+- Added `mergeExactCodeResults` tests for deduplication by partId/supplierProductId
+- Added `isExactCodeQuery` edge case tests (VIN codes, SKU-style, mixed separators)
+- Added `normalizeCode`/`compactCode` edge case tests (EAN codes with spaces, mixed separators)
+- Added document type validation tests for supplier_offer vs canonical_part vs orphan fitment behavior
+
+### No breaking changes
+- Search API response shape is unchanged (new fields added are additive)
+- Checkout/payment behavior untouched
+- No-price (REQUEST_PRICE) products remain visible
+- Meilisearch and PostgreSQL fallback paths preserved
+- Production indexing remains disabled until fitment is tested
+
 ## v0.2.6 - Category Page Payload and Navigation Performance Fix
 
 ### Problem

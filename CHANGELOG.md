@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.9] - 2026-05-14
+
+### Added
+- `CategorySnapshot` class — pre-indexed in-memory snapshot of all active categories for O(1) lookups
+- `getCategorySnapshot()` — loads all active categories from DB (cold) or Redis (warm) or in-memory (hot)
+- In-memory cache layer (5min TTL) + Redis cache layer (1h TTL) for category snapshot
+- `CATEGORY_RESOLVE_SLOW` and `CATEGORY_NAV_SLOW` warning logs for slow category resolution
+- `CATEGORY_CACHE_HIT` / `CATEGORY_CACHE_MISS` logs for snapshot when `PERFORMANCE_LOGGING=true`
+- 15 new tests for `CategorySnapshot` behavior (byId, byUrlKey, byNameSlug, childrenByParentId, ancestry, siblings, main nav filtering, duplicate handling, null url_key)
+- Cache key tests verifying locale and slug are included
+- Tests verifying no user-specific data in snapshot
+
+### Changed
+- `findCategoryByUrlKey` now uses `CategorySnapshot` instead of up to 5 sequential DB queries
+- Ancestry resolution now walks `snapshot.byId` instead of sequential `findUnique` per parent
+- Sibling fetch now uses `snapshot.childrenByParentId` instead of separate `findMany`
+- `fetchMainNavCategoriesFromDB` now uses snapshot filter instead of DB query
+- `getTopCategories` now uses snapshot `childrenByParentId.get(null)` instead of DB query
+- `getCategorySearchIdFromUrlKey` now uses snapshot for urlKey lookup and ancestry validation instead of sequential DB queries
+- `/en/air-filter` cold improved from ~6.17s to ~2.67s
+- `/en/air-filter` warm improved from ~2.44s to ~1.25s
+- `/en/filters` warm improved from ~2.79s to ~0.03s
+- Category page rendering: server component now awaits product data for leaf pages and passes resolved `initialData` instead of `initialDataPromise` (fixes runtime error on `/en/filters`)
+
+### Fixed
+- Fixed runtime error `"can't access property 'catch', s.then(...) is undefined"` on `/en/filters` and non-leaf category pages
+- Removed `CategoryLeafContent` component which incorrectly received a Promise prop from server to client
+- Removed `initialDataPromise` prop from `CategoryPageShell` (Promises cannot be serialized across server/client boundary)
+
+### Performance
+- Category resolution on warm cache: zero DB queries (snapshot provides all data)
+- Snapshot DB query: single `findMany` (979 rows, ~2s cold, cached afterward)
+- Eliminates 8-10 sequential DB queries per category page request on warm cache
+
+## [0.2.8] - 2026-05-13
+
+### Added
+- `CategoryShellPayload` type and `buildCategoryShellPayload()` in `category-page-data.ts` — fast shell data without product fetch
+- `fetchLeafInitialData()` in `category-page-data.ts` — deferred product data fetch for leaf categories
+- `CategoryLeafContent` component in `CategoryPageShell.tsx` — loading skeleton while product data resolves
+- Streaming category page rendering: shell (nav/breadcrumbs/heading) renders immediately, product grid streams in
+- Performance timing logs for category shell payload and leaf data fetch
+- Added exact code lookup to POST handler's Meilisearch-enabled path
+- `exactCodeMatchUsed` and `source` fields in POST search response for code-like queries
+- Category page data contract tests (shell payload, limit contract, non-leaf skip)
+- `docs/CATEGORY_STREAMING_PERFORMANCE.md` — documentation for streaming fix
+
+### Changed
+- `category-page.tsx` — splits rendering into shell + deferred data via Promise
+- `category-page-data.ts` — added `CategoryShellPayload`, `buildCategoryShellPayload()`, `fetchLeafInitialData()`
+- `CategoryPageShell.tsx` — accepts `shellPayload` + `initialDataPromise` instead of blocking `initialPayload`
+- `category-page.tsx` — calls `buildCategoryShellPayload()` for immediate shell, `fetchLeafInitialData()` for deferred product data
+- Category pages no longer block the RSC stream until `getCatalogArticles()` completes
+- `app/api/search/route.ts` — POST handler now runs `lookupExactCode()` for code-like queries, merges with Meili results
+- `scripts/meili-reindex.ts` — fitment enrichment covers both `supplier_offer` and `canonical_part` documents
+- `lib/search/search-document-builder.ts` — orphan products and catalog-only parts prioritized by OEM/EAN/code richness
+- `scripts/search-debug-code.ts` — added `parts.part_no` column check
+
+### Fixed
+- Category page stream tail latency: shell renders in <500ms, products stream in 1-5s (was 15-21s total)
+- POST search exact code boost was missing — now works for code-like queries in both GET and POST paths
+- Fitment enrichment only applied to catalog-only documents — now includes supplier-backed documents
+
+## [0.2.7] - 2026-05-13
+
+### Added
+- Exact code lookup in POST handler's Meilisearch-enabled path (GET and POST now both use exact code boost)
+- `exactCodeMatchUsed` and `source` fields in POST search response for code-like queries
+- `scripts/search-debug-code.ts` now checks `parts.part_no` column for code matches
+- Fitment enrichment for supplier-backed (`supplier_offer`) documents — now enriches both catalog-only and supplier-backed documents
+- Priority ordering for orphan supplier products: OEM codes first, then barcodes, then price+stock, then last_seen_at
+- Priority ordering for catalog-only parts: OEM codes first, then EAN codes, then cross-refs, then updated_at
+- `mergeExactCodeResults` test suite for deduplication by partId/supplierProductId
+- Additional `isExactCodeQuery` test cases (VIN, SKU-style, mixed separators)
+- Additional `normalizeCode`/`compactCode` test cases (EAN codes with spaces, mixed separators)
+- Document type validation tests for fitment enrichment coverage
+
+### Changed
+- `app/api/search/route.ts` — POST handler now runs `lookupExactCode()` for code-like queries before Meilisearch, merges results with `mergeExactCodeResults()`
+- `scripts/meili-reindex.ts` — `enrichWithFitment()` now accepts both `supplier_offer` and `canonical_part` documents; Phase 2b enriches combined supplier+catalog docs
+- `lib/search/search-document-builder.ts` — `buildOrphanSupplierDocuments()` ORDER BY prioritizes OEM/barcode/price-bearing records; `buildSearchDocumentsFromCatalog()` ORDER BY prioritizes OEM/EAN/cross-ref-bearing records
+- Updated `docs/SEARCH_CODE_AND_FITMENT.md`, `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md`, `docs/SEARCH_CATALOG_OFFER.md`, `docs/SUPPLIER_PART_MATCHING.md`
+
 ## [0.2.6] - 2026-05-13
 
 ### Added

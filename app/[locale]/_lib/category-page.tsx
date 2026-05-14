@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation'
 import { CategoryPageShell } from '../[...slug]/_components/CategoryPageShell'
 import {
-  buildCategoryPagePayload,
+  buildCategoryShellPayload,
+  fetchLeafInitialData,
   type CategoryRouteSearchParams
 } from './category-page-data'
 import type { TrodoCategoryWithHierarchy } from '@/lib/actions/getPartCategories'
@@ -21,19 +22,28 @@ export async function renderCategoryPage({
   searchParams: CategoryRouteSearchParams
   preResolvedCategory?: TrodoCategoryWithHierarchy
 }) {
-  const payload = await buildCategoryPagePayload({
+  const shell = await buildCategoryShellPayload({
     locale,
     categorySlug,
     searchParams,
     preResolvedCategory
   })
 
-  if (!payload) {
+  if (!shell) {
     notFound()
   }
 
-  const breadcrumbJsonLd = buildCategoryBreadcrumbJsonLd(locale, payload.category)
-  const itemListJsonLd = buildCategoryItemListJsonLd(locale, payload.category)
+  const breadcrumbJsonLd = buildCategoryBreadcrumbJsonLd(locale, shell.category)
+  const itemListJsonLd = buildCategoryItemListJsonLd(locale, shell.category)
+
+  const initialData = shell.isLeaf
+    ? await fetchLeafInitialData(
+        shell.category.name,
+        shell.category.searchIds,
+        shell.resolvedVehicleId,
+        searchParams
+      )
+    : undefined
 
   return (
     <>
@@ -47,7 +57,10 @@ export async function renderCategoryPage({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
         />
       ) : null}
-      <CategoryPageShell initialPayload={payload} />
+      <CategoryPageShell
+        shellPayload={shell}
+        initialData={initialData}
+      />
     </>
   )
 }

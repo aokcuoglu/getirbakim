@@ -41,6 +41,14 @@ describe('normalizeCode', () => {
   it('strips backslashes', () => {
     expect(normalizeCode('ABC\\123')).toBe('ABC123')
   })
+
+  it('normalizes EAN codes with spaces', () => {
+    expect(normalizeCode('4 250569 403960')).toBe('4250569403960')
+  })
+
+  it('handles mixed separators', () => {
+    expect(normalizeCode('1K0-919.087/A')).toBe('1K0919087A')
+  })
 })
 
 describe('compactCode', () => {
@@ -58,6 +66,10 @@ describe('compactCode', () => {
 
   it('handles empty string', () => {
     expect(compactCode('')).toBe('')
+  })
+
+  it('handles EAN codes', () => {
+    expect(compactCode('4 250569 403960')).toBe('4250569403960')
   })
 })
 
@@ -96,5 +108,21 @@ describe('isExactCodeQuery', () => {
 
   it('rejects queries with too many separators', () => {
     expect(isExactCodeQuery('a b c d e f g')).toBe(false)
+  })
+
+  it('recognizes VIN-like codes', () => {
+    expect(isExactCodeQuery('WVWZZZ3CZWE123456')).toBe(true)
+  })
+
+  it('rejects single-word queries with 4 chars', () => {
+    expect(isExactCodeQuery('filt')).toBe(false)
+  })
+
+  it('recognizes codes with dots and slashes', () => {
+    expect(isExactCodeQuery('1K0.919.087')).toBe(true)
+  })
+
+  it('recognizes SKU-style codes', () => {
+    expect(isExactCodeQuery('SKU-12345')).toBe(true)
   })
 })

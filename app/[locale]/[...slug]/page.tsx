@@ -28,20 +28,12 @@ export async function generateMetadata({
   const urlKey = slug[0]
 
   if (!urlKey) {
-    return {
-      title: 'Category | GetirBakim',
-      alternates: buildLocaleAlternates(locale, '/car-parts'),
-      robots: defaultRobotsIndexing()
-    }
+    notFound()
   }
 
   const category = await getCategoryByUrlKey(urlKey)
   if (!category?.urlKey) {
-    return {
-      title: 'Category | GetirBakim',
-      alternates: buildLocaleAlternates(locale, '/car-parts'),
-      robots: defaultRobotsIndexing()
-    }
+    notFound()
   }
 
   const categoryName = getLocalizedCategoryName(category, locale)

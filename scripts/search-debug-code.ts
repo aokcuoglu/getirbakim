@@ -83,11 +83,14 @@ async function main() {
     }
   }
 
-  // 4. parts.part_no
-  console.log('\n--- parts (by article_link_id) ---')
-  const partRows = await db.$queryRaw<{ id: bigint; name: string; article_link_id: bigint | null }[]>`
-    SELECT id, name, article_link_id FROM parts
-    WHERE CAST(article_link_id AS TEXT) = ${raw} OR UPPER(CAST(article_link_id AS TEXT)) = ${norm}
+  // 4. parts (by article_link_id and part_no)
+  console.log('\n--- parts (by article_link_id / part_no) ---')
+  const partRows = await db.$queryRaw<{ id: bigint; name: string; article_link_id: bigint | null; part_no: bigint | null }[]>`
+    SELECT id, name, article_link_id, part_no FROM parts
+    WHERE CAST(article_link_id AS TEXT) = ${raw}
+       OR UPPER(REPLACE(REPLACE(REPLACE(CAST(article_link_id AS TEXT), ' ', ''), '-', ''), '.', '')) = ${norm}
+       OR CAST(part_no AS TEXT) = ${raw}
+       OR UPPER(REPLACE(REPLACE(REPLACE(CAST(part_no AS TEXT), ' ', ''), '-', ''), '.', '')) = ${norm}
     LIMIT 20
   `
   totalMatches += partRows.length
@@ -95,7 +98,7 @@ async function main() {
     console.log('  No matches')
   } else {
     for (const row of partRows) {
-      console.log(`  id=${row.id} name="${row.name}" article_link_id=${row.article_link_id}`)
+      console.log(`  id=${row.id} name="${row.name}" article_link_id=${row.article_link_id} part_no=${row.part_no}`)
     }
   }
 

@@ -439,8 +439,202 @@ describe('exactCodes field in documents', () => {
     expect(compact).toBe('0445110376')
   })
 
+  it('exactCodes deduplicates identical normalized and compact codes', () => {
+    const code = '0445110376'
+    const normalized = normalizeCode(code)
+    const compact = compactCode(code)
+    expect(normalized).toBe('0445110376')
+    expect(compact).toBe('0445110376')
+  })
+
   it('exactCodes preserves leading zeros in compact form', () => {
     const code = '0 445 110 376'
     expect(compactCode(code)).toBe('0445110376')
+  })
+
+  it('fitment enrichment covers both supplier_offer and canonical_part documents', () => {
+    const supplierDoc: CanonicalSearchDocument = {
+      id: 'part_100',
+      documentType: 'supplier_offer',
+      partId: '100',
+      supplierProductId: 50,
+      canonicalPartId: '100',
+      title: 'Supplier Offer Part',
+      titleTr: null,
+      brand: 'Bosch',
+      categoryId: 10,
+      categoryName: 'Brake Pads',
+      categoryNameTr: null,
+      categorySlug: 'brake-pads',
+      supplierSku: 'SKU100',
+      normalizedSku: 'sku100',
+      providerCode: 'DIN',
+      providerName: 'Dinamik',
+      oemCodes: [],
+      eanCodes: [],
+      crossReferences: [],
+      referenceNumbers: [],
+      exactCodes: [],
+      normalizedSearchText: '',
+      searchKeywords: [],
+      synonymsText: '',
+      price: 100,
+      stockQty: 5,
+      currency: 'TRY',
+      hasPrice: true,
+      hasStock: true,
+      hasSupplierOffer: true,
+      offerCount: 1,
+      bestOfferProvider: 'Dinamik',
+      bestOfferSupplierProductId: 50,
+      availabilityStatus: 'PURCHASABLE',
+      cta: 'add_to_cart',
+      matchStatus: 'APPROVED',
+      matchConfidence: 0.98,
+      matchReason: 'OEM_EXACT',
+      vehicleBrandNames: ['Volkswagen'],
+      vehicleModelNames: ['Golf'],
+      vehicleTypeNames: [],
+      vehicleYears: ['2019'],
+      engineCodes: ['CRBC'],
+      fitmentCount: 3,
+      detailUrl: '/part/100',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 110,
+      name: 'Bosch Brake Pad',
+      brandName: 'Bosch',
+      brandId: 5,
+      articleLinkId: '200',
+      sourceType: 'supplier_product'
+    }
+
+    const catalogDoc: CanonicalSearchDocument = {
+      id: 'part_200',
+      documentType: 'canonical_part',
+      partId: '200',
+      supplierProductId: null,
+      canonicalPartId: '200',
+      title: 'Catalog Brake Pad',
+      titleTr: null,
+      brand: 'Generic',
+      categoryId: 10,
+      categoryName: 'Brake Pads',
+      categoryNameTr: 'Fren Balataları',
+      categorySlug: 'brake-pads',
+      supplierSku: null,
+      normalizedSku: null,
+      providerCode: null,
+      providerName: null,
+      oemCodes: ['0986424020'],
+      eanCodes: [],
+      crossReferences: [],
+      referenceNumbers: [],
+      exactCodes: ['0986424020', '0986424020'],
+      normalizedSearchText: '',
+      searchKeywords: [],
+      synonymsText: '',
+      price: null,
+      stockQty: 0,
+      currency: 'TRY',
+      hasPrice: false,
+      hasStock: false,
+      hasSupplierOffer: false,
+      offerCount: 0,
+      bestOfferProvider: null,
+      bestOfferSupplierProductId: null,
+      availabilityStatus: 'REQUEST_PRICE',
+      cta: 'request_price',
+      matchStatus: 'UNMAPPED',
+      matchConfidence: null,
+      matchReason: null,
+      vehicleBrandNames: [],
+      vehicleModelNames: [],
+      vehicleTypeNames: [],
+      vehicleYears: [],
+      engineCodes: [],
+      fitmentCount: 0,
+      detailUrl: '/part/200',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 25,
+      name: 'Catalog Brake Pad',
+      brandName: 'Generic',
+      brandId: null,
+      articleLinkId: '300',
+      sourceType: 'part'
+    }
+
+    expect(supplierDoc.documentType).toBe('supplier_offer')
+    expect(supplierDoc.partId).toBe('100')
+    expect(supplierDoc.fitmentCount).toBe(3)
+    expect(supplierDoc.vehicleBrandNames).toEqual(['Volkswagen'])
+
+    expect(catalogDoc.documentType).toBe('canonical_part')
+    expect(catalogDoc.partId).toBe('200')
+    expect(catalogDoc.fitmentCount).toBe(0)
+  })
+
+  it('orphan supplier product has no fitment data', () => {
+    const orphanDoc: CanonicalSearchDocument = {
+      id: 'sp_500',
+      documentType: 'orphan_supplier_product',
+      partId: null,
+      supplierProductId: 500,
+      canonicalPartId: null,
+      title: 'DIN SP12345',
+      titleTr: null,
+      brand: 'Mann',
+      categoryId: null,
+      categoryName: null,
+      categoryNameTr: null,
+      categorySlug: null,
+      supplierSku: 'SP12345',
+      normalizedSku: 'sp12345',
+      providerCode: 'DIN',
+      providerName: 'Dinamik',
+      oemCodes: ['W91480'],
+      eanCodes: ['4006335362011'],
+      crossReferences: [],
+      referenceNumbers: [],
+      exactCodes: ['W91480', 'w91480', '4006335362011', 'SP12345', 'sp12345'],
+      normalizedSearchText: 'din sp12345 mann w91480 4006335362011',
+      searchKeywords: ['din', 'sp12345', 'mann', 'w91480'],
+      synonymsText: '',
+      price: 45.0,
+      stockQty: 10,
+      currency: 'TRY',
+      hasPrice: true,
+      hasStock: true,
+      hasSupplierOffer: false,
+      offerCount: 0,
+      bestOfferProvider: 'Dinamik',
+      bestOfferSupplierProductId: 500,
+      availabilityStatus: 'PURCHASABLE',
+      cta: 'add_to_cart',
+      matchStatus: 'UNMAPPED',
+      matchConfidence: null,
+      matchReason: null,
+      vehicleBrandNames: [],
+      vehicleModelNames: [],
+      vehicleTypeNames: [],
+      vehicleYears: [],
+      engineCodes: [],
+      fitmentCount: 0,
+      detailUrl: '/supplier-product/500',
+      imageUrl: null,
+      updatedAt: Date.now(),
+      rankScore: 110,
+      name: 'Mann Filter SP12345',
+      brandName: 'Mann',
+      brandId: null,
+      articleLinkId: '500',
+      sourceType: 'supplier_product'
+    }
+
+    expect(orphanDoc.documentType).toBe('orphan_supplier_product')
+    expect(orphanDoc.partId).toBeNull()
+    expect(orphanDoc.fitmentCount).toBe(0)
+    expect(orphanDoc.vehicleBrandNames).toEqual([])
   })
 })

@@ -15,12 +15,13 @@ The catch-all route `app/[locale]/[...slug]/page.tsx` handles all category URLs.
 
 `getPartCategoryByUrlKey(urlKey)` resolves categories in this order:
 
-1. **Redis cache** — `part-category-v2-{urlKey}`
-2. **Legacy ID suffix** — if urlKey matches `-(\d+)$`, parse ID and look up directly by `id`
-3. **Exact `url_key` match** — `WHERE is_active = true AND url_key = urlKey`
-4. **Suffixed `url_key` fallback** — `WHERE is_active = true AND url_key LIKE '{urlKey}-%'`, then filter by `normalizeUrlKey(cat.url_key, cat.name) === urlKey`
-5. **Name-derived slug fallback** — `WHERE is_active = true AND url_key IS NULL`, then match `generateSlug(name) === urlKey` or `generateSlug(name_tr) === urlKey`
-6. **notFound()** — if none of the above match
+1. **In-memory category snapshot** (5min TTL) → Redis snapshot cache (1h TTL) → DB fallback
+2. **Redis per-key cache** — `part-category-v2-{urlKey}`
+3. **Legacy ID suffix** — if urlKey matches `-(\d+)$`, parse ID and look up in `snapshot.byId`
+4. **Exact `url_key` match** — lookup in `snapshot.byUrlKey`
+5. **Suffixed `url_key` fallback** — iterate `snapshot.byUrlKey` entries starting with `urlKey + '-'`, then filter by `normalizeUrlKey`
+6. **Name-derived slug fallback** — iterate `snapshot.rows` where `url_key IS NULL`, match `generateSlug(name)` or `generateSlug(name_tr)`
+7. **notFound()** — if none of the above match
 
 ### Why Each Fallback Exists
 
@@ -100,11 +101,26 @@ Category and nav data now uses a 3-layer caching architecture:
 3. **React `cache()`** — per-request deduplication
    - `getPartCategoryByUrlKey` deduplicates within a single server render
 
-### Slug Resolver Optimization (v0.2.3)
+### Slug Resolver Optimization (v0.2.9 — Category Snapshot)
 
-The slug resolver was rewritten to minimize DB round trips:
-- **Before:** 4-8+ sequential DB queries per cold cache miss (N+1 for child count, iterative ancestry walk)
-- **After:** 2-3 batched queries (batch child count with `WHERE parent_id IN (...)`, batch ancestry lookup)
+The slug resolver was rewritten to use a single `CategorySnapshot` loaded from DB (cold) / Redis (warm) / in-memory (hot):
+
+- **Before (v0.2.3):** 2-3 batched DB queries per cold cache miss
+- **Before (v0.2.8):** Still 2-3 batched DB queries on Redis miss
+- **After (v0.2.9):** Zero DB queries on warm/hot; single `findMany` (979 rows) on cold, then cached
+
+The `CategorySnapshot` class provides:
+- `byId`: Map<number, CategorySnapshotRow> — O(1) lookup by category ID
+- `byUrlKey`: Map<string, CategorySnapshotRow[]> — O(1) lookup by url_key
+- `byNameSlug`: Map<string, CategorySnapshotRow[]> — O(1) lookup by name-derived slug
+- `childrenByParentId`: Map<number|null, CategorySnapshotRow[]> — O(1) sibling/child lookup
+
+All category lookups (nav, urlKey, ancestry, siblings, topCategories, search ID) now resolve from this snapshot.
+
+Cache layers:
+1. **In-memory CategorySnapshot** — 5min TTL, process-local (fastest)
+2. **Redis snapshot cache** — `category-snapshot-v1`, 1h TTL (medium)
+3. **DB fallback** — single `findMany` query, cached to both layers above
 
 ### Database Index
 

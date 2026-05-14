@@ -482,7 +482,15 @@ export async function buildCatalogDocumentsWithoutFitment(
     LEFT JOIN part_admin_overrides ao ON ao.part_id = p.id
     WHERE p.id NOT IN (SELECT spm.part_id FROM supplier_part_mappings spm WHERE spm.part_id IS NOT NULL AND spm.status = 'APPROVED')
     ${excludeClause}
-    ORDER BY p.updated_at DESC
+    ORDER BY
+      CASE
+        WHEN EXISTS (SELECT 1 FROM part_oens po WHERE po.part_id = p.id LIMIT 1) THEN 0
+        WHEN EXISTS (SELECT 1 FROM part_eans pe WHERE pe.part_id = p.id LIMIT 1) THEN 1
+        WHEN EXISTS (SELECT 1 FROM part_cross_references pcr WHERE pcr.part_id = p.id LIMIT 1) THEN 2
+        WHEN pi.computed_selling_price_ex_vat IS NOT NULL THEN 3
+        ELSE 4
+      END,
+      p.updated_at DESC
     LIMIT ${limit}
   `)
 
@@ -660,7 +668,15 @@ export async function buildOrphanSupplierDocuments(
       SELECT 1 FROM part_supplier_offers pso
       WHERE pso.supplier_product_id = sp.id AND pso.is_active = true
     )
-    ORDER BY sp.supplier_stock_qty DESC, sp.last_seen_at DESC
+    ORDER BY
+      CASE
+        WHEN EXISTS (SELECT 1 FROM supplier_product_oems spo WHERE spo.supplier_product_id = sp.id AND spo.is_active = true) THEN 0
+        WHEN sp.barcode_1 IS NOT NULL AND sp.barcode_1 != '' THEN 1
+        WHEN sp.supplier_price IS NOT NULL AND sp.supplier_stock_qty > 0 THEN 2
+        ELSE 3
+      END,
+      sp.supplier_stock_qty DESC,
+      sp.last_seen_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `)
 

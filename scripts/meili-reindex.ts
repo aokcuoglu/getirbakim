@@ -106,7 +106,7 @@ async function enrichWithFitment(
   limitPerPart: number,
   timeoutSafe: boolean
 ): Promise<CanonicalSearchDocument[]> {
-  const partIdDocs = documents.filter(d => d.partId && d.documentType === 'canonical_part')
+  const partIdDocs = documents.filter(d => d.partId && (d.documentType === 'canonical_part' || d.documentType === 'supplier_offer'))
   const partIds = partIdDocs.map(d => BigInt(d.partId!))
 
   if (partIds.length === 0) {
@@ -271,12 +271,19 @@ async function main() {
 
   // Phase 2b: Fitment enrichment (batched, separate from main query)
   if (includeFitment) {
-    console.log(`[meili-reindex] Phase 2b: Enriching catalog documents with fitment data (batch_size=${FITMENT_BATCH_SIZE}, limit_per_part=${FITMENT_LIMIT_PER_PART}, timeout_safe=${FITMENT_TIMEOUT_SAFE})...`)
-    const enrichedCatalogDocs = await enrichWithFitment(catalogDocs, FITMENT_BATCH_SIZE, FITMENT_LIMIT_PER_PART, FITMENT_TIMEOUT_SAFE)
-    for (let i = 0; i < catalogDocs.length; i++) {
-      catalogDocs[i] = enrichedCatalogDocs[i]
+    console.log(`[meili-reindex] Phase 2b: Enriching supplier-backed + catalog documents with fitment data (batch_size=${FITMENT_BATCH_SIZE}, limit_per_part=${FITMENT_LIMIT_PER_PART}, timeout_safe=${FITMENT_TIMEOUT_SAFE})...`)
+    const allDocsForFitment = [...supplierDocs, ...catalogDocs]
+    const enrichedDocs = await enrichWithFitment(allDocsForFitment, FITMENT_BATCH_SIZE, FITMENT_LIMIT_PER_PART, FITMENT_TIMEOUT_SAFE)
+
+    // Apply enrichment back to source arrays
+    let idx = 0
+    for (let i = 0; i < supplierDocs.length; i++) {
+      supplierDocs[i] = enrichedDocs[idx++]
     }
-    console.log(`[meili-reindex] Fitment enrichment complete for catalog documents`)
+    for (let i = 0; i < catalogDocs.length; i++) {
+      catalogDocs[i] = enrichedDocs[idx++]
+    }
+    console.log(`[meili-reindex] Fitment enrichment complete for ${allDocsForFitment.length} documents`)
   } else {
     console.log(`[meili-reindex] Phase 2b: Fitment enrichment SKIPPED (MEILI_REINDEX_INCLUDE_FITMENT=false)`)
   }

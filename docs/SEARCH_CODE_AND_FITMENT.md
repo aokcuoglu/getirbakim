@@ -21,6 +21,8 @@ When a query is identified as a code query (length >= 5, predominantly alphanume
 5. **Sets `exactCodeMatchUsed: true`** in the response when exact matches are found
 6. **Falls back gracefully** if the exact lookup fails (logs error, continues with Meili results only)
 
+This exact code lookup runs in BOTH the GET and POST search paths, including Meilisearch-enabled multi-search.
+
 ### OEM/EAN/SKU/Reference Lookup Order
 
 The exact code lookup searches these tables in order of priority:
@@ -44,10 +46,10 @@ The exact code lookup searches these tables in order of priority:
 
 A query is treated as a code query if:
 - Length >= 5
-- >= 75% alphanumeric characters
+- >= 70% alphanumeric characters
 - <= 3 separator chars (spaces, dashes, dots)
-- Either: 4+ digits with 80%+ alphanumeric ratio
-- Or: 3+ letters + 2+ digits with 80%+ alphanumeric ratio
+- Either: 4+ digits with 75%+ alphanumeric ratio
+- Or: 3+ letters + 2+ digits with 75%+ alphanumeric ratio
 
 ## Fitment Enrichment Strategy
 
@@ -64,6 +66,12 @@ Fitment data is now populated in a **separate enrichment phase** after documents
 3. Each batch fetches fitment data only for those part IDs
 4. If a batch fails, it logs the error and continues (configurable via `MEILI_REINDEX_FITMENT_TIMEOUT_SAFE`)
 5. Fitment is **disabled by default** in production until stable (`MEILI_REINDEX_INCLUDE_FITMENT=false`)
+
+### v0.2.6 Change: Fitment Enriches Both Supplier-Backed and Catalog Documents
+
+Previously, fitment enrichment only applied to catalog-only documents. As of v0.2.6, fitment enrichment now covers **both supplier-backed (supplier_offer) and catalog-only (canonical_part) documents**. This ensures that mapped parts with supplier offers also receive vehicle compatibility data, improving search quality for fitment-based queries.
+
+Orphan supplier products (without a `partId`) are still excluded from fitment enrichment since they have no canonical part to link to vehicle types.
 
 ### Configuration
 
@@ -98,6 +106,18 @@ GROUP BY pvt.part_id;
 
 This can be refreshed incrementally or on a schedule.
 
+## Reindex Coverage Improvements (v0.2.6)
+
+### Priority Indexing for Code-Bearing Records
+
+Products with OEM codes, EAN/barcodes, or cross-reference numbers are now prioritized when building search documents:
+
+1. **Orphan supplier products**: Those with active OEM codes (`supplier_product_oems`) are indexed first, followed by those with barcodes, then those with price/stock, then the rest. This ensures code-bearing products are not excluded by the orphan cap.
+
+2. **Catalog-only parts**: Those with OEM codes (`part_oens`) are indexed first, followed by those with EAN codes (`part_eans`), then cross-references, then by pricing availability. This ensures catalogs with codes are included within the 30,000 limit.
+
+These priority changes only affect ordering within the limits — they do not change the total number of documents indexed.
+
 ## Diagnostic: Debugging Missing Codes
 
 To diagnose why a specific code returns 0 results:
@@ -117,8 +137,8 @@ This script searches all relevant DB tables and reports:
 
 Each search document now includes an `exactCodes` array containing:
 - All normalized OEM codes (`0 445 110 376` → `0445110376`)
-- All compact OEM codes (`0 445 110 376` → `0445110376`)
-- All EAN/barcode codes
+- All compact OEM codes (same as normalized for all-numeric codes)
+- All EAN/barcode codes (normalized)
 - All cross-reference numbers (normalized + compact)
 - All reference numbers (normalized)
 - Supplier SKU (normalized)
@@ -129,7 +149,44 @@ The `exactCodes` field is a Meilisearch **searchable attribute**, allowing exact
 ## Known Settings
 
 - `MEILI_REINDEX_INCLUDE_FITMENT=false` until fitment enrichment is tested and stable
-- Meilisearch `maxTotalHits=10000` — may need increase for full coverage
+- Meilisearch `maxTotal_hits=10000` — may need increase for full coverage
 - Catalog-only documents currently capped at 30,000
 - Orphan supplier documents currently capped at 10,000
 - Exact code lookup queries are limited to 50 results per search
+
+## Validation (v0.2.8)
+
+To validate exact code search changes locally:
+
+```bash
+# 1. Start Docker
+docker compose -f docker-compose.local.yml down --remove-orphans
+docker compose --env-file .env -f docker-compose.local.yml up -d --build
+
+# 2. Setup and reindex
+docker compose -f docker-compose.local.yml exec app bun run search:setup
+docker compose -f docker-compose.local.yml exec app bun run search:reindex
+
+# 3. Debug missing codes
+docker compose -f docker-compose.local.yml exec app sh -lc 'CODE=0445110376 bun scripts/search-debug-code.ts'
+
+# 4. Search smoke tests
+curl -s "http://localhost:3001/api/search?q=0445110376" | jq '.source // .dataSource, .exactCodeMatchUsed, .durationMs, (.products | length), .products[0]'
+curl -s "http://localhost:3001/api/search?q=Bosch" | jq '.source // .dataSource, .durationMs, (.products | length)'
+curl -s "http://localhost:3001/api/search?q=yakıt filtresi" | jq '.source // .dataSource, .durationMs, (.products | length)'
+
+# 5. Meili fallback test
+docker compose -f docker-compose.local.yml stop meilisearch
+curl -s "http://localhost:3001/api/search?q=Bosch" | jq '.source // .dataSource, .liveFallbackUsed, .durationMs, (.products | length)'
+docker compose -f docker-compose.local.yml start meilisearch
+
+# 6. Category page performance
+curl -D /tmp/headers.txt -w "\nTTFB:%{time_starttransfer} TOTAL:%{time_total}\n" -o /tmp/air-filter.html -s http://localhost:3001/en/air-filter
+```
+
+Expected results:
+- 0445110376: should not silently return 0 if code exists in DB; `exactCodeMatchUsed` should be `true` when exact DB lookup finds a match
+- Bosch: should return Meilisearch results with `source: "meilisearch"` or `"meilisearch_with_exact_code_boost"`
+- Turkish synonym: should work (`yakıt filtresi` → fuel filter)
+- Meili fallback: should return `liveFallbackUsed: true` with `source: "postgres_catalog_offer_search"`
+- Category page TTFB: < 1s; total time: 2-5s

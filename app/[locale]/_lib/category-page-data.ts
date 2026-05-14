@@ -26,6 +26,17 @@ export interface CategoryPagePayload {
   popularManufacturers: PopularManufacturer[]
 }
 
+export interface CategoryShellPayload {
+  locale: string
+  url: string
+  category: TrodoCategoryWithHierarchy
+  variantSlug?: string
+  resolvedVehicleId: number | null
+  vehicleResolutionFailed: boolean
+  isLeaf: boolean
+  popularManufacturers: PopularManufacturer[]
+}
+
 export function getSearchParamValue(
   searchParams: CategoryRouteSearchParams,
   key: string
@@ -188,4 +199,91 @@ export async function buildCategoryPagePayload({
     initialData,
     popularManufacturers
   }
+}
+
+export async function buildCategoryShellPayload({
+  locale,
+  categorySlug,
+  searchParams,
+  preResolvedCategory
+}: {
+  locale: string
+  categorySlug: string
+  searchParams: CategoryRouteSearchParams
+  preResolvedCategory?: TrodoCategoryWithHierarchy
+}): Promise<CategoryShellPayload | null> {
+  const tg = createTimerGroup('categoryShellPayload')
+  const tResolve = tg.start('resolveCategory')
+
+  const variantSlug = getSearchParamValue(searchParams, 'variant')
+  const resolvedVehicleId = variantSlug
+    ? extractVehicleTypeIdFromSlug(variantSlug)
+    : null
+  const vehicleResolutionFailed = Boolean(variantSlug) && !resolvedVehicleId
+
+  const category = preResolvedCategory ?? (await getCategoryByUrlKey(categorySlug))
+  if (!category?.urlKey) {
+    return null
+  }
+  tg.end(tResolve)
+
+  const canonicalSearchParams: Record<string, string> = {}
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (!value || key === 'cat' || key === 'variant') return
+
+    if (Array.isArray(value)) {
+      if (value[0]) {
+        canonicalSearchParams[key] = value[0]
+      }
+      return
+    }
+
+    canonicalSearchParams[key] = value
+  })
+
+  const tPopular = tg.start('popularManufacturers')
+  const popularManufacturers = category.isLeaf
+    ? []
+    : await getPopularManufacturers()
+  tg.end(tPopular)
+  tg.logSummary()
+
+  return {
+    locale,
+    url: buildCategoryUrl(locale, {
+      categoryUrlKey: category.urlKey,
+      variantSlug: variantSlug ?? null,
+      searchParams: canonicalSearchParams
+    }),
+    category,
+    variantSlug,
+    resolvedVehicleId,
+    vehicleResolutionFailed,
+    isLeaf: category.isLeaf,
+    popularManufacturers
+  }
+}
+
+export async function fetchLeafInitialData(
+  categoryName: string,
+  searchIds: number[],
+  resolvedVehicleId: number | null,
+  searchParams: CategoryRouteSearchParams
+): Promise<CatalogArticlesResult> {
+  return getCatalogArticles({
+    categoryName,
+    searchIds,
+    vehicleId: resolvedVehicleId,
+    brands: parseDelimitedParam(searchParams, 'brands'),
+    stockStatuses: parseDelimitedParam(searchParams, 'stock'),
+    page: parseNumberParam(searchParams, 'page'),
+    limit: Math.min(parseNumberParam(searchParams, 'limit') ?? 24, 48),
+    sort: parseSortParam(searchParams),
+    minPrice: parseNumberParam(searchParams, 'minPrice'),
+    maxPrice: parseNumberParam(searchParams, 'maxPrice'),
+    includePrice: true,
+    includeHits: true,
+    includeTotal: true,
+    includeFacets: true
+  })
 }

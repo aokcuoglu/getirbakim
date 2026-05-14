@@ -112,17 +112,24 @@ A planned admin interface will:
 - Track mapping history and audit trail
 - Visual diff between supplier product and candidate canonical part data
 
-## Code Normalization (v0.2.5)
+## Code Normalization (v0.2.5+)
 
 OEM/EAN/SKU/reference code matching uses centralized normalization from `lib/search/code-normalization.ts`:
 
-- `normalizeCode(value)`: Uppercase, remove spaces/dashes/dots/slashes, preserve leading zeros
+- `normalizeCode(value)`: Uppercase, remove spaces/dashes/dots/slashes/backslashes, preserve leading zeros
 - `compactCode(value)`: Lowercase, remove all non-alphanumeric, preserve leading zeros
-- `isExactCodeQuery(query)`: Detects code-like queries (5+ chars, 75%+ alphanumeric)
+- `isExactCodeQuery(query)`: Detects code-like queries (5+ chars, 70%+ alphanumeric, ≤3 separators)
 
 These are used in:
 - `exact-code-lookup.ts` — direct DB lookup for OEM/EAN/SKU/reference codes
 - `search-document-builder.ts` — `exactCodes` array in each search document
 - `catalog-offer-search.ts` — `toCompactCode()` and `normalizeForSearch()` (legacy)
+
+## Reindex Priority (v0.2.6)
+
+Code-bearing records are prioritized during reindex to ensure exact code searches work within index limits:
+
+1. **Orphan supplier products**: sorted by (has OEM codes, has barcode, has price+stock, last_seen_at)
+2. **Catalog-only parts**: sorted by (has OEM codes, has EAN codes, has cross-refs, has pricing)
 
 See `docs/SEARCH_CODE_AND_FITMENT.md` for full details.

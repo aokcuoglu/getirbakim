@@ -16,6 +16,8 @@ import { CategorySeoContent } from './CategorySeoContent'
 import { CategoryPopularitySections } from './CategoryPopularitySections'
 import { BreadcrumbSection } from './BreadcrumbSection'
 import type { CategoryPagePayload } from '../../_lib/category-page-data'
+import type { CategoryShellPayload } from '../../_lib/category-page-data'
+import type { CatalogArticlesResult } from '@/lib/actions/getCatalogArticles'
 import { CategoryPageNavigationContext } from './CategoryPageNavigationContext'
 
 function normalizeHref(href: string) {
@@ -41,23 +43,29 @@ function isCategoryPathForLocale(href: string, locale: string) {
 }
 
 export function CategoryPageShell({
-  initialPayload
+  shellPayload,
+  initialData
 }: {
-  initialPayload: CategoryPagePayload
+  shellPayload: CategoryShellPayload
+  initialData?: CatalogArticlesResult
 }) {
-  const [payload, setPayload] = useState(initialPayload)
+  const [payload, setPayload] = useState<CategoryPagePayload>({
+    locale: shellPayload.locale,
+    url: shellPayload.url,
+    category: shellPayload.category,
+    variantSlug: shellPayload.variantSlug,
+    resolvedVehicleId: shellPayload.resolvedVehicleId,
+    vehicleResolutionFailed: shellPayload.vehicleResolutionFailed,
+    initialData,
+    popularManufacturers: shellPayload.popularManufacturers
+  })
   const [, startTransition] = useTransition()
   const cacheRef = useRef<Map<string, CategoryPagePayload>>(
-    new Map([[initialPayload.url, initialPayload]])
+    new Map([[shellPayload.url, payload]])
   )
   const inflightRef = useRef<Map<string, Promise<CategoryPagePayload>>>(
     new Map()
   )
-
-  useEffect(() => {
-    cacheRef.current.set(initialPayload.url, initialPayload)
-    setPayload(initialPayload)
-  }, [initialPayload])
 
   const fetchPayload = useCallback(async (href: string) => {
     const normalizedHref = normalizeHref(href)

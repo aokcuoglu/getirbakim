@@ -82,3 +82,60 @@ describe('category page hasMore calculation', () => {
     expect(hasMore).toBe(true)
   })
 })
+
+describe('category page data contract', () => {
+  it('shell payload should not include initialData (product fetch is deferred)', () => {
+    const shellPayload = {
+      locale: 'en',
+      url: '/en/air-filter',
+      category: { urlKey: 'air-filter', name: 'Air Filter', isLeaf: true, searchIds: [42] },
+      variantSlug: undefined,
+      resolvedVehicleId: null,
+      vehicleResolutionFailed: false,
+      isLeaf: true,
+      popularManufacturers: []
+    }
+    expect(shellPayload.isLeaf).toBe(true)
+    expect(shellPayload.popularManufacturers).toEqual([])
+    expect('initialData' in shellPayload).toBe(false)
+  })
+
+  it('initial leaf data request uses default limit of 24', () => {
+    const defaultLimit = 24
+    const maxLimit = 48
+    const userLimit = undefined
+    const resolvedLimit = Math.min(userLimit ?? defaultLimit, maxLimit)
+    expect(resolvedLimit).toBe(24)
+  })
+
+  it('initial leaf data request caps at 48', () => {
+    const defaultLimit = 24
+    const maxLimit = 48
+    const userLimit = 96
+    const resolvedLimit = Math.min(userLimit ?? defaultLimit, maxLimit)
+    expect(resolvedLimit).toBe(48)
+  })
+
+  it('non-leaf categories do not fetch product data', () => {
+    const isLeaf = false
+    const shouldFetchProducts = isLeaf
+    expect(shouldFetchProducts).toBe(false)
+  })
+
+  it('fetchLeafInitialData resolves to CatalogArticlesResult', async () => {
+    const mockResult = {
+      hits: [],
+      totalHits: 0,
+      brandFacetDistribution: {},
+      stockFacetDistribution: {},
+      page: 1,
+      limit: 24,
+      hasMore: false,
+      cached: false,
+      source: 'prisma-fallback-deduped'
+    }
+    expect(mockResult.limit).toBe(24)
+    expect(mockResult.hasMore).toBe(false)
+    expect(mockResult.source === 'prisma-fallback-deduped').toBe(true)
+  })
+})

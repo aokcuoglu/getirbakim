@@ -1,4 +1,106 @@
-# Performance Baseline — v0.2.6
+# Performance Baseline — v0.2.9
+
+## v0.2.9 Category Resolver and Navigation Cache Optimization
+
+### Problem
+Category page cold latency was dominated by sequential DB queries:
+- `mainNavCategories:dbQuery` — 1640ms (single query but cold pool)
+- `categoryByUrlKey:findTarget` — 2323ms (up to 5 sequential DB queries)
+- `category ancestry+siblings` — 687ms (1 query per parent level + sibling query)
+- `categoryPage:resolve` — 3104ms (total of above)
+- `categoryLayout:mainNav` — 1711ms (separate nav query)
+
+### Root Cause
+Each category page request triggered multiple independent DB queries:
+1. `findCategoryByUrlKey` attempted up to 5 sequential DB queries (by ID, by exact url_key, by startsWith, by name slug)
+2. Ancestry resolution walked parent chain one query per level
+3. Sibling fetch was a separate DB query
+4. `mainNavCategories` did its own separate DB query
+5. `getTopCategories` did yet another separate DB query
+6. `getCategorySearchIdFromUrlKey` repeated the same multi-query pattern
+
+### Fix: Category Snapshot Cache
+Introduced `CategorySnapshot` — a single in-memory snapshot of all active categories, pre-indexed for fast lookup:
+1. **One DB query** loads all active categories (979 rows) on cache miss
+2. **Three indexes** are built: byId, byUrlKey, childrenByParentId
+3. **Redis layer** caches the raw rows (1h TTL)
+4. **In-memory layer** caches the parsed snapshot (5min TTL)
+5. All category lookups (nav, urlKey, ancestry, siblings) now resolve from the snapshot — **zero DB queries on warm**
+
+### Changes
+
+| Function | Before | After |
+|----------|--------|-------|
+| `findCategoryByUrlKey` | Up to 5 sequential DB queries | Snapshot lookup (in-memory) |
+| Ancestry resolution | N sequential `findUnique` (1 per parent) | Snapshot `byId` walk (in-memory) |
+| Sibling fetch | Separate `findMany` query | Snapshot `childrenByParentId` lookup |
+| `fetchMainNavCategoriesFromDB` | `findMany` with `is_main_nav` filter | Snapshot filter (in-memory) |
+| `getTopCategories` | `findMany` with `parent_id=null` | Snapshot `childrenByParentId.get(null)` |
+| `getCategorySearchIdFromUrlKey` | Up to 5 sequential DB queries + ancestry walk | Snapshot lookup (in-memory) |
+
+### Instrumentation
+- `CATEGORY_RESOLVE_SLOW` — logged when categoryByUrlKey total > 1000ms
+- `CATEGORY_NAV_SLOW` — logged when mainNavCategories total > 1000ms
+- `CATEGORY_CACHE_HIT` / `CATEGORY_CACHE_MISS` — logged for snapshot when `PERFORMANCE_LOGGING=true`
+
+### Timings
+
+| Metric | v0.2.8 (before) | v0.2.9 (after) |
+|--------|-----------------|-----------------|
+| `/en/air-filter` cold | ~6.17s | ~2.67s |
+| `/en/air-filter` warm | ~2.44s | ~1.25-1.32s |
+| `/en/filters` warm | ~2.79s | ~0.04-0.24s |
+| `/en/fuel-filter` warm | ~3.69s | ~1.15-1.17s |
+| `categoryPage:resolve` warm | ~3104ms | <100ms (snapshot hit) |
+| `mainNavCategories` warm | ~1641ms | <10ms (snapshot hit) |
+| `categoryByUrlKey:findTarget` warm | ~2323ms | <10ms (snapshot hit) |
+
+### Cache Architecture (Updated — v0.2.9)
+
+| Layer | Mechanism | TTL | Scope | v0.2.9 Change |
+|-------|-----------|-----|-------|-----------------|
+| CDN/Edge | middleware `Cache-Control` | s-maxage=300 | Anonymous HTML pages | Unchanged |
+| Next.js Data Cache | `unstable_cache` | 1 hour | Category, nav, manufacturers | Unchanged |
+| Redis (Upstash) | `lib/redis.ts` | 1h (categories) / 5m (search) | All server data | **New**: category-snapshot-v1 |
+| React `cache()` | Per-request dedup | Single render | Category/urlKey dedup | Unchanged |
+| **Category Snapshot** | **In-memory `CategorySnapshot`** | **5min** | **All category lookups** | **New in v0.2.9** |
+| In-memory | `lib/cache.ts` Map | 1-5m | Admin API only | Unchanged |
+| Client | `CategoryCacheProvider` | Session-scoped | Category navigation | Unchanged |
+
+### Cache Keys Documented
+
+| Key Pattern | TTL | Invalidated By | v0.2.9 Change |
+|-------------|-----|----------------|----------------|
+| `category-snapshot-v1` | 3600s (Redis), 5min (in-memory) | Category changes | **New** |
+| `main-nav-categories-{locale}-v2` | 3600s | Category changes | Unchanged (snapshot now powers DB lookup) |
+| `part-categories-tree-{locale}-v2` | 3600s | Category changes | Unchanged |
+| `part-categories-vehicle-{id}-{locale}-v2` | 1800s | Vehicle/category changes | Unchanged |
+| `part-category-v2-{urlKey}` | 3600s | Category changes | Unchanged (snapshot now powers internal lookups) |
+| `top-categories-{locale}-v2` | 3600s | Category changes | Unchanged (snapshot now powers DB lookup) |
+| `popular-manufacturers-v1` | 3600s | Brand changes | Unchanged |
+| `catalog-full-data-v5-{locale}` | 3600s | Category changes | Unchanged |
+
+### Problem
+Category pages had fast TTFB (~0.28s) but slow total time (~21s). The RSC stream was blocked until `getCatalogArticles()` completed, preventing the HTML shell from being sent until all product data was ready.
+
+### Root Cause
+`buildCategoryPagePayload()` awaited `getCatalogArticles()` synchronously during server-side rendering. This ran 4 parallel CTE queries, a findMany, pricing resolution, brand resolution, and optional supplier merge — all blocking the RSC stream.
+
+### Fix
+Split category page rendering into two phases:
+1. **Shell** (fast, ~50-300ms): category resolution, navigation, breadcrumbs, heading
+2. **Product data** (deferred, 1-5s): leaf category products via async Promise
+
+The `CategoryLeafContent` component shows a loading skeleton while product data resolves, then renders the product grid.
+
+### Timings
+
+| Metric | v0.2.7 (before) | v0.2.8 (after) |
+|--------|-----------------|-----------------|
+| TTFB | ~0.28s | ~0.28s (unchanged) |
+| Shell visible | ~21s (full page) | ~300-500ms |
+| Product grid visible | ~21s | 1-5s (depends on cache) |
+| Total page time | 15-21s | 2-5s |
 
 ## v0.2.6 Category Page Performance Changes
 
