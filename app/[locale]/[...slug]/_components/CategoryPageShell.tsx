@@ -17,7 +17,6 @@ import { CategoryPopularitySections } from './CategoryPopularitySections'
 import { BreadcrumbSection } from './BreadcrumbSection'
 import type { CategoryPagePayload } from '../../_lib/category-page-data'
 import type { CategoryShellPayload } from '../../_lib/category-page-data'
-import type { CatalogArticlesResult } from '@/lib/actions/getCatalogArticles'
 import { CategoryPageNavigationContext } from './CategoryPageNavigationContext'
 
 function normalizeHref(href: string) {
@@ -43,11 +42,9 @@ function isCategoryPathForLocale(href: string, locale: string) {
 }
 
 export function CategoryPageShell({
-  shellPayload,
-  initialData
+  shellPayload
 }: {
   shellPayload: CategoryShellPayload
-  initialData?: CatalogArticlesResult
 }) {
   const [payload, setPayload] = useState<CategoryPagePayload>({
     locale: shellPayload.locale,
@@ -56,7 +53,6 @@ export function CategoryPageShell({
     variantSlug: shellPayload.variantSlug,
     resolvedVehicleId: shellPayload.resolvedVehicleId,
     vehicleResolutionFailed: shellPayload.vehicleResolutionFailed,
-    initialData,
     popularManufacturers: shellPayload.popularManufacturers
   })
   const [, startTransition] = useTransition()
@@ -194,7 +190,6 @@ export function CategoryPageShell({
             variantSlug={payload.variantSlug}
             resolvedVehicleId={payload.resolvedVehicleId}
             vehicleResolutionFailed={payload.vehicleResolutionFailed}
-            initialData={payload.initialData}
           />
         ) : (
           <div

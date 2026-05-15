@@ -1,40 +1,52 @@
 'use client'
 
-/**
- * useCategorySearch Hook
- *
- * Meilisearch-powered search for category pages.
- * Pre-filters by categoryName and provides brand faceting.
- *
- * Key features:
- * - Category-scoped search
- * - Brand filtering with disjunctive faceting
- * - URL sync (page, brands)
- * - Instant client-side updates
- */
-
 import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition
 } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
+import { useLocale } from 'next-intl'
 import type { SearchHit, FacetGroup, FacetOption } from '@/lib/types/search'
-import type { CatalogArticlesResult } from '@/lib/actions/getCatalogArticles'
 import {
   keepPreviousData,
   useQuery,
   useQueryClient
 } from '@tanstack/react-query'
 
-// ============================================================================
-// Types
-// ============================================================================
+interface CategoryProductsResponse {
+  products: SearchHit[]
+  page: number
+  limit: number
+  hasMore: boolean
+  totalEstimate: number | null
+  brandFacetDistribution: Record<string, number>
+  stockFacetDistribution: Record<string, number>
+  dataSource: string
+  durationMs: number
+  cached: boolean
+  requestId: string
+  rate: { limit: number; remaining: number; retryAfterSeconds: number }
+}
+
+const DEFAULT_LIMIT = 24
+const MAX_LIMIT = 48
+const MULTI_VALUE_DELIMITER = '|'
+
+const PARAM_KEYS = {
+  BRANDS: 'brands',
+  STOCK: 'stock',
+  PAGE: 'page',
+  SORT: 'sort',
+  LIMIT: 'limit',
+  MIN_PRICE: 'minPrice',
+  MAX_PRICE: 'maxPrice'
+} as const
 
 interface CategorySearchFilters {
+  categorySlug: string
   categoryName: string
   searchIds?: number[]
   vehicleId?: number | null
@@ -67,31 +79,9 @@ interface UseCategorySearchResult {
   setMaxPrice: (price: number | undefined) => void
 }
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-const DEFAULT_LIMIT = 24
-const MAX_LIMIT = 48
-// Delimiter for multi-value URL params (can't use comma since brand names may contain commas)
-const MULTI_VALUE_DELIMITER = '|'
-
-const PARAM_KEYS = {
-  BRANDS: 'brands',
-  STOCK: 'stock',
-  PAGE: 'page',
-  SORT: 'sort',
-  LIMIT: 'limit',
-  MIN_PRICE: 'minPrice',
-  MAX_PRICE: 'maxPrice'
-} as const
-
-// ============================================================================
-// URL Helpers
-// ============================================================================
-
 function parseFiltersFromURL(
   searchParams: URLSearchParams,
+  categorySlug: string,
   categoryName: string,
   searchIds: number[] = [],
   vehicleId: number | null = null
@@ -100,6 +90,7 @@ function parseFiltersFromURL(
   const stock = searchParams.get(PARAM_KEYS.STOCK)
   const limit = searchParams.get(PARAM_KEYS.LIMIT)
   return {
+    categorySlug,
     categoryName,
     searchIds,
     vehicleId,
@@ -127,14 +118,10 @@ function parseFiltersFromURL(
 }
 
 function buildFacetGroups(
-  result: CatalogArticlesResult | undefined,
+  brandDistribution: Record<string, number>,
+  stockDistribution: Record<string, number>,
   filters: CategorySearchFilters
 ): FacetGroup[] {
-  if (!result) return []
-
-  const brandDistribution = result.brandFacetDistribution || {}
-  const stockDistribution = result.stockFacetDistribution || {}
-
   const brandOptions: FacetOption[] = Object.entries(brandDistribution)
     .map(([name, count]) => ({
       value: name,
@@ -173,9 +160,9 @@ function buildFacetGroups(
 
 function serializeFiltersForKey(filters: CategorySearchFilters): string {
   return JSON.stringify({
-    categoryName: filters.categoryName,
-    searchIds: filters.searchIds,
-    vehicleId: filters.vehicleId,
+    slug: filters.categorySlug,
+    ids: filters.searchIds,
+    vid: filters.vehicleId,
     brands: filters.brands,
     stock: filters.stock,
     page: filters.page,
@@ -186,39 +173,61 @@ function serializeFiltersForKey(filters: CategorySearchFilters): string {
   })
 }
 
-async function fetchCatalogArticles(
+async function fetchCategoryProducts(
+  locale: string,
   filters: CategorySearchFilters,
   signal?: AbortSignal
-): Promise<CatalogArticlesResult> {
-  const response = await fetch('/api/catalog/articles', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    signal,
-    body: JSON.stringify({
-      categoryName: filters.categoryName,
-      searchIds: filters.searchIds,
-      vehicleId: filters.vehicleId,
-      brands: filters.brands,
-      stockStatuses: filters.stock,
-      page: filters.page,
-      limit: filters.limit,
-      sort: filters.sort,
-      minPrice: filters.minPrice,
-      maxPrice: filters.maxPrice,
-      includePrice: true,
-      includeHits: true,
-      includeTotal: true,
-      includeFacets: true
-    })
-  })
+): Promise<{ hits: SearchHit[]; totalHits: number; brandFacetDistribution: Record<string, number>; stockFacetDistribution: Record<string, number>; page: number; limit: number; hasMore: boolean }> {
+  const params = new URLSearchParams()
+  params.set('locale', locale)
+  params.set('slug', filters.categorySlug)
+  params.set('page', String(filters.page))
+  params.set('limit', String(filters.limit))
 
-  if (!response.ok) {
-    throw new Error(`Category search failed with status ${response.status}`)
+  if (filters.vehicleId != null) {
+    params.set('vehicleId', String(filters.vehicleId))
   }
 
-  return (await response.json()) as CatalogArticlesResult
+  if (filters.brands.length > 0) {
+    params.set('brands', filters.brands.join(MULTI_VALUE_DELIMITER))
+  }
+
+  if (filters.stock.length > 0) {
+    params.set('stock', filters.stock.join(MULTI_VALUE_DELIMITER))
+  }
+
+  if (filters.sort && filters.sort !== 'popularity') {
+    params.set('sort', filters.sort)
+  }
+
+  if (filters.minPrice != null) {
+    params.set('minPrice', String(filters.minPrice))
+  }
+
+  if (filters.maxPrice != null) {
+    params.set('maxPrice', String(filters.maxPrice))
+  }
+
+  const response = await fetch(
+    `/api/category-products?${params.toString()}`,
+    { signal }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Category products fetch failed with status ${response.status}`)
+  }
+
+  const data = (await response.json()) as CategoryProductsResponse
+
+  return {
+    hits: data.products ?? [],
+    totalHits: data.totalEstimate ?? 0,
+    brandFacetDistribution: data.brandFacetDistribution ?? {},
+    stockFacetDistribution: data.stockFacetDistribution ?? {},
+    page: data.page ?? 1,
+    limit: data.limit ?? DEFAULT_LIMIT,
+    hasMore: data.hasMore ?? false
+  }
 }
 
 function buildUrlFromFilters(pathname: string, filters: CategorySearchFilters): string {
@@ -256,24 +265,26 @@ function buildUrlFromFilters(pathname: string, filters: CategorySearchFilters): 
   return queryString ? `${pathname}?${queryString}` : pathname
 }
 
-// ============================================================================
-// Main Hook
-// ============================================================================
-
 export function useCategorySearch(
   categoryName: string,
   searchIds: number[] = [],
   vehicleId: number | null = null,
-  initialData?: CatalogArticlesResult
+  _deprecatedInitialData?: unknown
 ): UseCategorySearchResult {
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const queryClient = useQueryClient()
   const [, startTransition] = useTransition()
 
+  const categorySlug = useMemo(() => {
+    const segments = pathname.split('/').filter(Boolean)
+    return segments.length >= 2 ? segments[1] : ''
+  }, [pathname])
+
   const initialFilters = useMemo(
-    () => parseFiltersFromURL(searchParams, categoryName, searchIds, vehicleId),
-    [searchParams, categoryName, searchIds, vehicleId]
+    () => parseFiltersFromURL(searchParams, categorySlug, categoryName, searchIds, vehicleId),
+    [searchParams, categorySlug, categoryName, searchIds, vehicleId]
   )
   const [filters, setFilters] = useState<CategorySearchFilters>(initialFilters)
 
@@ -286,38 +297,27 @@ export function useCategorySearch(
     [filters]
   )
 
-  const initialDataKeyRef = useRef<string | null>(
-    initialData ? serializedFilters : null
-  )
-
-  const {
-    data,
-    isFetching,
-    error: queryError
-  } = useQuery<CatalogArticlesResult, Error>({
-    queryKey: ['category-search', serializedFilters],
-    queryFn: ({ signal }) => fetchCatalogArticles(filters, signal),
-    enabled: Boolean(categoryName),
+  const { data, isFetching, error: queryError } = useQuery<
+    { hits: SearchHit[]; totalHits: number; brandFacetDistribution: Record<string, number>; stockFacetDistribution: Record<string, number>; page: number; limit: number; hasMore: boolean },
+    Error
+  >({
+    queryKey: ['category-products', serializedFilters],
+    queryFn: ({ signal }) => fetchCategoryProducts(locale, filters, signal),
+    enabled: Boolean(categorySlug),
     placeholderData: keepPreviousData,
-    initialData:
-      initialData && initialDataKeyRef.current === serializedFilters
-        ? initialData
-        : undefined,
     staleTime: 60 * 1000,
     gcTime: 5 * 60 * 1000
   })
 
   const hits = data?.hits ?? []
-  const totalHitsRaw = data?.totalHits
-  const totalHits =
-    typeof totalHitsRaw === 'number' && Number.isFinite(totalHitsRaw)
-      ? totalHitsRaw
-      : 0
-  const facets = useMemo(() => buildFacetGroups(data, filters), [data, filters])
+  const totalHits = data?.totalHits ?? 0
+  const facets = useMemo(
+    () => buildFacetGroups(data?.brandFacetDistribution ?? {}, data?.stockFacetDistribution ?? {}, filters),
+    [data?.brandFacetDistribution, data?.stockFacetDistribution, filters]
+  )
   const isLoading = isFetching && !data
   const error = queryError ?? null
 
-  // Calculate pagination
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(totalHits / filters.limit)),
     [totalHits, filters.limit]
@@ -327,6 +327,7 @@ export function useCategorySearch(
     const handlePopState = () => {
       const nextFilters = parseFiltersFromURL(
         new URLSearchParams(window.location.search),
+        categorySlug,
         categoryName,
         searchIds,
         vehicleId
@@ -336,9 +337,8 @@ export function useCategorySearch(
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [categoryName, searchIds, vehicleId])
+  }, [categorySlug, categoryName, searchIds, vehicleId])
 
-  // URL/state update helper without App Router navigation.
   const updateURL = useCallback(
     (
       updates: Partial<CategorySearchFilters>,
@@ -372,14 +372,13 @@ export function useCategorySearch(
       const nextFilters = { ...filters, page: filters.page + 1 }
       const key = serializeFiltersForKey(nextFilters)
       void queryClient.prefetchQuery({
-        queryKey: ['category-search', key],
-        queryFn: ({ signal }) => fetchCatalogArticles(nextFilters, signal),
+        queryKey: ['category-products', key],
+        queryFn: ({ signal }) => fetchCategoryProducts(locale, nextFilters, signal),
         staleTime: 60 * 1000
       })
     }
-  }, [filters, totalPages, queryClient])
+  }, [filters, totalPages, queryClient, locale])
 
-  // Actions
   const setPage = useCallback(
     (page: number) => {
       updateURL({ page }, { history: 'push' })

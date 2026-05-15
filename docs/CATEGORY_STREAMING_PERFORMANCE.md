@@ -2,102 +2,131 @@
 
 ## Problem
 
-Category pages (`/en/air-filter`, `/en/fuel-filter`, `/en/filters`) had slow total response times (21+ seconds) despite fast TTFB (0.28s). The TTFB was fast because `generateMetadata` and layout headers were computed quickly, but the RSC stream tail was blocked by synchronous product data fetching.
+Category leaf pages (e.g., `/en/air-filter`, `/en/fuel-filter`) had slow total response times (~15s) despite fast TTFB (~0.23s). The shell (breadcrumbs, heading, sidebar) rendered quickly, but product data blocked the full response.
 
 ## Root Cause
 
-The `buildCategoryPagePayload` function called `getCatalogArticles()` synchronously during server-side rendering. This function:
+In v0.2.9, the fix for a Promise serialization crash (`initialDataPromise` → awaited `initialData`) inadvertently reintroduced blocking product data fetching in the server render path. When `getCatalogArticles()` was awaited during server-side rendering, the 4 parallel CTE SQL queries + follow-up queries blocked the RSC stream for the entire duration (~15s on cold cache).
 
-1. Runs 4 parallel CTE SQL queries (total count, brand facets, stock facets, deduped hits)
-2. Runs a `findMany` to fetch full product rows by hit IDs
-3. Runs `getCategoryMinRealPriceMap()` for pricing resolution
-4. Resolves brand names for facets
-5. Optionally merges supplier catalog data
+Additionally, client-side navigation via `/api/category-page` also awaited `getCatalogArticles()` for leaf categories, making every sidebar category click blocking.
 
-On a cold Redis cache, this entire chain blocks the RSC stream until completion. The HTML shell (navigation, breadcrumbs, heading) is ready in ~300ms but cannot be sent because the page component awaits all data before rendering.
+## Fix: v0.2.10 — Decouple Product Data from Blocking Page Render
 
-## Fix: Streaming Category Data
+### Architecture Change
 
-In v0.2.8, the category page rendering is split into two phases:
+Product data for leaf categories is now fully decoupled from the server render path:
 
-### Phase 1: Shell (fast, ~300ms)
-- Category resolution (`getCategoryByUrlKey`) - cached in Redis + React cache
-- Navigation categories (`getMainNavCategories`) - cached
-- Breadcrumbs, heading, sidebar
-- For non-leaf: popular manufacturers (cached)
-- This renders immediately and streams to the client
+1. **Server renders shell only** — `renderCategoryPage()` calls `buildCategoryShellPayload()` which fetches only category metadata (fast, cached via CategorySnapshot)
+2. **No `initialData` prop** — `CategoryPagePayload` and `CategoryShellPayload` no longer contain `initialData` / `CatalogArticlesResult`
+3. **Client fetches products** — `useCategorySearch` hook fetches from `POST /api/catalog/articles` after mount (existing)
+4. **New `/api/category-products` GET endpoint** — validates category slug, returns product data
+5. **Client-side navigation is fast** — `/api/category-page` returns shell-only payload (no product data for leaf categories)
 
-### Phase 2: Product data (deferred, ~1-5s)
-- Leaf categories: `getCatalogArticles()` runs asynchronously
-- The `CategoryLeafContent` component shows a loading skeleton while data resolves
-- Once data arrives, the product grid replaces the skeleton
+### Data Flow (v0.2.10)
+
+```
+Server: page.tsx → renderCategoryPage() → buildCategoryShellPayload() → CategoryPageShell (shell only)
+Client: CategoryClientWrapper → useCategorySearch() → POST /api/catalog/articles → products render
+```
 
 ### Key Files Changed
 
 | File | Change |
 |------|--------|
-| `app/[locale]/_lib/category-page-data.ts` | Added `CategoryShellPayload` type, `buildCategoryShellPayload()`, `fetchLeafInitialData()` |
-| `app/[locale]/_lib/category-page.tsx` | Splits rendering into shell + deferred data via Promise |
-| `app/[locale]/[...slug]/_components/CategoryPageShell.tsx` | Accepts `shellPayload` + `initialDataPromise`, resolves data asynchronously |
-| `app/[locale]/[...slug]/_components/CategoryPageShell.tsx` | Added `CategoryLeafContent` component with loading state |
+| `app/[locale]/_lib/category-page-data.ts` | Removed `initialData` from `CategoryPagePayload`; removed `fetchLeafInitialData` and `getInitialLeafData`; `buildCategoryPagePayload` no longer awaits product data for leaf categories |
+| `app/[locale]/_lib/category-page.tsx` | Removed `initialData` prop; only renders shell with `CategoryPageShell` |
+| `app/[locale]/[...slug]/_components/CategoryPageShell.tsx` | Removed `initialData` prop; no longer passes `initialData` to `CategoryClientWrapper` |
+| `app/[locale]/[...slug]/_components/CategoryClientWrapper.tsx` | Removed `initialData` prop; always fetches from `/api/catalog/articles` on mount |
+| `hooks/use-category-search.ts` | Removed `initialData` parameter from `useCategorySearch` hook |
+| `app/api/category-products/route.ts` | New GET endpoint for category product data |
+
+### Performance Instrumentation
+
+New warning logs added:
+
+- `[LEAF_CATEGORY_STREAM_SLOW]` — logged when `renderCategoryPage` total > 3000ms (PERFORMANCE_LOGGING=true)
+- `[LEAF_PRODUCT_FETCH_BLOCKING]` — logged when `/api/category-products` request duration > 1000ms
+- `[LEAF_PRODUCT_COUNT_TOO_LARGE]` — logged when products returned > 48
+
+### API Endpoint: `/api/category-products`
+
+```
+GET /api/category-products?locale=en&slug=air-filter&page=1&limit=24
+```
+
+Parameters:
+- `locale` — `tr` or `en` (default: `tr`)
+- `slug` — Category URL key (required)
+- `page` — Page number (default: 1)
+- `limit` — Items per page (default: 24, max: 48)
+- `brands` — Pipe-delimited brand names (e.g., `Bosch|Mann`)
+- `stock` — Pipe-delimited stock statuses (e.g., `in-stock|on-order`)
+- `sort` — Sort option (`popularity`, `price-asc`, `price-desc`, `name`)
+- `minPrice`, `maxPrice` — Price range
+- `vehicleId` — TecDoc vehicle type ID
+
+Response:
+```json
+{
+  "data": {
+    "products": [...],
+    "page": 1,
+    "limit": 24,
+    "hasMore": true,
+    "totalEstimate": 150,
+    "brandFacetDistribution": {...},
+    "stockFacetDistribution": {...},
+    "dataSource": "prisma-fallback-deduped+resolved-supplier",
+    "durationMs": 1200,
+    "cached": false
+  }
+}
+```
+
+- Returns 404 for invalid category slugs
+- Returns empty products array for non-leaf categories
+- Caps limit at 48
+- Uses Redis cache with 5-minute TTL
+- Uses `getCatalogArticles()` internally (same as `/api/catalog/articles`)
+
+## Before/After
+
+### Before (v0.2.9 — Blocking Product Data)
+- TTFB: ~0.23s (shell starts)
+- TOTAL: ~15s (entire response blocked by product data)
+- `/api/category-page` for leaf categories: ~15s (awaits `getCatalogArticles`)
+- Product grid visible: after full response completes
+
+### After (v0.2.10 — Decoupled Product Data)
+- TTFB: ~0.23s (unchanged)
+- Shell visible: ~300-500ms (category, breadcrumbs, heading)
+- TOTAL: ~0.3-0.5s (shell only, no product data in response)
+- Product grid visible: 1-5s (separate `/api/catalog/articles` fetch)
+- `/api/category-page` for leaf categories: <1s (shell metadata only)
 
 ## Category Page Data Contract
 
 - Default page size: 24 products
 - Hard max page size: 48 products
-- Shell data (category, nav, breadcrumbs) renders in < 500ms
-- Product data streams in separately (1-5s depending on cache)
-- No synchronous exact total count if expensive (cached for 300s)
-- No blocking facet count for initial render
-- No fitment enrichment per card
-- No large OEM/reference arrays per card (detail page loads later)
-- No-price (REQUEST_PRICE) products remain visible
-- Purchasable products rank above REQUEST_PRICE where relevance is similar
-- Invalid slug → 404
-- `/en/filters` loads category cards, not product results for every category
+- Shell data (category, nav, breadcrumbs) renders in ~300ms
+- Product data fetches asynchronously after shell renders
+- No Promise prop crosses server/client boundary
+- No `initialData` or `initialDataPromise` in any component
 
-## Performance Monitoring
+## Preservation
 
-Set `PERFORMANCE_LOGGING=true` to enable timing logs:
-
-```
-[perf:group] categoryPagePayload total=1234ms (resolveCategory=50ms, fetchData=1184ms)
-[perf:group] categoryShellPayload total=82ms (resolveCategory=50ms, popularManufacturers=32ms)
-```
-
-Warning thresholds:
-- `CATEGORY_TAIL_LATENCY`: any operation > 1000ms
-- `CATEGORY_METADATA_SLOW`: generateMetadata > 1000ms
-- `CATEGORY_LAYOUT_SLOW`: layout/nav > 1000ms
-- `CATEGORY_PRODUCT_FETCH_TOO_LARGE`: initial product fetch > 48 results
-- `CATEGORY_COUNT_OR_FACET_BLOCKING`: count/facet blocks initial render
-
-## Before/After
-
-### Before (v0.2.7)
-- TTFB: ~0.28s
-- TOTAL: ~21.68s
-- Everything blocked until product data was ready
-
-### After (v0.2.8 — Deferred Product Data)
-- TTFB: ~0.28s (unchanged)
-- Shell rendered: ~300-500ms (breadcrumbs, heading, sidebar visible)
-- Product data streams in: 1-5s (depending on cache)
-- TOTAL: 2-5s (vs 21+ seconds previously)
-
-### After (v0.2.9 — Category Snapshot Cache + Deferred Promise Fix)
-- Cold `/en/air-filter`: ~2.67s (vs ~6.17s in v0.2.8)
-- Warm `/en/air-filter`: ~1.25s (vs ~2.44s in v0.2.8)
-- Warm `/en/filters`: ~0.03s (vs runtime error in v0.2.8)
-- All category lookups now use in-memory `CategorySnapshot` (5min TTL, backed by Redis 1h TTL)
-- `categoryByUrlKey:findTarget`, ancestry, siblings, mainNav, topCategories all resolve from snapshot on warm
-- Zero DB queries on warm requests for category resolution
-- Server component now awaits product data for leaf pages (no Promise passed to client)
-- Non-leaf pages (e.g. `/en/filters`) correctly render category cards without leaf product data
+- Category heading, description, breadcrumbs: rendered in shell (SEO-safe)
+- Subcategory sidebar: rendered in shell (SEO-safe)
+- Internal category links: rendered in shell (SEO-safe)
+- Product cards: load after shell via client fetch
+- All product data (including no-price/REQUEST_PRICE products) remains visible
+- Meilisearch: untouched
+- PostgreSQL fallback: untouched
+- Checkout/payment: untouched
+- v0.2.9 CategorySnapshot cache: preserved
 
 ## Deferred Work
 
-- Consider Suspense boundary for product data on the server component level (currently client-side async)
-- Consider streaming RSC payload with `use()` instead of client-side promise resolution
-- Consider caching popular manufacturers longer than the current `unstable_cache(3600s)` + Redis
-- Consider pre-generating category counts at index time
+- Add Meilisearch category filter to `/api/category-products` for faster product queries
+- Add limited server-rendered top products for SEO (without blocking)
+- Add `www.getirbakim.com` → `getirbakim.com` 301 redirect in nginx

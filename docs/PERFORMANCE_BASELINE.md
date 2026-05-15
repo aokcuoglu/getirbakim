@@ -1,4 +1,4 @@
-# Performance Baseline — v0.2.9
+# Performance Baseline — v0.2.10
 
 ## v0.2.9 Category Resolver and Navigation Cache Optimization
 
@@ -81,19 +81,29 @@ Introduced `CategorySnapshot` — a single in-memory snapshot of all active cate
 | `catalog-full-data-v5-{locale}` | 3600s | Category changes | Unchanged |
 
 ### Problem
-Category pages had fast TTFB (~0.28s) but slow total time (~21s). The RSC stream was blocked until `getCatalogArticles()` completed, preventing the HTML shell from being sent until all product data was ready.
+Category leaf pages (`/en/air-filter`, `/en/fuel-filter`) had slow total response times (~15s) despite fast TTFB. The v0.2.9 fix for a Promise serialization crash reintroduced blocking product data fetching during server-side rendering. Additionally, client-side navigation via `/api/category-page` awaited `getCatalogArticles()` for leaf categories, making sidebar navigation slow.
 
 ### Root Cause
-`buildCategoryPagePayload()` awaited `getCatalogArticles()` synchronously during server-side rendering. This ran 4 parallel CTE queries, a findMany, pricing resolution, brand resolution, and optional supplier merge — all blocking the RSC stream.
+`buildCategoryPagePayload()` awaited `getCatalogArticles()` for leaf categories synchronously during server-side rendering. This blocked the RSC stream for ~15s while 4 parallel CTE SQL queries + follow-up queries ran. Client-side navigation (`/api/category-page`) also awaited product data before responding.
 
-### Fix
-Split category page rendering into two phases:
-1. **Shell** (fast, ~50-300ms): category resolution, navigation, breadcrumbs, heading
-2. **Product data** (deferred, 1-5s): leaf category products via async Promise
+### Fix: Decouple Product Data from Blocking Render
+1. Removed `initialData` from `CategoryPagePayload` and `CategoryShellPayload`
+2. `buildCategoryPagePayload()` no longer fetches product data for leaf categories
+3. `CategoryClientWrapper` always fetches products via `POST /api/catalog/articles` on mount
+4. Added `GET /api/category-products` endpoint for dedicated category product loading
+5. Server component renders shell immediately; product data loads asynchronously client-side
 
-The `CategoryLeafContent` component shows a loading skeleton while product data resolves, then renders the product grid.
+### v0.2.10 Timings (Expected)
 
-### Timings
+| Metric | v0.2.9 (before) | v0.2.10 (after) |
+|--------|-----------------|-----------------|
+| `/en/filters` TOTAL | ~0.3s | ~0.3s (unchanged) |
+| `/en/air-filter` TTFB | ~0.23s | ~0.23s (unchanged) |
+| `/en/air-filter` TOTAL | ~15s | ~0.3-0.5s (shell only) |
+| `/en/air-filter` products visible | ~15s | ~1-5s (async fetch) |
+| `/api/category-page` (leaf) | ~15s | ~0.3-1s (shell only) |
+
+### v0.2.9 Timings
 
 | Metric | v0.2.7 (before) | v0.2.8 (after) |
 |--------|-----------------|-----------------|

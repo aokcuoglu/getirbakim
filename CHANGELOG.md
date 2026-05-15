@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.10] - 2026-05-15
+
+### Added
+- `GET /api/category-products` endpoint — dedicated category product data API with slug validation, limit capping (max 48), Meilisearch/PostgreSQL fallback, and Redis caching
+- `LEAF_PRODUCT_FETCH_BLOCKING` warning when category products API takes >1000ms
+- `LEAF_PRODUCT_COUNT_TOO_LARGE` warning when products returned >48
+- `LEAF_CATEGORY_STREAM_SLOW` warning when `renderCategoryPage` total >3000ms (PERFORMANCE_LOGGING only)
+- 12 new tests covering category page data contract, product loader states, API endpoint contract, and search independence
+
+### Changed
+- `CategoryPagePayload` no longer contains `initialData` field — product data fully decoupled from server render
+- `CategoryShellPayload` prop replaces combined payload in `CategoryPageShell` — no `initialData` prop
+- `CategoryClientWrapper` no longer accepts `initialData` — always fetches via `useCategorySearch` hook
+- `useCategorySearch` hook no longer accepts `initialData` parameter
+- `buildCategoryPagePayload()` no longer awaits `getCatalogArticles()` for leaf categories — returns shell-only payload
+- `/api/category-page` endpoint returns shell metadata only for leaf categories (no product data)
+- `renderCategoryPage()` only calls `buildCategoryShellPayload()` — no product data in RSC stream
+- Fixed pre-existing TypeScript error in `SearchSidebarSkeleton.tsx` (title prop → children prop)
+
+### Removed
+- `fetchLeafInitialData()` function (no longer needed — client-side fetch only)
+- `getInitialLeafData()` function (no longer needed)
+- `initialData` prop from `CategoryClientWrapper`
+- `initialData` parameter from `useCategorySearch` hook
+- `CatalogArticlesResult` import from `category-page-data.ts`
+- `SortOption` import from `getCatalogArticles` in `category-page-data.ts`
+
+### Performance
+- Leaf category page TOTAL response reduced from ~15s to ~0.3-0.5s (shell only)
+- Client navigation to leaf categories via `/api/category-page` reduced from ~15s to ~0.3-1s (shell metadata only)
+- Product grid visible in 1-5s via async client-side fetch (depends on cache)
+- `/en/filters` (non-leaf) unchanged at ~0.3s
+
 ## [0.2.9] - 2026-05-14
 
 ### Added

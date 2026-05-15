@@ -1,5 +1,51 @@
 # Release Notes
 
+## v0.2.10 - Production Leaf Category Product Loading Fix
+
+### Performance: Decouple Leaf Category Products from Blocking Page Render
+- Leaf category pages (`/en/air-filter`, `/en/fuel-filter`) now render shell in ~0.3-0.5s (was ~15s)
+- Product data loads asynchronously after shell renders, visible in 1-5s depending on cache
+- `/api/category-page` for leaf categories returns shell metadata only (~0.3-1s, was ~15s)
+- No Promise props cross server/client boundary — product fetch is entirely client-side
+- Non-leaf pages (`/en/filters`) unchanged at ~0.3s
+
+### Architecture Change
+- Removed `initialData` from `CategoryPagePayload` and `CategoryShellPayload`
+- `buildCategoryPagePayload()` no longer awaits `getCatalogArticles()` for leaf categories
+- `renderCategoryPage()` calls `buildCategoryShellPayload()` only — no product data in RSC stream
+- `CategoryClientWrapper` always fetches products via `useCategorySearch` hook on mount
+- Added `GET /api/category-products` endpoint for category product data with slug validation, limit capping, and cached queries
+
+### New API Endpoint
+- `GET /api/category-products?locale=en&slug=air-filter&page=1&limit=24`
+- Validates category slug (returns 404 for invalid slugs)
+- Returns empty products for non-leaf categories
+- Caps limit at 48 (default 24)
+- Includes `durationMs`, `dataSource`, `cached`, `hasMore`, `totalEstimate`
+- Uses `getCatalogArticles()` internally (same as `/api/catalog/articles`)
+
+### Instrumentation
+- `LEAF_PRODUCT_FETCH_BLOCKING` — logged when category products API >1000ms
+- `LEAF_PRODUCT_COUNT_TOO_LARGE` — logged when products returned >48
+- `LEAF_CATEGORY_STREAM_SLOW` — logged when `renderCategoryPage` total >3000ms (PERFORMANCE_LOGGING only)
+
+### Tests
+- 12 new tests covering: category page data contract, product loader states, API endpoint contract, search independence
+- Existing test for `fetchLeafInitialData` updated to match new architecture
+- Total: 233 tests passing
+
+### No breaking changes
+- No checkout/payment changes
+- No Meilisearch changes
+- No PostgreSQL fallback removal
+- No product visibility changes (no-price products remain visible)
+- No URL or route changes
+
+### Remaining follow-up
+- `www.getirbakim.com` currently serves 200 and should redirect to `getirbakim.com` with 301
+- Consider Meilisearch category filter for `/api/category-products` for faster product queries
+- Consider limited server-rendered top products for SEO without blocking
+
 ## v0.2.9 - Category Navigation and Resolver Cache Optimization
 
 ### Performance: Category Snapshot Cache

@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation'
 import { CategoryPageShell } from '../[...slug]/_components/CategoryPageShell'
 import {
   buildCategoryShellPayload,
-  fetchLeafInitialData,
   type CategoryRouteSearchParams
 } from './category-page-data'
 import type { TrodoCategoryWithHierarchy } from '@/lib/actions/getPartCategories'
@@ -10,6 +9,7 @@ import {
   buildCategoryBreadcrumbJsonLd,
   buildCategoryItemListJsonLd
 } from '@/lib/seo/structured-data'
+import { createTimerGroup } from '@/lib/performance/timing'
 
 export async function renderCategoryPage({
   locale,
@@ -22,6 +22,9 @@ export async function renderCategoryPage({
   searchParams: CategoryRouteSearchParams
   preResolvedCategory?: TrodoCategoryWithHierarchy
 }) {
+  const tg = createTimerGroup('renderCategoryPage')
+  const tShell = tg.start('buildShell')
+
   const shell = await buildCategoryShellPayload({
     locale,
     categorySlug,
@@ -33,17 +36,21 @@ export async function renderCategoryPage({
     notFound()
   }
 
+  tg.end(tShell)
+
+  if (process.env.PERFORMANCE_LOGGING === 'true') {
+    const totalMs = tg.getTotalMs()
+    if (totalMs > 3000) {
+      console.warn(
+        `[LEAF_CATEGORY_STREAM_SLOW] categoryPage=${categorySlug} total=${totalMs}ms`
+      )
+    }
+  }
+
+  tg.logSummary()
+
   const breadcrumbJsonLd = buildCategoryBreadcrumbJsonLd(locale, shell.category)
   const itemListJsonLd = buildCategoryItemListJsonLd(locale, shell.category)
-
-  const initialData = shell.isLeaf
-    ? await fetchLeafInitialData(
-        shell.category.name,
-        shell.category.searchIds,
-        shell.resolvedVehicleId,
-        searchParams
-      )
-    : undefined
 
   return (
     <>
@@ -59,7 +66,6 @@ export async function renderCategoryPage({
       ) : null}
       <CategoryPageShell
         shellPayload={shell}
-        initialData={initialData}
       />
     </>
   )

@@ -1084,6 +1084,12 @@ export async function getCatalogArticles(
     )
   }
 
+  if (hits.length > 48) {
+    console.warn(
+      `[LEAF_PRODUCT_COUNT_TOO_LARGE] getCatalogArticles returned ${hits.length} hits (page=${payload.page}, limit=${payload.limit}, totalHits=${totalHits})`
+    )
+  }
+
   const result: CatalogArticlesResult = {
     hits,
     totalHits,

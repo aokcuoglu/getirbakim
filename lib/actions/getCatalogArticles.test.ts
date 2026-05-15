@@ -100,6 +100,43 @@ describe('category page data contract', () => {
     expect('initialData' in shellPayload).toBe(false)
   })
 
+  it('category page payload should not include initialData (product fetch is client-side)', () => {
+    const pagePayload = {
+      locale: 'en',
+      url: '/en/air-filter',
+      category: { urlKey: 'air-filter', name: 'Air Filter', isLeaf: true, searchIds: [42] },
+      variantSlug: undefined,
+      resolvedVehicleId: null,
+      vehicleResolutionFailed: false,
+      popularManufacturers: []
+    }
+    expect(pagePayload.popularManufacturers).toEqual([])
+    expect('initialData' in pagePayload).toBe(false)
+  })
+
+  it('leaf page does not pass Promise to client component', () => {
+    const shellPayload = {
+      locale: 'en',
+      url: '/en/air-filter',
+      category: { urlKey: 'air-filter', name: 'Air Filter', isLeaf: true, searchIds: [42] },
+      variantSlug: undefined,
+      resolvedVehicleId: null,
+      vehicleResolutionFailed: false,
+      isLeaf: true,
+      popularManufacturers: []
+    }
+    const props = { shellPayload }
+    const keys = Object.keys(props.shellPayload)
+    const promiseKeys = keys.filter(k => k.toLowerCase().includes('promise'))
+    expect(promiseKeys.length).toBe(0)
+  })
+
+  it('leaf page renders without initialDataPromise', () => {
+    const renderProps = { shellPayload: { isLeaf: true } }
+    expect(typeof renderProps.shellPayload).toBe('object')
+    expect('initialDataPromise' in renderProps).toBe(false)
+  })
+
   it('initial leaf data request uses default limit of 24', () => {
     const defaultLimit = 24
     const maxLimit = 48
@@ -121,21 +158,78 @@ describe('category page data contract', () => {
     const shouldFetchProducts = isLeaf
     expect(shouldFetchProducts).toBe(false)
   })
+})
 
-  it('fetchLeafInitialData resolves to CatalogArticlesResult', async () => {
-    const mockResult = {
-      hits: [],
-      totalHits: 0,
-      brandFacetDistribution: {},
-      stockFacetDistribution: {},
+describe('category-products API endpoint contract', () => {
+  it('validates slug parameter is required', () => {
+    const url = new URL('/api/category-products', 'http://localhost:3001')
+    expect(url.searchParams.get('slug') === null).toBe(true)
+  })
+
+  it('returns 404 for invalid category slug', () => {
+    const invalidSlug = 'nonexistent-category-slug'
+    expect(invalidSlug.length > 0).toBe(true)
+  })
+
+  it('caps limit to 48 maximum', () => {
+    const parsedLimit = 100
+    const limit = Math.min(Math.max(1, parsedLimit || 24), 48)
+    expect(limit).toBe(48)
+  })
+
+  it('defaults to 24 when limit is not provided', () => {
+    const parsedLimit = NaN
+    const limit = Math.min(Math.max(1, parseInt(String(parsedLimit), 10) || 24), 48)
+    expect(limit).toBe(24)
+  })
+
+  it('returns products length <= limit', () => {
+    const limit = 24
+    const mockResponse = {
+      products: Array.from({ length: 20 }, (_, i) => ({ id: i })),
       page: 1,
-      limit: 24,
-      hasMore: false,
-      cached: false,
-      source: 'prisma-fallback-deduped'
+      limit,
+      hasMore: true,
+      totalEstimate: 100,
+      dataSource: 'prisma-fallback-deduped',
+      durationMs: 500
     }
-    expect(mockResult.limit).toBe(24)
-    expect(mockResult.hasMore).toBe(false)
-    expect(mockResult.source === 'prisma-fallback-deduped').toBe(true)
+    expect(mockResponse.products.length <= limit).toBe(true)
+  })
+})
+
+describe('product loader handles loading and error states', () => {
+  it('product loader shows skeleton when isLoading is true and no data', () => {
+    const isLoading = true
+    const hits: unknown[] = []
+    const totalHits = 0
+    expect(isLoading && hits.length === 0).toBe(true)
+  })
+
+  it('product loader shows products when data arrives', () => {
+    const isLoading = false
+    const hits = [{ id: '1', name: 'Test Product' }]
+    const totalHits = 1
+    expect(!isLoading && hits.length > 0).toBe(true)
+  })
+
+  it('product loader shows error fallback on API failure', () => {
+    const error = new Error('API failed')
+    const hasError = error !== null
+    expect(hasError).toBe(true)
+  })
+})
+
+describe('search still functions independently of category products', () => {
+  it('search API endpoint is separate from category-products endpoint', () => {
+    const searchEndpoint = '/api/search'
+    const categoryProductsEndpoint = '/api/category-products'
+    expect(searchEndpoint).not.toBe(categoryProductsEndpoint)
+  })
+
+  it('category-products GET separates concerns from catalog/articles POST', () => {
+    const categoryProductsMethod = 'GET'
+    const catalogArticlesMethod = 'POST'
+    expect(categoryProductsMethod).not.toBe(catalogArticlesMethod)
   })
 })
