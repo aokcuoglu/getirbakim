@@ -1,0 +1,70 @@
+name: Production Reindex and Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reindex-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run search:setup on production
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && docker compose --env-file .env.production exec -T app bun run search:setup"
+
+      - name: Run search:reindex on production
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && docker compose --env-file .env.production exec -T app bun run search:reindex"
+
+      - name: Verify health endpoint
+        run: |
+          curl -s "https://${{ secrets.VPS_DOMAIN }}/api/health" | jq '.'
+
+      - name: Validate category-products API
+        run: |
+          for slug in "air-filter" "fuel-filter" "air-filter-100260" "fuel-filter-100261"; do
+            echo "---- $slug ----"
+            curl -s "https://${{ secrets.VPS_DOMAIN }}/api/category-products?locale=en&slug=$slug&page=1&limit=24" \
+              | jq '.durationMs, (.products | length), .dataSource, .hasMore, .totalEstimate'
+          done
+
+      - name: Production page timing
+        run: |
+          for url in \
+            "https://${{ secrets.VPS_DOMAIN }}/en/filters" \
+            "https://${{ secrets.VPS_DOMAIN }}/en/air-filter" \
+            "https://${{ secrets.VPS_DOMAIN }}/en/fuel-filter"; do
+            echo "---- $url ----"
+            for i in 1 2 3; do
+              curl -w "\nRUN:$i HTTP:%{http_code} SIZE:%{size_download} TTFB:%{time_starttransfer} TOTAL:%{time_total}\n" \
+                -o /tmp/prod-page.html \
+                -s "$url"
+            done
+          done
+
+      - name: Fetch production logs
+        if: always()
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && docker compose --env-file .env.production logs app --tail=3000 \
+               | grep -i -E 'category-products|meilisearch-category-products|fallback|Cannot find module|code-normalization|LEAF_PRODUCT_FETCH_BLOCKING|LEAF_CATEGORY_STREAM_SLOW|P1000|EMAXCONNSESSION|prisma:error|failed' || true"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
