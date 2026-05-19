@@ -151,6 +151,8 @@ type SupplierRow = {
 export async function buildSearchDocumentsFromSupplier(
   limit: number = 50000
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
+  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
+  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
   const rows = await db.$queryRaw<SupplierRow[]>(Prisma.sql`
     SELECT
       sp.id AS sp_id,
@@ -421,6 +423,8 @@ export async function buildCatalogDocumentsWithoutFitment(
     best_offer_sp_id: number | null
   }
 
+  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
+  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
   const rows = await db.$queryRaw<CatalogRowNoFitment[]>(Prisma.sql`
     SELECT
       p.id AS p_id,
@@ -636,6 +640,8 @@ export async function buildOrphanSupplierDocuments(
   limit: number = 10000,
   offset: number = 0
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
+  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
+  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
   const rows = await db.$queryRaw<OrphanRow[]>(Prisma.sql`
     SELECT
       sp.id AS sp_id,
