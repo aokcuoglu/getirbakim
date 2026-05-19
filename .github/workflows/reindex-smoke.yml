@@ -23,12 +23,12 @@ jobs:
             "cd '${{ secrets.VPS_PROJECT_PATH }}' \
              && docker compose --env-file .env.production exec -T app bun run search:setup"
 
-      - name: Run search:reindex on production
+      - name: Run search:reindex on production (no fitment)
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "cd '${{ secrets.VPS_PROJECT_PATH }}' \
-             && docker compose --env-file .env.production exec -T app bun run search:reindex"
+             && docker compose --env-file .env.production exec -T app sh -lc 'MEILI_REINDEX_INCLUDE_FITMENT=false bun run search:reindex'"
 
       - name: Verify health endpoint
         run: |
