@@ -1,5 +1,48 @@
 # Release Notes
 
+## v0.2.11 - Category Products API Meilisearch Filter Optimization
+
+### Performance: Serve Category Product API from Meilisearch Filters
+- `/api/category-products` now uses Meilisearch category filter by default when `MEILI_ENABLED=true`
+- Product API latency target: <300ms ideal, <800ms acceptable (was ~3000ms with Prisma fallback)
+- Leaf page shell remains fast — no SSR blocking regression
+- Prisma fallback preserved when Meilisearch is unavailable or has zero hits
+- Brand and availability facets served from Meilisearch `facetDistribution`
+
+### Architecture Change
+- `searchCategoryProductsWithMeili()` queries Meilisearch `products` index with `categorySlug` filter
+- Filter: `categorySlug = "<slug>" AND documentType IN ["canonical_part", "supplier_offer", "orphan_supplier_product"]`
+- Sort: `rankScore:desc` by default, supports `price:asc`, `price:desc`, `name:asc`
+- Vehicle-specific queries (vehicleId present) skip Meilisearch and use Prisma fallback (vehicle filtering not in Meili index)
+- Meilisearch error or zero hits → automatic Prisma fallback with logged warning
+
+### Document Changes
+- Added `brandLogo` field to `CanonicalSearchDocument` type and all document builders
+- Meilisearch documents now include `brandLogo` for product card rendering
+- `categorySlug` and `categoryId` were already present in documents and filterable attributes (v0.2.5)
+- Reindex required after this change (new `brandLogo` field)
+
+### New Files
+- `lib/search/category-products-meili.ts` — Meilisearch category product search with filter/sort/facet support
+- `lib/search/category-products-meili.test.ts` — Tests for filter construction, mapping, limits, sort, fallback
+- `scripts/debug-meili-category.ts` — Diagnostic script for Meilisearch category filter debugging
+
+### Diagnostic Script
+- `bun run search:debug-category` or `CATEGORY_SLUG=air-filter bun scripts/debug-meili-category.ts`
+- Reports: index stats, filterable attributes, hit counts, sample documents, facet distribution
+
+### Tests
+- 15 new tests covering: filter construction, document mapping, limit capping, rank bucket, sort, fallback, response shape, no raw_json exposure
+- 7 existing tests updated for `brandLogo` field in `CanonicalSearchDocument`
+- Total: 262 tests passing
+
+### No breaking changes
+- No checkout/payment changes
+- No Meilisearch removal — Prisma fallback preserved
+- No production indexing enabled
+- Leaf page initial HTML remains fast
+- Product card shape unchanged — `CategoryClientWrapper` compatible
+
 ## v0.2.10 - Production Leaf Category Product Loading Fix
 
 ### Performance: Decouple Leaf Category Products from Blocking Page Render

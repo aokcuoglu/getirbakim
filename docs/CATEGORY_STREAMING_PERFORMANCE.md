@@ -86,8 +86,11 @@ Response:
 - Returns 404 for invalid category slugs
 - Returns empty products array for non-leaf categories
 - Caps limit at 48
-- Uses Redis cache with 5-minute TTL
-- Uses `getCatalogArticles()` internally (same as `/api/catalog/articles`)
+- **v0.2.11**: Uses Meilisearch first when `MEILI_ENABLED=true` and no `vehicleId` filter
+- **v0.2.11**: Falls back to Prisma when Meilisearch unavailable or vehicle-specific query
+- **v0.2.11**: `dataSource` indicates path: `meilisearch-category-products` or Prisma fallback
+- Uses Redis cache with 5-minute TTL (Prisma path only)
+- Uses `getCatalogArticles()` as Prisma fallback
 
 ## Before/After
 

@@ -19,6 +19,11 @@ Client → /api/search → MEILI_ENABLED=true?
                            │          ├── orphan_supplier_product documents (unmapped)
                            │          └── On error → PostgreSQL fallback
                            └── No  → PostgreSQL catalog+offer search
+
+Client → /api/category-products → MEILI_ENABLED=true? AND no vehicleId?
+                                      ├── Yes → Meilisearch categorySlug filter
+                                      │          └── On error/zero hits → Prisma fallback
+                                      └── No  → Prisma (getCatalogArticles)
 ```
 
 - PostgreSQL = source of truth for pricing, stock, product data
@@ -38,13 +43,15 @@ Client → /api/search → MEILI_ENABLED=true?
 | `supplier_offer` | `part_<partId>` | Mapped supplier product merged into canonical part doc |
 | `orphan_supplier_product` | `sp_<supplierProductId>` | Unmapped supplier product indexed independently |
 
-### Index Fields (v0.2.5)
+### Index Fields (v0.2.11)
 
 **Searchable**: title, titleTr, brand, categoryName, categoryNameTr, supplierSku, normalizedSku, oemCodes, eanCodes, crossReferences, referenceNumbers, exactCodes, normalizedSearchText, searchKeywords, synonymsText, vehicleBrandNames, vehicleModelNames, vehicleTypeNames, engineCodes, name
 
 **Filterable**: documentType, availabilityStatus, brand, categorySlug, categoryId, providerCode, providerName, hasPrice, hasStock, hasSupplierOffer, matchStatus, vehicleBrandNames, vehicleModelNames, brandId, sourceType
 
 **Sortable**: rankScore, price, stockQty, updatedAt, offerCount, fitmentCount
+
+**New in v0.2.11**: `brandLogo` field added to documents (display-only, not filterable/sortable/searchable)
 
 **Synonyms**: Turkish/English automotive term mappings (fuel filter ↔ yakıt filtresi, brake pad ↔ fren balatası, etc.)
 

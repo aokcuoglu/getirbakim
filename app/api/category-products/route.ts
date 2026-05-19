@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getCatalogArticles, type ArticlesRequestBody } from '@/lib/actions/getCatalogArticles'
 import { getCategoryByUrlKey } from '@/lib/actions/getPartCategories'
 import {
@@ -6,6 +6,9 @@ import {
   successResponse,
   withApiContext
 } from '@/lib/api/route-utils'
+import { isMeiliEnabled, getMeiliClient, getProductsIndexName } from '@/lib/search/meilisearch-client'
+import { isMeiliUnavailableError } from '@/lib/meilisearch'
+import { searchCategoryProductsWithMeili } from '@/lib/search/category-products-meili'
 
 export async function GET(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
@@ -92,6 +95,57 @@ export async function GET(request: NextRequest) {
   const minPrice = minPriceParam ? Number(minPriceParam) : undefined
   const maxPrice = maxPriceParam ? Number(maxPriceParam) : undefined
   const vehicleId = vehicleIdParam ? Number(vehicleIdParam) || null : null
+
+  if (isMeiliEnabled() && !vehicleId) {
+    try {
+      const client = getMeiliClient()
+      const indexName = getProductsIndexName()
+
+      const meiliResult = await searchCategoryProductsWithMeili(client, indexName, {
+        locale,
+        categorySlug: category.urlKey,
+        categoryId: category.id,
+        page,
+        limit,
+        brands,
+        stockStatuses,
+        sort,
+        minPrice: Number.isFinite(minPrice as number) ? minPrice : undefined,
+        maxPrice: Number.isFinite(maxPrice as number) ? maxPrice : undefined
+      })
+
+      if (meiliResult.products.length > 0 || meiliResult.totalEstimate > 0) {
+        const response = successResponse(
+          {
+            products: meiliResult.products,
+            page: meiliResult.page,
+            limit: meiliResult.limit,
+            hasMore: meiliResult.hasMore,
+            totalEstimate: meiliResult.totalEstimate,
+            brandFacetDistribution: meiliResult.brandFacetDistribution,
+            stockFacetDistribution: meiliResult.stockFacetDistribution,
+            dataSource: meiliResult.dataSource,
+            durationMs: meiliResult.durationMs,
+            cached: false
+          },
+          context
+        )
+        response.headers.set('X-Cache', 'MISS')
+        return response
+      }
+    } catch (error) {
+      if (isMeiliUnavailableError(error)) {
+        console.warn(
+          `[category-products] Meilisearch unavailable for slug=${slug}, falling back to Prisma`
+        )
+      } else {
+        console.error(
+          `[category-products] Meilisearch error for slug=${slug}:`,
+          error instanceof Error ? error.message : error
+        )
+      }
+    }
+  }
 
   const payload: ArticlesRequestBody = {
     categoryName: category.name,

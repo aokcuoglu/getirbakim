@@ -60,6 +60,7 @@ export interface CanonicalSearchDocument {
   name: string
   brandName: string | null
   brandId: number | null
+  brandLogo: string | null
   articleLinkId: string
   sourceType: 'part' | 'supplier_product'
 }

@@ -362,6 +362,7 @@ export async function buildSearchDocumentsFromSupplier(
       name,
       brandName: brand,
       brandId: row.p_brand_id ?? null,
+      brandLogo: row.p_brand_logo_url ?? null,
       articleLinkId: row.p_article_link_id?.toString() ?? row.sp_id.toString(),
       sourceType: 'supplier_product' as const
     }
@@ -603,6 +604,7 @@ export async function buildCatalogDocumentsWithoutFitment(
       name: row.p_name,
       brandName: row.p_brand_name,
       brandId: row.p_brand_id,
+      brandLogo: row.p_brand_logo_url ?? null,
       articleLinkId: row.p_article_link_id.toString(),
       sourceType: 'part' as const
     }
@@ -775,6 +777,7 @@ export async function buildOrphanSupplierDocuments(
       name,
       brandName: brand,
       brandId: null,
+      brandLogo: null,
       articleLinkId: row.sp_id.toString(),
       sourceType: 'supplier_product' as const
     }

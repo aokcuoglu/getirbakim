@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.11] - 2026-05-19
+
+### Added
+- `lib/search/category-products-meili.ts` — Meilisearch-based category product search with `categorySlug` filter, sort, and facet distribution
+- `scripts/debug-meili-category.ts` — Diagnostic script for Meilisearch category filter (`bun run search:debug-category`)
+- `brandLogo` field to `CanonicalSearchDocument` type and all document builders (supplier, catalog, orphan)
+- 15 new tests for category-products Meilisearch integration (filter construction, mapping, limits, sort, fallback, response shape)
+
+### Changed
+- `GET /api/category-products` now queries Meilisearch first when `MEILI_ENABLED=true` and no `vehicleId` filter
+- Meilisearch category filter uses `categorySlug = "<slug>"` with `documentType IN ["canonical_part", "supplier_offer", "orphan_supplier_product"]`
+- Category product sort defaults to `rankScore:desc`; supports `price:asc`, `price:desc`, `name:asc`
+- Brand and availability facets served from Meilisearch `facetDistribution` when using Meili path
+- Falls back to Prisma when Meilisearch unavailable, returns zero hits, or vehicleId filter present
+- `dataSource` field distinguishes Meili path (`meilisearch-category-products`) from Prisma fallback
+
+### Performance
+- `/api/category-products?locale=en&slug=air-filter&page=1&limit=24` expected <300ms with Meilisearch (was ~3000ms Prisma)
+- Leaf page shell rendering unchanged — no SSR blocking regression
+
+### Fixed
+- 7 existing tests updated to include `brandLogo` field in `CanonicalSearchDocument` fixture objects
+
 ## [0.2.10] - 2026-05-15
 
 ### Added

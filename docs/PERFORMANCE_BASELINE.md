@@ -1,4 +1,32 @@
-# Performance Baseline — v0.2.10
+# Performance Baseline — v0.2.11
+
+## v0.2.11 Category Products API Meilisearch Filter Optimization
+
+### Problem
+`/api/category-products` was using Prisma fallback exclusively, taking ~3000ms per request. The Meilisearch index already contained `categorySlug` as a filterable attribute but the endpoint did not use it.
+
+### Root Cause
+The `/api/category-products` route (`app/api/category-products/route.ts`) called `getCatalogArticles()` directly without checking `MEILI_ENABLED` or attempting Meilisearch category filtering. The search API (`/api/search`) already had the Meili-first/fallback pattern, but category products did not.
+
+### Fix: Meili-First Category Product Fetching
+1. Added `searchCategoryProductsWithMeili()` — queries Meilisearch with `categorySlug` filter, sort, and facets
+2. Updated `/api/category-products` to try Meilisearch first when `MEILI_ENABLED=true` and no `vehicleId`
+3. Falls back to Prisma when Meilisearch unavailable, zero hits, or error
+4. Vehicle-specific queries (with `vehicleId`) always use Prisma (vehicle filtering not in Meili index)
+5. Brand and availability facets come from Meilisearch `facetDistribution`
+
+### v0.2.11 Timings (Expected)
+
+| Metric | v0.2.10 (Prisma) | v0.2.11 (Meili) |
+|--------|-------------------|-----------------|
+| `/api/category-products?slug=air-filter` | ~3000ms | <300ms |
+| `/api/category-products?slug=fuel-filter` | ~3000ms | <300ms |
+| `/en/air-filter` TTFB/shell | ~0.3s | ~0.3s (unchanged) |
+| `/en/filters` TOTAL | ~0.3s | ~0.3s (unchanged) |
+
+### Document Changes
+- Added `brandLogo: string | null` to `CanonicalSearchDocument` for product card rendering
+- Reindex required after upgrade to include `brandLogo` field in documents
 
 ## v0.2.9 Category Resolver and Navigation Cache Optimization
 
