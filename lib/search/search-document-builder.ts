@@ -151,9 +151,10 @@ type SupplierRow = {
 export async function buildSearchDocumentsFromSupplier(
   limit: number = 50000
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
-  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
-  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
-  const rows = await db.$queryRaw<SupplierRow[]>(Prisma.sql`
+  const REINDEX_STATEMENT_TIMEOUT_MS = process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000'
+  const rows = await db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${parseInt(REINDEX_STATEMENT_TIMEOUT_MS, 10)}'`)
+    return tx.$queryRaw<SupplierRow[]>(Prisma.sql`
     SELECT
       sp.id AS sp_id,
       sp.supplier_sku AS sp_sku,
@@ -245,6 +246,7 @@ export async function buildSearchDocumentsFromSupplier(
     ORDER BY sp.supplier_stock_qty DESC, sp.last_seen_at DESC
     LIMIT ${limit}
   `)
+  })
 
   const documents: CanonicalSearchDocument[] = rows.map((row) => {
     const partId = row.spm_part_id?.toString() ?? null
@@ -423,9 +425,10 @@ export async function buildCatalogDocumentsWithoutFitment(
     best_offer_sp_id: number | null
   }
 
-  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
-  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
-  const rows = await db.$queryRaw<CatalogRowNoFitment[]>(Prisma.sql`
+  const REINDEX_STATEMENT_TIMEOUT_MS = process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000'
+  const rows = await db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${parseInt(REINDEX_STATEMENT_TIMEOUT_MS, 10)}'`)
+    return tx.$queryRaw<CatalogRowNoFitment[]>(Prisma.sql`
     SELECT
       p.id AS p_id,
       p.name AS p_name,
@@ -498,6 +501,7 @@ export async function buildCatalogDocumentsWithoutFitment(
       p.updated_at DESC
     LIMIT ${limit}
   `)
+  })
 
   const documents: CanonicalSearchDocument[] = rows.map((row) => {
     const partId = row.p_id.toString()
@@ -640,9 +644,10 @@ export async function buildOrphanSupplierDocuments(
   limit: number = 10000,
   offset: number = 0
 ): Promise<{ documents: CanonicalSearchDocument[]; total: number }> {
-  const REINDEX_STATEMENT_TIMEOUT = parseInt(process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000', 10)
-  await db.$executeRaw`SET LOCAL statement_timeout = ${REINDEX_STATEMENT_TIMEOUT}::int`
-  const rows = await db.$queryRaw<OrphanRow[]>(Prisma.sql`
+  const REINDEX_STATEMENT_TIMEOUT_MS = process.env.MEILI_REINDEX_STATEMENT_TIMEOUT_MS || '120000'
+  const rows = await db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = '${parseInt(REINDEX_STATEMENT_TIMEOUT_MS, 10)}'`)
+    return tx.$queryRaw<OrphanRow[]>(Prisma.sql`
     SELECT
       sp.id AS sp_id,
       sp.provider_id AS sp_provider_id,
@@ -687,6 +692,7 @@ export async function buildOrphanSupplierDocuments(
       sp.last_seen_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `)
+  })
 
   const documents: CanonicalSearchDocument[] = rows.map((row) => {
     const hasRealPrice = row.sp_price != null
