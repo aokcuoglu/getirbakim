@@ -76,22 +76,36 @@ export function CategoryPageShell({
       return existing
     }
 
-    const request = fetch(
-      `/api/category-page?href=${encodeURIComponent(normalizedHref)}`,
-      {
-        credentials: 'same-origin'
-      }
-    )
+    const endpoint = `/api/category-page?href=${encodeURIComponent(normalizedHref)}`
+    const t0 = performance.now()
+
+    const request = fetch(endpoint, {
+      credentials: 'same-origin'
+    })
       .then(async (response) => {
+        const durationMs = Number((performance.now() - t0).toFixed(1))
         if (!response.ok) {
+          console.error(
+            `[category-page] endpoint=${endpoint} durationMs=${durationMs} status=${response.status} source=error`
+          )
           throw new Error(`Failed to fetch category page payload (${response.status})`)
         }
 
+        console.log(
+          `[category-page] endpoint=/api/category-page href=${normalizedHref} durationMs=${durationMs} status=${response.status} source=success`
+        )
         return (await response.json()) as CategoryPagePayload
       })
       .then((nextPayload) => {
         cacheRef.current.set(normalizedHref, nextPayload)
         return nextPayload
+      })
+      .catch((error) => {
+        const durationMs = Number((performance.now() - t0).toFixed(1))
+        console.error(
+          `[category-page] endpoint=${endpoint} durationMs=${durationMs} source=fetch-error error=${error instanceof Error ? error.message : String(error)}`
+        )
+        throw error
       })
       .finally(() => {
         inflightRef.current.delete(normalizedHref)

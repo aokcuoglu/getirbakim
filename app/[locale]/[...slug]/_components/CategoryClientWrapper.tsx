@@ -82,6 +82,7 @@ export function CategoryClientWrapper({
     currentPage,
     totalPages,
     isLoading,
+    error: fetchError,
     filters,
     setPage,
     setSort,
@@ -233,6 +234,7 @@ export function CategoryClientWrapper({
           onSortChange={setSort}
           onPerPageChange={(value) => setLimit(parseInt(value, 10))}
           isLoading={isLoading}
+          error={fetchError}
           facets={facets}
           activeBrands={filters.brands}
           activeStockStatuses={filters.stock}

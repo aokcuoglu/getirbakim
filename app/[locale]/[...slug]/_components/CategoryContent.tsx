@@ -11,7 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Package,
-  Wrench
+  Wrench,
+  AlertCircle
 } from 'lucide-react'
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
@@ -50,6 +51,7 @@ interface CategoryContentProps {
   onSortChange?: (value: 'popularity' | 'price-asc' | 'price-desc' | 'name') => void
   onPerPageChange?: (value: string) => void
   isLoading?: boolean
+  error?: Error | null
   facets?: FacetGroup[]
   activeBrands?: string[]
   activeStockStatuses?: string[]
@@ -77,6 +79,7 @@ export function CategoryContent({
   onSortChange,
   onPerPageChange,
   isLoading = false,
+  error = null,
   facets = [],
   activeBrands = [],
   activeStockStatuses = [],
@@ -329,6 +332,16 @@ export function CategoryContent({
         {hasVehicleSelected ? (
           // Vehicle selected but no products or filtering failed - only show info message
           null
+        ) : error && parts.length === 0 ? (
+          <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
+            <Alert variant="destructive" className="max-w-md">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{t('errorTitle')}</AlertTitle>
+              <AlertDescription className="mt-2">
+                {t('errorDescription')}
+              </AlertDescription>
+            </Alert>
+          </div>
         ) : isLoading && parts.length === 0 ? (
           // Initial load - show spinner
           <div className="flex items-center justify-center py-16">

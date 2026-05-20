@@ -261,7 +261,9 @@
     "resultsRange": "{start} - {end} of {total}",
     "vehicleNoProductsTitle": "No products found for this vehicle",
     "vehicleNoProductsDescription": "No products are available in this category for your selected vehicle. You can select a different category or change your vehicle.",
-    "subcategoriesFound": "{count} subcategories found"
+    "subcategoriesFound": "{count} subcategories found",
+    "errorTitle": "Failed to load products",
+    "errorDescription": "Something went wrong while loading products. Please try refreshing the page."
   },
   "CustomerRequests": {
     "cancel": "Cancel",

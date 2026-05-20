@@ -208,25 +208,48 @@ async function fetchCategoryProducts(
     params.set('maxPrice', String(filters.maxPrice))
   }
 
-  const response = await fetch(
-    `/api/category-products?${params.toString()}`,
-    { signal }
-  )
+  const endpoint = `/api/category-products?${params.toString()}`
+  const t0 = performance.now()
+  let status = 0
+  let resultCount = 0
+  let source = 'unknown'
 
-  if (!response.ok) {
-    throw new Error(`Category products fetch failed with status ${response.status}`)
-  }
+  try {
+    const response = await fetch(endpoint, { signal })
+    status = response.status
 
-  const data = (await response.json()) as CategoryProductsResponse
+    if (!response.ok) {
+      const durationMs = Number((performance.now() - t0).toFixed(1))
+      console.error(
+        `[category-products] endpoint=${endpoint} category=${filters.categorySlug} durationMs=${durationMs} status=${status} resultCount=0 source=error`
+      )
+      throw new Error(`Category products fetch failed with status ${status}`)
+    }
 
-  return {
-    hits: data.products ?? [],
-    totalHits: data.totalEstimate ?? 0,
-    brandFacetDistribution: data.brandFacetDistribution ?? {},
-    stockFacetDistribution: data.stockFacetDistribution ?? {},
-    page: data.page ?? 1,
-    limit: data.limit ?? DEFAULT_LIMIT,
-    hasMore: data.hasMore ?? false
+    const data = (await response.json()) as CategoryProductsResponse
+    const durationMs = Number((performance.now() - t0).toFixed(1))
+    resultCount = data.products?.length ?? 0
+    source = data.dataSource ?? 'unknown'
+
+    console.log(
+      `[category-products] endpoint=/api/category-products category=${filters.categorySlug} durationMs=${durationMs} status=${status} resultCount=${resultCount} source=${source}`
+    )
+
+    return {
+      hits: data.products ?? [],
+      totalHits: data.totalEstimate ?? 0,
+      brandFacetDistribution: data.brandFacetDistribution ?? {},
+      stockFacetDistribution: data.stockFacetDistribution ?? {},
+      page: data.page ?? 1,
+      limit: data.limit ?? DEFAULT_LIMIT,
+      hasMore: data.hasMore ?? false
+    }
+  } catch (error) {
+    const durationMs = Number((performance.now() - t0).toFixed(1))
+    console.error(
+      `[category-products] endpoint=${endpoint} category=${filters.categorySlug} durationMs=${durationMs} status=${status} resultCount=${resultCount} source=${source} error=${error instanceof Error ? error.message : String(error)}`
+    )
+    throw error
   }
 }
 

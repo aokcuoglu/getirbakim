@@ -261,7 +261,9 @@
     "resultsRange": "{start} - {end} / {total}",
     "vehicleNoProductsTitle": "Bu araca ait ürün bulunamadı",
     "vehicleNoProductsDescription": "Seçili aracınız için bu kategoride ürün bulunmamaktadır. Farklı bir kategori seçebilir veya aracınızı değiştirebilirsiniz.",
-    "subcategoriesFound": "{count} alt kategori bulundu"
+    "subcategoriesFound": "{count} alt kategori bulundu",
+    "errorTitle": "Ürünler yüklenemedi",
+    "errorDescription": "Ürünler yüklenirken bir hata oluştu. Lütfen sayfayı yenileyerek tekrar deneyin."
   },
   "CustomerRequests": {
     "cancel": "İptal",
