@@ -226,6 +226,15 @@ async function fetchCategoryProducts(
       throw new Error(`Category products fetch failed with status ${status}`)
     }
 
+    const contentType = response.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const durationMs = Number((performance.now() - t0).toFixed(1))
+      console.error(
+        `[category-products] endpoint=${endpoint} category=${filters.categorySlug} durationMs=${durationMs} status=${status} resultCount=0 source=content-type-error contentType=${contentType}`
+      )
+      throw new Error(`Category products fetch returned non-JSON content-type: ${contentType}`)
+    }
+
     const data = (await response.json()) as CategoryProductsResponse
     const durationMs = Number((performance.now() - t0).toFixed(1))
     resultCount = data.products?.length ?? 0

@@ -91,6 +91,14 @@ export function CategoryPageShell({
           throw new Error(`Failed to fetch category page payload (${response.status})`)
         }
 
+        const contentType = response.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          console.error(
+            `[category-page] endpoint=${endpoint} durationMs=${durationMs} status=${response.status} source=content-type-error contentType=${contentType}`
+          )
+          throw new Error(`Category page fetch returned non-JSON content-type: ${contentType}`)
+        }
+
         console.log(
           `[category-page] endpoint=/api/category-page href=${normalizedHref} durationMs=${durationMs} status=${response.status} source=success`
         )

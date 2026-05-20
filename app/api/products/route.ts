@@ -1,14 +1,91 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
-export function GET() {
-  return NextResponse.json(
-    {
-      error: {
-        code: 'ENDPOINT_NOT_FOUND',
-        message:
-          'This endpoint is not available. Use /api/category-products?slug=<slug> for category-based product queries or /api/search for search queries.'
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const category = searchParams.get('category')
+
+  if (!category) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'MISSING_CATEGORY',
+          message:
+            'The "category" query parameter is required. Use /api/category-products?slug=<slug> for category-based product queries or /api/search?q=<query> for search queries.'
+        }
+      },
+      { status: 400 }
+    )
+  }
+
+  try {
+    const baseUrl = new URL(request.url).origin
+    const upstream = new URL(`${baseUrl}/api/search`)
+    upstream.searchParams.set('q', '')
+    upstream.searchParams.set('page', searchParams.get('page') || '1')
+    upstream.searchParams.set('limit', searchParams.get('limit') || '24')
+
+    const upstreamSort = searchParams.get('sort')
+    if (upstreamSort) {
+      upstream.searchParams.set('sort', upstreamSort)
+    }
+
+    const upstreamResp = await fetch(upstream.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(30000)
+    })
+
+    if (!upstreamResp.ok) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'UPSTREAM_ERROR',
+            message: `Upstream search returned status ${upstreamResp.status}`
+          }
+        },
+        { status: upstreamResp.status }
+      )
+    }
+
+    const contentType = upstreamResp.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'UPSTREAM_ERROR',
+            message: 'Upstream search returned non-JSON response'
+          }
+        },
+        { status: 502 }
+      )
+    }
+
+    const data = await upstreamResp.json()
+
+    return NextResponse.json(
+      {
+        source: 'products-compat',
+        originalEndpoint: '/api/category-products',
+        category,
+        note: 'This endpoint is a compatibility wrapper. For production use, prefer /api/category-products?slug=<slug> for category pages or /api/search for search.',
+        ...data
+      },
+      {
+        status: 200,
+        headers: {
+          'X-Compat-Endpoint': 'true',
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=180'
+        }
       }
-    },
-    { status: 404 }
-  )
+    )
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'UPSTREAM_ERROR',
+          message: error instanceof Error ? error.message : 'Internal error'
+        }
+      },
+      { status: 502 }
+    )
+  }
 }

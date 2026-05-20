@@ -234,7 +234,12 @@ export function useSearch(): UseSearchResult {
         })
 
         if (!response.ok) {
-          throw new Error(`Search API error: ${response.statusText}`)
+          throw new Error(`Search API error: ${response.status} ${response.statusText}`)
+        }
+
+        const contentType = response.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          throw new Error(`Search API returned non-JSON response: ${contentType}`)
         }
 
         const data = await response.json()
