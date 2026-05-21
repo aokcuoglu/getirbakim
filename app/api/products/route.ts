@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCategoryProducts } from '@/lib/actions/getCategoryProducts'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -18,48 +19,21 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const baseUrl = new URL(request.url).origin
-    const upstream = new URL(`${baseUrl}/api/search`)
-    upstream.searchParams.set('q', '')
-    upstream.searchParams.set('page', searchParams.get('page') || '1')
-    upstream.searchParams.set('limit', searchParams.get('limit') || '24')
+    const page = parseInt(searchParams.get('page') || '1', 10) || 1
+    const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') || '24', 10)), 48)
+    const sortParam = searchParams.get('sort')
+    const validSorts = ['popularity', 'price-asc', 'price-desc', 'name'] as const
+    const sort = validSorts.includes(sortParam as typeof validSorts[number])
+      ? (sortParam as typeof validSorts[number])
+      : undefined
 
-    const upstreamSort = searchParams.get('sort')
-    if (upstreamSort) {
-      upstream.searchParams.set('sort', upstreamSort)
-    }
-
-    const upstreamResp = await fetch(upstream.toString(), {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(30000)
+    const result = await getCategoryProducts({
+      locale: searchParams.get('locale') || 'tr',
+      slug: category,
+      page,
+      limit,
+      sort
     })
-
-    if (!upstreamResp.ok) {
-      return NextResponse.json(
-        {
-          error: {
-            code: 'UPSTREAM_ERROR',
-            message: `Upstream search returned status ${upstreamResp.status}`
-          }
-        },
-        { status: upstreamResp.status }
-      )
-    }
-
-    const contentType = upstreamResp.headers.get('content-type') || ''
-    if (!contentType.includes('application/json')) {
-      return NextResponse.json(
-        {
-          error: {
-            code: 'UPSTREAM_ERROR',
-            message: 'Upstream search returned non-JSON response'
-          }
-        },
-        { status: 502 }
-      )
-    }
-
-    const data = await upstreamResp.json()
 
     return NextResponse.json(
       {
@@ -67,7 +41,7 @@ export async function GET(request: NextRequest) {
         originalEndpoint: '/api/category-products',
         category,
         note: 'This endpoint is a compatibility wrapper. For production use, prefer /api/category-products?slug=<slug> for category pages or /api/search for search.',
-        ...data
+        ...result
       },
       {
         status: 200,
@@ -78,6 +52,7 @@ export async function GET(request: NextRequest) {
       }
     )
   } catch (error) {
+    console.error('[/api/products] Error:', error)
     return NextResponse.json(
       {
         error: {

@@ -32,6 +32,7 @@ import type { SearchCTA } from '@/lib/search/availability'
 interface ProductCardProps {
   id: number
   name: string
+  isFirst?: boolean
   sourceType?: 'part' | 'supplier_product'
   supplierProductId?: number | null
   brandName: string
@@ -78,7 +79,8 @@ export function ProductCard({
   isPriceLoading = false,
   availabilityStatus,
   cta,
-  detailUrl
+  detailUrl,
+  isFirst = false
 }: ProductCardProps) {
   const t = useTranslations('ProductCard')
   const format = useFormatter()
@@ -211,14 +213,17 @@ export function ProductCard({
             )}
           </div>
 
-          <div className="flex h-[128px] items-center justify-center rounded-sm bg-white">
+           <div className="flex h-[128px] items-center justify-center rounded-sm bg-white">
             {fullImageUrl ? (
               <SafeImage
                 src={fullImageUrl}
                 alt={displayName}
                 width={176}
                 height={136}
+                sizes="(max-width: 1024px) 176px, 176px"
                 className="h-full w-full object-contain"
+                priority={isFirst}
+                loading={isFirst ? 'eager' : 'lazy'}
                 fallback={<Package className="h-12 w-12 text-slate-300" />}
               />
             ) : (

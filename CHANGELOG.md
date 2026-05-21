@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-05-21
+
+### Changed
+- Category leaf pages (/en/air-filter etc.) now server-render first 24 products using React Query `HydrationBoundary`, eliminating client-side fetch waterfall for initial view
+- Extracted `getCategoryProducts` server function from `/api/category-products` route for reuse without HTTP roundtrip
+- Fixed `/api/products` and `/api/catalog/[...path]` compatibility wrappers: replaced broken self-fetch with direct function calls, resolving 502 errors on production
+- Refactored `/api/category-products` route to use `getCategoryProducts` instead of inline logic
+
+### Added
+- `priority` and `sizes` attributes on first product card image for LCP optimization
+- `loading="eager"` on first product image, `loading="lazy"` on subsequent images
+- `isFirst` prop to `ProductCard` and `GridProductCard` for LCP-aware image loading
+
 ## [0.3.0-stage-2] - 2026-05-20
 
 ### Added

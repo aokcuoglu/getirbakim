@@ -1,5 +1,37 @@
 # Release Notes
 
+## v0.3.1 - Category Page Performance Optimization
+
+### Performance: Server-Side Rendering of Initial Products
+
+Category leaf pages (e.g., `/en/air-filter`) now fetch and render the first 24 products server-side using React Query `HydrationBoundary`. This eliminates the client-side fetch waterfall that previously caused LCP delays.
+
+**Before:** Page shell SSR → client JS loads → React Query fires → products appear (2-3s+ delay)
+**After:** Full page SSR with hydrated product data → products visible immediately on first paint
+
+### Bug Fix: API Compatibility Routes 502 on Production
+
+`/api/products?category=air-filter` and `/api/catalog/air-filter` were returning 502 errors because they self-fetched via HTTP. Both routes now call the data layer directly via `getCategoryProducts()`, resolving the 502 errors.
+
+### Technical Changes
+
+- **New:** `lib/actions/getCategoryProducts.ts` — Reusable server-side function for category product fetching (Meilisearch-first with Prisma fallback), extracted from API route
+- **Changed:** `/api/products/route.ts` — Uses `getCategoryProducts()` directly instead of HTTP self-fetch
+- **Changed:** `/api/catalog/[...path]/route.ts` — Uses `getCategoryProducts()` directly instead of HTTP self-fetch
+- **Changed:** `/api/category-products/route.ts` — Uses `getCategoryProducts()` instead of inline logic
+- **Changed:** `app/[locale]/_lib/category-page.tsx` — Added `HydrationBoundary` with pre-fetched initial products for leaf categories
+- **Changed:** `ProductCard` and `GridProductCard` — Added `isFirst` prop for LCP-aware image loading (`priority`, `sizes`, `loading`)
+- **Changed:** `SafeImage` — Added `priority` prop passthrough to `next/image`
+
+### Image Optimization
+
+- First product card image: `priority={true}`, `loading="eager"`, explicit `sizes` attribute
+- Subsequent images: `loading="lazy"`, explicit `sizes` attribute
+- ProductCard: `sizes="(max-width: 1024px) 176px, 176px"`
+- GridProductCard: `sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"`
+
+---
+
 ## v0.3.0-stage-2 - Dinamik ParçaTedarik Model Matching Admin
 
 ### Feature: Dinamik-ParçaTedarik Model Matching Admin

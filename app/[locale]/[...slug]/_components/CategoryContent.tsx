@@ -353,7 +353,7 @@ export function CategoryContent({
         ) : parts.length > 0 ? (
           viewMode === 'grid' ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {parts.map((part) => (
+              {parts.map((part, idx) => (
                 <GridProductCard
                   key={part.id}
                   id={part.id}
@@ -376,12 +376,13 @@ export function CategoryContent({
                   isBestseller={false}
                   stock={part.stock}
                   isPriceLoading={priceLoadingIds.has(part.id)}
+                  isFirst={idx === 0}
                 />
               ))}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {parts.map((part) => (
+              {parts.map((part, idx) => (
                 <ProductCard
                   key={part.id}
                   id={part.id}
@@ -404,6 +405,7 @@ export function CategoryContent({
                   isBestseller={false}
                   stock={part.stock}
                   isPriceLoading={priceLoadingIds.has(part.id)}
+                  isFirst={idx === 0}
                 />
               ))}
             </div>

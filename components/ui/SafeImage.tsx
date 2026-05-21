@@ -5,6 +5,7 @@ import Image, { ImageProps } from 'next/image'
 
 interface SafeImageProps extends Omit<ImageProps, 'onError'> {
   fallback?: React.ReactNode
+  priority?: boolean
 }
 
 /**
@@ -64,6 +65,7 @@ export function SafeImage({
   fallback,
   className,
   unoptimized,
+  priority,
   ...props
 }: SafeImageProps) {
   const [error, setError] = useState(false)
@@ -94,6 +96,7 @@ export function SafeImage({
         setError(true)
       }}
       unoptimized={unoptimized ?? bypassOptimization}
+      priority={priority}
       {...props}
     />
   )

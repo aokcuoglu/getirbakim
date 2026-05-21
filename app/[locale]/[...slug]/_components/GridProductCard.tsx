@@ -53,6 +53,7 @@ interface GridProductCardProps {
   availabilityStatus?: AvailabilityStatus
   cta?: SearchCTA
   detailUrl?: string | null
+  isFirst?: boolean
 }
 
 export function GridProductCard({
@@ -78,7 +79,8 @@ export function GridProductCard({
   isPriceLoading = false,
   availabilityStatus,
   cta,
-  detailUrl
+  detailUrl,
+  isFirst = false
 }: GridProductCardProps) {
   const t = useTranslations('ProductCard')
   const format = useFormatter()
@@ -216,7 +218,10 @@ export function GridProductCard({
             alt={displayName}
             width={180}
             height={180}
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             className="h-full w-full max-h-40 object-contain"
+            priority={isFirst}
+            loading={isFirst ? 'eager' : 'lazy'}
             fallback={<Package className="h-16 w-16 text-slate-300" />}
           />
         ) : (
