@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-05-21
+
+### Fixed
+- `/api/products?category=` and `/api/catalog/<slug>` compatibility API routes no longer self-fetch via HTTP, resolving production 502 errors caused by internal fetch failures in Docker/reverse-proxy environments
+- All three category product endpoints (`/api/search?category=`, `/api/products?category=`, `/api/catalog/<slug>`) now call `getCategoryProducts()` directly, eliminating internal HTTP roundtrips
+
+### Changed
+- `getCategoryProducts` return type expanded to include full search API contract fields: `hits`, `totalHits`, `facetDistribution`, `liveFallbackUsed`, `purchasableCount`, `outOfStockCount`, `requestPriceCount`, `verifyFitmentCount`
+- `/api/products`, `/api/catalog/[...path]`, and `/api/category-products` now return consistent response shapes with `hits`, `totalHits`, `facetDistribution`, availability counts, and `liveFallbackUsed`
+- Structured error logging added to all three compat routes: logs route, category slug, source, durationMs, and error message on failure
+
 ## [0.3.1] - 2026-05-21
 
 ### Changed

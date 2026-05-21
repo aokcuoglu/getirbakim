@@ -1,5 +1,60 @@
 # Release Notes
 
+## v0.3.2 - Fix Production 502 on Compat API Routes, Expand Response Contract
+
+### Bug Fix: Production 502 on /api/products and /api/catalog
+
+Both `/api/products?category=air-filter` and `/api/catalog/air-filter` were returning HTTP 502 with `{"error":{"code":"UPSTREAM_ERROR","message":"fetch failed"}}` on production. The root cause was that these routes self-fetched via HTTP using `new URL(request.url).origin`, which resolves to `http://localhost:3000` inside Docker containers behind a reverse proxy, causing the internal fetch to fail.
+
+Both routes now call `getCategoryProducts()` directly (a server-side function), eliminating all internal HTTP roundtrips.
+
+### Response Contract Alignment
+
+All three category product endpoints now return a consistent, complete response shape:
+
+```json
+{
+  "products": [...],
+  "hits": [...],
+  "page": 1,
+  "limit": 24,
+  "hasMore": true,
+  "totalHits": 32240,
+  "totalEstimate": 32240,
+  "facetDistribution": { "brandName": {...}, "stockStatus": {...} },
+  "brandFacetDistribution": {...},
+  "stockFacetDistribution": {...},
+  "dataSource": "meilisearch-category-products",
+  "durationMs": 85,
+  "cached": false,
+  "liveFallbackUsed": false,
+  "purchasableCount": 18,
+  "outOfStockCount": 4,
+  "requestPriceCount": 2,
+  "verifyFitmentCount": 0
+}
+```
+
+The `/api/products` and `/api/catalog/<slug>` endpoints additionally include `source` ("products-compat" or "catalog-compat"), `category`, and `originalEndpoint` fields for backward compatibility.
+
+### Structured Error Logging
+
+All three routes now log structured error messages on failure:
+```
+[api/products] route=/api/products category=air-filter source=error durationMs=120 error=...
+[api/catalog] route=/api/catalog category=air-filter source=error durationMs=95 error=...
+[category-products] route=/api/category-products slug=air-filter source=error error=...
+```
+
+### Technical Changes
+
+- **Changed:** `lib/actions/getCategoryProducts.ts` — Return type expanded with `hits`, `totalHits`, `facetDistribution`, `liveFallbackUsed`, `purchasableCount`, `outOfStockCount`, `requestPriceCount`, `verifyFitmentCount`
+- **Changed:** `app/api/products/route.ts` — Full response contract, direct function call, structured logging
+- **Changed:** `app/api/catalog/[...path]/route.ts` — Full response contract, direct function call, structured logging
+- **Changed:** `app/api/category-products/route.ts` — Full response contract, structured logging
+
+---
+
 ## v0.3.1 - Category Page Performance Optimization
 
 ### Performance: Server-Side Rendering of Initial Products

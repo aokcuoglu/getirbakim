@@ -86,22 +86,30 @@ export async function GET(request: NextRequest) {
 
     if (result.durationMs > 1000) {
       console.warn(
-        `[LEAF_PRODUCT_FETCH_BLOCKING] category-products slug=${slug} duration=${result.durationMs}ms source=${result.dataSource}`
+        `[category-products] route=/api/category-products slug=${slug} duration=${result.durationMs}ms source=${result.dataSource} products=${result.products.length} totalEstimate=${result.totalEstimate}`
       )
     }
 
     const response = successResponse(
       {
         products: result.products,
+        hits: result.hits,
         page: result.page,
         limit: result.limit,
         hasMore: result.hasMore,
+        totalHits: result.totalHits,
         totalEstimate: result.totalEstimate,
+        facetDistribution: result.facetDistribution,
         brandFacetDistribution: result.brandFacetDistribution,
         stockFacetDistribution: result.stockFacetDistribution,
         dataSource: result.dataSource,
         durationMs: result.durationMs,
-        cached: result.cached
+        cached: result.cached,
+        liveFallbackUsed: result.liveFallbackUsed,
+        purchasableCount: result.purchasableCount,
+        outOfStockCount: result.outOfStockCount,
+        requestPriceCount: result.requestPriceCount,
+        verifyFitmentCount: result.verifyFitmentCount
       },
       context
     )
@@ -115,8 +123,7 @@ export async function GET(request: NextRequest) {
     return response
   } catch (error) {
     console.error(
-      `[category-products] Error for slug=${slug}:`,
-      error instanceof Error ? error.message : error
+      `[category-products] route=/api/category-products slug=${slug} source=error error=${error instanceof Error ? error.message : String(error)}`
     )
     return errorResponse({
       status: 500,

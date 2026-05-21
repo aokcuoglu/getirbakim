@@ -18,17 +18,51 @@ export type CategoryProductsInput = {
   vehicleId?: number | null
 }
 
+function countAvailabilityStatuses(products: SearchHit[]) {
+  let purchasableCount = 0
+  let requestPriceCount = 0
+  let verifyFitmentCount = 0
+  let outOfStockCount = 0
+
+  for (const product of products) {
+    switch (product.availabilityStatus) {
+      case 'PURCHASABLE':
+        purchasableCount++
+        break
+      case 'REQUEST_PRICE':
+        requestPriceCount++
+        break
+      case 'VERIFY_FITMENT':
+        verifyFitmentCount++
+        break
+      case 'OUT_OF_STOCK':
+        outOfStockCount++
+        break
+    }
+  }
+
+  return { purchasableCount, requestPriceCount, verifyFitmentCount, outOfStockCount }
+}
+
 export type CategoryProductsResult = {
   products: SearchHit[]
+  hits: SearchHit[]
   page: number
   limit: number
   hasMore: boolean
+  totalHits: number
   totalEstimate: number
+  facetDistribution: Record<string, Record<string, number>>
   brandFacetDistribution: Record<string, number>
   stockFacetDistribution: Record<string, number> | { 'in-stock': number; 'on-order': number }
   dataSource: string
   durationMs: number
   cached?: boolean
+  liveFallbackUsed: boolean
+  purchasableCount: number
+  requestPriceCount: number
+  verifyFitmentCount: number
+  outOfStockCount: number
 }
 
 export async function getCategoryProducts(input: CategoryProductsInput): Promise<CategoryProductsResult> {
@@ -49,28 +83,44 @@ export async function getCategoryProducts(input: CategoryProductsInput): Promise
   if (!category?.urlKey) {
     return {
       products: [],
+      hits: [],
       page: 1,
       limit: 24,
       hasMore: false,
+      totalHits: 0,
       totalEstimate: 0,
+      facetDistribution: {},
       brandFacetDistribution: {},
       stockFacetDistribution: { 'in-stock': 0, 'on-order': 0 },
       dataSource: 'category-not-found',
-      durationMs: 0
+      durationMs: 0,
+      liveFallbackUsed: false,
+      purchasableCount: 0,
+      requestPriceCount: 0,
+      verifyFitmentCount: 0,
+      outOfStockCount: 0
     }
   }
 
   if (!category.isLeaf) {
     return {
       products: [],
+      hits: [],
       page: 1,
       limit: 24,
       hasMore: false,
+      totalHits: 0,
       totalEstimate: 0,
+      facetDistribution: {},
       brandFacetDistribution: {},
       stockFacetDistribution: { 'in-stock': 0, 'on-order': 0 },
       dataSource: 'non-leaf-category',
-      durationMs: 0
+      durationMs: 0,
+      liveFallbackUsed: false,
+      purchasableCount: 0,
+      requestPriceCount: 0,
+      verifyFitmentCount: 0,
+      outOfStockCount: 0
     }
   }
 
@@ -96,17 +146,30 @@ export async function getCategoryProducts(input: CategoryProductsInput): Promise
       })
 
       if (meiliResult.products.length > 0 || meiliResult.totalEstimate > 0) {
+        const counts = countAvailabilityStatuses(meiliResult.products)
+        const facetDistribution: Record<string, Record<string, number>> = {
+          brandName: meiliResult.brandFacetDistribution,
+          ...(typeof meiliResult.stockFacetDistribution === 'object' && meiliResult.stockFacetDistribution !== null
+            ? { stockStatus: meiliResult.stockFacetDistribution as Record<string, number> }
+            : {})
+        }
+
         return {
           products: meiliResult.products,
+          hits: meiliResult.products,
           page: meiliResult.page,
           limit: meiliResult.limit,
           hasMore: meiliResult.hasMore,
+          totalHits: meiliResult.totalEstimate,
           totalEstimate: meiliResult.totalEstimate,
+          facetDistribution,
           brandFacetDistribution: meiliResult.brandFacetDistribution,
           stockFacetDistribution: meiliResult.stockFacetDistribution,
           dataSource: meiliResult.dataSource,
           durationMs: meiliResult.durationMs,
-          cached: false
+          cached: false,
+          liveFallbackUsed: false,
+          ...counts
         }
       }
     } catch (error) {
@@ -150,16 +213,29 @@ export async function getCategoryProducts(input: CategoryProductsInput): Promise
     )
   }
 
+  const counts = countAvailabilityStatuses(result.hits)
+  const facetDistribution: Record<string, Record<string, number>> = {
+    brandName: result.brandFacetDistribution,
+    ...(typeof result.stockFacetDistribution === 'object' && result.stockFacetDistribution !== null
+      ? { stockStatus: result.stockFacetDistribution as Record<string, number> }
+      : {})
+  }
+
   return {
     products: result.hits,
+    hits: result.hits,
     page: result.page,
     limit: result.limit,
     hasMore: result.hasMore,
+    totalHits: result.totalHits ?? 0,
     totalEstimate: result.totalHits ?? 0,
+    facetDistribution,
     brandFacetDistribution: result.brandFacetDistribution,
     stockFacetDistribution: result.stockFacetDistribution,
     dataSource: result.source,
     durationMs,
-    cached: result.cached
+    cached: result.cached,
+    liveFallbackUsed: result.source.includes('fallback'),
+    ...counts
   }
 }

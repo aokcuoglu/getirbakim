@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  const t0 = performance.now()
+
   try {
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1', 10) || 1
@@ -30,21 +32,80 @@ export async function GET(request: NextRequest) {
       ? (sortParam as typeof validSorts[number])
       : undefined
 
+    const brandsParam = searchParams.get('brands')
+    const stockParam = searchParams.get('stock')
+
+    const brands = brandsParam
+      ? brandsParam.split('|').map((b) => b.trim()).filter(Boolean)
+      : []
+
+    const stockStatuses = stockParam
+      ? stockParam
+          .split('|')
+          .filter((s): s is 'in-stock' | 'on-order' => s === 'in-stock' || s === 'on-order')
+      : []
+
+    const minPrice = searchParams.get('minPrice')
+    const maxPrice = searchParams.get('maxPrice')
+    const vehicleIdParam = searchParams.get('vehicleId')
+
     const result = await getCategoryProducts({
       locale: searchParams.get('locale') || 'tr',
       slug: categorySlug,
       page,
       limit,
-      sort
+      sort,
+      brands,
+      stockStatuses,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      vehicleId: vehicleIdParam ? Number(vehicleIdParam) || null : null
     })
+
+    const durationMs = Number((performance.now() - t0).toFixed(2))
+
+    if (result.dataSource === 'category-not-found') {
+      console.error(
+        `[api/catalog] route=/api/catalog category=${categorySlug} source=category-not-found durationMs=${durationMs} error=Category not found`
+      )
+      return NextResponse.json(
+        {
+          error: {
+            code: 'CATEGORY_NOT_FOUND',
+            message: `Category not found for slug: ${categorySlug}`
+          }
+        },
+        { status: 404 }
+      )
+    }
+
+    console.log(
+      `[api/catalog] route=/api/catalog category=${categorySlug} source=${result.dataSource} durationMs=${durationMs} products=${result.products.length} totalEstimate=${result.totalEstimate}`
+    )
 
     return NextResponse.json(
       {
         source: 'catalog-compat',
         originalEndpoint: '/api/category-products',
         category: categorySlug,
-        note: 'This endpoint is a compatibility wrapper. For production use, prefer /api/category-products?slug=<slug> for category pages or /api/search for search.',
-        ...result
+        products: result.products,
+        hits: result.hits,
+        page: result.page,
+        limit: result.limit,
+        hasMore: result.hasMore,
+        totalHits: result.totalHits,
+        totalEstimate: result.totalEstimate,
+        facetDistribution: result.facetDistribution,
+        brandFacetDistribution: result.brandFacetDistribution,
+        stockFacetDistribution: result.stockFacetDistribution,
+        dataSource: result.dataSource,
+        durationMs: result.durationMs,
+        cached: result.cached ?? false,
+        liveFallbackUsed: result.liveFallbackUsed,
+        purchasableCount: result.purchasableCount,
+        outOfStockCount: result.outOfStockCount,
+        requestPriceCount: result.requestPriceCount,
+        verifyFitmentCount: result.verifyFitmentCount
       },
       {
         status: 200,
@@ -55,7 +116,10 @@ export async function GET(request: NextRequest) {
       }
     )
   } catch (error) {
-    console.error('[/api/catalog] Error:', error)
+    const durationMs = Number((performance.now() - t0).toFixed(2))
+    console.error(
+      `[api/catalog] route=/api/catalog category=${categorySlug} source=error durationMs=${durationMs} error=${error instanceof Error ? error.message : String(error)}`
+    )
     return NextResponse.json(
       {
         error: {
