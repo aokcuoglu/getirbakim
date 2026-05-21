@@ -162,12 +162,21 @@ export function DinamikParcaTedarikModelMatchingClient() {
       params.set('limit', String(f.limit))
 
       const res = await fetch(`/api/admin/supplier-matching/dinamik-parcatedarik?${params}`)
+
+      if (!res.ok) {
+        toast.error(`Eşleşmeler yüklenemedi (${res.status})`)
+        setLoading(false)
+        return
+      }
+
       const data = await res.json()
 
-      if (data.data) {
-        setMatches(data.data.rows || [])
-        setPagination(data.data.pagination || { page: 1, limit: 20, total: 0, pages: 1 })
-        setSummary(data.data.summary || null)
+      if (!data.error) {
+        setMatches(data.rows || [])
+        setPagination(data.pagination || { page: 1, limit: 20, total: 0, pages: 1 })
+        setSummary(data.summary || null)
+      } else {
+        toast.error(data.error?.message || 'Eşleşmeler yüklenemedi')
       }
     } catch (err) {
       console.error('Failed to load matches:', err)
@@ -195,12 +204,12 @@ export function DinamikParcaTedarikModelMatchingClient() {
         headers: { 'Content-Type': 'application/json' }
       })
       const data = await res.json()
-      if (data.data) {
+      if (!data.error) {
         toast.success(`Eşleşme ${action === 'approve' ? 'onaylandı' : action === 'reject' ? 'reddedildi' : action === 'ignore' ? 'yoksayıldı' : 'güncellendi'}`)
-        if (data.data.partCandidates > 0) {
-          toast.info(`${data.data.partCandidates} parça adayı bulundu`)
+        if (data.partCandidates > 0) {
+          toast.info(`${data.partCandidates} parça adayı bulundu`)
         }
-        if (data.data.action === 'needs_review') {
+        if (data.action === 'needs_review') {
           toast.warning('Birden fazla parça adayı bulundu - manuel inceleme gerekli')
         }
         void loadMatches(filtersRef.current)
@@ -228,8 +237,8 @@ export function DinamikParcaTedarikModelMatchingClient() {
           })
         })
         const data = await res.json()
-        if (data.data) {
-          toast.success(`${data.data.updatedCount} eşleşme onaylandı`)
+        if (!data.error) {
+          toast.success(`${data.updatedCount} eşleşme onaylandı`)
           setSelectedIds(new Set())
           void loadMatches(filtersRef.current)
         } else {
