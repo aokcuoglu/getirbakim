@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(
-      `[api/catalog] route=/api/catalog category=${categorySlug} source=${result.dataSource} durationMs=${durationMs} products=${result.products.length} totalEstimate=${result.totalEstimate}`
+      `[api/catalog] route=/api/catalog category=${categorySlug} source=${result.dataSource} durationMs=${durationMs} products=${result.products.length} totalHits=${result.totalHits} totalEstimate=${result.totalEstimate} fallbackReason=${result.fallbackReason ?? 'none'}`
     )
 
     return NextResponse.json(
@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
         durationMs: result.durationMs,
         cached: result.cached ?? false,
         liveFallbackUsed: result.liveFallbackUsed,
+        fallbackReason: result.fallbackReason,
         purchasableCount: result.purchasableCount,
         outOfStockCount: result.outOfStockCount,
         requestPriceCount: result.requestPriceCount,

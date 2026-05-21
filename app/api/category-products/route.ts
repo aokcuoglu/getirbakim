@@ -86,7 +86,11 @@ export async function GET(request: NextRequest) {
 
     if (result.durationMs > 1000) {
       console.warn(
-        `[category-products] route=/api/category-products slug=${slug} duration=${result.durationMs}ms source=${result.dataSource} products=${result.products.length} totalEstimate=${result.totalEstimate}`
+        `[category-products] route=/api/category-products slug=${slug} duration=${result.durationMs}ms source=${result.dataSource} products=${result.products.length} totalHits=${result.totalHits} totalEstimate=${result.totalEstimate} fallbackReason=${result.fallbackReason ?? 'none'}`
+      )
+    } else {
+      console.log(
+        `[category-products] route=/api/category-products slug=${slug} source=${result.dataSource} durationMs=${result.durationMs} products=${result.products.length} totalHits=${result.totalHits} totalEstimate=${result.totalEstimate} fallbackReason=${result.fallbackReason ?? 'none'}`
       )
     }
 
@@ -106,6 +110,7 @@ export async function GET(request: NextRequest) {
         durationMs: result.durationMs,
         cached: result.cached,
         liveFallbackUsed: result.liveFallbackUsed,
+        fallbackReason: result.fallbackReason,
         purchasableCount: result.purchasableCount,
         outOfStockCount: result.outOfStockCount,
         requestPriceCount: result.requestPriceCount,

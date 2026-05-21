@@ -15,6 +15,8 @@ type CategoryProductsMeiliInput = {
   locale: string
   categorySlug?: string | null
   categoryId?: number | null
+  searchIds?: number[]
+  categoryName?: string | null
   page: number
   limit: number
   brands?: string[]
@@ -32,7 +34,7 @@ type CategoryProductsMeiliResult = {
   totalEstimate: number
   brandFacetDistribution: Record<string, number>
   stockFacetDistribution: { 'in-stock': number; 'on-order': number }
-  dataSource: 'meilisearch-category-products'
+  dataSource: 'meilisearch-category-products' | 'meilisearch-category-name-fallback'
   durationMs: number
   cached: false
 }
@@ -46,7 +48,12 @@ export async function searchCategoryProductsWithMeili(
   const index = client.index(indexName)
 
   const filterParts: string[] = []
-  filterParts.push(`categorySlug = "${input.categorySlug}"`)
+  if (input.searchIds && input.searchIds.length > 0) {
+    const idList = input.searchIds.join(', ')
+    filterParts.push(`categoryId IN [${idList}]`)
+  } else if (input.categorySlug) {
+    filterParts.push(`categorySlug = "${input.categorySlug}"`)
+  }
   filterParts.push(`documentType IN ["canonical_part", "supplier_offer", "orphan_supplier_product"]`)
 
   if (input.brands && input.brands.length > 0) {
@@ -220,5 +227,97 @@ function getMeiliCategorySort(sort?: string): string[] {
       return ['rankScore:desc']
     default:
       return ['rankScore:desc']
+  }
+}
+
+export async function searchCategoryByNameFallback(
+  client: MeiliSearch,
+  indexName: string,
+  input: CategoryProductsMeiliInput & { categoryName: string }
+): Promise<CategoryProductsMeiliResult> {
+  const startMs = performance.now()
+  const index = client.index(indexName)
+
+  const filterParts: string[] = []
+  filterParts.push(`documentType IN ["canonical_part", "supplier_offer", "orphan_supplier_product"]`)
+
+  if (input.brands && input.brands.length > 0) {
+    const brandFilter = input.brands.map((b) => `"${b}"`).join(', ')
+    filterParts.push(`brand IN [${brandFilter}]`)
+  }
+
+  if (input.stockStatuses && input.stockStatuses.length > 0) {
+    const stockConditions: string[] = []
+    if (input.stockStatuses.includes('in-stock')) {
+      stockConditions.push('hasStock = true')
+    }
+    if (input.stockStatuses.includes('on-order')) {
+      stockConditions.push('hasStock = false')
+    }
+    if (stockConditions.length > 0) {
+      filterParts.push(`(${stockConditions.join(' OR ')})`)
+    }
+  }
+
+  if (input.minPrice !== undefined && Number.isFinite(input.minPrice)) {
+    filterParts.push(`price >= ${input.minPrice}`)
+  }
+  if (input.maxPrice !== undefined && Number.isFinite(input.maxPrice)) {
+    filterParts.push(`price <= ${input.maxPrice}`)
+  }
+
+  const meiliFilter = filterParts.join(' AND ')
+  const meiliSort = getMeiliCategorySort(input.sort)
+  const offset = (input.page - 1) * input.limit
+  const safeLimit = Math.min(input.limit, 48)
+
+  const searchResults = await index.search(input.categoryName, {
+    filter: meiliFilter,
+    limit: safeLimit,
+    offset,
+    sort: meiliSort.length > 0 ? meiliSort : undefined,
+    facets: ['brand', 'availabilityStatus']
+  })
+
+  const durationMs = Number((performance.now() - startMs).toFixed(2))
+
+  const hits = searchResults.hits as unknown as SearchDocument[]
+  const products = mapMeiliDocsToSearchHits(hits)
+
+  const brandFacetDistribution: Record<string, number> = {}
+  if (searchResults.facetDistribution?.brand) {
+    for (const [brandName, count] of Object.entries(searchResults.facetDistribution.brand)) {
+      if (brandName && count > 0) {
+        brandFacetDistribution[brandName] = count
+      }
+    }
+  }
+
+  let inStockCount = 0
+  let onOrderCount = 0
+  if (searchResults.facetDistribution?.availabilityStatus) {
+    for (const [status, count] of Object.entries(searchResults.facetDistribution.availabilityStatus)) {
+      if (status === 'PURCHASABLE' || status === 'OUT_OF_STOCK') {
+        inStockCount += count
+      } else {
+        onOrderCount += count
+      }
+    }
+  }
+
+  const totalEstimate = searchResults.estimatedTotalHits ?? products.length
+  const hasMore = totalEstimate > offset + safeLimit
+
+  return {
+    products,
+    page: input.page,
+    limit: safeLimit,
+    hasMore,
+    totalEstimate,
+    brandFacetDistribution,
+    stockFacetDistribution: { 'in-stock': inStockCount, 'on-order': onOrderCount },
+    dataSource: 'meilisearch-category-name-fallback',
+    durationMs,
+    cached: false
   }
 }
