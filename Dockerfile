@@ -1,5 +1,5 @@
 # Stage 1: Install dependencies
-FROM oven/bun:1 AS deps
+FROM oven/bun:1.2 AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -8,7 +8,7 @@ RUN bun install --frozen-lockfile
 RUN bunx prisma generate
 
 # Stage 2: Build the application
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.2 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -53,7 +53,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1.2 /usr/local/bin/bun /usr/local/bin/bun
 RUN chmod +x /usr/local/bin/bun
 RUN npm install --os=linux --cpu=x64 sharp
 ENV NEXT_SHARP_PATH=/app/node_modules/sharp
