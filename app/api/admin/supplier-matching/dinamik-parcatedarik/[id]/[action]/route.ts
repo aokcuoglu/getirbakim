@@ -8,6 +8,7 @@ import {
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { resolveParcatedarikToParts } from '@/lib/matching/parcatedarik-to-parts-resolver'
+import { applyPolicyForPart } from '@/lib/suppliers/sync-dinamik'
 
 async function getMatchId(request: NextRequest): Promise<bigint | null> {
   const url = new URL(request.url)
@@ -126,20 +127,32 @@ export async function POST(request: NextRequest) {
               }
             })
 
-            let supplierProductId = supplierProduct?.id ?? null
+            if (!supplierProduct) {
+              return successResponse({
+                id: matchId.toString(),
+                action: 'approved',
+                partCandidates: partCandidates.candidates.length,
+                refNo,
+                warning: 'No supplier_products row found for this Dinamik product. Mapping and offer were not created. Run Dinamik sync first.'
+              }, context)
+            }
 
             const matchReason = `DINAMIK_BARCODE_PARCA_MODEL_TO_PART:${candidate.matchType}`
+
+            const offerPrice = supplierProduct.supplier_price ?? (dp.price ? new Prisma.Decimal(dp.price) : null)
+            const offerStockQty = supplierProduct.supplier_stock_qty ?? 0
+            const offerCurrency = supplierProduct.currency || 'TRY'
 
             await db.supplier_part_mappings.upsert({
               where: {
                 provider_id_supplier_product_id: {
                   provider_id: dinamikProvider.id,
-                  supplier_product_id: supplierProductId || 0
+                  supplier_product_id: supplierProduct.id
                 }
               },
               create: {
                 provider_id: dinamikProvider.id,
-                supplier_product_id: supplierProductId || 0,
+                supplier_product_id: supplierProduct.id,
                 supplier_sku: dp.stock_code,
                 part_id: candidate.partId,
                 status: 'CANDIDATE',
@@ -156,29 +169,36 @@ export async function POST(request: NextRequest) {
               }
             })
 
-            if (supplierProduct) {
-              await db.part_supplier_offers.upsert({
-                where: {
-                  provider_id_supplier_product_id: {
-                    provider_id: dinamikProvider.id,
-                    supplier_product_id: supplierProduct.id
-                  }
-                },
-                create: {
+            await db.part_supplier_offers.upsert({
+              where: {
+                provider_id_supplier_product_id: {
                   provider_id: dinamikProvider.id,
-                  supplier_product_id: supplierProduct.id,
-                  part_id: candidate.partId,
-                  supplier_price: dp.price ? new Prisma.Decimal(dp.price) : null,
-                  supplier_stock_qty: 0,
-                  is_active: true
-                },
-                update: {
-                  part_id: candidate.partId,
-                  supplier_price: dp.price ? new Prisma.Decimal(dp.price) : null,
-                  is_active: true,
-                  updated_at: new Date()
+                  supplier_product_id: supplierProduct.id
                 }
-              })
+              },
+              create: {
+                provider_id: dinamikProvider.id,
+                supplier_product_id: supplierProduct.id,
+                part_id: candidate.partId,
+                supplier_price: offerPrice,
+                supplier_stock_qty: offerStockQty,
+                currency: offerCurrency,
+                is_active: true
+              },
+              update: {
+                part_id: candidate.partId,
+                supplier_price: offerPrice,
+                supplier_stock_qty: offerStockQty,
+                currency: offerCurrency,
+                is_active: true,
+                updated_at: new Date()
+              }
+            })
+
+            try {
+              await applyPolicyForPart(candidate.partId)
+            } catch (policyError) {
+              console.error(`Error applying pricing policy for part ${candidate.partId}:`, policyError)
             }
           }
         }

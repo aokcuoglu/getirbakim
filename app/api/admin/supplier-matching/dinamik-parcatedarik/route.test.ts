@@ -13,7 +13,7 @@ describe('dinamik-parcatedarik list API serializeRow', () => {
   const serializeRow = (row: Record<string, unknown>) => ({
     id: String(row.id),
     dinamikProductId: String(row.dinamik_product_id),
-    parcatedarikProductId: Number(row.parcatedarik_product_id),
+    parcatedarikProductId: String(row.parcatedarik_product_id),
     dinamikBarcodeField: row.dinamik_barcode_field as string,
     dinamikBarcodeValue: row.dinamik_barcode_value as string,
     normalizedBarcodeValue: row.normalized_barcode_value as string,
@@ -85,7 +85,7 @@ describe('dinamik-parcatedarik list API serializeRow', () => {
     expect(typeof result.dinamikProductId).toBe('string')
   })
 
-  it('converts BigInt parcatedarik_product_id to number', () => {
+  it('converts BigInt parcatedarik_product_id to string', () => {
     const row = {
       id: BigInt(1),
       dinamik_product_id: BigInt(1),
@@ -119,8 +119,8 @@ describe('dinamik-parcatedarik list API serializeRow', () => {
 
     const result = serializeRow(row)
 
-    expect(result.parcatedarikProductId).toBe(4835)
-    expect(typeof result.parcatedarikProductId).toBe('number')
+    expect(result.parcatedarikProductId).toBe('4835')
+    expect(typeof result.parcatedarikProductId).toBe('string')
   })
 
   it('converts Decimal price to string', () => {
@@ -243,7 +243,8 @@ describe('dinamik-parcatedarik list API serializeRow', () => {
     const parsed = JSON.parse(json!)
     expect(parsed.id).toBe('42')
     expect(parsed.dinamikProductId).toBe('13')
-    expect(parsed.parcatedarikProductId).toBe(4835)
+    expect(parsed.parcatedarikProductId).toBe('4835')
+    expect(typeof parsed.parcatedarikProductId).toBe('string')
     expect(parsed.dinamik.price).toBe('778.87')
     expect(parsed.confidence).toBe(0.97)
   })

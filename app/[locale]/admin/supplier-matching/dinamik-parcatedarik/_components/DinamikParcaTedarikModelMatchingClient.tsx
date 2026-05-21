@@ -49,7 +49,7 @@ type MatchReason =
 interface MatchRow {
   id: string
   dinamikProductId: string
-  parcatedarikProductId: number
+  parcatedarikProductId: string
   dinamikBarcodeField: string
   dinamikBarcodeValue: string
   normalizedBarcodeValue: string

@@ -190,7 +190,7 @@ export async function GET(request: NextRequest) {
     const serializeRow = (row: typeof rows[number]) => ({
       id: row.id.toString(),
       dinamikProductId: row.dinamik_product_id.toString(),
-      parcatedarikProductId: Number(row.parcatedarik_product_id),
+      parcatedarikProductId: row.parcatedarik_product_id.toString(),
       dinamikBarcodeField: row.dinamik_barcode_field,
       dinamikBarcodeValue: row.dinamik_barcode_value,
       normalizedBarcodeValue: row.normalized_barcode_value,

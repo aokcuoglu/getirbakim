@@ -95,9 +95,18 @@ APPLY=true LIMIT=500 bun scripts/generate-dinamik-parcatedarik-model-matches.ts
 When a match is APPROVED:
 1. Resolve ParçaTedarik `ref_no` tokens to `public.parts`
 2. If exactly one confident part candidate:
-   - Create/update `supplier_part_mappings` with `match_reason = DINAMIK_BARCODE_PARCA_MODEL_TO_PART`
-   - Create/update `part_supplier_offers` with Dinamik price/stock
+   - Look up the Dinamik `supplier_products` row by `stock_code`
+   - If `supplier_products` row exists:
+     - Create/update `supplier_part_mappings` with `match_reason = DINAMIK_BARCODE_PARCA_MODEL_TO_PART`
+     - Create/update `part_supplier_offers` with:
+       - `supplier_price` from `supplier_products.supplier_price` (fallback to `dinamik.products.price`)
+       - `supplier_stock_qty` from `supplier_products.supplier_stock_qty`
+       - `currency` from `supplier_products.currency` (fallback to `TRY`)
+     - Call `applyPolicyForPart()` to update `part_pricing_inventory`
+   - If no `supplier_products` row exists: return warning, skip mapping/offer creation
 3. If ambiguous → set status to `NEEDS_REVIEW`
+
+**Important**: The approve action propagates stock and price from `supplier_products` (which is synced by the Dinamik sync job). If the Dinamik sync has not run, `supplier_products.supplier_stock_qty` may be 0 or stale.
 
 ## Match Status Values
 
@@ -176,3 +185,30 @@ MEILI_REINDEX_INCLUDE_FITMENT=false bun run search:reindex
 ```
 
 Canonical `public.parts` should gain Dinamik supplier offers when mapped. Search results remain canonical parts, not duplicated Dinamik rows.
+
+## Backfill Approved Match Offer Stock
+
+Existing APPROVED matches created before the stock propagation fix may have `part_supplier_offers.supplier_stock_qty = 0`. To fix:
+
+```bash
+# Dry run (default, no writes):
+DRY_RUN=true bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
+
+# Apply with limit:
+APPLY=true LIMIT=5 bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
+
+# Apply to specific match:
+APPLY=true MATCH_ID=123 bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
+
+# Full apply (use with caution):
+APPLY=true bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
+```
+
+The backfill script:
+1. Finds APPROVED matches with `part_supplier_offers.supplier_stock_qty = 0`
+2. Reads `supplier_products.supplier_stock_qty` and `supplier_price` for the matching Dinamik product
+3. Updates `part_supplier_offers` with correct stock/price/currency
+4. Calls `applyPolicyForPart()` to refresh `part_pricing_inventory`
+5. Reports statistics on scanned/found/updated/missing records
+
+After backfill, run Meilisearch reindex if needed.
