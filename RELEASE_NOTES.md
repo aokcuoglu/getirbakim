@@ -1,5 +1,31 @@
 # Release Notes
 
+## v0.3.7 - Fix Dockerfile for Prisma Config + Align Build Metadata Policy
+
+### Fix: Dockerfile DATABASE_URL for prisma.config.ts
+
+The deps stage was missing `DATABASE_URL`, causing `prisma generate` to fail when `prisma.config.ts` references environment variables. Both deps and builder stages now include a dummy `DATABASE_URL`.
+
+### Fix: Node.js 22 builder/runner (no Bun for next build)
+
+Previous versions attempted to run `next build` with Bun, which caused SWC/N-API SIGILL crashes on the VPS. The builder and runner stages now use `node:22` and `node:22-slim` respectively. Bun is still used for `bun install` in the deps stage and copied to the runner for operational scripts only.
+
+### Build Version Metadata Alignment
+
+- **Root cause of v0.3.8 footer mismatch:** Production footer showed `v0.3.8` because a manual deploy set `NEXT_PUBLIC_BUILD_VERSION=v0.3.8` without a corresponding git tag. The deployed code was identical to v0.3.7. No v0.3.8 tag exists or should be created.
+- **Client footer** reads `process.env.NEXT_PUBLIC_BUILD_VERSION` which is inlined at `next build` time (client component). Changing `.env.production` after build has no effect on the footer.
+- **`/api/health`** reads `process.env.NEXT_PUBLIC_BUILD_VERSION` at runtime (server-side).
+- **Policy fix:** `NEXT_PUBLIC_BUILD_VERSION` must NOT exist in `.env.production`. It is injected by `scripts/vps-deploy.sh` or GitHub Actions at Docker build time.
+- **`.env.example`** updated to v0.3.7 with comment explaining it is a reference only.
+
+### Docker Build Baseline
+
+- Stage 1 (deps): `oven/bun:1` — `bun install`, `bunx prisma generate`
+- Stage 2 (builder): `node:22` — `npx next build`
+- Stage 3 (runner): `node:22-slim` — `CMD ["node", "server.js"]`
+- `NEXT_PUBLIC_BUILD_VERSION` is a build ARG (Dockerfile:31) and runtime ENV (Dockerfile:42)
+- Dummy `DATABASE_URL` in deps (Dockerfile:9) and builder (Dockerfile:47)
+
 ## v0.3.2 - Fix Production 502 on Compat API Routes, Expand Response Contract
 
 ### Bug Fix: Production 502 on /api/products and /api/catalog

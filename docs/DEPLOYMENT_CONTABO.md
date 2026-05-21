@@ -332,11 +332,42 @@ NEXT_PUBLIC_BUILD_VERSION=v0.1.0 docker compose --env-file .env.production up -d
 ## 10. Backup / Environment Strategy
 
 - **`.env.production`** is the single source of truth for production config (secrets, URLs, keys).
-- **`NEXT_PUBLIC_BUILD_VERSION`** should NOT be in `.env.production`. It is injected by the deploy script or GitHub Actions at build time.
+- **`NEXT_PUBLIC_BUILD_VERSION`** must NOT be in `.env.production`. It is injected by the deploy script or GitHub Actions at Docker build time. If it leaks into `.env.production`, both the footer and `/api/health` will report a stale or incorrect version.
 - Keep a backup of `.env.production` in a secure location (not in the repo).
 - Document all env var changes in `docs/ENVIRONMENT.md`.
 - Use git tags for release tracking: `git tag v0.1.5`.
 - Database backups are managed by Supabase — verify their backup schedule.
+
+### Build Version Policy
+
+The build version (`NEXT_PUBLIC_BUILD_VERSION`) determines what appears in the site footer and `/api/health`.
+
+**Source of truth:** Git tags. The version displayed must always correspond to a real git tag.
+
+**How it flows:**
+1. `scripts/vps-deploy.sh` derives `DEPLOY_VERSION` from: `NEXT_PUBLIC_BUILD_VERSION` env var > `GITHUB_REF_NAME` > `VERSION` > git tag > short SHA > "dev"
+2. This version is passed as a Docker build ARG (`-e NEXT_PUBLIC_BUILD_VERSION=...`)
+3. `next build` inlines `NEXT_PUBLIC_BUILD_VERSION` into the client bundle (footer) at build time
+4. The same value is also set as a runtime `ENV` in the Docker runner stage (for `/api/health`)
+
+**Common pitfalls:**
+- If `NEXT_PUBLIC_BUILD_VERSION` is set in `.env.production`, the footer will show whatever was baked in at build time, not the `.env.production` value (because client components inline at build time). However, `/api/health` would read stale runtime env.
+- If you deploy manually without setting `NEXT_PUBLIC_BUILD_VERSION`, the version falls back to the current git tag or short SHA.
+- If you deploy via GitHub Actions `workflow_dispatch` with a custom version that differs from the git tag, the footer will show the custom version, not the tag. This is how v0.3.8 appeared in production — a manual deploy set the version env var to v0.3.8 without a corresponding git tag.
+
+**To fix a version mismatch:**
+1. Remove `NEXT_PUBLIC_BUILD_VERSION` from `.env.production` on VPS
+2. Rebuild Docker image with the correct tag version: `NEXT_PUBLIC_BUILD_VERSION=v0.3.7 docker compose --env-file .env.production up -d --build`
+3. Verify: `curl -s http://127.0.0.1:3000/api/health | jq .version`
+
+**Docker build baseline (v0.3.7):**
+- Stage 1 (`deps`): `oven/bun:1` — `bun install` only, never used for `next build`
+- Stage 2 (`builder`): `node:22` — `npx next build`
+- Stage 3 (`runner`): `node:22-slim` — `CMD ["node", "server.js"]`
+- Bun binary is copied to runner for operational scripts only (reindex, etc.)
+- `prisma.config.ts` COPY is required in deps stage (Dockerfile:7)
+- Dummy `DATABASE_URL` is required in both deps (Dockerfile:9) and builder (Dockerfile:47) stages
+- `NEXT_PUBLIC_BUILD_VERSION` is a build ARG and runtime ENV
 
 ## 11. Firewall
 

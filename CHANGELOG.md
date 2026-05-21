@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.7] - 2026-05-21
+
+### Fixed
+- Dockerfile: add `DATABASE_URL` in deps stage for `prisma.config.ts` resolution during `bun install && bunx prisma generate`
+- Dockerfile: use `node:22` for builder and runner stages to avoid Bun SWC/N-API SIGILL crashes on VPS
+
+### Changed
+- Build version policy: `NEXT_PUBLIC_BUILD_VERSION` must NOT be set in `.env.production` — it is injected at Docker build time only
+- `.env.example` updated to reference v0.3.7 with policy comment
+- Removed stale `NEXT_PUBLIC_BUILD_VERSION=v0.3.0-stage.4` from local `.env.production` and `.env`
+- Documented that footer version (client-side `NEXT_PUBLIC_BUILD_VERSION`) is inlined at `next build` time, not read from runtime env
+
+### Note
+- v0.3.8 appeared in production footer due to a manual deploy with `NEXT_PUBLIC_BUILD_VERSION=v0.3.8` without a corresponding git tag. The deployed code was identical to v0.3.7. No v0.3.8 tag should be created — the true release is v0.3.7.
+
 ## [0.3.2] - 2026-05-21
 
 ### Fixed
