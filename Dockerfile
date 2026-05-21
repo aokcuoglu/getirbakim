@@ -5,6 +5,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY prisma/schema.prisma prisma/schema.prisma
 COPY prisma.config.ts prisma.config.ts
+
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+
 RUN bun install --frozen-lockfile
 RUN bunx prisma generate
 
