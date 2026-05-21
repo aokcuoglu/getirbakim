@@ -80,6 +80,7 @@ COPY --from=builder /app/lib/search/search-document-types.ts /app/lib/search/sea
 COPY --from=builder /app/lib/search/search-synonyms.ts /app/lib/search/search-synonyms.ts
 COPY --from=builder /app/lib/search/availability.ts /app/lib/search/availability.ts
 COPY --from=builder /app/lib/pricing/public-pricing.ts /app/lib/pricing/public-pricing.ts
+COPY --from=builder /app/lib/pricing/calculate-selling-price.ts /app/lib/pricing/calculate-selling-price.ts
 COPY --from=builder /app/lib/db.ts /app/lib/db.ts
 COPY --from=builder /app/prisma/schema.prisma /app/prisma/schema.prisma
 COPY --from=builder /app/package.json /app/package.json
