@@ -1,14 +1,15 @@
 # Stage 1: Install dependencies
-FROM oven/bun:1.2 AS deps
+FROM oven/bun:1 AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
 COPY prisma/schema.prisma prisma/schema.prisma
+COPY prisma.config.ts prisma.config.ts
 RUN bun install --frozen-lockfile
 RUN bunx prisma generate
 
-# Stage 2: Build the application
-FROM oven/bun:1.2 AS builder
+# Stage 2: Build the application (Node.js for native SWC/N-API compatibility)
+FROM node:22 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -42,7 +43,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Dummy DATABASE_URL for build-time page data collection (not used for actual queries)
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 
-RUN bun run next build
+RUN npx next build
 
 # Stage 3: Production runner
 FROM node:22-slim AS runner
@@ -53,7 +54,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-COPY --from=oven/bun:1.2 /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
 RUN chmod +x /usr/local/bin/bun
 RUN npm install --os=linux --cpu=x64 sharp
 ENV NEXT_SHARP_PATH=/app/node_modules/sharp
