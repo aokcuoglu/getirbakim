@@ -9,6 +9,51 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { resolveParcatedarikToParts } from '@/lib/matching/parcatedarik-to-parts-resolver'
 
+const VALID_STATUSES = ['CANDIDATE', 'APPROVED', 'REJECTED', 'NEEDS_REVIEW', 'IGNORED'] as const
+const VALID_BARCODE_FIELDS = ['barcode_1', 'barcode_2', 'barcode_3'] as const
+const VALID_MATCH_REASONS = [
+  'BARCODE_1_MODEL_EXACT',
+  'BARCODE_2_MODEL_EXACT',
+  'BARCODE_3_MODEL_EXACT',
+  'MULTIPLE_PARCA_MODEL_MATCHES'
+] as const
+
+function buildWhereClause(filters: {
+  status?: string
+  barcodeField?: string
+  matchReason?: string
+  confidenceMin?: number
+  confidenceMax?: number
+  dinamikBarcode?: string
+}): Prisma.Sql {
+  const conditions: Prisma.Sql[] = []
+
+  if (filters.status) {
+    conditions.push(Prisma.sql`m.status = ${filters.status}`)
+  }
+  if (filters.barcodeField) {
+    conditions.push(Prisma.sql`m.dinamik_barcode_field = ${filters.barcodeField}`)
+  }
+  if (filters.matchReason) {
+    conditions.push(Prisma.sql`m.match_reason = ${filters.matchReason}`)
+  }
+  if (filters.confidenceMin !== undefined && !isNaN(filters.confidenceMin)) {
+    conditions.push(Prisma.sql`m.confidence >= ${filters.confidenceMin}`)
+  }
+  if (filters.confidenceMax !== undefined && !isNaN(filters.confidenceMax)) {
+    conditions.push(Prisma.sql`m.confidence <= ${filters.confidenceMax}`)
+  }
+  if (filters.dinamikBarcode) {
+    conditions.push(Prisma.sql`m.normalized_barcode_value ILIKE ${'%' + filters.dinamikBarcode + '%'}`)
+  }
+
+  if (conditions.length === 0) {
+    return Prisma.sql`1=1`
+  }
+
+  return Prisma.sql`(${Prisma.join(conditions, ' AND ')})`
+}
+
 export async function GET(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
     keyPrefix: 'api:admin:dpmm:list',
@@ -27,27 +72,40 @@ export async function GET(request: NextRequest) {
 
   try {
     const params = request.nextUrl.searchParams
-    const status = params.get('status') || undefined
-    const barcodeField = params.get('barcode_field') || undefined
+    const rawStatus = params.get('status') || undefined
+    const rawBarcodeField = params.get('barcode_field') || undefined
+    const rawMatchReason = params.get('match_reason') || undefined
     const confidenceMin = params.get('confidence_min') ? parseFloat(params.get('confidence_min')!) : undefined
     const confidenceMax = params.get('confidence_max') ? parseFloat(params.get('confidence_max')!) : undefined
-    const dinamikBarcode = params.get('dinamik_barcode') || undefined
-    const matchReason = params.get('match_reason') || undefined
+    const rawDinamikBarcode = params.get('dinamik_barcode') || undefined
     const page = Math.max(1, parseInt(params.get('page') || '1', 10))
     const limit = Math.min(100, Math.max(1, parseInt(params.get('limit') || '20', 10)))
     const offset = (page - 1) * limit
 
-    const whereParts: string[] = ['1=1']
-    if (status) whereParts.push(`m.status = '${status.replace(/'/g, "''")}'`)
-    if (barcodeField) whereParts.push(`m.dinamik_barcode_field = '${barcodeField.replace(/'/g, "''")}'`)
-    if (matchReason) whereParts.push(`m.match_reason = '${matchReason.replace(/'/g, "''")}'`)
-    if (confidenceMin !== undefined) whereParts.push(`m.confidence >= ${confidenceMin}`)
-    if (confidenceMax !== undefined) whereParts.push(`m.confidence <= ${confidenceMax}`)
-    if (dinamikBarcode) whereParts.push(`m.normalized_barcode_value ILIKE '%${dinamikBarcode.replace(/'/g, "''")}%'`)
-    const whereClause = whereParts.join(' AND ')
+    const status = rawStatus && VALID_STATUSES.includes(rawStatus as typeof VALID_STATUSES[number])
+      ? rawStatus
+      : undefined
+    const barcodeField = rawBarcodeField && VALID_BARCODE_FIELDS.includes(rawBarcodeField as typeof VALID_BARCODE_FIELDS[number])
+      ? rawBarcodeField
+      : undefined
+    const matchReason = rawMatchReason && VALID_MATCH_REASONS.includes(rawMatchReason as typeof VALID_MATCH_REASONS[number])
+      ? rawMatchReason
+      : undefined
+    const dinamikBarcode = rawDinamikBarcode
+      ? rawDinamikBarcode.replace(/[%_\\]/g, '\\$&')
+      : undefined
+
+    const whereClause = buildWhereClause({
+      status,
+      barcodeField,
+      matchReason,
+      confidenceMin,
+      confidenceMax,
+      dinamikBarcode
+    })
 
     const countResult = await db.$queryRaw<[{ count: bigint }]>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM public.dinamik_parcatedarik_model_matches m WHERE ${Prisma.raw(whereClause)}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM public.dinamik_parcatedarik_model_matches m WHERE ${whereClause}`
     )
     const total = Number(countResult[0].count)
 
@@ -55,14 +113,14 @@ export async function GET(request: NextRequest) {
       Array<{
         id: bigint
         dinamik_product_id: bigint
-        parcatedarik_product_id: number
+        parcatedarik_product_id: bigint
         dinamik_barcode_field: string
         dinamik_barcode_value: string
         normalized_barcode_value: string
         parcatedarik_model: string
         normalized_model: string
         match_reason: string
-        confidence: number
+        confidence: bigint
         status: string
         review_note: string | null
         approved_by: string | null
@@ -78,9 +136,9 @@ export async function GET(request: NextRequest) {
         dinamik_barcode_1: string | null
         dinamik_barcode_2: string | null
         dinamik_barcode_3: string | null
-        parcatedarik_title: string
+        parcatedarik_title: string | null
         parcatedarik_ref_no: string | null
-        parcatedarik_manufacturer_name: string
+        parcatedarik_manufacturer_name: string | null
       }>
     >(Prisma.sql`
       SELECT
@@ -99,7 +157,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN dinamik.products d ON d.id = m.dinamik_product_id
       LEFT JOIN parcatedarik.product pt ON pt.id = m.parcatedarik_product_id
       LEFT JOIN parcatedarik.manufacturer mfr ON mfr.id = pt.manufacturer_id
-      WHERE ${Prisma.raw(whereClause)}
+      WHERE ${whereClause}
       ORDER BY m.confidence DESC, m.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `)
@@ -132,7 +190,7 @@ export async function GET(request: NextRequest) {
     const serializeRow = (row: typeof rows[number]) => ({
       id: row.id.toString(),
       dinamikProductId: row.dinamik_product_id.toString(),
-      parcatedarikProductId: row.parcatedarik_product_id,
+      parcatedarikProductId: Number(row.parcatedarik_product_id),
       dinamikBarcodeField: row.dinamik_barcode_field,
       dinamikBarcodeValue: row.dinamik_barcode_value,
       normalizedBarcodeValue: row.normalized_barcode_value,
@@ -152,7 +210,7 @@ export async function GET(request: NextRequest) {
         stockCode: row.dinamik_stock_code,
         stockName: row.dinamik_stock_name,
         brand: row.dinamik_brand,
-        price: row.dinamik_price,
+        price: row.dinamik_price ? String(row.dinamik_price) : null,
         barcode1: row.dinamik_barcode_1,
         barcode2: row.dinamik_barcode_2,
         barcode3: row.dinamik_barcode_3
