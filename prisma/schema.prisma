@@ -608,6 +608,37 @@ model supplier_sync_runs {
   @@schema("public")
 }
 
+model dinamik_parcatedarik_model_matches {
+  id                      BigInt              @id @default(autoincrement())
+  dinamik_product_id      BigInt
+  parcatedarik_product_id BigInt
+  dinamik_barcode_field   String
+  dinamik_barcode_value   String
+  normalized_barcode_value String
+  parcatedarik_model      String
+  normalized_model        String
+  match_reason            String
+  confidence              Decimal             @db.Decimal(5, 4) @default(0.9500)
+  status                  String              @default("CANDIDATE")
+  review_note             String?
+  approved_by             String?
+  approved_at             DateTime?           @db.Timestamp(6)
+  rejected_by             String?
+  rejected_at             DateTime?           @db.Timestamp(6)
+  created_at              DateTime            @default(now()) @db.Timestamp(6)
+  updated_at              DateTime            @updatedAt @db.Timestamp(6)
+
+  @@unique([dinamik_product_id, parcatedarik_product_id, dinamik_barcode_field, normalized_barcode_value], name: "dpmm_unique_match")
+  @@index([status], name: "dpmm_status")
+  @@index([dinamik_product_id], name: "dpmm_dinamik_product_id")
+  @@index([parcatedarik_product_id], name: "dpmm_parcatedarik_product_id")
+  @@index([normalized_barcode_value], name: "dpmm_normalized_barcode_value")
+  @@index([normalized_model], name: "dpmm_normalized_model")
+  @@index([match_reason], name: "dpmm_match_reason")
+  @@index([confidence], name: "dpmm_confidence")
+  @@schema("public")
+}
+
 model user_vehicles {
   id           Int       @id @default(autoincrement())
   user_id      String
@@ -955,6 +986,10 @@ model product {
   url             String        @unique
   image_url       String?
   ref_no          String?       // Referans numaraları (virgülle ayrılmış)
+  model           String?
+  normalized_model String?
+  model_imported_at DateTime?   @db.Timestamp(6)
+  model_source    String?
   price           Decimal?      @db.Decimal(10, 2)
   created_at      DateTime?     @default(now()) @db.Timestamp(6)
   updated_at      DateTime?     @default(now()) @db.Timestamp(6)
@@ -964,6 +999,8 @@ model product {
 
   @@index([manufacturer_id])
   @@index([product_id])
+  @@index([model])
+  @@index([normalized_model])
   @@schema("parcatedarik")
 }
 

@@ -100,6 +100,7 @@ describe('SearchDocument shape validation', () => {
       name: 'Bosch Brake Pad',
       brandName: 'Bosch',
       brandId: 5,
+      brandLogo: null,
       articleLinkId: '200',
       sourceType: 'part'
     }
@@ -172,6 +173,7 @@ describe('SearchDocument shape validation', () => {
       name: 'Catalog Filter',
       brandName: 'Generic',
       brandId: null,
+      brandLogo: null,
       articleLinkId: '300',
       sourceType: 'part'
     }
@@ -238,6 +240,7 @@ describe('SearchDocument shape validation', () => {
       name: 'Mann Filter SP12345',
       brandName: 'Mann',
       brandId: null,
+      brandLogo: null,
       articleLinkId: '500',
       sourceType: 'supplier_product'
     }
@@ -304,6 +307,7 @@ describe('SearchDocument shape validation', () => {
       name: 'Seta Brake Disc',
       brandName: 'Seta',
       brandId: null,
+      brandLogo: null,
       articleLinkId: '400',
       sourceType: 'supplier_product'
     }
@@ -505,6 +509,7 @@ describe('exactCodes field in documents', () => {
       name: 'Bosch Brake Pad',
       brandName: 'Bosch',
       brandId: 5,
+      brandLogo: null,
       articleLinkId: '200',
       sourceType: 'supplier_product'
     }
@@ -561,6 +566,7 @@ describe('exactCodes field in documents', () => {
       name: 'Catalog Brake Pad',
       brandName: 'Generic',
       brandId: null,
+      brandLogo: null,
       articleLinkId: '300',
       sourceType: 'part'
     }
@@ -628,6 +634,7 @@ describe('exactCodes field in documents', () => {
       name: 'Mann Filter SP12345',
       brandName: 'Mann',
       brandId: null,
+      brandLogo: null,
       articleLinkId: '500',
       sourceType: 'supplier_product'
     }

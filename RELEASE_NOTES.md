@@ -1,5 +1,36 @@
 # Release Notes
 
+## v0.3.0-stage-2 - Dinamik ParçaTedarik Model Matching Admin
+
+### Feature: Dinamik-ParçaTedarik Model Matching Admin
+
+Connects Dinamik supplier products to ParçaTedarik catalog products via barcode-to-model matching, resolving to canonical `public.parts` through ParçaTedarik `ref_no` reference tokens.
+
+**Matching Pipeline:**
+- Dinamik `barcode_1/2/3` normalized against ParçaTedarik `normalized_model`
+- Confidence: barcode_1 (0.98), barcode_2 (0.96), barcode_3 (0.94), +0.01 brand boost
+- Multiple PT matches → `NEEDS_REVIEW`, single match → `CANDIDATE`
+- Approval resolves `ref_no` tokens to `public.parts` via OEM/EAN/cross-reference/part_no
+
+**Admin UI:** `/admin/supplier-matching/dinamik-parcatedarik`
+- Summary cards, filters, match table, approve/reject/ignore actions, bulk approve, detail drawer
+
+**API Routes:**
+- `GET /api/admin/supplier-matching/dinamik-parcatedarik` — list/filter/paginate
+- `POST /api/admin/supplier-matching/dinamik-parcatedarik` — generate candidates
+- `POST .../:id/approve|reject|ignore|needs-review` — single match actions
+- `POST .../bulk-approve` — bulk approve high-confidence unique matches
+
+**Scripts:**
+- `DRY_RUN=true bun scripts/generate-dinamik-parcatedarik-model-matches.ts`
+- `APPLY=true bun scripts/generate-dinamik-parcatedarik-model-matches.ts`
+
+**Constraints:**
+- `raw_json` never exposed to browser
+- Vehicle fitment read from `public.parts` relations, not copied to `dinamik.products`
+- Checkout/payment behavior unchanged
+- Production indexing not enabled
+
 ## v0.2.11 - Category Products API Meilisearch Filter Optimization
 
 ### Performance: Serve Category Product API from Meilisearch Filters

@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0-stage-2] - 2026-05-20
+
+### Added
+- `public.dinamik_parcatedarik_model_matches` table for Dinamik-ParcaTedarik model matching
+- `lib/matching/dinamik-parcatedarik-model-matcher.ts` — Matching engine for barcode→normalized_model matching
+- `lib/matching/parcatedarik-to-parts-resolver.ts` — Resolves ParcaTedarik ref_no tokens to public.parts via OEM/EAN/cross-reference/part_no
+- `scripts/generate-dinamik-parcatedarik-model-matches.ts` — Candidate generation script (DRY_RUN/APPLY, LIMIT, BATCH_SIZE)
+- `app/api/admin/supplier-matching/dinamik-parcatedarik/route.ts` — Admin API: list matches, generate candidates
+- `app/api/admin/supplier-matching/dinamik-parcatedarik/[id]/[action]/route.ts` — Admin API: approve/reject/ignore/needs-review actions
+- `app/api/admin/supplier-matching/dinamik-parcatedarik/bulk-approve/route.ts` — Admin API: bulk approve
+- `app/[locale]/admin/supplier-matching/dinamik-parcatedarik/page.tsx` — Admin UI page
+- `app/[locale]/admin/supplier-matching/dinamik-parcatedarik/_components/DinamikParcaTedarikModelMatchingClient.tsx` — Client component
+- `docs/DINAMIK_PARCA_MODEL_MATCHING_ADMIN.md` — Full documentation
+- Tests for barcode normalization, scoring, classification
+
+### Match Logic
+- barcode_1 exact model match: confidence 0.98
+- barcode_2 exact model match: confidence 0.96
+- barcode_3 exact model match: confidence 0.94
+- Brand match boost: +0.01
+- Multiple ParcaTedarik matches: status NEEDS_REVIEW
+
+### Approval Flow
+- Approved matches resolve ParcaTedarik ref_no to public.parts
+- Creates supplier_part_mappings and part_supplier_offers
+- Ambiguous part candidates remain NEEDS_REVIEW
+
+### Vehicle Fitment
+- Not copied to dinamik.products
+- Displayed through resolved public.parts relations
+- Materialized view deferred to future phase
+
 ## [0.2.11] - 2026-05-19
 
 ### Added

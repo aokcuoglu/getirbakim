@@ -133,3 +133,13 @@ Code-bearing records are prioritized during reindex to ensure exact code searche
 2. **Catalog-only parts**: sorted by (has OEM codes, has EAN codes, has cross-refs, has pricing)
 
 See `docs/SEARCH_CODE_AND_FITMENT.md` for full details.
+
+## Dinamik-ParcaTedarik Model Matching (v0.3.0-stage-2)
+
+A new matching pathway connects Dinamik products to ParcaTedarik products via barcode-to-model matching, then resolves to canonical `public.parts` via ParcaTedarik `ref_no` tokens.
+
+### Match Table
+
+Matches are stored in `public.dinamik_parcatedarik_model_matches` with statuses `CANDIDATE`, `APPROVED`, `REJECTED`, `NEEDS_REVIEW`, `IGNORED`.
+
+See `docs/DINAMIK_PARCA_MODEL_MATCHING_ADMIN.md` for full details.
