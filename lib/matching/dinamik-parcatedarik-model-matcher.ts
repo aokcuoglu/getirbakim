@@ -2,13 +2,16 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { normalizeModel } from './code-normalization'
 
-export type DinamikBarcodeField = 'barcode_1' | 'barcode_2' | 'barcode_3'
+export type DinamikBarcodeField = 'barcode_1' | 'barcode_2' | 'barcode_3' | 'none'
 
 export type ModelMatchReason =
   | 'BARCODE_1_MODEL_EXACT'
   | 'BARCODE_2_MODEL_EXACT'
   | 'BARCODE_3_MODEL_EXACT'
   | 'MULTIPLE_PARCA_MODEL_MATCHES'
+  | 'PT_UNMATCHED'
+  | 'MANUAL_MATCH'
+  | 'BRAND_ALIAS_DISAMBIGUATED'
 
 export type ModelMatchStatus =
   | 'CANDIDATE'
@@ -16,9 +19,11 @@ export type ModelMatchStatus =
   | 'REJECTED'
   | 'NEEDS_REVIEW'
   | 'IGNORED'
+  | 'PT_UNMATCHED'
+  | 'MANUAL_MATCH'
 
 export interface DinamikParcatedarikModelMatch {
-  dinamikProductId: bigint
+  dinamikProductId: bigint | null
   parcatedarikProductId: number
   dinamikBarcodeField: DinamikBarcodeField
   dinamikBarcodeValue: string
@@ -28,6 +33,9 @@ export interface DinamikParcatedarikModelMatch {
   matchReason: ModelMatchReason
   confidence: number
   status: ModelMatchStatus
+  dinamikStockCode?: string | null
+  dinamikBrand?: string | null
+  dinamikProductName?: string | null
 }
 
 export function normalizeDinamikBarcode(value: string | null | undefined): string | null {

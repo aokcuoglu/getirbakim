@@ -43,12 +43,16 @@ export function isMeiliUnavailableError(error: unknown): boolean {
     (message.includes('Request to') && message.includes('has failed')) ||
     message.includes('ECONNREFUSED') ||
     message.includes('ENOTFOUND') ||
-    message.includes('fetch failed')
+    message.includes('fetch failed') ||
+    message.includes('is not filterable') ||
+    message.includes('is not sortable') ||
+    message.includes('is not searchable') ||
+    message.includes('Invalid facet distribution')
   )
 }
 
 export const DEFAULT_SEARCH_CONFIG = {
   limit: 24,
   attributesToHighlight: ['name', 'brandName'],
-  facets: ['brandId', 'categoryId']
+  facets: ['brand', 'categoryName']
 } as const

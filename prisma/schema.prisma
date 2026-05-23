@@ -610,11 +610,11 @@ model supplier_sync_runs {
 
 model dinamik_parcatedarik_model_matches {
   id                      BigInt              @id @default(autoincrement())
-  dinamik_product_id      BigInt
+  dinamik_product_id      BigInt?
   parcatedarik_product_id BigInt
-  dinamik_barcode_field   String
-  dinamik_barcode_value   String
-  normalized_barcode_value String
+  dinamik_barcode_field   String              @default("none")
+  dinamik_barcode_value   String              @default("")
+  normalized_barcode_value String              @default("")
   parcatedarik_model      String
   normalized_model        String
   match_reason            String
@@ -625,6 +625,9 @@ model dinamik_parcatedarik_model_matches {
   approved_at             DateTime?           @db.Timestamp(6)
   rejected_by             String?
   rejected_at             DateTime?           @db.Timestamp(6)
+  dinamik_stock_code      String?
+  dinamik_brand           String?
+  dinamik_product_name    String?
   created_at              DateTime            @default(now()) @db.Timestamp(6)
   updated_at              DateTime            @updatedAt @db.Timestamp(6)
 
@@ -636,6 +639,8 @@ model dinamik_parcatedarik_model_matches {
   @@index([normalized_model], name: "dpmm_normalized_model")
   @@index([match_reason], name: "dpmm_match_reason")
   @@index([confidence], name: "dpmm_confidence")
+  @@index([dinamik_brand], name: "dpmm_dinamik_brand")
+  @@index([dinamik_stock_code], name: "dpmm_dinamik_stock_code")
   @@schema("public")
 }
 
@@ -649,8 +654,8 @@ model dinamik_parca_brand_aliases {
   id                        Int       @id @default(autoincrement())
   dinamik_brand             String
   normalized_dinamik_brand   String
-  parcatedarik_manufacturer_id Int
-  normalized_pc_manufacturer String
+  parcatedarik_manufacturer_id Int?
+  normalized_pc_manufacturer String?
   mapping_status            String    @default("PENDING")
   confidence                Decimal   @db.Decimal(5, 4) @default(0.8000)
   match_method              String?

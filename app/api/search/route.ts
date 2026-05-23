@@ -50,6 +50,7 @@ import {
   lookupExactCode,
   mergeExactCodeResults,
 } from '@/lib/search/exact-code-lookup'
+import { compactCode, normalizeCode } from '@/lib/search/code-normalization'
 
 type SearchFiltersPayload = {
   brands?: string[]
@@ -201,7 +202,10 @@ export async function GET(request: NextRequest) {
     }
 
     const meiliSort = getMeiliSort(sort)
-    const results = await index.search(query, {
+    const normalizedGetQuery = compactCode(query)
+    const isGetCodeLike = normalizedGetQuery.length >= 3 && /[0-9]/.test(query) && /[a-zA-Z]/.test(query)
+    const meiliGetQuery = isGetCodeLike ? normalizedGetQuery : query
+    const results = await index.search(meiliGetQuery, {
       limit: safeLimit,
       offset,
       attributesToHighlight: ['title', 'brand', 'name'],
@@ -436,6 +440,10 @@ export async function POST(request: NextRequest) {
     const indexName = getProductsIndexName()
     const meiliIndex = client.index(indexName)
 
+    const normalizedQuery = compactCode(query)
+    const isCodeLike = normalizedQuery.length >= 3 && /[0-9]/.test(query) && /[a-zA-Z]/.test(query)
+    const meiliQuery = isCodeLike ? normalizedQuery : query
+
     // Exact code lookup for code-like queries (alongside Meili POST)
     let exactCodeMatchUsed = false
     let exactCodeProducts: CatalogOfferProduct[] = []
@@ -462,27 +470,27 @@ export async function POST(request: NextRequest) {
       const queries = [
         {
           indexUid: indexName,
-          q: query,
+          q: meiliQuery,
           filter: mainFilter || undefined,
           limit: Math.min(limit, 60),
           offset: (page - 1) * Math.min(limit, 60),
           sort: sortAttr.length > 0 ? sortAttr : undefined,
-          facets: ['brand', 'categoryName'],
-          attributesToHighlight: ['title', 'brand', 'name']
+          facets: ['brandName', 'categoryName'],
+          attributesToHighlight: ['title', 'brandName', 'name']
         },
         {
           indexUid: indexName,
-          q: query,
+          q: meiliQuery,
           filter:
-            buildMeilisearchFilter(filters, 'brand', {
+            buildMeilisearchFilter(filters, 'brandName', {
               requireRealPrice
             }) || undefined,
           limit: 0,
-          facets: ['brand']
+          facets: ['brandName']
         },
         {
           indexUid: indexName,
-          q: query,
+          q: meiliQuery,
           filter:
             buildMeilisearchFilter(filters, 'categoryName', {
               requireRealPrice
@@ -584,8 +592,8 @@ export async function POST(request: NextRequest) {
       filter: meiliFilter || undefined,
       limit: safeLimit,
       offset: (page - 1) * safeLimit,
-      facets: ['brand', 'categoryName'],
-      attributesToHighlight: ['title', 'brand', 'name']
+      facets: ['brandName', 'categoryName'],
+      attributesToHighlight: ['title', 'brandName', 'name']
     }
 
     if (sort) {
@@ -596,7 +604,7 @@ export async function POST(request: NextRequest) {
     }
 
     const meiliStart = performance.now()
-    const results = await meiliIndex.search(query, searchOptions)
+    const results = await meiliIndex.search(meiliQuery, searchOptions)
     mark('meili', meiliStart)
 
     const meiliHits = results.hits as unknown as SearchDocument[]
@@ -2458,9 +2466,9 @@ function buildMeilisearchFilter(
     }
   }
 
-  if (filters.brands && filters.brands.length > 0 && excludeFacet !== 'brand') {
+  if (filters.brands && filters.brands.length > 0 && excludeFacet !== 'brandName') {
     const brandNames = filters.brands.map((b: string) => `"${b}"`).join(', ')
-    conditions.push(`brand IN [${brandNames}]`)
+    conditions.push(`brandName IN [${brandNames}]`)
   }
 
   if (filters.categories && filters.categories.length > 0 && excludeFacet !== 'categoryName') {
@@ -2468,8 +2476,8 @@ function buildMeilisearchFilter(
     conditions.push(`categoryName IN [${categoryNames}]`)
   }
 
-  if (filters.brandName && excludeFacet !== 'brand') {
-    conditions.push(`brand = "${filters.brandName}"`)
+  if (filters.brandName && excludeFacet !== 'brandName') {
+    conditions.push(`brandName = "${filters.brandName}"`)
   }
 
   if (filters.categoryName && excludeFacet !== 'categoryName') {

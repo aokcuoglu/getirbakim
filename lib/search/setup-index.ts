@@ -18,6 +18,7 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'title',
       'titleTr',
       'brand',
+      'brandName',
       'categoryName',
       'categoryNameTr',
       'supplierSku',
@@ -40,6 +41,9 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'documentType',
       'availabilityStatus',
       'brand',
+      'brandName',
+      'categoryName',
+      'categoryNameTr',
       'categorySlug',
       'categoryId',
       'providerCode',
@@ -64,12 +68,12 @@ export async function configureMeilisearchIndex(): Promise<void> {
     typoTolerance: {
       enabled: true,
       minWordSizeForTypos: {
-        oneTypo: 5,
-        twoTypos: 9
+        oneTypo: 3,
+        twoTypos: 6
       }
     },
     pagination: {
-      maxTotalHits: 10000
+      maxTotalHits: 200000
     }
   })
 

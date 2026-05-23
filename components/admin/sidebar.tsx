@@ -9,7 +9,8 @@ import {
   Inbox,
   PanelLeftClose,
   PanelLeftOpen,
-  Search
+  Search,
+  Link2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, usePathname } from '@/lib/navigation'
@@ -211,6 +212,25 @@ export function Sidebar({
           label: 'Tedarikçiler',
           href: '/admin/suppliers',
           active: pathname.startsWith('/admin/suppliers')
+        },
+        {
+          icon: Link2,
+          label: 'Eşleştirmeler',
+          active:
+            pathname.startsWith('/admin/supplier-matching') ||
+            pathname.startsWith('/admin/brand-aliases'),
+          children: [
+            {
+              label: 'Model Eşleştirme',
+              href: '/admin/supplier-matching/dinamik-parcatedarik',
+              active: pathname.startsWith('/admin/supplier-matching/dinamik-parcatedarik')
+            },
+            {
+              label: 'Marka Eşleştirme',
+              href: '/admin/brand-aliases/dinamik-parca',
+              active: pathname.startsWith('/admin/brand-aliases/dinamik-parca')
+            }
+          ]
         },
         {
           icon: Inbox,

@@ -10,7 +10,8 @@ import {
   ChevronRight,
   Search,
   Link2,
-  Unlink
+  Unlink,
+  CheckCircle
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -77,14 +78,16 @@ const STATUS_LABELS: Record<string, string> = {
   PENDING: 'Beklemede',
   APPROVED: 'Onaylandı',
   REJECTED: 'Reddedildi',
-  IGNORED: 'Yoksayıldı'
+  IGNORED: 'Yoksayıldı',
+  UNMATCHED: 'Eşleşmeyen'
 }
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700 ring-amber-600/10',
   APPROVED: 'bg-emerald-50 text-emerald-700 ring-emerald-600/10',
   REJECTED: 'bg-rose-50 text-rose-700 ring-rose-600/10',
-  IGNORED: 'bg-slate-50 text-slate-600 ring-slate-500/10'
+  IGNORED: 'bg-slate-50 text-slate-600 ring-slate-500/10',
+  UNMATCHED: 'bg-orange-50 text-orange-700 ring-orange-600/10'
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -186,23 +189,64 @@ export function DinamikParcaBrandAliasesClient() {
     if (isNaN(mfrId)) return
 
     try {
-      const res = await fetch(`/api/admin/brand-aliases/dinamik-parca/${updateTarget.id}/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parcatedarikManufacturerId: mfrId })
-      })
-      const data = await res.json()
-      if (!data.error) {
-        toast.success(data.message || 'Eşleştirme güncellendi')
-        setUpdateDialogOpen(false)
-        void loadAliases(filtersRef.current)
+      if (updateTarget.mappingStatus === 'UNMATCHED' || updateTarget.id === 0) {
+        const res = await fetch('/api/admin/brand-aliases/dinamik-parca/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dinamikBrand: updateTarget.dinamikBrand,
+            parcatedarikManufacturerId: mfrId,
+            confidence: 0.95
+          })
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Marka eşleştirmesi oluşturuldu')
+          setUpdateDialogOpen(false)
+          void loadAliases(filtersRef.current)
+        } else {
+          toast.error(data.error?.message || 'Eşleştirme başarısız')
+        }
       } else {
-        toast.error(data.error?.message || 'Güncelleme başarısız')
+        const res = await fetch(`/api/admin/brand-aliases/dinamik-parca/${updateTarget.id}/update`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parcatedarikManufacturerId: mfrId })
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Eşleştirme güncellendi')
+          setUpdateDialogOpen(false)
+          void loadAliases(filtersRef.current)
+        } else {
+          toast.error(data.error?.message || 'Güncelleme başarısız')
+        }
       }
     } catch {
       toast.error('Güncelleme başarısız')
     }
   }, [updateTarget, manufacturerSearch, loadAliases])
+
+  const handleAcceptAsIs = useCallback(async (dinamikBrand: string) => {
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/brand-aliases/dinamik-parca/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dinamikBrand, acceptAsIs: true, confidence: 0.95 })
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Dinamik markası olduğu gibi kabul edildi')
+          void loadAliases(filtersRef.current)
+        } else {
+          toast.error(data.error?.message || 'İşlem başarısız')
+        }
+      } catch {
+        toast.error('İşlem başarısız')
+      }
+    })
+  }, [loadAliases])
 
   const handleGenerate = useCallback(() => {
     setGenerating(true)
@@ -380,6 +424,7 @@ export function DinamikParcaBrandAliasesClient() {
                 <SelectItem value="approved">Onaylandı</SelectItem>
                 <SelectItem value="rejected">Reddedildi</SelectItem>
                 <SelectItem value="ignored">Yoksayıldı</SelectItem>
+                <SelectItem value="unmatched">Eşleşmeyen</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -424,27 +469,39 @@ export function DinamikParcaBrandAliasesClient() {
                 </TableRow>
               ) : (
                 aliases.map(alias => (
-                  <TableRow key={alias.id} className={selectedIds.has(alias.id) ? 'bg-blue-50/50' : ''}>
+                  <TableRow key={alias.id || `unmatched-${alias.dinamikBrand}`} className={selectedIds.has(alias.id) ? 'bg-blue-50/50' : ''}>
                     <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(alias.id)}
-                        onChange={() => toggleSelect(alias.id)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
+                      {alias.id > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(alias.id)}
+                          onChange={() => toggleSelect(alias.id)}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      )}
                     </TableCell>
                     <TableCell className="font-medium text-sm">{alias.dinamikBrand}</TableCell>
                     <TableCell className="text-xs text-slate-500 font-mono">{alias.normalizedDinamikBrand}</TableCell>
-                    <TableCell className="text-sm">{alias.parcatedarikManufacturerName}</TableCell>
-                    <TableCell className="text-xs text-slate-500 font-mono">{alias.normalizedPcManufacturer}</TableCell>
+                    <TableCell className="text-sm">
+                      {alias.parcatedarikManufacturerName || (
+                        <span className="text-slate-400 italic">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500 font-mono">
+                      {alias.normalizedPcManufacturer || '—'}
+                    </TableCell>
                     <TableCell>
-                      <span className={`text-xs font-medium ${
-                        alias.confidence >= 0.95 ? 'text-emerald-700' :
-                        alias.confidence >= 0.85 ? 'text-amber-700' :
-                        'text-slate-600'
-                      }`}>
-                        {alias.confidence.toFixed(4)}
-                      </span>
+                      {alias.confidence > 0 ? (
+                        <span className={`text-xs font-medium ${
+                          alias.confidence >= 0.95 ? 'text-emerald-700' :
+                          alias.confidence >= 0.85 ? 'text-amber-700' :
+                          'text-slate-600'
+                        }`}>
+                          {alias.confidence.toFixed(4)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-500">
                       {alias.matchMethod ? METHOD_LABELS[alias.matchMethod] || alias.matchMethod : '-'}
@@ -456,7 +513,7 @@ export function DinamikParcaBrandAliasesClient() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {alias.mappingStatus === 'PENDING' && (
+                        {alias.mappingStatus === 'PENDING' && alias.id > 0 && (
                           <>
                             <Button
                               variant="ghost"
@@ -487,28 +544,61 @@ export function DinamikParcaBrandAliasesClient() {
                             </Button>
                           </>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-blue-600 hover:text-blue-700"
-                          onClick={() => {
-                            setUpdateTarget(alias)
-                            setManufacturerSearch(String(alias.parcatedarikManufacturerId))
-                            setUpdateDialogOpen(true)
-                          }}
-                          title="Eşleştirmeyi Değiştir"
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-slate-400 hover:text-rose-600"
-                          onClick={() => handleAction(alias.id, 'delete')}
-                          title="Sil"
-                        >
-                          <Unlink className="h-3.5 w-3.5" />
-                        </Button>
+                        {(alias.mappingStatus !== 'UNMATCHED' || alias.id > 0) && alias.id > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-700"
+                            onClick={() => {
+                              setUpdateTarget(alias)
+                              setManufacturerSearch(String(alias.parcatedarikManufacturerId))
+                              setUpdateDialogOpen(true)
+                            }}
+                            title="Eşleştirmeyi Değiştir"
+                          >
+                            <Link2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {alias.mappingStatus === 'UNMATCHED' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-700"
+                            onClick={() => {
+                              setUpdateTarget(alias)
+                              setManufacturerSearch('')
+                              setUpdateDialogOpen(true)
+                            }}
+                            title="Üretici Eşleştir"
+                          >
+                            <Link2 className="mr-1 h-3.5 w-3.5" />
+                            Eşleştir
+                          </Button>
+                        )}
+                        {alias.mappingStatus === 'UNMATCHED' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-emerald-600 hover:text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                            onClick={() => handleAcceptAsIs(alias.dinamikBrand)}
+                            disabled={isPending}
+                            title="Dinamik markasını olduğu gibi kabul et (PT üreticisi aramadan)"
+                          >
+                            <CheckCircle className="mr-1 h-3.5 w-3.5" />
+                            Olduğu Gibi
+                          </Button>
+                        )}
+                        {alias.id > 0 && alias.mappingStatus !== 'UNMATCHED' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-slate-400 hover:text-rose-600"
+                            onClick={() => handleAction(alias.id, 'delete')}
+                            title="Sil"
+                          >
+                            <Unlink className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

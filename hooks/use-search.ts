@@ -22,8 +22,7 @@ import type {
   SearchHit,
   FacetGroup,
   FacetOption,
-  UseSearchResult,
-  FacetDistribution
+  UseSearchResult
 } from '@/lib/types/search'
 
 // ============================================================================
@@ -187,7 +186,7 @@ export function useSearch(): UseSearchResult {
   const [hits, setHits] = useState<SearchHit[]>([])
   const [totalHits, setTotalHits] = useState(0)
   const [facetDistributions, setFacetDistributions] = useState<
-    Record<string, FacetDistribution>
+    Record<string, Record<string, number>>
   >({})
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -267,9 +266,13 @@ export function useSearch(): UseSearchResult {
         setCategoryNames(newCategoryNames)
 
         // Store facet distributions (use disjunctive results)
+        // MeiliSearch returns facetDistribution as { fieldName: { value: count } }
+        // We map brand → brandName and categoryName → categoryName for UI
+        const brandFacetDist = data.results[1]?.facetDistribution?.brand || {}
+        const categoryFacetDist = data.results[2]?.facetDistribution?.categoryName || {}
         setFacetDistributions({
-          brandName: data.results[1].facetDistribution || {},
-          categoryName: data.results[2].facetDistribution || {}
+          brandName: brandFacetDist,
+          categoryName: categoryFacetDist
         })
       } catch (err) {
         if (controller.signal.aborted) return
@@ -306,19 +309,15 @@ export function useSearch(): UseSearchResult {
 
   const facets = useMemo<FacetGroup[]>(() => {
     return FACET_CONFIG.map(({ field, label }) => {
-      const distribution = facetDistributions[field]?.[field] || {}
+      const distribution = facetDistributions[field] || {}
 
       const options: FacetOption[] = Object.entries(distribution)
         .map(([value, count]) => {
-          // Determine if this option is selected
           let isSelected = false
           if (field === 'brandName') {
-            // We need to check by brand name (value) or find the ID
-            // For now, we'll need to handle this differently
-            // Since we're using brandName as facet but filtering by brandId
-            isSelected = false // Will be enhanced
+            isSelected = filters.brands.includes(value)
           } else if (field === 'categoryName') {
-            isSelected = false // Will be enhanced
+            isSelected = filters.categories.includes(value)
           }
 
           return {
@@ -328,7 +327,7 @@ export function useSearch(): UseSearchResult {
             isSelected
           }
         })
-        .sort((a, b) => b.count - a.count) // Sort by count descending
+        .sort((a, b) => b.count - a.count)
 
       return {
         field,
