@@ -133,7 +133,6 @@ export default async function middleware(request: NextRequest) {
     "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob: https:; font-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; frame-src 'self' https:; upgrade-insecure-requests"
   )
 
-  // Allow CDN/shared cache for anonymous HTML while keeping authenticated traffic private.
   if ((isGetRequest || isHeadRequest) && !hasSupabaseAuthCookie && !isAdminPath) {
     supabaseResponse.headers.set(
       'Cache-Control',

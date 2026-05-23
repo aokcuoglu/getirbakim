@@ -639,6 +639,34 @@ model dinamik_parcatedarik_model_matches {
   @@schema("public")
 }
 
+// ==========================================
+// Dinamik-ParcaTedarik Brand Alias
+// Maps Dinamik brands to ParcaTedarik manufacturers
+// for disambiguating model matches by brand
+// ==========================================
+
+model dinamik_parca_brand_aliases {
+  id                        Int       @id @default(autoincrement())
+  dinamik_brand             String
+  normalized_dinamik_brand   String
+  parcatedarik_manufacturer_id Int
+  normalized_pc_manufacturer String
+  mapping_status            String    @default("PENDING")
+  confidence                Decimal   @db.Decimal(5, 4) @default(0.8000)
+  match_method              String?
+  approved_by               String?
+  approved_at               DateTime? @db.Timestamp(6)
+  created_at                DateTime  @default(now()) @db.Timestamp(6)
+  updated_at                DateTime  @updatedAt @db.Timestamp(6)
+
+  @@unique([dinamik_brand, parcatedarik_manufacturer_id], name: "dpba_unique_brand_manufacturer")
+  @@index([normalized_dinamik_brand], name: "dpba_normalized_dinamik_brand")
+  @@index([parcatedarik_manufacturer_id], name: "dpba_parcatedarik_manufacturer_id")
+  @@index([mapping_status], name: "dpba_mapping_status")
+  @@index([match_method], name: "dpba_match_method")
+  @@schema("public")
+}
+
 model user_vehicles {
   id           Int       @id @default(autoincrement())
   user_id      String

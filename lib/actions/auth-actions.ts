@@ -4,9 +4,17 @@ import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { db } from '@/lib/db'
 import { resolveSiteUrl } from '@/lib/site-url'
 import { loginSchema, registerSchema } from '@/lib/validations/auth'
+
+function serializeUser(user: any) {
+  if (!user) return null
+  try {
+    return JSON.parse(JSON.stringify(user))
+  } catch {
+    return null
+  }
+}
 
 export async function signIn(formData: FormData) {
   try {
@@ -39,7 +47,7 @@ export async function signIn(formData: FormData) {
 
     console.log('User signed in successfully:', email)
     revalidatePath('/', 'layout')
-    return { success: true, user: data.user }
+    return { success: true, user: serializeUser(data.user) }
   } catch (e: any) {
     console.error('Sign-in exception:', e)
     return { error: e.message || 'An unexpected error occurred during sign-in' }
@@ -90,6 +98,7 @@ export async function signUp(formData: FormData) {
 
     if (data.user) {
       try {
+        const { db } = await import('@/lib/db')
         await db.users.upsert({
           where: { id: data.user.id },
           update: {},
@@ -113,7 +122,7 @@ export async function signUp(formData: FormData) {
       revalidatePath('/', 'layout')
       return {
         success: 'Registration successful. You are now logged in.',
-        user: data.user
+        user: serializeUser(data.user)
       }
     }
 

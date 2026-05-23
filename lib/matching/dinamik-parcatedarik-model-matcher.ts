@@ -37,6 +37,7 @@ export function normalizeDinamikBarcode(value: string | null | undefined): strin
 export function scoreCandidate(input: {
   barcodeField: DinamikBarcodeField
   brandMatch: boolean
+  brandAliasMatch?: boolean
 }): { confidence: number; matchReason: ModelMatchReason } {
   let confidence: number
   let matchReason: ModelMatchReason
@@ -59,11 +60,40 @@ export function scoreCandidate(input: {
       matchReason = 'BARCODE_3_MODEL_EXACT'
   }
 
-  if (input.brandMatch) {
+  if (input.brandAliasMatch) {
+    confidence = Math.min(confidence + 0.02, 0.99)
+  } else if (input.brandMatch) {
     confidence = Math.min(confidence + 0.01, 0.99)
   }
 
   return { confidence: Math.round(confidence * 10000) / 10000, matchReason }
+}
+
+type BrandAliasMap = Map<string, Map<number, number>>
+
+async function loadBrandAliasMap(): Promise<BrandAliasMap> {
+  const aliases = await db.$queryRaw<
+    Array<{
+      dinamik_brand: string
+      normalized_dinamik_brand: string
+      parcatedarik_manufacturer_id: number
+      confidence: number
+    }>
+  >(Prisma.sql`
+    SELECT dinamik_brand, normalized_dinamik_brand, parcatedarik_manufacturer_id, confidence
+    FROM public.dinamik_parca_brand_aliases
+    WHERE mapping_status = 'APPROVED'
+  `)
+
+  const map: BrandAliasMap = new Map()
+  for (const ba of aliases) {
+    const key = normalizeModel(ba.dinamik_brand) || ba.normalized_dinamik_brand
+    if (!map.has(key)) {
+      map.set(key, new Map())
+    }
+    map.get(key)!.set(ba.parcatedarik_manufacturer_id, Number(ba.confidence))
+  }
+  return map
 }
 
 export async function findDinamikParcatedarikModelCandidates(
@@ -81,6 +111,8 @@ export async function findDinamikParcatedarikModelCandidates(
 ): Promise<DinamikParcatedarikModelMatch[]> {
   const candidates: DinamikParcatedarikModelMatch[] = []
   const seenKeys = new Set<string>()
+
+  const brandAliasMap = await loadBrandAliasMap()
 
   const barcodeFields: Array<{
     field: DinamikBarcodeField
@@ -116,6 +148,9 @@ export async function findDinamikParcatedarikModelCandidates(
     if (parcatedarikProducts.length === 0) continue
 
     const dinamikBrand = (input.brand || '').trim()
+    const dinamikBrandNorm = normalizeModel(dinamikBrand) || ''
+
+    const brandAliasManufacturers = dinamikBrandNorm ? brandAliasMap.get(dinamikBrandNorm) : null
 
     if (parcatedarikProducts.length === 1) {
       const pt = parcatedarikProducts[0]
@@ -124,6 +159,7 @@ export async function findDinamikParcatedarikModelCandidates(
       seenKeys.add(key)
 
       let brandMatch = false
+      let brandAliasMatch = false
       if (dinamikBrand && options?.parcatedarikManufacturerName) {
         const manufResult = await db.$queryRaw<Array<{ name: string }>>`
           SELECT name FROM parcatedarik.manufacturer WHERE id = ${pt.manufacturer_id}
@@ -134,10 +170,14 @@ export async function findDinamikParcatedarikModelCandidates(
           brandMatch = normalizedMfrName === normalizedDinamikBrand
         }
       }
+      if (brandAliasManufacturers && brandAliasManufacturers.has(pt.manufacturer_id)) {
+        brandAliasMatch = true
+      }
 
       const { confidence, matchReason } = scoreCandidate({
         barcodeField: field,
-        brandMatch
+        brandMatch,
+        brandAliasMatch
       })
 
       candidates.push({
@@ -153,40 +193,101 @@ export async function findDinamikParcatedarikModelCandidates(
         status: 'CANDIDATE'
       })
     } else {
-      for (const pt of parcatedarikProducts) {
-        const key = `${input.dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
-        if (seenKeys.has(key)) continue
-        seenKeys.add(key)
-
-        let brandMatch = false
-        if (dinamikBrand) {
-          const manufResult = await db.$queryRaw<Array<{ name: string }>>`
-            SELECT name FROM parcatedarik.manufacturer WHERE id = ${pt.manufacturer_id}
-          `
-          if (manufResult.length > 0) {
-            const normalizedMfrName = normalizeModel(manufResult[0].name)
-            const normalizedDinamikBrand = normalizeModel(dinamikBrand)
-            brandMatch = normalizedMfrName === normalizedDinamikBrand
+      let disambiguatedPt: typeof parcatedarikProducts[0] | null = null
+      if (brandAliasManufacturers && brandAliasManufacturers.size > 0) {
+        for (const pt of parcatedarikProducts) {
+          if (brandAliasManufacturers.has(pt.manufacturer_id)) {
+            disambiguatedPt = pt
+            break
           }
         }
+      }
 
-        const { confidence } = scoreCandidate({
-          barcodeField: field,
-          brandMatch
-        })
+      if (disambiguatedPt) {
+        const key = `${input.dinamikProductId}::${disambiguatedPt.id}::${field}::${normalizedValue}`
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key)
 
-        candidates.push({
-          dinamikProductId: input.dinamikProductId,
-          parcatedarikProductId: pt.id,
-          dinamikBarcodeField: field,
-          dinamikBarcodeValue: value,
-          normalizedBarcodeValue: normalizedValue,
-          parcatedarikModel: pt.model || '',
-          normalizedModel: pt.normalized_model || normalizedValue,
-          matchReason: 'MULTIPLE_PARCA_MODEL_MATCHES',
-          confidence,
-          status: 'NEEDS_REVIEW'
-        })
+          const { confidence, matchReason } = scoreCandidate({
+            barcodeField: field,
+            brandMatch: false,
+            brandAliasMatch: true
+          })
+
+          candidates.push({
+            dinamikProductId: input.dinamikProductId,
+            parcatedarikProductId: disambiguatedPt.id,
+            dinamikBarcodeField: field,
+            dinamikBarcodeValue: value,
+            normalizedBarcodeValue: normalizedValue,
+            parcatedarikModel: disambiguatedPt.model || '',
+            normalizedModel: disambiguatedPt.normalized_model || normalizedValue,
+            matchReason,
+            confidence,
+            status: 'CANDIDATE'
+          })
+        }
+
+        for (const pt of parcatedarikProducts) {
+          if (pt.id === disambiguatedPt.id) continue
+          const key = `${input.dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
+          if (seenKeys.has(key)) continue
+          seenKeys.add(key)
+
+          const { confidence } = scoreCandidate({
+            barcodeField: field,
+            brandMatch: false
+          })
+
+          candidates.push({
+            dinamikProductId: input.dinamikProductId,
+            parcatedarikProductId: pt.id,
+            dinamikBarcodeField: field,
+            dinamikBarcodeValue: value,
+            normalizedBarcodeValue: normalizedValue,
+            parcatedarikModel: pt.model || '',
+            normalizedModel: pt.normalized_model || normalizedValue,
+            matchReason: 'MULTIPLE_PARCA_MODEL_MATCHES',
+            confidence,
+            status: 'NEEDS_REVIEW'
+          })
+        }
+      } else {
+        for (const pt of parcatedarikProducts) {
+          const key = `${input.dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
+          if (seenKeys.has(key)) continue
+          seenKeys.add(key)
+
+          let brandMatch = false
+          if (dinamikBrand) {
+            const manufResult = await db.$queryRaw<Array<{ name: string }>>`
+              SELECT name FROM parcatedarik.manufacturer WHERE id = ${pt.manufacturer_id}
+            `
+            if (manufResult.length > 0) {
+              const normalizedMfrName = normalizeModel(manufResult[0].name)
+              const normalizedDinamikBrand = normalizeModel(dinamikBrand)
+              brandMatch = normalizedMfrName === normalizedDinamikBrand
+            }
+          }
+
+          const { confidence } = scoreCandidate({
+            barcodeField: field,
+            brandMatch
+          })
+
+          candidates.push({
+            dinamikProductId: input.dinamikProductId,
+            parcatedarikProductId: pt.id,
+            dinamikBarcodeField: field,
+            dinamikBarcodeValue: value,
+            normalizedBarcodeValue: normalizedValue,
+            parcatedarikModel: pt.model || '',
+            normalizedModel: pt.normalized_model || normalizedValue,
+            matchReason: 'MULTIPLE_PARCA_MODEL_MATCHES',
+            confidence,
+            status: 'NEEDS_REVIEW'
+          })
+        }
       }
     }
   }

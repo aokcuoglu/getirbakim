@@ -144,9 +144,9 @@ export function LoginModal({
           if (onLoginSuccess) onLoginSuccess(result.user)
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
-      setError('An error occurred. Please try again.')
+      setError(err?.message || 'An error occurred. Please try again.')
     } finally {
       setLoading(false)
     }

@@ -60,6 +60,9 @@ function parseHrefToCategoryRequest(href: string): {
   }
 }
 
+const payloadCache = new Map<string, { payload: unknown; expiresAt: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000
+
 export async function GET(request: NextRequest) {
   const href = request.nextUrl.searchParams.get('href')
   if (!href) {
@@ -69,6 +72,17 @@ export async function GET(request: NextRequest) {
   const parsed = parseHrefToCategoryRequest(href)
   if (!parsed) {
     return NextResponse.json({ error: 'Unsupported category href.' }, { status: 400 })
+  }
+
+  const cacheKey = `${parsed.locale}:${parsed.categorySlug}:${JSON.stringify(parsed.searchParams)}`
+  const cached = payloadCache.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    return NextResponse.json(cached.payload, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900',
+        'X-Cache': 'HIT'
+      }
+    })
   }
 
   const categorySlug =
@@ -84,5 +98,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Category not found.' }, { status: 404 })
   }
 
-  return NextResponse.json(payload)
+  if (payloadCache.size > 500) {
+    const now = Date.now()
+    for (const [key, val] of payloadCache) {
+      if (now >= val.expiresAt) {
+        payloadCache.delete(key)
+      }
+    }
+  }
+  payloadCache.set(cacheKey, { payload, expiresAt: Date.now() + CACHE_TTL_MS })
+
+  return NextResponse.json(payload, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900',
+      'X-Cache': 'MISS'
+    }
+  })
 }

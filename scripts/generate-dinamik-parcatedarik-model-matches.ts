@@ -36,6 +36,7 @@ interface Stats {
   candidatesInserted: number
   needsReview: number
   errors: number
+  brandAliasDisambiguations: number
 }
 
 async function main() {
@@ -56,7 +57,8 @@ async function main() {
     candidatesWouldInsert: 0,
     candidatesInserted: 0,
     needsReview: 0,
-    errors: 0
+    errors: 0,
+    brandAliasDisambiguations: 0
   }
 
   // Step 1: Load Dinamik provider
@@ -138,6 +140,31 @@ async function main() {
     )
   }
   console.log(`[generate-matches] ${existingKeys.size} existing matches`)
+
+  // Step 4b: Load APPROVED brand aliases for disambiguation
+  console.log('[generate-matches] Loading APPROVED brand aliases...')
+  const brandAliases = await db.$queryRaw<
+    Array<{
+      dinamik_brand: string
+      normalized_dinamik_brand: string
+      parcatedarik_manufacturer_id: number
+      confidence: number
+    }>
+  >(Prisma.sql`
+    SELECT dinamik_brand, normalized_dinamik_brand, parcatedarik_manufacturer_id, confidence
+    FROM public.dinamik_parca_brand_aliases
+    WHERE mapping_status = 'APPROVED'
+  `)
+
+  const brandAliasMap = new Map<string, Map<number, number>>()
+  for (const ba of brandAliases) {
+    const normalizedBrand = normalizeModel(ba.dinamik_brand) || ba.normalized_dinamik_brand
+    if (!brandAliasMap.has(normalizedBrand)) {
+      brandAliasMap.set(normalizedBrand, new Map())
+    }
+    brandAliasMap.get(normalizedBrand)!.set(ba.parcatedarik_manufacturer_id, Number(ba.confidence))
+  }
+  console.log(`[generate-matches] Loaded ${brandAliases.length} APPROVED brand aliases covering ${brandAliasMap.size} distinct brands`)
 
   // Step 5: Load Dinamik products with barcodes
   console.log('[generate-matches] Loading Dinamik products with barcodes...')
@@ -259,47 +286,138 @@ async function main() {
         })
         existingKeys.add(key)
       } else {
-        for (const pt of pcProducts) {
-          const key = `${dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
-          if (existingKeys.has(key)) continue
+        const dinamikBrandNorm = normalizeModel(d.brand) || ''
 
-          const normalizedMfrName = normalizedManufacturerMap.get(pt.manufacturer_id) || ''
-          const brandMatch = !!(dinamikBrand && normalizedMfrName && dinamikBrand === normalizedMfrName)
+        const brandAliasManufacturers = dinamikBrandNorm ? brandAliasMap.get(dinamikBrandNorm) : null
 
-          let confidence: number
-          let matchReason: string
-          switch (field) {
-            case 'barcode_1':
-              confidence = 0.98
-              matchReason = 'BARCODE_1_MODEL_EXACT'
+        let disambiguatedPt: { id: number; model: string | null; manufacturer_id: number } | null = null
+        if (brandAliasManufacturers && brandAliasManufacturers.size > 0) {
+          for (const pt of pcProducts) {
+            if (brandAliasManufacturers.has(pt.manufacturer_id)) {
+              disambiguatedPt = pt
               break
-            case 'barcode_2':
-              confidence = 0.96
-              matchReason = 'BARCODE_2_MODEL_EXACT'
-              break
-            case 'barcode_3':
-              confidence = 0.94
-              matchReason = 'BARCODE_3_MODEL_EXACT'
-              break
+            }
           }
-          if (brandMatch) confidence = Math.min(confidence + 0.01, 0.99)
-          confidence = Math.round(confidence * 10000) / 10000
+        }
 
-          stats.multipleMatches++
-          stats.needsReview++
-          candidatesToInsert.push({
-            dinamik_product_id: dinamikProductId,
-            parcatedarik_product_id: pt.id,
-            dinamik_barcode_field: field,
-            dinamik_barcode_value: value.trim(),
-            normalized_barcode_value: normalizedValue,
-            parcatedarik_model: pt.model || '',
-            normalized_model: normalizedValue,
-            match_reason: 'MULTIPLE_PARCA_MODEL_MATCHES',
-            confidence,
-            status: 'NEEDS_REVIEW'
-          })
-          existingKeys.add(key)
+        if (disambiguatedPt && pcProducts.length > 1) {
+          stats.brandAliasDisambiguations++
+
+          const key = `${dinamikProductId}::${disambiguatedPt.id}::${field}::${normalizedValue}`
+          if (!existingKeys.has(key)) {
+            let confidence: number
+            let matchReason: string
+            switch (field) {
+              case 'barcode_1':
+                confidence = 0.98
+                matchReason = 'BARCODE_1_MODEL_EXACT'
+                break
+              case 'barcode_2':
+                confidence = 0.96
+                matchReason = 'BARCODE_2_MODEL_EXACT'
+                break
+              case 'barcode_3':
+                confidence = 0.94
+                matchReason = 'BARCODE_3_MODEL_EXACT'
+                break
+            }
+            confidence = Math.min(confidence + 0.02, 0.99)
+            confidence = Math.round(confidence * 10000) / 10000
+
+            stats.uniqueMatches++
+            candidatesToInsert.push({
+              dinamik_product_id: dinamikProductId,
+              parcatedarik_product_id: disambiguatedPt.id,
+              dinamik_barcode_field: field,
+              dinamik_barcode_value: value.trim(),
+              normalized_barcode_value: normalizedValue,
+              parcatedarik_model: disambiguatedPt.model || '',
+              normalized_model: normalizedValue,
+              match_reason: matchReason,
+              confidence,
+              status: DEFAULT_STATUS
+            })
+            existingKeys.add(key)
+          }
+
+          for (const pt of pcProducts) {
+            if (pt.id === disambiguatedPt.id) continue
+            const key = `${dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
+            if (existingKeys.has(key)) continue
+
+            let confidence: number
+            switch (field) {
+              case 'barcode_1':
+                confidence = 0.98
+                break
+              case 'barcode_2':
+                confidence = 0.96
+                break
+              case 'barcode_3':
+                confidence = 0.94
+                break
+            }
+            confidence = Math.round(confidence * 10000) / 10000
+
+            stats.multipleMatches++
+            stats.needsReview++
+            candidatesToInsert.push({
+              dinamik_product_id: dinamikProductId,
+              parcatedarik_product_id: pt.id,
+              dinamik_barcode_field: field,
+              dinamik_barcode_value: value.trim(),
+              normalized_barcode_value: normalizedValue,
+              parcatedarik_model: pt.model || '',
+              normalized_model: normalizedValue,
+              match_reason: 'MULTIPLE_PARCA_MODEL_MATCHES',
+              confidence,
+              status: 'NEEDS_REVIEW'
+            })
+            existingKeys.add(key)
+          }
+        } else {
+          for (const pt of pcProducts) {
+            const key = `${dinamikProductId}::${pt.id}::${field}::${normalizedValue}`
+            if (existingKeys.has(key)) continue
+
+            const normalizedMfrName = normalizedManufacturerMap.get(pt.manufacturer_id) || ''
+            const brandMatch = !!(dinamikBrand && normalizedMfrName && dinamikBrand === normalizedMfrName)
+
+            let confidence: number
+            let matchReason: string
+            switch (field) {
+              case 'barcode_1':
+                confidence = 0.98
+                matchReason = 'BARCODE_1_MODEL_EXACT'
+                break
+              case 'barcode_2':
+                confidence = 0.96
+                matchReason = 'BARCODE_2_MODEL_EXACT'
+                break
+              case 'barcode_3':
+                confidence = 0.94
+                matchReason = 'BARCODE_3_MODEL_EXACT'
+                break
+            }
+            if (brandMatch) confidence = Math.min(confidence + 0.01, 0.99)
+            confidence = Math.round(confidence * 10000) / 10000
+
+            stats.multipleMatches++
+            stats.needsReview++
+            candidatesToInsert.push({
+              dinamik_product_id: dinamikProductId,
+              parcatedarik_product_id: pt.id,
+              dinamik_barcode_field: field,
+              dinamik_barcode_value: value.trim(),
+              normalized_barcode_value: normalizedValue,
+              parcatedarik_model: pt.model || '',
+              normalized_model: normalizedValue,
+              match_reason: 'MULTIPLE_PARCA_MODEL_MATCHES',
+              confidence,
+              status: 'NEEDS_REVIEW'
+            })
+            existingKeys.add(key)
+          }
         }
       }
     }
@@ -316,6 +434,7 @@ async function main() {
   console.log(`  uniqueMatches:               ${stats.uniqueMatches}`)
   console.log(`  multipleMatches:             ${stats.multipleMatches}`)
   console.log(`  needsReview:                 ${stats.needsReview}`)
+  console.log(`  brandAliasDisambiguations:   ${stats.brandAliasDisambiguations}`)
   console.log(`  candidatesWouldInsert:       ${stats.candidatesWouldInsert}`)
 
   // Print sample matches
