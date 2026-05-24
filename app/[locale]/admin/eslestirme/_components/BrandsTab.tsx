@@ -7,7 +7,7 @@ import { SortingState } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DataTable } from './data-table'
 import { BrandRow, createBrandsColumns } from './columns/brands-columns'
@@ -27,20 +27,18 @@ export function BrandsTab() {
   const [summary, setSummary] = useState<BrandSummary | null>(null)
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, pages: 1 })
   const [loading, setLoading] = useState(true)
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
   const [filters, setFilters] = useState<BrandFilters>({ q: '', status: 'all', page: 1, limit: 50 })
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const filtersRef = useRef(filters)
+  const hasLoadedRef = useRef(false)
   useEffect(() => { filtersRef.current = filters }, [filters])
 
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
-  const [updateTarget, setUpdateTarget] = useState<BrandRow | null>(null)
-  const [manufacturerSearch, setManufacturerSearch] = useState('')
-  const [manufacturerResults, setManufacturerResults] = useState<Manufacturer[]>([])
-
   const loadBrands = useCallback(async (f: BrandFilters) => {
-    setLoading(true)
+    const isInitialLoad = !hasLoadedRef.current
+    if (isInitialLoad) setLoading(true)
     try {
       const params = new URLSearchParams()
       if (f.q) params.set('q', f.q)
@@ -49,7 +47,11 @@ export function BrandsTab() {
       params.set('limit', String(f.limit))
       if (f.sort) { params.set('sort', f.sort); params.set('sort_dir', f.sort_dir || 'asc') }
       const res = await fetch(`/api/admin/eslestirme/brands?${params}`)
-      if (!res.ok) { toast.error(`Eşleştirmeler yüklenemedi (${res.status})`); setLoading(false); return }
+      if (!res.ok) {
+        toast.error(`Eşleştirmeler yüklenemedi (${res.status})`)
+        if (isInitialLoad) setLoading(false)
+        return
+      }
       const data = await res.json()
       if (!data.error) {
         setBrands(data.rows || [])
@@ -57,8 +59,15 @@ export function BrandsTab() {
         setSummary(data.summary || null)
       }
     } catch { toast.error('Eşleştirmeler yüklenemedi') }
+    hasLoadedRef.current = true
+    setHasLoaded(true)
     setLoading(false)
   }, [])
+
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [updateTarget, setUpdateTarget] = useState<BrandRow | null>(null)
+  const [manufacturerSearch, setManufacturerSearch] = useState('')
+  const [manufacturerResults, setManufacturerResults] = useState<Manufacturer[]>([])
 
   useEffect(() => { void loadBrands(filters) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -141,23 +150,28 @@ export function BrandsTab() {
   })
 
   const summaryCards = summary ? [
-    { label: 'Toplam', value: summary.total, color: 'bg-slate-500' },
-    { label: 'Dinamik Markalar', value: summary.totalDinamikBrands, color: 'bg-blue-500' },
-    { label: 'PT Üreticiler', value: summary.totalPcManufacturers, color: 'bg-violet-500' },
-    { label: 'Eşleşen', value: summary.matchedBrands, color: 'bg-teal-500' },
-    { label: 'Beklemede', value: summary.pending, color: 'bg-amber-500' },
-    { label: 'Onaylandı', value: summary.approved, color: 'bg-emerald-500' },
-    { label: 'Reddedildi', value: summary.rejected, color: 'bg-rose-500' },
-    { label: 'Eşleşmeyen', value: summary.unmatchedBrands, color: 'bg-orange-500' },
+    { label: 'Toplam', value: summary.total, color: 'bg-muted-foreground' },
+    { label: 'Dinamik Markalar', value: summary.totalDinamikBrands, color: 'bg-primary' },
+    { label: 'PT Üreticiler', value: summary.totalPcManufacturers, color: 'bg-secondary' },
+    { label: 'Eşleşen', value: summary.matchedBrands, color: 'bg-success' },
+    { label: 'Beklemede', value: summary.pending, color: 'bg-warning' },
+    { label: 'Onaylandı', value: summary.approved, color: 'bg-success' },
+    { label: 'Reddedildi', value: summary.rejected, color: 'bg-destructive' },
+    { label: 'Eşleşmeyen', value: summary.unmatchedBrands, color: 'bg-warning' },
   ] : []
+
+  const isInitialLoading = !hasLoaded && loading
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {loading && !summary ? (
-          <div className="col-span-full">
-            <AdminLoadingState minHeight="min-h-[120px]" label="Özet yükleniyor..." />
-          </div>
+        {isInitialLoading ? (
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-card px-4 py-3">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-3 h-7 w-16" />
+            </div>
+          ))
         ) : summaryCards.map((card, i) => (
           <div key={i} className="rounded-xl border bg-card px-4 py-3">
             <div className="text-xs font-medium text-muted-foreground">{card.label}</div>
@@ -204,7 +218,7 @@ export function BrandsTab() {
         columns={columns}
         data={brands}
         getRowId={(row) => String(row.id)}
-        isLoading={loading}
+        isLoading={isInitialLoading}
         pagination={pagination}
         onPaginationChange={(page) => applyFilters({ page })}
         sorting={sorting}

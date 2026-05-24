@@ -38,20 +38,20 @@ export default async function AdminDinamikSupplierPage() {
         <DinamikControls provider={detail.provider} />
 
         <AdminSurface className="p-4">
-          <h2 className="text-sm font-semibold text-slate-900">Son Senkron Çalışmaları</h2>
+          <h2 className="text-sm font-semibold text-foreground">Son Senkron Çalışmaları</h2>
           <div className="mt-3 space-y-3 md:hidden">
             {detail.runs.length === 0 ? (
-              <div className="rounded-xl border border-slate-200 px-3 py-6 text-center text-sm text-slate-500">
+              <div className="rounded-xl border border-border px-3 py-6 text-center text-sm text-muted-foreground">
                 Henüz senkron kaydı yok.
               </div>
             ) : (
               detail.runs.map((run) => (
-                <article key={run.id} className="rounded-xl border border-slate-200 p-3">
+                <article key={run.id} className="rounded-xl border border-border p-3">
                   <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">#{run.id}</p>
-                    <p className="text-xs text-slate-600">{run.status}</p>
+                    <p className="font-semibold text-foreground">#{run.id}</p>
+                    <p className="text-xs text-muted-foreground">{run.status}</p>
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     <p>Tetik: {run.triggerType}</p>
                     <p>
                       Başlangıç:{' '}
@@ -70,7 +70,7 @@ export default async function AdminDinamikSupplierPage() {
           <div className="mt-3 hidden md:block overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="px-2 py-2">Run ID</th>
                   <th className="px-2 py-2">Tetik</th>
                   <th className="px-2 py-2">Durum</th>
@@ -80,7 +80,7 @@ export default async function AdminDinamikSupplierPage() {
                   <th className="px-2 py-2">Hata</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {detail.runs.map((run) => (
                   <tr key={run.id}>
                     <td className="px-2 py-2 font-semibold">#{run.id}</td>
@@ -93,14 +93,14 @@ export default async function AdminDinamikSupplierPage() {
                     </td>
                     <td className="px-2 py-2">{run.totalCount}</td>
                     <td className="px-2 py-2">{run.failedCount}</td>
-                    <td className="px-2 py-2 text-xs text-slate-600">
+                    <td className="px-2 py-2 text-xs text-muted-foreground">
                       {run.errorSummary || '-'}
                     </td>
                   </tr>
                 ))}
                 {detail.runs.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-2 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-2 py-8 text-center text-muted-foreground">
                       Henüz senkron kaydı yok.
                     </td>
                   </tr>
@@ -124,12 +124,12 @@ function MetricCard({
   icon: ElementType
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
-        <Icon size={14} className="text-slate-500" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <Icon size={14} className="text-muted-foreground" />
       </div>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value.toLocaleString('tr-TR')}</p>
+      <p className="mt-2 text-2xl font-bold text-foreground">{value.toLocaleString('tr-TR')}</p>
     </div>
   )
 }

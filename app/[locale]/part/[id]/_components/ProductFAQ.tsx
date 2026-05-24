@@ -71,18 +71,18 @@ export function ProductFAQ({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
       {/* Left Column - Text Info */}
       <div className="flex flex-col justify-center">
-        <p className="text-lg md:text-xl font-bold text-slate-900 mb-4 leading-tight">
+        <p className="text-lg md:text-xl font-bold text-foreground mb-4 leading-tight">
           {t('title')}
           <br />
-          <span className="text-slate-900">{productName}?</span>
+          <span className="text-foreground">{productName}?</span>
         </p>
-        <p className="text-slate-600 text-sm md:text-base leading-relaxed">
+        <p className="text-muted-foreground text-sm md:text-base leading-relaxed">
           {t('description')}
         </p>
       </div>
 
       {/* Right Column - Contact Form */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 md:p-8 shadow-sm">
+      <div className="bg-background border border-border rounded-xl p-6 md:p-8 shadow-sm">
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">

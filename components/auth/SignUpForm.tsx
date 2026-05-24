@@ -3,6 +3,9 @@
 import { signUp } from '@/lib/actions/auth-actions'
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export function SignUpForm() {
   const [isLoading, setIsLoading] = useState(false)
@@ -34,51 +37,50 @@ export function SignUpForm() {
       className="flex flex-col gap-4 max-w-sm w-full mx-auto p-4 border rounded-lg shadow-sm"
     >
       <h1 className="text-2xl font-bold">{t('signUpTitle')}</h1>
-      {error && <div className="text-red-500 text-sm">{error}</div>}
-      {success && <div className="text-green-500 text-sm">{success}</div>}
+      {error && <div className="text-destructive text-sm">{error}</div>}
+      {success && <div className="text-success text-sm">{success}</div>}
       <div className="flex flex-col gap-1">
-        <label htmlFor="name">{t('name')}</label>
-        <input
+        <Label htmlFor="name">{t('name')}</Label>
+        <Input
+          id="name"
           name="name"
           type="text"
           required
-          className="border p-2 rounded"
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="email">{t('email')}</label>
-        <input
+        <Label htmlFor="email">{t('email')}</Label>
+        <Input
+          id="email"
           name="email"
           type="email"
           required
-          className="border p-2 rounded"
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="password">{t('password')}</label>
-        <input
+        <Label htmlFor="password">{t('password')}</Label>
+        <Input
+          id="password"
           name="password"
           type="password"
           required
-          className="border p-2 rounded"
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="confirmPassword">{t('confirmPassword')}</label>
-        <input
+        <Label htmlFor="confirmPassword">{t('confirmPassword')}</Label>
+        <Input
+          id="confirmPassword"
           name="confirmPassword"
           type="password"
           required
-          className="border p-2 rounded"
         />
       </div>
-      <button
+      <Button
         type="submit"
         disabled={isLoading}
-        className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 disabled:opacity-50"
       >
         {isLoading ? t('loading') || 'Loading...' : t('signUpButton')}
-      </button>
+      </Button>
     </form>
   )
 }

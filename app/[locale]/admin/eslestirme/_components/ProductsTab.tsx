@@ -7,7 +7,7 @@ import { SortingState } from '@tanstack/react-table'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+import { Skeleton } from '@/components/ui/skeleton'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
@@ -16,6 +16,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -80,7 +81,8 @@ export function ProductsTab() {
   const [models, setModels] = useState<ModelRow[]>([])
   const [summary, setSummary] = useState<ModelSummary | null>(null)
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, pages: 1 })
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [isFetching, setIsFetching] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
@@ -91,6 +93,7 @@ export function ProductsTab() {
   const [optionsLoading, setOptionsLoading] = useState(false)
   const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => { filtersRef.current = filters }, [filters])
 
@@ -102,18 +105,29 @@ export function ProductsTab() {
   const [linkLoaded, setLinkLoaded] = useState(false)
 
   const loadModels = useCallback(async (f: ModelFilters) => {
-    setLoading(true)
+    const isInitial = !hasLoadedRef.current
+    if (isInitial) setInitialLoading(true)
+    else setIsFetching(true)
+
     try {
       const res = await fetch(`/api/admin/eslestirme/models?${buildModelSearchParams(f)}`)
-      if (!res.ok) { toast.error(`Eşleştirmeler yüklenemedi (${res.status})`); setLoading(false); return }
+      if (!res.ok) {
+        toast.error(`Eşleştirmeler yüklenemedi (${res.status})`)
+        return
+      }
       const data = await res.json()
       if (!data.error) {
         setModels(data.rows || [])
         setPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 1 })
         setSummary(data.summary || null)
       }
-    } catch { toast.error('Eşleştirmeler yüklenemedi') }
-    setLoading(false)
+    } catch {
+      toast.error('Eşleştirmeler yüklenemedi')
+    } finally {
+      if (isInitial) setInitialLoading(false)
+      else setIsFetching(false)
+      hasLoadedRef.current = true
+    }
   }, [])
 
   const loadFilterOptions = useCallback(async () => {
@@ -296,11 +310,11 @@ export function ProductsTab() {
   })
 
   const summaryCards = summary ? [
-    { label: 'Toplam', value: summary.total, color: 'bg-slate-500' },
-    { label: 'Onaylandı', value: summary.approved, color: 'bg-emerald-500' },
-    { label: 'Beklemede', value: summary.pending, color: 'bg-amber-500' },
-    { label: 'Reddedildi', value: summary.rejected, color: 'bg-rose-500' },
-    { label: 'Yoksayıldı', value: summary.ignored, color: 'bg-slate-400' },
+    { label: 'Toplam', value: summary.total, color: 'bg-muted-foreground' },
+    { label: 'Onaylandı', value: summary.approved, color: 'bg-success' },
+    { label: 'Beklemede', value: summary.pending, color: 'bg-warning' },
+    { label: 'Reddedildi', value: summary.rejected, color: 'bg-destructive' },
+    { label: 'Yoksayıldı', value: summary.ignored, color: 'bg-muted-foreground' },
   ] : []
 
   const selectedCount = Object.values(rowSelection).filter(Boolean).length
@@ -313,7 +327,8 @@ export function ProductsTab() {
     ? `${linkBrandName} markasına ait ${linkSearchTarget} ürün bulunamadı.`
     : `Onaylı marka eşleşmesi bulunamadı; ${linkSearchTarget} ürün listelenemedi.`
 
-  const isListUpdating = loading || isSearchPending
+  const isInitialLoading = initialLoading
+  const isTableLoading = initialLoading || isFetching || isSearchPending
   const hasActiveFilters =
     filters.q !== '' ||
     filters.status !== 'all' ||
@@ -325,10 +340,13 @@ export function ProductsTab() {
     <TooltipProvider delayDuration={300}>
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {loading && !summary ? (
-          <div className="col-span-full">
-            <AdminLoadingState minHeight="min-h-[120px]" label="Özet yükleniyor..." />
-          </div>
+        {isInitialLoading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-card px-4 py-3">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-3 h-7 w-16" />
+            </div>
+          ))
         ) : summaryCards.map((c, i) => (
           <div key={i} className="rounded-xl border bg-card px-4 py-3">
             <div className="text-xs font-medium text-muted-foreground">{c.label}</div>
@@ -350,7 +368,7 @@ export function ProductsTab() {
         </Button>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <AdminTableToolbar
           searchValue={searchValue}
           onSearchChange={(nextValue) => {
@@ -359,9 +377,9 @@ export function ProductsTab() {
             onSearch(nextValue)
           }}
           searchPlaceholder="Stok kodu / ad / ürün ara..."
-          isSearchLoading={isListUpdating}
+          isSearchLoading={isSearchPending}
           onRefresh={() => void loadModels(filtersRef.current)}
-          isRefreshing={loading}
+          isRefreshing={isFetching}
           onAdvancedFilter={() => setFiltersOpen(true)}
         />
 
@@ -416,7 +434,7 @@ export function ProductsTab() {
         columns={columns}
         data={models}
         getRowId={(row) => String(row.id)}
-        isLoading={loading}
+        isLoading={isTableLoading}
         pagination={pagination}
         onPaginationChange={(page) => applyFilters({ page })}
         sorting={sorting}
@@ -507,7 +525,7 @@ export function ProductsTab() {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="mt-6 space-y-3">
+          <div className="space-y-3">
             <AdminFilterSelect
               label="Dinamik Marka"
               value={filters.dinamikBrand ?? 'all'}
@@ -561,14 +579,14 @@ export function ProductsTab() {
             />
           </div>
 
-          <div className="mt-6 flex gap-2">
-            <Button type="button" variant="outline" className="flex-1" onClick={resetFilters}>
+          <SheetFooter>
+            <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={resetFilters}>
               Filtreleri Sıfırla
             </Button>
-            <Button type="button" className="flex-1" onClick={() => setFiltersOpen(false)}>
+            <Button type="button" className="flex-1 sm:flex-none" onClick={() => setFiltersOpen(false)}>
               Kapat
             </Button>
-          </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </div>

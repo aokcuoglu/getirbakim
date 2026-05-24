@@ -111,23 +111,23 @@ export function AdminFilterSelect({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-medium text-gray-600">{label}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <div ref={containerRef} className="relative">
         <button
           type="button"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
-          className="flex h-9 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className={selectedOption ? 'text-gray-900' : 'text-gray-400'}>
+          <span className={selectedOption ? 'text-foreground' : 'text-muted-foreground'}>
             {selectedOption?.label || placeholder}
           </span>
-          <ChevronDown size={14} className="text-gray-400" />
+          <ChevronDown className="size-4 text-muted-foreground opacity-50" />
         </button>
 
         {open ? (
-          <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-md">
-            <div className="border-b border-gray-100 p-2">
+          <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md">
+            <div className="border-b p-2">
               <Input
                 ref={inputRef}
                 value={query}
@@ -147,8 +147,8 @@ export function AdminFilterSelect({
                       onClick={() => handleSelect(option.value)}
                       className={`block w-full rounded-sm px-2 py-1.5 text-left text-xs ${
                         value === option.value
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-700 hover:bg-gray-50'
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                       }`}
                     >
                       {option.label}
@@ -158,9 +158,9 @@ export function AdminFilterSelect({
                   {groupedOptions.groups.map(([groupLabel, groupOptions], index) => (
                     <div key={groupLabel}>
                       {(groupedOptions.plain.length > 0 || index > 0) && (
-                        <div className="my-1 h-px bg-gray-100" />
+                        <div className="my-1 h-px bg-border" />
                       )}
-                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {groupLabel}
                       </p>
                       {groupOptions.map((option) => (
@@ -170,8 +170,8 @@ export function AdminFilterSelect({
                           onClick={() => handleSelect(option.value)}
                           className={`block w-full rounded-sm px-2 py-1.5 text-left text-xs ${
                             value === option.value
-                              ? 'bg-gray-100 text-gray-900'
-                              : 'text-gray-700 hover:bg-gray-50'
+                              ? 'bg-accent text-accent-foreground'
+                              : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                           }`}
                         >
                           {option.label}
@@ -181,7 +181,7 @@ export function AdminFilterSelect({
                   ))}
                 </>
               ) : (
-                <div className="px-2 py-2 text-xs text-gray-500">Sonuç bulunamadı.</div>
+                <div className="px-2 py-2 text-xs text-muted-foreground">Sonuç bulunamadı.</div>
               )}
             </div>
           </div>

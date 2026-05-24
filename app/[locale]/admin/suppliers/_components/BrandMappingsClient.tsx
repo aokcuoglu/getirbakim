@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { Loader2, Search, SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -250,12 +251,12 @@ export function BrandMappingsClient({
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-5">
+      <section className="overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+        <div className="border-b border-border px-5 py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h3 className="text-xl font-semibold text-slate-900">Marka Listesi</h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className="text-xl font-semibold text-foreground">Marka Listesi</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Dinamik marka adlarını tek yerde yönetin ve public marka eşleşmelerini hızla düzeltin.
               </p>
             </div>
@@ -276,20 +277,20 @@ export function BrandMappingsClient({
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <BrandMetric label="Toplam" value={summary.total} loading={isPending && rows.length === 0} accentClass="bg-slate-500" />
-            <BrandMetric label="Eşleşen" value={summary.mapped} loading={isPending && rows.length === 0} accentClass="bg-emerald-500" />
-            <BrandMetric label="Pending" value={summary.pending} loading={isPending && rows.length === 0} accentClass="bg-amber-500" />
-            <BrandMetric label="Eşleşmeyen" value={summary.unmapped} loading={isPending && rows.length === 0} accentClass="bg-rose-500" />
+            <BrandMetric label="Toplam" value={summary.total} loading={isPending && rows.length === 0} accentClass="bg-muted-foreground" />
+            <BrandMetric label="Eşleşen" value={summary.mapped} loading={isPending && rows.length === 0} accentClass="bg-success/100" />
+            <BrandMetric label="Pending" value={summary.pending} loading={isPending && rows.length === 0} accentClass="bg-warning/100" />
+            <BrandMetric label="Eşleşmeyen" value={summary.unmapped} loading={isPending && rows.length === 0} accentClass="bg-destructive" />
           </div>
         </div>
 
-        <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-3">
+        <div className="border-b border-border bg-muted/70 px-5 py-3">
           <div className="grid gap-2 lg:grid-cols-[minmax(280px,2fr)_auto]">
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Dinamik marka ara"
-              className="h-9 border-slate-200 bg-white"
+              className="h-9 border-border bg-background"
             />
 
             <Button
@@ -356,7 +357,7 @@ export function BrandMappingsClient({
             <Button
               type="button"
               variant="outline"
-              className="h-8 rounded-full border-slate-300 px-3 text-xs"
+              className="h-8 rounded-full border-input px-3 text-xs"
               disabled={!hasActiveFilters}
               onClick={() => {
                 setQuery('')
@@ -382,7 +383,7 @@ export function BrandMappingsClient({
             isPending && rows.length === 0 ? (
               <AdminLoadingState minHeight="min-h-[240px]" />
             ) : rows.length === 0 ? (
-              <div className="px-4 py-12 text-center text-slate-500">
+              <div className="px-4 py-12 text-center text-muted-foreground">
                 Marka eşleştirme sonucu bulunamadı.
               </div>
             ) : (
@@ -391,13 +392,13 @@ export function BrandMappingsClient({
                   <MobileDataCard key={row.supplierBrand}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-semibold text-slate-900 truncate">
+                        <p className="font-semibold text-foreground truncate">
                           {row.supplierBrand}
                         </p>
-                        <p className="text-xs text-slate-600 truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           Public: {row.mappedPartBrand ? row.mappedPartBrand.name : '-'}
                         </p>
-                        <p className="text-xs text-slate-600 truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           Aday: {row.exactCandidate ? row.exactCandidate.name : '-'}
                         </p>
                       </div>
@@ -440,12 +441,12 @@ export function BrandMappingsClient({
           desktop={
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-gray-200/80 bg-gray-50/90 hover:bg-gray-50/90">
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Marka</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Public</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Aday</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Durum</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 text-right">İşlem</TableHead>
+                <TableRow className="border-b border-border/80 bg-muted/90 hover:bg-muted/90">
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Marka</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Public</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Aday</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Durum</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -457,10 +458,10 @@ export function BrandMappingsClient({
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
-                  <TableRow className="hover:bg-white">
+                  <TableRow className="hover:bg-background">
                     <TableCell
                       colSpan={5}
-                      className="px-4 py-12 text-center text-slate-500"
+                      className="px-4 py-12 text-center text-muted-foreground"
                     >
                       Marka eşleştirme sonucu bulunamadı.
                     </TableCell>
@@ -472,18 +473,18 @@ export function BrandMappingsClient({
                       className="group transition-colors duration-150"
                     >
                       <TableCell>
-                        <span className="text-sm font-semibold text-gray-900">
+                        <span className="text-sm font-semibold text-foreground">
                           {row.supplierBrand}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-gray-700">
-                          {row.mappedPartBrand ? row.mappedPartBrand.name : <span className="text-gray-400">—</span>}
+                        <span className="text-sm text-foreground">
+                          {row.mappedPartBrand ? row.mappedPartBrand.name : <span className="text-muted-foreground">—</span>}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-gray-700">
-                          {row.exactCandidate ? row.exactCandidate.name : <span className="text-gray-400">—</span>}
+                        <span className="text-sm text-foreground">
+                          {row.exactCandidate ? row.exactCandidate.name : <span className="text-muted-foreground">—</span>}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -494,7 +495,7 @@ export function BrandMappingsClient({
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 text-xs font-medium text-gray-500 hover:text-gray-900"
+                            className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
                             disabled={!row.exactCandidate || isPending}
                             onClick={() => quickMapExact(row)}
                           >
@@ -503,7 +504,7 @@ export function BrandMappingsClient({
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 text-xs font-medium text-gray-500 hover:text-gray-900"
+                            className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
                             onClick={() => openManualMap(row)}
                           >
                             Manuel
@@ -511,7 +512,7 @@ export function BrandMappingsClient({
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-8 text-xs font-medium text-gray-500 hover:text-rose-600"
+                            className="h-8 text-xs font-medium text-muted-foreground hover:text-destructive"
                             disabled={!row.mappedPartBrand}
                             onClick={() => clearBrandMap(row.supplierBrand)}
                           >
@@ -527,7 +528,7 @@ export function BrandMappingsClient({
           }
         />
 
-        <div className="border-t border-slate-200 px-5">
+        <div className="border-t border-border px-5">
           <Pagination
             currentPage={pagination.page}
             totalPages={pagination.pages}
@@ -539,9 +540,9 @@ export function BrandMappingsClient({
       </section>
 
       <Dialog open={Boolean(selectedSupplierBrand)} onOpenChange={(open) => !open && closeManualMap()}>
-        <DialogContent className="max-w-2xl overflow-hidden border-slate-200 bg-slate-50 p-0">
-          <DialogHeader className="border-b border-slate-200 bg-white px-4 py-3">
-            <DialogTitle className="text-sm text-[#101828]">
+        <DialogContent className="max-w-2xl overflow-hidden border-border bg-muted p-0">
+          <DialogHeader className="border-b border-border bg-background px-4 py-3">
+            <DialogTitle className="text-sm text-foreground">
               Manuel Marka Eşleme{selectedSupplierBrand ? ` - ${selectedSupplierBrand}` : ''}
             </DialogTitle>
             <DialogDescription className="text-xs">
@@ -550,7 +551,7 @@ export function BrandMappingsClient({
           </DialogHeader>
 
           <div className="p-4">
-            <Command shouldFilter={false} className="rounded-lg border border-slate-200 bg-white">
+            <Command shouldFilter={false} className="rounded-md border border-border bg-background">
               <CommandInput
                 value={partBrandQuery}
                 onValueChange={setPartBrandQuery}
@@ -567,7 +568,7 @@ export function BrandMappingsClient({
                       className="flex items-center justify-between"
                     >
                       <span>{brand.name}</span>
-                      <span className="text-xs font-semibold text-emerald-700">Bağla</span>
+                      <span className="text-xs font-semibold text-success">Bağla</span>
                     </CommandItem>
                   ))}
                 </CommandGroup>
@@ -575,7 +576,7 @@ export function BrandMappingsClient({
             </Command>
 
             {isPending && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 size={14} className="animate-spin" />
                 Marka sonuçları güncelleniyor...
               </div>
@@ -599,12 +600,12 @@ function BrandMetric({
   accentClass: string
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+    <div className="rounded-xl border border-border bg-background px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       {loading ? (
         <Loader2 className="mt-2 h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
-        <p className="mt-2 text-2xl font-semibold text-slate-900">{value.toLocaleString('tr-TR')}</p>
+        <p className="mt-2 text-2xl font-semibold text-foreground">{value.toLocaleString('tr-TR')}</p>
       )}
       <div className={`mt-2 h-1 w-10 rounded-full ${accentClass}`} />
     </div>
@@ -614,26 +615,26 @@ function BrandMetric({
 function BrandStatusBadge({ status }: { status: 'APPROVED' | 'PENDING' | 'UNMAPPED' }) {
   if (status === 'APPROVED') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-success/10 text-success border-success/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         Eşleşti
-      </span>
+      </Badge>
     )
   }
 
   if (status === 'PENDING') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" />
         Bekliyor
-      </span>
+      </Badge>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/10">
-      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+    <Badge variant="outline" className="gap-1.5 text-[10px] bg-destructive/10 text-destructive border-destructive/20">
+      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
       Eşleşmeyen
-    </span>
+    </Badge>
   )
 }

@@ -193,8 +193,8 @@ export function SupplierReferenceCloneDrawer({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-7xl overflow-hidden border-slate-200 bg-[#f8fafc] p-0">
-        <DialogHeader className="border-b border-slate-200 bg-white px-6 py-4">
+      <DialogContent className="max-h-[92vh] max-w-7xl overflow-hidden border-border bg-muted p-0">
+        <DialogHeader className="border-b border-border bg-background px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <DialogTitle>Referans Klon Editörü</DialogTitle>
@@ -213,7 +213,7 @@ export function SupplierReferenceCloneDrawer({
         </DialogHeader>
 
         {loading || !draft || !editable ? (
-          <div className="flex h-[60vh] items-center justify-center text-sm text-slate-500">
+          <div className="flex h-[60vh] items-center justify-center text-sm text-muted-foreground">
             <Loader2 size={16} className="mr-2 animate-spin" />
             Taslak hazırlanıyor...
           </div>
@@ -223,7 +223,7 @@ export function SupplierReferenceCloneDrawer({
               <SourceSummaryCard draft={draft} />
 
               <Tabs defaultValue="core" className="gap-4">
-                <TabsList className="h-auto w-full justify-start gap-1 bg-slate-100 p-1">
+                <TabsList className="w-full justify-start">
                   <TabsTrigger value="core">Temel</TabsTrigger>
                   <TabsTrigger value="pricing">Fiyat / Stok</TabsTrigger>
                   <TabsTrigger value="references">Referanslar</TabsTrigger>
@@ -285,7 +285,7 @@ export function SupplierReferenceCloneDrawer({
                       />
                     </div>
 
-                    <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                    <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
                       <Checkbox
                         checked={editable.inBasket}
                         onCheckedChange={(checked) =>
@@ -325,7 +325,7 @@ export function SupplierReferenceCloneDrawer({
                       />
                     </div>
                     <div className="mt-3 grid gap-2 md:grid-cols-3">
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <label className="flex items-center gap-2 text-sm text-foreground">
                         <Checkbox
                           checked={editable.isVisible}
                           onCheckedChange={(checked) =>
@@ -337,7 +337,7 @@ export function SupplierReferenceCloneDrawer({
                         />
                         Vitrinde görünsün
                       </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <label className="flex items-center gap-2 text-sm text-foreground">
                         <Checkbox
                           checked={editable.lockPrice}
                           onCheckedChange={(checked) =>
@@ -349,7 +349,7 @@ export function SupplierReferenceCloneDrawer({
                         />
                         Fiyat kilidi
                       </label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <label className="flex items-center gap-2 text-sm text-foreground">
                         <Checkbox
                           checked={editable.lockVisibility}
                           onCheckedChange={(checked) =>
@@ -363,7 +363,7 @@ export function SupplierReferenceCloneDrawer({
                       </label>
                     </div>
                     <div className="mt-3">
-                      <p className="mb-1 text-xs font-medium text-slate-600">
+                      <p className="mb-1 text-xs font-medium text-muted-foreground">
                         Not
                       </p>
                       <Textarea
@@ -439,7 +439,7 @@ export function SupplierReferenceCloneDrawer({
                         type="number"
                       />
                     </div>
-                    <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+                    <div className="mt-4 grid gap-3 rounded-md border border-border bg-muted p-3 md:grid-cols-3">
                       <Field
                         label="Offer Supplier Price"
                         value={editable.supplierOffer.supplierPrice?.toString() || ''}
@@ -483,7 +483,7 @@ export function SupplierReferenceCloneDrawer({
                         }
                       />
                     </div>
-                    <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                    <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
                       <Checkbox
                         checked={editable.supplierOffer.isActive}
                         onCheckedChange={(checked) =>
@@ -604,7 +604,7 @@ export function SupplierReferenceCloneDrawer({
                 </TabsContent>
               </Tabs>
 
-              <div className="sticky bottom-0 z-10 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-[#f8fafc] py-3">
+              <div className="sticky bottom-0 z-10 flex flex-wrap justify-end gap-2 border-t border-border bg-muted py-3">
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
                   Kapat
                 </Button>
@@ -623,7 +623,7 @@ export function SupplierReferenceCloneDrawer({
                 <Button
                   onClick={() => void handleSave()}
                   disabled={saving || publishing}
-                  className="bg-[#0f172a] hover:bg-[#1e293b]"
+                 
                 >
                   {saving ? (
                     <Loader2 size={14} className="mr-2 animate-spin" />
@@ -641,9 +641,9 @@ export function SupplierReferenceCloneDrawer({
 
 function SourceSummaryCard({ draft }: { draft: SupplierReferenceCloneDraft }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="rounded-xl border border-border bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-[#0f172a]">Kaynak Özeti</h3>
+        <h3 className="text-sm font-semibold text-foreground">Kaynak Özeti</h3>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">{draft.provider.name}</Badge>
           <Badge variant="outline">SKU: {draft.supplierProduct.sku}</Badge>
@@ -651,7 +651,7 @@ function SourceSummaryCard({ draft }: { draft: SupplierReferenceCloneDraft }) {
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 text-xs text-slate-600 md:grid-cols-3">
+      <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
         <InfoRow
           label="Supplier Ürün"
           value={draft.supplierProduct.name || '-'}
@@ -682,7 +682,7 @@ function SourceSummaryCard({ draft }: { draft: SupplierReferenceCloneDraft }) {
         />
       </div>
       {draft.warnings.length > 0 ? (
-        <div className="mt-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        <div className="mt-3 space-y-2 rounded-md border border-warning/20 bg-warning/10 p-3 text-xs text-warning">
           {draft.warnings.map((warning) => (
             <p key={warning}>{warning}</p>
           ))}
@@ -700,8 +700,8 @@ function Panel({
   children: ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-[#0f172a]">{title}</h3>
+    <div className="rounded-xl border border-border bg-background p-4">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       <div className="mt-3 space-y-4">{children}</div>
     </div>
   )
@@ -709,11 +709,11 @@ function Panel({
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">
+    <div className="rounded-md border border-border bg-muted px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 font-medium text-[#0f172a]">{value}</p>
+      <p className="mt-1 font-medium text-foreground">{value}</p>
     </div>
   )
 }
@@ -731,7 +731,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="mb-1 text-xs font-medium text-slate-600">{label}</p>
+      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
       <Input
         value={value}
         type={type}
@@ -756,14 +756,14 @@ function SelectLikeField({
 
   return (
     <div>
-      <p className="mb-1 text-xs font-medium text-slate-600">{label}</p>
+      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
       <Select
         value={value || EMPTY_VALUE}
         onValueChange={(nextValue) =>
           onChange(nextValue === EMPTY_VALUE ? '' : nextValue)
         }
       >
-        <SelectTrigger className="h-10 w-full bg-white text-sm">
+        <SelectTrigger className="w-full">
           <SelectValue placeholder="Seçin" />
         </SelectTrigger>
         <SelectContent>
@@ -801,7 +801,7 @@ function StringListEditor({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <Button
           type="button"
           size="sm"
@@ -830,7 +830,7 @@ function StringListEditor({
           </div>
         ))}
         {values.length === 0 ? (
-          <p className="text-xs text-slate-500">Kayıt yok.</p>
+          <p className="text-xs text-muted-foreground">Kayıt yok.</p>
         ) : null}
       </div>
     </div>
@@ -869,7 +869,7 @@ function PairListEditor<T extends Record<string, string>>({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-slate-600">{label}</p>
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <Button type="button" size="sm" variant="outline" onClick={addRow}>
           <Plus size={14} className="mr-1" />
           Satır Ekle
@@ -902,7 +902,7 @@ function PairListEditor<T extends Record<string, string>>({
           </div>
         ))}
         {rows.length === 0 ? (
-          <p className="text-xs text-slate-500">Kayıt yok.</p>
+          <p className="text-xs text-muted-foreground">Kayıt yok.</p>
         ) : null}
       </div>
     </div>
@@ -965,7 +965,7 @@ function ImageListEditor({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-600">
+        <p className="text-xs font-medium text-muted-foreground">
           Görsel URL ve önizleme
         </p>
         <div className="flex gap-2">
@@ -1014,9 +1014,9 @@ function ImageListEditor({
         {rows.map((row, index) => (
           <div
             key={`image-${index}`}
-            className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            className="rounded-md border border-border bg-muted p-3"
           >
-            <div className="mb-3 aspect-video overflow-hidden rounded-md border border-slate-200 bg-white">
+            <div className="mb-3 aspect-video overflow-hidden rounded-md border border-border bg-background">
               {row.image ? (
                 <img
                   src={row.thumb || row.image}
@@ -1024,7 +1024,7 @@ function ImageListEditor({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-slate-500">
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                   Görsel yok
                 </div>
               )}
@@ -1074,7 +1074,7 @@ function ImageListEditor({
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-xs text-slate-500">Kayıt yok.</p>
+        <p className="text-xs text-muted-foreground">Kayıt yok.</p>
       ) : null}
     </div>
   )
@@ -1165,7 +1165,7 @@ function DocumentListEditor({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-600">
+        <p className="text-xs font-medium text-muted-foreground">
           Döküman metadata ve bağlantı
         </p>
         <div className="flex gap-2">
@@ -1207,10 +1207,10 @@ function DocumentListEditor({
         {rows.map((row, index) => (
           <div
             key={`doc-${index}`}
-            className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            className="rounded-md border border-border bg-muted p-3"
           >
             <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-medium text-slate-700">
+              <p className="truncate text-sm font-medium text-foreground">
                 {row.name || `Doküman ${index + 1}`}
               </p>
               <div className="flex gap-2">
@@ -1282,7 +1282,7 @@ function DocumentListEditor({
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-xs text-slate-500">Kayıt yok.</p>
+        <p className="text-xs text-muted-foreground">Kayıt yok.</p>
       ) : null}
     </div>
   )
@@ -1351,8 +1351,8 @@ function VehicleTypeListEditor({
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <p className="mb-2 text-xs font-medium text-slate-600">
+      <div className="rounded-md border border-border bg-muted p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">
           Araç tipi ara ve seç
         </p>
         <div className="flex gap-2">
@@ -1372,26 +1372,26 @@ function VehicleTypeListEditor({
         </div>
         <div className="mt-3 max-h-64 space-y-2 overflow-auto">
           {searching ? (
-            <div className="flex items-center text-xs text-slate-500">
+            <div className="flex items-center text-xs text-muted-foreground">
               <Loader2 size={14} className="mr-2 animate-spin" />
               Aranıyor...
             </div>
           ) : null}
           {!searching && results.length === 0 && query.trim().length >= 2 ? (
-            <p className="text-xs text-slate-500">Sonuç bulunamadı.</p>
+            <p className="text-xs text-muted-foreground">Sonuç bulunamadı.</p>
           ) : null}
           {results.map((item) => (
             <button
               key={item.id}
               type="button"
-              className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left hover:bg-slate-100"
+              className="flex w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-left hover:bg-muted"
               onClick={() => addRow(item)}
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-700">
+                <p className="truncate text-sm font-medium text-foreground">
                   {item.label}
                 </p>
-                <p className="text-xs text-slate-500">ID: {item.id}</p>
+                <p className="text-xs text-muted-foreground">ID: {item.id}</p>
               </div>
               <Badge variant={selectedMap.has(item.id) ? 'secondary' : 'outline'}>
                 {selectedMap.has(item.id) ? 'Seçili' : 'Ekle'}
@@ -1402,17 +1402,17 @@ function VehicleTypeListEditor({
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium text-slate-600">Seçili araç tipleri</p>
+        <p className="text-xs font-medium text-muted-foreground">Seçili araç tipleri</p>
         {rows.map((row) => (
           <div
             key={`vehicle-${row.id}`}
-            className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2"
+            className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2"
           >
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-slate-700">
+              <p className="truncate text-sm font-medium text-foreground">
                 {row.label}
               </p>
-              <p className="text-xs text-slate-500">Vehicle Type ID: {row.id}</p>
+              <p className="text-xs text-muted-foreground">Vehicle Type ID: {row.id}</p>
             </div>
             <Button
               type="button"
@@ -1426,7 +1426,7 @@ function VehicleTypeListEditor({
           </div>
         ))}
         {rows.length === 0 ? (
-          <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs text-slate-500">
+          <div className="rounded-md border border-dashed border-input bg-muted p-4 text-center text-xs text-muted-foreground">
             <Car size={16} className="mx-auto mb-2" />
             Araç tipi bağlantısı yok.
           </div>

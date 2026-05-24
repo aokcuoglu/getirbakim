@@ -30,7 +30,7 @@ export const NavbarCategories: React.FC<NavbarCategoriesProps> = ({
   categoryTriggerRef
 }) => {
   return (
-    <div className="hidden md:block border-t border-slate-100 bg-white h-[48px] relative z-10">
+    <div className="hidden md:block border-t border-border bg-background h-[48px] relative z-10">
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-full flex items-center gap-5">
         {/* Catalog Trigger */}
         <CatalogButton
@@ -42,7 +42,7 @@ export const NavbarCategories: React.FC<NavbarCategoriesProps> = ({
         {/* Categories Scroll */}
         <div
           ref={categoryTriggerRef}
-          className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-5 h-full text-[13px] font-medium text-slate-600"
+          className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-5 h-full text-[13px] font-medium text-muted-foreground"
         >
           {(categories || []).map((cat) =>
             cat.urlKey ? (

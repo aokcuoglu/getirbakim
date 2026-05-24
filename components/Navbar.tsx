@@ -164,7 +164,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-sm transition-all duration-300">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-background border-b border-border shadow-sm transition-all duration-300">
         <TopUtilityBar onContactClick={() => closeDropdowns()} />
 
         {/* 1. TOP ROW: Logo - Search - Actions */}
@@ -174,7 +174,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
             {/* Hamburger Menu - Mobile Only */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-2 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-700 transition-colors"
+              className="md:hidden p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Menu"
             >
               <Menu size={24} strokeWidth={1.5} />

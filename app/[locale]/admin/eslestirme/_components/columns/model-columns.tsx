@@ -78,10 +78,10 @@ export function createModelColumns(handlers: {
       cell: ({ getValue }) => {
         const v = getValue<string>()
         const colors: Record<string, string> = {
-          PENDING: 'bg-amber-100 text-amber-800 border-amber-200',
-          APPROVED: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-          REJECTED: 'bg-rose-100 text-rose-800 border-rose-200',
-          IGNORED: 'bg-slate-100 text-slate-600 border-slate-200',
+          PENDING: 'bg-warning/15 text-warning border-warning/20',
+          APPROVED: 'bg-success/15 text-success border-success/20',
+          REJECTED: 'bg-destructive/15 text-destructive border-destructive/20',
+          IGNORED: 'bg-muted text-muted-foreground border-border',
         }
         return (
           <Badge variant="outline" className={`text-xs font-medium ${colors[v] || ''}`}>
@@ -95,6 +95,7 @@ export function createModelColumns(handlers: {
       header: () => <span className="text-xs font-medium">Ürün Eşleşmesi</span>,
       cell: ({ row }) => {
         const r = row.original
+        const isApproved = r.mappingStatus === 'APPROVED'
         const isMatched = !!(r.dproductsId && r.productId)
 
         if (isMatched) {
@@ -102,24 +103,24 @@ export function createModelColumns(handlers: {
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex items-center gap-1.5 min-w-0 cursor-default">
-                  <span className="text-sm font-mono font-medium text-blue-700 truncate max-w-[120px]">
+                  <span className="text-sm font-mono font-medium text-primary truncate max-w-[120px]">
                     {r.dinamik.stockCode || '—'}
                   </span>
-                  <ArrowRight className="h-3 w-3 text-emerald-500 shrink-0" />
-                  <span className="text-sm text-violet-700 truncate max-w-[200px]">
+                  <ArrowRight className="h-3 w-3 text-success shrink-0" />
+                  <span className="text-sm text-primary truncate max-w-[200px]">
                     {r.parcatedarik.title?.slice(0, 40) || '—'}
                   </span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1.5 text-xs">
                 <div>
-                  <p className="font-semibold text-blue-700">Dinamik</p>
+                  <p className="font-semibold text-primary">Dinamik</p>
                   <p className="font-mono">{r.dinamik.stockCode}</p>
                   <p className="text-muted-foreground">{r.dinamik.stockName || '—'}</p>
                   <p className="text-muted-foreground">Marka: {r.dinamik.brand || '—'}</p>
                 </div>
                 <div className="border-t pt-1.5">
-                  <p className="font-semibold text-violet-700">ParçaTedarik</p>
+                  <p className="font-semibold text-primary">ParçaTedarik</p>
                   <p>{r.parcatedarik.title}</p>
                   <p className="text-muted-foreground">{r.parcatedarik.manufacturerName}</p>
                   <p className="text-muted-foreground font-mono">model: {r.parcatedarik.model || '—'}</p>
@@ -137,13 +138,15 @@ export function createModelColumns(handlers: {
                   <span className="text-sm font-mono font-medium truncate max-w-[250px]">
                     {r.dinamik.stockCode || '—'}
                   </span>
-                  <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 shrink-0">
-                    PT bekliyor
-                  </Badge>
+                  {!isApproved && (
+                    <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/20 shrink-0">
+                      PT bekliyor
+                    </Badge>
+                  )}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1 text-xs">
-                <p className="font-semibold">Dinamik Ürün (eşleşme bekliyor)</p>
+                <p className="font-semibold">{isApproved ? 'Dinamik Ürün' : 'Dinamik Ürün (eşleşme bekliyor)'}</p>
                 <p className="font-mono">{r.dinamik.stockCode}</p>
                 <p className="text-muted-foreground">{r.dinamik.stockName || '—'}</p>
                 <p className="text-muted-foreground">Marka: {r.dinamik.brand || '—'}</p>
@@ -158,16 +161,18 @@ export function createModelColumns(handlers: {
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="flex items-center gap-1.5 min-w-0 cursor-default">
-                  <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200 shrink-0">
-                    Dinamik bekliyor
-                  </Badge>
+                  {!isApproved && (
+                    <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/20 shrink-0">
+                      Dinamik bekliyor
+                    </Badge>
+                  )}
                   <span className="text-sm truncate max-w-[250px]">
                     {r.parcatedarik.title?.slice(0, 50) || '—'}
                   </span>
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1 text-xs">
-                <p className="font-semibold">PT Ürün (eşleşme bekliyor)</p>
+                <p className="font-semibold">{isApproved ? 'PT Ürün' : 'PT Ürün (eşleşme bekliyor)'}</p>
                 <p>{r.parcatedarik.title}</p>
                 <p className="text-muted-foreground">{r.parcatedarik.manufacturerName}</p>
                 <p className="text-muted-foreground font-mono">model: {r.parcatedarik.model || '—'}</p>
@@ -187,7 +192,7 @@ export function createModelColumns(handlers: {
         const v = getValue<string | null>()
         if (!v) return <span className="text-xs text-muted-foreground">—</span>
         return (
-          <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+          <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/20">
             {METHOD_LABELS[v] || v}
           </Badge>
         )
@@ -201,23 +206,23 @@ export function createModelColumns(handlers: {
           <div className="flex items-center gap-0.5">
             {m.mappingStatus === 'PENDING' && (
               <>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700" onClick={() => handlers.onAction(m.id, 'approve')} title="Onayla">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-success hover:text-success" onClick={() => handlers.onAction(m.id, 'approve')} title="Onayla">
                   <Check className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-600 hover:text-rose-700" onClick={() => handlers.onAction(m.id, 'reject')} title="Reddet">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => handlers.onAction(m.id, 'reject')} title="Reddet">
                   <X className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-500 hover:text-slate-700" onClick={() => handlers.onAction(m.id, 'ignore')} title="Yoksay">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => handlers.onAction(m.id, 'ignore')} title="Yoksay">
                   <Ban className="h-4 w-4" />
                 </Button>
               </>
             )}
             {(m.mappingStatus === 'APPROVED' || m.mappingStatus === 'REJECTED') && (
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600" onClick={() => handlers.onAction(m.id, 'unmatch')} title="Eşleştirmeyi Kaldır">
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handlers.onAction(m.id, 'unmatch')} title="Eşleştirmeyi Kaldır">
                 <X className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700" onClick={() => handlers.onLinkDproducts(m)} title="Eşleştir">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-primary hover:text-primary" onClick={() => handlers.onLinkDproducts(m)} title="Eşleştir">
               <Link2 className="h-4 w-4" />
             </Button>
           </div>

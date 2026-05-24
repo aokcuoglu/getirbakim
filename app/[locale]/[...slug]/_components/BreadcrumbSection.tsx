@@ -89,20 +89,20 @@ export function BreadcrumbSection({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-3 pb-2">
       {/* breadcrumb trail */}
-      <nav className="mb-2 flex items-center gap-2 text-[13px] text-slate-500">
+      <nav className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
         <a
           href="/"
           onMouseEnter={() => prefetchHref('/')}
           onFocus={() => prefetchHref('/')}
           onClick={(event) => handleCategoryLinkClick(event, '/')}
-          className="transition-colors hover:text-slate-900"
+          className="transition-colors hover:text-foreground"
         >
           {t('home')}
         </a>
 
         {category.breadcrumbs.map((crumb) => (
           <React.Fragment key={crumb.urlKey}>
-            <ChevronRight size={12} className="text-slate-400" />
+            <ChevronRight size={12} className="text-muted-foreground" />
             <a
               href={getCatalogHref(crumb.urlKey, variantSlug)}
               onMouseEnter={() => prefetchHref(getCatalogHref(crumb.urlKey, variantSlug))}
@@ -113,14 +113,14 @@ export function BreadcrumbSection({
                   getCatalogHref(crumb.urlKey, variantSlug)
                 )
               }
-              className="transition-colors hover:text-slate-900"
+              className="transition-colors hover:text-foreground"
             >
               {getLocalizedCategoryName(crumb, locale)}
             </a>
           </React.Fragment>
         ))}
 
-        <ChevronRight size={12} className="text-slate-400" />
+        <ChevronRight size={12} className="text-muted-foreground" />
         {extraCrumb ? (
           <>
             <a
@@ -133,20 +133,20 @@ export function BreadcrumbSection({
                   getCatalogHref(category.urlKey, variantSlug)
                 )
               }
-              className="transition-colors hover:text-slate-900"
+              className="transition-colors hover:text-foreground"
             >
               {getLocalizedCategoryName(category, locale)}
             </a>
-            <ChevronRight size={12} className="text-slate-400" />
-            <span className="text-slate-900 font-medium">{extraCrumb}</span>
+            <ChevronRight size={12} className="text-muted-foreground" />
+            <span className="text-foreground font-medium">{extraCrumb}</span>
           </>
         ) : (
-          <span className="text-slate-900 font-medium">{categoryName}</span>
+          <span className="text-foreground font-medium">{categoryName}</span>
         )}
       </nav>
 
       {showIntro && !vehicleString && (
-        <p className="max-w-4xl text-[12px] leading-relaxed text-slate-500">
+        <p className="max-w-4xl text-[12px] leading-relaxed text-muted-foreground">
           {introText}
         </p>
       )}
@@ -154,11 +154,11 @@ export function BreadcrumbSection({
       {/* vehicle info line */}
       {vehicleString && (
         <div className="flex items-center gap-3 text-[13px]">
-          <p className="text-slate-900 font-medium">{vehicleString}</p>
+          <p className="text-foreground font-medium">{vehicleString}</p>
           <div className="flex items-center gap-3 ml-1">
             <a
               href={getCatalogHref(category.urlKey)}
-              className="text-[#0091D5]"
+              className="text-primary"
               onMouseEnter={() => prefetchHref(getCatalogHref(category.urlKey))}
               onFocus={() => prefetchHref(getCatalogHref(category.urlKey))}
               onClick={(event) =>
@@ -169,7 +169,7 @@ export function BreadcrumbSection({
             </a>
             <a
               href={getCatalogHref(category.urlKey)}
-              className="text-[#EF4444]"
+              className="text-destructive"
               onMouseEnter={() => prefetchHref(getCatalogHref(category.urlKey))}
               onFocus={() => prefetchHref(getCatalogHref(category.urlKey))}
               onClick={(event) => {

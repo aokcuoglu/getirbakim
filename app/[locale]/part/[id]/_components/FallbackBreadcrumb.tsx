@@ -19,16 +19,16 @@ export function FallbackBreadcrumb({
   const router = useRouter()
 
   return (
-    <div className="bg-white border-b border-slate-200">
+    <div className="bg-background border-b border-border">
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-2 md:py-3">
-        <nav className="text-xs md:text-sm text-slate-500 flex items-center flex-wrap gap-1">
+        <nav className="text-xs md:text-sm text-muted-foreground flex items-center flex-wrap gap-1">
           <a
             href="/"
             onClick={(event) => {
               event.preventDefault()
               router.push('/')
             }}
-            className="hover:text-slate-700 cursor-pointer"
+            className="hover:text-foreground cursor-pointer"
           >
             {t('home')}
           </a>
@@ -46,7 +46,7 @@ export function FallbackBreadcrumb({
                   })
                 )
               }}
-              className="hover:text-slate-700 truncate max-w-[120px] md:max-w-none"
+              className="hover:text-foreground truncate max-w-[120px] md:max-w-none"
             >
               {categoryName}
             </a>
@@ -56,7 +56,7 @@ export function FallbackBreadcrumb({
             </span>
           )}
           <span className="mx-1 md:mx-2">/</span>
-          <span className="text-slate-900 font-medium truncate max-w-[150px] md:max-w-none">
+          <span className="text-foreground font-medium truncate max-w-[150px] md:max-w-none">
             {partName}
           </span>
         </nav>

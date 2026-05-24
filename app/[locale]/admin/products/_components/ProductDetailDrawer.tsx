@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { RegionalStockSummary } from '@/components/admin/regional-stock-summary'
+import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -176,7 +177,7 @@ export function ProductDetailDrawer({
         side="right"
         className="w-full overflow-y-auto sm:max-w-[760px]"
       >
-        <SheetHeader className="border-b border-gray-100 pb-4">
+        <SheetHeader className="border-b border-border pb-4">
           <SheetTitle>Ürün Detayı</SheetTitle>
           <SheetDescription>
             {detail
@@ -186,13 +187,13 @@ export function ProductDetailDrawer({
         </SheetHeader>
 
         {detailQuery.isLoading && !detail ? (
-          <div className="mt-8 flex items-center justify-center text-gray-500">
+          <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             Yükleniyor...
           </div>
         ) : detail ? (
           <div className="mt-6 space-y-4">
-            <div className="sticky top-0 z-10 rounded-xl border border-gray-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+            <div className="sticky top-0 z-10 rounded-xl border border-border bg-white/95 p-4 shadow-sm backdrop-blur">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <SummaryCard label="Parça ID" value={`#${detail.id}`} />
                 <SummaryCard
@@ -228,7 +229,7 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="genel"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
                 <InfoRow label="Parça ID" value={detail.id} />
                 <InfoRow label="Article Link ID" value={detail.articleLinkId} />
@@ -243,7 +244,7 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="fiyat"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <Field
@@ -286,25 +287,25 @@ export function ProductDetailDrawer({
                 </div>
 
                 {activeRegionalOffer ? (
-                  <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                    <h4 className="mb-3 text-sm font-semibold text-blue-900">
+                  <div className="mt-4 rounded-xl border border-border bg-accent/50 p-4">
+                    <h4 className="mb-3 text-sm font-semibold text-foreground">
                       Fiyat Hesaplama Detayı ({activeRegionalOffer.providerName}
                       )
                     </h4>
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
                       <div>
-                        <p className="text-xs text-blue-600">
+                        <p className="text-xs text-primary">
                           Tedarikçi Fiyatı
                         </p>
-                        <p className="text-sm font-medium text-slate-800">
+                        <p className="text-sm font-medium text-foreground">
                           {activeRegionalOffer.supplierPrice != null
                             ? `${activeRegionalOffer.supplierPrice} ${activeRegionalOffer.currency}`
                             : '-'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-blue-600">Marka İndirimi</p>
-                        <p className="text-sm font-medium text-slate-800">
+                        <p className="text-xs text-primary">Marka İndirimi</p>
+                        <p className="text-sm font-medium text-foreground">
                           %
                           {(
                             activeRegionalOffer.standardDiscountRate * 100
@@ -312,36 +313,36 @@ export function ProductDetailDrawer({
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-blue-600">
+                        <p className="text-xs text-primary">
                           Kampanya İndirimi
                         </p>
-                        <p className="text-sm font-medium text-slate-800">
+                        <p className="text-sm font-medium text-foreground">
                           %{(activeRegionalOffer.campaignRate * 100).toFixed(2)}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-blue-800">
+                        <p className="text-xs font-semibold text-primary">
                           Satın Alma Fiyatı (Net)
                         </p>
-                        <p className="text-sm font-bold text-slate-900">
+                        <p className="text-sm font-bold text-foreground">
                           {activeRegionalOffer.computedNetCost != null
                             ? `${activeRegionalOffer.computedNetCost} TRY`
                             : '-'}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-blue-600">
+                        <p className="text-xs text-primary">
                           Kâr Oranı (Margin)
                         </p>
-                        <p className="text-sm font-medium text-slate-800">
+                        <p className="text-sm font-medium text-foreground">
                           %{(activeRegionalOffer.marginRate * 100).toFixed(2)}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-blue-800">
+                        <p className="text-xs font-semibold text-primary">
                           Sistem Satış Fiyatı
                         </p>
-                        <p className="text-sm font-bold text-emerald-700">
+                        <p className="text-sm font-bold text-success">
                           {activeRegionalOffer.computedSellingPrice != null
                             ? `${activeRegionalOffer.computedSellingPrice} TRY`
                             : '-'}
@@ -351,7 +352,7 @@ export function ProductDetailDrawer({
                   </div>
                 ) : null}
 
-                <label className="flex items-center gap-2 text-sm text-gray-700 mt-4">
+                <label className="flex items-center gap-2 text-sm text-foreground mt-4">
                   <input
                     type="checkbox"
                     checked={lockPrice}
@@ -363,9 +364,9 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="gorunurluk"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
-                <label className="flex items-center gap-2 text-sm text-gray-700">
+                <label className="flex items-center gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"
                     checked={isVisible}
@@ -373,7 +374,7 @@ export function ProductDetailDrawer({
                   />
                   Ürün vitrinde görünsün
                 </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700">
+                <label className="flex items-center gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"
                     checked={lockVisibility}
@@ -383,21 +384,20 @@ export function ProductDetailDrawer({
                   />
                   Görünürlük kilidini etkinleştir
                 </label>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-foreground">
                   Not
                 </label>
-                <textarea
+                <Textarea
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                   rows={4}
-                  className="w-full rounded-lg border border-gray-200 p-2 text-sm"
                   placeholder="Operasyon notu"
                 />
               </TabsContent>
 
               <TabsContent
                 value="tedarik"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
                 <InfoRow
                   label="Aktif Seçim Nedeni"
@@ -430,10 +430,10 @@ export function ProductDetailDrawer({
                   regionalStock={detail.supplierSummary?.selectedRegionalStock}
                 />
 
-                <div className="rounded-lg border border-gray-200">
+                <div className="rounded-md border border-border">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
+                      <tr className="border-b border-border bg-muted">
                         <th className="px-3 py-2">Sağlayıcı</th>
                         <th className="px-3 py-2">SKU</th>
                         <th className="px-3 py-2">Fiyat</th>
@@ -486,7 +486,7 @@ export function ProductDetailDrawer({
                       ))}
                       {(detail.supplierSummary?.offers || []).length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-3 py-3 text-gray-500">
+                          <td colSpan={6} className="px-3 py-3 text-muted-foreground">
                             Tedarik teklifi bulunamadı.
                           </td>
                         </tr>
@@ -498,17 +498,17 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="varyantlar"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Aynı ürün anahtarında toplam {detail.variants.length} varyant
                   bulundu.
                 </p>
 
-                <div className="rounded-lg border border-gray-200">
+                <div className="rounded-md border border-border">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
+                      <tr className="border-b border-border bg-muted">
                         <th className="px-3 py-2">Parça ID</th>
                         <th className="px-3 py-2">Article Link</th>
                         <th className="px-3 py-2">Stok</th>
@@ -523,11 +523,11 @@ export function ProductDetailDrawer({
                           key={variant.id}
                           className={
                             variant.id === detail.id
-                              ? 'bg-slate-50/80'
+                              ? 'bg-muted/80'
                               : undefined
                           }
                         >
-                          <td className="px-3 py-2 font-medium text-[#101828]">
+                          <td className="px-3 py-2 font-medium text-foreground">
                             #{variant.id}
                           </td>
                           <td className="px-3 py-2">{variant.articleLinkId}</td>
@@ -547,7 +547,7 @@ export function ProductDetailDrawer({
                       ))}
                       {detail.variants.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-3 py-3 text-gray-500">
+                          <td colSpan={6} className="px-3 py-3 text-muted-foreground">
                             Varyant bulunamadı.
                           </td>
                         </tr>
@@ -559,9 +559,9 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="teknik"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   EAN: {technicalSummary.eans} | OEM: {technicalSummary.oem} |
                   Cross Ref: {technicalSummary.cross} | Özellik:{' '}
                   {technicalSummary.properties} | Doküman:{' '}
@@ -588,7 +588,7 @@ export function ProductDetailDrawer({
 
               <TabsContent
                 value="senkron"
-                className="space-y-3 rounded-lg border p-4"
+                className="space-y-3 rounded-md border p-4"
               >
                 <InfoRow
                   label="Son Senkron"
@@ -598,10 +598,10 @@ export function ProductDetailDrawer({
                       : 'Kayıt yok'
                   }
                 />
-                <div className="rounded-lg border border-gray-200">
+                <div className="rounded-md border border-border">
                   <table className="w-full text-left text-xs">
                     <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
+                      <tr className="border-b border-border bg-muted">
                         <th className="px-3 py-2">Kaynak</th>
                         <th className="px-3 py-2">Durum</th>
                         <th className="px-3 py-2">Başlangıç</th>
@@ -625,7 +625,7 @@ export function ProductDetailDrawer({
                       ))}
                       {detail.recentSyncRuns.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-3 py-3 text-gray-500">
+                          <td colSpan={4} className="px-3 py-3 text-muted-foreground">
                             Senkron geçmişi bulunamadı.
                           </td>
                         </tr>
@@ -643,7 +643,7 @@ export function ProductDetailDrawer({
               <Button
                 onClick={handleSave}
                 disabled={isSaving || detailQuery.isFetching}
-                className="bg-[#101828] hover:bg-[#1d2939]"
+               
               >
                 {isSaving ? (
                   <Loader2 size={14} className="mr-2 animate-spin" />
@@ -653,11 +653,11 @@ export function ProductDetailDrawer({
             </div>
           </div>
         ) : detailQuery.isError ? (
-          <div className="mt-8 text-sm text-gray-500">
+          <div className="mt-8 text-sm text-muted-foreground">
             Ürün detayı yüklenemedi.
           </div>
         ) : (
-          <div className="mt-8 text-sm text-gray-500">
+          <div className="mt-8 text-sm text-muted-foreground">
             Ürün detayı bulunamadı.
           </div>
         )}
@@ -668,20 +668,20 @@ export function ProductDetailDrawer({
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50/70 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+    <div className="rounded-md border border-border bg-muted/70 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="mt-1 text-sm font-semibold text-[#101828]">{value}</p>
+      <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
     </div>
   )
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
-      <span className="text-xs font-medium text-gray-500">{label}</span>
-      <span className="text-sm font-semibold text-[#101828]">{value}</span>
+    <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{value}</span>
     </div>
   )
 }
@@ -701,7 +701,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-gray-600">
+      <label className="mb-1 block text-xs font-medium text-muted-foreground">
         {label}
       </label>
       <input
@@ -709,7 +709,7 @@ function Field({
         value={value}
         readOnly={readOnly}
         onChange={(event) => onChange?.(event.target.value)}
-        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+        className="w-full rounded-md border border-border px-3 py-2 text-sm"
       />
     </div>
   )
@@ -717,11 +717,11 @@ function Field({
 
 function ReadOnlySection({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="rounded-md border border-gray-200">
-      <div className="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-600">
+    <div className="rounded-md border border-border">
+      <div className="border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground">
         {title}
       </div>
-      <div className="max-h-32 overflow-auto px-3 py-2 text-xs text-gray-700">
+      <div className="max-h-32 overflow-auto px-3 py-2 text-xs text-foreground">
         {items.length > 0 ? items.join(', ') : 'Kayıt yok'}
       </div>
     </div>

@@ -48,7 +48,7 @@ export function AdminKpiCard({
   const styles = toneStyles[tone]
 
   return (
-    <div className={cn('rounded-lg border p-3', styles.card)}>
+    <div className={cn('rounded-md border p-3', styles.card)}>
       <div className="flex items-center justify-between gap-2">
         <p className={cn('text-[11px] font-medium uppercase tracking-wide', styles.label)}>
           {label}

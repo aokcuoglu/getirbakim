@@ -176,7 +176,7 @@ export function GlobalSearch({
       <button
         onClick={handleOpen}
         className={cn(
-          'md:hidden p-2 hover:bg-slate-50 rounded-lg text-slate-500 hover:text-slate-700 transition-colors',
+          'md:hidden p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors',
           mobilePosition === 'left' ? '' : 'hidden' // Only show if explicitly enabled for mobile or default position logic
         )}
         aria-label={t('ariaSearch')}
@@ -189,7 +189,7 @@ export function GlobalSearch({
         <button
           onClick={handleOpen}
           className={cn(
-            'hidden md:flex flex-1 max-w-2xl items-center w-full bg-slate-100/50 backdrop-blur-md rounded-lg border border-slate-200 hover:bg-slate-100/80 transition-all duration-200 px-3 py-2.5 text-sm text-slate-400 font-light shadow-none',
+            'hidden md:flex flex-1 max-w-2xl items-center w-full bg-muted/50 backdrop-blur-md rounded-md border border-border hover:bg-muted/80 transition-all duration-200 px-3 py-2.5 text-sm text-muted-foreground font-light shadow-none',
             className
           )}
         >
@@ -231,7 +231,7 @@ export function GlobalSearch({
                     source="MISSING_PRODUCT_MODAL"
                     searchQuery={debouncedQuery}
                     trigger={
-                      <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700">
+                      <Button size="sm" className="bg-success text-success-foreground hover:bg-success/90">
                         {t('requestPart')}
                       </Button>
                     }
@@ -286,7 +286,7 @@ export function GlobalSearch({
               {query.trim() && (
                 <CommandItem onSelect={handleSearchParts} forceMount>
                   <Search className="mr-2 h-4 w-4" />
-                  <span className="text-blue-600">
+                  <span className="text-primary">
                     {t('viewAllResultsForQuery', { query })}
                   </span>
                 </CommandItem>

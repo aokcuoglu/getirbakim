@@ -25,7 +25,7 @@ export default async function AdminCategoriesPage({
     return (
       <AdminLayout>
         <AdminPageShell>
-          <AdminSurface className="p-4 text-red-600">Error: {result.error}</AdminSurface>
+          <AdminSurface className="p-4 text-destructive">Error: {result.error}</AdminSurface>
         </AdminPageShell>
       </AdminLayout>
     )

@@ -91,9 +91,9 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
   }
 
   return (
-    <section className="bg-white py-4 scroll-mt-24 sm:py-5">
+    <section className="bg-background py-4 scroll-mt-24 sm:py-5">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="mb-3 rounded-[10px] border border-[#dfe5eb] bg-white p-2.5 lg:hidden">
+        <div className="mb-3 rounded-[10px] border border-border bg-background p-2.5 lg:hidden">
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
@@ -105,25 +105,25 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
               <Menu size={18} />
             </Button>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900 truncate">
+              <p className="text-sm font-semibold text-foreground truncate">
                 {t('sidebarTitle')}
               </p>
-              <p className="text-xs text-slate-500 truncate">
+              <p className="text-xs text-muted-foreground truncate">
                 {activeTab ? getReadableLabel(activeTab.name) : ''}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="mb-3 flex gap-4 overflow-x-auto border-b border-[#dfe5eb] lg:hidden">
+        <div className="mb-3 flex gap-4 overflow-x-auto border-b border-border lg:hidden">
           {tabs.map((tab) => (
             <button
               key={`mobile-tab-${tab.id}`}
               onClick={() => handleTabChange(tab.id)}
               className={`shrink-0 border-b-2 pb-2 text-[14px] font-medium leading-5 transition-colors ${
                 activeTabId === tab.id
-                  ? 'border-[#0f6cbd] text-[#0f6cbd]'
-                  : 'border-transparent text-[#52606d] hover:text-[#212b36]'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
               {getReadableLabel(tab.name)}
@@ -133,7 +133,7 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
 
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
           <SheetContent side="left" className="w-[min(88vw,320px)] p-0 lg:hidden">
-            <SheetHeader className="border-b border-slate-100 px-4 py-4 text-left">
+            <SheetHeader className="border-b border-border px-4 py-4 text-left">
               <SheetTitle>{t('sidebarTitle')}</SheetTitle>
               <SheetDescription>{t('menuDescription')}</SheetDescription>
             </SheetHeader>
@@ -143,13 +143,13 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
                 <div className="relative">
                   <Search
                     size={16}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   />
                   <Input
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     placeholder={t('searchPlaceholder')}
-                    className="h-10 border-slate-200 bg-slate-50 pl-9 text-sm"
+                    className="border-border bg-muted pl-9 text-sm"
                   />
                 </div>
               </div>
@@ -169,8 +169,8 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
                           }}
                           className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition ${
                             isActive
-                              ? 'bg-slate-900 text-white'
-                              : 'text-slate-700 hover:bg-slate-100'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'text-foreground hover:bg-muted'
                           }`}
                         >
                           <span className="truncate font-medium">
@@ -182,14 +182,14 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
                   </div>
                 </div>
               ) : (
-                <p className="px-2 text-sm text-slate-500">{t('noMatchingCategories')}</p>
+                <p className="px-2 text-sm text-muted-foreground">{t('noMatchingCategories')}</p>
               )}
             </div>
           </SheetContent>
         </Sheet>
 
         {/* Tab navigation */}
-        <div className="mb-4 hidden border-b border-[#dfe5eb] lg:block">
+        <div className="mb-4 hidden border-b border-border lg:block">
           <div className="flex gap-6 overflow-x-auto pb-2.5 scrollbar-hide">
             {tabs.map((tab) => (
               <button
@@ -197,8 +197,8 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
                 onClick={() => handleTabChange(tab.id)}
                 className={`whitespace-nowrap border-b-2 pb-2 text-[16px] font-medium leading-5 transition-colors ${
                   activeTabId === tab.id
-                    ? 'border-[#0f6cbd] text-[#0f6cbd]'
-                    : 'border-transparent text-[#52606d] hover:text-[#212b36]'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {getReadableLabel(tab.name)}
@@ -225,7 +225,7 @@ export function CatalogSection({ catalogData }: CatalogSectionProps) {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 text-slate-500">
+          <div className="text-center py-12 text-muted-foreground">
             {t('noSubcategories')}
           </div>
         )}
@@ -284,9 +284,9 @@ function OptimizedCatalogLink({
       onMouseEnter={prefetchLink}
       onTouchStart={prefetchLink}
       onPointerDown={prefetchLink}
-      className="group flex min-h-[148px] flex-col items-center justify-center rounded-[6px] border border-[#dfe5eb] bg-white px-4 py-4 sm:min-h-[162px] sm:px-5 sm:py-5 lg:min-h-[182px] lg:px-6 lg:py-6"
+      className="group flex min-h-[148px] flex-col items-center justify-center rounded-md border border-border bg-background px-4 py-4 sm:min-h-[162px] sm:px-5 sm:py-5 lg:min-h-[182px] lg:px-6 lg:py-6"
     >
-      <div className="flex h-[72px] w-full shrink-0 items-center justify-center text-slate-400 sm:h-[82px] lg:h-[92px]">
+      <div className="flex h-[72px] w-full shrink-0 items-center justify-center text-muted-foreground sm:h-[82px] lg:h-[92px]">
         {imgSrc ? (
           <Image
             src={imgSrc}
@@ -302,7 +302,7 @@ function OptimizedCatalogLink({
         )}
       </div>
       <h3
-        className="mt-3 min-h-[40px] text-center text-[14px] font-medium leading-5 text-[#212b36] transition-colors line-clamp-2 group-hover:text-[#0f6cbd]"
+        className="mt-3 min-h-[40px] text-center text-[14px] font-medium leading-5 text-foreground transition-colors line-clamp-2 group-hover:text-primary"
         title={name}
       >
         {displayName}

@@ -75,7 +75,7 @@ export function ProductTabsLazy({ partId }: { partId: number }) {
 
   if (error) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 text-sm text-slate-600">
+      <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 text-sm text-muted-foreground">
         {error || 'Failed to load details.'}
       </div>
     )
@@ -83,12 +83,12 @@ export function ProductTabsLazy({ partId }: { partId: number }) {
 
   if (!data) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6">
-        <div className="h-6 w-48 bg-slate-100 rounded mb-4" />
+      <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6">
+        <div className="h-6 w-48 bg-muted rounded mb-4" />
         <div className="space-y-2">
-          <div className="h-4 w-full bg-slate-100 rounded" />
-          <div className="h-4 w-5/6 bg-slate-100 rounded" />
-          <div className="h-4 w-4/6 bg-slate-100 rounded" />
+          <div className="h-4 w-full bg-muted rounded" />
+          <div className="h-4 w-5/6 bg-muted rounded" />
+          <div className="h-4 w-4/6 bg-muted rounded" />
         </div>
       </div>
     )

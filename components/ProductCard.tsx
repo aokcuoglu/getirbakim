@@ -12,28 +12,28 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
   return (
     <GlassCard
       interactive
-      className="flex flex-col h-full p-0 overflow-hidden group border-slate-200 hover:border-slate-300"
+      className="flex flex-col h-full p-0 overflow-hidden group border-border hover:border-input"
     >
       <div className="p-4 flex-1 flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-start mb-3">
           {product.isPromo ? (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-900 text-white">
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary text-primary-foreground">
               Promo
             </span>
           ) : (
             <div />
           )}
-          <div className="flex items-center gap-1 text-slate-400">
-            <Star size={12} fill="currentColor" className="text-slate-400" />
-            <span className="text-xs font-medium text-slate-600">
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <Star size={12} fill="currentColor" className="text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">
               {product.rating}
             </span>
           </div>
         </div>
 
         {/* Image */}
-        <div className="aspect-square w-full bg-slate-50 rounded-md mb-4 flex items-center justify-center overflow-hidden">
+        <div className="aspect-square w-full bg-muted rounded-md mb-4 flex items-center justify-center overflow-hidden">
           <img
             src={product.imageUrl}
             alt={product.name}
@@ -43,10 +43,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
 
         {/* Product Info */}
         <div className="mb-2">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             {product.brand}
           </span>
-          <h3 className="font-semibold text-slate-900 text-sm leading-snug mt-1">
+          <h3 className="font-semibold text-foreground text-sm leading-snug mt-1">
             {product.name}
           </h3>
         </div>
@@ -54,14 +54,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
         {/* Tags */}
         <div className="flex flex-wrap gap-1 mb-4 mt-auto">
           {product.stock < 10 && (
-            <span className="text-[10px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded-sm border border-red-100">
+            <span className="text-[10px] font-medium text-destructive bg-destructive/10 px-1.5 py-0.5 rounded-sm border border-red-100">
               Low Stock
             </span>
           )}
           {product.tags?.slice(0, 2).map((tag) => (
             <span
               key={tag}
-              className="text-[10px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-sm border border-slate-200"
+              className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded-sm border border-border"
             >
               {tag}
             </span>
@@ -69,8 +69,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => {
         </div>
 
         {/* Price & Action */}
-        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-          <div className="text-lg font-bold text-slate-900">
+        <div className="flex items-center justify-between pt-3 border-t border-border">
+          <div className="text-lg font-bold text-foreground">
             ${product.price.toFixed(2)}
           </div>
           <GlassButton

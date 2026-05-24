@@ -103,7 +103,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         <SheetContent
           side="left"
           className="w-[min(86vw,320px)] border-r border-border p-0 md:hidden"
-          hideDefaultClose={false}
+          showCloseButton
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Admin navigasyon menüsü</SheetTitle>
@@ -164,7 +164,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <NotificationBell
               buttonClassName="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               iconClassName="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              panelClassName="absolute right-0 top-full z-[120] mt-2 w-[min(92vw,340px)] rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
+              panelClassName="absolute right-0 top-full z-[120] mt-2 w-[min(92vw,340px)] rounded-md border border-border bg-popover text-popover-foreground shadow-md"
             />
             <div className="mx-1 hidden h-5 w-px bg-border sm:mx-2 sm:block" />
             <DropdownMenu>

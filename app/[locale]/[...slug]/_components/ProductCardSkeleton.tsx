@@ -2,7 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 export function ProductCardSkeleton() {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5">
+    <div className="bg-background border border-border rounded-xl p-5">
       <div className="flex gap-5">
         {/* Left Side - Brand Logo + Image */}
         <div className="flex flex-col items-start gap-4 shrink-0">

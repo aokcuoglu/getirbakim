@@ -24,10 +24,10 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-amber-50 text-amber-700 ring-amber-600/10',
-  APPROVED: 'bg-emerald-50 text-emerald-700 ring-emerald-600/10',
-  REJECTED: 'bg-rose-50 text-rose-700 ring-rose-600/10',
-  IGNORED: 'bg-slate-50 text-slate-600 ring-slate-500/10',
+  PENDING: 'bg-warning/10 text-warning ring-warning/10',
+  APPROVED: 'bg-success/10 text-success ring-success/10',
+  REJECTED: 'bg-destructive/10 text-destructive ring-destructive/10',
+  IGNORED: 'bg-muted text-muted-foreground ring-muted-foreground/10',
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -93,7 +93,7 @@ export function createBrandsColumns(handlers: {
       cell: ({ getValue }) => {
         const v = getValue<string>()
         return (
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_COLORS[v] || 'bg-slate-50 text-slate-600'}`}>
+          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_COLORS[v] || 'bg-muted text-muted-foreground'}`}>
             {STATUS_LABELS[v] || v}
           </span>
         )
@@ -110,21 +110,21 @@ export function createBrandsColumns(handlers: {
           <div className="flex items-center gap-1">
             {alias.mappingStatus === 'PENDING' && (
               <>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700" onClick={() => handlers.onAction(alias.id, 'approve')} title="Onayla">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-success hover:text-success" onClick={() => handlers.onAction(alias.id, 'approve')} title="Onayla">
                   <Check className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-rose-600 hover:text-rose-700" onClick={() => handlers.onAction(alias.id, 'reject')} title="Reddet">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => handlers.onAction(alias.id, 'reject')} title="Reddet">
                   <X className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-500 hover:text-slate-700" onClick={() => handlers.onAction(alias.id, 'ignore')} title="Yoksay">
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => handlers.onAction(alias.id, 'ignore')} title="Yoksay">
                   <Ban className="h-4 w-4" />
                 </Button>
               </>
             )}
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700" onClick={() => handlers.onUpdate(alias)} title="Eşleştirmeyi Değiştir">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-primary hover:text-primary" onClick={() => handlers.onUpdate(alias)} title="Eşleştirmeyi Değiştir">
               <Link2 className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600" onClick={() => handlers.onAction(alias.id, 'delete')} title="Sil">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handlers.onAction(alias.id, 'delete')} title="Sil">
               <Unlink className="h-4 w-4" />
             </Button>
           </div>

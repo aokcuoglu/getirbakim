@@ -54,7 +54,7 @@ export function TopCategories({
   }
 
   return (
-    <div className="border-b border-slate-100 relative z-0 bg-white">
+    <div className="border-b border-border relative z-0 bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
         <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1 sm:mx-0 sm:px-0 sm:overflow-visible sm:flex-wrap sm:justify-between sm:gap-3">
           {categories.map((cat) => {
@@ -97,7 +97,7 @@ export function TopCategories({
                   />
                 </div>
                 <span
-                  className="line-clamp-2 min-h-[32px] border-b border-transparent text-center text-[14px] font-medium leading-4 text-slate-700 transition-colors group-hover:border-slate-300 group-hover:text-sky-600"
+                  className="line-clamp-2 min-h-[32px] border-b border-transparent text-center text-[14px] font-medium leading-4 text-foreground transition-colors group-hover:border-input group-hover:text-primary"
                 >
                   {getCategoryLabel(cat.name)}
                 </span>

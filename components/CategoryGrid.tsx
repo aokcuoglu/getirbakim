@@ -33,18 +33,18 @@ export function CategoryGrid<
                     loading="lazy"
                   />
                 ) : (
-                  <span className="text-4xl text-slate-200">🔧</span>
+                  <span className="text-4xl text-primary-foreground/80">🔧</span>
                 )}
               </div>
             </div>
-            <h3 className="text-sm font-semibold text-slate-700 text-center w-full leading-tight">
+            <h3 className="text-sm font-semibold text-foreground text-center w-full leading-tight">
               {cat.name}
             </h3>
           </div>
         )
 
         const className =
-          'group flex flex-col items-center p-3 bg-white border border-slate-200 rounded-lg hover:shadow-md hover:border-slate-300 transition-all duration-200 min-h-[140px] cursor-pointer'
+          'group flex flex-col items-center p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-input transition-all duration-200 min-h-[140px] cursor-pointer'
 
         if (href) {
           return (

@@ -33,15 +33,15 @@ export default async function AccountOrderDetailPage(props: {
   const t = await getTranslations({ locale, namespace: 'AccountOrderDetailPage' })
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       <Navbar navbarCategories={navbarCategories} />
       <main className="mx-auto max-w-6xl px-4 pb-12 pt-4 md:pt-8">
         <div className="mb-6 md:mb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
             {t('myOrders')}
           </p>
-          <h1 className="mt-3 text-3xl font-bold text-slate-950">{order.orderNumber}</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="mt-3 text-3xl font-bold text-foreground">{order.orderNumber}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             {t('description')}
           </p>
         </div>

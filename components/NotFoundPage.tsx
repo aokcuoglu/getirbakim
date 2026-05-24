@@ -49,23 +49,23 @@ export default function NotFoundPage() {
   const copy = COPY[safeLocale]
 
   return (
-    <section className="relative overflow-hidden bg-slate-50 px-4 py-16 sm:px-6 sm:py-20">
+    <section className="relative overflow-hidden bg-muted px-4 py-16 sm:px-6 sm:py-20">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(30,64,175,0.10),transparent_40%),radial-gradient(circle_at_80%_10%,rgba(15,23,42,0.08),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(148,163,184,0.10),transparent_40%)]"
       />
 
       <div className="relative mx-auto max-w-3xl">
-        <div className="rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-sm backdrop-blur-sm sm:p-10">
-          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700">
+        <div className="rounded-3xl border border-border bg-background/95 p-6 shadow-sm backdrop-blur-sm sm:p-10">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold uppercase tracking-wide text-foreground">
             <SearchX className="h-3.5 w-3.5" />
             {copy.badge}
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-4xl">
             {copy.title}
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
             {copy.description}
           </p>
 
@@ -74,7 +74,7 @@ export default function NotFoundPage() {
               href={`/${safeLocale}`}
               className={cn(
                 buttonVariants({ size: 'lg' }),
-                'bg-slate-900 text-white hover:bg-slate-800'
+                'bg-primary text-primary-foreground hover:bg-primary/90'
               )}
             >
               <Home className="mr-2 h-4 w-4" />

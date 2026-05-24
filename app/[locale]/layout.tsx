@@ -12,7 +12,7 @@ import { CookieYesLoader } from '@/components/CookieYesLoader'
 import { GlobalCartDrawer } from '@/components/GlobalCartDrawer'
 import ChatAssistant from '@/components/ChatAssistant'
 import { resolveSiteUrl, isIndexingAllowed } from '@/lib/site-url'
-import { Inter } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import {
   buildOrganizationJsonLd,
   buildWebSiteJsonLd
@@ -37,9 +37,14 @@ export const metadata: Metadata = {
   })
 }
 
-const inter = Inter({
+const geistSans = Geist({
   subsets: ['latin', 'latin-ext'],
-  variable: '--font-inter'
+  variable: '--font-geist-sans'
+})
+
+const geistMono = Geist_Mono({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-geist-mono'
 })
 
 const MESSAGES_CACHE_TTL_MS = 5 * 60 * 1000
@@ -82,8 +87,8 @@ export default async function RootLayout({
   const websiteJsonLd = buildWebSiteJsonLd(locale)
 
   return (
-    <html lang={locale}>
-      <body className={`${inter.className} ${inter.variable} min-h-screen flex flex-col`}>
+    <html lang={locale} className={`${geistSans.variable} ${geistMono.variable} h-full`}>
+      <body className="min-h-full flex flex-col font-sans">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}

@@ -199,8 +199,8 @@ export function CategoryPageShell({
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-8">
-        <div className="mb-4 flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <h1 className="text-xl font-semibold text-slate-900">
+        <div className="mb-4 flex items-center justify-between gap-3 border-b border-border pb-3">
+          <h1 className="text-xl font-semibold text-foreground">
             {getLocalizedCategoryName(payload.category, payload.locale)}
           </h1>
         </div>

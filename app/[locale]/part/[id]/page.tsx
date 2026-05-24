@@ -120,15 +120,15 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       : null
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Navbar */}
       <Navbar navbarCategories={navbarCategories} />
 
       {/* Main Content */}
-      <main className="flex-1 bg-slate-50">
+      <main className="flex-1 bg-muted">
         {/* Breadcrumb */}
         {partCategory ? (
-          <div className="bg-white border-b border-slate-200">
+          <div className="bg-background border-b border-border">
             <BreadcrumbSection
               category={partCategory}
               extraCrumb={part.name}
@@ -144,7 +144,7 @@ export default async function PartDetailPage({ params }: PartPageProps) {
 
         {/* Main Product Section */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 lg:p-8">
+          <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
               {/* Left - Image Gallery */}
               <ProductImageGallery

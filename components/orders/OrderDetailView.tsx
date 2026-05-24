@@ -26,19 +26,19 @@ export function OrderDetailView({ order }: { order: OrderView }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-base font-semibold text-slate-900">{t('orderItems')}</h2>
+        <section className="rounded-2xl border border-border bg-background">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-base font-semibold text-foreground">{t('orderItems')}</h2>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-border">
             {order.items.map((item) => (
               <div key={item.id} className="flex items-start justify-between gap-4 px-5 py-4">
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{item.productName}</p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="font-medium text-foreground">{item.productName}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {t('partId')}: {item.partId} | {t('articleLinkId')}: {item.articleLinkId}
                   </p>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {item.quantity} x{' '}
                     {item.price.toLocaleString(numberLocale, {
                       style: 'currency',
@@ -46,7 +46,7 @@ export function OrderDetailView({ order }: { order: OrderView }) {
                     })}
                   </p>
                 </div>
-                <p className="text-sm font-semibold text-slate-900">
+                <p className="text-sm font-semibold text-foreground">
                   {item.lineTotal.toLocaleString(numberLocale, {
                     style: 'currency',
                     currency: order.currency
@@ -137,13 +137,13 @@ function InfoCard({
   badge?: boolean
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+    <div className="rounded-2xl border border-border bg-background px-4 py-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <div className="mt-2">
         {badge ? (
           <OrderStatusBadge status={value} />
         ) : (
-          <p className="text-base font-semibold text-slate-900">{value}</p>
+          <p className="text-base font-semibold text-foreground">{value}</p>
         )}
       </div>
     </div>
@@ -158,17 +158,17 @@ function InfoPanel({
   rows: Array<[string, string]>
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-5 py-4">
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+    <div className="rounded-2xl border border-border bg-background">
+      <div className="border-b border-border px-5 py-4">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </div>
       <div className="space-y-3 px-5 py-4">
         {rows.map(([label, value]) => (
           <div key={label}>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {label}
             </p>
-            <p className="mt-1 text-sm text-slate-700">{value}</p>
+            <p className="mt-1 text-sm text-foreground">{value}</p>
           </div>
         ))}
       </div>

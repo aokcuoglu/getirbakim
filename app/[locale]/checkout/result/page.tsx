@@ -48,24 +48,24 @@ export default async function CheckoutResultPage(props: {
         'Odeme dogrulanamadi. Lutfen tekrar deneyin veya farkli bir odeme yontemi secin.'
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       {state !== 'failure' ? <ClearCartOnMount /> : null}
       <Navbar navbarCategories={navbarCategories} />
       <main className="mx-auto max-w-3xl px-4 pb-16 pt-36">
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="rounded-3xl border border-border bg-background p-8 shadow-sm">
           <div className="mx-auto max-w-xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
               Checkout Result
             </p>
-            <h1 className="mt-3 text-3xl font-bold text-slate-950">{title}</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{description}</p>
+            <h1 className="mt-3 text-3xl font-bold text-foreground">{title}</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
 
             {orderNumber && (
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mt-6 rounded-2xl border border-border bg-muted px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Siparis Numaraniz
                 </p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">{orderNumber}</p>
+                <p className="mt-2 text-2xl font-bold text-foreground">{orderNumber}</p>
               </div>
             )}
 

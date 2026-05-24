@@ -38,7 +38,7 @@ export default async function SearchLayout({
   const navbarCategories = await getMainNavCategories(locale)
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-muted flex flex-col">
       {/* Navbar */}
       <Navbar navbarCategories={navbarCategories} />
 

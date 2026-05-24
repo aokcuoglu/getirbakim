@@ -18,6 +18,7 @@ import {
 import { usePathname } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/Pagination'
 import {
@@ -42,6 +43,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet'
@@ -500,7 +502,7 @@ export function ProductsAdminClient({
         />
       </AdminKpiGrid>
 
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <AdminTableToolbar
           searchValue={searchValue}
           onSearchChange={(nextValue) => {
@@ -552,13 +554,13 @@ export function ProductsAdminClient({
       <ResponsiveDataView
         mobile={
           workbenchData.products.length === 0 ? (
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-14 text-center text-sm text-gray-500">
+            <div className="rounded-xl border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
               Kayıt bulunamadı.
             </div>
           ) : (
             <div className="space-y-3">
               {isListUpdating ? (
-                <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm">
                   <Loader2 size={12} className="animate-spin" />
                   Veriler güncelleniyor
                 </div>
@@ -570,32 +572,32 @@ export function ProductsAdminClient({
                 return (
                   <MobileDataCard
                     key={row.id}
-                    className={isSelected ? 'ring-1 ring-slate-300' : undefined}
+                    className={isSelected ? 'ring-1 ring-border' : undefined}
                   >
                     <button
                       type="button"
                       onClick={() => openDetail(row.id)}
                       className="flex w-full items-start gap-3 text-left"
                     >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-400 shrink-0">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground shrink-0">
                         <Package size={16} />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-semibold text-[#101828] truncate">
+                        <p className="font-semibold text-foreground truncate">
                           {row.name}
                         </p>
-                        <p className="text-xs text-gray-500 truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           #{row.id} | Article Link: {row.articleLinkId}
                         </p>
                         {row.variantCount && row.variantCount > 1 ? (
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             {row.variantCount} varyant
                           </p>
                         ) : null}
                       </div>
                     </button>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <p className="truncate">Marka: {row.brand || 'Markasız'}</p>
                       <p className="truncate">
                         Kategori: {row.category || 'Kategorisiz'}
@@ -614,14 +616,14 @@ export function ProductsAdminClient({
                               sellingPrice: event.target.value
                             })
                           }
-                          className="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm"
+                          className="w-full rounded-md border border-border px-2 py-2 text-sm"
                           inputMode="decimal"
                         />
-                        <p className="mt-1 text-xs text-gray-500">TRY</p>
+                        <p className="mt-1 text-xs text-muted-foreground">TRY</p>
                       </div>
                       <div className="space-y-1">
                         <SyncBadge status={row.syncStatus} />
-                        <label className="flex items-center gap-2 text-xs text-gray-700">
+                        <label className="flex items-center gap-2 text-xs text-foreground">
                           <input
                             type="checkbox"
                             checked={draft?.isVisible ?? row.isVisible}
@@ -650,7 +652,7 @@ export function ProductsAdminClient({
                         size="sm"
                         onClick={() => saveInline(row.id)}
                         disabled={isSaving || isListUpdating}
-                        className="bg-[#101828] hover:bg-[#1d2939]"
+                       
                       >
                         {isSaving ? (
                           <Loader2 size={14} className="mr-1 animate-spin" />
@@ -723,7 +725,7 @@ export function ProductsAdminClient({
                       key={row.id}
                       className={`group transition-colors duration-150 ${
                         isSelected
-                          ? 'bg-slate-50'
+                          ? 'bg-muted'
                           : ''
                       }`}
                       onMouseEnter={() => prefetchDetail(row.id)}
@@ -735,14 +737,14 @@ export function ProductsAdminClient({
                           onClick={() => openDetail(row.id)}
                           className="flex items-center gap-3 text-left group/product w-full"
                         >
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-slate-50 to-slate-100 text-slate-400 ring-1 ring-slate-200/60 transition-all group-hover/product:text-slate-600">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-muted to-muted text-muted-foreground ring-1 ring-border/60 transition-all group-hover/product:text-muted-foreground">
                             <Package size={14} />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-gray-900 text-sm leading-snug truncate group-hover/product:text-slate-700 transition-colors">
+                            <p className="font-semibold text-foreground text-sm leading-snug truncate group-hover/product:text-foreground transition-colors">
                               {row.name}
                             </p>
-                            <p className="text-[11px] text-gray-400 font-mono truncate">
+                            <p className="text-[11px] text-muted-foreground font-mono truncate">
                               #{row.id} · ArtLink {row.articleLinkId}
                               {row.variantCount && row.variantCount > 1
                                 ? ` · ${row.variantCount} varyant`
@@ -753,14 +755,14 @@ export function ProductsAdminClient({
                       </TableCell>
 
                       <TableCell>
-                        <span className="text-sm font-medium text-gray-700">
-                          {row.brand || <span className="text-gray-400 italic">—</span>}
+                        <span className="text-sm font-medium text-foreground">
+                          {row.brand || <span className="text-muted-foreground italic">—</span>}
                         </span>
                       </TableCell>
 
                       <TableCell>
-                        <span className="text-sm text-gray-600 max-w-[140px] truncate block">
-                          {row.category || <span className="text-gray-400 italic">—</span>}
+                        <span className="text-sm text-muted-foreground max-w-[140px] truncate block">
+                          {row.category || <span className="text-muted-foreground italic">—</span>}
                         </span>
                       </TableCell>
 
@@ -773,17 +775,17 @@ export function ProductsAdminClient({
                                 sellingPrice: event.target.value
                               })
                             }
-                            className="w-24 rounded-lg border border-gray-200 bg-gray-50/50 px-2.5 py-1.5 text-sm font-medium text-gray-800 transition-all focus:border-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-200"
+                            className="w-24 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-foreground transition-all focus-visible:border-ring focus:bg-background focus:outline-none focus:ring-2 focus-visible:ring-ring/50"
                             inputMode="decimal"
                           />
-                          <span className="text-[11px] font-medium text-gray-400">₺</span>
+                          <span className="text-[11px] font-medium text-muted-foreground">₺</span>
                         </div>
                       </TableCell>
 
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <StockBadge status={row.stockStatus} />
-                          <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">
                             {row.availableStockQty} adet
                           </span>
                         </div>
@@ -800,9 +802,9 @@ export function ProductsAdminClient({
                                   isVisible: checked
                                 })
                               }
-                              className="data-[state=checked]:bg-emerald-500"
+                              className="data-[state=checked]:bg-success/100"
                             />
-                            <span className="text-[11px] font-medium text-gray-500">
+                            <span className="text-[11px] font-medium text-muted-foreground">
                               {(draft?.isVisible ?? row.isVisible) ? 'Görünür' : 'Gizli'}
                             </span>
                           </div>
@@ -817,7 +819,7 @@ export function ProductsAdminClient({
                             variant="ghost"
                             onClick={() => openDetail(row.id)}
                             onMouseEnter={() => prefetchDetail(row.id)}
-                            className="h-8 text-xs font-medium text-gray-500 hover:text-gray-900"
+                            className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
                           >
                             Detay
                           </Button>
@@ -828,8 +830,8 @@ export function ProductsAdminClient({
                             disabled={isSaving || isListUpdating || !isDirty}
                             className={`h-8 text-xs font-medium transition-all ${
                               isDirty
-                                ? 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm'
-                                : 'bg-gray-100 text-gray-400 hover:bg-gray-100 cursor-not-allowed'
+                                ? 'bg-primary text-white hover:bg-primary/90 shadow-sm'
+                                : 'bg-muted text-muted-foreground hover:bg-muted cursor-not-allowed'
                             }`}
                           >
                             {isSaving ? (
@@ -850,9 +852,9 @@ export function ProductsAdminClient({
                       className="h-48 text-center"
                     >
                       <div className="flex flex-col items-center gap-2">
-                        <Package size={32} className="text-gray-300" />
-                        <p className="text-sm font-medium text-gray-400">Kayıt bulunamadı.</p>
-                        <p className="text-xs text-gray-400">Farklı filtreler deneyebilirsiniz.</p>
+                        <Package size={32} className="text-muted-foreground/50" />
+                        <p className="text-sm font-medium text-muted-foreground">Kayıt bulunamadı.</p>
+                        <p className="text-xs text-muted-foreground">Farklı filtreler deneyebilirsiniz.</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -892,7 +894,7 @@ export function ProductsAdminClient({
             </SheetDescription>
           </SheetHeader>
 
-          <div className="mt-6 space-y-3">
+          <div className="space-y-3">
             <FilterSelect
               label="Marka"
               value={filters.brandId != null ? String(filters.brandId) : 'all'}
@@ -980,11 +982,11 @@ export function ProductsAdminClient({
             />
           </div>
 
-          <div className="mt-6 flex gap-2">
+          <SheetFooter>
             <Button
               type="button"
               variant="outline"
-              className="flex-1"
+              className="flex-1 sm:flex-none"
               onClick={() => {
                 resetFilters()
                 setFiltersOpen(false)
@@ -994,12 +996,12 @@ export function ProductsAdminClient({
             </Button>
             <Button
               type="button"
-              className="flex-1"
+              className="flex-1 sm:flex-none"
               onClick={() => setFiltersOpen(false)}
             >
               Kapat
             </Button>
-          </div>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
 
@@ -1119,23 +1121,23 @@ function FilterSelect({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-medium text-gray-600">{label}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <div ref={containerRef} className="relative">
         <button
           type="button"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
-          className="flex h-9 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className={selectedOption ? 'text-gray-900' : 'text-gray-400'}>
+          <span className={selectedOption ? 'text-foreground' : 'text-muted-foreground'}>
             {selectedOption?.label || placeholder}
           </span>
-          <ChevronDown size={14} className="text-gray-400" />
+          <ChevronDown size={14} className="text-muted-foreground" />
         </button>
 
         {open ? (
-          <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-md">
-            <div className="border-b border-gray-100 p-2">
+          <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-background shadow-md">
+            <div className="border-b border-border p-2">
               <Input
                 ref={inputRef}
                 value={query}
@@ -1155,8 +1157,8 @@ function FilterSelect({
                       onClick={() => handleSelect(option.value)}
                       className={`block w-full rounded-sm px-2 py-1.5 text-left text-xs ${
                         value === option.value
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-700 hover:bg-gray-50'
+                          ? 'bg-muted text-foreground'
+                          : 'text-foreground hover:bg-muted'
                       }`}
                     >
                       {option.label}
@@ -1167,9 +1169,9 @@ function FilterSelect({
                     ([groupLabel, groupOptions], index) => (
                       <div key={groupLabel}>
                         {(groupedOptions.plain.length > 0 || index > 0) && (
-                          <div className="my-1 h-px bg-gray-100" />
+                          <div className="my-1 h-px bg-muted" />
                         )}
-                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                        <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                           {groupLabel}
                         </p>
                         {groupOptions.map((option) => (
@@ -1179,8 +1181,8 @@ function FilterSelect({
                             onClick={() => handleSelect(option.value)}
                             className={`block w-full rounded-sm px-2 py-1.5 text-left text-xs ${
                               value === option.value
-                                ? 'bg-gray-100 text-gray-900'
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-muted text-foreground'
+                                : 'text-foreground hover:bg-muted'
                             }`}
                           >
                             {option.label}
@@ -1191,7 +1193,7 @@ function FilterSelect({
                   )}
                 </>
               ) : (
-                <div className="px-2 py-2 text-xs text-gray-500">
+                <div className="px-2 py-2 text-xs text-muted-foreground">
                   Sonuç bulunamadı.
                 </div>
               )}
@@ -1210,53 +1212,53 @@ function StockBadge({
 }) {
   if (status === 'IN_STOCK') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-success/10 text-success border-success/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         Stokta
-      </span>
+      </Badge>
     )
   }
 
   if (status === 'LOW_STOCK') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
         Düşük Stok
-      </span>
+      </Badge>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/10">
-      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+    <Badge variant="outline" className="gap-1.5 text-[10px] bg-destructive/10 text-destructive border-destructive/20">
+      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
       Stok Yok
-    </span>
+    </Badge>
   )
 }
 
 function SyncBadge({ status }: { status: 'OK' | 'PENDING' | 'ERROR' }) {
   if (status === 'OK') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-success/10 text-success border-success/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         OK
-      </span>
+      </Badge>
     )
   }
 
   if (status === 'PENDING') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" />
         Bekliyor
-      </span>
+      </Badge>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/10">
-      <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+    <Badge variant="outline" className="gap-1.5 text-[10px] bg-destructive/10 text-destructive border-destructive/20">
+      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
       Hata
-    </span>
+    </Badge>
   )
 }

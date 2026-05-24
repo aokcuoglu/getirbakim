@@ -2,7 +2,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 export function GridProductCardSkeleton() {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col h-full">
+    <div className="bg-background border border-border rounded-xl overflow-hidden flex flex-col h-full">
       {/* Header - Brand Logos */}
       <div className="flex items-center gap-2 p-4 pb-0">
         <Skeleton className="w-7 h-7 rounded-full" />
@@ -47,7 +47,7 @@ export function GridProductCardSkeleton() {
         <Skeleton className="h-4 w-48 mb-3" />
 
         {/* Price Section */}
-        <div className="pt-3 border-t border-slate-100">
+        <div className="pt-3 border-t border-border">
           <div className="flex items-baseline gap-2 mb-1">
             <Skeleton className="h-8 w-20" />
             <Skeleton className="h-4 w-14" />
@@ -57,8 +57,8 @@ export function GridProductCardSkeleton() {
 
           {/* Quantity + Add to Cart */}
           <div className="flex items-center gap-2">
-            <Skeleton className="h-10 w-16 rounded" />
-            <Skeleton className="h-10 flex-1 rounded-lg" />
+            <Skeleton className="w-16 rounded" />
+            <Skeleton className="flex-1 rounded-lg" />
           </div>
 
           {/* Compare */}

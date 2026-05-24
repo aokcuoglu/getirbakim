@@ -1,4 +1,5 @@
 import { ArrowRight, Link2, RefreshCw } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { AdminLayout } from '@/components/admin/admin-layout'
 import {
   AdminPageHeader,
@@ -24,27 +25,28 @@ export default async function AdminSuppliersPage() {
           {providers.map((provider) => (
             <article
               key={provider.id}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              className="rounded-2xl border border-border bg-background p-5 shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {provider.code}
                   </p>
-                  <h2 className="text-lg font-semibold text-slate-900">{provider.name}</h2>
+                  <h2 className="text-lg font-semibold text-foreground">{provider.name}</h2>
                 </div>
-                <span
-                  className={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${
+                <Badge
+                  variant="outline"
+                  className={
                     provider.status === 'ACTIVE'
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-rose-50 text-rose-700'
-                  }`}
+                      ? 'text-[11px] bg-success/10 text-success border-success/20'
+                      : 'text-[11px] bg-destructive/10 text-destructive border-destructive/20'
+                  }
                 >
                   {provider.status}
-                </span>
+                </Badge>
               </div>
 
-              <div className="mt-4 space-y-2 text-sm text-slate-700">
+              <div className="mt-4 space-y-2 text-sm text-foreground">
                 <p>
                   Öncelik: <span className="font-semibold">{provider.priority}</span>
                 </p>
@@ -71,20 +73,20 @@ export default async function AdminSuppliersPage() {
 
               {provider.productCounts.total > 0 ? (
                 <>
-                  <hr className="my-3 border-slate-100" />
-                  <div className="space-y-1.5 text-sm text-slate-700">
+                  <hr className="my-3 border-border" />
+                  <div className="space-y-1.5 text-sm text-foreground">
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Ürünler</span>
-                      <span className="font-semibold text-slate-900">
+                      <span className="text-muted-foreground">Ürünler</span>
+                      <span className="font-semibold text-foreground">
                         {provider.productCounts.total.toLocaleString('tr-TR')}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="shrink-0 text-slate-500">Eşleşen</span>
+                      <span className="shrink-0 text-muted-foreground">Eşleşen</span>
                       <div className="flex flex-1 items-center justify-end gap-2">
-                        <div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
                           <div
-                            className="h-full rounded-full bg-emerald-500"
+                            className="h-full rounded-full bg-success/100"
                             style={{
                               width: `${Math.min(
                                 100,
@@ -97,21 +99,21 @@ export default async function AdminSuppliersPage() {
                             }}
                           />
                         </div>
-                        <span className="font-semibold text-slate-900">
+                        <span className="font-semibold text-foreground">
                           {provider.productCounts.approved.toLocaleString('tr-TR')}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Kuyruk</span>
-                      <span className="font-semibold text-amber-700">
+                      <span className="text-muted-foreground">Kuyruk</span>
+                      <span className="font-semibold text-warning">
                         {provider.productCounts.queue.toLocaleString('tr-TR')}
                       </span>
                     </div>
                     {provider.productCounts.ignored > 0 ? (
                       <div className="flex items-center justify-between">
-                        <span className="text-slate-500">Yoksayılan</span>
-                        <span className="font-semibold text-slate-500">
+                        <span className="text-muted-foreground">Yoksayılan</span>
+                        <span className="font-semibold text-muted-foreground">
                           {provider.productCounts.ignored.toLocaleString('tr-TR')}
                         </span>
                       </div>
@@ -123,14 +125,14 @@ export default async function AdminSuppliersPage() {
               <div className="mt-4 flex gap-2">
                 <Link
                   href={`/admin/suppliers/${provider.code}`}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
                 >
                   <Link2 size={14} />
                   Sağlayıcı Detayı
                 </Link>
                 <Link
                   href={`/admin/suppliers/mappings?provider=${provider.code}&tab=products`}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
                 >
                   <RefreshCw size={14} />
                   Mapping
@@ -140,7 +142,7 @@ export default async function AdminSuppliersPage() {
           ))}
 
           {providers.length === 0 && (
-            <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+            <div className="col-span-full rounded-2xl border border-dashed border-input bg-background p-10 text-center text-sm text-muted-foreground">
               Tedarikçi kaydı bulunamadı.
             </div>
           )}
@@ -149,7 +151,7 @@ export default async function AdminSuppliersPage() {
         <AdminSurface className="p-4">
           <Link
             href="/admin/suppliers/mappings?provider=dinamik&tab=products"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-foreground"
           >
             Eşleştirme kuyruğunu aç
             <ArrowRight size={14} />

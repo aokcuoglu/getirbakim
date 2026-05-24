@@ -19,7 +19,7 @@ export function AdminTableShell({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-lg border border-border bg-card shadow-sm',
+        'relative overflow-hidden rounded-md border border-border bg-card shadow-sm',
         className
       )}
     >

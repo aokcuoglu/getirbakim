@@ -79,10 +79,10 @@ export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="h-10 px-4">
+                  <TableHead className="px-4">
                     <AdminTableHead>Sipariş</AdminTableHead>
                   </TableHead>
-                  <TableHead className="h-10 px-4">
+                  <TableHead className="px-4">
                     <AdminTableHead>Müşteri</AdminTableHead>
                   </TableHead>
                   <TableHead className="hidden h-10 px-4 sm:table-cell">
@@ -91,7 +91,7 @@ export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
                   <TableHead className="hidden h-10 px-4 text-right md:table-cell">
                     <AdminTableHead className="justify-end">Tutar</AdminTableHead>
                   </TableHead>
-                  <TableHead className="h-10 px-4">
+                  <TableHead className="px-4">
                     <AdminTableHead>Durum</AdminTableHead>
                   </TableHead>
                 </TableRow>

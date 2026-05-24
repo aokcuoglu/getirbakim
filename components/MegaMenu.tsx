@@ -70,7 +70,7 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
       )
     }
 
-    return <Wrench className="w-4 h-4 text-slate-400" strokeWidth={1.5} />
+    return <Wrench className="w-4 h-4 text-muted-foreground" strokeWidth={1.5} />
   }
 
   // Check if this is a flat/simple mode (single category with subcategories shown directly)
@@ -133,13 +133,13 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
         {/* Mega Menu Panel - flat mode */}
         <div
           ref={menuRef}
-          className="fixed bg-white border-b border-slate-200 shadow-lg z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-b-lg"
+          className="fixed bg-background border-b border-border shadow-lg z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-b-lg"
           style={menuStyle}
         >
           <div className="p-5">
             {/* Header with close button */}
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-slate-900">
+              <h3 className="text-base font-bold text-foreground">
                 {getCategoryName(flatCategory)}
               </h3>
               <div className="flex items-center gap-4">
@@ -149,13 +149,13 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                     router.push(buildCategoryUrl(flatCategory.urlKey))
                     onClose()
                   }}
-                  className="text-sm text-blue-600 hover:text-blue-700 font-medium hover:underline"
+                  className="text-sm text-primary hover:text-primary font-medium hover:underline"
                 >
                   View all →
                 </button>
                 <button
                   onClick={onClose}
-                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                  className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-muted-foreground transition-colors"
                   title="Kapat"
                 >
                   <X size={18} />
@@ -169,7 +169,7 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                 {subcategories.map((sub) => (
                   <button
                     key={sub.id}
-                    className="group flex flex-col items-center text-center p-2 rounded hover:bg-slate-50 transition-colors"
+                    className="group flex flex-col items-center text-center p-2 rounded hover:bg-muted transition-colors"
                     onClick={() => handleSubcategoryClick(sub)}
                   >
                     {/* Subcategory Image */}
@@ -177,14 +177,14 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                       {renderCategoryImage(sub, 64)}
                     </div>
                     {/* Subcategory Name */}
-                    <span className="text-xs text-slate-700 group-hover:text-slate-900 font-medium leading-tight line-clamp-2">
+                    <span className="text-xs text-foreground group-hover:text-foreground font-medium leading-tight line-clamp-2">
                       {getCategoryName(sub)}
                     </span>
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
+              <div className="flex items-center justify-center h-40 text-muted-foreground text-sm">
                 No subcategories available
               </div>
             )}
@@ -209,12 +209,12 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
       {/* Mega Menu Panel - dynamic positioning */}
       <div
         ref={menuRef}
-        className="fixed bg-white border-b border-slate-200 shadow-lg z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-b-lg"
+        className="fixed bg-background border-b border-border shadow-lg z-50 max-h-[calc(100vh-120px)] overflow-y-auto rounded-b-lg"
         style={menuStyle}
       >
         <div className="flex">
           {/* Left Panel - Categories List */}
-          <div className="w-60 bg-slate-50 border-r border-slate-100 shrink-0">
+          <div className="w-60 bg-muted border-r border-border shrink-0">
             <div className="max-h-[450px] overflow-y-auto py-1">
               {categories.map((category) => (
                 <button
@@ -223,8 +223,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                   className={cn(
                     'w-full flex items-center justify-between px-4 py-2.5 text-left transition-colors',
                     selectedCategory?.id === category.id
-                      ? 'bg-white text-blue-600 font-medium'
-                      : 'hover:bg-white text-slate-700 hover:text-slate-900'
+                      ? 'bg-background text-primary font-medium'
+                      : 'hover:bg-background text-foreground hover:text-foreground'
                   )}
                 >
                   <div className="flex items-center gap-3">
@@ -240,8 +240,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                       className={cn(
                         'shrink-0',
                         selectedCategory?.id === category.id
-                          ? 'text-blue-500'
-                          : 'text-slate-300'
+                          ? 'text-primary'
+                          : 'text-muted-foreground/70'
                       )}
                     />
                   )}
@@ -251,12 +251,12 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
           </div>
 
           {/* Right Panel - Subcategories Grid */}
-          <div className="flex-1 bg-white min-h-[450px] max-h-[450px] overflow-y-auto">
+          <div className="flex-1 bg-background min-h-[450px] max-h-[450px] overflow-y-auto">
             {selectedCategory && (
               <div className="p-5">
                 {/* Header with close button */}
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-900">
+                  <h3 className="text-base font-bold text-foreground">
                     {getCategoryName(selectedCategory)}
                   </h3>
                   <div className="flex items-center gap-4">
@@ -266,13 +266,13 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                         router.push(buildCategoryUrl(selectedCategory.urlKey))
                         onClose()
                       }}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium hover:underline"
+                      className="text-sm text-primary hover:text-primary font-medium hover:underline"
                     >
                       View all →
                     </button>
                     <button
                       onClick={onClose}
-                      className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                      className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-muted-foreground transition-colors"
                       title="Kapat"
                     >
                       <X size={18} />
@@ -286,7 +286,7 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                     {subcategories.map((sub) => (
                       <button
                         key={sub.id}
-                        className="group flex flex-col items-center text-center p-2 rounded hover:bg-slate-50 transition-colors"
+                        className="group flex flex-col items-center text-center p-2 rounded hover:bg-muted transition-colors"
                         onClick={() => handleSubcategoryClick(sub)}
                       >
                         {/* Subcategory Image */}
@@ -294,14 +294,14 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({
                           {renderCategoryImage(sub, 64)}
                         </div>
                         {/* Subcategory Name */}
-                        <span className="text-xs text-slate-700 group-hover:text-slate-900 font-medium leading-tight line-clamp-2">
+                        <span className="text-xs text-foreground group-hover:text-foreground font-medium leading-tight line-clamp-2">
                           {getCategoryName(sub)}
                         </span>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-80 text-slate-400 text-sm">
+                  <div className="flex items-center justify-center h-80 text-muted-foreground text-sm">
                     No subcategories available
                   </div>
                 )}

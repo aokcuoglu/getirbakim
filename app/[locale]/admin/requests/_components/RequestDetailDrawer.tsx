@@ -106,13 +106,13 @@ export function RequestDetailDrawer({
         </SheetHeader>
 
         {isPending && !detail ? (
-          <div className="mt-8 flex items-center justify-center text-gray-500">
+          <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 size={18} className="mr-2 animate-spin" />
             Yükleniyor...
           </div>
         ) : detail ? (
           <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 rounded-md border border-border p-3 md:grid-cols-2">
               <Info label="Talep ID" value={`#${detail.id}`} />
               <Info label="Tip" value={detail.requestType} />
               <Info label="Kaynak" value={detail.source} />
@@ -128,13 +128,13 @@ export function RequestDetailDrawer({
 
             <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
               <div className="space-y-4">
-                <section className="rounded-lg border border-gray-200 p-4">
-                  <h4 className="text-sm font-semibold text-[#101828]">
+                <section className="rounded-md border border-border p-4">
+                  <h4 className="text-sm font-semibold text-foreground">
                     Kontekst
                   </h4>
-                  <div className="mt-3 space-y-2 text-sm text-gray-700">
+                  <div className="mt-3 space-y-2 text-sm text-foreground">
                     <p>
-                      <span className="font-medium text-[#101828]">Ürün:</span>{' '}
+                      <span className="font-medium text-foreground">Ürün:</span>{' '}
                       {[
                         detail.brandNameSnapshot,
                         detail.partNameSnapshot
@@ -143,23 +143,23 @@ export function RequestDetailDrawer({
                         .join(' ') || '-'}
                     </p>
                     <p>
-                      <span className="font-medium text-[#101828]">
+                      <span className="font-medium text-foreground">
                         Kategori:
                       </span>{' '}
                       {detail.categoryNameSnapshot || '-'}
                     </p>
                     <p>
-                      <span className="font-medium text-[#101828]">
+                      <span className="font-medium text-foreground">
                         Arama / OEM:
                       </span>{' '}
                       {detail.requestedSkuOrOem || detail.searchQuery || '-'}
                     </p>
                     <p>
-                      <span className="font-medium text-[#101828]">Sayfa:</span>{' '}
+                      <span className="font-medium text-foreground">Sayfa:</span>{' '}
                       <span className="break-all">{detail.pageUrl || '-'}</span>
                     </p>
                     <p>
-                      <span className="font-medium text-[#101828]">Araç:</span>{' '}
+                      <span className="font-medium text-foreground">Araç:</span>{' '}
                       {detail.vehicle
                         ? JSON.stringify(detail.vehicle)
                         : '-'}
@@ -167,22 +167,22 @@ export function RequestDetailDrawer({
                   </div>
                 </section>
 
-                <section className="rounded-lg border border-gray-200 p-4">
-                  <h4 className="text-sm font-semibold text-[#101828]">Müşteri Mesajı</h4>
-                  <p className="mt-3 whitespace-pre-wrap text-sm text-gray-700">
+                <section className="rounded-md border border-border p-4">
+                  <h4 className="text-sm font-semibold text-foreground">Müşteri Mesajı</h4>
+                  <p className="mt-3 whitespace-pre-wrap text-sm text-foreground">
                     {detail.message || '-'}
                   </p>
                 </section>
               </div>
 
               <div className="space-y-4">
-                <section className="rounded-lg border border-gray-200 p-4">
-                  <h4 className="text-sm font-semibold text-[#101828]">
+                <section className="rounded-md border border-border p-4">
+                  <h4 className="text-sm font-semibold text-foreground">
                     Operasyon
                   </h4>
                   <div className="mt-3 space-y-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Durum
                       </label>
                       <Select
@@ -203,7 +203,7 @@ export function RequestDetailDrawer({
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Admin Notu
                       </label>
                       <Textarea
@@ -222,7 +222,7 @@ export function RequestDetailDrawer({
             </div>
           </div>
         ) : (
-          <div className="mt-8 text-sm text-gray-500">Talep bulunamadı.</div>
+          <div className="mt-8 text-sm text-muted-foreground">Talep bulunamadı.</div>
         )}
       </SheetContent>
     </Sheet>
@@ -231,9 +231,9 @@ export function RequestDetailDrawer({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-gray-50 px-3 py-2">
-      <div className="text-[11px] font-medium text-gray-500">{label}</div>
-      <div className="text-sm font-semibold text-[#101828]">{value}</div>
+    <div className="rounded-md bg-muted px-3 py-2">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold text-foreground">{value}</div>
     </div>
   )
 }

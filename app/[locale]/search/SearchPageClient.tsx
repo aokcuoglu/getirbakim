@@ -109,18 +109,18 @@ export default function SearchPageClient() {
   return (
     <>
       {/* Breadcrumb */}
-      <nav className="bg-white border-b border-slate-200">
+      <nav className="bg-background border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center gap-2 text-sm">
-            <Link href="/" className="text-slate-500 hover:text-slate-700">
+            <Link href="/" className="text-muted-foreground hover:text-foreground">
               Ana Sayfa
             </Link>
-            <ChevronRight size={14} className="text-slate-400" />
-            <span className="text-slate-900 font-medium">Parça Ara</span>
+            <ChevronRight size={14} className="text-muted-foreground" />
+            <span className="text-foreground font-medium">Parça Ara</span>
             {filters.query && (
               <>
-                <ChevronRight size={14} className="text-slate-400" />
-                <span className="text-slate-700">"{filters.query}"</span>
+                <ChevronRight size={14} className="text-muted-foreground" />
+                <span className="text-foreground">"{filters.query}"</span>
               </>
             )}
           </div>
@@ -158,7 +158,7 @@ export default function SearchPageClient() {
                     <Filter size={18} />
                     <span>{t('filterBy')}</span>
                     {activeFilterCount > 0 && (
-                      <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full min-w-[20px]">
+                      <span className="bg-primary text-primary-foreground text-xs px-1.5 py-0.5 rounded-full min-w-[20px]">
                         {activeFilterCount}
                       </span>
                     )}
@@ -195,7 +195,7 @@ export default function SearchPageClient() {
                   value={filters.sort || 'popularity'}
                   onValueChange={(v) => setFilter('sort', v as SearchSort)}
                 >
-                  <SelectTrigger className="w-full sm:w-[180px] bg-white">
+                  <SelectTrigger className="w-full sm:w-[180px] bg-background">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
                   <SelectContent>
@@ -212,7 +212,7 @@ export default function SearchPageClient() {
 
                 {/* Per page dropdown */}
                 <Select value={perPage} onValueChange={setPerPage}>
-                  <SelectTrigger className="w-[88px] bg-white">
+                  <SelectTrigger className="w-[88px] bg-background">
                     <SelectValue placeholder="24" />
                   </SelectTrigger>
                   <SelectContent>
@@ -223,31 +223,31 @@ export default function SearchPageClient() {
                 </Select>
 
                 {/* View mode toggle */}
-                <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
+                <div className="flex items-center border border-input rounded-lg overflow-hidden bg-background">
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={() => setViewMode('list')}
                     className={`h-9 w-9 rounded-none ${
-                      viewMode === 'list' ? 'bg-slate-100' : 'hover:bg-slate-50'
+                      viewMode === 'list' ? 'bg-muted' : 'hover:bg-muted'
                     }`}
                   >
-                    <List className="w-4 h-4 text-slate-600" />
+                    <List className="w-4 h-4 text-muted-foreground" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={() => setViewMode('grid')}
                     className={`h-9 w-9 rounded-none ${
-                      viewMode === 'grid' ? 'bg-slate-100' : 'hover:bg-slate-50'
+                      viewMode === 'grid' ? 'bg-muted' : 'hover:bg-muted'
                     }`}
                   >
-                    <Grid className="w-4 h-4 text-slate-600" />
+                    <Grid className="w-4 h-4 text-muted-foreground" />
                   </Button>
                 </div>
 
                 {/* Results count and pagination */}
-                <span className="hidden sm:inline text-sm text-slate-600 min-w-[100px] text-right">
+                <span className="hidden sm:inline text-sm text-muted-foreground min-w-[100px] text-right">
                   {totalHits > 0
                     ? `${startItem} - ${endItem} of ${totalHits}`
                     : '0 results'}
@@ -279,8 +279,8 @@ export default function SearchPageClient() {
 
             {/* Error State */}
             {error && (
-              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
-                <p className="text-sm text-red-600">
+              <div className="mb-6 rounded-md border border-destructive/20 bg-destructive/10 p-4">
+                <p className="text-sm text-destructive">
                   Arama sırasında bir hata oluştu. Lütfen tekrar deneyin.
                 </p>
               </div>
@@ -323,11 +323,11 @@ export default function SearchPageClient() {
               )
             ) : (
               <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
-                <Package className="h-16 w-16 text-slate-200" />
-                <h3 className="mt-4 text-lg font-medium text-slate-900">
+                <Package className="h-16 w-16 text-primary-foreground/80" />
+                <h3 className="mt-4 text-lg font-medium text-foreground">
                   Sonuç bulunamadı
                 </h3>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-muted-foreground">
                   Farklı arama terimleri veya filtreler deneyin
                 </p>
                 <CustomerRequestDialog
@@ -335,7 +335,7 @@ export default function SearchPageClient() {
                   source="MISSING_PRODUCT_MODAL"
                   searchQuery={filters.query}
                   trigger={
-                    <Button className="mt-4 bg-emerald-600 text-white hover:bg-emerald-700">
+                    <Button className="mt-4 bg-success text-success-foreground hover:bg-success/90">
                       Ürünü bulamadım
                     </Button>
                   }
@@ -346,9 +346,9 @@ export default function SearchPageClient() {
             {/* Loading overlay */}
             {isLoading && hits.length > 0 && (
               <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
-                <div className="bg-white/90 rounded-lg p-4 shadow-lg flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                  <span className="text-sm text-slate-700">Yükleniyor...</span>
+                <div className="bg-background/90 rounded-lg p-4 shadow-lg flex items-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-sm text-foreground">Yükleniyor...</span>
                 </div>
               </div>
             )}

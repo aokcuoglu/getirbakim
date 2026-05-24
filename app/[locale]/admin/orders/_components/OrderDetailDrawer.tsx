@@ -54,13 +54,13 @@ export function OrderDetailDrawer({
         </SheetHeader>
 
         {isPending && !detail ? (
-          <div className="mt-8 flex items-center justify-center text-gray-500">
+          <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 size={18} className="mr-2 animate-spin" />
             Yükleniyor...
           </div>
         ) : detail ? (
           <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 rounded-md border border-border p-3 md:grid-cols-2">
               <Info label="Sipariş ID" value={detail.orderNumber} />
               <Info label="Durum" value={detail.status} />
               <Info label="Ödeme Durumu" value={detail.paymentStatus} />
@@ -84,7 +84,7 @@ export function OrderDetailDrawer({
             </div>
 
             {detail.latestPayment && (
-              <div className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 rounded-md border border-border p-3 md:grid-cols-2">
                 <Info label="Provider" value={detail.latestPayment.provider} />
                 <Info label="Payment Record" value={detail.latestPayment.status} />
                 <Info
@@ -106,13 +106,13 @@ export function OrderDetailDrawer({
               </div>
             )}
 
-            <div className="rounded-lg border border-gray-200">
-              <div className="border-b border-gray-100 px-4 py-3">
-                <h4 className="text-sm font-semibold text-[#101828]">Sipariş Kalemleri</h4>
+            <div className="rounded-md border border-border">
+              <div className="border-b border-border px-4 py-3">
+                <h4 className="text-sm font-semibold text-foreground">Sipariş Kalemleri</h4>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-muted">
                     <tr>
                       <th className="px-3 py-2">Ürün</th>
                       <th className="px-3 py-2">Article Link ID</th>
@@ -123,10 +123,10 @@ export function OrderDetailDrawer({
                   </thead>
                   <tbody>
                     {detail.items.map((item) => (
-                      <tr key={item.id} className="border-t border-gray-100">
+                      <tr key={item.id} className="border-t border-border">
                         <td className="px-3 py-2">
-                          <div className="font-medium text-[#101828]">{item.productName}</div>
-                          <div className="text-[11px] text-gray-500">Part ID: {item.partId}</div>
+                          <div className="font-medium text-foreground">{item.productName}</div>
+                          <div className="text-[11px] text-muted-foreground">Part ID: {item.partId}</div>
                         </td>
                         <td className="px-3 py-2">{item.articleLinkId}</td>
                         <td className="px-3 py-2">{item.quantity}</td>
@@ -151,7 +151,7 @@ export function OrderDetailDrawer({
               </div>
             </div>
 
-            <div className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+            <div className="rounded-lg bg-muted p-3 text-sm text-foreground">
               <p>Toplam Kalem: {detail.items.length}</p>
               <p>Toplam Adet: {detail.summary.totalQuantity}</p>
               <p>
@@ -182,7 +182,7 @@ export function OrderDetailDrawer({
             </div>
           </div>
         ) : (
-          <div className="mt-8 text-sm text-gray-500">Sipariş bulunamadı.</div>
+          <div className="mt-8 text-sm text-muted-foreground">Sipariş bulunamadı.</div>
         )}
       </SheetContent>
     </Sheet>
@@ -191,9 +191,9 @@ export function OrderDetailDrawer({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-gray-50 px-3 py-2">
-      <div className="text-[11px] font-medium text-gray-500">{label}</div>
-      <div className="text-sm font-semibold text-[#101828]">{value}</div>
+    <div className="rounded-md bg-muted px-3 py-2">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold text-foreground">{value}</div>
     </div>
   )
 }

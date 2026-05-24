@@ -14,7 +14,7 @@ export default async function LegalLayout({
   const navbarCategories = await getMainNavCategories(locale)
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       <Navbar navbarCategories={navbarCategories} />
       {children}
       <Footer />

@@ -26,6 +26,7 @@ import { DataTablePagination } from './data-table-pagination'
 import { DataTableToolbar } from './data-table-toolbar'
 import { DataTableViewOptions } from './data-table-view-options'
 import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+import { Loader2 } from 'lucide-react'
 
 interface DataTablePaginationInfo {
   page: number
@@ -137,10 +138,11 @@ export function DataTable<TData, TValue>({
         <DataTableViewOptions table={table} />
       )}
       <div className="relative overflow-hidden rounded-md border">
-        {isLoading ? (
+        {isLoading && data.length === 0 ? (
           <AdminLoadingState minHeight="min-h-[280px]" />
         ) : (
-        <Table>
+        <>
+        <Table className={isLoading ? 'opacity-60' : undefined}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -174,6 +176,12 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+        {isLoading && data.length > 0 ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40">
+            <Loader2 className="size-5 animate-spin text-primary" />
+          </div>
+        ) : null}
+        </>
         )}
       </div>
       {pagination && (

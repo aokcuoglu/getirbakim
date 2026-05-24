@@ -619,7 +619,7 @@ model dpmatch {
   dproducts       dproducts?  @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
   product_rel     product?    @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  @@unique([dproducts_id, product_id], name: "uq_dpmatch_dproduct_product")
+  // One row per dproducts_id / product_id enforced via partial unique indexes (see migration).
   @@index([product_id], name: "idx_dpmatch_product")
   @@index([dproducts_id], name: "idx_dpmatch_dproduct")
   @@index([mapping_status], name: "idx_dpmatch_status")

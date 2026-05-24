@@ -1,7 +1,7 @@
 /**
  * Populate parcatedarik.dpmatch with individual dproducts and product rows
  * (not cross-join pairs). Each dproduct and product gets one row.
- * EXACT_MATCH rows have both IDs set and are auto-approved.
+ * EXACT_MATCH updates the dproduct placeholder row in place.
  *
  * Usage:
  *   APPLY=true bun scripts/generate-dinamik-parcatedarik-model-matches.ts
@@ -11,6 +11,7 @@ import 'dotenv/config'
 import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
 import { normalizeModel } from '../lib/matching/code-normalization'
+import { applyExactDpmatchLinks } from '../lib/admin/dpmatch-link'
 
 const DRY_RUN = process.env.APPLY !== 'true'
 const BATCH_SIZE = 500
@@ -20,6 +21,8 @@ interface Stats {
   dproductRows: number
   productRows: number
   exactMatches: number
+  exactUpdated: number
+  orphanRowsDeleted: number
   inserted: number
   skipped: number
 }
@@ -29,7 +32,16 @@ async function main() {
   console.log(`[generate-dpmatch] MODE = ${DRY_RUN ? 'DRY_RUN' : 'APPLY'}`)
   console.log()
 
-  const stats: Stats = { brandMatches: 0, dproductRows: 0, productRows: 0, exactMatches: 0, inserted: 0, skipped: 0 }
+  const stats: Stats = {
+    brandMatches: 0,
+    dproductRows: 0,
+    productRows: 0,
+    exactMatches: 0,
+    exactUpdated: 0,
+    orphanRowsDeleted: 0,
+    inserted: 0,
+    skipped: 0,
+  }
 
   const brandMatchRows = await db.$queryRaw<
     Array<{ dbrands_id: string; manufacturer_id: number }>
@@ -44,15 +56,13 @@ async function main() {
 
   if (brandMatchRows.length === 0) { await db.$disconnect(); return }
 
-  // Collect all unique dproducts IDs and product IDs for each brand/manufacturer pair
-  // Insert tekil rows
+  const exactLinks: Array<{ dproductsId: bigint; productId: number; normalized: string }> = []
 
   let idx = 0
   for (const bm of brandMatchRows) {
     idx++
     if (idx % 100 === 0) console.log(`[generate-dpmatch] Processing ${idx}/${stats.brandMatches}...`)
 
-    // Load dproducts for this brand
     const dproducts = await db.$queryRaw<
       Array<{ id: bigint; part_no: string | null; barcode_1: string | null; barcode_2: string | null; barcode_3: string | null }>
     >(Prisma.sql`
@@ -61,7 +71,6 @@ async function main() {
       WHERE BTRIM(LOWER(COALESCE(brand, ''))) = BTRIM(LOWER(${bm.dbrands_id}))
     `)
 
-    // Load products for this manufacturer
     const products = await db.$queryRaw<
       Array<{ id: number; model: string | null; normalized_model: string | null }>
     >(Prisma.sql`
@@ -72,24 +81,34 @@ async function main() {
 
     if (dproducts.length === 0 && products.length === 0) continue
 
-    // Insert tekil dproduct rows
     const dpValues: string[] = []
     for (const dp of dproducts) {
       dpValues.push(`(${dp.id}, NULL, 'PENDING')`)
       stats.dproductRows++
     }
-    if (dpValues.length > 0) await batchInsert(dpValues, stats, 'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ')
+    if (dpValues.length > 0) {
+      await batchInsert(
+        dpValues,
+        stats,
+        'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ',
+        'ON CONFLICT (dproducts_id) WHERE dproducts_id IS NOT NULL DO NOTHING'
+      )
+    }
 
-    // Insert tekil product rows
     const pValues: string[] = []
     for (const p of products) {
       pValues.push(`(NULL, ${p.id}, 'PENDING')`)
       stats.productRows++
     }
-    if (pValues.length > 0) await batchInsert(pValues, stats, 'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ')
+    if (pValues.length > 0) {
+      await batchInsert(
+        pValues,
+        stats,
+        'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ',
+        'ON CONFLICT (product_id) WHERE product_id IS NOT NULL DO NOTHING'
+      )
+    }
 
-    // Check EXACT_MATCH
-    const exactValues: string[] = []
     for (const dp of dproducts) {
       const normFields = [
         dp.part_no ? normalizeModel(dp.part_no) : '',
@@ -97,25 +116,29 @@ async function main() {
         dp.barcode_2 ? normalizeModel(dp.barcode_2) : '',
         dp.barcode_3 ? normalizeModel(dp.barcode_3) : '',
       ]
+      let matched = false
       for (const p of products) {
+        if (matched) break
         const productModel = p.normalized_model || (p.model ? normalizeModel(p.model) : '')
         if (!productModel) continue
-        for (let fi = 0; fi < normFields.length; fi++) {
-          const nf = normFields[fi]
+        for (const nf of normFields) {
           if (nf && nf === productModel) {
-            const nEsc = nf.replace(/'/g, "''")
-            exactValues.push(`(${dp.id}, ${p.id}, '${nEsc}', 'APPROVED', 'EXACT_MATCH')`)
+            exactLinks.push({ dproductsId: dp.id, productId: p.id, normalized: nf })
             stats.exactMatches++
+            matched = true
             break
           }
         }
       }
     }
-    if (exactValues.length > 0) {
-      await batchInsert(exactValues, stats,
-        'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, normalized, mapping_status, match_method) VALUES ',
-        'ON CONFLICT DO NOTHING'
-      )
+  }
+
+  if (!DRY_RUN && exactLinks.length > 0) {
+    for (let i = 0; i < exactLinks.length; i += BATCH_SIZE) {
+      const batch = exactLinks.slice(i, i + BATCH_SIZE)
+      const result = await applyExactDpmatchLinks(batch)
+      stats.exactUpdated += result.updated
+      stats.orphanRowsDeleted += result.deletedOrphans
     }
   }
 
@@ -125,14 +148,16 @@ async function main() {
   console.log(`  Dproduct rows:       ${stats.dproductRows}`)
   console.log(`  Product rows:        ${stats.productRows}`)
   console.log(`  Exact matches:       ${stats.exactMatches}`)
+  if (!DRY_RUN) console.log(`  Exact updated:       ${stats.exactUpdated}`)
+  if (!DRY_RUN) console.log(`  Orphan rows deleted: ${stats.orphanRowsDeleted}`)
   if (!DRY_RUN) console.log(`  Inserted:            ${stats.inserted}`)
   if (!DRY_RUN) console.log(`  Skipped:             ${stats.skipped}`)
-  console.log(`  Total:               ${stats.dproductRows + stats.productRows + stats.exactMatches}`)
+  console.log(`  Total placeholders:  ${stats.dproductRows + stats.productRows}`)
   console.log('[generate-dpmatch] Done.')
   await db.$disconnect()
 }
 
-async function batchInsert(values: string[], stats: Stats, prefix: string, suffix: string = 'ON CONFLICT DO NOTHING') {
+async function batchInsert(values: string[], stats: Stats, prefix: string, suffix: string) {
   if (DRY_RUN) return
   for (let i = 0; i < values.length; i += BATCH_SIZE) {
     const batch = values.slice(i, i + BATCH_SIZE)

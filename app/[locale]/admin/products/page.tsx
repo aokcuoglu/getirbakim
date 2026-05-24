@@ -42,13 +42,13 @@ export default async function AdminProductsPage(props: {
             <>
               <Link
                 href="/admin/products/tools"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted sm:w-auto"
               >
                 Araçlar
               </Link>
               <Link
                 href="/admin/products/new"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 sm:w-auto"
               >
                 <Plus size={18} />
                 Ürün Ekle

@@ -418,7 +418,7 @@ export function SupplierProductDetailDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full overflow-y-auto bg-slate-50 sm:max-w-[860px]"
+        className="w-full overflow-y-auto bg-muted sm:max-w-[860px]"
       >
         <SheetHeader>
           <SheetTitle>Supplier Ürün Detayı</SheetTitle>
@@ -430,35 +430,35 @@ export function SupplierProductDetailDrawer({
         </SheetHeader>
 
         {!row ? (
-          <div className="mt-6 text-sm text-slate-500">
+          <div className="mt-6 text-sm text-muted-foreground">
             Ürün satırı seçilmedi.
           </div>
         ) : (
           <div className="mt-5 space-y-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <div className="rounded-xl border border-border bg-muted p-3 text-xs text-muted-foreground">
               <p>
                 Supplier Ürün:{' '}
-                <span className="font-semibold text-[#101828]">
+                <span className="font-semibold text-foreground">
                   {row.stockName || '-'}
                 </span>
               </p>
               <p className="mt-1">
                 SKU:{' '}
-                <span className="font-semibold text-[#101828]">
+                <span className="font-semibold text-foreground">
                   {row.stockCode}
                 </span>
               </p>
               {sourceDetail?.mapping?.workflowStatus ? (
                 <p className="mt-1">
                   Workflow:{' '}
-                  <span className="font-semibold text-[#101828]">
+                  <span className="font-semibold text-foreground">
                     {sourceDetail.mapping.workflowStatus}
                   </span>
                 </p>
               ) : null}
               <p className="mt-1">
                 Seçili Part:{' '}
-                <span className="font-semibold text-[#101828]">
+                <span className="font-semibold text-foreground">
                   {selectedPartId
                     ? sourceDetail?.row?.matchedPart?.name
                       ? `${sourceDetail.row.matchedPart.name} (#${selectedPartId})`
@@ -473,11 +473,11 @@ export function SupplierProductDetailDrawer({
               regionalStock={sourceDetail?.supplierProduct.regionalStock}
             />
 
-            <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
-              <h3 className="text-sm font-semibold text-[#101828]">
+            <div className="rounded-xl border border-border bg-background p-3 sm:p-4">
+              <h3 className="text-sm font-semibold text-foreground">
                 1) Mevcut Public Part ile Eşleştir
               </h3>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Dinamik ürünü `public.parts` adayı ile bağlar. Bu adım sadece
                 eşleştirme kaydını hedefler ve hızlı çalışır.
               </p>
@@ -486,7 +486,7 @@ export function SupplierProductDetailDrawer({
                 <div className="relative">
                   <Search
                     size={14}
-                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
                   />
                   <Input
                     value={partSearchQuery}
@@ -528,7 +528,7 @@ export function SupplierProductDetailDrawer({
               {showAdvancedSearch ? (
                 <div className="mt-2 grid gap-2 md:grid-cols-2">
                   <div>
-                    <p className="mb-1 text-xs font-medium text-slate-600">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
                       OEM kodları (opsiyonel)
                     </p>
                     <Textarea
@@ -542,7 +542,7 @@ export function SupplierProductDetailDrawer({
                     />
                   </div>
                   <div>
-                    <p className="mb-1 text-xs font-medium text-slate-600">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
                       Referans kodları (opsiyonel)
                     </p>
                     <Textarea
@@ -555,16 +555,16 @@ export function SupplierProductDetailDrawer({
                       rows={3}
                     />
                   </div>
-                  <p className="md:col-span-2 text-xs text-slate-500">
+                  <p className="md:col-span-2 text-xs text-muted-foreground">
                     Bu alanlar sadece aday aramayı genişletir; ürün oluşturma
                     veya teknik veri güncelleme yapmaz.
                   </p>
                 </div>
               ) : null}
 
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-3 rounded-md border border-border bg-muted p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-slate-700">
+                  <p className="text-xs font-medium text-foreground">
                     Kalıcı OEM Kodları (source=MANUAL)
                   </p>
                   <Button
@@ -589,7 +589,7 @@ export function SupplierProductDetailDrawer({
                     rows={4}
                   />
                   <div>
-                    <p className="mb-1 text-xs font-medium text-slate-600">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">
                       OEM Marka (opsiyonel)
                     </p>
                     <Input
@@ -598,27 +598,27 @@ export function SupplierProductDetailDrawer({
                       placeholder="Örn: ATE"
                       className="h-9"
                     />
-                    <p className="mt-2 text-[11px] text-slate-500">
+                    <p className="mt-2 text-[11px] text-muted-foreground">
                       Bu kayıtlar API senkronunda ezilmez.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-2 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white">
+              <div className="mt-2 max-h-80 overflow-auto rounded-md border border-border bg-background">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-b border-slate-100 bg-white hover:bg-white">
-                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-500">
+                    <TableRow className="border-b border-border bg-background hover:bg-background">
+                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         Part
                       </TableHead>
-                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-500">
+                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         Marka
                       </TableHead>
-                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-500">
+                      <TableHead className="px-3 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         Güven
                       </TableHead>
-                      <TableHead className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-slate-500">
+                      <TableHead className="px-3 py-2 text-right text-[11px] uppercase tracking-wide text-muted-foreground">
                         Seç
                       </TableHead>
                     </TableRow>
@@ -628,16 +628,16 @@ export function SupplierProductDetailDrawer({
                     {partCandidates.map((candidate) => (
                       <TableRow
                         key={candidate.partId}
-                        className="border-b border-slate-100 hover:bg-slate-50/70"
+                        className="border-b border-border hover:bg-muted/70"
                       >
                         <TableCell className="px-3 py-2">
                           <p
-                            className="max-w-[360px] truncate font-medium text-[#101828]"
+                            className="max-w-[360px] truncate font-medium text-foreground"
                             title={candidate.name}
                           >
                             {candidate.name}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-muted-foreground">
                             #{candidate.partId} | PART NO:{' '}
                             {candidate.partNo || '-'}
                           </p>
@@ -646,7 +646,7 @@ export function SupplierProductDetailDrawer({
                               {candidate.reasons.map((r) => (
                                 <span
                                   key={r}
-                                  className="inline-flex items-center rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600"
+                                  className="inline-flex items-center rounded border border-border bg-accent px-1.5 py-0.5 text-[10px] font-medium text-primary"
                                 >
                                   {r}
                                 </span>
@@ -654,7 +654,7 @@ export function SupplierProductDetailDrawer({
                             </div>
                           ) : null}
                         </TableCell>
-                        <TableCell className="px-3 py-2 text-slate-700">
+                        <TableCell className="px-3 py-2 text-foreground">
                           {candidate.brand || '-'}
                         </TableCell>
                         <TableCell className="px-3 py-2">
@@ -693,10 +693,10 @@ export function SupplierProductDetailDrawer({
                     ))}
 
                     {partCandidates.length === 0 ? (
-                      <TableRow className="hover:bg-white">
+                      <TableRow className="hover:bg-background">
                         <TableCell
                           colSpan={4}
-                          className="px-3 py-6 text-center text-slate-500"
+                          className="px-3 py-6 text-center text-muted-foreground"
                         >
                           {loadingSource
                             ? 'Kaynak verisi yükleniyor...'
@@ -713,7 +713,7 @@ export function SupplierProductDetailDrawer({
                 sourceDetail.mapping.status !== 'IGNORED' ? (
                   <Button
                     variant="outline"
-                    className="h-9 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                    className="h-9 border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive"
                     onClick={() => void handleIgnoreMapping()}
                     disabled={savingIgnore || loadingSource}
                   >
@@ -734,7 +734,7 @@ export function SupplierProductDetailDrawer({
                 <Button
                   onClick={mapWithSelectedPart}
                   disabled={savingMap || loadingSource || !selectedPartId}
-                  className="h-9 bg-[#101828] hover:bg-[#1d2939]"
+                  className="h-9"
                 >
                   {savingMap ? (
                     <Loader2 size={14} className="mr-2 animate-spin" />
@@ -744,26 +744,26 @@ export function SupplierProductDetailDrawer({
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4">
-              <h3 className="text-sm font-semibold text-[#101828]">
+            <div className="rounded-xl border border-border bg-background p-3 sm:p-4">
+              <h3 className="text-sm font-semibold text-foreground">
                 2) Referans Klon Taslağı Oluştur / Düzenle
               </h3>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Seçili public part tam kopya ile yeni bir draft ürüne çevrilir.
                 Ürün supplier adıyla gelir, tüm child tablolar düzenlenebilir ve
                 başlangıçta gizli kalır.
               </p>
 
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="mt-3 rounded-md border border-border bg-muted p-3 text-xs text-muted-foreground">
                 <p>
                   Seçili referans part:{' '}
-                  <span className="font-semibold text-[#101828]">
+                  <span className="font-semibold text-foreground">
                     {selectedPartId || 'Yok'}
                   </span>
                 </p>
                 <p className="mt-1">
                   Mevcut referans klon:{' '}
-                  <span className="font-semibold text-[#101828]">
+                  <span className="font-semibold text-foreground">
                     {referenceClonePartId || 'Yok'}
                   </span>
                 </p>
@@ -782,7 +782,7 @@ export function SupplierProductDetailDrawer({
                 <Button
                   onClick={openReferenceCloneFromSelected}
                   disabled={loadingSource || !selectedPartId}
-                  className="h-9 bg-[#101828] hover:bg-[#1d2939]"
+                  className="h-9"
                 >
                   Referans Klon Editörünü Aç
                 </Button>

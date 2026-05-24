@@ -40,26 +40,26 @@ export function CategorySeoContent({ categoryName }: CategorySeoContentProps) {
   ]
 
   return (
-    <section className="bg-white border-t border-slate-200">
+    <section className="bg-background border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 space-y-8">
         {sections.map((section) => (
           <div key={section.title}>
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">
+            <h2 className="text-xl font-semibold text-foreground mb-2">
               {section.title}
             </h2>
-            <p className="text-sm leading-7 text-slate-600">{section.body}</p>
+            <p className="text-sm leading-7 text-muted-foreground">{section.body}</p>
           </div>
         ))}
 
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 mb-4">
+          <h2 className="text-xl font-semibold text-foreground mb-4">
             {t('faq.title')}
           </h2>
           <div className="space-y-3">
             {faqItems.map((item) => (
-              <div key={item.q} className="border border-slate-200 rounded-md p-4">
-                <p className="text-sm font-semibold text-slate-900 mb-1">{item.q}</p>
-                <p className="text-sm text-slate-600 leading-6">{item.a}</p>
+              <div key={item.q} className="border border-border rounded-md p-4">
+                <p className="text-sm font-semibold text-foreground mb-1">{item.q}</p>
+                <p className="text-sm text-muted-foreground leading-6">{item.a}</p>
               </div>
             ))}
           </div>

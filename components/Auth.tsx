@@ -1,6 +1,9 @@
 import React, { useState } from 'react'
 import { GlassCard } from './Glass'
 import { useTranslations } from 'next-intl'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 interface AuthProps {
   onLogin: () => void
@@ -63,17 +66,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   return (
     <div className="flex items-center justify-center min-h-[80vh]">
       <GlassCard className="w-full max-w-md p-8 animate-in zoom-in duration-300">
-        <h2 className="text-3xl font-light text-center mb-2 text-slate-800">
+        <h2 className="text-3xl font-light text-center mb-2 text-foreground">
           {isLogin ? t('welcomeBack') : t('createAccount')}
         </h2>
-        <p className="text-center text-slate-500 mb-8 font-light">
+        <p className="text-center text-muted-foreground mb-8 font-light">
           {isLogin
             ? t('loginDescription')
             : t('signupDescription')}
         </p>
 
         {error && (
-          <div className="bg-red-50 text-red-500 p-3 rounded mb-4 text-sm text-center border border-red-100">
+          <div className="bg-destructive/10 text-destructive p-3 rounded mb-4 text-sm text-center border border-red-100">
             {error}
           </div>
         )}
@@ -81,56 +84,50 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isLogin && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                {t('name')}
-              </label>
-              <input
+              <Label className="mb-1">{t('name')}</Label>
+              <Input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg bg-white/50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-light"
+                className="bg-background/50 font-light"
                 required
               />
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {t('email')}
-            </label>
-            <input
+            <Label className="mb-1">{t('email')}</Label>
+            <Input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-white/50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-light"
+              className="bg-background/50 font-light"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              {t('password')}
-            </label>
-            <input
+            <Label className="mb-1">{t('password')}</Label>
+            <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-white/50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-light"
+              className="bg-background/50 font-light"
               required
             />
           </div>
 
-          <button
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full mt-6 bg-slate-900 text-white py-2.5 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+            className="w-full mt-6"
           >
             {loading ? t('processing') : isLogin ? t('signIn') : t('signUp')}
-          </button>
+          </Button>
         </form>
 
         <div className="mt-6 text-center">
           <button
             onClick={() => setIsLogin(!isLogin)}
-            className="text-sm text-slate-500 hover:text-slate-900 transition-colors"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             {isLogin
               ? t('dontHaveAccount')

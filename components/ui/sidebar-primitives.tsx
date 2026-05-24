@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import { ChevronDown, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
-// --- SidebarContainer ---
 export function SidebarContainer({
   children,
   className = '',
@@ -15,11 +17,13 @@ export function SidebarContainer({
 }) {
   return (
     <aside
-      className={`lg:w-80 shrink-0 rounded-[6px] border border-[#dfe5eb] bg-white p-4 ${className}`}
-      style={{ fontFamily: 'var(--font-heading), sans-serif' }}
+      className={cn('lg:w-80 shrink-0 rounded-md border border-border bg-card p-4', className)}
     >
       <div
-        className={`sticky top-28 max-h-[calc(100vh-9rem)] overflow-y-auto pr-1 sidebar-scroll ${contentClassName}`}
+        className={cn(
+          'sticky top-28 max-h-[calc(100vh-9rem)] overflow-y-auto pr-1 sidebar-scroll',
+          contentClassName
+        )}
       >
         {children}
       </div>
@@ -27,7 +31,6 @@ export function SidebarContainer({
   )
 }
 
-// --- SidebarHeader ---
 export function SidebarHeader({
   children,
   className = ''
@@ -36,13 +39,12 @@ export function SidebarHeader({
   className?: string
 }) {
   return (
-    <h2 className={`mb-4 text-[14px] font-semibold text-[#212b36] ${className}`}>
+    <h2 className={cn('mb-4 text-sm font-semibold text-foreground', className)}>
       {children}
     </h2>
   )
 }
 
-// --- SidebarSearch ---
 export function SidebarSearch({
   placeholder,
   value,
@@ -59,23 +61,24 @@ export function SidebarSearch({
   iconClassName?: string
 }) {
   return (
-    <div className={`relative mb-3 ${className}`}>
+    <div className={cn('relative mb-3', className)}>
       <Search
-        size={14}
-        className={`absolute left-[11px] top-1/2 -translate-y-1/2 text-[#7b8794] ${iconClassName}`}
+        className={cn(
+          'absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground',
+          iconClassName
+        )}
       />
-      <input
+      <Input
         type="text"
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`h-[38px] w-full rounded-[6px] border border-[#c4cdd5] bg-white py-[6px] pl-[35px] pr-[10px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] transition-[border-color,box-shadow] focus:border-[#98a6b3] focus:outline-none focus:ring-2 focus:ring-[#eef2f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#eef2f5] ${inputClassName}`}
+        className={cn('pl-9', inputClassName)}
       />
     </div>
   )
 }
 
-// --- SidebarSection ---
 export function SidebarSection({
   title,
   children,
@@ -90,28 +93,26 @@ export function SidebarSection({
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <div className={`border-t border-[#e7edf2] pt-3.5 ${className}`}>
-      <button
+    <div className={cn('border-t border-border pt-3.5', className)}>
+      <Button
+        type="button"
+        variant="ghost"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between py-0 text-left"
+        className="flex h-auto w-full items-center justify-between px-0 py-0 text-left hover:bg-transparent"
       >
-        <span className="text-[14px] font-medium text-[#212b36]">
-          {title}
-        </span>
+        <span className="text-sm font-medium text-foreground">{title}</span>
         <ChevronDown
-          size={14}
-          className={`text-[#9aa5b1] transition-transform duration-200 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
+          className={cn(
+            'size-4 text-muted-foreground transition-transform duration-200',
+            isOpen && 'rotate-180'
+          )}
         />
-      </button>
-      {isOpen && <div className="mt-3 space-y-0.5">{children}</div>}
+      </Button>
+      {isOpen ? <div className="mt-3 space-y-0.5">{children}</div> : null}
     </div>
   )
 }
 
-// --- SidebarList ---
-// Generic container for lists (links, checkboxes, etc.)
 export function SidebarList({
   children,
   className = ''
@@ -121,7 +122,10 @@ export function SidebarList({
 }) {
   return (
     <div
-      className={`max-h-[min(520px,70vh)] space-y-0 overflow-y-auto pr-1 sidebar-scroll ${className}`}
+      className={cn(
+        'max-h-[min(520px,70vh)] space-y-0 overflow-y-auto pr-1 sidebar-scroll',
+        className
+      )}
     >
       {children}
     </div>

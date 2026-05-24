@@ -14,7 +14,7 @@ export default async function CatalogLayout({
   const navbarCategories = await getMainNavCategories(locale)
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-muted flex flex-col">
       <Navbar navbarCategories={navbarCategories} />
       <main className="flex-1">{children}</main>
       <Footer />

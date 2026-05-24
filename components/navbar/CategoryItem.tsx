@@ -24,8 +24,8 @@ export const CategoryItem: React.FC<CategoryItemProps> = ({
       onFocus={() => onHover(urlKey)}
       className={`whitespace-nowrap transition-colors h-full cursor-pointer flex items-center px-1.5 text-[13px] ${
         isActive
-          ? 'text-blue-600 border-b-2 border-blue-600 font-semibold'
-          : 'hover:text-blue-600 text-slate-700'
+          ? 'text-primary border-b-2 border-primary font-semibold'
+          : 'hover:text-primary text-foreground'
       }`}
     >
       {name}

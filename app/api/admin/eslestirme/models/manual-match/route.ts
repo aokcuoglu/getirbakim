@@ -3,6 +3,7 @@ import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { DpmatchLinkError, linkDpmatchPair } from '@/lib/admin/dpmatch-link'
 
 export async function POST(request: NextRequest) {
   const auth = await getAdminAuth()
@@ -19,7 +20,6 @@ export async function POST(request: NextRequest) {
 
     if (matchId && isNaN(matchId)) return errorResponse({ status: 400, code: 'INVALID_INPUT', message: 'Geçersiz eşleşme ID.', context })
 
-    // If matchId is given, simply approve it
     if (matchId) {
       const match = await db.$queryRaw<Array<{ id: number }>>(
         Prisma.sql`SELECT id FROM parcatedarik.dpmatch WHERE id = ${matchId}`
@@ -30,23 +30,26 @@ export async function POST(request: NextRequest) {
       return successResponse({ message: 'Eşleştirme onaylandı.', id: matchId }, context)
     }
 
-    // If dproductsId and productId given, create or update a match
     if (dproductsId && productId) {
-      const exists = await db.$queryRaw<Array<{ id: number }>>(
-        Prisma.sql`SELECT id FROM parcatedarik.dpmatch WHERE dproducts_id = ${dproductsId} AND product_id = ${productId}`
-      )
+      const result = await linkDpmatchPair({
+        dproductsId,
+        productId,
+        mappingStatus: 'APPROVED',
+        matchMethod: 'MANUAL',
+      })
 
-      if (exists && exists.length > 0) {
-        await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dpmatch SET mapping_status = 'APPROVED', match_method = 'MANUAL' WHERE id = ${exists[0].id}`)
-        return successResponse({ message: 'Eşleştirme onaylandı.', id: exists[0].id }, context)
-      }
+      const message = result.action === 'updated'
+        ? 'Eşleştirme güncellendi.'
+        : 'Manuel eşleştirme oluşturuldu.'
 
-      await db.$executeRaw(Prisma.sql`INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status, match_method) VALUES (${dproductsId}, ${productId}, 'APPROVED', 'MANUAL')`)
-      return successResponse({ message: 'Manuel eşleştirme oluşturuldu.', id: null }, context)
+      return successResponse({ message, id: result.id }, context)
     }
 
     return errorResponse({ status: 400, code: 'MISSING_INPUT', message: 'matchId veya (dproductsId + productId) gerekli.', context })
   } catch (error) {
+    if (error instanceof DpmatchLinkError) {
+      return errorResponse({ status: 409, code: error.code, message: error.message, context })
+    }
     console.error('[eslestirme:models:manual-match] Error:', error)
     return errorResponse({ status: 500, code: 'INTERNAL_ERROR', message: 'Manuel eşleştirme sırasında hata oluştu.', context })
   }

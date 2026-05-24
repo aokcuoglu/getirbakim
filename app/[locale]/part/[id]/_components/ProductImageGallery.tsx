@@ -37,13 +37,13 @@ export function ProductImageGallery({
 
   const imageFallback = (
     <div className="flex h-full w-full items-center justify-center">
-      <Package className="w-16 h-16 md:w-24 md:h-24 text-slate-300" />
+      <Package className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/70" />
     </div>
   )
 
   const thumbFallback = (
-    <div className="flex h-full w-full items-center justify-center bg-slate-100 p-1">
-      <Package className="h-6 w-6 text-slate-300" />
+    <div className="flex h-full w-full items-center justify-center bg-muted p-1">
+      <Package className="h-6 w-6 text-muted-foreground/70" />
     </div>
   )
 
@@ -51,7 +51,7 @@ export function ProductImageGallery({
     <div className="space-y-3">
       {/* Main Image */}
       <div
-        className="relative aspect-4/3 md:aspect-square bg-white rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden group cursor-zoom-in"
+        className="relative aspect-4/3 md:aspect-square bg-background rounded-xl border border-border flex items-center justify-center overflow-hidden group cursor-zoom-in"
         onClick={() => mainImageUrl && setIsZoomed(true)}
       >
         {mainImageUrl ? (
@@ -66,8 +66,8 @@ export function ProductImageGallery({
               fallback={imageFallback}
             />
             {/* Zoom Button - More visible on mobile */}
-            <div className="absolute top-3 right-3 w-8 h-8 md:w-10 md:h-10 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg">
-              <ZoomIn className="w-4 h-4 md:w-5 md:h-5 text-slate-700" />
+            <div className="absolute top-3 right-3 w-8 h-8 md:w-10 md:h-10 bg-background/80 backdrop-blur-sm rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg">
+              <ZoomIn className="w-4 h-4 md:w-5 md:h-5 text-foreground" />
             </div>
 
             {/* Mobile Navigation Arrows */}
@@ -78,31 +78,31 @@ export function ProductImageGallery({
                     e.stopPropagation()
                     handlePrev()
                   }}
-                  className="md:hidden absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                  className="md:hidden absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-background/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform"
                   aria-label="Previous image"
                 >
-                  <ChevronLeft className="w-5 h-5 text-slate-700" />
+                  <ChevronLeft className="w-5 h-5 text-foreground" />
                 </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     handleNext()
                   }}
-                  className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                  className="md:hidden absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-background/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-md active:scale-95 transition-transform"
                   aria-label="Next image"
                 >
-                  <ChevronRight className="w-5 h-5 text-slate-700" />
+                  <ChevronRight className="w-5 h-5 text-foreground" />
                 </button>
               </>
             )}
           </>
         ) : (
-          <Package className="w-16 h-16 md:w-24 md:h-24 text-slate-300" />
+          <Package className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/70" />
         )}
 
         {/* Mobile Image Counter */}
         {images.length > 1 && (
-          <div className="md:hidden absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/60 backdrop-blur-sm rounded-full text-white text-xs font-medium">
+          <div className="md:hidden absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-foreground/60 backdrop-blur-sm rounded-full text-background text-xs font-medium">
             {selectedIndex + 1} / {images.length}
           </div>
         )}
@@ -117,10 +117,10 @@ export function ProductImageGallery({
               <button
                 key={index}
                 onClick={() => setSelectedIndex(index)}
-                className={`relative w-16 h-16 lg:w-20 lg:h-20 shrink-0 rounded-lg border-2 overflow-hidden transition-all ${
+                className={`relative w-16 h-16 lg:w-20 lg:h-20 shrink-0 rounded-md border-2 overflow-hidden transition-all ${
                   selectedIndex === index
-                    ? 'border-sky-500 ring-2 ring-sky-500/20'
-                    : 'border-slate-200 hover:border-slate-400'
+                    ? 'border-primary ring-2 ring-primary/20'
+                    : 'border-border hover:border-input'
                 }`}
               >
                 {thumbUrl ? (
@@ -150,8 +150,8 @@ export function ProductImageGallery({
               onClick={() => setSelectedIndex(index)}
               className={`w-2 h-2 rounded-full transition-all ${
                 selectedIndex === index
-                  ? 'bg-sky-500 w-4'
-                  : 'bg-slate-300 hover:bg-slate-400'
+                  ? 'bg-primary w-4'
+                  : 'bg-muted-foreground/30 hover:bg-muted-foreground/40'
               }`}
               aria-label={`Go to image ${index + 1}`}
             />
@@ -166,11 +166,11 @@ export function ProductImageGallery({
           onClick={() => setIsZoomed(false)}
         >
           <button
-            className="absolute top-4 right-4 w-10 h-10 md:w-12 md:h-12 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-colors"
+            className="absolute top-4 right-4 w-10 h-10 md:w-12 md:h-12 bg-background/10 hover:bg-background/20 rounded-full flex items-center justify-center transition-colors"
             onClick={() => setIsZoomed(false)}
           >
             <svg
-              className="w-5 h-5 md:w-6 md:h-6 text-white"
+              className="w-5 h-5 md:w-6 md:h-6 text-primary-foreground"
               fill="none"
               stroke="currentColor"
               strokeWidth={2}

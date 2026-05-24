@@ -10,7 +10,7 @@ export default function SignUpPage() {
       <SignUpForm />
       <p className="mt-4">
         {t('hasAccount')}{' '}
-        <Link href="/login" className="text-blue-600 hover:underline">
+        <Link href="/login" className="text-primary hover:underline">
           {t('loginLink')}
         </Link>
       </p>

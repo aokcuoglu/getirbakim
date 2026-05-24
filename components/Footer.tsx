@@ -14,7 +14,6 @@ import { Link } from '@/lib/navigation'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
 
-// Types
 interface SocialLink {
   icon: LucideIcon
   label: string
@@ -26,7 +25,6 @@ interface FooterLink {
   labelKey: string
 }
 
-// Data
 const SOCIAL_LINKS: SocialLink[] = [
   { icon: Facebook, label: 'Facebook', href: '#' },
   { icon: Instagram, label: 'Instagram', href: '#' },
@@ -39,10 +37,7 @@ const SHOP_LINKS: FooterLink[] = [
   { href: '/oils-and-fluids', labelKey: 'links.oilsFluids' },
   { href: '/wiper-blades', labelKey: 'links.wiperBlades' },
   { href: '/tools', labelKey: 'links.toolsEquipment' },
-  {
-    href: '/accessories-and-equipment',
-    labelKey: 'links.accessories'
-  }
+  { href: '/accessories-and-equipment', labelKey: 'links.accessories' }
 ]
 
 const COMPANY_LINKS: FooterLink[] = [
@@ -63,20 +58,15 @@ const SUPPORT_LINKS: FooterLink[] = [
   { href: '/cerez-politikasi', labelKey: 'links.cookiePolicy' }
 ]
 
-const PAYMENT_METHODS = [
-  { name: 'Mastercard' },
-  { name: 'Visa' },
-  { name: 'PayPal' }
-]
+const PAYMENT_METHODS = [{ name: 'Mastercard' }, { name: 'Visa' }, { name: 'PayPal' }]
 
-// Subcomponents
 const SocialIcon: React.FC<SocialLink> = ({ icon: Icon, label, href }) => (
   <a
     href={href}
-    className="text-slate-300 hover:text-white transition-colors"
+    className="text-footer-muted transition-colors hover:text-footer-foreground"
     aria-label={label}
   >
-    <Icon size={20} />
+    <Icon className="size-5" />
   </a>
 )
 
@@ -86,20 +76,18 @@ const FooterLinkSection: React.FC<{
   t: (key: string) => string
 }> = ({ title, links, t }) => (
   <>
-    <details className="group rounded-xl border border-[#263657] bg-[#101a30] px-4 py-3 md:hidden">
-      <summary className="flex cursor-pointer list-none items-center justify-between text-white [&::-webkit-details-marker]:hidden">
-        <h4 className="text-[15px] font-semibold tracking-tight text-slate-100">
-          {title}
-        </h4>
-        <ChevronDown className="h-4 w-4 text-slate-300 transition-transform group-open:rotate-180" />
+    <details className="group rounded-xl border border-footer-border bg-footer/80 px-4 py-3 md:hidden">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-footer-foreground [&::-webkit-details-marker]:hidden">
+        <h4 className="text-sm font-semibold tracking-tight">{title}</h4>
+        <ChevronDown className="size-4 text-footer-muted transition-transform group-open:rotate-180" />
       </summary>
-      <ul className="mt-3 space-y-2.5 text-sm text-slate-300">
+      <ul className="mt-3 space-y-2.5 text-sm text-footer-muted">
         {links.map((link) => (
           <li key={link.labelKey}>
             <Link
               href={link.href}
               prefetch={false}
-              className="transition-colors hover:text-white"
+              className="transition-colors hover:text-footer-foreground"
             >
               {t(link.labelKey)}
             </Link>
@@ -108,17 +96,17 @@ const FooterLinkSection: React.FC<{
       </ul>
     </details>
 
-    <div className="hidden rounded-2xl border border-[#22324d] bg-[#0e1830]/70 p-5 md:block">
-      <h4 className="text-[15px] font-semibold tracking-tight text-slate-100">
+    <div className="hidden rounded-xl border border-footer-border bg-footer/70 p-5 md:block">
+      <h4 className="text-sm font-semibold tracking-tight text-footer-foreground">
         {title}
       </h4>
-      <ul className="mt-4 space-y-2.5 text-sm text-slate-300">
+      <ul className="mt-4 space-y-2.5 text-sm text-footer-muted">
         {links.map((link) => (
           <li key={link.labelKey}>
             <Link
               href={link.href}
               prefetch={false}
-              className="inline-flex transition-colors hover:text-white"
+              className="inline-flex transition-colors hover:text-footer-foreground"
             >
               {t(link.labelKey)}
             </Link>
@@ -130,7 +118,7 @@ const FooterLinkSection: React.FC<{
 )
 
 const PaymentIcon: React.FC<{ name: string }> = ({ name }) => (
-  <div className="rounded-full border border-[#2d4065] bg-[#16233f] px-2.5 py-1 text-[10px] font-semibold text-slate-200">
+  <div className="rounded-full border border-footer-border bg-footer/90 px-2.5 py-1 text-[10px] font-semibold text-footer-foreground">
     {name}
   </div>
 )
@@ -153,24 +141,21 @@ const Footer: React.FC<FooterProps> = () => {
       revisit()
       return
     }
-
     window.location.href = '/cerez-politikasi'
   }
 
   return (
-    <footer className="border-t border-[#25344f] bg-[linear-gradient(180deg,#0a1020_0%,#0d1730_45%,#0a1428_100%)] text-slate-100">
+    <footer className="border-t border-footer-border bg-footer text-footer-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 md:py-10">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)] lg:items-start">
-          <div className="rounded-2xl border border-[#253652] bg-[#0f1a31] p-5">
+          <div className="rounded-xl border border-footer-border bg-footer/90 p-5">
             <Link href="/" prefetch={false} className="mb-2.5 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white text-base font-bold text-slate-900">
+              <div className="flex size-9 items-center justify-center rounded-md bg-primary text-base font-bold text-primary-foreground">
                 G
               </div>
-              <span className="text-lg font-bold tracking-tight text-white">
-                GetirBakim
-              </span>
+              <span className="text-lg font-bold tracking-tight">GetirBakim</span>
             </Link>
-            <p className="max-w-2xl text-sm leading-6 text-slate-200">
+            <p className="max-w-2xl text-sm leading-6 text-footer-muted">
               {t('brandDescription')}
             </p>
             <div className="mt-3 flex gap-4">
@@ -180,24 +165,18 @@ const Footer: React.FC<FooterProps> = () => {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#253652] bg-[#0f1a31] p-5">
-            <h4 className="mb-2 text-base font-semibold text-white">
-              {t('stayUpdated')}
-            </h4>
-            <p className="mb-3 text-sm leading-6 text-slate-200">
+          <div className="rounded-xl border border-footer-border bg-footer/90 p-5">
+            <h4 className="mb-2 text-base font-semibold">{t('stayUpdated')}</h4>
+            <p className="mb-3 text-sm leading-6 text-footer-muted">
               {t('subscribeText')}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 type="email"
                 placeholder={t('emailPlaceholder')}
-                className="h-10 border-[#2a3c5d] bg-[#0b1428] text-slate-100 placeholder:text-slate-400 focus-visible:ring-[#3b5d94]"
+                className="border-footer-border bg-background/10 text-footer-foreground placeholder:text-footer-muted"
               />
-              <Button
-                variant="default"
-                size="sm"
-                className="h-10 rounded-md border border-blue-400/40 bg-blue-500 px-4 text-white hover:bg-blue-400 sm:shrink-0"
-              >
+              <Button size="sm" className="sm:shrink-0">
                 {t('join')}
               </Button>
             </div>
@@ -210,24 +189,24 @@ const Footer: React.FC<FooterProps> = () => {
           <FooterLinkSection title={t('support')} links={SUPPORT_LINKS} t={t} />
         </div>
 
-        {/* Bottom Bar */}
-        <div className="mt-5 flex flex-col items-start justify-between gap-3 border-t border-[#263957] pt-5 md:flex-row md:items-center">
+        <div className="mt-5 flex flex-col items-start justify-between gap-3 border-t border-footer-border pt-5 md:flex-row md:items-center">
           <div className="space-y-1">
-            <p className="text-xs text-slate-300">
+            <p className="text-xs text-footer-muted">
               © {currentYear} Ergul Enerji San Tic Ltd Sti. {t('rightsReserved')}
             </p>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-footer-muted/80">
               {t('buildVersionLabel')}: {buildVersion}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-slate-300">
-            <button
+          <div className="flex flex-wrap items-center gap-2 text-footer-muted">
+            <Button
               type="button"
+              variant="link"
               onClick={openCookieSettings}
-              className="text-xs underline-offset-4 hover:underline hover:text-white"
+              className="h-auto p-0 text-xs text-footer-muted hover:text-footer-foreground"
             >
               {t('cookieSettings')}
-            </button>
+            </Button>
             {PAYMENT_METHODS.map((payment) => (
               <PaymentIcon key={payment.name} {...payment} />
             ))}

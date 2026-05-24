@@ -13,9 +13,9 @@ export function PopularMakes({ onMakeSelect }: PopularMakesProps) {
   const t = useTranslations('Hero')
 
   return (
-    <section className="bg-white py-12 border-t border-slate-200">
+    <section className="bg-background py-12 border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center sm:text-left">
-        <h2 className="mb-4 text-2xl font-semibold text-slate-900 sm:text-[28px]">
+        <h2 className="mb-4 text-2xl font-semibold text-foreground sm:text-[28px]">
           {t('popularMakes')}
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
@@ -23,7 +23,7 @@ export function PopularMakes({ onMakeSelect }: PopularMakesProps) {
             <button
               key={make.key}
               onClick={() => onMakeSelect && onMakeSelect(make.key)}
-              className="group h-[70px] border border-slate-200 bg-white px-2 transition-colors hover:border-slate-300 hover:bg-slate-50"
+              className="group h-[70px] border border-border bg-background px-2 transition-colors hover:border-input hover:bg-muted"
               aria-label={make.label}
             >
               <SafeImage
@@ -36,7 +36,7 @@ export function PopularMakes({ onMakeSelect }: PopularMakesProps) {
               />
             </button>
           ))}
-          <button className="h-[70px] border border-slate-200 hover:border-slate-300 text-slate-500 hover:text-slate-900 transition-colors flex items-center justify-center text-xs font-semibold bg-transparent">
+          <button className="h-[70px] border border-border hover:border-input text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center text-xs font-semibold bg-transparent">
             {t('allMakes')} <ArrowRight size={12} className="ml-1" />
           </button>
         </div>

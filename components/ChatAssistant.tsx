@@ -91,30 +91,30 @@ export default function ChatAssistant() {
   return (
     <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40">
       {isChatOpen && (
-        <GlassCard className="mb-3 flex h-[min(70vh,480px)] w-[min(92vw,340px)] flex-col border border-slate-200 bg-white shadow-2xl animate-in slide-in-from-bottom-5 fade-in duration-200">
-          <div className="flex items-center justify-between border-b border-slate-100 p-4">
+        <GlassCard className="mb-3 flex h-[min(70vh,480px)] w-[min(92vw,340px)] flex-col border border-border bg-background shadow-2xl animate-in slide-in-from-bottom-5 fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-border p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-white">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
                 <Bot size={18} />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-foreground">
                   {t('aiTitle')}
                 </h3>
-                <span className="flex items-center gap-1 font-mono text-[10px] text-slate-500">
+                <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
                   ● ACTIVE
                 </span>
               </div>
             </div>
             <button
               onClick={() => setIsChatOpen(false)}
-              className="text-slate-400 hover:text-slate-900"
+              className="text-muted-foreground hover:text-foreground"
             >
               <X size={18} />
             </button>
           </div>
 
-          <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-4">
+          <div className="flex-1 space-y-4 overflow-y-auto bg-muted/50 p-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -123,8 +123,8 @@ export default function ChatAssistant() {
                 <div
                   className={`max-w-[85%] rounded-lg px-4 py-2.5 text-sm ${
                     msg.sender === 'user'
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-200 bg-white text-slate-700 shadow-sm'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'border border-border bg-background text-foreground shadow-sm'
                   }`}
                 >
                   {msg.text}
@@ -133,17 +133,17 @@ export default function ChatAssistant() {
             ))}
             {isLoading && (
               <div className="flex justify-start">
-                <div className="flex gap-1 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 delay-100" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 delay-200" />
+                <div className="flex gap-1 rounded-md border border-border bg-background px-4 py-3 shadow-sm">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/40" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/40 delay-100" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/40 delay-200" />
                 </div>
               </div>
             )}
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="flex gap-2 border-t border-slate-100 bg-white p-3">
+          <div className="flex gap-2 border-t border-border bg-background p-3">
             <input
               type="text"
               value={input}
@@ -154,12 +154,12 @@ export default function ChatAssistant() {
                 }
               }}
               placeholder={t('aiPlaceholder')}
-              className="flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm transition-all focus:border-slate-400 focus:bg-white focus:outline-none"
+              className="flex-1 rounded-md border border-border bg-muted px-3 py-2 text-sm transition-all focus:border-input focus:bg-background focus:outline-none"
             />
             <button
               onClick={() => void handleSend()}
               disabled={isLoading}
-              className="rounded-md border border-slate-200 bg-white p-2 text-slate-900 transition-colors hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted disabled:opacity-50"
             >
               <Send size={18} />
             </button>
@@ -174,7 +174,7 @@ export default function ChatAssistant() {
               setIsMenuOpen(false)
               setIsChatOpen(true)
             }}
-            className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-lg transition-colors hover:bg-slate-50"
+            className="w-full rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-lg transition-colors hover:bg-muted"
           >
             {t('aiSupport')}
           </button>
@@ -185,7 +185,7 @@ export default function ChatAssistant() {
             trigger={
               <button
                 onClick={() => setIsMenuOpen(false)}
-                className="w-full rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 shadow-lg transition-colors hover:bg-emerald-100"
+                className="w-full rounded-full border border-success/20 bg-success/10 px-4 py-2 text-sm font-medium text-success shadow-lg transition-colors hover:bg-success/15"
               >
                 {t('missingProduct')}
               </button>
@@ -203,10 +203,10 @@ export default function ChatAssistant() {
 
           setIsMenuOpen((prev) => !prev)
         }}
-        className={`flex h-12 w-12 items-center justify-center rounded-xl text-white shadow-lg transition-all duration-300 ${
+        className={`flex h-12 w-12 items-center justify-center rounded-xl text-primary-foreground shadow-lg transition-all duration-300 ${
           isChatOpen || isMenuOpen
-            ? 'bg-slate-700 rotate-90'
-            : 'bg-slate-900 hover:bg-slate-800'
+            ? 'bg-primary rotate-90'
+            : 'bg-primary hover:bg-primary/90'
         }`}
       >
         {isChatOpen || isMenuOpen ? <X size={20} /> : <MessageSquare size={20} />}

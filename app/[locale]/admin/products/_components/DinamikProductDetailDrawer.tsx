@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition, type HTMLAttributes } from
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -175,20 +176,20 @@ export function DinamikProductDetailDrawer({
         </SheetHeader>
 
         {!product ? (
-          <div className="mt-6 text-sm text-gray-500">
+          <div className="mt-6 text-sm text-muted-foreground">
             {t('noProductSelected')}
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 rounded-md border border-border bg-muted p-4 text-sm md:grid-cols-2">
               <InfoRow label={t('fields.queryBrand')} value={product.queryBrand || '-'} />
               <InfoRow label={t('fields.stockCode')} value={product.stockCode} />
               <InfoRow label={t('fields.partNo')} value={product.partNo || '-'} />
               <InfoRow label={t('fields.sourceBrand')} value={product.brand || '-'} />
             </div>
 
-            <div className="rounded-lg border border-gray-200 p-4">
-              <h3 className="mb-3 text-sm font-semibold text-[#101828]">
+            <div className="rounded-md border border-border p-4">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">
                 {t('formTitle')}
               </h3>
 
@@ -215,14 +216,14 @@ export function DinamikProductDetailDrawer({
                 />
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
                     {t('fields.brand')}
                   </label>
                   <Select
                     value={brandId}
                     onValueChange={setBrandId}
                   >
-                    <SelectTrigger className="h-10 w-full">
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder={t('placeholders.selectBrand')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -236,14 +237,14 @@ export function DinamikProductDetailDrawer({
                 </div>
 
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
                     {t('fields.category')}
                   </label>
                   <Select
                     value={categoryId}
                     onValueChange={setCategoryId}
                   >
-                    <SelectTrigger className="h-10 w-full">
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder={t('placeholders.selectCategory')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -257,7 +258,7 @@ export function DinamikProductDetailDrawer({
                 </div>
               </div>
 
-              <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <label className="mt-3 flex items-center gap-2 text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={inBasket}
@@ -274,7 +275,7 @@ export function DinamikProductDetailDrawer({
               <Button
                 onClick={handleCreate}
                 disabled={isPending}
-                className="bg-[#101828] hover:bg-[#1d2939]"
+               
               >
                 {isPending ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
                 {t('saveAndMap')}
@@ -289,9 +290,9 @@ export function DinamikProductDetailDrawer({
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-md border border-gray-100 bg-white px-3 py-2">
-      <span className="text-xs font-medium text-gray-500">{label}</span>
-      <span className="text-sm font-semibold text-[#101828]">{value}</span>
+    <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{value}</span>
     </div>
   )
 }
@@ -311,13 +312,12 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-gray-600">{label}</label>
-      <input
+      <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>
+      <Input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         inputMode={inputMode}
-        className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
       />
     </div>
   )

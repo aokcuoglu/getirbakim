@@ -76,10 +76,10 @@ export const Dropdown: React.FC<DropdownProps> = ({
       <button
         className={`w-full flex items-center justify-between ${paddingLeft} pr-3 ${
           height.includes('h-') ? height : 'py-2.5'
-        } bg-slate-100/50 border border-slate-200 rounded-lg text-sm text-slate-400 cursor-not-allowed text-left transition-colors`}
+        } bg-muted/50 border border-border rounded-lg text-sm text-muted-foreground cursor-not-allowed text-left transition-colors`}
       >
         <span className="truncate mr-2">{label}</span>
-        <ChevronRight size={14} className="text-slate-300 shrink-0 rotate-90" />
+        <ChevronRight size={14} className="text-muted-foreground/70 shrink-0 rotate-90" />
       </button>
     )
   }
@@ -98,16 +98,16 @@ export const Dropdown: React.FC<DropdownProps> = ({
         className={`
                     w-full flex items-center justify-between ${paddingLeft} pr-3 ${
                       height.includes('h-') ? 'h-full' : 'py-2.5'
-                    } bg-white border rounded-lg text-sm text-left transition-all shadow-sm
+                    } bg-background border rounded-lg text-sm text-left transition-all shadow-sm
                     ${
                       isOpen
-                        ? 'border-blue-500 ring-1 ring-blue-500/20'
-                        : 'border-slate-200 hover:border-slate-300'
+                        ? 'border-primary ring-1 ring-primary/20'
+                        : 'border-border hover:border-input'
                     }
                     ${
                       selectedItem
-                        ? 'text-slate-900 font-medium'
-                        : 'text-slate-500'
+                        ? 'text-foreground font-medium'
+                        : 'text-muted-foreground'
                     }
                 `}
       >
@@ -116,7 +116,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
         </span>
         <ChevronRight
           size={14}
-          className={`text-slate-400 shrink-0 transition-transform ${
+          className={`text-muted-foreground shrink-0 transition-transform ${
             isOpen ? '-rotate-90' : 'rotate-90'
           }`}
         />
@@ -124,9 +124,9 @@ export const Dropdown: React.FC<DropdownProps> = ({
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute top-[calc(100%+4px)] left-0 w-full min-w-[320px] bg-white opacity-100 rounded-lg shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-left">
+        <div className="absolute top-[calc(100%+4px)] left-0 w-full min-w-[320px] bg-background opacity-100 rounded-lg shadow-2xl border border-border z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-left">
           {/* Header: Back Button + Title OR Search */}
-          <div className="p-3 border-b border-slate-100 flex flex-col gap-2">
+          <div className="p-3 border-b border-border flex flex-col gap-2">
             {/* If we have a back action, show header row */}
             {onBack && (
               <div className="flex items-center gap-2 pb-1">
@@ -135,11 +135,11 @@ export const Dropdown: React.FC<DropdownProps> = ({
                     e.stopPropagation()
                     onBack()
                   }}
-                  className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors bg-slate-50"
+                  className="p-1.5 hover:bg-muted rounded-md text-muted-foreground transition-colors bg-muted"
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <span className="font-bold text-slate-800 text-sm">
+                <span className="font-bold text-foreground text-sm">
                   {headerTitle}
                 </span>
               </div>
@@ -148,12 +148,12 @@ export const Dropdown: React.FC<DropdownProps> = ({
             <div className="relative">
               <Search
                 size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <input
                 autoFocus
                 type="text"
-                className="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-md focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-slate-700 placeholder:text-slate-400 transition-all"
+                className="w-full pl-9 pr-3 py-2 text-sm bg-muted border border-border rounded-md focus:ring-1 focus-visible:ring-ring/50/20 focus-visible:border-ring outline-none text-foreground placeholder:text-muted-foreground transition-all"
                 placeholder={
                   onBack ? 'Search...' : `Search ${label.toLowerCase()}...`
                 }
@@ -163,13 +163,13 @@ export const Dropdown: React.FC<DropdownProps> = ({
             </div>
           </div>
 
-          <div className="max-h-64 overflow-y-auto p-1 bg-white">
+          <div className="max-h-64 overflow-y-auto p-1 bg-background">
             {filteredItems.length > 0 ? (
               filteredItems.map((item) =>
                 item.isHeader ? (
                   <div
                     key={item.id}
-                    className="px-3 py-1 text-[10px] font-bold text-blue-600 uppercase tracking-wider bg-slate-50/50 mt-2 mb-1"
+                    className="px-3 py-1 text-[10px] font-bold text-primary uppercase tracking-wider bg-muted/50 mt-2 mb-1"
                   >
                     {item.label}
                   </div>
@@ -183,20 +183,20 @@ export const Dropdown: React.FC<DropdownProps> = ({
                                       w-full text-left px-3 py-2.5 text-sm rounded-md flex items-center justify-between group
                                       ${
                                         selectedItem?.id === item.id
-                                          ? 'bg-blue-50 text-blue-700 font-medium'
-                                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                          ? 'bg-accent text-primary font-medium'
+                                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                                       }
                                   `}
                   >
                     <div className="flex flex-col">
                       <span className="font-medium">{item.label}</span>
                       {item.sublabel && (
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-muted-foreground">
                           {item.sublabel}
                         </span>
                       )}
                       {item.thirdLine && (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-muted-foreground">
                           {item.thirdLine}
                         </span>
                       )}
@@ -206,14 +206,14 @@ export const Dropdown: React.FC<DropdownProps> = ({
                     ) : (
                       <ChevronRight
                         size={14}
-                        className="opacity-0 group-hover:opacity-100 text-slate-300"
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground/70"
                       />
                     )}
                   </button>
                 )
               )
             ) : (
-              <div className="p-4 text-center text-xs text-slate-400">
+              <div className="p-4 text-center text-xs text-muted-foreground">
                 No results found
               </div>
             )}

@@ -237,28 +237,28 @@ export function NotificationBell({
         ref={buttonRef}
         className={
           buttonClassName ||
-          'flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 rounded-lg group transition-colors'
+          'flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-lg group transition-colors'
         }
       >
         <div
           className={
             iconClassName ||
-            'w-8 h-8 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 group-hover:text-sky-600 transition-colors relative'
+            'w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors relative'
           }
         >
           <Bell size={18} strokeWidth={1.5} />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 bg-sky-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-white">
+            <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-background">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </div>
         {showLabel && (
           <div className="hidden lg:flex flex-col items-start">
-            <span className="text-[11px] text-slate-400 font-medium leading-none mb-0.5">
+            <span className="text-[11px] text-muted-foreground font-medium leading-none mb-0.5">
               {texts.notifications}
             </span>
-            <span className="text-[13px] font-semibold text-slate-700 leading-none">
+            <span className="text-[13px] font-semibold text-foreground leading-none">
               {texts.title}
             </span>
           </div>
@@ -275,7 +275,7 @@ export function NotificationBell({
               aria-label="Bildirim panelini kapat"
             />
             <div
-              className="fixed left-2 right-2 z-[141] bg-white rounded-xl shadow-xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200"
+              className="fixed left-2 right-2 z-[141] bg-background rounded-xl shadow-xl border border-border animate-in fade-in zoom-in-95 duration-200"
               style={{ top: mobilePanelTop }}
             >
               <NotificationPanelContent
@@ -297,7 +297,7 @@ export function NotificationBell({
           <div
             className={
               panelClassName ||
-              'absolute top-full right-0 mt-2 w-[360px] max-w-[92vw] bg-white rounded-xl shadow-xl border border-slate-100 z-[120] animate-in fade-in zoom-in-95 duration-200'
+              'absolute top-full right-0 mt-2 w-[360px] max-w-[92vw] bg-background rounded-xl shadow-xl border border-border z-[120] animate-in fade-in zoom-in-95 duration-200'
             }
           >
             <NotificationPanelContent
@@ -352,11 +352,11 @@ function NotificationPanelContent({
 }) {
   return (
     <>
-      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-slate-100">
-        <h3 className="text-sm font-bold text-slate-900 truncate">{texts.title}</h3>
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-border">
+        <h3 className="text-sm font-bold text-foreground truncate">{texts.title}</h3>
         <button
           onClick={() => void onMarkAllRead()}
-          className="inline-flex items-center gap-1 text-[11px] sm:text-xs text-slate-600 hover:text-slate-900 disabled:opacity-50 shrink-0"
+          className="inline-flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 shrink-0"
           disabled={unreadCount <= 0}
         >
           <CheckCheck size={14} />
@@ -366,19 +366,19 @@ function NotificationPanelContent({
 
       <div className={mobile ? 'max-h-[min(65vh,460px)] overflow-y-auto' : 'max-h-[420px] overflow-y-auto'}>
         {isLoading ? (
-          <div className="px-4 py-6 text-sm text-slate-500 flex items-center gap-2">
+          <div className="px-4 py-6 text-sm text-muted-foreground flex items-center gap-2">
             <Loader2 size={14} className="animate-spin" />
             Loading...
           </div>
         ) : items.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-slate-500 text-center">{texts.empty}</div>
+          <div className="px-4 py-8 text-sm text-muted-foreground text-center">{texts.empty}</div>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-border">
             {items.map((item) => (
               <li
                 key={item.id}
-                className={`px-3 sm:px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors ${
-                  item.readAt ? 'bg-white' : 'bg-sky-50/40'
+                className={`px-3 sm:px-4 py-3 cursor-pointer hover:bg-muted transition-colors ${
+                  item.readAt ? 'bg-background' : 'bg-accent/40'
                 }`}
                 onClick={() => {
                   if (!item.readAt) {
@@ -389,15 +389,15 @@ function NotificationPanelContent({
                 <div className="flex items-start gap-2">
                   <span
                     className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                      item.readAt ? 'bg-slate-300' : 'bg-sky-500'
+                      item.readAt ? 'bg-muted-foreground/30' : 'bg-primary'
                     }`}
                   />
                   <div className="min-w-0">
-                    <p className="text-[13px] font-semibold text-slate-900 leading-snug">
+                    <p className="text-[13px] font-semibold text-foreground leading-snug">
                       {item.title}
                     </p>
-                    <p className="text-xs text-slate-600 mt-1 leading-snug">{item.message}</p>
-                    <p className="text-[11px] text-slate-400 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1 leading-snug">{item.message}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
                       {new Date(item.createdAt).toLocaleString(
                         locale === 'tr' ? 'tr-TR' : 'en-US'
                       )}
@@ -411,10 +411,10 @@ function NotificationPanelContent({
       </div>
 
       {nextCursor && (
-        <div className="px-4 py-3 border-t border-slate-100">
+        <div className="px-4 py-3 border-t border-border">
           <button
             onClick={() => void onLoadMore()}
-            className="w-full h-9 text-sm rounded-md border border-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            className="w-full h-9 text-sm rounded-md border border-border hover:bg-muted transition-colors disabled:opacity-50"
             disabled={isLoadingMore}
           >
             {isLoadingMore ? '...' : texts.loadMore}

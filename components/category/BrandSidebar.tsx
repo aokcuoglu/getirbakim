@@ -43,16 +43,16 @@ export function BrandSidebar({
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <div className="bg-background rounded-xl shadow-sm border border-border p-5">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider">
+        <h3 className="font-bold text-foreground text-sm uppercase tracking-wider">
           Brands
         </h3>
         {selectedBrands.length > 0 && (
           <button
             onClick={clearAllBrands}
-            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            className="text-xs text-primary hover:text-primary font-medium"
           >
             Clear all
           </button>
@@ -63,14 +63,14 @@ export function BrandSidebar({
       <div className="relative mb-4">
         <Search
           size={16}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
         />
         <input
           type="text"
           placeholder="Search brands..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+          className="w-full pl-9 pr-4 py-2.5 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50 focus:border-transparent transition-all"
         />
       </div>
 
@@ -81,7 +81,7 @@ export function BrandSidebar({
           return (
             <label
               key={brand.id}
-              className="flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors group"
+              className="flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group"
             >
               {/* Checkbox */}
               <div
@@ -89,12 +89,12 @@ export function BrandSidebar({
                   w-5 h-5 rounded border-2 flex items-center justify-center transition-all
                   ${
                     isSelected
-                      ? 'bg-blue-600 border-blue-600'
-                      : 'bg-white border-slate-300 group-hover:border-slate-400'
+                      ? 'bg-primary border-primary'
+                      : 'bg-background border-input group-hover:border-input'
                   }
                 `}
               >
-                {isSelected && <Check size={14} className="text-white" />}
+                {isSelected && <Check size={14} className="text-primary-foreground" />}
               </div>
               <input
                 type="checkbox"
@@ -108,13 +108,13 @@ export function BrandSidebar({
                 <span
                   className={`text-sm ${
                     isSelected
-                      ? 'text-slate-900 font-medium'
-                      : 'text-slate-700 group-hover:text-slate-900'
+                      ? 'text-foreground font-medium'
+                      : 'text-foreground group-hover:text-foreground'
                   }`}
                 >
                   {brand.name}
                 </span>
-                <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                   {brand.count}
                 </span>
               </div>
@@ -127,7 +127,7 @@ export function BrandSidebar({
       {filteredBrands.length > INITIAL_SHOW_COUNT && (
         <button
           onClick={() => setShowAll(!showAll)}
-          className="w-full mt-3 py-2 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center justify-center gap-1 transition-colors"
+          className="w-full mt-3 py-2 text-sm text-primary hover:text-primary font-medium flex items-center justify-center gap-1 transition-colors"
         >
           {showAll ? (
             <>

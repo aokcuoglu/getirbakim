@@ -34,9 +34,9 @@ export function RelatedProducts({ parts, categoryName }: RelatedProductsProps) {
   const t = useTranslations('ProductCard')
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6">
+    <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6">
       <div className="mb-4 md:mb-6">
-        <h2 className="text-lg md:text-xl font-bold text-slate-900">
+        <h2 className="text-lg md:text-xl font-bold text-foreground">
           {categoryName}
         </h2>
       </div>
@@ -46,9 +46,9 @@ export function RelatedProducts({ parts, categoryName }: RelatedProductsProps) {
           <Link
             key={part.id}
             href={`/part/${part.id}`}
-            className="group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300 hover:bg-slate-50/40"
+            className="group flex items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 transition-colors hover:border-input hover:bg-muted/40"
           >
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-100 bg-slate-50">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
               {part.thumb || part.image ? (
                 <SafeImage
                   src={part.thumb || part.image || ''}
@@ -56,15 +56,15 @@ export function RelatedProducts({ parts, categoryName }: RelatedProductsProps) {
                   width={56}
                   height={56}
                   className="h-12 w-12 object-contain"
-                  fallback={<Package className="h-6 w-6 text-slate-300" />}
+                  fallback={<Package className="h-6 w-6 text-muted-foreground/70" />}
                 />
               ) : (
-                <Package className="h-6 w-6 text-slate-300" />
+                <Package className="h-6 w-6 text-muted-foreground/70" />
               )}
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 text-sm font-medium leading-5 text-slate-800 transition-colors group-hover:text-sky-600">
+              <p className="line-clamp-2 text-sm font-medium leading-5 text-foreground transition-colors group-hover:text-primary">
                 {buildProductDisplayName({
                   categoryName: part.categoryName ?? categoryName,
                   brandName: part.brandName,
@@ -78,7 +78,7 @@ export function RelatedProducts({ parts, categoryName }: RelatedProductsProps) {
               part.priceSource === 'real' &&
               !part.isPlaceholderPrice ? (
                 <>
-                  <p className="text-lg font-bold leading-none text-slate-900">
+                  <p className="text-lg font-bold leading-none text-foreground">
                     {new Intl.NumberFormat('tr-TR', {
                       style: 'currency',
                       currency: 'TRY',
@@ -86,13 +86,13 @@ export function RelatedProducts({ parts, categoryName }: RelatedProductsProps) {
                       maximumFractionDigits: 2
                     }).format(parseFloat(part.price) * 1.2)}
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-500 whitespace-nowrap">
-                    {t('inclVat')} <span className="mx-1 text-slate-300">|</span>
+                  <p className="mt-1 text-[11px] text-muted-foreground whitespace-nowrap">
+                    {t('inclVat')} <span className="mx-1 text-muted-foreground/70">|</span>
                     {t('exclShipping')}
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-slate-500 whitespace-nowrap">
+                <p className="text-sm text-muted-foreground whitespace-nowrap">
                   {t('priceNotAvailable')}
                 </p>
               )}

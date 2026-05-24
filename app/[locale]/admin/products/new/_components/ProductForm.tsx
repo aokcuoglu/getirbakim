@@ -178,11 +178,11 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-2xl">
-      <div className="rounded-lg border border-gray-200 bg-gray-50/70 p-4 space-y-3">
+      <div className="rounded-md border border-border bg-muted/70 p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-[#101828]">Mevcut üründen klonla</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-sm font-semibold text-foreground">Mevcut üründen klonla</p>
+            <p className="text-xs text-muted-foreground">
               Şablon seçildiğinde OEM, referans, EAN, araç tipi, özellik ve görseller yeni ürüne kopyalanır.
             </p>
           </div>
@@ -216,28 +216,28 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
         </div>
 
         {selectedTemplate ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          <div className="rounded-md border border-success/20 bg-success/10 px-3 py-2 text-xs text-success">
             Seçili şablon: <span className="font-semibold">#{selectedTemplate.partId}</span> -{' '}
             {selectedTemplate.name}
           </div>
         ) : null}
 
         {templateCandidates.length > 0 ? (
-          <div className="max-h-64 space-y-2 overflow-auto rounded-md border border-gray-200 bg-white p-2">
+          <div className="max-h-64 space-y-2 overflow-auto rounded-md border border-border bg-background p-2">
             {templateCandidates.map((candidate) => (
               <button
                 key={candidate.partId}
                 type="button"
                 onClick={() => void applyTemplate(candidate)}
                 disabled={isLoadingTemplate}
-                className="w-full rounded-md border border-gray-200 px-3 py-2 text-left hover:border-gray-300 hover:bg-gray-50 disabled:opacity-60"
+                className="w-full rounded-md border border-border px-3 py-2 text-left hover:border-input hover:bg-muted disabled:opacity-60"
               >
-                <p className="text-sm font-medium text-[#101828]">{candidate.name}</p>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="text-sm font-medium text-foreground">{candidate.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   #{candidate.partId} | AL: {candidate.articleLinkId}
                   {candidate.partNo ? ` | PN: ${candidate.partNo}` : ''}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {candidate.brand || 'Markasız'} / {candidate.category || 'Kategorisiz'}
                 </p>
               </button>
@@ -252,10 +252,10 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
           id="name"
           {...register('name')}
           placeholder="Örn: MD-8828"
-          className={errors.name ? 'border-red-500' : ''}
+          className={errors.name ? 'border-destructive' : ''}
         />
         {errors.name && (
-          <p className="text-sm text-red-500">{errors.name.message}</p>
+          <p className="text-sm text-destructive">{errors.name.message}</p>
         )}
       </div>
 
@@ -266,10 +266,10 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
           type="number"
           {...register('articleLinkId')}
           placeholder="Örn: 12345"
-          className={errors.articleLinkId ? 'border-red-500' : ''}
+          className={errors.articleLinkId ? 'border-destructive' : ''}
         />
         {errors.articleLinkId && (
-          <p className="text-sm text-red-500">{errors.articleLinkId.message}</p>
+          <p className="text-sm text-destructive">{errors.articleLinkId.message}</p>
         )}
       </div>
 
@@ -297,7 +297,7 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
               setValue('brandId', parseInt(value), { shouldValidate: true })
             }
           >
-            <SelectTrigger className={errors.brandId ? 'border-red-500' : ''}>
+            <SelectTrigger className={errors.brandId ? 'border-destructive' : ''}>
               <SelectValue placeholder="Marka Seçin" />
             </SelectTrigger>
             <SelectContent>
@@ -309,7 +309,7 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
             </SelectContent>
           </Select>
           {errors.brandId && (
-            <p className="text-sm text-red-500">{errors.brandId.message}</p>
+            <p className="text-sm text-destructive">{errors.brandId.message}</p>
           )}
         </div>
 
@@ -326,7 +326,7 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
             }
           >
             <SelectTrigger
-              className={errors.categoryId ? 'border-red-500' : ''}
+              className={errors.categoryId ? 'border-destructive' : ''}
             >
               <SelectValue placeholder="Kategori Seçin" />
             </SelectTrigger>
@@ -339,7 +339,7 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
             </SelectContent>
           </Select>
           {errors.categoryId && (
-            <p className="text-sm text-red-500">{errors.categoryId.message}</p>
+            <p className="text-sm text-destructive">{errors.categoryId.message}</p>
           )}
         </div>
       </div>
@@ -354,7 +354,7 @@ export function ProductForm({ brands, categories }: ProductFormProps) {
           disabled={Boolean(selectedTemplate?.partId)}
         />
         {selectedTemplate ? (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             Klon modunda şablondaki görseller otomatik kopyalanır.
           </p>
         ) : null}

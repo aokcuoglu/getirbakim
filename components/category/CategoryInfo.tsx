@@ -20,19 +20,19 @@ export function CategoryInfo({ categoryName }: CategoryInfoProps) {
     {
       question: `What are ${categoryName.toLowerCase()}?`,
       answer: `${categoryName} are essential components in your vehicle's systems. They help remove contaminants and impurities, ensuring clean operation and protecting vital engine components from damage. Regular replacement is key to maintaining optimal performance.`,
-      icon: <Info size={20} className="text-blue-600" />
+      icon: <Info size={20} className="text-primary" />
     },
     {
       question: `How often should you change ${categoryName.toLowerCase()}?`,
       answer: `The replacement interval depends on your vehicle type, driving conditions, and manufacturer recommendations. Generally, filters should be replaced every 15,000-30,000 km or during regular service intervals. Check your owner's manual for specific guidance.`,
-      icon: <Clock size={20} className="text-blue-600" />
+      icon: <Clock size={20} className="text-primary" />
     },
     {
       question: `How to choose the right ${categoryName
         .toLowerCase()
         .replace('s', '')}?`,
       answer: `To choose the right filter, you need to know your vehicle's make, model, year, and engine type. Use our vehicle selector above to find compatible filters. Always choose quality brands that meet or exceed OEM specifications for best performance.`,
-      icon: <Wrench size={20} className="text-blue-600" />
+      icon: <Wrench size={20} className="text-primary" />
     }
   ]
 
@@ -41,9 +41,9 @@ export function CategoryInfo({ categoryName }: CategoryInfoProps) {
   }
 
   return (
-    <div className="bg-gradient-to-b from-slate-50 to-white py-12 mt-12 border-t border-slate-200">
+    <div className="bg-gradient-to-b from-muted to-background py-12 mt-12 border-t border-border">
       <div className="max-w-4xl mx-auto px-4">
-        <h2 className="text-2xl font-bold text-slate-900 mb-8 text-center">
+        <h2 className="text-2xl font-bold text-foreground mb-8 text-center">
           Everything you need to know about {categoryName}
         </h2>
 
@@ -52,19 +52,19 @@ export function CategoryInfo({ categoryName }: CategoryInfoProps) {
           {faqs.map((faq, index) => (
             <div
               key={index}
-              className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm"
+              className="bg-background rounded-xl border border-border overflow-hidden shadow-sm"
             >
               <button
                 onClick={() => toggleFAQ(index)}
-                className="w-full flex items-center gap-4 p-5 text-left hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center gap-4 p-5 text-left hover:bg-muted transition-colors"
               >
-                <div className="shrink-0 w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                <div className="shrink-0 w-10 h-10 rounded-lg bg-accent flex items-center justify-center">
                   {faq.icon}
                 </div>
-                <span className="flex-1 font-semibold text-slate-900">
+                <span className="flex-1 font-semibold text-foreground">
                   {faq.question}
                 </span>
-                <div className="shrink-0 text-slate-400">
+                <div className="shrink-0 text-muted-foreground">
                   {openIndex === index ? (
                     <ChevronUp size={20} />
                   ) : (
@@ -75,7 +75,7 @@ export function CategoryInfo({ categoryName }: CategoryInfoProps) {
 
               {openIndex === index && (
                 <div className="px-5 pb-5 pl-[76px]">
-                  <p className="text-slate-600 leading-relaxed">{faq.answer}</p>
+                  <p className="text-muted-foreground leading-relaxed">{faq.answer}</p>
                 </div>
               )}
             </div>
@@ -83,25 +83,25 @@ export function CategoryInfo({ categoryName }: CategoryInfoProps) {
         </div>
 
         {/* Additional Info */}
-        <div className="mt-10 p-6 bg-blue-50 rounded-xl border border-blue-100">
-          <h3 className="font-semibold text-slate-900 mb-3">
+        <div className="mt-10 p-6 bg-accent rounded-xl border border-border">
+          <h3 className="font-semibold text-foreground mb-3">
             Why buy {categoryName.toLowerCase()} from us?
           </h3>
-          <ul className="space-y-2 text-slate-700">
+          <ul className="space-y-2 text-foreground">
             <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
               Wide selection of top brands at competitive prices
             </li>
             <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
               Fast worldwide shipping with DHL Express
             </li>
             <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
               OEM quality products with manufacturer warranty
             </li>
             <li className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full"></span>
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span>
               Expert customer support to help you find the right parts
             </li>
           </ul>

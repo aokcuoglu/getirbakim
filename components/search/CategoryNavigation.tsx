@@ -185,7 +185,7 @@ export function CategoryNavigation({
   }
 
   return (
-    <div style={{ fontFamily: 'var(--font-heading), sans-serif' }}>
+    <div>
       {parentCategory ? (
         <CategoryNavLink
           href={normalizeHref(buildCategoryUrl(parentCategory.urlKey))}
@@ -193,9 +193,9 @@ export function CategoryNavigation({
           hasChildren={false}
           router={router}
           alignStart={true}
-          className="mb-2.5 min-h-[30px] px-[6px] py-[5px] text-[14px] font-normal text-[#52606d] hover:bg-transparent hover:text-[#212b36]"
+          className="mb-2.5 min-h-[30px] px-[6px] py-[5px] text-[14px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
         >
-          <ChevronLeft size={14} className="shrink-0 text-[#9aa5b1]" />
+          <ChevronLeft size={14} className="shrink-0 text-muted-foreground" />
           <span className="truncate">
             {getLocalizedCategoryName(parentCategory, locale)}
           </span>
@@ -213,8 +213,8 @@ export function CategoryNavigation({
         value={searchQuery}
         onChange={setSearchQuery}
         className="mb-3"
-        inputClassName="h-[38px] rounded-[6px] border-[#c4cdd5] bg-white pl-[35px] pr-[10px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] focus:border-[#98a6b3] focus:ring-[#eef2f5]"
-        iconClassName="left-[11px] text-[#7b8794]"
+        inputClassName="h-[38px] rounded-md border-input bg-background pl-[35px] pr-[10px] text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50"
+        iconClassName="left-[11px] text-muted-foreground"
       />
 
       <SidebarList className="max-h-[min(560px,72vh)] pr-0">
@@ -243,8 +243,8 @@ export function CategoryNavigation({
                   alignStart={true}
                   className={`min-h-[30px] px-0 py-[5px] text-left text-[14px] font-medium leading-5 transition-colors ${
                     item.id === activeCategoryId || item.urlKey === category.urlKey
-                      ? 'text-[#212b36]'
-                      : 'text-[#212b36]'
+                      ? 'text-foreground'
+                      : 'text-foreground'
                   }`}
                 >
                   <span className="min-w-0 truncate">
@@ -254,7 +254,7 @@ export function CategoryNavigation({
               )
             })
           ) : (
-            <p className="rounded-md bg-white px-3 py-6 text-center text-sm text-slate-500">
+            <p className="rounded-md bg-background px-3 py-6 text-center text-sm text-muted-foreground">
               {t('noSubcategories')}
             </p>
           )
@@ -283,8 +283,8 @@ export function CategoryNavigation({
                     onNavigate={onNavigate}
                     className={`group min-h-[30px] px-0 py-[5px] text-[14px] font-medium leading-5 transition-colors ${
                       isActive
-                        ? 'text-[#212b36]'
-                        : 'text-[#212b36]'
+                        ? 'text-foreground'
+                        : 'text-foreground'
                     }`}
                     onClick={(e) => {
                       markCategoryActive(sub.id)
@@ -301,7 +301,7 @@ export function CategoryNavigation({
                   </CategoryNavLink>
 
                   {expanded && hasChildren && sub.children && (
-                    <div className="mt-0.5 space-y-0 border-l border-[#e7edf2] pl-4">
+                    <div className="mt-0.5 space-y-0 border-l border-border pl-4">
                       {sub.children
                         .filter((child) => child.urlKey)
                         .map((child) => {
@@ -325,8 +325,8 @@ export function CategoryNavigation({
                               onNavigate={onNavigate}
                               className={`min-h-7 px-0 py-0.5 text-[13px] font-medium leading-6 transition-colors ${
                                 childIsActive
-                                  ? 'text-[#212b36]'
-                                  : 'text-[#52606d]'
+                                  ? 'text-foreground'
+                                  : 'text-muted-foreground'
                               }`}
                               onClick={(e) => {
                                 markCategoryActive(child.id)
@@ -419,14 +419,14 @@ function CategoryNavLink({
       onMouseEnter={prefetchLink}
       onTouchStart={prefetchLink}
       className={
-        `flex w-full cursor-pointer items-center ${alignStart ? 'justify-start' : 'justify-between'} gap-2 rounded-[4px] transition-colors hover:bg-[#f8f9f9] ${className || `px-0 py-[5px] text-[14px] text-[#212b36]`}`
+        `flex w-full cursor-pointer items-center ${alignStart ? 'justify-start' : 'justify-between'} gap-2 rounded-[4px] transition-colors hover:bg-muted ${className || `px-0 py-[5px] text-[14px] text-foreground`}`
       }
     >
       {children}
       {!isActive && hasChildren && showChevron && (
         <ChevronRight
           size={12}
-          className="shrink-0 text-[#9aa5b1]"
+          className="shrink-0 text-muted-foreground"
           strokeWidth={1.75}
         />
       )}

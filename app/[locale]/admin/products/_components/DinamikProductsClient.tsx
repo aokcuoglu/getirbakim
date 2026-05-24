@@ -96,19 +96,19 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
         />
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-border bg-background p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex w-full flex-1 flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative w-full max-w-xl">
               <Search
                 size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <input
                 defaultValue={currentSearch}
                 onChange={(event) => onSearch(event.target.value)}
                 placeholder={t('searchPlaceholder')}
-                className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm"
+                className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
               />
             </div>
 
@@ -118,7 +118,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                 setParam('dbrand', value === 'all' ? null : value)
               }
             >
-              <SelectTrigger className="h-10 w-full sm:w-auto sm:min-w-[220px] bg-white text-sm text-gray-700">
+              <SelectTrigger className="w-full sm:w-auto sm:min-w-[220px]">
                 <SelectValue
                   placeholder={t('allQueryBrands')}
                 />
@@ -155,7 +155,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
       <ResponsiveDataView
         mobile={
           data.products.length === 0 ? (
-            <div className="rounded-xl border border-gray-200 bg-white px-6 py-14 text-center text-sm text-gray-500">
+            <div className="rounded-xl border border-border bg-background px-6 py-14 text-center text-sm text-muted-foreground">
               {t('noRecords')}
             </div>
           ) : (
@@ -164,10 +164,10 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                 <MobileDataCard key={`${row.stockCode}-${row.partNo || '-'}-${index}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-mono text-xs font-semibold text-[#101828]">
+                      <p className="font-mono text-xs font-semibold text-foreground">
                         {row.stockCode}
                       </p>
-                      <p className="text-sm font-medium text-gray-700">
+                      <p className="text-sm font-medium text-foreground">
                         {row.partNo || '-'}
                       </p>
                     </div>
@@ -181,7 +181,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                     </Button>
                   </div>
 
-                  <div className="mt-3 space-y-1 text-xs text-gray-600">
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                     <p className="truncate" title={row.stockName || '-'}>
                       {row.stockName || '-'}
                     </p>
@@ -209,10 +209,10 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
           )
         }
         desktop={
-          <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <div className="overflow-x-auto rounded-xl border border-border bg-background">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="bg-gray-50/80 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <tr className="bg-muted/80 text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3">{t('columns.stockCode')}</th>
                   <th className="px-4 py-3">{t('columns.partNo')}</th>
                   <th className="px-4 py-3">{t('columns.stockName')}</th>
@@ -224,27 +224,27 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-gray-100 text-sm">
+              <tbody className="divide-y divide-border text-sm">
                 {data.products.map((row, index) => (
                   <tr
                     key={`${row.stockCode}-${row.partNo || '-'}-${index}`}
-                    className="hover:bg-gray-50/60"
+                    className="hover:bg-muted/60"
                   >
-                    <td className="px-4 py-3 align-top font-mono text-xs text-[#101828]">
+                    <td className="px-4 py-3 align-top font-mono text-xs text-foreground">
                       {row.stockCode}
                     </td>
-                    <td className="px-4 py-3 align-top text-gray-700">
+                    <td className="px-4 py-3 align-top text-foreground">
                       {row.partNo || '-'}
                     </td>
-                    <td className="max-w-[280px] px-4 py-3 align-top text-gray-700">
+                    <td className="max-w-[280px] px-4 py-3 align-top text-foreground">
                       <p className="truncate" title={row.stockName || '-'}>
                         {row.stockName || '-'}
                       </p>
                     </td>
-                    <td className="px-4 py-3 align-top text-gray-700">
+                    <td className="px-4 py-3 align-top text-foreground">
                       {row.brand || '-'}
                     </td>
-                    <td className="px-4 py-3 align-top text-gray-700">
+                    <td className="px-4 py-3 align-top text-foreground">
                       {row.price == null
                         ? '-'
                         : row.price.toLocaleString(numberLocale, {
@@ -252,10 +252,10 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                             maximumFractionDigits: 2
                           })}
                     </td>
-                    <td className="px-4 py-3 align-top text-xs text-gray-600">
+                    <td className="px-4 py-3 align-top text-xs text-muted-foreground">
                       {row.barcode1 || row.barcode2 || row.barcode3 || '-'}
                     </td>
-                    <td className="px-4 py-3 align-top text-xs text-gray-600">
+                    <td className="px-4 py-3 align-top text-xs text-muted-foreground">
                       {row.updatedAt
                         ? new Date(row.updatedAt).toLocaleString(numberLocale)
                         : '-'}
@@ -277,7 +277,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                   <tr>
                     <td
                       colSpan={8}
-                      className="px-6 py-14 text-center text-sm text-gray-500"
+                      className="px-6 py-14 text-center text-sm text-muted-foreground"
                     >
                       {t('noRecords')}
                     </td>
@@ -319,7 +319,7 @@ function DinamikKpiCard({
   value: number
 }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-slate-700">
+    <div className="rounded-xl border border-border bg-muted p-4 text-foreground">
       <p className="text-xs font-medium uppercase tracking-wider">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value.toLocaleString()}</p>
     </div>

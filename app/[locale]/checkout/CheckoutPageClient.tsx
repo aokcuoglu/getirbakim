@@ -226,11 +226,11 @@ export default function CheckoutPageClient() {
 
   if (cart.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-muted">
         <main className="mx-auto max-w-3xl px-4 py-20">
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <h1 className="text-2xl font-semibold text-slate-900">Your cart is empty</h1>
-            <p className="mt-2 text-slate-600">Add products before starting checkout.</p>
+          <div className="rounded-xl border border-border bg-background p-8 text-center shadow-sm">
+            <h1 className="text-2xl font-semibold text-foreground">Your cart is empty</h1>
+            <p className="mt-2 text-muted-foreground">Add products before starting checkout.</p>
             <Button className="mt-6" onClick={() => router.push(`/${locale}`)}>
               Continue Shopping
             </Button>
@@ -241,11 +241,11 @@ export default function CheckoutPageClient() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       <main className="mx-auto max-w-7xl px-4 py-8">
         <Link
           href={`/${locale}`}
-          className="mb-4 inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+          className="mb-4 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to shopping
@@ -254,13 +254,13 @@ export default function CheckoutPageClient() {
         <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
           <section className="space-y-6">
             {!user?.id && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900">
+              <div className="rounded-md border border-warning/20 bg-warning/10 p-4 text-amber-900">
                 Guest checkout is enabled. Please enter a valid email address to continue.
               </div>
             )}
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900">1. Shipping Address</h2>
+            <div className="rounded-xl border border-border bg-background p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-foreground">1. Shipping Address</h2>
               <div className="grid gap-3 md:grid-cols-2">
                 <Input
                   className="md:col-span-2"
@@ -325,8 +325,8 @@ export default function CheckoutPageClient() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <div className="rounded-xl border border-border bg-background p-5 shadow-sm">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
                 <Truck className="h-4 w-4" />
                 2. Shipping Method
               </h2>
@@ -358,16 +358,16 @@ export default function CheckoutPageClient() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <div className="rounded-xl border border-border bg-background p-5 shadow-sm">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
                 <CreditCard className="h-4 w-4" />
                 3. Payment
               </h2>
               <div className="space-y-3">
                 <label className="flex cursor-pointer items-start justify-between rounded-xl border p-4">
                   <div>
-                    <p className="font-medium text-slate-900">Tami ile Kartla Odeme</p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="font-medium text-foreground">Tami ile Kartla Odeme</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
                       Kart bilgileriniz siparis aninda Tami&apos;nin `/payment/auth` servisine
                       gonderilir.
                     </p>
@@ -382,8 +382,8 @@ export default function CheckoutPageClient() {
 
                 <label className="flex cursor-pointer items-start justify-between rounded-xl border p-4">
                   <div>
-                    <p className="font-medium text-slate-900">Cash on delivery</p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="font-medium text-foreground">Cash on delivery</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
                       Create your order instantly and pay when it arrives.
                     </p>
                   </div>
@@ -398,7 +398,7 @@ export default function CheckoutPageClient() {
 
               {paymentMethod === 'TAMI' && (
                 <div className="mt-4 space-y-4">
-                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+                  <div className="rounded-xl border border-border bg-accent p-4 text-sm text-primary">
                     <div className="flex items-start gap-2">
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
                       <p>
@@ -469,10 +469,10 @@ export default function CheckoutPageClient() {
                         }
                       />
                     </div>
-                    <label className="flex flex-col gap-2 text-sm text-slate-700">
+                    <label className="flex flex-col gap-2 text-sm text-foreground">
                       <span>Taksit</span>
                       <select
-                        className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                        className=" bg-background px-3 text-sm text-foreground"
                         value={paymentCard.installmentCount}
                         onChange={(e) =>
                           setPaymentCard((prev) => ({
@@ -501,18 +501,18 @@ export default function CheckoutPageClient() {
             </div>
           </section>
 
-          <aside className="h-fit rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900">4. Order Summary</h3>
+          <aside className="h-fit rounded-xl border border-border bg-background p-5 shadow-sm">
+            <h3 className="mb-4 text-lg font-semibold text-foreground">4. Order Summary</h3>
             <div className="space-y-3">
               {cart.map((item) => (
                 <div key={item.id} className="flex items-center justify-between text-sm">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{item.name}</p>
-                    <p className="text-slate-500">
+                    <p className="truncate font-medium text-foreground">{item.name}</p>
+                    <p className="text-muted-foreground">
                       {item.quantity} x {item.price.toFixed(2)} TRY
                     </p>
                   </div>
-                  <p className="font-semibold text-slate-900">
+                  <p className="font-semibold text-foreground">
                     {(item.quantity * item.price).toFixed(2)} TRY
                   </p>
                 </div>
@@ -520,47 +520,47 @@ export default function CheckoutPageClient() {
             </div>
             <div className="mt-4 space-y-2 border-t pt-4 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-600">Subtotal</span>
+                <span className="text-muted-foreground">Subtotal</span>
                 <span>{subtotal.toFixed(2)} TRY</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-600">Shipping</span>
+                <span className="text-muted-foreground">Shipping</span>
                 <span>{shippingFee.toFixed(2)} TRY</span>
               </div>
-              <div className="flex justify-between text-base font-semibold text-slate-900">
+              <div className="flex justify-between text-base font-semibold text-foreground">
                 <span>Total</span>
                 <span>{total.toFixed(2)} TRY</span>
               </div>
             </div>
 
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <label className="flex cursor-pointer items-start gap-3 text-sm text-slate-700">
+            <div className="mt-4 rounded-md border border-border bg-muted p-3">
+              <label className="flex cursor-pointer items-start gap-3 text-sm text-foreground">
                 <input
                   type="checkbox"
                   checked={acceptedLegalTerms}
                   onChange={(event) => setAcceptedLegalTerms(event.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900"
+                  className="mt-0.5 h-4 w-4 rounded border-input text-foreground"
                 />
                 <span>
                   Mesafeli Satis Sozlesmesi, On Bilgilendirme Formu ve Gizlilik Politikasi
                   metinlerini okudum ve kabul ediyorum.{' '}
                   <Link
                     href={`/${locale}/mesafeli-satis-sozlesmesi`}
-                    className="font-medium text-sky-700 hover:underline"
+                    className="font-medium text-primary hover:underline"
                   >
                     Sozlesme
                   </Link>{' '}
                   |{' '}
                   <Link
                     href={`/${locale}/on-bilgilendirme-formu`}
-                    className="font-medium text-sky-700 hover:underline"
+                    className="font-medium text-primary hover:underline"
                   >
                     On Bilgilendirme
                   </Link>{' '}
                   |{' '}
                   <Link
                     href={`/${locale}/gizlilik-politikasi`}
-                    className="font-medium text-sky-700 hover:underline"
+                    className="font-medium text-primary hover:underline"
                   >
                     Gizlilik
                   </Link>
@@ -569,7 +569,7 @@ export default function CheckoutPageClient() {
             </div>
 
             {error && (
-              <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              <div className="mt-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-red-700">
                 {error}
               </div>
             )}

@@ -184,12 +184,12 @@ export function ProductCard({
   }, [format])
 
   return (
-    <div className="rounded-sm border border-slate-200 bg-white px-4 py-3 transition-colors hover:border-slate-300">
+    <div className="rounded-sm border border-border bg-background px-4 py-3 transition-colors hover:border-input">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
         <div className="flex shrink-0 flex-col gap-2.5 lg:w-[176px]">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-red-500">
-              <CheckCircle className="h-3.5 w-3.5 text-white" />
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive/100">
+              <CheckCircle className="h-3.5 w-3.5 text-success-foreground" />
             </div>
             {brandLogo ? (
               <div className="flex h-6 w-[104px] items-center">
@@ -200,20 +200,20 @@ export function ProductCard({
                   height={24}
                   className="h-full w-full object-contain object-left"
                   fallback={
-                    <span className="truncate text-[13px] font-semibold text-slate-700">
+                    <span className="truncate text-[13px] font-semibold text-foreground">
                       {brandName}
                     </span>
                   }
                 />
               </div>
             ) : (
-              <span className="max-w-[104px] truncate text-[13px] font-semibold text-slate-700">
+              <span className="max-w-[104px] truncate text-[13px] font-semibold text-foreground">
                 {brandName}
               </span>
             )}
           </div>
 
-           <div className="flex h-[128px] items-center justify-center rounded-sm bg-white">
+           <div className="flex h-[128px] items-center justify-center rounded-sm bg-background">
             {fullImageUrl ? (
               <SafeImage
                 src={fullImageUrl}
@@ -224,37 +224,37 @@ export function ProductCard({
                 className="h-full w-full object-contain"
                 priority={isFirst}
                 loading={isFirst ? 'eager' : 'lazy'}
-                fallback={<Package className="h-12 w-12 text-slate-300" />}
+                fallback={<Package className="h-12 w-12 text-muted-foreground/70" />}
               />
             ) : (
-              <Package className="h-12 w-12 text-slate-300" />
+              <Package className="h-12 w-12 text-muted-foreground/70" />
             )}
           </div>
         </div>
 
         <div className="min-w-0 flex-1 lg:pt-0.5">
           <Link href={productLink} className="block group">
-            <h3 className="line-clamp-2 text-[18px] font-semibold leading-snug text-slate-900 transition-colors group-hover:text-sky-600">
+            <h3 className="line-clamp-2 text-[18px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
               {displayName}
             </h3>
           </Link>
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             {isVehicleSpecific && (
-              <span className="rounded-sm bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
+              <span className="rounded-sm bg-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-foreground">
                 {t('vehicleSpecific')}
               </span>
             )}
             {!isVehicleSpecific && variantCount > 1 && (
-              <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+              <span className="rounded-sm bg-warning/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
                 {t('fitmentVariants', { count: variantCount })}
               </span>
             )}
-            <span className="text-xs font-medium text-slate-400">
+            <span className="text-xs font-medium text-muted-foreground">
               {t('specs.ID')}: {id}
             </span>
             {isBestseller && (
-              <span className="rounded-sm bg-emerald-500 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+              <span className="rounded-sm bg-success px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-success-foreground">
                 {t('bestseller')}
               </span>
             )}
@@ -265,17 +265,17 @@ export function ProductCard({
             )}
           </div>
 
-          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
+          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-success">
             {canAddToCart ? t('inStock') : t('outOfStock')}
           </p>
 
           <div className="mt-2.5 space-y-1.5">
             {eanDisplay && (
               <p className="text-[13px] leading-5">
-                <span className="font-medium text-slate-500">
+                <span className="font-medium text-muted-foreground">
                   {t('specs.EAN')}:
                 </span>{' '}
-                <span className="font-semibold text-slate-900">{eanDisplay}</span>
+                <span className="font-semibold text-foreground">{eanDisplay}</span>
               </p>
             )}
             {displayedProperties.map((prop, idx) => {
@@ -288,8 +288,8 @@ export function ProductCard({
 
               return (
                 <p key={idx} className="text-[13px] leading-5">
-                  <span className="font-medium text-slate-500">{label}:</span>{' '}
-                  <span className="font-semibold text-slate-900">{value}</span>
+                  <span className="font-medium text-muted-foreground">{label}:</span>{' '}
+                  <span className="font-semibold text-foreground">{value}</span>
                 </p>
               )
             })}
@@ -298,34 +298,34 @@ export function ProductCard({
           {properties.length > 4 && (
             <button
               onClick={() => setShowAllProperties(!showAllProperties)}
-              className="mt-2 text-[12px] font-semibold text-sky-600 transition-colors hover:text-sky-700"
+              className="mt-2 text-[12px] font-semibold text-primary transition-colors hover:text-primary"
             >
               {showAllProperties ? t('showLess') : t('showAll')}
             </button>
           )}
         </div>
 
-        <div className="shrink-0 rounded-sm border border-slate-200 bg-white p-3 lg:w-[244px] lg:self-stretch">
+        <div className="shrink-0 rounded-sm border border-border bg-background p-3 lg:w-[244px] lg:self-stretch">
           {isPriceLoading ? (
-            <p className="min-h-[48px] text-sm text-slate-500">
+            <p className="min-h-[48px] text-sm text-muted-foreground">
               {t('priceLoading')}
             </p>
           ) : formattedPrice ? (
             <div className="min-h-[48px]">
               <div className="flex items-baseline gap-2">
-                <span className="text-[24px] font-bold leading-none text-slate-900">
+                <span className="text-[24px] font-bold leading-none text-foreground">
                   {formattedPrice}
                 </span>
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {t('inclVat')} <span className="mx-1 text-slate-300">|</span>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {t('inclVat')} <span className="mx-1 text-muted-foreground/70">|</span>
                 {t('exclShipping')}
               </p>
             </div>
           ) : (
             <div className="min-h-[48px]">
-              <p className="text-sm text-slate-500">{t('priceNotAvailable')}</p>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="text-sm text-muted-foreground">{t('priceNotAvailable')}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 {t('priceInquiryHint')}
               </p>
             </div>
@@ -338,7 +338,7 @@ export function ProductCard({
                 onValueChange={(v) => setQuantity(Number(v))}
                 disabled={!canAddToCart || isPriceLoading}
               >
-                <SelectTrigger className="h-9 w-16 rounded-sm border-slate-300 bg-white text-sm font-semibold focus:ring-sky-500">
+                <SelectTrigger className="h-9 w-16 rounded-sm border-input bg-background text-sm font-semibold focus-visible:ring-ring/50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -361,7 +361,7 @@ export function ProductCard({
               <Button
                 onClick={handleAddToCart}
                 disabled={!canAddToCart || isPriceLoading}
-                className="h-9 flex-1 rounded-sm bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed"
+                className="h-9 flex-1 rounded-sm px-4 text-sm font-semibold"
               >
                 {resolvedCta === 'add_to_cart' ? t('addToCart') : t('outOfStock')}
               </Button>
@@ -378,7 +378,7 @@ export function ProductCard({
                   categoryName
                 }}
                 trigger={
-                  <Button className="h-9 w-full rounded-sm bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700">
+                  <Button className="h-9 w-full rounded-sm bg-success px-4 text-sm font-semibold text-success-foreground hover:bg-success/90">
                     {resolvedCta === 'verify_fitment'
                       ? t('verifyFitment')
                       : resolvedCta === 'notify_or_request_price'
@@ -391,17 +391,17 @@ export function ProductCard({
           )}
 
           <div className="mt-3.5 space-y-2.5">
-            <p className="flex min-h-5 items-center gap-2 text-[12px] text-slate-600">
-              <Calendar className="h-3.5 w-3.5 text-slate-500" />
+            <p className="flex min-h-5 items-center gap-2 text-[12px] text-muted-foreground">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="truncate">
                 {t('readyForDispatch')} {dispatchDateLabel}
               </span>
             </p>
 
-            <label className="flex items-center gap-2 text-[12px] text-slate-700 transition-colors hover:text-slate-900">
+            <label className="flex items-center gap-2 text-[12px] text-foreground transition-colors hover:text-foreground">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded-sm border-slate-300 text-sky-600 focus:ring-sky-500 focus:ring-offset-0"
+                className="h-4 w-4 rounded-sm border-input text-primary focus-visible:ring-ring/50 focus:ring-offset-0"
               />
               <span>{t('addToCompare')} (0/3)</span>
             </label>

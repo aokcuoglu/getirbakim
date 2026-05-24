@@ -47,7 +47,7 @@ export default function HomePageClient({
   }
 
   return (
-    <div className="min-h-screen text-slate-800 selection:bg-accent/20 flex flex-col">
+    <div className="min-h-screen text-foreground selection:bg-accent/20 flex flex-col">
       <Navbar
         navbarCategories={navbarCategories}
         onHomeClick={() => router.push('/')}

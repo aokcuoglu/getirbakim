@@ -162,7 +162,7 @@ export function LoginModal({
       {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="p-0 overflow-hidden sm:max-w-[900px] h-auto md:h-[600px] flex gap-0 rounded-xl border-none">
         {/* LEFT SIDE - Benefits (Dark) */}
-        <div className="hidden md:flex w-5/12 bg-slate-900 text-white p-8 flex-col justify-center relative overflow-hidden">
+        <div className="hidden md:flex w-5/12 bg-primary text-primary-foreground p-8 flex-col justify-center relative overflow-hidden">
           {/* Background Image / Texture Effect */}
           <div className="absolute inset-0 z-0 opacity-20">
             <img
@@ -196,29 +196,29 @@ export function LoginModal({
         </div>
 
         {/* RIGHT SIDE - Form (Light) */}
-        <div className="w-full md:w-7/12 bg-white p-8 sm:p-12 flex flex-col justify-center overflow-y-auto max-h-[90vh] md:max-h-full">
+        <div className="w-full md:w-7/12 bg-background p-8 sm:p-12 flex flex-col justify-center overflow-y-auto max-h-[90vh] md:max-h-full">
           <DialogHeader className="mb-6">
-            <DialogTitle className="text-3xl font-bold text-slate-900 mb-2">
+            <DialogTitle className="text-3xl font-bold text-foreground mb-2">
               {isLogin ? t('submit') : t('register')}
             </DialogTitle>
           </DialogHeader>
 
           {/* Social Logins */}
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <button className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors text-slate-700 text-sm font-medium">
-              <span className="text-blue-600 font-bold">f</span> Facebook
+            <button className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-foreground text-sm font-medium">
+              <span className="text-primary font-bold">f</span> Facebook
             </button>
-            <button className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors text-slate-700 text-sm font-medium">
-              <span className="text-red-500 font-bold">G</span> Google
+            <button className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-foreground text-sm font-medium">
+              <span className="text-destructive font-bold">G</span> Google
             </button>
           </div>
 
           <div className="relative mb-6">
             <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-slate-200" />
+              <span className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-2 text-slate-400 font-medium">
+              <span className="bg-background px-2 text-muted-foreground font-medium">
                 {t('or')}
               </span>
             </div>
@@ -227,7 +227,7 @@ export function LoginModal({
           {/* Form */}
           <form className="space-y-4" onSubmit={handleSubmit}>
             {error && (
-              <div className="flex items-center gap-3 p-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-3 p-4 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg animate-in fade-in slide-in-from-top-2">
                 <AlertCircle className="w-5 h-5 shrink-0" />
                 <p>{error}</p>
               </div>
@@ -242,7 +242,7 @@ export function LoginModal({
                     placeholder={t('firstName')}
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                   />
                 </div>
                 <div className="flex-1 space-y-1">
@@ -252,7 +252,7 @@ export function LoginModal({
                     placeholder={t('lastName')}
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                   />
                 </div>
               </div>
@@ -266,11 +266,11 @@ export function LoginModal({
                   placeholder={t('emailAddress')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                  className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                 />
               ) : (
                 <>
-                  <Label className="text-sm font-medium text-slate-700">
+                  <Label className="text-sm font-medium text-foreground">
                     {t('email')}
                   </Label>
                   <Input
@@ -278,7 +278,7 @@ export function LoginModal({
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                   />
                 </>
               )}
@@ -293,7 +293,7 @@ export function LoginModal({
                     placeholder={t('passwordPlaceholder')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                   />
                 </div>
                 <div className="flex-1 space-y-1">
@@ -303,13 +303,13 @@ export function LoginModal({
                     placeholder={t('confirmPassword')}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                   />
                 </div>
               </div>
             ) : (
               <div className="space-y-1">
-                <Label className="text-sm font-medium text-slate-700">
+                <Label className="text-sm font-medium text-foreground">
                   {t('password')}
                 </Label>
                 <Input
@@ -317,7 +317,7 @@ export function LoginModal({
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                  className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring transition-all text-sm"
                 />
               </div>
             )}
@@ -330,15 +330,15 @@ export function LoginModal({
                     id="newsletter"
                     checked={agreeNewsletter}
                     onChange={(e) => setAgreeNewsletter(e.target.checked)}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    className="mt-1 h-4 w-4 rounded border-input text-primary focus-visible:ring-ring/50 cursor-pointer"
                   />
                   <label
                     htmlFor="newsletter"
-                    className="text-sm text-slate-600 leading-tight cursor-pointer select-none"
+                    className="text-sm text-muted-foreground leading-tight cursor-pointer select-none"
                   >
                     I agree to receive newsletters, promotions, and other
                     marketing materials via e-mail from{' '}
-                    <span className="font-semibold text-slate-800">
+                    <span className="font-semibold text-foreground">
                       Trodo.com
                     </span>
                   </label>
@@ -350,28 +350,28 @@ export function LoginModal({
                     checked={agreeTerms}
                     onChange={(e) => setAgreeTerms(e.target.checked)}
                     required
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    className="mt-1 h-4 w-4 rounded border-input text-primary focus-visible:ring-ring/50 cursor-pointer"
                   />
                   <label
                     htmlFor="terms"
-                    className="text-sm text-slate-600 leading-tight cursor-pointer select-none"
+                    className="text-sm text-muted-foreground leading-tight cursor-pointer select-none"
                   >
                     I confirm that I have read, understand, and consent to
                     Trodo.com{' '}
                     <Link
                       href="/uyelik-ve-kullanim-kosullari"
-                      className="text-blue-600 hover:underline"
+                      className="text-primary hover:underline"
                     >
                       Terms and conditions
                     </Link>{' '}
                     and{' '}
                     <Link
                       href="/gizlilik-politikasi"
-                      className="text-blue-600 hover:underline"
+                      className="text-primary hover:underline"
                     >
                       Privacy policy
                     </Link>{' '}
-                    <span className="text-red-500">*</span>
+                    <span className="text-destructive">*</span>
                   </label>
                 </div>
               </div>
@@ -381,7 +381,7 @@ export function LoginModal({
               <div className="flex justify-end">
                 <a
                   href="#"
-                  className="text-xs text-blue-600 hover:underline font-medium"
+                  className="text-xs text-primary hover:underline font-medium"
                 >
                   {t('forgotPassword')}
                 </a>
@@ -391,7 +391,8 @@ export function LoginModal({
             <Button
               type="submit"
               disabled={loading}
-              className="w-full py-6 mt-4 bg-[#0088CC] hover:bg-[#0077b3] text-white font-bold rounded-lg text-base disabled:opacity-50"
+              size="lg"
+              className="w-full py-6 mt-4 font-bold text-base"
             >
               {loading
                 ? isLogin
@@ -403,13 +404,13 @@ export function LoginModal({
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-slate-600">
+          <div className="mt-6 text-center text-sm text-muted-foreground">
             {isLogin ? (
               <>
                 {t('noAccount')}{' '}
                 <button
                   onClick={toggleMode}
-                  className="text-[#0088CC] hover:underline font-semibold"
+                  className="text-primary hover:underline font-semibold"
                 >
                   {t('register')}
                 </button>
@@ -419,7 +420,7 @@ export function LoginModal({
                 {t('hasAccount')}{' '}
                 <button
                   onClick={toggleMode}
-                  className="text-[#0088CC] hover:underline font-semibold"
+                  className="text-primary hover:underline font-semibold"
                 >
                   {t('submit')}
                 </button>
@@ -443,12 +444,12 @@ function BenefitItem({
 }) {
   return (
     <div className="flex gap-4">
-      <div className="shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-white/90">
+      <div className="shrink-0 w-10 h-10 rounded-lg bg-primary-foreground/10 flex items-center justify-center text-primary-foreground/90">
         {icon}
       </div>
       <div>
-        <h3 className="font-bold text-white text-sm mb-1">{title}</h3>
-        <p className="text-xs text-slate-300 leading-relaxed">{description}</p>
+        <h3 className="font-bold text-primary-foreground text-sm mb-1">{title}</h3>
+        <p className="text-xs text-muted-foreground/70 leading-relaxed">{description}</p>
       </div>
     </div>
   )

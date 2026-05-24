@@ -83,20 +83,10 @@ export function SupplierMappingsTabsClient({
   brandTab
 }: SupplierMappingsTabsClientProps) {
   return (
-    <Tabs defaultValue={initialTab} className="space-y-5">
-      <TabsList className="grid h-10 w-full max-w-[420px] grid-cols-2 rounded-xl border border-slate-200 bg-slate-100 p-1">
-        <TabsTrigger
-          value="brands"
-          className="rounded-lg text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
-        >
-          Markalar
-        </TabsTrigger>
-        <TabsTrigger
-          value="products"
-          className="rounded-lg text-slate-600 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm"
-        >
-          Ürünler
-        </TabsTrigger>
+    <Tabs defaultValue={initialTab} className="gap-4">
+      <TabsList>
+        <TabsTrigger value="brands">Markalar</TabsTrigger>
+        <TabsTrigger value="products">Ürünler</TabsTrigger>
       </TabsList>
 
       <TabsContent value="brands">
@@ -109,7 +99,7 @@ export function SupplierMappingsTabsClient({
             initialFilters={brandTab.initialFilters}
           />
         ) : (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 text-sm text-warning">
             Marka eşleştirme şu anda yalnızca Dinamik sağlayıcısı için aktif.
           </div>
         )}

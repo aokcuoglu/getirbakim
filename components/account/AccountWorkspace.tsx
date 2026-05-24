@@ -486,8 +486,8 @@ export function AccountWorkspace({
             }}
             className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
               isActive
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-700 hover:bg-slate-100'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-foreground hover:bg-muted'
             }`}
           >
             <Icon size={16} />
@@ -501,14 +501,14 @@ export function AccountWorkspace({
   return (
     <div className="grid gap-4 md:gap-5 lg:gap-6 lg:grid-cols-[280px_1fr]">
       <aside className="hidden lg:block lg:sticky lg:top-32 lg:h-fit">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+        <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
             {t('auto.k030')}
           </p>
-          <h1 className="mt-3 text-2xl font-bold text-slate-900">
+          <h1 className="mt-3 text-2xl font-bold text-foreground">
             {t('auto.k031')}
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-muted-foreground">
             {t('auto.k032')}
           </p>
 
@@ -517,7 +517,7 @@ export function AccountWorkspace({
       </aside>
 
       <section className="space-y-4 md:space-y-6">
-        <div className="lg:hidden rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+        <div className="lg:hidden rounded-2xl border border-border bg-background p-2.5 shadow-sm">
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
@@ -529,17 +529,17 @@ export function AccountWorkspace({
               <Menu size={18} />
             </Button>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900 truncate">
+              <p className="text-sm font-semibold text-foreground truncate">
                 {t('auto.k034')} {firstName}
               </p>
-              <p className="text-xs text-slate-500 truncate">{user.email}</p>
+              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
           </div>
         </div>
 
         <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
           <SheetContent side="left" className="w-[min(88vw,320px)] p-0 lg:hidden">
-            <SheetHeader className="border-b border-slate-100 px-4 py-4 text-left">
+            <SheetHeader className="border-b border-border px-4 py-4 text-left">
               <SheetTitle>{t('auto.k035')}</SheetTitle>
               <SheetDescription>
                 {t('auto.k036')}
@@ -551,12 +551,12 @@ export function AccountWorkspace({
 
         <div className="grid gap-3 md:gap-4 md:grid-cols-3">
           <SummaryCard
-            icon={<BookOpenText size={18} className="text-sky-600" />}
+            icon={<BookOpenText size={18} className="text-primary" />}
             label={t('auto.k037')}
             value={String(orders.length)}
           />
           <SummaryCard
-            icon={<Phone size={18} className="text-emerald-600" />}
+            icon={<Phone size={18} className="text-success" />}
             label={t('auto.k038')}
             value={String(
               Object.values(notificationSettings).filter(Boolean).length
@@ -569,7 +569,7 @@ export function AccountWorkspace({
           />
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm">
+        <div className="rounded-2xl border border-border bg-background p-4 md:p-5 shadow-sm">
           {activeSection === 'profile' && (
             <SectionBlock
               title={t('auto.k040')}
@@ -788,7 +788,7 @@ export function AccountWorkspace({
               }
             >
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm text-slate-600">
+                <div className="text-sm text-muted-foreground">
                   {t('ordersListed', { count: filteredOrders.length })}
                 </div>
                 <Select
@@ -797,7 +797,7 @@ export function AccountWorkspace({
                     setOrderFilter(value as 'ALL' | 'OPEN' | 'COMPLETED')
                   }
                 >
-                  <SelectTrigger className="h-10 w-[180px] border-slate-200 bg-white text-sm">
+                  <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder={t('auto.k065')} />
                   </SelectTrigger>
                   <SelectContent>
@@ -825,17 +825,17 @@ export function AccountWorkspace({
                   {filteredOrders.map((order) => (
                     <div
                       key={order.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-xl border border-border bg-muted p-4"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">
+                          <p className="text-sm font-semibold text-foreground">
                             {order.orderNumber}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {formatDateTime(order.createdAt, locale)}
                           </p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('auto.k070')}: {order.itemsCount}
                           </p>
                         </div>
@@ -845,7 +845,7 @@ export function AccountWorkspace({
                         </div>
                       </div>
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-slate-900">
+                        <p className="text-sm font-semibold text-foreground">
                           {formatMoney(order.totalAmount, order.currency, locale)}
                         </p>
                         <div className="flex gap-2">
@@ -889,21 +889,21 @@ export function AccountWorkspace({
                   {reviews.map((review) => (
                     <div
                       key={review.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-xl border border-border bg-muted p-4"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-slate-900">{review.product}</p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="font-semibold text-foreground">{review.product}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('auto.k077')}: {review.rating}/5
                           </p>
-                          <p className="mt-2 text-sm text-slate-700">{review.comment}</p>
+                          <p className="mt-2 text-sm text-foreground">{review.comment}</p>
                         </div>
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                             review.status === 'PUBLISHED'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
+                              ? 'bg-success/15 text-success'
+                              : 'bg-warning/15 text-warning'
                           }`}
                         >
                           {review.status === 'PUBLISHED'
@@ -943,8 +943,8 @@ export function AccountWorkspace({
                 t('auto.k084')
               }
             >
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
-                <p className="text-sm text-slate-700">
+              <div className="rounded-xl border border-dashed border-input bg-muted p-4">
+                <p className="text-sm text-foreground">
                   {t('auto.k085')}
                 </p>
               </div>
@@ -953,16 +953,16 @@ export function AccountWorkspace({
                 {appointments.map((appointment) => (
                   <div
                     key={appointment.id}
-                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    className="rounded-xl border border-border bg-muted p-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="font-semibold text-slate-900">{appointment.title}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="font-semibold text-foreground">{appointment.title}</p>
+                        <p className="text-xs text-muted-foreground">
                           {formatDateTime(appointment.date, locale)}
                         </p>
                       </div>
-                      <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
                         {appointment.status === 'PLANNED'
                           ? t('auto.k086')
                           : t('auto.k087')}
@@ -1016,17 +1016,17 @@ export function AccountWorkspace({
                   {followedParts.map((part) => (
                     <div
                       key={part.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted p-4"
                     >
                       <div>
-                        <p className="font-semibold text-slate-900">{part.title}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="font-semibold text-foreground">{part.title}</p>
+                        <p className="text-xs text-muted-foreground">
                           OEM: {part.oem} • {part.brand}
                         </p>
                         <p className="mt-1 text-xs font-medium">
                           <span
                             className={
-                              part.inStock ? 'text-emerald-700' : 'text-amber-700'
+                              part.inStock ? 'text-success' : 'text-warning'
                             }
                           >
                             {part.inStock
@@ -1056,11 +1056,11 @@ export function AccountWorkspace({
                 t('auto.k099')
               }
             >
-              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="mb-4 rounded-xl border border-border bg-muted p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {t('auto.k100')}
                 </p>
-                <p className="mt-2 font-semibold text-slate-900">
+                <p className="mt-2 font-semibold text-foreground">
                   {selectedVehicle
                     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
                     : t('auto.k101')}
@@ -1085,19 +1085,19 @@ export function AccountWorkspace({
                   {garage.map((entry) => (
                     <div
                       key={entry.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-xl border border-border bg-muted p-4"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-slate-900">
+                          <p className="font-semibold text-foreground">
                             {entry.vehicle.year} {entry.vehicle.make} {entry.vehicle.model}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-muted-foreground">
                             {entry.vehicle.engine}
                             {entry.vehicle.fuel ? ` • ${entry.vehicle.fuel}` : ''}
                           </p>
                           {entry.createdAt && (
-                            <p className="mt-1 text-xs text-slate-400">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               {t('auto.k104')}:{' '}
                               {formatDateTime(entry.createdAt, locale)}
                             </p>
@@ -1155,13 +1155,13 @@ export function AccountWorkspace({
                   {ibans.map((iban) => (
                     <div
                       key={iban.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted p-4"
                     >
                       <div>
-                        <p className="font-semibold text-slate-900">{iban.title}</p>
-                        <p className="text-sm text-slate-600">{iban.iban}</p>
+                        <p className="font-semibold text-foreground">{iban.title}</p>
+                        <p className="text-sm text-muted-foreground">{iban.iban}</p>
                         {iban.isPrimary && (
-                          <p className="mt-1 text-xs font-semibold text-emerald-700">
+                          <p className="mt-1 text-xs font-semibold text-success">
                             {t('auto.k111')}
                           </p>
                         )}
@@ -1207,13 +1207,13 @@ export function AccountWorkspace({
                   {coupons.map((coupon) => (
                     <div
                       key={coupon.id}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-xl border border-border bg-muted p-4"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-slate-900">{coupon.title}</p>
-                          <p className="mt-1 text-sm text-slate-700">{coupon.code}</p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="font-semibold text-foreground">{coupon.title}</p>
+                          <p className="mt-1 text-sm text-foreground">{coupon.code}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t('auto.k117')}:{' '}
                             {formatDateTime(coupon.expiresAt, locale)}
                           </p>
@@ -1221,10 +1221,10 @@ export function AccountWorkspace({
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                             coupon.status === 'ACTIVE'
-                              ? 'bg-emerald-100 text-emerald-700'
+                              ? 'bg-success/15 text-success'
                               : coupon.status === 'USED'
-                                ? 'bg-slate-200 text-slate-700'
-                                : 'bg-rose-100 text-rose-700'
+                                ? 'bg-muted text-foreground'
+                                : 'bg-destructive/15 text-rose-700'
                           }`}
                         >
                           {coupon.status === 'ACTIVE'
@@ -1287,8 +1287,8 @@ function SectionBlock({
   return (
     <div className="animate-in fade-in-0 duration-200 space-y-5">
       <div>
-        <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-        <p className="mt-1 text-sm text-slate-600">{description}</p>
+        <h2 className="text-xl font-bold text-foreground">{title}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
       {children}
     </div>
@@ -1298,7 +1298,7 @@ function SectionBlock({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </Label>
       {children}
@@ -1316,8 +1316,8 @@ function ToggleRow({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+    <label className="flex items-center justify-between rounded-md border border-border bg-muted px-3 py-2.5">
+      <span className="text-sm font-medium text-foreground">{label}</span>
       <Checkbox checked={checked} onCheckedChange={onCheckedChange} />
     </label>
   )
@@ -1325,7 +1325,7 @@ function ToggleRow({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+    <div className="rounded-xl border border-dashed border-input bg-muted p-4 text-sm text-muted-foreground">
       {text}
     </div>
   )
@@ -1341,12 +1341,12 @@ function SummaryCard({
   value: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-        <div className="rounded-full bg-slate-100 p-2">{icon}</div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+        <div className="rounded-full bg-muted p-2">{icon}</div>
       </div>
-      <p className="mt-3 text-2xl font-bold text-slate-900">{value}</p>
+      <p className="mt-3 text-2xl font-bold text-foreground">{value}</p>
     </div>
   )
 }

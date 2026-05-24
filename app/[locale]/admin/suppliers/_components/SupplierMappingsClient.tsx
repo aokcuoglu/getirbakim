@@ -6,6 +6,7 @@ import { Check, ChevronsUpDown, Download, Loader2, RefreshCw, Search, SlidersHor
 import { usePathname } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -415,12 +416,12 @@ export function SupplierMappingsClient({
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-5 py-5">
+      <section className="overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+        <div className="border-b border-border px-5 py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h3 className="text-xl font-semibold text-slate-900">Ürün Listesi</h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <h3 className="text-xl font-semibold text-foreground">Ürün Listesi</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
                 Sağlayıcı ürünlerini hızlıca filtreleyin, eşleşmeyenleri tek ekrandan yönetin.
               </p>
             </div>
@@ -467,29 +468,29 @@ export function SupplierMappingsClient({
               label="Toplam Ürün"
               value={summary.total}
               loading={loadingSummary}
-              accentClass="bg-slate-500"
+              accentClass="bg-muted-foreground"
             />
             <SummaryMetric
               label="Eşleşen"
               value={summary.matched}
               loading={loadingSummary}
-              accentClass="bg-emerald-500"
+              accentClass="bg-success/100"
             />
             <SummaryMetric
               label="Eşleşmeyen"
               value={summary.unmatched}
               loading={loadingSummary}
-              accentClass="bg-amber-500"
+              accentClass="bg-warning/100"
             />
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Aktif Sağlayıcı</p>
-              <p className="mt-2 truncate text-lg font-semibold text-slate-900">{provider?.name || '-'}</p>
-              <p className="mt-1 text-xs text-slate-500">{filters.providerCode}</p>
+            <div className="rounded-xl border border-border bg-muted px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Aktif Sağlayıcı</p>
+              <p className="mt-2 truncate text-lg font-semibold text-foreground">{provider?.name || '-'}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{filters.providerCode}</p>
             </div>
           </div>
 
           {autoMapSummary ? (
-            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+            <div className="mt-4 rounded-md border border-border bg-accent p-3 text-xs text-foreground">
               <p className="font-semibold">Son otomatik eşleştirme özeti</p>
               <p className="mt-1">
                 Taranan: {autoMapSummary.scanned.toLocaleString('tr-TR')} | Eşleşen:{' '}
@@ -502,12 +503,12 @@ export function SupplierMappingsClient({
           ) : null}
         </div>
 
-        <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-3">
+        <div className="border-b border-border bg-muted/70 px-5 py-3">
           <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-[minmax(260px,2fr)_minmax(190px,1fr)_minmax(230px,1fr)_minmax(180px,1fr)]">
             <div className="relative">
               <Search
                 size={14}
-                className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
                 value={searchInput}
@@ -516,7 +517,7 @@ export function SupplierMappingsClient({
                   onSearch(event.target.value)
                 }}
                 placeholder="Stok kodu / ürün adı / barkod"
-                className="h-9 border-slate-200 bg-white pl-7"
+                className="h-9 border-border bg-background pl-7"
               />
             </div>
 
@@ -534,7 +535,7 @@ export function SupplierMappingsClient({
                 )
               }}
             >
-              <SelectTrigger className="h-9 border-slate-200 bg-white">
+              <SelectTrigger className="h-9 border-border bg-background">
                 <SelectValue placeholder="Sağlayıcı" />
               </SelectTrigger>
               <SelectContent>
@@ -549,7 +550,7 @@ export function SupplierMappingsClient({
             <Button
               type="button"
               variant="outline"
-              className="h-9 justify-between border-slate-200 bg-white font-normal"
+              className="h-9 justify-between border-border bg-background font-normal"
               onClick={() => setBrandPickerOpen(true)}
             >
               <span className="truncate text-left">
@@ -559,7 +560,7 @@ export function SupplierMappingsClient({
                     ? `${selectedBrandOption.queryBrand} (${selectedBrandOption.totalProducts})`
                     : filters.brand}
               </span>
-              <ChevronsUpDown size={14} className="ml-2 shrink-0 text-slate-400" />
+              <ChevronsUpDown size={14} className="ml-2 shrink-0 text-muted-foreground" />
             </Button>
 
             <Select
@@ -568,7 +569,7 @@ export function SupplierMappingsClient({
                 applyFilters({ status: value as MappingStatusFilter, page: 1 }, { silentEmpty: true })
               }
             >
-              <SelectTrigger className="h-9 border-slate-200 bg-white">
+              <SelectTrigger className="h-9 border-border bg-background">
                 <SelectValue placeholder="Durum" />
               </SelectTrigger>
               <SelectContent>
@@ -636,7 +637,7 @@ export function SupplierMappingsClient({
             <Button
               type="button"
               variant="outline"
-              className="h-8 rounded-full border-slate-300 px-3 text-xs"
+              className="h-8 rounded-full border-input px-3 text-xs"
               disabled={!hasActiveFilters}
               onClick={() => {
                 onSearch.cancel()
@@ -660,7 +661,7 @@ export function SupplierMappingsClient({
         </div>
 
         <Dialog open={brandPickerOpen} onOpenChange={setBrandPickerOpen}>
-          <DialogContent className="max-w-md border-slate-200 bg-slate-50 p-0">
+          <DialogContent className="max-w-md border-border bg-muted p-0">
             <DialogHeader className="px-4 pt-4">
               <DialogTitle>Marka Seç</DialogTitle>
               <DialogDescription>Arayarak marka filtresini hızlıca seçin.</DialogDescription>
@@ -679,10 +680,10 @@ export function SupplierMappingsClient({
                       }}
                     >
                       <span className="flex-1">Tüm Markalar</span>
-                      {filters.brand === 'all' ? <Check size={14} className="text-emerald-600" /> : null}
+                      {filters.brand === 'all' ? <Check size={14} className="text-success" /> : null}
                     </CommandItem>
                     {loadingBrandOptions ? (
-                      <div className="px-3 py-2 text-sm text-slate-500">Markalar yükleniyor...</div>
+                      <div className="px-3 py-2 text-sm text-muted-foreground">Markalar yükleniyor...</div>
                     ) : null}
                     {brandOptions.map((brand) => (
                       <CommandItem
@@ -694,9 +695,9 @@ export function SupplierMappingsClient({
                         }}
                       >
                         <span className="flex-1 truncate">{brand.queryBrand}</span>
-                        <span className="mr-2 text-xs text-slate-500">{brand.totalProducts}</span>
+                        <span className="mr-2 text-xs text-muted-foreground">{brand.totalProducts}</span>
                         {filters.brand === brand.queryBrand ? (
-                          <Check size={14} className="text-emerald-600" />
+                          <Check size={14} className="text-success" />
                         ) : null}
                       </CommandItem>
                     ))}
@@ -708,7 +709,7 @@ export function SupplierMappingsClient({
         </Dialog>
 
         {!success && !loadingRows ? (
-          <div className="border-b border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700">
+          <div className="border-b border-destructive/20 bg-destructive/10 px-5 py-3 text-sm text-destructive">
             {message || 'Veri yüklenemedi.'}
           </div>
         ) : null}
@@ -718,7 +719,7 @@ export function SupplierMappingsClient({
             loadingRows && rows.length === 0 ? (
               <AdminLoadingState minHeight="min-h-[240px]" />
             ) : rows.length === 0 ? (
-              <div className="px-4 py-14 text-center text-slate-500">
+              <div className="px-4 py-14 text-center text-muted-foreground">
                 Seçili filtrelerde ürün bulunamadı.
               </div>
             ) : (
@@ -729,13 +730,13 @@ export function SupplierMappingsClient({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-semibold text-slate-900 truncate">
+                        <p className="font-semibold text-foreground truncate">
                           {row.partNo || '-'}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           Stok: {row.stockCode}
                         </p>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-muted-foreground">
                           {row.supplierProductId > 0
                             ? `#${row.supplierProductId}`
                             : 'Dinamik satır'}
@@ -747,8 +748,8 @@ export function SupplierMappingsClient({
                       />
                     </div>
 
-                    <div className="mt-3 space-y-1 text-xs text-slate-600">
-                      <p className="font-medium text-slate-900 truncate">
+                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground truncate">
                         {row.stockName || '-'}
                       </p>
                       <p>Marka: {row.brand || row.queryBrand || '-'}</p>
@@ -794,15 +795,15 @@ export function SupplierMappingsClient({
           desktop={
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-gray-200/80 bg-gray-50/90 hover:bg-gray-50/90">
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">SKU</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 w-[280px]">Ürün</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Marka</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Fiyat</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Stok</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 w-[200px]">Part</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Durum</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 text-right">İşlem</TableHead>
+                <TableRow className="border-b border-border/80 bg-muted/90 hover:bg-muted/90">
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SKU</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-[280px]">Ürün</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Marka</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fiyat</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Stok</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground w-[200px]">Part</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Durum</TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">İşlem</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -814,10 +815,10 @@ export function SupplierMappingsClient({
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
-                  <TableRow className="hover:bg-white">
+                  <TableRow className="hover:bg-background">
                     <TableCell
                       colSpan={8}
-                      className="px-4 py-14 text-center text-slate-500"
+                      className="px-4 py-14 text-center text-muted-foreground"
                     >
                       Seçili filtrelerde ürün bulunamadı.
                     </TableCell>
@@ -829,36 +830,36 @@ export function SupplierMappingsClient({
                       className="group transition-colors duration-150"
                     >
                       <TableCell>
-                        <p className="font-semibold text-gray-900 text-sm">
+                        <p className="font-semibold text-foreground text-sm">
                           {row.partNo || '-'}
                         </p>
-                        <p className="text-[11px] text-gray-400 font-mono">
+                        <p className="text-[11px] text-muted-foreground font-mono">
                           {row.stockCode}
                           {row.supplierProductId > 0 ? ` · #${row.supplierProductId}` : ''}
                         </p>
                       </TableCell>
                       <TableCell className="max-w-[280px]">
                         <p
-                          className="truncate font-medium text-gray-900 text-sm"
+                          className="truncate font-medium text-foreground text-sm"
                           title={row.stockName || '-'}
                         >
                           {row.stockName || '-'}
                         </p>
-                        <p className="text-[11px] text-gray-400 truncate">
+                        <p className="text-[11px] text-muted-foreground truncate">
                           {row.updatedAt
                             ? new Date(row.updatedAt).toLocaleString('tr-TR')
                             : '-'}
                         </p>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm font-medium text-gray-700">
+                        <span className="text-sm font-medium text-foreground">
                           {row.brand || row.queryBrand || '-'}
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm font-medium text-gray-800">
+                        <span className="text-sm font-medium text-foreground">
                           {row.price == null
-                            ? <span className="text-gray-400">—</span>
+                            ? <span className="text-muted-foreground">—</span>
                             : `${row.price.toLocaleString('tr-TR', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2
@@ -866,25 +867,25 @@ export function SupplierMappingsClient({
                         </span>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm text-gray-700">
+                        <span className="text-sm text-foreground">
                           {row.supplierStockQty.toLocaleString('tr-TR')}
                         </span>
                       </TableCell>
                       <TableCell className="max-w-[200px]">
                         {row.matchedPart ? (
                           <div className="min-w-0">
-                            <p className="font-medium text-gray-900 text-sm truncate">
+                            <p className="font-medium text-foreground text-sm truncate">
                               {row.matchedPart.name}
                             </p>
-                            <p className="text-[11px] text-gray-400 font-mono truncate">
+                            <p className="text-[11px] text-muted-foreground font-mono truncate">
                               #{row.matchedPart.id} · {row.matchedPart.articleLinkId}
                             </p>
                           </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          <Badge variant="outline" className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-warning" />
                             Eşleşmedi
-                          </span>
+                          </Badge>
                         )}
                       </TableCell>
                       <TableCell>
@@ -897,7 +898,7 @@ export function SupplierMappingsClient({
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 text-xs font-medium text-gray-500 hover:text-gray-900"
+                          className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
                           onClick={() => openDetail(row)}
                         >
                           Detay
@@ -911,7 +912,7 @@ export function SupplierMappingsClient({
           }
         />
 
-        <div className="border-t border-slate-200 px-5">
+        <div className="border-t border-border px-5">
           <Pagination
             currentPage={pagination.page}
             totalPages={pagination.pages}
@@ -950,12 +951,12 @@ function SummaryMetric({
   accentClass: string
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+    <div className="rounded-xl border border-border bg-background px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       {loading ? (
         <Loader2 className="mt-2 h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
-        <p className="mt-2 text-2xl font-semibold text-slate-900">{value.toLocaleString('tr-TR')}</p>
+        <p className="mt-2 text-2xl font-semibold text-foreground">{value.toLocaleString('tr-TR')}</p>
       )}
       <div className={`mt-2 h-1 w-10 rounded-full ${accentClass}`} />
     </div>
@@ -971,35 +972,35 @@ function StatusBadge({
 }) {
   if (status === 'APPROVED') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-success/10 text-success border-success/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
         Eşleşti
-      </span>
+      </Badge>
     )
   }
 
   if (status === 'IGNORED') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-destructive/10 text-destructive border-destructive/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
         Yoksayıldı
-      </span>
+      </Badge>
     )
   }
 
   if (hasMatchedPart) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-semibold text-blue-700 ring-1 ring-inset ring-blue-600/10">
-        <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+      <Badge variant="outline" className="gap-1.5 text-[10px] bg-accent text-primary border-primary/20">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
         Aday
-      </span>
+      </Badge>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/10">
-      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+    <Badge variant="outline" className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20">
+      <span className="h-1.5 w-1.5 rounded-full bg-warning" />
       Eşleşmeyen
-    </span>
+    </Badge>
   )
 }

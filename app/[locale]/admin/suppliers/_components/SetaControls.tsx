@@ -3,7 +3,17 @@
 import { useState, useTransition } from 'react'
 import { Loader2, Play } from 'lucide-react'
 import { toast } from 'sonner'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { triggerSetaCatalogRemap, triggerSetaSync } from '@/lib/actions/admin-suppliers'
 
 interface SetaControlsProps {
@@ -58,44 +68,46 @@ export function SetaControls({ provider }: SetaControlsProps) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className="rounded-xl border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-[#101828]">SETA Sync Kontrolleri</h2>
-          <p className="mt-1 text-xs text-gray-500">
+          <h2 className="text-sm font-semibold text-foreground">SETA Sync Kontrolleri</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
             Sağlayıcı: {provider.name} ({provider.code}) - {provider.status}
           </p>
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Mod</label>
-          <select
+        <div className="space-y-2">
+          <Label>Mod</Label>
+          <Select
             value={mode}
-            onChange={(event) => setMode(event.target.value as 'full' | 'delta')}
-            className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
+            onValueChange={(value) => setMode(value as 'full' | 'delta')}
           >
-            <option value="delta">Delta</option>
-            <option value="full">Full</option>
-          </select>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="delta">Delta</SelectItem>
+              <SelectItem value="full">Full</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Marka (opsiyonel)</label>
-          <input
+        <div className="space-y-2">
+          <Label>Marka (opsiyonel)</Label>
+          <Input
             value={brandInput}
             onChange={(event) => setBrandInput(event.target.value)}
             placeholder="Örn: BOSCH"
-            className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Limit Ürün</label>
-          <input
+        <div className="space-y-2">
+          <Label>Limit Ürün</Label>
+          <Input
             value={limitProducts}
             onChange={(event) => setLimitProducts(event.target.value)}
             placeholder="500"
-            className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm"
           />
         </div>
       </div>
@@ -105,7 +117,7 @@ export function SetaControls({ provider }: SetaControlsProps) {
           <Button
             onClick={runSync}
             disabled={isPending}
-            className="bg-[#101828] hover:bg-[#1d2939]"
+           
           >
             {isPending ? (
               <Loader2 size={14} className="mr-2 animate-spin" />
@@ -122,20 +134,19 @@ export function SetaControls({ provider }: SetaControlsProps) {
             )}
             OEM Remap (Catalog)
           </Button>
-          <label className="inline-flex items-center gap-2 text-xs text-gray-600">
-            <input
-              type="checkbox"
+          <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
               checked={onlyQueued}
-              onChange={(event) => setOnlyQueued(event.target.checked)}
+              onCheckedChange={(checked) => setOnlyQueued(checked === true)}
             />
             Sadece queue kayıtlar
           </label>
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-600">Son Sonuç</p>
-        <pre className="mt-2 max-h-52 overflow-auto text-xs text-gray-700">
+      <div className="mt-4 rounded-md border border-border bg-muted p-3">
+        <p className="text-xs font-semibold text-muted-foreground">Son Sonuç</p>
+        <pre className="mt-2 max-h-52 overflow-auto text-xs text-foreground">
           {lastResult ? JSON.stringify(lastResult, null, 2) : 'Henüz işlem yapılmadı.'}
         </pre>
       </div>

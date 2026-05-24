@@ -52,12 +52,12 @@ export function CustomerDetailDrawer({
         </SheetHeader>
 
         {isPending && !detail ? (
-          <div className="mt-8 flex items-center justify-center text-gray-500">
+          <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Yükleniyor...
           </div>
         ) : detail ? (
           <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-3 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 rounded-md border border-border p-3 md:grid-cols-2">
               <Info label="Müşteri" value={detail.name} />
               <Info label="Rol" value={detail.role} />
               <Info label="E-posta" value={detail.email} />
@@ -73,13 +73,13 @@ export function CustomerDetailDrawer({
               />
             </div>
 
-            <div className="rounded-lg border border-gray-200">
-              <div className="border-b border-gray-100 px-3 py-2 text-sm font-semibold text-[#101828]">
+            <div className="rounded-md border border-border">
+              <div className="border-b border-border px-3 py-2 text-sm font-semibold text-foreground">
                 Son Siparişler
               </div>
               <div className="max-h-56 overflow-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-muted">
                     <tr>
                       <th className="px-3 py-2">Sipariş</th>
                       <th className="px-3 py-2">Durum</th>
@@ -89,7 +89,7 @@ export function CustomerDetailDrawer({
                   </thead>
                   <tbody>
                     {detail.orders.map((order) => (
-                      <tr key={order.id} className="border-t border-gray-100">
+                      <tr key={order.id} className="border-t border-border">
                         <td className="px-3 py-2">#{order.id}</td>
                         <td className="px-3 py-2">{order.status}</td>
                         <td className="px-3 py-2">
@@ -106,7 +106,7 @@ export function CustomerDetailDrawer({
                     ))}
                     {detail.orders.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="px-3 py-3 text-gray-500">
+                        <td colSpan={4} className="px-3 py-3 text-muted-foreground">
                           Sipariş kaydı yok.
                         </td>
                       </tr>
@@ -116,19 +116,19 @@ export function CustomerDetailDrawer({
               </div>
             </div>
 
-            <div className="rounded-lg border border-gray-200">
-              <div className="border-b border-gray-100 px-3 py-2 text-sm font-semibold text-[#101828]">
+            <div className="rounded-md border border-border">
+              <div className="border-b border-border px-3 py-2 text-sm font-semibold text-foreground">
                 Kayıtlı Araçlar
               </div>
-              <div className="max-h-56 overflow-auto p-3 text-xs text-gray-700">
+              <div className="max-h-56 overflow-auto p-3 text-xs text-foreground">
                 {detail.vehicles.length === 0 ? (
                   <p>Araç kaydı yok.</p>
                 ) : (
                   <ul className="space-y-2">
                     {detail.vehicles.map((vehicle) => (
-                      <li key={vehicle.id} className="rounded-md bg-gray-50 p-2">
+                      <li key={vehicle.id} className="rounded-md bg-muted p-2">
                         <p className="font-semibold">Araç #{vehicle.id}</p>
-                        <pre className="mt-1 overflow-auto whitespace-pre-wrap break-all text-[11px] text-gray-600">
+                        <pre className="mt-1 overflow-auto whitespace-pre-wrap break-all text-[11px] text-muted-foreground">
                           {JSON.stringify(vehicle.vehicleData, null, 2)}
                         </pre>
                       </li>
@@ -139,7 +139,7 @@ export function CustomerDetailDrawer({
             </div>
           </div>
         ) : (
-          <div className="mt-8 text-sm text-gray-500">Müşteri bulunamadı.</div>
+          <div className="mt-8 text-sm text-muted-foreground">Müşteri bulunamadı.</div>
         )}
       </SheetContent>
     </Sheet>
@@ -148,9 +148,9 @@ export function CustomerDetailDrawer({
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-gray-50 px-3 py-2">
-      <div className="text-[11px] font-medium text-gray-500">{label}</div>
-      <div className="text-sm font-semibold text-[#101828]">{value}</div>
+    <div className="rounded-md bg-muted px-3 py-2">
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold text-foreground">{value}</div>
     </div>
   )
 }

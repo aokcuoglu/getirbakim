@@ -4,6 +4,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { Filter, RefreshCw, Search } from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/Pagination'
 import {
@@ -77,18 +78,18 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
         />
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-border bg-background p-4">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="relative w-full max-w-lg">
             <Search
               size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <input
               defaultValue={searchParams.get('q') || ''}
               onChange={(event) => onSearch(event.target.value)}
               placeholder="İsim, e-posta, OEM, ürün adı veya not ara..."
-              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm"
+              className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
             />
           </div>
 
@@ -98,7 +99,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                 value={searchParams.get('type') || 'all'}
                 onValueChange={(value) => setParam('type', value)}
               >
-                <SelectTrigger className="h-7 w-[170px] border-none bg-transparent px-1 text-xs text-[#101828] shadow-none focus-visible:ring-0">
+                <SelectTrigger className="h-7 w-[170px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
                   <SelectValue placeholder="Tümü" />
                 </SelectTrigger>
                 <SelectContent>
@@ -115,7 +116,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                 value={searchParams.get('status') || 'all'}
                 onValueChange={(value) => setParam('status', value)}
               >
-                <SelectTrigger className="h-7 w-[150px] border-none bg-transparent px-1 text-xs text-[#101828] shadow-none focus-visible:ring-0">
+                <SelectTrigger className="h-7 w-[150px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
                   <SelectValue placeholder="Tümü" />
                 </SelectTrigger>
                 <SelectContent>
@@ -133,7 +134,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                 value={searchParams.get('source') || 'all'}
                 onValueChange={(value) => setParam('source', value)}
               >
-                <SelectTrigger className="h-7 w-[195px] border-none bg-transparent px-1 text-xs text-[#101828] shadow-none focus-visible:ring-0">
+                <SelectTrigger className="h-7 w-[195px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
                   <SelectValue placeholder="Tümü" />
                 </SelectTrigger>
                 <SelectContent>
@@ -151,13 +152,13 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
               type="date"
               defaultValue={searchParams.get('from') || ''}
               onChange={(event) => setParam('from', event.target.value || null)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-xs"
+              className="rounded-md border border-border px-3 py-2 text-xs"
             />
             <input
               type="date"
               defaultValue={searchParams.get('to') || ''}
               onChange={(event) => setParam('to', event.target.value || null)}
-              className="rounded-lg border border-gray-200 px-3 py-2 text-xs"
+              className="rounded-md border border-border px-3 py-2 text-xs"
             />
 
             <Button variant="outline" onClick={() => router.refresh()}>
@@ -168,7 +169,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-3 md:p-0 md:border-0 md:bg-transparent">
+      <div className="rounded-xl border border-border bg-background p-3 md:p-0 md:border-0 md:bg-transparent">
         <ResponsiveDataView
           mobile={
             rows.length > 0 ? (
@@ -177,18 +178,18 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                   <MobileDataCard key={request.id}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-semibold text-[#101828]">
+                        <p className="font-semibold text-foreground">
                           #{request.id} - {request.requestType}
                         </p>
-                        <p className="text-xs text-gray-500 truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           {request.source}
                         </p>
                       </div>
                       <StatusBadge status={request.status} />
                     </div>
 
-                    <div className="mt-3 text-xs text-gray-600 space-y-1">
-                      <p className="font-medium text-[#101828]">
+                    <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                      <p className="font-medium text-foreground">
                         {request.name} ({request.email})
                       </p>
                       <p>
@@ -221,16 +222,16 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl border border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
+              <div className="rounded-xl border border-border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
                 Filtrelere uyan talep bulunamadı.
               </div>
             )
           }
           desktop={
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <div className="overflow-x-auto rounded-xl border border-border bg-background">
               <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr className="bg-gray-50/80 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <tr className="bg-muted/80 text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-3">Talep</th>
                     <th className="px-4 py-3">Müşteri</th>
                     <th className="px-4 py-3">Bağlam</th>
@@ -239,7 +240,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                     <th className="px-4 py-3 text-right">Aksiyon</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border">
                   {rows.length > 0 ? (
                     rows.map((request) => (
                       <RequestRow
@@ -255,7 +256,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-4 py-10 text-center text-sm text-gray-500"
+                        className="px-4 py-10 text-center text-sm text-muted-foreground"
                       >
                         Filtrelere uyan talep bulunamadı.
                       </td>
@@ -295,19 +296,19 @@ function RequestRow({
   onOpen: () => void
 }) {
   return (
-    <tr className="hover:bg-gray-50/60">
+    <tr className="hover:bg-muted/60">
       <td className="px-4 py-3 align-top">
-        <p className="font-semibold text-[#101828]">#{request.id}</p>
-        <p className="text-xs text-gray-500">{request.requestType}</p>
-        <p className="mt-1 text-xs text-gray-400">{request.source}</p>
+        <p className="font-semibold text-foreground">#{request.id}</p>
+        <p className="text-xs text-muted-foreground">{request.requestType}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{request.source}</p>
       </td>
       <td className="px-4 py-3 align-top">
-        <p className="font-semibold text-[#101828]">{request.name}</p>
-        <p className="text-xs text-gray-500">{request.email}</p>
-        <p className="text-xs text-gray-400">{request.phone || '-'}</p>
+        <p className="font-semibold text-foreground">{request.name}</p>
+        <p className="text-xs text-muted-foreground">{request.email}</p>
+        <p className="text-xs text-muted-foreground">{request.phone || '-'}</p>
       </td>
-      <td className="px-4 py-3 align-top text-xs text-gray-600">
-        <p className="font-medium text-[#101828]">
+      <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">
           {request.partNameSnapshot || request.requestedSkuOrOem || 'Genel talep'}
         </p>
         <p className="mt-1 line-clamp-2">
@@ -317,7 +318,7 @@ function RequestRow({
       <td className="px-4 py-3 align-top">
         <StatusBadge status={request.status} />
       </td>
-      <td className="px-4 py-3 align-top text-gray-600">
+      <td className="px-4 py-3 align-top text-muted-foreground">
         {new Date(request.createdAt).toLocaleString('tr-TR')}
       </td>
       <td className="px-4 py-3 align-top text-right">
@@ -337,7 +338,7 @@ function FilterPill({
   children: ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+    <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
       <Filter size={12} />
       <span>{label}</span>
       {children}
@@ -348,17 +349,17 @@ function FilterPill({
 function StatusBadge({ status }: { status: string }) {
   const className =
     status === 'NEW'
-      ? 'bg-blue-50 text-blue-700'
+      ? 'bg-accent text-primary border-border'
       : status === 'IN_REVIEW'
-        ? 'bg-amber-50 text-amber-700'
+        ? 'bg-warning/10 text-warning border-warning/20'
         : status === 'RESOLVED'
-          ? 'bg-emerald-50 text-emerald-700'
-          : 'bg-slate-100 text-slate-700'
+          ? 'bg-success/10 text-success border-success/20'
+          : 'bg-muted text-foreground border-border'
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+    <Badge variant="outline" className={`text-xs font-semibold ${className}`}>
       {status}
-    </span>
+    </Badge>
   )
 }
 
@@ -372,15 +373,15 @@ function KpiCard({
   tone: 'slate' | 'blue' | 'emerald' | 'amber' | 'rose'
 }) {
   const tones = {
-    slate: 'from-slate-50 to-slate-100 text-slate-900',
-    blue: 'from-blue-50 to-blue-100 text-blue-900',
-    emerald: 'from-emerald-50 to-emerald-100 text-emerald-900',
-    amber: 'from-amber-50 to-amber-100 text-amber-900',
-    rose: 'from-rose-50 to-rose-100 text-rose-900'
+    slate: 'from-muted to-muted text-foreground',
+    blue: 'from-accent to-accent text-foreground',
+    emerald: 'from-success/10 to-success/10 text-success',
+    amber: 'from-warning/10 to-warning/10 text-warning',
+    rose: 'from-destructive/10 to-destructive/10 text-destructive'
   }
 
   return (
-    <div className={`rounded-xl border border-gray-200 bg-gradient-to-br p-4 ${tones[tone]}`}>
+    <div className={`rounded-xl border border-border bg-gradient-to-br p-4 ${tones[tone]}`}>
       <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
         {label}
       </p>

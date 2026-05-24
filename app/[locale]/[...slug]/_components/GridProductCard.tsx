@@ -182,10 +182,10 @@ export function GridProductCard({
   }, [format])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-sm border border-slate-200 bg-white transition-colors hover:border-slate-300">
+    <div className="flex h-full flex-col overflow-hidden rounded-sm border border-border bg-background transition-colors hover:border-input">
       <div className="flex items-center gap-2 px-3 pt-3">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 shrink-0">
-          <CheckCircle className="h-3.5 w-3.5 text-white" />
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive/100 shrink-0">
+          <CheckCircle className="h-3.5 w-3.5 text-success-foreground" />
         </div>
         {brandLogo ? (
           <SafeImage
@@ -196,7 +196,7 @@ export function GridProductCard({
             className="h-6 object-contain"
             fallback={
               <div className="flex h-6 items-center justify-center rounded-sm">
-                <span className="text-[13px] font-semibold text-slate-700">
+                <span className="text-[13px] font-semibold text-foreground">
                   {brandName}
                 </span>
               </div>
@@ -204,14 +204,14 @@ export function GridProductCard({
           />
         ) : (
           <div className="flex h-6 items-center justify-center rounded-sm">
-            <span className="text-[13px] font-semibold text-slate-700">
+            <span className="text-[13px] font-semibold text-foreground">
               {brandName}
             </span>
           </div>
         )}
       </div>
 
-      <div className="flex aspect-square w-full items-center justify-center border-y border-slate-100 bg-slate-50/40 p-3">
+      <div className="flex aspect-square w-full items-center justify-center border-y border-border bg-muted/40 p-3">
         {imageUrl ? (
           <SafeImage
             src={imageUrl}
@@ -222,32 +222,32 @@ export function GridProductCard({
             className="h-full w-full max-h-40 object-contain"
             priority={isFirst}
             loading={isFirst ? 'eager' : 'lazy'}
-            fallback={<Package className="h-16 w-16 text-slate-300" />}
+            fallback={<Package className="h-16 w-16 text-muted-foreground/70" />}
           />
         ) : (
-          <Package className="h-16 w-16 text-slate-300" />
+          <Package className="h-16 w-16 text-muted-foreground/70" />
         )}
       </div>
 
       <div className="flex flex-1 flex-col p-3 pt-2.5">
         <Link href={productLink} className="block group">
-          <h3 className="mb-1.5 line-clamp-2 text-[14px] font-semibold leading-snug text-slate-900 transition-colors group-hover:text-sky-600">
+          <h3 className="mb-1.5 line-clamp-2 text-[14px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
             {displayName}
           </h3>
         </Link>
 
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           {isVehicleSpecific && (
-            <span className="rounded-sm bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            <span className="rounded-sm bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
               {t('vehicleSpecific')}
             </span>
           )}
           {!isVehicleSpecific && variantCount > 1 && (
-            <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+            <span className="rounded-sm bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
               {t('fitmentVariants', { count: variantCount })}
             </span>
           )}
-          <span className="text-[11px] text-slate-400 font-medium">
+          <span className="text-[11px] text-muted-foreground font-medium">
             {t('specs.ID')}: {id}
           </span>
           {hasSupplierSource && (
@@ -257,14 +257,14 @@ export function GridProductCard({
           )}
         </div>
 
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-success">
           {canAddToCart ? t('inStock') : t('outOfStock')}
         </p>
 
         {eanDisplay && (
           <p className="mb-1 text-[12px] leading-5">
-            <span className="text-slate-500">{t('specs.EAN')}:</span>{' '}
-            <span className="font-medium text-slate-800">{eanDisplay}</span>
+            <span className="text-muted-foreground">{t('specs.EAN')}:</span>{' '}
+            <span className="font-medium text-foreground">{eanDisplay}</span>
           </p>
         )}
 
@@ -279,8 +279,8 @@ export function GridProductCard({
 
             return (
               <p key={idx} className="truncate">
-                <span className="text-slate-500">{label}:</span>{' '}
-                <span className="font-medium text-slate-800">{value}</span>
+                <span className="text-muted-foreground">{label}:</span>{' '}
+                <span className="font-medium text-foreground">{value}</span>
               </p>
             )
           })}
@@ -289,38 +289,38 @@ export function GridProductCard({
         {properties.length > 4 && (
           <button
             onClick={() => setShowAllProperties(!showAllProperties)}
-            className="mb-2 text-left text-[12px] font-semibold text-sky-600 transition-colors hover:text-sky-700"
+            className="mb-2 text-left text-[12px] font-semibold text-primary transition-colors hover:text-primary"
           >
             {showAllProperties ? t('showLess') : t('showAll')}
           </button>
         )}
 
-        <div className="mt-auto border-t border-slate-100 pt-2.5">
-          <p className="mb-2 flex min-h-5 items-center gap-2 text-[12px] text-slate-600">
-            <Calendar className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        <div className="mt-auto border-t border-border pt-2.5">
+          <p className="mb-2 flex min-h-5 items-center gap-2 text-[12px] text-muted-foreground">
+            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">
               {t('readyForDispatch')} {dispatchDateLabel}
             </span>
           </p>
 
           {isPriceLoading ? (
-            <p className="mb-3 min-h-[38px] text-sm text-slate-500">
+            <p className="mb-3 min-h-[38px] text-sm text-muted-foreground">
               {t('priceLoading')}
             </p>
           ) : formattedPrice ? (
             <div className="mb-3 min-h-[38px]">
               <div className="mb-1 flex flex-wrap items-baseline gap-1.5">
-                <span className="text-[21px] font-bold leading-none text-slate-900">
+                <span className="text-[21px] font-bold leading-none text-foreground">
                   {formattedPrice}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500">
-                {t('inclVat')} <span className="mx-1 text-slate-300">|</span>
+              <p className="text-[11px] text-muted-foreground">
+                {t('inclVat')} <span className="mx-1 text-muted-foreground/70">|</span>
                 {t('exclShipping')}
               </p>
             </div>
           ) : (
-            <p className="mb-3 min-h-[38px] text-sm text-slate-500">
+            <p className="mb-3 min-h-[38px] text-sm text-muted-foreground">
               {t('priceNotAvailable')}
             </p>
           )}
@@ -332,7 +332,7 @@ export function GridProductCard({
                 onValueChange={(v) => setQuantity(Number(v))}
                 disabled={!canAddToCart || isPriceLoading}
               >
-                <SelectTrigger className="h-8 w-14 rounded-sm border-slate-300 focus:ring-sky-500">
+                <SelectTrigger className="h-8 w-14 rounded-sm border-input focus-visible:ring-ring/50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -355,7 +355,8 @@ export function GridProductCard({
               <Button
                 onClick={handleAddToCart}
                 disabled={!canAddToCart || isPriceLoading}
-                className="h-8 flex-1 rounded-sm bg-blue-600 text-xs font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                size="sm"
+                className="h-8 flex-1 rounded-sm text-xs font-semibold"
               >
                 {resolvedCta === 'add_to_cart' ? t('addToCart') : t('outOfStock')}
               </Button>
@@ -372,7 +373,7 @@ export function GridProductCard({
                   categoryName
                 }}
                 trigger={
-                  <Button className="h-8 w-full bg-emerald-600 text-xs font-semibold text-white hover:bg-emerald-700">
+                  <Button className="h-8 w-full bg-success text-success-foreground hover:bg-success/90 text-xs font-semibold">
                     {resolvedCta === 'verify_fitment'
                       ? t('verifyFitment')
                       : resolvedCta === 'notify_or_request_price'
@@ -381,16 +382,16 @@ export function GridProductCard({
                   </Button>
                 }
               />
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-muted-foreground">
                 {t('priceInquiryHint')}
               </p>
             </div>
           )}
 
-          <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-[12px] text-slate-600 transition-colors hover:text-slate-800">
+          <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground transition-colors hover:text-foreground">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 focus:ring-offset-0"
+              className="h-4 w-4 rounded border-input text-primary focus-visible:ring-ring/50 focus:ring-offset-0"
             />
             <span>{t('addToCompare')} (0/3)</span>
           </label>

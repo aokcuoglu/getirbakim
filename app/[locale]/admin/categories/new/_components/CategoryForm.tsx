@@ -141,7 +141,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
           {error}
         </div>
       )}
@@ -149,7 +149,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
       {/* Name */}
       <div className="space-y-2">
         <Label htmlFor="name">
-          Name (EN) <span className="text-red-500">*</span>
+          Name (EN) <span className="text-destructive">*</span>
         </Label>
         <Input
           id="name"
@@ -212,7 +212,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
           defaultValue={category?.url_key || ''}
           placeholder="category-url-key (auto-generated if empty)"
         />
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           Leave empty to auto-generate from name
         </p>
       </div>
@@ -222,7 +222,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
         <Label>Category Image</Label>
         <div className="space-y-4">
           {imagePreview ? (
-            <div className="relative w-32 h-32 border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+            <div className="relative w-32 h-32 border border-border rounded-lg overflow-hidden bg-muted">
               <Image
                 src={imagePreview}
                 alt="Preview"
@@ -234,14 +234,14 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
                 onClick={handleRemoveImage}
                 aria-label="Remove category image"
                 title="Remove category image"
-                className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                className="absolute top-1 right-1 p-1 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
               >
                 <X size={14} />
               </button>
             </div>
           ) : (
-            <div className="w-32 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-gray-50">
-              <Upload size={24} className="text-gray-400" />
+            <div className="w-32 h-32 border-2 border-dashed border-input rounded-lg flex items-center justify-center bg-muted">
+              <Upload size={24} className="text-muted-foreground" />
             </div>
           )}
           
@@ -288,7 +288,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
               <Upload size={16} className="mr-2" />
               {imagePreview ? 'Change Image (File)' : 'Upload Image (File)'}
             </Button>
-            <p className="text-xs text-gray-500 mt-2">
+            <p className="text-xs text-muted-foreground mt-2">
               Upload images from URL or file. Images will be saved directly to Supabase Storage (category-images bucket)
             </p>
           </div>

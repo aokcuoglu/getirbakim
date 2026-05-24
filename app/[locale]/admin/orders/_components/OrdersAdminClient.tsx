@@ -145,30 +145,30 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
         <KpiCard label="Problemli" value={data.kpis.cancelledOrders} tone="rose" />
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-border bg-background p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative w-full max-w-lg">
             <Search
               size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <input
               defaultValue={searchParams.get('q') || ''}
               onChange={(event) => onSearch(event.target.value)}
               placeholder="Sipariş no, müşteri adı veya e-posta ara..."
-              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm"
+              className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+            <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
               <Filter size={12} />
               <span>Durum</span>
               <Select
                 value={searchParams.get('status') || 'all'}
                 onValueChange={(value) => setParam('status', value)}
               >
-                <SelectTrigger className="h-7 w-[170px] border-none bg-transparent px-1 text-xs text-[#101828] shadow-none focus-visible:ring-0">
+                <SelectTrigger className="h-7 w-[170px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
                   <SelectValue placeholder="Tümü" />
                 </SelectTrigger>
                 <SelectContent>
@@ -201,9 +201,9 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-border bg-background p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <p className="text-sm font-semibold text-[#101828]">
+          <p className="text-sm font-semibold text-foreground">
             Toplu Durum Güncelle ({selectedIds.length} seçili)
           </p>
           <div className="flex flex-wrap items-center gap-2">
@@ -226,16 +226,16 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-3 md:p-0 md:border-0 md:bg-transparent">
+      <div className="rounded-xl border border-border bg-background p-3 md:p-0 md:border-0 md:bg-transparent">
         <ResponsiveDataView
           mobile={
             data.orders.length === 0 ? (
-              <div className="rounded-xl border border-gray-200 bg-white px-4 py-12 text-center text-gray-500">
+              <div className="rounded-xl border border-border bg-background px-4 py-12 text-center text-muted-foreground">
                 Sipariş bulunamadı.
               </div>
             ) : (
               <div className="space-y-3">
-                <label className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                <label className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -254,10 +254,10 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                           className="mt-1"
                         />
                         <span className="min-w-0">
-                          <p className="font-semibold text-[#101828] truncate">
+                          <p className="font-semibold text-foreground truncate">
                             {order.orderNumber}
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             Kalem: {order.itemsCount}
                           </p>
                         </span>
@@ -265,12 +265,12 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                       <OrderStatusBadge status={order.status} />
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-gray-600">
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-muted-foreground">
                       <p>
                         Musteri: {order.customerName} ({order.customerEmail || '-'})
                       </p>
                       <p>Tarih: {new Date(order.createdAt).toLocaleString('tr-TR')}</p>
-                      <p className="font-semibold text-[#101828]">
+                      <p className="font-semibold text-foreground">
                         Tutar:{' '}
                         {order.totalAmount.toLocaleString('tr-TR', {
                           style: 'currency',
@@ -321,7 +321,7 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                           size="sm"
                           onClick={() => saveRowStatus(order.id)}
                           disabled={isPending}
-                          className="bg-[#101828] hover:bg-[#1d2939]"
+                         
                         >
                           Kaydet
                         </Button>
@@ -333,10 +333,10 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
             )
           }
           desktop={
-            <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+            <div className="overflow-x-auto rounded-xl border border-border bg-background">
               <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr className="bg-gray-50/80 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <tr className="bg-muted/80 text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-3">
                       <input
                         type="checkbox"
@@ -353,9 +353,9 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                     <th className="px-4 py-3 text-right">Aksiyon</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border">
                   {data.orders.map((order) => (
-                    <tr key={order.id} className="hover:bg-gray-50/60">
+                    <tr key={order.id} className="hover:bg-muted/60">
                       <td className="px-4 py-3 align-top">
                         <input
                           type="checkbox"
@@ -364,25 +364,25 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                         />
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <p className="font-semibold text-[#101828]">
+                        <p className="font-semibold text-foreground">
                           {order.orderNumber}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                           Kalem: {order.itemsCount}
                         </p>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <p className="font-semibold text-[#101828]">
+                        <p className="font-semibold text-foreground">
                           {order.customerName}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-muted-foreground">
                           {order.customerEmail || '-'}
                         </p>
                       </td>
-                      <td className="px-4 py-3 align-top text-gray-600">
+                      <td className="px-4 py-3 align-top text-muted-foreground">
                         {new Date(order.createdAt).toLocaleString('tr-TR')}
                       </td>
-                      <td className="px-4 py-3 align-top font-semibold text-[#101828]">
+                      <td className="px-4 py-3 align-top font-semibold text-foreground">
                         {order.totalAmount.toLocaleString('tr-TR', {
                           style: 'currency',
                           currency: 'TRY',
@@ -418,7 +418,7 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                       <td className="px-4 py-3 align-top">
                         <div className="space-y-2">
                           <OrderStatusBadge status={order.paymentStatus} />
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             {order.paymentMethod || '-'}
                           </p>
                         </div>
@@ -439,7 +439,7 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                             size="sm"
                             onClick={() => saveRowStatus(order.id)}
                             disabled={isPending}
-                            className="bg-[#101828] hover:bg-[#1d2939]"
+                           
                           >
                             Kaydet
                           </Button>
@@ -452,7 +452,7 @@ export function OrdersAdminClient({ data }: OrdersAdminClientProps) {
                     <tr>
                       <td
                         colSpan={8}
-                        className="px-4 py-12 text-center text-gray-500"
+                        className="px-4 py-12 text-center text-muted-foreground"
                       >
                         Sipariş bulunamadı.
                       </td>
@@ -493,12 +493,12 @@ function KpiCard({
 }) {
   const toneClass =
     tone === 'amber'
-      ? 'bg-amber-50 text-amber-700 border-amber-100'
+      ? 'bg-warning/10 text-warning border-warning/20'
       : tone === 'emerald'
-        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+        ? 'bg-success/10 text-success border-success/20'
         : tone === 'rose'
-          ? 'bg-rose-50 text-rose-700 border-rose-100'
-          : 'bg-slate-50 text-slate-700 border-slate-100'
+          ? 'bg-destructive/10 text-destructive border-destructive/20'
+          : 'bg-muted text-foreground border-border'
 
   return (
     <div className={`rounded-xl border p-4 ${toneClass}`}>

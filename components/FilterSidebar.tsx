@@ -15,7 +15,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   return (
     <div className="w-full md:w-64 space-y-8">
       <div>
-        <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+        <h3 className="font-bold text-foreground text-sm uppercase tracking-wider mb-4 border-b border-border pb-2">
           Categories
         </h3>
         <div className="space-y-2">
@@ -26,13 +26,13 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
                 w-4 h-4 rounded border flex items-center justify-center transition-all
                 ${
                   filters.categoryId === 245
-                    ? 'bg-slate-900 border-slate-900'
-                    : 'bg-white border-slate-300 group-hover:border-slate-400'
+                    ? 'bg-primary border-primary'
+                    : 'bg-background border-input group-hover:border-input'
                 }
               `}
             >
               {filters.categoryId === 245 && (
-                <div className="w-1.5 h-1.5 bg-white rounded-[1px]" />
+                <div className="w-1.5 h-1.5 bg-background rounded-[1px]" />
               )}
             </div>
             <input
@@ -51,8 +51,8 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
             <span
               className={`text-sm ${
                 filters.categoryId === 245
-                  ? 'text-slate-900 font-medium'
-                  : 'text-slate-600 group-hover:text-slate-900'
+                  ? 'text-foreground font-medium'
+                  : 'text-muted-foreground group-hover:text-foreground'
               }`}
             >
               Hydraulic filters
@@ -69,13 +69,13 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
                 w-4 h-4 rounded border flex items-center justify-center transition-all
                 ${
                   filters.category === cat && !filters.categoryId
-                    ? 'bg-slate-900 border-slate-900'
-                    : 'bg-white border-slate-300 group-hover:border-slate-400'
+                    ? 'bg-primary border-primary'
+                    : 'bg-background border-input group-hover:border-input'
                 }
               `}
               >
                 {filters.category === cat && !filters.categoryId && (
-                  <div className="w-1.5 h-1.5 bg-white rounded-[1px]" />
+                  <div className="w-1.5 h-1.5 bg-background rounded-[1px]" />
                 )}
               </div>
               <input
@@ -94,8 +94,8 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
               <span
                 className={`text-sm ${
                   filters.category === cat && !filters.categoryId
-                    ? 'text-slate-900 font-medium'
-                    : 'text-slate-600 group-hover:text-slate-900'
+                    ? 'text-foreground font-medium'
+                    : 'text-muted-foreground group-hover:text-foreground'
                 }`}
               >
                 {cat}
@@ -106,7 +106,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
       </div>
 
       <div>
-        <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
+        <h3 className="font-bold text-foreground text-sm uppercase tracking-wider mb-4 border-b border-border pb-2">
           Max Price
         </h3>
         <div className="px-1">
@@ -118,11 +118,11 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
             onChange={(e) =>
               onFilterChange({ ...filters, maxPrice: parseInt(e.target.value) })
             }
-            className="w-full h-1 bg-slate-200 rounded-full appearance-none cursor-pointer accent-slate-900"
+            className="w-full h-1 bg-muted rounded-full appearance-none cursor-pointer accent-primary"
           />
-          <div className="flex justify-between text-xs font-mono text-slate-500 mt-3">
+          <div className="flex justify-between text-xs font-mono text-muted-foreground mt-3">
             <span>$0</span>
-            <span className="font-bold text-slate-900">
+            <span className="font-bold text-foreground">
               ${filters.maxPrice}
             </span>
           </div>

@@ -31,37 +31,37 @@ export default function LanguageSwitcher({
     <div className="relative">
       <button
         onClick={() => onOpenChange(!isOpen)}
-        className="flex items-center gap-1.5 p-2 hover:bg-slate-50 rounded-lg group transition-colors text-slate-600"
+        className="flex items-center gap-1.5 p-2 hover:bg-muted rounded-lg group transition-colors text-muted-foreground"
         aria-label="Change language"
       >
         <Globe size={18} strokeWidth={1.5} />
         <span className="text-sm font-medium uppercase">{locale}</span>
         <ChevronDown
           size={14}
-          className={`text-slate-400 transition-transform ${
+          className={`text-muted-foreground transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-24 bg-white rounded-xl shadow-xl border border-slate-100 py-1 z-50 animate-in fade-in zoom-in-95 duration-200">
+        <div className="absolute top-full right-0 mt-2 w-24 bg-background rounded-xl shadow-xl border border-border py-1 z-50 animate-in fade-in zoom-in-95 duration-200">
           {['tr', 'en'].map((cur) => (
             <button
               key={cur}
               disabled={isPending}
               onClick={() => onSelectChange(cur)}
-              className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 justify-between
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-muted flex items-center gap-2 justify-between
                         ${
                           locale === cur
-                            ? 'text-blue-600 font-semibold bg-blue-50'
-                            : 'text-slate-700'
+                            ? 'text-primary font-semibold bg-accent'
+                            : 'text-foreground'
                         }
                     `}
             >
               <span className="uppercase">{cur}</span>
               {locale === cur && (
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                <div className="w-1.5 h-1.5 rounded-full bg-primary" />
               )}
             </button>
           ))}

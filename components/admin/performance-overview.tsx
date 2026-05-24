@@ -23,8 +23,8 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
       change: 12.5,
       changeLabel: 'geçen aya göre',
       icon: TrendingUp,
-      color: 'text-emerald-600',
-      bgColor: 'bg-emerald-50'
+      color: 'text-success',
+      bgColor: 'bg-success/10'
     },
     {
       label: 'Sipariş Sayısı',
@@ -32,8 +32,8 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
       change: 8.2,
       changeLabel: 'geçen aya göre',
       icon: TrendingUp,
-      color: 'text-blue-600',
-      bgColor: 'bg-blue-50'
+      color: 'text-primary',
+      bgColor: 'bg-accent'
     },
     {
       label: 'Ortalama Sepet',
@@ -41,8 +41,8 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
       change: -2.3,
       changeLabel: 'geçen aya göre',
       icon: TrendingDown,
-      color: 'text-rose-600',
-      bgColor: 'bg-rose-50'
+      color: 'text-destructive',
+      bgColor: 'bg-destructive/10'
     },
     {
       label: 'Müşteri Memnuniyeti',
@@ -50,8 +50,8 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
       change: 1.2,
       changeLabel: 'geçen aya göre',
       icon: TrendingUp,
-      color: 'text-amber-600',
-      bgColor: 'bg-amber-50'
+      color: 'text-warning',
+      bgColor: 'bg-warning/10'
     }
   ]
 
@@ -65,7 +65,7 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
         return (
           <div
             key={metric.label}
-            className="rounded-2xl border border-indigo-100/50 bg-white p-5 shadow-lg shadow-indigo-100/50 hover:shadow-xl transition-shadow"
+            className="rounded-2xl border border-border/50 bg-background p-5 shadow-sm hover:shadow-md transition-shadow"
           >
             <div className="flex items-center justify-between mb-3">
               <div
@@ -80,8 +80,8 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
                 className={cn(
                   'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold',
                   isPositive
-                    ? 'bg-emerald-50 text-emerald-600'
-                    : 'bg-rose-50 text-rose-600'
+                    ? 'bg-success/10 text-success'
+                    : 'bg-destructive/10 text-destructive'
                 )}
               >
                 {isPositive ? (
@@ -92,9 +92,9 @@ export function PerformanceOverview({ metrics }: PerformanceOverviewProps) {
                 {Math.abs(metric.change)}%
               </div>
             </div>
-            <p className="text-2xl font-bold text-slate-900">{metric.value}</p>
-            <p className="text-xs text-slate-500 mt-1">{metric.label}</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">
+            <p className="text-2xl font-bold text-foreground">{metric.value}</p>
+            <p className="text-xs text-muted-foreground mt-1">{metric.label}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
               {metric.changeLabel}
             </p>
           </div>

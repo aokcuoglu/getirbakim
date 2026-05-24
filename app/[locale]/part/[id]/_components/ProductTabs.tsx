@@ -300,17 +300,17 @@ export function ProductTabs({
   ]
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="bg-background rounded-xl shadow-sm border border-border overflow-hidden">
       {/* Tab Headers - Scrollable on mobile */}
-      <div className="flex border-b border-slate-200 overflow-x-auto scrollbar-hide">
+      <div className="flex border-b border-border overflow-x-auto scrollbar-hide">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-6 py-3 md:py-4 text-xs md:text-sm font-medium whitespace-nowrap transition-colors shrink-0 ${
               activeTab === tab.key
-                ? 'text-sky-600 border-b-2 border-sky-600 bg-sky-50/50'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'text-primary border-b-2 border-primary bg-accent/50'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
           >
             {tab.icon}
@@ -320,8 +320,8 @@ export function ProductTabs({
               <span
                 className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded-full ${
                   activeTab === tab.key
-                    ? 'bg-sky-100 text-sky-700'
-                    : 'bg-slate-100 text-slate-500'
+                    ? 'bg-accent text-primary'
+                    : 'bg-muted text-muted-foreground'
                 }`}
               >
                 {tab.count}
@@ -342,14 +342,14 @@ export function ProductTabs({
               ).map((prop, idx) => (
                 <div
                   key={idx}
-                  className="flex justify-between items-center p-3 md:p-2 bg-slate-50 md:bg-transparent rounded-lg md:rounded-none border border-slate-100 md:border-0 md:border-b md:border-slate-100"
+                  className="flex justify-between items-center p-3 md:p-2 bg-muted md:bg-transparent rounded-lg md:rounded-none border border-border md:border-0 md:border-b md:border-border"
                 >
-                  <span className="text-xs md:text-sm text-slate-600">
+                  <span className="text-xs md:text-sm text-muted-foreground">
                     {PRODUCT_SPEC_KEYS.has(prop.key)
                       ? tProductCard('specs.' + prop.key)
                       : prop.key}
                   </span>
-                  <span className="text-xs md:text-sm font-medium text-slate-900 text-right">
+                  <span className="text-xs md:text-sm font-medium text-foreground text-right">
                     {PRODUCT_SPEC_VALUE_KEYS.has(prop.value)
                       ? tProductCard('specValues.' + prop.value)
                       : prop.value}
@@ -360,13 +360,13 @@ export function ProductTabs({
 
             {/* Info Notes */}
             {infos.length > 0 && (
-              <div className="p-3 md:p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <h4 className="font-medium text-amber-800 mb-2 text-sm md:text-base">
+              <div className="p-3 md:p-4 bg-warning/10 border border-warning/20 rounded-lg">
+                <h4 className="font-medium text-warning mb-2 text-sm md:text-base">
                   {t('importantInfo')}
                 </h4>
                 <ul className="space-y-1">
                   {infos.map((info, idx) => (
-                    <li key={idx} className="text-xs md:text-sm text-amber-700">
+                    <li key={idx} className="text-xs md:text-sm text-warning">
                       • {info}
                     </li>
                   ))}
@@ -381,7 +381,7 @@ export function ProductTabs({
             {compatibleVehicles.length > 0 ? (
               <div className="space-y-4">
                 {/* Filters */}
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-center pb-4 border-b border-slate-200">
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center pb-4 border-b border-border">
                   <div className="flex gap-2 flex-1">
                     {/* Make Dropdown */}
                     <Select
@@ -391,7 +391,7 @@ export function ProductTabs({
                         setSelectedModel('') // Reset model when make changes
                       }}
                     >
-                      <SelectTrigger className="flex-1 sm:flex-none sm:w-40 bg-white">
+                      <SelectTrigger className="flex-1 sm:flex-none sm:w-40 bg-background">
                         <SelectValue placeholder={t('make')} />
                       </SelectTrigger>
                       <SelectContent>
@@ -412,7 +412,7 @@ export function ProductTabs({
                       }
                       disabled={!selectedMake && uniqueModels.length === 0}
                     >
-                      <SelectTrigger className="flex-1 sm:flex-none sm:w-40 bg-white">
+                      <SelectTrigger className="flex-1 sm:flex-none sm:w-40 bg-background">
                         <SelectValue placeholder={t('model')} />
                       </SelectTrigger>
                       <SelectContent>
@@ -429,7 +429,7 @@ export function ProductTabs({
                   {/* Reset Button */}
                   <button
                     onClick={resetFilters}
-                    className="flex items-center justify-center gap-1.5 h-10 px-4 text-sm font-medium text-sky-600 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition-colors"
+                    className="flex items-center justify-center gap-1.5 h-10 px-4 text-sm font-medium text-primary hover:text-primary hover:bg-accent rounded-lg transition-colors"
                   >
                     <RotateCcw className="w-4 h-4" />
                     <span>{t('reset')}</span>
@@ -442,24 +442,24 @@ export function ProductTabs({
                     filteredGroups.map((group) => (
                       <div
                         key={group.key}
-                        className="border border-slate-200 rounded-lg overflow-hidden"
+                        className="border border-border rounded-lg overflow-hidden"
                       >
                         {/* Group Header - Toggle Button */}
                         <button
                           onClick={() => toggleGroup(group.key)}
-                          className="w-full flex items-center justify-between p-3 md:p-4 bg-white hover:bg-slate-50 transition-colors text-left"
+                          className="w-full flex items-center justify-between p-3 md:p-4 bg-background hover:bg-muted transition-colors text-left"
                         >
                           <div className="flex items-center gap-2">
                             <ChevronRight
-                              className={`w-4 h-4 text-slate-400 transition-transform ${
+                              className={`w-4 h-4 text-muted-foreground transition-transform ${
                                 expandedGroups.has(group.key) ? 'rotate-90' : ''
                               }`}
                             />
-                            <span className="text-sm md:text-base font-semibold text-slate-800">
+                            <span className="text-sm md:text-base font-semibold text-foreground">
                               {group.brandName} {group.modelName}
                             </span>
                           </div>
-                          <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                             {group.subGroups.reduce(
                               (acc, sub) => acc + sub.types.length,
                               0
@@ -469,19 +469,19 @@ export function ProductTabs({
 
                         {/* Group Content - Nested Accordion */}
                         {expandedGroups.has(group.key) && (
-                          <div className="border-t border-slate-200 bg-slate-50">
+                          <div className="border-t border-border bg-muted">
                             {group.subGroups.map((subGroup) => (
                               <div
                                 key={subGroup.key}
-                                className="border-b border-slate-200 last:border-b-0"
+                                className="border-b border-border last:border-b-0"
                               >
                                 {/* SubGroup Header */}
                                 <button
                                   onClick={() => toggleSubGroup(subGroup.key)}
-                                  className="w-full px-4 py-2 bg-slate-100 border-b border-slate-200 text-sm font-medium text-slate-700 flex items-center gap-2 hover:bg-slate-200 transition-colors text-left"
+                                  className="w-full px-4 py-2 bg-muted border-b border-border text-sm font-medium text-foreground flex items-center gap-2 hover:bg-muted transition-colors text-left"
                                 >
                                   <ChevronRight
-                                    className={`w-3 h-3 text-slate-400 transition-transform ${
+                                    className={`w-3 h-3 text-muted-foreground transition-transform ${
                                       expandedSubGroups.has(subGroup.key)
                                         ? 'rotate-90'
                                         : ''
@@ -496,12 +496,12 @@ export function ProductTabs({
                                     {subGroup.types.map((type, idx) => (
                                       <div
                                         key={type.id || idx}
-                                        className="flex items-center justify-between p-3 md:px-4 md:py-3 border-b border-slate-100 last:border-b-0 pl-8"
+                                        className="flex items-center justify-between p-3 md:px-4 md:py-3 border-b border-border last:border-b-0 pl-8"
                                       >
-                                        <span className="text-xs md:text-sm text-slate-700">
+                                        <span className="text-xs md:text-sm text-foreground">
                                           {type.typeName}
                                         </span>
-                                        <span className="text-xs text-slate-500">
+                                        <span className="text-xs text-muted-foreground">
                                           {type.yearFrom || '-'} →{' '}
                                           {type.yearTo || t('present')}
                                         </span>
@@ -516,14 +516,14 @@ export function ProductTabs({
                       </div>
                     ))
                   ) : (
-                    <p className="text-slate-500 text-center py-8 text-sm">
+                    <p className="text-muted-foreground text-center py-8 text-sm">
                       {t('noVehiclesFound')}
                     </p>
                   )}
                 </div>
               </div>
             ) : (
-              <p className="text-slate-500 text-center py-8 text-sm">
+              <p className="text-muted-foreground text-center py-8 text-sm">
                 {t('noVehicleInfo')}
               </p>
             )}
@@ -544,16 +544,16 @@ export function ProductTabs({
                 ).map(([brand, codes]) => (
                   <div
                     key={brand}
-                    className="p-3 md:p-4 bg-slate-50 rounded-lg border border-slate-200"
+                    className="p-3 md:p-4 bg-muted rounded-md border border-border"
                   >
-                    <h4 className="font-bold text-slate-800 mb-2 text-sm md:text-base">
+                    <h4 className="font-bold text-foreground mb-2 text-sm md:text-base">
                       {brand}
                     </h4>
                     <div className="flex flex-wrap gap-1.5 md:gap-2">
                       {codes.map((code, idx) => (
                         <span
                           key={idx}
-                          className="px-2 py-1 text-[10px] md:text-xs font-mono bg-white border border-slate-200 rounded text-slate-700"
+                          className="px-2 py-1 text-[10px] md:text-xs font-mono bg-background border border-border rounded text-foreground"
                         >
                           {code}
                         </span>
@@ -563,7 +563,7 @@ export function ProductTabs({
                 ))}
               </div>
             ) : (
-              <p className="text-slate-500 text-center py-8 text-sm">
+              <p className="text-muted-foreground text-center py-8 text-sm">
                 {t('noOemNumbers')}
               </p>
             )}
@@ -578,11 +578,11 @@ export function ProductTabs({
                 {groupedCrossReferences.map(([brand, articles]) => (
                   <div
                     key={brand}
-                    className="p-3 md:p-4 bg-slate-50 rounded-lg border border-slate-200"
+                    className="p-3 md:p-4 bg-muted rounded-md border border-border"
                   >
-                    <h4 className="font-bold text-slate-800 mb-2 text-sm md:text-base flex items-center gap-1">
+                    <h4 className="font-bold text-foreground mb-2 text-sm md:text-base flex items-center gap-1">
                       {brand}
-                      <ChevronRight className="w-3 h-3 text-slate-400" />
+                      <ChevronRight className="w-3 h-3 text-muted-foreground" />
                     </h4>
                     <div className="flex flex-wrap gap-1.5 md:gap-2">
                       {articles.map((article, idx) => {
@@ -591,7 +591,7 @@ export function ProductTabs({
                             <Link
                               key={idx}
                               href={`/part/${article.partId}`}
-                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-emerald-50 border border-emerald-200 rounded text-emerald-700 hover:bg-emerald-100 transition-colors"
+                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-success/10 border border-success/20 rounded text-success hover:bg-success/15 transition-colors"
                               title="Parça detayını aç"
                             >
                               {article.articleNumber}
@@ -604,7 +604,7 @@ export function ProductTabs({
                             <Link
                               key={idx}
                               href={`/supplier-product/${article.supplierProductId}`}
-                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-sky-50 border border-sky-200 rounded text-sky-700 hover:bg-sky-100 transition-colors"
+                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-accent border border-border rounded text-primary hover:bg-accent transition-colors"
                               title="Tedarikçi ürün detayını aç"
                             >
                               {article.articleNumber}
@@ -617,7 +617,7 @@ export function ProductTabs({
                             <Link
                               key={idx}
                               href={`/search?q=${encodeURIComponent(article.articleNumber)}`}
-                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-sky-50 border border-sky-200 rounded text-sky-700 hover:bg-sky-100 transition-colors"
+                              className="px-2 py-1 text-[10px] md:text-xs font-mono bg-accent border border-border rounded text-primary hover:bg-accent transition-colors"
                               title="Arama sonuçlarını aç"
                             >
                               {article.articleNumber}
@@ -629,7 +629,7 @@ export function ProductTabs({
                           <Link
                             key={idx}
                             href={`/search?q=${encodeURIComponent(article.articleNumber)}`}
-                            className="px-2 py-1 text-[10px] md:text-xs font-mono bg-white border border-slate-200 rounded text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+                            className="px-2 py-1 text-[10px] md:text-xs font-mono bg-background border border-border rounded text-foreground hover:bg-muted cursor-pointer transition-colors"
                             title="Arama sonuçlarını aç"
                           >
                             {article.articleNumber}
@@ -641,7 +641,7 @@ export function ProductTabs({
                 ))}
               </div>
             ) : (
-              <p className="text-slate-500 text-center py-8 text-sm">
+              <p className="text-muted-foreground text-center py-8 text-sm">
                 {t('noCrossRefs')}
               </p>
             )}

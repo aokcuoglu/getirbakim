@@ -15,7 +15,7 @@ interface AdminCardProps {
 }
 
 export function AdminCard({ children, className }: AdminCardProps) {
-  return <Card className={cn('shadow-sm', className)}>{children}</Card>
+  return <Card className={className}>{children}</Card>
 }
 
 export function AdminCardHeader({
@@ -25,11 +25,7 @@ export function AdminCardHeader({
   children: ReactNode
   className?: string
 }) {
-  return (
-    <CardHeader className={cn('space-y-1 p-4 pb-2', className)}>
-      {children}
-    </CardHeader>
-  )
+  return <CardHeader className={className}>{children}</CardHeader>
 }
 
 export function AdminCardTitle({
@@ -39,11 +35,7 @@ export function AdminCardTitle({
   children: ReactNode
   className?: string
 }) {
-  return (
-    <CardTitle className={cn('text-sm font-semibold', className)}>
-      {children}
-    </CardTitle>
-  )
+  return <CardTitle className={className}>{children}</CardTitle>
 }
 
 export function AdminCardDescription({
@@ -53,11 +45,7 @@ export function AdminCardDescription({
   children: ReactNode
   className?: string
 }) {
-  return (
-    <CardDescription className={cn('text-xs', className)}>
-      {children}
-    </CardDescription>
-  )
+  return <CardDescription className={className}>{children}</CardDescription>
 }
 
 export function AdminCardContent({
@@ -67,7 +55,7 @@ export function AdminCardContent({
   children: ReactNode
   className?: string
 }) {
-  return <CardContent className={cn('p-4 pt-0', className)}>{children}</CardContent>
+  return <CardContent className={className}>{children}</CardContent>
 }
 
 export function AdminCardFooter({
@@ -77,5 +65,5 @@ export function AdminCardFooter({
   children: ReactNode
   className?: string
 }) {
-  return <CardFooter className={cn('p-4 pt-0', className)}>{children}</CardFooter>
+  return <CardFooter className={className}>{children}</CardFooter>
 }

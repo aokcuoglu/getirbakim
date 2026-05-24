@@ -3,7 +3,10 @@
 import { useState, useTransition } from 'react'
 import { Loader2, Play, Save, ShieldCheck, TestTube2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   testDinamikEndpoint,
   triggerDinamikSync,
@@ -124,37 +127,35 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className="rounded-xl border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-[#101828]">API Yönetim Paneli</h2>
-          <p className="mt-1 text-xs text-gray-500">
+          <h2 className="text-sm font-semibold text-foreground">API Yönetim Paneli</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
             Endpoint testleri ve manuel sync tetikleme. Sağlayıcı: {provider.name} ({provider.code})
           </p>
         </div>
-        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
-          <ShieldCheck size={12} className="mr-1" />
+        <Badge variant="outline" className="bg-success/10 text-success border-success/20">
+          <ShieldCheck size={12} />
           {provider.status}
-        </span>
+        </Badge>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Marka (opsiyonel)</label>
-          <input
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Marka (opsiyonel)</Label>
+          <Input
             value={brandInput}
             onChange={(event) => setBrandInput(event.target.value)}
             placeholder="Örn: BOSCH"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">Stok Kodu (getStock)</label>
-          <input
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Stok Kodu (getStock)</Label>
+          <Input
             value={stockCodeInput}
             onChange={(event) => setStockCodeInput(event.target.value)}
             placeholder="Örn: ZM 0981"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
           />
         </div>
       </div>
@@ -173,64 +174,61 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
         <Button variant="outline" onClick={() => runTest('getStock')} disabled={isPending}>
           getStock Test
         </Button>
-        <Button onClick={runSync} disabled={isPending} className="bg-[#101828] hover:bg-[#1d2939]">
+        <Button onClick={runSync} disabled={isPending}>
           {isPending ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Play size={14} className="mr-2" />}
           Manuel Sync Başlat
         </Button>
       </div>
 
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-600">Current Effective Policy</p>
-        <p className="mt-1 text-[11px] text-gray-500">
+      <div className="mt-4 rounded-md border border-border bg-muted p-3">
+        <p className="text-xs font-semibold text-muted-foreground">Current Effective Policy</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
           Son guncelleme: {provider.updatedAt ?? 'Bilinmiyor'}
         </p>
-        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-gray-700 lg:grid-cols-5">
-          <div className="rounded-md border border-gray-200 bg-white px-2 py-1">
+        <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-foreground lg:grid-cols-5">
+          <div className="rounded-md border border-border bg-background px-2 py-1">
             Iskonto: {(effectivePolicy.standardDiscountRate * 100).toFixed(2)}%
           </div>
-          <div className="rounded-md border border-gray-200 bg-white px-2 py-1">
+          <div className="rounded-md border border-border bg-background px-2 py-1">
             Marj: {(effectivePolicy.marginRate * 100).toFixed(2)}%
           </div>
-          <div className="rounded-md border border-gray-200 bg-white px-2 py-1">
+          <div className="rounded-md border border-border bg-background px-2 py-1">
             Sabit: {effectivePolicy.fixedFee.toFixed(2)} TRY
           </div>
-          <div className="rounded-md border border-gray-200 bg-white px-2 py-1">
+          <div className="rounded-md border border-border bg-background px-2 py-1">
             Rounding: {effectivePolicy.rounding}
           </div>
-          <div className="rounded-md border border-gray-200 bg-white px-2 py-1">
+          <div className="rounded-md border border-border bg-background px-2 py-1">
             VAT: {effectivePolicy.vatMode}
           </div>
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-600">Pricing Policy (KDV Haric)</p>
+      <div className="mt-4 rounded-md border border-border bg-muted p-3">
+        <p className="text-xs font-semibold text-muted-foreground">Pricing Policy (KDV Haric)</p>
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Standart Iskonto (%)</label>
-            <input
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Standart Iskonto (%)</Label>
+            <Input
               value={standardDiscountRate}
               onChange={(event) => setStandardDiscountRate(event.target.value)}
               placeholder="0"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Kar Marji (%)</label>
-            <input
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Kar Marji (%)</Label>
+            <Input
               value={marginRate}
               onChange={(event) => setMarginRate(event.target.value)}
               placeholder="0"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Sabit Ucret (TRY)</label>
-            <input
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Sabit Ucret (TRY)</Label>
+            <Input
               value={fixedFee}
               onChange={(event) => setFixedFee(event.target.value)}
               placeholder="0"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
             />
           </div>
         </div>
@@ -242,9 +240,9 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
         </div>
       </div>
 
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-600">Son Sonuç</p>
-        <pre className="mt-2 max-h-52 overflow-auto text-xs text-gray-700">
+      <div className="mt-4 rounded-md border border-border bg-muted p-3">
+        <p className="text-xs font-semibold text-muted-foreground">Son Sonuç</p>
+        <pre className="mt-2 max-h-52 overflow-auto text-xs text-foreground">
           {lastResult ? JSON.stringify(lastResult, null, 2) : 'Henüz işlem yapılmadı.'}
         </pre>
       </div>

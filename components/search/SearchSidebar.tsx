@@ -141,14 +141,11 @@ export function SearchSidebarContent({
   const showHeaderRow = Boolean(resolvedTitle) || activeFilterCount > 0
 
   return (
-    <div
-      className="flex flex-col"
-      style={{ fontFamily: 'var(--font-heading), sans-serif' }}
-    >
+    <div className="flex flex-col">
       {showHeaderRow && (
         <div className="mb-3 flex items-center justify-between gap-3 px-1">
           {resolvedTitle ? (
-            <SidebarHeader className="mb-0 min-w-0 flex-1 text-[14px] font-semibold text-[#212b36]">
+            <SidebarHeader className="mb-0 min-w-0 flex-1 text-[14px] font-semibold text-foreground">
               {resolvedTitle}
             </SidebarHeader>
           ) : (
@@ -157,10 +154,10 @@ export function SearchSidebarContent({
           {activeFilterCount > 0 && (
             <button
               onClick={onClearFilters}
-              className="flex shrink-0 items-center gap-2 rounded-[4px] bg-[#f8f9f9] px-2.5 py-1 text-[11px] font-semibold text-[#52606d] transition-colors hover:bg-[#eef2f5]"
+              className="flex shrink-0 items-center gap-2 rounded-[4px] bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent"
             >
               <span>{t('clearFilters')}</span>
-              <span className="min-w-[18px] rounded-[4px] bg-[#52606d] px-1.5 py-0.5 text-center text-[10px] text-white">
+              <span className="min-w-[18px] rounded-[4px] bg-muted-foreground px-1.5 py-0.5 text-center text-[10px] text-primary-foreground">
                 {activeFilterCount}
               </span>
             </button>
@@ -186,13 +183,13 @@ export function SearchSidebarContent({
                     checked={selectedStockStatuses.includes(option.value)}
                     onChange={() => onToggleFacet('stockStatus', option.value)}
                     disabled={isLoading}
-                    className="h-4 w-4 shrink-0 rounded border-[#c4cdd5] text-[#52606d] focus:ring-[#98a6b3] focus:ring-offset-0 disabled:opacity-50"
+                    className="h-4 w-4 shrink-0 rounded border-input text-muted-foreground focus-visible:ring-ring/50 focus:ring-offset-0 disabled:opacity-50"
                   />
                   <span
                     className={`min-w-0 flex-1 truncate text-[14px] transition-colors ${
                       selectedStockStatuses.includes(option.value)
-                        ? 'font-medium text-[#212b36]'
-                        : 'text-[#212b36] group-hover:text-[#212b36]'
+                        ? 'font-medium text-foreground'
+                        : 'text-foreground group-hover:text-foreground'
                     }`}
                   >
                     {option.value === 'in-stock'
@@ -201,7 +198,7 @@ export function SearchSidebarContent({
                         ? t('onOrder')
                         : option.label}
                   </span>
-                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-[#7b8794]">
+                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-muted-foreground">
                     {option.count}
                   </span>
                 </label>
@@ -213,7 +210,7 @@ export function SearchSidebarContent({
         {/* Fiyat aralığı (opsiyonel, sadece arama sayfasında) */}
         {onMinPriceChange != null && onMaxPriceChange != null && (
           <div>
-            <h3 className="mb-3 ml-1 text-[14px] font-medium text-[#212b36]">
+            <h3 className="mb-3 ml-1 text-[14px] font-medium text-foreground">
               {t('priceRange')}
             </h3>
             <div className="flex items-center gap-2">
@@ -229,10 +226,10 @@ export function SearchSidebarContent({
                     const n = localMin === '' ? undefined : parseFloat(localMin)
                     onMinPriceChange(n != null && !isNaN(n) ? n : undefined)
                   }}
-                  className="h-[38px] w-full rounded-[6px] border border-[#c4cdd5] bg-white px-[10px] py-[6px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] focus:border-[#98a6b3] focus:outline-none focus:ring-2 focus:ring-[#eef2f5]"
+                  className="h-[38px] w-full rounded-md border border-input bg-background px-[10px] py-[6px] text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus:outline-none focus:ring-2 focus-visible:ring-ring/50"
                 />
               </div>
-              <span className="text-[#9aa5b1]">-</span>
+              <span className="text-muted-foreground">-</span>
               <div className="relative flex-1">
                 <input
                   type="number"
@@ -245,7 +242,7 @@ export function SearchSidebarContent({
                     const n = localMax === '' ? undefined : parseFloat(localMax)
                     onMaxPriceChange(n != null && !isNaN(n) ? n : undefined)
                   }}
-                  className="h-[38px] w-full rounded-[6px] border border-[#c4cdd5] bg-white px-[10px] py-[6px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] focus:border-[#98a6b3] focus:outline-none focus:ring-2 focus:ring-[#eef2f5]"
+                  className="h-[38px] w-full rounded-md border border-input bg-background px-[10px] py-[6px] text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus:outline-none focus:ring-2 focus-visible:ring-ring/50"
                 />
               </div>
             </div>
@@ -260,8 +257,8 @@ export function SearchSidebarContent({
               value={brandSearchQuery}
               onChange={setBrandSearchQuery}
               className="mb-2"
-              inputClassName="h-[38px] rounded-[6px] border-[#c4cdd5] bg-white pl-[35px] pr-[10px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] focus:border-[#98a6b3] focus:ring-[#eef2f5]"
-              iconClassName="left-[11px] text-[#7b8794]"
+              inputClassName="h-[38px] rounded-md border-input bg-background pl-[35px] pr-[10px] text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50"
+              iconClassName="left-[11px] text-muted-foreground"
             />
 
             <SidebarList className="space-y-0.5 pr-1">
@@ -276,19 +273,19 @@ export function SearchSidebarContent({
                       checked={selectedBrands.includes(option.value)}
                       onChange={() => onToggleFacet('brandName', option.value)}
                       disabled={isLoading}
-                      className="h-4 w-4 shrink-0 rounded border-[#c4cdd5] text-[#52606d] focus:ring-[#98a6b3] focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-4 w-4 shrink-0 rounded border-input text-muted-foreground focus-visible:ring-ring/50 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
                   <span
                     className={`min-w-0 flex-1 truncate text-[14px] transition-colors ${
                       selectedBrands.includes(option.value)
-                        ? 'font-medium text-[#212b36]'
-                        : 'text-[#212b36] group-hover:text-[#212b36]'
+                        ? 'font-medium text-foreground'
+                        : 'text-foreground group-hover:text-foreground'
                     }`}
                   >
                     {option.label}
                   </span>
-                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-[#7b8794]">
+                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-muted-foreground">
                     {option.count}
                   </span>
                 </label>
@@ -297,7 +294,7 @@ export function SearchSidebarContent({
                 <button
                   type="button"
                   onClick={() => setShowAllBrands((value) => !value)}
-                  className="pt-1 text-left text-[12px] font-semibold text-[#52606d] transition-colors hover:text-[#212b36]"
+                  className="pt-1 text-left text-[12px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showAllBrands
                     ? t('showLess')
@@ -316,8 +313,8 @@ export function SearchSidebarContent({
               value={categorySearchQuery}
               onChange={setCategorySearchQuery}
               className="mb-2"
-              inputClassName="h-[38px] rounded-[6px] border-[#c4cdd5] bg-white pl-[35px] pr-[10px] text-[13px] text-[#212b36] placeholder:text-[#7b8794] focus:border-[#98a6b3] focus:ring-[#eef2f5]"
-              iconClassName="left-[11px] text-[#7b8794]"
+              inputClassName="h-[38px] rounded-md border-input bg-background pl-[35px] pr-[10px] text-[13px] text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50"
+              iconClassName="left-[11px] text-muted-foreground"
             />
             <SidebarList className="space-y-0.5 pr-1">
               {visibleCategories.map((option) => (
@@ -330,18 +327,18 @@ export function SearchSidebarContent({
                     checked={selectedCategories.includes(option.value)}
                     onChange={() => onToggleFacet('categoryName', option.value)}
                     disabled={isLoading}
-                    className="h-4 w-4 shrink-0 rounded border-[#c4cdd5] text-[#52606d] focus:ring-[#98a6b3] focus:ring-offset-0 disabled:opacity-50"
+                    className="h-4 w-4 shrink-0 rounded border-input text-muted-foreground focus-visible:ring-ring/50 focus:ring-offset-0 disabled:opacity-50"
                   />
                   <span
                     className={`min-w-0 flex-1 truncate text-[14px] transition-colors ${
                       selectedCategories.includes(option.value)
-                        ? 'font-medium text-[#212b36]'
-                        : 'text-[#212b36] group-hover:text-[#212b36]'
+                        ? 'font-medium text-foreground'
+                        : 'text-foreground group-hover:text-foreground'
                     }`}
                   >
                     {option.label}
                   </span>
-                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-[#7b8794]">
+                  <span className="min-w-[24px] px-0 text-right text-[11px] font-medium tabular-nums text-muted-foreground">
                     {option.count}
                   </span>
                 </label>
@@ -350,7 +347,7 @@ export function SearchSidebarContent({
                 <button
                   type="button"
                   onClick={() => setShowAllCategories((value) => !value)}
-                  className="pt-1 text-left text-[12px] font-semibold text-[#52606d] transition-colors hover:text-[#212b36]"
+                  className="pt-1 text-left text-[12px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showAllCategories
                     ? t('showLess')
@@ -359,7 +356,7 @@ export function SearchSidebarContent({
               )}
               {filteredCategories.length === 0 &&
                 categorySearchQuery.trim() && (
-                  <p className="text-sm text-slate-500 py-4 text-center">
+                  <p className="text-sm text-muted-foreground py-4 text-center">
                     {t('noSubcategories')}
                   </p>
                 )}
@@ -378,7 +375,7 @@ export function SearchSidebarContent({
 export function SearchSidebar(props: SearchSidebarProps) {
   return (
     <SidebarContainer
-      className="rounded-[6px] border-[#dfe5eb] bg-white p-4 shadow-none"
+      className="rounded-md border-border bg-background p-4 shadow-none"
       contentClassName="pr-0"
     >
       <SearchSidebarContent {...props} />

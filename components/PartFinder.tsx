@@ -22,7 +22,7 @@ export const PartFinder: React.FC = () => {
 
   return (
     <div className="relative bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center pt-7 pb-6 sm:pt-8 sm:pb-7 isolate z-10">
-      <div className="absolute inset-0 bg-slate-900/70 -z-10" />
+      <div className="absolute inset-0 bg-primary/70 -z-10" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center relative z-10">
         {selectedVehicle ? (
@@ -30,26 +30,26 @@ export const PartFinder: React.FC = () => {
           <>
             {/* Trustpilot Rating */}
             <div className="flex items-center justify-center gap-2 mb-2.5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <span className="text-white text-sm font-medium">
+              <span className="text-primary-foreground text-sm font-medium">
                 {t('excellent')}
               </span>
               <div className="flex items-center gap-0.5">
                 {[...Array(5)].map((_, i) => (
                   <div
                     key={i}
-                    className="w-5 h-5 bg-[#00b67a] flex items-center justify-center"
+                    className="w-5 h-5 bg-success flex items-center justify-center"
                   >
-                    <Star className="w-3 h-3 text-white fill-white" />
+                    <Star className="w-3 h-3 text-success-foreground fill-success-foreground" />
                   </div>
                 ))}
               </div>
-              <Star className="w-4 h-4 text-[#00b67a] fill-[#00b67a]" />
-              <span className="text-white text-sm">{t('trustpilot')}</span>
+              <Star className="w-4 h-4 text-success fill-success" />
+              <span className="text-primary-foreground text-sm">{t('trustpilot')}</span>
             </div>
 
             {/* Main Title */}
             <h1
-              className="text-[30px] sm:text-[38px] font-bold text-white tracking-tight 
+              className="text-[30px] sm:text-[38px] font-bold text-primary-foreground tracking-tight 
               mb-2 animate-in fade-in slide-in-from-bottom-6 duration-500 delay-100"
             >
               {t('buySpareParts')}
@@ -57,7 +57,7 @@ export const PartFinder: React.FC = () => {
 
             {/* Vehicle Info */}
             <p
-              className="text-[13px] text-slate-300 font-medium animate-in 
+              className="text-[13px] text-muted-foreground/70 font-medium animate-in 
               fade-in slide-in-from-bottom-8 duration-500 delay-200"
             >
               {formatVehicleInfo()}
@@ -68,32 +68,32 @@ export const PartFinder: React.FC = () => {
           <>
             {/* Trustpilot Rating */}
             <div className="flex items-center justify-center gap-2 mb-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <span className="text-white text-sm font-medium">
+              <span className="text-primary-foreground text-sm font-medium">
                 {t('excellent')}
               </span>
               <div className="flex items-center gap-0.5">
                 {[...Array(5)].map((_, i) => (
                   <div
                     key={i}
-                    className="w-5 h-5 bg-[#00b67a] flex items-center justify-center"
+                    className="w-5 h-5 bg-success flex items-center justify-center"
                   >
-                    <Star className="w-3 h-3 text-white fill-white" />
+                    <Star className="w-3 h-3 text-success-foreground fill-success-foreground" />
                   </div>
                 ))}
               </div>
-              <Star className="w-4 h-4 text-[#00b67a] fill-[#00b67a]" />
-              <span className="text-white text-sm">{t('trustpilot')}</span>
+              <Star className="w-4 h-4 text-success fill-success" />
+              <span className="text-primary-foreground text-sm">{t('trustpilot')}</span>
             </div>
 
             <h1
-              className="text-[34px] sm:text-[44px] font-semibold text-white tracking-tight 
+              className="text-[34px] sm:text-[44px] font-semibold text-primary-foreground tracking-tight 
               mb-2.5 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100"
             >
               {t('carSparePartsOnline')}
             </h1>
 
             <p
-              className="text-[13px] text-slate-200 max-w-2xl mx-auto font-normal animate-in 
+              className="text-[13px] text-primary-foreground/80 max-w-2xl mx-auto font-normal animate-in 
               fade-in slide-in-from-bottom-8 duration-700 delay-200"
             >
               {t('selectVehicle')}

@@ -128,11 +128,11 @@ export function ProductsFilter({
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 relative">
+        <button className="flex items-center gap-2 px-3 py-2 bg-background border border-border rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted relative">
           <Filter size={14} />
           <span>Filter</span>
           {activeFilterCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+            <span className="absolute -top-1.5 -right-1.5 bg-success/100 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
               {activeFilterCount}
             </span>
           )}
@@ -149,10 +149,10 @@ export function ProductsFilter({
         <div className="flex-1 overflow-y-auto mt-6 space-y-6 pb-20">
           {/* Category Filter */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-foreground mb-2">
               Category
               {selectedCategoryName && (
-                <span className="ml-2 text-emerald-600 font-normal">
+                <span className="ml-2 text-success font-normal">
                   ({selectedCategoryName})
                 </span>
               )}
@@ -161,47 +161,47 @@ export function ProductsFilter({
             <div className="relative mb-2">
               <Search
                 size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <input
                 type="text"
                 placeholder="Search categories..."
                 value={categorySearch}
                 onChange={(e) => setCategorySearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
               />
             </div>
             {/* Category list */}
-            <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+            <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
               <div
                 onClick={() => setSelectedCategory(null)}
-                className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 flex items-center justify-between ${
-                  !selectedCategory ? 'bg-emerald-50 text-emerald-700' : ''
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${
+                  !selectedCategory ? 'bg-success/10 text-success' : ''
                 }`}
               >
                 <span>All Categories</span>
                 {!selectedCategory && (
-                  <Check size={14} className="text-emerald-600" />
+                  <Check size={14} className="text-success" />
                 )}
               </div>
               {filteredCategories.map((cat) => (
                 <div
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 flex items-center justify-between ${
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${
                     selectedCategory === cat.id
-                      ? 'bg-emerald-50 text-emerald-700'
+                      ? 'bg-success/10 text-success'
                       : ''
                   }`}
                 >
                   <span>{cat.name}</span>
                   {selectedCategory === cat.id && (
-                    <Check size={14} className="text-emerald-600" />
+                    <Check size={14} className="text-success" />
                   )}
                 </div>
               ))}
               {filteredCategories.length === 0 && (
-                <div className="px-3 py-4 text-sm text-gray-400 text-center">
+                <div className="px-3 py-4 text-sm text-muted-foreground text-center">
                   No categories found
                 </div>
               )}
@@ -210,10 +210,10 @@ export function ProductsFilter({
 
           {/* Brand Filter */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-foreground mb-2">
               Brand
               {selectedBrandName && (
-                <span className="ml-2 text-emerald-600 font-normal">
+                <span className="ml-2 text-success font-normal">
                   ({selectedBrandName})
                 </span>
               )}
@@ -222,47 +222,47 @@ export function ProductsFilter({
             <div className="relative mb-2">
               <Search
                 size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <input
                 type="text"
                 placeholder="Search brands..."
                 value={brandSearch}
                 onChange={(e) => setBrandSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
               />
             </div>
             {/* Brand list */}
-            <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+            <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
               <div
                 onClick={() => setSelectedBrand(null)}
-                className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 flex items-center justify-between ${
-                  !selectedBrand ? 'bg-emerald-50 text-emerald-700' : ''
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${
+                  !selectedBrand ? 'bg-success/10 text-success' : ''
                 }`}
               >
                 <span>All Brands</span>
                 {!selectedBrand && (
-                  <Check size={14} className="text-emerald-600" />
+                  <Check size={14} className="text-success" />
                 )}
               </div>
               {filteredBrands.map((brand) => (
                 <div
                   key={brand.id}
                   onClick={() => setSelectedBrand(brand.id)}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 flex items-center justify-between ${
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${
                     selectedBrand === brand.id
-                      ? 'bg-emerald-50 text-emerald-700'
+                      ? 'bg-success/10 text-success'
                       : ''
                   }`}
                 >
                   <span>{brand.name}</span>
                   {selectedBrand === brand.id && (
-                    <Check size={14} className="text-emerald-600" />
+                    <Check size={14} className="text-success" />
                   )}
                 </div>
               ))}
               {filteredBrands.length === 0 && (
-                <div className="px-3 py-4 text-sm text-gray-400 text-center">
+                <div className="px-3 py-4 text-sm text-muted-foreground text-center">
                   No brands found
                 </div>
               )}
@@ -271,7 +271,7 @@ export function ProductsFilter({
 
           {/* Provider Filter */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-foreground mb-2">
               Provider
             </label>
             <div className="space-y-2">
@@ -282,45 +282,45 @@ export function ProductsFilter({
                   onChange={(e) =>
                     setSelectedProvider(e.target.checked ? 1 : null)
                   }
-                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  className="w-4 h-4 rounded border-input text-success focus-visible:ring-ring/50"
                 />
-                <span className="text-sm text-gray-600">Dinamik</span>
+                <span className="text-sm text-muted-foreground">Dinamik</span>
               </label>
             </div>
           </div>
 
           {/* Stock Status Filter */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
+            <label className="block text-sm font-semibold text-foreground mb-2">
               Stock Status
             </label>
             <div className="space-y-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  className="w-4 h-4 rounded border-input text-success focus-visible:ring-ring/50"
                 />
-                <span className="text-sm text-gray-600">In Stock</span>
+                <span className="text-sm text-muted-foreground">In Stock</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  className="w-4 h-4 rounded border-input text-success focus-visible:ring-ring/50"
                 />
-                <span className="text-sm text-gray-600">Out of Stock</span>
+                <span className="text-sm text-muted-foreground">Out of Stock</span>
               </label>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-100 bg-white flex gap-3">
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-border bg-background flex gap-3">
           <Button variant="outline" onClick={clearFilters} className="flex-1">
             Clear All
           </Button>
           <Button
             onClick={applyFilters}
-            className="flex-1 bg-[#101828] hover:bg-[#1d2939]"
+            className="flex-1"
           >
             Apply Filters
           </Button>

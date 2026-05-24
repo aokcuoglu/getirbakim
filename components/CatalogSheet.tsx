@@ -27,6 +27,7 @@ import { useTranslations, useLocale } from 'next-intl'
 import { buildCatalogPath } from '@/lib/catalog-url'
 import { resolveVehicleTypeId } from '@/lib/utils/vehicleSlug'
 import { createClient } from '@/lib/supabase/client'
+import { Input } from '@/components/ui/input'
 
 interface CatalogSheetProps {
   open: boolean
@@ -220,12 +221,12 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
     >
       <SheetContent
         side="left"
-        hideDefaultClose={true}
+        showCloseButton={false}
         className="w-full sm:w-[400px] p-0 border-r-0 flex flex-col gap-0"
       >
         <SheetTitle className="sr-only">{t('catalogCategories')}</SheetTitle>
         {/* HEADER */}
-        <div className="bg-slate-900 bg-[url('/catalog-header-bg.png')] bg-cover bg-center text-white flex flex-col">
+        <div className="bg-primary bg-[url('/catalog-header-bg.png')] bg-cover bg-center text-primary-foreground flex flex-col">
           {/* Top Bar: Back/Close & Title */}
           <div className="flex items-center justify-between px-4 h-16 shrink-0 relative">
             {isRoot ? (
@@ -235,7 +236,7 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
             ) : (
               <button
                 onClick={handleBack}
-                className="p-1 hover:bg-slate-800 rounded-full transition-colors absolute left-3"
+                className="p-1 hover:bg-primary/90 rounded-full transition-colors absolute left-3"
               >
                 <ChevronLeft size={24} />
               </button>
@@ -249,7 +250,7 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
 
             <button
               onClick={() => onOpenChange(false)}
-              className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors"
+              className="p-1.5 hover:bg-primary/90 rounded text-muted-foreground hover:text-primary-foreground transition-colors"
             >
               <X size={20} />
             </button>
@@ -258,18 +259,18 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
           {/* Breadcrumbs */}
           <div className="px-4 pb-4">
             {isRoot ? (
-              <div className="flex items-center gap-4 text-sm font-medium text-slate-300">
-                <div className="flex items-center gap-2 cursor-pointer hover:text-white">
+              <div className="flex items-center gap-4 text-sm font-medium text-muted-foreground/70">
+                <div className="flex items-center gap-2 cursor-pointer hover:text-primary-foreground">
                   <span className="text-lg">🇫🇷</span> France
                 </div>
-                <div className="flex items-center gap-1 cursor-pointer hover:text-white">
+                <div className="flex items-center gap-1 cursor-pointer hover:text-primary-foreground">
                   EUR <ChevronLeft size={12} className="-rotate-90" />
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-xs text-slate-400 overflow-hidden text-ellipsis whitespace-nowrap">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap">
                 <span
-                  className="cursor-pointer hover:text-slate-200"
+                  className="cursor-pointer hover:text-primary-foreground/80"
                   onClick={() => setPath([])}
                 >
                   {t('carParts')}
@@ -279,8 +280,8 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
                     <ChevronRight size={10} />
                     <span
                       className={cn(
-                        'cursor-pointer hover:text-slate-200',
-                        i === path.length - 1 && 'text-slate-200 font-semibold'
+                        'cursor-pointer hover:text-primary-foreground/80',
+                        i === path.length - 1 && 'text-primary-foreground/80 font-semibold'
                       )}
                     >
                       {getCategoryName(node)}
@@ -293,37 +294,37 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
         </div>
 
         {/* SEARCH INPUT */}
-        <div className="px-4 py-3 bg-white">
+        <div className="px-4 py-3 bg-background">
           <div className="relative">
             <Search
               size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
-            <input
+            <Input
               type="text"
               placeholder={t('search')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+              className="pl-9"
             />
           </div>
         </div>
 
         {/* Vehicle Filter Indicator */}
         {isVehicleFiltered && selectedVehicle && (
-          <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center gap-2 text-xs text-blue-700">
+          <div className="px-4 py-2 bg-accent border-b border-border flex items-center gap-2 text-xs text-primary">
             <Car size={14} />
             <span className="font-medium">
               {selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.year}
             </span>
-            <span className="text-blue-500">{t('filteredByVehicle') || 'için filtrelendi'}</span>
+            <span className="text-primary">{t('filteredByVehicle') || 'için filtrelendi'}</span>
           </div>
         )}
 
         {/* CONTENT LIST */}
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className="flex-1 overflow-y-auto bg-background">
           {loading ? (
-            <div className="p-8 text-center text-slate-400">
+            <div className="p-8 text-center text-muted-foreground">
               {t('loadingCategories')}
             </div>
           ) : (
@@ -338,11 +339,11 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
                     onClick={() => handleSelect(item)}
                     onMouseEnter={() => handleCategoryHover(item)}
                     onFocus={() => handleCategoryHover(item)}
-                    className="group flex flex-col px-6 py-3 hover:bg-gray-50 transition-colors text-left"
+                    className="group flex flex-col px-6 py-3 hover:bg-muted transition-colors text-left"
                   >
                     {/* Breadcrumbs for search results */}
                     {hasBreadcrumbs && (
-                      <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
                         {searchResult.breadcrumbs.map((bc, idx) => (
                           <React.Fragment key={bc.id}>
                             {idx > 0 && <ChevronRight size={10} />}
@@ -352,11 +353,11 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
                       </div>
                     )}
                     <div className="flex items-center justify-between w-full">
-                      <span className="text-slate-800 text-sm">
+                      <span className="text-foreground text-sm">
                         {getCategoryName(item)}
                       </span>
                       {item.children && item.children.length > 0 && (
-                        <ChevronRight size={16} className="text-slate-400" />
+                        <ChevronRight size={16} className="text-muted-foreground" />
                       )}
                     </div>
                   </button>
@@ -364,7 +365,7 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
               })}
 
               {filteredItems.length === 0 && (
-                <div className="p-8 text-center text-slate-500 text-sm">
+                <div className="p-8 text-center text-muted-foreground text-sm">
                   {searchQuery ? t('noResults') : t('noSubcategories')}
                 </div>
               )}
@@ -373,14 +374,14 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
 
           {/* Footer - Log In + Info */}
           {isRoot && (
-            <div className="mt-4 border-t border-slate-100">
+            <div className="mt-4 border-t border-border">
               {!user && (
                 <LoginModal
                   onLoginSuccess={(loggedInUser) => {
                     setUser(loggedInUser)
                   }}
                 >
-                  <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 text-slate-700 font-medium text-sm">
+                  <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm">
                     <div className="w-8 flex justify-center">
                       <User size={20} />
                     </div>
@@ -395,22 +396,22 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
                       onOpenChange(false)
                       router.push('/account')
                     }}
-                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 text-slate-700 font-medium text-sm"
+                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm"
                   >
                     <div className="w-8 flex justify-center">
-                      <User size={20} className="text-blue-600" />
+                      <User size={20} className="text-primary" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span>{t('hello')}, {user.name || 'User'}</span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-muted-foreground">
                         {t('myAccount')}
                       </span>
                     </div>
-                    <ChevronRight size={16} className="ml-auto text-slate-300" />
+                    <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
                   </button>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 text-red-500 font-medium text-sm"
+                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm"
                   >
                     <div className="w-8 flex justify-center">
                       <LogOut size={20} />
@@ -419,12 +420,12 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
                   </button>
                 </>
               )}
-              <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 text-red-500 font-medium text-sm">
+              <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm">
                 <div className="w-8 flex justify-center">
                   <Info size={20} />
                 </div>
                 {t('contactUs')}
-                <ChevronRight size={16} className="ml-auto text-slate-300" />
+                <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
               </button>
             </div>
           )}

@@ -1,6 +1,8 @@
 'use client'
 
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 interface PaginationProps {
   currentPage: number
@@ -22,25 +24,21 @@ export function Pagination({
   const startItem = (currentPage - 1) * itemsPerPage + 1
   const endItem = Math.min(currentPage * itemsPerPage, totalItems)
 
-  // Generate page numbers to show
   const getPageNumbers = () => {
     const pages: (number | 'ellipsis')[] = []
     const showEllipsisThreshold = 7
 
     if (totalPages <= showEllipsisThreshold) {
-      // Show all pages
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i)
       }
     } else {
-      // Always show first page
       pages.push(1)
 
       if (currentPage > 3) {
         pages.push('ellipsis')
       }
 
-      // Show pages around current
       const start = Math.max(2, currentPage - 1)
       const end = Math.min(totalPages - 1, currentPage + 1)
 
@@ -52,7 +50,6 @@ export function Pagination({
         pages.push('ellipsis')
       }
 
-      // Always show last page
       pages.push(totalPages)
     }
 
@@ -63,61 +60,53 @@ export function Pagination({
 
   return (
     <div className="flex flex-col items-center justify-between gap-3 py-4 sm:flex-row">
-      {/* Info Text */}
-      <p className="text-[13px] text-slate-600">
+      <p className="text-sm text-muted-foreground">
         Showing{' '}
-        <span className="font-medium text-slate-900">
+        <span className="font-medium text-foreground">
           {startItem}-{endItem}
         </span>{' '}
-        of <span className="font-medium text-slate-900">{totalItems}</span>{' '}
+        of <span className="font-medium text-foreground">{totalItems}</span>{' '}
         products
       </p>
 
-      {/* Page Navigation */}
       <div className="flex items-center gap-1">
-        {/* Previous Button */}
-        <button
+        <Button
+          variant="outline"
+          size="icon-sm"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="rounded-md border border-slate-200 p-1.5 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Previous page"
         >
-          <ChevronLeft size={16} />
-        </button>
+          <ChevronLeft className="size-4" />
+        </Button>
 
-        {/* Page Numbers */}
         {pageNumbers.map((page, index) =>
           page === 'ellipsis' ? (
-            <span key={`ellipsis-${index}`} className="px-2 text-slate-400">
+            <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">
               ...
             </span>
           ) : (
-            <button
+            <Button
               key={page}
+              variant={currentPage === page ? 'default' : 'outline'}
+              size="sm"
               onClick={() => onPageChange(page)}
-              className={`
-                min-w-[34px] h-8 rounded-md font-medium text-[13px] transition-colors
-                ${
-                  currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'border border-slate-200 hover:bg-slate-50 text-slate-700'
-                }
-              `}
+              className={cn('min-w-[34px]')}
             >
               {page}
-            </button>
+            </Button>
           )
         )}
 
-        {/* Next Button */}
-        <button
+        <Button
+          variant="outline"
+          size="icon-sm"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="rounded-md border border-slate-200 p-1.5 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Next page"
         >
-          <ChevronRight size={16} />
-        </button>
+          <ChevronRight className="size-4" />
+        </Button>
       </div>
     </div>
   )

@@ -43,22 +43,22 @@ export function CategorySidebar({
 
   return (
     <>
-      <div className="rounded-[6px] border border-[#dfe5eb] bg-white p-2.5 lg:hidden">
+      <div className="rounded-md border border-border bg-background p-2.5 lg:hidden">
         <div className="flex items-center gap-3">
           <Button
             variant="outline"
             size="icon"
             onClick={() => setIsMenuOpen(true)}
-            className="h-9 w-9 rounded-[6px] border-[#c4cdd5] text-[#212b36] hover:bg-[#f8f9f9]"
+            className="h-9 w-9 rounded-md border-input text-foreground hover:bg-muted"
             aria-label={t('openMenu')}
           >
             <Menu size={18} />
           </Button>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-900 truncate">
+            <p className="text-sm font-semibold text-foreground truncate">
               {t('sidebarTitle')}
             </p>
-            <p className="text-xs text-slate-500 truncate">
+            <p className="text-xs text-muted-foreground truncate">
               {getLocalizedCategoryName(category, locale)}
             </p>
           </div>
@@ -67,8 +67,8 @@ export function CategorySidebar({
 
       <Sheet open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <SheetContent side="left" className="w-[min(88vw,302px)] p-0 lg:hidden">
-          <SheetHeader className="border-b border-[#e7edf2] px-4 py-4 text-left">
-            <SheetTitle className="text-[14px] font-semibold text-[#212b36]">
+          <SheetHeader className="border-b border-border px-4 py-4 text-left">
+            <SheetTitle className="text-[14px] font-semibold text-foreground">
               {t('sidebarTitle')}
             </SheetTitle>
             <SheetDescription>{t('menuDescription')}</SheetDescription>
@@ -88,7 +88,7 @@ export function CategorySidebar({
       </Sheet>
 
       <SidebarContainer
-        className="hidden rounded-[6px] border-[#dfe5eb] bg-white p-4 shadow-none lg:block lg:w-[302px]"
+        className="hidden rounded-md border-border bg-background p-4 shadow-none lg:block lg:w-[302px]"
         contentClassName="pr-0"
       >
         <CategoryNavigation

@@ -63,11 +63,11 @@ export function RelatedProductsLazy({
 
   if (parts == null) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6">
-        <div className="h-6 w-56 bg-slate-100 rounded mb-4" />
+      <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6">
+        <div className="h-6 w-56 bg-muted rounded mb-4" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-48 bg-slate-100 rounded-lg" />
+            <div key={i} className="h-48 bg-muted rounded-lg" />
           ))}
         </div>
       </div>

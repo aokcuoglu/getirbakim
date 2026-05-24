@@ -16,9 +16,9 @@ export const GlassCard: React.FC<GlassProps> = ({
   ...props 
 }) => {
   // Linear/Attio style: White background, subtle grey border, minimal shadow
-  const baseClasses = 'bg-white border border-slate-200 shadow-sm';
+  const baseClasses = 'bg-background border border-border shadow-sm';
   const interactiveClasses = interactive 
-    ? 'cursor-pointer transition-all duration-200 hover:border-slate-300 hover:shadow-md' 
+    ? 'cursor-pointer transition-all duration-200 hover:border-input hover:shadow-md' 
     : '';
 
   return (
@@ -38,9 +38,9 @@ export const GlassButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>
   ...props
 }) => {
   const variants = {
-    primary: 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm border border-transparent',
-    secondary: 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 shadow-sm',
-    outline: 'bg-transparent text-slate-600 hover:text-slate-900 border border-transparent hover:bg-slate-100',
+    primary: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm border border-transparent',
+    secondary: 'bg-background text-foreground hover:bg-muted border border-border shadow-sm',
+    outline: 'bg-transparent text-muted-foreground hover:text-foreground border border-transparent hover:bg-muted',
   };
 
   return (

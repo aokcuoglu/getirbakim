@@ -220,25 +220,25 @@ export const MobileVehicleSelectorModal: React.FC<
   if (!isOpen || !mounted) return null
 
   const modalContent = (
-    <div className="fixed inset-0 z-9999 bg-white md:hidden animate-in fade-in duration-200 flex flex-col">
+    <div className="fixed inset-0 z-9999 bg-background md:hidden animate-in fade-in duration-200 flex flex-col">
       {/* Header with background image */}
-      <div className="relative bg-slate-800 bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center">
-        <div className="absolute inset-0 bg-slate-900/60" />
+      <div className="relative bg-primary bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center">
+        <div className="absolute inset-0 bg-primary/60" />
         <div className="relative z-10 flex items-center justify-between px-4 py-4">
           {step !== 'MAKE' ? (
             <button
               onClick={handleBack}
-              className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors"
+              className="p-2 -ml-2 text-primary-foreground hover:bg-primary-foreground/10 rounded-full transition-colors"
             >
               <ChevronLeft size={24} />
             </button>
           ) : (
             <div className="w-10" />
           )}
-          <h2 className="text-xl font-bold text-white">{getStepTitle()}</h2>
+          <h2 className="text-xl font-bold text-primary-foreground">{getStepTitle()}</h2>
           <button
             onClick={handleClose}
-            className="p-2 -mr-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
+            className="p-2 -mr-2 bg-primary-foreground/10 rounded-full text-primary-foreground hover:bg-primary-foreground/20 transition-colors"
           >
             <X size={20} />
           </button>
@@ -247,12 +247,12 @@ export const MobileVehicleSelectorModal: React.FC<
 
       {/* License Plate Input (only on first step) */}
       {step === 'MAKE' && (
-        <div className="px-4 py-4 border-b border-slate-100">
+        <div className="px-4 py-4 border-b border-border">
           <div className="flex items-center shadow-sm rounded-lg overflow-hidden h-[44px]">
-            <div className="bg-[#E30A17] w-12 h-full flex flex-col items-center justify-center gap-0.5">
+            <div className="bg-destructive w-12 h-full flex flex-col items-center justify-center gap-0.5">
               <svg
                 viewBox="0 0 24 24"
-                className="w-4 h-4 text-white shrink-0"
+                className="w-4 h-4 text-destructive-foreground shrink-0"
                 fill="currentColor"
                 aria-hidden
               >
@@ -262,14 +262,14 @@ export const MobileVehicleSelectorModal: React.FC<
                 />
                 <path d="M16 5.5l1 3.5 3.5.5-2.5 2 .5 3.5L16 13l-2.5 2 .5-3.5-2.5-2 3.5-.5 1-3.5z" />
               </svg>
-              <span className="text-white font-bold text-[10px]">TR</span>
+              <span className="text-destructive-foreground font-bold text-[10px]">TR</span>
             </div>
             <input
               type="text"
               placeholder="AB 1234"
-              className="flex-1 h-full px-3 text-slate-800 font-bold uppercase placeholder:text-slate-300 placeholder:font-normal focus:outline-none border border-l-0 border-slate-200"
+              className="flex-1 h-full px-3 text-foreground font-bold uppercase placeholder:text-muted-foreground/70 placeholder:font-normal focus:outline-none border border-l-0 border-border"
             />
-            <button className="h-full w-12 bg-[#0088CC] hover:bg-[#0077b3] text-white flex items-center justify-center transition-colors">
+            <button className="h-full w-12 bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors">
               <Search size={18} strokeWidth={2.5} />
             </button>
           </div>
@@ -277,23 +277,23 @@ export const MobileVehicleSelectorModal: React.FC<
       )}
 
       {/* Search Input */}
-      <div className="px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 px-3 h-[44px]">
+      <div className="px-4 py-3 border-b border-border">
+        <div className="flex items-center bg-muted rounded-md border border-border px-3 h-[44px]">
           <input
             type="text"
             placeholder={t('search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
-          <Search size={18} className="text-slate-400" />
+          <Search size={18} className="text-muted-foreground" />
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {loading || isGlobalLoading ? (
-          <div className="flex items-center justify-center py-12 text-slate-400">
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
             {t('loading')}
           </div>
         ) : step === 'MAKE' ? (
@@ -301,20 +301,20 @@ export const MobileVehicleSelectorModal: React.FC<
             {/* Popular Makes */}
             {popularMakes.length > 0 && !searchQuery && (
               <div className="px-4 py-3">
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">
                   {t('popularMakes')}
                 </h3>
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-border">
                   {popularMakes.map((make) => (
                     <button
                       key={make.id}
                       onClick={() => handleMakeSelect(make)}
-                      className="w-full flex items-center justify-between py-3 hover:bg-slate-50 transition-colors"
+                      className="w-full flex items-center justify-between py-3 hover:bg-muted transition-colors"
                     >
-                      <span className="font-semibold text-slate-800 text-sm uppercase">
+                      <span className="font-semibold text-foreground text-sm uppercase">
                         {make.name}
                       </span>
-                      <ChevronRight size={18} className="text-slate-400" />
+                      <ChevronRight size={18} className="text-muted-foreground" />
                     </button>
                   ))}
                 </div>
@@ -322,21 +322,21 @@ export const MobileVehicleSelectorModal: React.FC<
             )}
 
             {/* All Makes */}
-            <div className="px-4 py-3 border-t border-slate-100">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">
+            <div className="px-4 py-3 border-t border-border">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">
                 {t('allMakes')}
               </h3>
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-border">
                 {allMakes.map((make) => (
                   <button
                     key={make.id}
                     onClick={() => handleMakeSelect(make)}
-                    className="w-full flex items-center justify-between py-3 hover:bg-slate-50 transition-colors"
+                    className="w-full flex items-center justify-between py-3 hover:bg-muted transition-colors"
                   >
-                    <span className="font-semibold text-slate-800 text-sm uppercase">
+                    <span className="font-semibold text-foreground text-sm uppercase">
                       {make.name}
                     </span>
-                    <ChevronRight size={18} className="text-slate-400" />
+                    <ChevronRight size={18} className="text-muted-foreground" />
                   </button>
                 ))}
               </div>
@@ -345,12 +345,12 @@ export const MobileVehicleSelectorModal: React.FC<
         ) : (
           /* Other steps - Models, Types */
           <div className="px-4 py-3">
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-border">
               {(filteredList as any[]).map((item) =>
                 item.isHeader ? (
                   <div
                     key={item.id}
-                    className="bg-slate-50 px-4 py-2 text-[10px] font-bold text-blue-600 uppercase tracking-wider sticky top-0 z-10"
+                    className="bg-muted px-4 py-2 text-[10px] font-bold text-primary uppercase tracking-wider sticky top-0 z-10"
                   >
                     {item.name}
                   </div>
@@ -367,24 +367,24 @@ export const MobileVehicleSelectorModal: React.FC<
                           break
                       }
                     }}
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-100 last:border-0"
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted transition-colors text-left border-b border-border last:border-0"
                   >
                     <div className="flex flex-col">
-                      <span className="font-semibold text-slate-800 text-sm">
+                      <span className="font-semibold text-foreground text-sm">
                         {item.name}
                       </span>
                       {step === 'TYPE' && (item as VehicleVariant).kwPs && (
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-muted-foreground">
                           {(item as VehicleVariant).kwPs}
                         </span>
                       )}
                     </div>
-                    <ChevronRight size={18} className="text-slate-400" />
+                    <ChevronRight size={18} className="text-muted-foreground" />
                   </button>
                 )
               )}
               {filteredList.length === 0 && (
-                <div className="py-8 text-center text-slate-400 text-sm">
+                <div className="py-8 text-center text-muted-foreground text-sm">
                   {t('noResults')}
                 </div>
               )}

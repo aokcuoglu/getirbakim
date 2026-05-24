@@ -205,12 +205,12 @@ export function CategoryContent({
       <div className="flex-1">
         {/* Info message when vehicle is selected but no products found or filtering failed */}
         {hasVehicleSelected && !isLoading && (
-          <Alert className="mb-6 bg-blue-50 border-blue-200">
-            <Info className="h-4 w-4 text-blue-600" />
-            <AlertTitle className="text-blue-900">
+          <Alert className="mb-6 bg-accent border-border">
+            <Info className="h-4 w-4 text-primary" />
+            <AlertTitle className="text-primary">
               {t('vehicleNoProductsTitle')}
             </AlertTitle>
-            <AlertDescription className="text-blue-800 mt-2">
+            <AlertDescription className="text-primary mt-2">
               {t('vehicleNoProductsDescription')}
             </AlertDescription>
           </Alert>
@@ -218,7 +218,7 @@ export function CategoryContent({
 
         {/* Header with vehicle info and controls - hide if vehicle selected but no products */}
         {!hasVehicleSelected && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-100 pb-2.5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 border-b border-border pb-2.5">
           {/* Mobile Filter Button */}
           <MobileSidebarSheet
             facets={facets}
@@ -245,7 +245,7 @@ export function CategoryContent({
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             {/* Sort dropdown */}
             <Select value={sortBy} onValueChange={handleSortChange}>
-              <SelectTrigger className="h-8 w-[156px] rounded-sm border-slate-200 bg-white text-[13px]">
+              <SelectTrigger className="h-8 w-[156px] rounded-sm border-border bg-background text-[13px]">
                 <SelectValue placeholder={t('sortBy')} />
               </SelectTrigger>
               <SelectContent>
@@ -258,7 +258,7 @@ export function CategoryContent({
 
             {/* Per page dropdown */}
             <Select value={perPage} onValueChange={handlePerPageChange}>
-              <SelectTrigger className="h-8 w-[68px] rounded-sm border-slate-200 bg-white text-[13px]">
+              <SelectTrigger className="h-8 w-[68px] rounded-sm border-border bg-background text-[13px]">
                 <SelectValue placeholder="24" />
               </SelectTrigger>
               <SelectContent>
@@ -268,31 +268,31 @@ export function CategoryContent({
             </Select>
 
             {/* View mode toggle */}
-            <div className="flex items-center overflow-hidden rounded-sm border border-slate-200 bg-white">
+            <div className="flex items-center overflow-hidden rounded-sm border border-border bg-background">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setViewMode('list')}
                 className={`h-8 w-8 rounded-none ${
-                  viewMode === 'list' ? 'bg-slate-100' : 'hover:bg-slate-50'
+                  viewMode === 'list' ? 'bg-muted' : 'hover:bg-muted'
                 }`}
               >
-                <List className="w-4 h-4 text-slate-600" />
+                <List className="w-4 h-4 text-muted-foreground" />
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setViewMode('grid')}
                 className={`h-8 w-8 rounded-none ${
-                  viewMode === 'grid' ? 'bg-slate-100' : 'hover:bg-slate-50'
+                  viewMode === 'grid' ? 'bg-muted' : 'hover:bg-muted'
                 }`}
               >
-                <Grid className="w-4 h-4 text-slate-600" />
+                <Grid className="w-4 h-4 text-muted-foreground" />
               </Button>
             </div>
 
             {/* Results count and pagination */}
-            <span className="min-w-[104px] text-right text-[11px] text-slate-600">
+            <span className="min-w-[104px] text-right text-[11px] text-muted-foreground">
               {totalParts > 0
                 ? t('resultsRange', {
                     start: startItem,
@@ -346,8 +346,8 @@ export function CategoryContent({
           // Initial load - show spinner
           <div className="flex items-center justify-center py-16">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm text-slate-500">{t('loading')}</p>
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-muted-foreground">{t('loading')}</p>
             </div>
           </div>
         ) : parts.length > 0 ? (
@@ -414,11 +414,11 @@ export function CategoryContent({
           // Only show empty state if vehicle is not selected or if vehicle is selected but we already showed the info message
           !hasVehicleSelected && (
             <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
-              <Package className="h-16 w-16 text-slate-200" />
-              <h3 className="mt-4 text-lg font-medium text-slate-900">
+              <Package className="h-16 w-16 text-primary-foreground/80" />
+              <h3 className="mt-4 text-lg font-medium text-foreground">
                 {t('noProducts')}
               </h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {variantSlug ? t('tryDifferent') : t('tryDifferentFilters')}
               </p>
             </div>
@@ -444,12 +444,12 @@ export function CategoryContent({
   // For category pages, show subcategory grid (icon + label cards)
   return (
     <div className="flex-1">
-      <div className="mb-4 flex items-end justify-between gap-4 border-b border-slate-100 pb-3">
+      <div className="mb-4 flex items-end justify-between gap-4 border-b border-border pb-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900">
+          <h2 className="text-xl font-semibold text-foreground">
             {getLocalizedCategoryName(category, locale)}
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {t('subcategoriesFound', { count: visibleSubcategories.length })}
           </p>
         </div>
@@ -474,7 +474,7 @@ export function CategoryContent({
       </div>
 
       {visibleSubcategories.length === 0 && (
-        <div className="text-center py-16 text-slate-500">
+        <div className="text-center py-16 text-muted-foreground">
           {t('noSubcategories')}
         </div>
       )}
@@ -529,9 +529,9 @@ function OptimizedCategoryLink({
       onMouseEnter={prefetchLink}
       onTouchStart={prefetchLink}
       onPointerDown={prefetchLink}
-      className="group flex h-[148px] cursor-pointer flex-col items-center rounded-[8px] border border-[#dfe5eb] bg-white px-2.5 pb-2.5 pt-3 sm:h-[158px] sm:px-3 sm:pb-3 sm:pt-3.5 lg:h-[166px] lg:px-3.5"
+      className="group flex h-[148px] cursor-pointer flex-col items-center rounded-[8px] border border-border bg-background px-2.5 pb-2.5 pt-3 sm:h-[158px] sm:px-3 sm:pb-3 sm:pt-3.5 lg:h-[166px] lg:px-3.5"
     >
-      <div className="mb-2 flex h-[64px] w-full shrink-0 items-center justify-center text-slate-400 sm:mb-2.5 sm:h-[72px] lg:h-[78px]">
+      <div className="mb-2 flex h-[64px] w-full shrink-0 items-center justify-center text-muted-foreground sm:mb-2.5 sm:h-[72px] lg:h-[78px]">
         {imgSrc ? (
           <Image
             src={imgSrc}
@@ -546,7 +546,7 @@ function OptimizedCategoryLink({
           <Wrench className="h-9 w-9 sm:h-10 sm:w-10" strokeWidth={1.5} />
         )}
       </div>
-      <h3 className="line-clamp-2 min-h-[34px] text-center text-[13px] font-medium leading-[1.3] text-[#1f2937] transition-colors group-hover:text-sky-600 sm:min-h-[38px] sm:text-[14px] lg:text-[14px]">
+      <h3 className="line-clamp-2 min-h-[34px] text-center text-[13px] font-medium leading-[1.3] text-foreground transition-colors group-hover:text-primary sm:min-h-[38px] sm:text-[14px] lg:text-[14px]">
         {categoryName}
       </h3>
     </a>

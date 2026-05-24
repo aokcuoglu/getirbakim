@@ -12,15 +12,15 @@ export default async function GuestOrderLookupPage(props: {
   const t = await getTranslations({ locale, namespace: 'GuestOrderLookupPage' })
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       <Navbar navbarCategories={navbarCategories} />
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-36">
         <div className="mb-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
             {t('eyebrow')}
           </p>
-          <h1 className="mt-3 text-3xl font-bold text-slate-950">{t('title')}</h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <h1 className="mt-3 text-3xl font-bold text-foreground">{t('title')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             {t('description')}
           </p>
         </div>

@@ -45,7 +45,7 @@ export const CAMPAIGNS = [
     image:
       'https://images.unsplash.com/photo-1508974239320-0a029497e820?q=80&w=800&auto=format&fit=crop',
     discount: 'Bundle Deal',
-    color: 'bg-blue-600'
+    color: 'bg-primary'
   }
 ]
 

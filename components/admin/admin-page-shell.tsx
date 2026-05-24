@@ -35,7 +35,7 @@ export function AdminPageShell({
   return (
     <section
       className={cn(
-        'mx-auto w-full space-y-4',
+        'mx-auto w-full space-y-6',
         widthClassMap[width],
         className
       )}
@@ -52,19 +52,15 @@ export function AdminPageHeader({
   actions
 }: AdminPageHeaderProps) {
   return (
-    <header className="rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+    <header className="flex flex-col gap-1">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1">
           {eyebrow ? (
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {eyebrow}
-            </p>
+            <p className="text-sm text-muted-foreground">{eyebrow}</p>
           ) : null}
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            {title}
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           {description ? (
-            <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>
+            <p className="text-sm text-muted-foreground">{description}</p>
           ) : null}
         </div>
         {actions ? (
@@ -81,7 +77,7 @@ export function AdminSurface({ children, className }: AdminSurfaceProps) {
   return (
     <section
       className={cn(
-        'rounded-xl border border-border bg-card p-4 shadow-sm',
+        'rounded-xl border bg-card p-6 text-card-foreground shadow-sm',
         className
       )}
     >

@@ -262,7 +262,7 @@ export const VehicleSelector = () => {
     return (
       <div className="w-full max-w-6xl mx-auto px-3 sm:px-4 z-40 relative font-sans">
         <div className="flex items-center justify-center h-[48px]">
-          <div className="animate-pulse text-slate-400">
+          <div className="animate-pulse text-muted-foreground">
             Loading vehicles...
           </div>
         </div>
@@ -276,10 +276,10 @@ export const VehicleSelector = () => {
       <div className="flex flex-col gap-3 items-center md:hidden">
         {/* License Plate Group - Türkiye */}
         <div className="flex items-center shadow-md rounded-md overflow-hidden h-[46px] w-full max-w-md">
-          <div className="bg-[#1248b0] w-11 h-full flex flex-col items-center justify-center gap-0.5 z-10">
+          <div className="bg-primary w-11 h-full flex flex-col items-center justify-center gap-0.5 z-10">
             <svg
               viewBox="0 0 24 24"
-              className="w-5 h-5 text-white flex-shrink-0"
+              className="w-5 h-5 text-primary-foreground flex-shrink-0"
               fill="currentColor"
               aria-hidden
             >
@@ -289,27 +289,27 @@ export const VehicleSelector = () => {
               />
               <path d="M16 5.5l1 3.5 3.5.5-2.5 2 .5 3.5L16 13l-2.5 2 .5-3.5-2.5-2 3.5-.5 1-3.5z" />
             </svg>
-            <span className="text-white font-bold text-[10px]">TR</span>
+            <span className="text-primary-foreground font-bold text-[10px]">TR</span>
           </div>
-          <div className="relative h-full bg-white flex-1 border-y border-r border-slate-200 flex items-center">
+          <div className="relative h-full bg-background flex-1 border-y border-r border-border flex items-center">
             <input
               type="text"
               placeholder="34 TC 036"
-              className="w-full h-full px-3 text-slate-800 font-bold uppercase text-sm placeholder:text-slate-300 placeholder:font-normal focus:outline-none"
+              className="w-full h-full px-3 text-foreground font-bold uppercase text-sm placeholder:text-muted-foreground/70 placeholder:font-normal focus:outline-none"
             />
           </div>
-          <button className="h-full w-11 bg-[#0f75d8] hover:bg-[#0b68c4] text-white flex items-center justify-center transition-colors">
+          <button className="h-full w-11 bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors">
             <Search size={18} strokeWidth={2.5} />
           </button>
         </div>
 
         {/* Divider OR */}
         <div className="flex items-center gap-4 w-full max-w-md">
-          <div className="flex-1 h-px bg-slate-400/30"></div>
-          <span className="text-slate-400 text-xs font-bold tracking-wider">
+          <div className="flex-1 h-px bg-muted-foreground/40/30"></div>
+          <span className="text-muted-foreground text-xs font-bold tracking-wider">
             OR
           </span>
-          <div className="flex-1 h-px bg-slate-400/30"></div>
+          <div className="flex-1 h-px bg-muted-foreground/40/30"></div>
         </div>
 
         {/* Single Select Vehicle Button */}
@@ -319,12 +319,12 @@ export const VehicleSelector = () => {
             onClick={() => setIsMobileModalOpen(true)}
             className="w-full flex items-center justify-between text-left h-11"
           >
-            <span className="text-slate-800 font-medium">
+            <span className="text-foreground font-medium">
               {selectedType
                 ? `${selectedMake?.name} ${selectedModel?.name}`
                 : 'Select vehicle'}
             </span>
-            <ChevronDown size={20} className="text-slate-400" />
+            <ChevronDown size={20} className="text-muted-foreground" />
           </Button>
         </div>
       </div>
@@ -339,10 +339,10 @@ export const VehicleSelector = () => {
       <div className="hidden md:flex flex-row gap-2.5 items-center justify-center">
         {/* License Plate Group - Türkiye */}
         <div className="flex items-center shadow-md rounded-md overflow-hidden h-[46px]">
-          <div className="bg-[#1248b0] w-10 h-full flex flex-col items-center justify-center gap-0.5 z-10">
+          <div className="bg-primary w-10 h-full flex flex-col items-center justify-center gap-0.5 z-10">
             <svg
               viewBox="0 0 24 24"
-              className="w-4 h-4 text-white flex-shrink-0"
+              className="w-4 h-4 text-primary-foreground flex-shrink-0"
               fill="currentColor"
               aria-hidden
             >
@@ -352,27 +352,27 @@ export const VehicleSelector = () => {
               />
               <path d="M16 5.5l1 3.5 3.5.5-2.5 2 .5 3.5L16 13l-2.5 2 .5-3.5-2.5-2 3.5-.5 1-3.5z" />
             </svg>
-            <span className="text-white font-bold text-[10px]">TR</span>
+            <span className="text-primary-foreground font-bold text-[10px]">TR</span>
           </div>
-          <div className="relative h-full bg-white w-44 border-y border-r border-slate-200 flex items-center">
+          <div className="relative h-full bg-background w-44 border-y border-r border-border flex items-center">
             <input
               type="text"
               placeholder="34 TC 036"
-              className="w-full h-full px-3 text-slate-800 font-bold uppercase text-sm placeholder:text-slate-300 placeholder:font-normal focus:outline-none"
+              className="w-full h-full px-3 text-foreground font-bold uppercase text-sm placeholder:text-muted-foreground/70 placeholder:font-normal focus:outline-none"
             />
           </div>
-          <button className="h-full w-11 bg-[#0f75d8] hover:bg-[#0b68c4] text-white flex items-center justify-center transition-colors">
+          <button className="h-full w-11 bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center transition-colors">
             <Search size={18} strokeWidth={2.5} />
           </button>
         </div>
 
         {/* Divider OR */}
         <div className="flex flex-col items-center gap-1 h-10 justify-center px-2">
-          <div className="w-px h-3 bg-slate-400/40"></div>
-          <span className="text-slate-400 text-[10px] font-bold tracking-wider">
+          <div className="w-px h-3 bg-muted-foreground/40/40"></div>
+          <span className="text-muted-foreground text-[10px] font-bold tracking-wider">
             OR
           </span>
-          <div className="w-px h-3 bg-slate-400/40"></div>
+          <div className="w-px h-3 bg-muted-foreground/40/40"></div>
         </div>
 
         {/* Dropdowns Group */}
@@ -443,7 +443,7 @@ export const VehicleSelector = () => {
           <button
             onClick={handleSearch}
             disabled={!selectedType}
-            className="h-[46px] w-11 bg-[#0f75d8] hover:bg-[#0b68c4] text-white flex items-center justify-center rounded-md shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="h-[46px] w-11 bg-primary hover:bg-primary/90 text-primary-foreground flex items-center justify-center rounded-md shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             <Search size={18} strokeWidth={2.5} />
           </button>

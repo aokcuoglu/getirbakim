@@ -44,7 +44,7 @@ export function GuestOrderLookupClient() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-3xl border border-border bg-background p-6 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto]">
           <Input
             value={orderNumber}

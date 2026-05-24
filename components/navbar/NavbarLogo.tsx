@@ -33,10 +33,10 @@ export const NavbarLogo: React.FC<NavbarLogoProps> = ({
       {!compact && (
         <div className="flex flex-col">
           <p className="tracking-tighter text-xl flex items-baseline font-sans leading-none">
-            <span className="font-bold text-[#5D3EBC]">Getir</span>
-            <span className="font-bold text-slate-800 ml-px">Bakım</span>
+            <span className="font-bold text-primary">Getir</span>
+            <span className="font-bold text-foreground ml-px">Bakım</span>
           </p>
-          <p className="text-xs text-slate-400">getir bi'bakayim</p>
+          <p className="text-xs text-muted-foreground">getir bi'bakayim</p>
         </div>
       )}
     </Link>

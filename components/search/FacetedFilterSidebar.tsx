@@ -64,19 +64,19 @@ function FacetGroupSection({
   }
 
   return (
-    <div className="border-b border-slate-100 pb-4 last:border-0">
+    <div className="border-b border-border pb-4 last:border-0">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex w-full items-center justify-between py-2 text-left"
       >
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-900">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-foreground">
           {group.label}
         </h3>
         {isExpanded ? (
-          <ChevronUp className="h-4 w-4 text-slate-400" />
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
         )}
       </button>
 
@@ -91,7 +91,7 @@ function FacetGroupSection({
                 key={option.value}
                 className={cn(
                   'group flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors',
-                  isSelected ? 'bg-slate-100' : 'hover:bg-slate-50',
+                  isSelected ? 'bg-muted' : 'hover:bg-muted',
                   isLoading && 'pointer-events-none opacity-50'
                 )}
               >
@@ -100,13 +100,13 @@ function FacetGroupSection({
                   className={cn(
                     'flex h-4 w-4 items-center justify-center rounded border transition-all',
                     isSelected
-                      ? 'border-slate-900 bg-slate-900'
-                      : 'border-slate-300 bg-white group-hover:border-slate-400'
+                      ? 'border-primary bg-primary'
+                      : 'border-input bg-background group-hover:border-input'
                   )}
                 >
                   {isSelected && (
                     <svg
-                      className="h-3 w-3 text-white"
+                      className="h-3 w-3 text-primary-foreground"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -133,8 +133,8 @@ function FacetGroupSection({
                   className={cn(
                     'flex-1 text-sm',
                     isSelected
-                      ? 'font-medium text-slate-900'
-                      : 'text-slate-600 group-hover:text-slate-900'
+                      ? 'font-medium text-foreground'
+                      : 'text-muted-foreground group-hover:text-foreground'
                   )}
                 >
                   {option.label}
@@ -142,7 +142,7 @@ function FacetGroupSection({
                 <span
                   className={cn(
                     'text-xs tabular-nums',
-                    isSelected ? 'text-slate-700' : 'text-slate-400'
+                    isSelected ? 'text-foreground' : 'text-muted-foreground'
                   )}
                 >
                   ({option.count})
@@ -155,7 +155,7 @@ function FacetGroupSection({
           {hasMore && (
             <button
               onClick={() => setShowAll(!showAll)}
-              className="mt-2 text-xs font-medium text-slate-500 hover:text-slate-700"
+              className="mt-2 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               {showAll
                 ? t('showLess')
@@ -201,14 +201,14 @@ function ActiveFilters({
   }
 
   return (
-    <div className="mb-4 border-b border-slate-100 pb-4">
+    <div className="mb-4 border-b border-border pb-4">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t('activeFilters')}
         </span>
         <button
           onClick={onClearFilters}
-          className="text-xs text-red-500 hover:text-red-700"
+          className="text-xs text-destructive hover:text-red-700"
         >
           {t('clearAll')}
         </button>
@@ -217,12 +217,12 @@ function ActiveFilters({
         {filters.brands.map((brand) => (
           <span
             key={`brand-${brand}`}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground"
           >
             {getLabel('brandName', brand)}
             <button
               onClick={() => onToggleFacet('brandName', brand)}
-              className="ml-0.5 rounded-full p-0.5 hover:bg-slate-200"
+              className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
             >
               <X className="h-3 w-3" />
             </button>
@@ -231,12 +231,12 @@ function ActiveFilters({
         {filters.categories.map((category) => (
           <span
             key={`category-${category}`}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground"
           >
             {getLabel('categoryName', category)}
             <button
               onClick={() => onToggleFacet('categoryName', category)}
-              className="ml-0.5 rounded-full p-0.5 hover:bg-slate-200"
+              className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
             >
               <X className="h-3 w-3" />
             </button>
@@ -274,13 +274,13 @@ export function FacetedFilterSidebar({
   return (
     <aside
       className={cn(
-        'w-full space-y-4 rounded-lg bg-white p-4 shadow-sm md:w-64 lg:w-72',
+        'w-full space-y-4 rounded-lg bg-background p-4 shadow-sm md:w-64 lg:w-72',
         className
       )}
     >
       {/* Header */}
-      <div className="border-b border-slate-100 pb-3">
-        <h2 className="text-base font-bold text-slate-900">{t('filters')}</h2>
+      <div className="border-b border-border pb-3">
+        <h2 className="text-base font-bold text-foreground">{t('filters')}</h2>
       </div>
 
       {/* Active Filters */}
@@ -306,8 +306,8 @@ export function FacetedFilterSidebar({
 
       {/* Loading Overlay */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-white/50">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/50">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-input border-t-primary" />
         </div>
       )}
     </aside>

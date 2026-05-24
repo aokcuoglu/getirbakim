@@ -43,7 +43,7 @@ const Hero: React.FC<HeroProps> = ({
   }
 
   return (
-    <div className="w-full bg-white">
+    <div className="w-full bg-background">
       {/* 1. Hero Section (Vehicle + Intro) */}
       <PartFinder />
 

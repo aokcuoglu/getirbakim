@@ -79,7 +79,7 @@ export default async function CategoryLayout({
   tg.logSummary()
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen bg-muted flex flex-col">
       <Navbar navbarCategories={navbarCategories} />
 
       <main className="flex-1">

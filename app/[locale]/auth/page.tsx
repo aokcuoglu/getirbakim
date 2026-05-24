@@ -9,11 +9,11 @@ export default function Page() {
   const t = useTranslations('AuthPage')
 
   return (
-    <div className="min-h-screen bg-slate-50 relative">
+    <div className="min-h-screen bg-muted relative">
       <div className="absolute top-4 left-4">
         <button
           onClick={() => router.push('/')}
-          className="text-slate-500 hover:text-slate-900"
+          className="text-muted-foreground hover:text-foreground"
         >
           {t('backToHome')}
         </button>

@@ -52,7 +52,7 @@ export function SearchResults({
   if (isLoading && hits.length === 0) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -60,11 +60,11 @@ export function SearchResults({
   if (!isLoading && hits.length === 0) {
     return (
       <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
-        <Package className="h-16 w-16 text-slate-200" />
-        <h3 className="mt-4 text-lg font-medium text-slate-900">
+        <Package className="h-16 w-16 text-primary-foreground/80" />
+        <h3 className="mt-4 text-lg font-medium text-foreground">
           {t('noResultsTitle')}
         </h3>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-muted-foreground">
           {t('noResultsDescription')}
         </p>
       </div>
@@ -75,14 +75,14 @@ export function SearchResults({
     <div className={cn('space-y-4', className)}>
       {/* Results Count */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">
-          <span className="font-medium text-slate-900">
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">
             {totalHits.toLocaleString(numberLocale)}
           </span>{' '}
           {t('productsFound')}
         </p>
         {isLoading && (
-          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         )}
       </div>
 

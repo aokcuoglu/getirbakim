@@ -47,14 +47,14 @@ export default async function AccountPage(props: {
   if (!user?.id) {
     const t = await getTranslations({ locale, namespace: 'AccountPage' })
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-muted">
         <Navbar navbarCategories={navbarCategories} />
         <main className="mx-auto max-w-4xl px-4 pb-12 pt-4 md:pt-8">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 sm:p-8 shadow-sm">
-            <h1 className="text-2xl font-bold text-slate-900">
+          <div className="rounded-3xl border border-border bg-background p-6 sm:p-8 shadow-sm">
+            <h1 className="text-2xl font-bold text-foreground">
               {t('signInToView')}
             </h1>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-muted-foreground">
               {t('description')}
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
@@ -95,7 +95,7 @@ export default async function AccountPage(props: {
   }))
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-muted">
       <Navbar navbarCategories={navbarCategories} />
       <main className="mx-auto max-w-[1280px] px-4 pb-12 pt-4 md:pt-8">
         <AccountWorkspace

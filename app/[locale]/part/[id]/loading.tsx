@@ -3,26 +3,26 @@ import { GridProductCardSkeleton } from '@/app/[locale]/[...slug]/_components/Gr
 
 export default function PartDetailLoading() {
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Navbar placeholder */}
-      <div className="h-16 bg-white border-b border-slate-200" />
+      <div className="h-16 bg-background border-b border-border" />
 
       {/* Main Content */}
-      <main className="flex-1 bg-slate-50">
+      <main className="flex-1 bg-muted">
         {/* Breadcrumb skeleton */}
-        <div className="bg-white border-b border-slate-200 py-4 px-6">
+        <div className="bg-background border-b border-border py-4 px-6">
           <div className="max-w-7xl mx-auto flex items-center gap-2">
             <Skeleton className="h-4 w-16" />
-            <span className="text-slate-300">/</span>
+            <span className="text-muted-foreground/70">/</span>
             <Skeleton className="h-4 w-24" />
-            <span className="text-slate-300">/</span>
+            <span className="text-muted-foreground/70">/</span>
             <Skeleton className="h-4 w-32" />
           </div>
         </div>
 
         {/* Main Product Section */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 md:p-6 lg:p-8">
+          <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
               {/* Left - Image Gallery Skeleton */}
               <div className="space-y-4">
@@ -56,7 +56,7 @@ export default function PartDetailLoading() {
                 </div>
 
                 {/* Properties */}
-                <div className="space-y-3 py-4 border-y border-slate-200">
+                <div className="space-y-3 py-4 border-y border-border">
                   <Skeleton className="h-4 w-48" />
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-4 w-44" />
@@ -65,7 +65,7 @@ export default function PartDetailLoading() {
 
                 {/* Price */}
                 <div className="space-y-2">
-                  <Skeleton className="h-10 w-32" />
+                  <Skeleton className="w-32" />
                   <Skeleton className="h-4 w-48" />
                 </div>
 
@@ -82,8 +82,8 @@ export default function PartDetailLoading() {
           </div>
 
           {/* Tabs Skeleton */}
-          <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex gap-4 border-b border-slate-200 pb-4 mb-6">
+          <div className="mt-8 bg-background rounded-xl shadow-sm border border-border p-6">
+            <div className="flex gap-4 border-b border-border pb-4 mb-6">
               <Skeleton className="h-8 w-24" />
               <Skeleton className="h-8 w-28" />
               <Skeleton className="h-8 w-20" />

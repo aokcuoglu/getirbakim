@@ -167,13 +167,13 @@ export function CustomerRequestDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-w-xl border-slate-200 bg-white p-0">
-        <div className="border-b border-slate-100 bg-slate-50 px-6 py-5">
+      <DialogContent className="max-w-xl border-border bg-background p-0">
+        <div className="border-b border-border bg-muted px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="text-xl text-slate-900">
+            <DialogTitle className="text-xl text-foreground">
               {resolvedTitle}
             </DialogTitle>
-            <DialogDescription className="text-sm text-slate-600">
+            <DialogDescription className="text-sm text-muted-foreground">
               {resolvedDescription}
             </DialogDescription>
           </DialogHeader>
@@ -181,8 +181,8 @@ export function CustomerRequestDialog({
 
         <div className="space-y-4 px-6 py-5">
           {product?.partName && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">{triggerLabel}</p>
+            <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground">
+              <p className="font-semibold text-foreground">{triggerLabel}</p>
               <p className="mt-1">
                 {[product.brandName, product.partName].filter(Boolean).join(' ')}
               </p>
@@ -190,7 +190,7 @@ export function CustomerRequestDialog({
           )}
 
           {requestType === 'MISSING_PRODUCT' && searchQuery && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="rounded-md border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-amber-900">
               <p className="font-semibold">{t('missingProduct.lastSearch')}</p>
               <p className="mt-1 break-words">{searchQuery}</p>
             </div>
@@ -198,7 +198,7 @@ export function CustomerRequestDialog({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium text-foreground">
                 {t('fields.name')}
               </label>
               <Input
@@ -208,7 +208,7 @@ export function CustomerRequestDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium text-foreground">
                 {t('fields.email')}
               </label>
               <Input
@@ -226,7 +226,7 @@ export function CustomerRequestDialog({
             }`}
           >
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium text-foreground">
                 {t('fields.phone')}
               </label>
               <Input
@@ -238,7 +238,7 @@ export function CustomerRequestDialog({
 
             {requestType === 'MISSING_PRODUCT' && (
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-700">
+                <label className="text-sm font-medium text-foreground">
                   {t('fields.searchedPart')}
                 </label>
                 <Input
@@ -252,7 +252,7 @@ export function CustomerRequestDialog({
 
           {requestType === 'MISSING_PRODUCT' && (
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">
+              <label className="text-sm font-medium text-foreground">
                 {t('fields.vehicle')}
               </label>
               <Input
@@ -264,7 +264,7 @@ export function CustomerRequestDialog({
           )}
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-slate-700">
+            <label className="text-sm font-medium text-foreground">
               {requestType === 'MISSING_PRODUCT'
                 ? t('missingProduct.noteLabel')
                 : t('fields.message')}

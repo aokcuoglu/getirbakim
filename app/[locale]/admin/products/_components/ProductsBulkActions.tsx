@@ -207,13 +207,13 @@ export function ProductsBulkActions({
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+    <div className="space-y-4 rounded-xl border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-[#101828]">
+          <h3 className="text-sm font-semibold text-foreground">
             {mode === 'full' ? `Toplu İşlemler (${selectedIds.length} seçili)` : 'CSV Araçları'}
           </h3>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             {mode === 'full'
               ? 'Seçili ürünlerde fiyat/görünürlük güncellemesi yapın.'
               : 'Filtreye göre ürünleri dışa aktarın veya CSV ile içe alın.'}
@@ -240,16 +240,16 @@ export function ProductsBulkActions({
       {mode === 'full' ? (
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
           <div className="xl:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Satış fiyatı override (TRY)
             </label>
             <input
               value={priceInput}
               onChange={(event) => setPriceInput(event.target.value)}
               placeholder="Örn: 1299.90"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-border px-3 py-2 text-sm"
             />
-            <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+            <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={lockPrice}
@@ -260,7 +260,7 @@ export function ProductsBulkActions({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Görünürlük
             </label>
             <Select
@@ -278,7 +278,7 @@ export function ProductsBulkActions({
                 <SelectItem value="hidden">Gizli</SelectItem>
               </SelectContent>
             </Select>
-            <label className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+            <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={lockVisibility}
@@ -293,7 +293,7 @@ export function ProductsBulkActions({
               type="button"
               onClick={handleBulkApply}
               disabled={isPending || bulkDisabled}
-              className="w-full bg-[#101828] hover:bg-[#1d2939]"
+              className="w-full"
             >
               {isPending ? (
                 <Loader2 size={14} className="mr-2 animate-spin" />
@@ -306,11 +306,11 @@ export function ProductsBulkActions({
         </div>
       ) : null}
 
-      <div className="border-t border-gray-100 pt-4">
-        <h4 className="text-sm font-semibold text-[#101828]">
+      <div className="border-t border-border pt-4">
+        <h4 className="text-sm font-semibold text-foreground">
           CSV Güncelleme İçe Aktar
         </h4>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           Desteklenen kolonlar: `part_id`, `article_link_id`,
           `selling_price_override`, `is_visible`, `min_stock_level`,
           `lock_price`, `lock_visibility`.
@@ -321,7 +321,7 @@ export function ProductsBulkActions({
             ref={updateFileInputRef}
             type="file"
             accept=".csv,text/csv"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm md:max-w-sm"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm md:max-w-sm"
           />
           <Button
             type="button"
@@ -340,14 +340,14 @@ export function ProductsBulkActions({
             type="button"
             disabled={isPending}
             onClick={() => runUpdateImport('apply')}
-            className="bg-emerald-600 hover:bg-emerald-700"
+            className="bg-success hover:bg-success"
           >
             Uygula
           </Button>
         </div>
 
         {updatePreviewSummary && (
-          <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
+          <div className="mt-3 rounded-lg bg-muted p-3 text-xs text-foreground">
             <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
               <span>Toplam: {updatePreviewSummary.totalRows}</span>
               <span>Hazır: {updatePreviewSummary.readyRows}</span>
@@ -359,10 +359,10 @@ export function ProductsBulkActions({
         )}
 
         {updatePreviewRows.length > 0 && (
-          <div className="mt-3 max-h-56 overflow-auto rounded-lg border border-gray-200">
+          <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border">
             <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-gray-100">
+              <thead className="sticky top-0 bg-background">
+                <tr className="border-b border-border">
                   <th className="px-3 py-2">Satır</th>
                   <th className="px-3 py-2">Part ID</th>
                   <th className="px-3 py-2">Durum</th>
@@ -375,7 +375,7 @@ export function ProductsBulkActions({
                     <td className="px-3 py-2">{row.row}</td>
                     <td className="px-3 py-2">{row.partId || '-'}</td>
                     <td className="px-3 py-2 font-semibold">{row.status}</td>
-                    <td className="px-3 py-2 text-gray-600">{row.message}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{row.message}</td>
                   </tr>
                 ))}
               </tbody>
@@ -384,13 +384,13 @@ export function ProductsBulkActions({
         )}
       </div>
 
-      <div className="border-t border-gray-100 pt-4">
+      <div className="border-t border-border pt-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h4 className="text-sm font-semibold text-[#101828]">
+            <h4 className="text-sm font-semibold text-foreground">
               Yeni Ürün CSV Import
             </h4>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               `template_part_id` tabanlı satırlarla yeni ürün ve ilişkili teknik tabloları
               tek seferde oluşturur.
             </p>
@@ -415,7 +415,7 @@ export function ProductsBulkActions({
             ref={newFileInputRef}
             type="file"
             accept=".csv,text/csv"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm md:max-w-sm"
+            className="w-full rounded-md border border-border px-3 py-2 text-sm md:max-w-sm"
           />
           <Button
             type="button"
@@ -434,14 +434,14 @@ export function ProductsBulkActions({
             type="button"
             disabled={isPending}
             onClick={() => runNewImport('apply')}
-            className="bg-emerald-600 hover:bg-emerald-700"
+            className="bg-success hover:bg-success"
           >
             Uygula
           </Button>
         </div>
 
         {newPreviewSummary && (
-          <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
+          <div className="mt-3 rounded-lg bg-muted p-3 text-xs text-foreground">
             <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
               <span>Toplam: {newPreviewSummary.totalRows}</span>
               <span>Hazır: {newPreviewSummary.readyRows}</span>
@@ -453,10 +453,10 @@ export function ProductsBulkActions({
         )}
 
         {newPreviewRows.length > 0 && (
-          <div className="mt-3 max-h-56 overflow-auto rounded-lg border border-gray-200">
+          <div className="mt-3 max-h-56 overflow-auto rounded-md border border-border">
             <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-gray-100">
+              <thead className="sticky top-0 bg-background">
+                <tr className="border-b border-border">
                   <th className="px-3 py-2">Satır</th>
                   <th className="px-3 py-2">Template ID</th>
                   <th className="px-3 py-2">Part ID</th>
@@ -471,7 +471,7 @@ export function ProductsBulkActions({
                     <td className="px-3 py-2">{row.templatePartId || '-'}</td>
                     <td className="px-3 py-2">{row.partId || '-'}</td>
                     <td className="px-3 py-2 font-semibold">{row.status}</td>
-                    <td className="px-3 py-2 text-gray-600">{row.message}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{row.message}</td>
                   </tr>
                 ))}
               </tbody>

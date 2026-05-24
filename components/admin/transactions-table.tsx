@@ -6,6 +6,7 @@ import {
   XCircle
 } from 'lucide-react'
 import type { ElementType } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import {
   MobileDataCard,
@@ -33,27 +34,27 @@ const statusStyles: Record<string, { label: string; icon: ElementType; tone: str
   PENDING: {
     label: 'Beklemede',
     icon: Clock3,
-    tone: 'bg-amber-50 text-amber-700 border-amber-200'
+    tone: 'bg-warning/10 text-warning border-warning/20'
   },
   COMPLETED: {
     label: 'Tamamlandı',
     icon: BadgeCheck,
-    tone: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    tone: 'bg-success/10 text-success border-success/20'
   },
   CANCELLED: {
     label: 'İptal',
     icon: XCircle,
-    tone: 'bg-rose-50 text-rose-700 border-rose-200'
+    tone: 'bg-destructive/10 text-destructive border-destructive/20'
   }
 }
 
 export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-      <div className="xl:col-span-2 rounded-2xl border border-indigo-100/50 bg-white p-4 shadow-lg shadow-indigo-100/50 sm:p-5">
+      <div className="xl:col-span-2 rounded-2xl border border-border/50 bg-background p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-slate-900">Son Siparişler</h3>
-          <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+          <h3 className="text-lg font-bold text-foreground">Son Siparişler</h3>
+          <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
             {orders.length} kayıt
           </span>
         </div>
@@ -61,7 +62,7 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
         <ResponsiveDataView
           mobile={
             orders.length === 0 ? (
-              <div className="py-10 text-center text-slate-400">
+              <div className="py-10 text-center text-muted-foreground">
                 <ShoppingBag className="mx-auto mb-2 opacity-40" size={24} />
                 Sipariş kaydı bulunamadı.
               </div>
@@ -71,29 +72,24 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                   const style = statusStyles[order.status] || statusStyles.PENDING
                   const Icon = style.icon
                   return (
-                    <MobileDataCard key={order.id} className="border border-slate-100 bg-slate-50/50">
+                    <MobileDataCard key={order.id} className="border border-border bg-muted/50">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-semibold text-slate-800">
+                          <p className="font-semibold text-foreground">
                             #{order.id} - {order.customerName}
                           </p>
-                          <p className="text-xs text-slate-400 truncate">
+                          <p className="text-xs text-muted-foreground truncate">
                             {order.customerEmail || '-'}
                           </p>
                         </div>
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold',
-                            style.tone
-                          )}
-                        >
+                        <Badge variant="outline" className={cn('gap-1 text-xs font-semibold', style.tone)}>
                           <Icon size={12} />
                           {style.label}
-                        </span>
+                        </Badge>
                       </div>
-                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                         <span>{new Date(order.createdAt).toLocaleDateString('tr-TR')}</span>
-                        <span className="font-bold text-slate-900">
+                        <span className="font-bold text-foreground">
                           {order.totalAmount.toLocaleString('tr-TR', {
                             style: 'currency',
                             currency: 'TRY',
@@ -111,7 +107,7 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
             <div className="overflow-x-auto -mx-4 sm:mx-0">
               <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  <tr className="border-b border-border text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     <th className="px-4 py-3">Sipariş</th>
                     <th className="px-4 py-3">Müşteri</th>
                     <th className="px-4 py-3">Tarih</th>
@@ -119,28 +115,28 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                     <th className="px-4 py-3">Durum</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-border">
                   {orders.map((order) => {
                     const style =
                       statusStyles[order.status] || statusStyles.PENDING
                     const Icon = style.icon
                     return (
-                      <tr key={order.id} className="transition-colors hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-semibold text-slate-700">
+                      <tr key={order.id} className="transition-colors hover:bg-muted/50">
+                        <td className="px-4 py-3 font-semibold text-foreground">
                           #{order.id}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-800">
+                          <div className="font-medium text-foreground">
                             {order.customerName}
                           </div>
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-muted-foreground">
                             {order.customerEmail || '-'}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-500">
+                        <td className="px-4 py-3 text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString('tr-TR')}
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-900">
+                        <td className="px-4 py-3 font-bold text-foreground">
                           {order.totalAmount.toLocaleString('tr-TR', {
                             style: 'currency',
                             currency: 'TRY',
@@ -148,15 +144,10 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                           })}
                         </td>
                         <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold',
-                              style.tone
-                            )}
-                          >
+                          <Badge variant="outline" className={cn('gap-1 text-xs font-semibold', style.tone)}>
                             <Icon size={12} />
                             {style.label}
-                          </span>
+                          </Badge>
                         </td>
                       </tr>
                     )
@@ -166,7 +157,7 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                     <tr>
                       <td
                         colSpan={5}
-                        className="px-4 py-10 text-center text-slate-400"
+                        className="px-4 py-10 text-center text-muted-foreground"
                       >
                         <ShoppingBag
                           className="mx-auto mb-2 opacity-40"
@@ -183,10 +174,10 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
         />
       </div>
 
-      <div className="rounded-2xl border border-indigo-100/50 bg-white p-4 shadow-lg shadow-indigo-100/50 sm:p-5">
+      <div className="rounded-2xl border border-border/50 bg-background p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex items-center gap-2">
-          <h3 className="text-lg font-bold text-slate-900">Kritik Uyarılar</h3>
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-[10px] font-bold text-rose-600">
+          <h3 className="text-lg font-bold text-foreground">Kritik Uyarılar</h3>
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-destructive/15 text-[10px] font-bold text-destructive">
             {alerts.length}
           </span>
         </div>
@@ -197,27 +188,27 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
               className={cn(
                 'relative overflow-hidden rounded-xl border p-4',
                 alert.severity === 'high'
-                  ? 'border-rose-200 bg-gradient-to-br from-rose-50 to-rose-100/30'
+                  ? 'border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/10'
                   : alert.severity === 'medium'
-                    ? 'border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100/30'
-                    : 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100/30'
+                    ? 'border-warning/20 bg-gradient-to-br from-warning/10 to-warning/10'
+                    : 'border-success/20 bg-gradient-to-br from-success/10 to-success/10'
               )}
             >
               <div className="flex items-start justify-between">
-                <p className="text-sm font-medium text-slate-700">{alert.label}</p>
+                <p className="text-sm font-medium text-foreground">{alert.label}</p>
                 <AlertTriangle
                   size={16}
                   className={cn(
                     'mt-0.5',
                     alert.severity === 'high'
-                      ? 'text-rose-500'
+                      ? 'text-destructive'
                       : alert.severity === 'medium'
-                        ? 'text-amber-500'
-                        : 'text-emerald-500'
+                        ? 'text-warning'
+                        : 'text-success'
                   )}
                 />
               </div>
-              <p className="mt-2 text-2xl font-bold text-slate-900">
+              <p className="mt-2 text-2xl font-bold text-foreground">
                 {alert.value.toLocaleString('tr-TR')}
               </p>
             </div>

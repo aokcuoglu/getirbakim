@@ -53,10 +53,10 @@ export function CategoryLeafSkeleton({
       <div className="flex flex-col lg:flex-row gap-5 xl:gap-6">
         <SearchSidebarSkeleton extraSections={categoryExtraSections} />
         <div className="flex-1">
-          <div className="mb-3 flex flex-wrap items-center justify-end gap-2.5 border-b border-slate-100 pb-2.5">
+          <div className="mb-3 flex flex-wrap items-center justify-end gap-2.5 border-b border-border pb-2.5">
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Select defaultValue="popularity">
-                <SelectTrigger className="h-8 w-[156px] rounded-sm border-slate-200 bg-white text-[13px]">
+                <SelectTrigger className="h-8 w-[156px] rounded-sm border-border bg-background text-[13px]">
                   <SelectValue placeholder={t('sortBy')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -67,7 +67,7 @@ export function CategoryLeafSkeleton({
                 </SelectContent>
               </Select>
               <Select defaultValue="24">
-                <SelectTrigger className="h-8 w-[68px] rounded-sm border-slate-200 bg-white text-[13px]">
+                <SelectTrigger className="h-8 w-[68px] rounded-sm border-border bg-background text-[13px]">
                   <SelectValue placeholder="24" />
                 </SelectTrigger>
                 <SelectContent>
@@ -75,22 +75,22 @@ export function CategoryLeafSkeleton({
                   <SelectItem value="48">48</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex items-center overflow-hidden rounded-sm border border-slate-200 bg-white">
+              <div className="flex items-center overflow-hidden rounded-sm border border-border bg-background">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setViewMode('list')}
-                  className={`h-8 w-8 rounded-none ${viewMode === 'list' ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
+                  className={`h-8 w-8 rounded-none ${viewMode === 'list' ? 'bg-muted' : 'hover:bg-muted'}`}
                 >
-                  <List className="w-4 h-4 text-slate-600" />
+                  <List className="w-4 h-4 text-muted-foreground" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => setViewMode('grid')}
-                  className={`h-8 w-8 rounded-none ${viewMode === 'grid' ? 'bg-slate-100' : 'hover:bg-slate-50'}`}
+                  className={`h-8 w-8 rounded-none ${viewMode === 'grid' ? 'bg-muted' : 'hover:bg-muted'}`}
                 >
-                  <Grid className="w-4 h-4 text-slate-600" />
+                  <Grid className="w-4 h-4 text-muted-foreground" />
                 </Button>
               </div>
             </div>
