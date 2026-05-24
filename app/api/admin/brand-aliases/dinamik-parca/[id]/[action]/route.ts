@@ -57,11 +57,8 @@ export async function POST(
     switch (action) {
       case 'approve': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-            SET mapping_status = 'APPROVED',
-                approved_by = 'admin',
-                approved_at = NOW(),
-                updated_at = NOW()
+          Prisma.sql`UPDATE parcatedarik.dbrands_match
+            SET mapping_status = 'APPROVED'
             WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
@@ -69,9 +66,8 @@ export async function POST(
 
       case 'reject': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-            SET mapping_status = 'REJECTED',
-                updated_at = NOW()
+          Prisma.sql`UPDATE parcatedarik.dbrands_match
+            SET mapping_status = 'REJECTED'
             WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi reddedildi.' }, context)
@@ -79,9 +75,8 @@ export async function POST(
 
       case 'ignore': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-            SET mapping_status = 'IGNORED',
-                updated_at = NOW()
+          Prisma.sql`UPDATE parcatedarik.dbrands_match
+            SET mapping_status = 'IGNORED'
             WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi yoksayıldı.' }, context)
@@ -113,19 +108,14 @@ export async function POST(
         }
 
         const mfrName = manufacturer[0].name
-        const normalizedPcMfr = normalizeModel(mfrName) || ''
-        const confidence = body?.confidence ?? 0.95
+        const normalized = normalizeModel(mfrName) || ''
 
         await db.$executeRaw(
-          Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-            SET parcatedarik_manufacturer_id = ${mfrId},
-                normalized_pc_manufacturer = ${normalizedPcMfr},
-                confidence = ${confidence},
+          Prisma.sql`UPDATE parcatedarik.dbrands_match
+            SET manufacturer_id = ${mfrId},
+                normalized = ${normalized},
                 match_method = 'MANUAL',
-                mapping_status = 'APPROVED',
-                approved_by = 'admin',
-                approved_at = NOW(),
-                updated_at = NOW()
+                mapping_status = 'APPROVED'
             WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
@@ -133,7 +123,7 @@ export async function POST(
 
       case 'delete': {
         await db.$executeRaw(
-          Prisma.sql`DELETE FROM public.dinamik_parca_brand_aliases WHERE id = ${id}`
+          Prisma.sql`DELETE FROM parcatedarik.dbrands_match WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }

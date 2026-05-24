@@ -1,18 +1,21 @@
 import { describe, it, expect } from 'bun:test'
 
-const VALID_STATUSES = ['CANDIDATE', 'APPROVED', 'REJECTED', 'NEEDS_REVIEW', 'IGNORED'] as const
-const VALID_BARCODE_FIELDS = ['barcode_1', 'barcode_2', 'barcode_3'] as const
+const VALID_STATUSES = ['CANDIDATE', 'APPROVED', 'REJECTED', 'NEEDS_REVIEW', 'IGNORED', 'PT_UNMATCHED', 'MANUAL_MATCH'] as const
+const VALID_BARCODE_FIELDS = ['barcode_1', 'barcode_2', 'barcode_3', 'none'] as const
 const VALID_MATCH_REASONS = [
   'BARCODE_1_MODEL_EXACT',
   'BARCODE_2_MODEL_EXACT',
   'BARCODE_3_MODEL_EXACT',
-  'MULTIPLE_PARCA_MODEL_MATCHES'
+  'MULTIPLE_PARCA_MODEL_MATCHES',
+  'PT_UNMATCHED',
+  'MANUAL_MATCH',
+  'BRAND_ALIAS_DISAMBIGUATED'
 ] as const
 
 describe('dinamik-parcatedarik list API serializeRow', () => {
   const serializeRow = (row: Record<string, unknown>) => ({
     id: String(row.id),
-    dinamikProductId: String(row.dinamik_product_id),
+    dinamikProductId: row.dinamik_product_id == null ? null : String(row.dinamik_product_id),
     parcatedarikProductId: String(row.parcatedarik_product_id),
     dinamikBarcodeField: row.dinamik_barcode_field as string,
     dinamikBarcodeValue: row.dinamik_barcode_value as string,

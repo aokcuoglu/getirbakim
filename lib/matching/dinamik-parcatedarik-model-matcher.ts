@@ -74,24 +74,23 @@ type BrandAliasMap = Map<string, Map<number, number>>
 async function loadBrandAliasMap(): Promise<BrandAliasMap> {
   const aliases = await db.$queryRaw<
     Array<{
-      dinamik_brand: string
-      normalized_dinamik_brand: string
-      parcatedarik_manufacturer_id: number
-      confidence: number
+      dbrands_id: string
+      normalized: string
+      manufacturer_id: number
     }>
   >(Prisma.sql`
-    SELECT dinamik_brand, normalized_dinamik_brand, parcatedarik_manufacturer_id, confidence
-    FROM public.dinamik_parca_brand_aliases
+    SELECT dbrands_id, normalized, manufacturer_id
+    FROM parcatedarik.dbrands_match
     WHERE mapping_status = 'APPROVED'
   `)
 
   const map: BrandAliasMap = new Map()
   for (const ba of aliases) {
-    const key = normalizeModel(ba.dinamik_brand) || ba.normalized_dinamik_brand
+    const key = normalizeModel(ba.dbrands_id) || ba.normalized
     if (!map.has(key)) {
       map.set(key, new Map())
     }
-    map.get(key)!.set(ba.parcatedarik_manufacturer_id, Number(ba.confidence))
+    map.get(key)!.set(ba.manufacturer_id, 0.95)
   }
   return map
 }

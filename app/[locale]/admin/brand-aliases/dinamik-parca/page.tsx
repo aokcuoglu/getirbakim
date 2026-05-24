@@ -1,21 +1,3 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
-import {
-  AdminPageHeader,
-  AdminPageShell
-} from '@/components/admin/admin-page-shell'
-import { DinamikParcaBrandAliasesClient } from './_components/DinamikParcaBrandAliasesClient'
+import { redirect } from 'next/navigation'
 
-export default async function DinamikParcaBrandAliasesPage() {
-  return (
-    <AdminLayout>
-      <AdminPageShell width="wide">
-        <AdminPageHeader
-          title="Dinamik - ParçaTedarik Marka Eşleştirme"
-          description="Dinamik markalarını ParçaTedarik üreticileriyle eşleştirin. Model eşleştirmelerinde marka doğrulaması için kullanılır."
-          eyebrow="Brand Aliases"
-        />
-        <DinamikParcaBrandAliasesClient />
-      </AdminPageShell>
-    </AdminLayout>
-  )
-}
+export default function Page() { redirect('/admin/eslestirme') }

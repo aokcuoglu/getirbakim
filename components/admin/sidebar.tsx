@@ -7,6 +7,7 @@ import {
   FolderTree,
   Truck,
   Inbox,
+  Link2,
   PanelLeftClose,
   PanelLeftOpen,
   Search
@@ -211,6 +212,12 @@ export function Sidebar({
           label: 'Tedarikçiler',
           href: '/admin/suppliers',
           active: pathname.startsWith('/admin/suppliers')
+        },
+        {
+          icon: Link2,
+          label: 'Eşleştirmeler',
+          href: '/admin/eslestirme',
+          active: pathname.startsWith('/admin/eslestirme')
         },
         {
           icon: Inbox,

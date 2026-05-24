@@ -1244,7 +1244,7 @@ export async function getAdminDinamikProducts(
         d.barcode_2,
         d.barcode_3,
         d.updated_at
-      FROM dinamik.products d
+      FROM parcatedarik.dproducts d
       ${whereSql}
       ORDER BY d.updated_at DESC NULLS LAST, d.stock_code ASC
       LIMIT ${filters.limit}
@@ -1252,7 +1252,7 @@ export async function getAdminDinamikProducts(
     `),
       db.$queryRaw<DinamikCountRow[]>(Prisma.sql`
       SELECT COUNT(*)::int AS total
-      FROM dinamik.products d
+      FROM parcatedarik.dproducts d
       ${whereSql}
     `),
       db.$queryRaw<DinamikKpiRow[]>(Prisma.sql`
@@ -1270,12 +1270,12 @@ export async function getAdminDinamikProducts(
           ),
           0
         )::int AS priced_rows
-      FROM dinamik.products d
+      FROM parcatedarik.dproducts d
       ${whereSql}
     `),
       db.$queryRaw<DinamikBrandRow[]>(Prisma.sql`
       SELECT DISTINCT d.query_brand
-      FROM dinamik.products d
+      FROM parcatedarik.dproducts d
       WHERE d.query_brand IS NOT NULL
         AND d.query_brand <> ''
       ORDER BY d.query_brand ASC
@@ -1381,7 +1381,7 @@ export async function createAdminPartFromDinamik(input: {
       d.stock_name,
       d.brand,
       d.price::text AS price
-    FROM dinamik.products d
+    FROM parcatedarik.dproducts d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -1610,7 +1610,7 @@ export async function createAdminPartFromTemplate(input: {
       d.stock_name,
       d.brand,
       d.price::text AS price
-    FROM dinamik.products d
+    FROM parcatedarik.dproducts d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC

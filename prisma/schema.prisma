@@ -608,35 +608,24 @@ model supplier_sync_runs {
   @@schema("public")
 }
 
-model dinamik_parcatedarik_model_matches {
-  id                      BigInt              @id @default(autoincrement())
-  dinamik_product_id      BigInt
-  parcatedarik_product_id BigInt
-  dinamik_barcode_field   String
-  dinamik_barcode_value   String
-  normalized_barcode_value String
-  parcatedarik_model      String
-  normalized_model        String
-  match_reason            String
-  confidence              Decimal             @db.Decimal(5, 4) @default(0.9500)
-  status                  String              @default("CANDIDATE")
-  review_note             String?
-  approved_by             String?
-  approved_at             DateTime?           @db.Timestamp(6)
-  rejected_by             String?
-  rejected_at             DateTime?           @db.Timestamp(6)
-  created_at              DateTime            @default(now()) @db.Timestamp(6)
-  updated_at              DateTime            @updatedAt @db.Timestamp(6)
+model dpmatch {
+  id              Int         @id @default(autoincrement())
+  dproducts_id    BigInt
+  product_id      Int
+  normalized      String?
+  mapping_status  String      @default("PENDING")
+  match_method    String?
 
-  @@unique([dinamik_product_id, parcatedarik_product_id, dinamik_barcode_field, normalized_barcode_value], name: "dpmm_unique_match")
-  @@index([status], name: "dpmm_status")
-  @@index([dinamik_product_id], name: "dpmm_dinamik_product_id")
-  @@index([parcatedarik_product_id], name: "dpmm_parcatedarik_product_id")
-  @@index([normalized_barcode_value], name: "dpmm_normalized_barcode_value")
-  @@index([normalized_model], name: "dpmm_normalized_model")
-  @@index([match_reason], name: "dpmm_match_reason")
-  @@index([confidence], name: "dpmm_confidence")
-  @@schema("public")
+  dproducts       dproducts   @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
+  product_rel     product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([dproducts_id, product_id], name: "uq_dpmatch_dproduct_product")
+  @@index([product_id], name: "idx_dpmatch_product")
+  @@index([dproducts_id], name: "idx_dpmatch_dproduct")
+  @@index([mapping_status], name: "idx_dpmatch_status")
+  @@index([match_method], name: "idx_dpmatch_method")
+  @@index([normalized], name: "idx_dpmatch_normalized")
+  @@schema("parcatedarik")
 }
 
 // ==========================================
@@ -645,26 +634,23 @@ model dinamik_parcatedarik_model_matches {
 // for disambiguating model matches by brand
 // ==========================================
 
-model dinamik_parca_brand_aliases {
-  id                        Int       @id @default(autoincrement())
-  dinamik_brand             String
-  normalized_dinamik_brand   String
-  parcatedarik_manufacturer_id Int
-  normalized_pc_manufacturer String
-  mapping_status            String    @default("PENDING")
-  confidence                Decimal   @db.Decimal(5, 4) @default(0.8000)
-  match_method              String?
-  approved_by               String?
-  approved_at               DateTime? @db.Timestamp(6)
-  created_at                DateTime  @default(now()) @db.Timestamp(6)
-  updated_at                DateTime  @updatedAt @db.Timestamp(6)
+model dbrands_match {
+  id              Int      @id @default(autoincrement())
+  dbrands_id      String
+  manufacturer_id Int?
+  normalized      String?
+  mapping_status  String   @default("PENDING")
+  match_method    String?
 
-  @@unique([dinamik_brand, parcatedarik_manufacturer_id], name: "dpba_unique_brand_manufacturer")
-  @@index([normalized_dinamik_brand], name: "dpba_normalized_dinamik_brand")
-  @@index([parcatedarik_manufacturer_id], name: "dpba_parcatedarik_manufacturer_id")
-  @@index([mapping_status], name: "dpba_mapping_status")
-  @@index([match_method], name: "dpba_match_method")
-  @@schema("public")
+  dbrands       dbrands       @relation(fields: [dbrands_id], references: [brand], onDelete: Cascade)
+  manufacturer  manufacturer?  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
+
+  @@unique([dbrands_id, manufacturer_id], name: "uq_dbrands_match_brand_mfr")
+  @@index([manufacturer_id], name: "idx_dbrands_match_manufacturer")
+  @@index([mapping_status], name: "idx_dbrands_match_status")
+  @@index([match_method], name: "idx_dbrands_match_method")
+  @@index([normalized], name: "idx_dbrands_match_normalized")
+  @@schema("parcatedarik")
 }
 
 model user_vehicles {
@@ -1001,6 +987,7 @@ model manufacturer {
   created_at      DateTime?  @default(now()) @db.Timestamp(6)
   updated_at      DateTime?  @default(now()) @db.Timestamp(6)
   products        product[]
+  dbrands_match   dbrands_match[]
 
   @@schema("parcatedarik")
 }
@@ -1024,6 +1011,7 @@ model product {
 
   manufacturer    manufacturer  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
   price_histories price_history[]
+  dpmatch         dpmatch[]
 
   @@index([manufacturer_id])
   @@index([product_id])
@@ -1043,5 +1031,42 @@ model price_history {
 
   @@index([product_id])
   @@index([recorded_at])
+  @@schema("parcatedarik")
+}
+
+// ==========================================
+// Dinamik Supplier Products (was dinamik.products)
+// Raw supplier product data from Dinamik API/CSV import
+// ==========================================
+
+model dproducts {
+  id          BigInt    @id
+  stock_code  String
+  stock_name  String?
+  brand       String?
+  price       Decimal?  @db.Decimal(10, 2)
+  barcode_1   String?
+  barcode_2   String?
+  barcode_3   String?
+  query_brand String?
+  part_no     String?
+  updated_at  DateTime? @db.Timestamp(6)
+
+  dpmatch     dpmatch[]
+
+  @@index([stock_code])
+  @@index([brand])
+  @@schema("parcatedarik")
+}
+
+// ==========================================
+// Dinamik Brands (was dinamik.brands)
+// Deduplicated brand name list from Dinamik
+// ==========================================
+
+model dbrands {
+  brand          String           @id
+  dbrands_match  dbrands_match[]
+
   @@schema("parcatedarik")
 }

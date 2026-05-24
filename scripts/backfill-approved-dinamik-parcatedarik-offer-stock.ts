@@ -6,7 +6,7 @@
  * action hardcoded 0 instead of reading from supplier_products.
  *
  * This script:
- * 1. Finds APPROVED matches in dinamik_parcatedarik_model_matches
+ * 1. Finds APPROVED matches in dpmatch
  * 2. Looks up the corresponding supplier_products row for stock/price
  * 3. Updates part_supplier_offers with correct stock and price
  * 4. Optionally applies pricing policy for affected parts
@@ -221,7 +221,7 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT m.id, m.dinamik_product_id, m.parcatedarik_product_id, m.match_reason, m.confidence
-    FROM public.dinamik_parcatedarik_model_matches m
+    FROM parcatedarik.dpmatch m
     ${whereClause}
     ORDER BY m.confidence DESC, m.created_at ASC
     ${limitClause}
@@ -235,7 +235,7 @@ async function main() {
       const dinamikProduct = await db.$queryRaw<
         Array<{ id: bigint; stock_code: string; price: string | null }>
       >(Prisma.sql`
-        SELECT id, stock_code, price FROM dinamik.products WHERE id = ${match.dinamik_product_id}
+        SELECT id, stock_code, price FROM parcatedarik.dproducts WHERE id = ${match.dinamik_product_id}
       `)
 
       if (dinamikProduct.length === 0) {

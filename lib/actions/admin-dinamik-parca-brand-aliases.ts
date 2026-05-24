@@ -3,23 +3,18 @@
 import { Prisma } from '@prisma/client'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
-import { normalizeModel, normalizeBrandName } from '@/lib/matching/code-normalization'
+import { normalizeModel } from '@/lib/matching/code-normalization'
 
 export type BrandAliasStatusFilter = 'all' | 'pending' | 'approved' | 'unmapped'
 
 export type BrandAliasRow = {
   id: number
   dinamikBrand: string
-  normalizedDinamikBrand: string
+  normalizedName: string
   parcatedarikManufacturerId: number
   parcatedarikManufacturerName: string
-  normalizedPcManufacturer: string
   mappingStatus: string
-  confidence: number
   matchMethod: string | null
-  approvedBy: string | null
-  approvedAt: string | null
-  updatedAt: string | null
 }
 
 export type BrandAliasSummary = {
@@ -36,7 +31,7 @@ function buildWhereClause(q: string, status: BrandAliasStatusFilter): Prisma.Sql
 
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
-    conditions.push(Prisma.sql`(a.dinamik_brand ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized_dinamik_brand ILIKE ${pattern})`)
+    conditions.push(Prisma.sql`(a.dbrands_id ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`)
   }
   if (status === 'approved') {
     conditions.push(Prisma.sql`a.mapping_status = 'APPROVED'`)
@@ -77,8 +72,8 @@ export async function getDinamikParcaBrandAliases(input?: {
       Array<{ count: bigint }>
     >(Prisma.sql`
       SELECT COUNT(*) AS count
-      FROM public.dinamik_parca_brand_aliases a
-      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.parcatedarik_manufacturer_id
+      FROM parcatedarik.dbrands_match a
+      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
       WHERE ${whereClause}
     `)
     const total = Number(countResult[0]?.count ?? 0)
@@ -88,43 +83,37 @@ export async function getDinamikParcaBrandAliases(input?: {
     const rows = await db.$queryRaw<
       Array<{
         id: number
-        dinamik_brand: string
-        normalized_dinamik_brand: string
-        parcatedarik_manufacturer_id: number
+        dbrands_id: string
+        normalized: string
+        manufacturer_id: number
         manufacturer_name: string
-        normalized_pc_manufacturer: string
         mapping_status: string
-        confidence: number
         match_method: string | null
-        approved_by: string | null
-        approved_at: Date | null
-        updated_at: Date | null
       }>
     >(Prisma.sql`
-      SELECT a.id, a.dinamik_brand, a.normalized_dinamik_brand,
-             a.parcatedarik_manufacturer_id,
+      SELECT a.id, a.dbrands_id,
+             a.normalized,
+             a.manufacturer_id,
              m.name AS manufacturer_name,
-             a.normalized_pc_manufacturer,
-             a.mapping_status, a.confidence, a.match_method,
-             a.approved_by, a.approved_at, a.updated_at
-      FROM public.dinamik_parca_brand_aliases a
-      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.parcatedarik_manufacturer_id
+             a.mapping_status, a.match_method
+      FROM parcatedarik.dbrands_match a
+      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
       WHERE ${whereClause}
-      ORDER BY a.confidence DESC, a.dinamik_brand ASC
+      ORDER BY a.dbrands_id ASC
       LIMIT ${limit} OFFSET ${offset}
     `)
 
     const summaryResult = await db.$queryRaw<
       Array<{ mapping_status: string; count: bigint }>
-    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM public.dinamik_parca_brand_aliases GROUP BY mapping_status`)
+    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
 
     const totalDinamikBrands = await db.$queryRaw<
       Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM dinamik.products d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
+    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM parcatedarik.dproducts d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
 
     const mappedBrands = await db.$queryRaw<
       Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT dinamik_brand) AS count FROM public.dinamik_parca_brand_aliases WHERE mapping_status IN ('PENDING', 'APPROVED')`)
+    >(Prisma.sql`SELECT COUNT(DISTINCT dbrands_id) AS count FROM parcatedarik.dbrands_match WHERE mapping_status IN ('PENDING', 'APPROVED')`)
 
     const summary: BrandAliasSummary = {
       total: Number(summaryResult.find(r => r.mapping_status !== '__total__') ? 0 : 0),
@@ -139,17 +128,12 @@ export async function getDinamikParcaBrandAliases(input?: {
     return {
       rows: rows.map(r => ({
         id: r.id,
-        dinamikBrand: r.dinamik_brand,
-        normalizedDinamikBrand: r.normalized_dinamik_brand,
-        parcatedarikManufacturerId: r.parcatedarik_manufacturer_id,
+        dinamikBrand: r.dbrands_id,
+        normalizedName: r.normalized ?? '',
+        parcatedarikManufacturerId: r.manufacturer_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
-        normalizedPcManufacturer: r.normalized_pc_manufacturer,
         mappingStatus: r.mapping_status,
-        confidence: Number(r.confidence),
         matchMethod: r.match_method,
-        approvedBy: r.approved_by,
-        approvedAt: r.approved_at?.toISOString() ?? null,
-        updatedAt: r.updated_at?.toISOString() ?? null
       })),
       pagination: { page, limit, total, pages },
       summary,
@@ -173,11 +157,8 @@ export async function approveDinamikParcaBrandAlias(input: {
 
   try {
     await db.$executeRaw(
-      Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-        SET mapping_status = 'APPROVED',
-            approved_by = 'admin',
-            approved_at = NOW(),
-            updated_at = NOW()
+      Prisma.sql`UPDATE parcatedarik.dbrands_match
+        SET mapping_status = 'APPROVED'
         WHERE id = ${input.id}`
     )
     return { success: true, message: 'Marka eşleştirmesi onaylandı.' }
@@ -194,9 +175,8 @@ export async function rejectDinamikParcaBrandAlias(input: {
 
   try {
     await db.$executeRaw(
-      Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-        SET mapping_status = 'REJECTED',
-            updated_at = NOW()
+      Prisma.sql`UPDATE parcatedarik.dbrands_match
+        SET mapping_status = 'REJECTED'
         WHERE id = ${input.id}`
     )
     return { success: true, message: 'Marka eşleştirmesi reddedildi.' }
@@ -213,9 +193,8 @@ export async function ignoreDinamikParcaBrandAlias(input: {
 
   try {
     await db.$executeRaw(
-      Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-        SET mapping_status = 'IGNORED',
-            updated_at = NOW()
+      Prisma.sql`UPDATE parcatedarik.dbrands_match
+        SET mapping_status = 'IGNORED'
         WHERE id = ${input.id}`
     )
     return { success: true, message: 'Marka eşleştirmesi yoksayıldı.' }
@@ -228,7 +207,6 @@ export async function ignoreDinamikParcaBrandAlias(input: {
 export async function updateDinamikParcaBrandAlias(input: {
   id: number
   parcatedarikManufacturerId: number
-  confidence?: number
 }): Promise<{ success: boolean; message: string }> {
   await requireAdminAuth()
 
@@ -242,20 +220,14 @@ export async function updateDinamikParcaBrandAlias(input: {
     }
 
     const mfrName = manufacturer[0].name
-    const normalizedPcMfr = normalizeModel(mfrName) || ''
-
-    const confidenceValue = input.confidence ?? 0.95
+    const normalized = normalizeModel(mfrName) || ''
 
     await db.$executeRaw(
-      Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-        SET parcatedarik_manufacturer_id = ${input.parcatedarikManufacturerId},
-            normalized_pc_manufacturer = ${normalizedPcMfr},
-            confidence = ${confidenceValue},
+      Prisma.sql`UPDATE parcatedarik.dbrands_match
+        SET manufacturer_id = ${input.parcatedarikManufacturerId},
+            normalized = ${normalized},
             match_method = 'MANUAL',
-            mapping_status = 'APPROVED',
-            approved_by = 'admin',
-            approved_at = NOW(),
-            updated_at = NOW()
+            mapping_status = 'APPROVED'
         WHERE id = ${input.id}`
     )
     return { success: true, message: 'Marka eşleştirmesi güncellendi.' }
@@ -268,7 +240,6 @@ export async function updateDinamikParcaBrandAlias(input: {
 export async function createDinamikParcaBrandAlias(input: {
   dinamikBrand: string
   parcatedarikManufacturerId: number
-  confidence?: number
 }): Promise<{ success: boolean; message: string }> {
   await requireAdminAuth()
 
@@ -286,33 +257,23 @@ export async function createDinamikParcaBrandAlias(input: {
       return { success: false, message: 'Üretici bulunamadı.' }
     }
 
-    const normalizedDinamik = normalizeModel(trimmedBrand) || ''
-    const normalizedPcMfr = normalizeModel(manufacturer[0].name) || ''
-    const confidenceValue = input.confidence ?? 0.95
+    const normalized = normalizeModel(manufacturer[0].name) || ''
 
     await db.$executeRaw(
-      Prisma.sql`INSERT INTO public.dinamik_parca_brand_aliases (
-          dinamik_brand, normalized_dinamik_brand, parcatedarik_manufacturer_id,
-          normalized_pc_manufacturer, mapping_status, confidence, match_method,
-          approved_by, approved_at
+      Prisma.sql`INSERT INTO parcatedarik.dbrands_match (
+          dbrands_id, normalized, manufacturer_id,
+          mapping_status, match_method
         ) VALUES (
           ${trimmedBrand},
-          ${normalizedDinamik},
+          ${normalized},
           ${input.parcatedarikManufacturerId},
-          ${normalizedPcMfr},
           'APPROVED',
-          ${confidenceValue},
-          'MANUAL',
-          'admin',
-          NOW()
+          'MANUAL'
         )
-        ON CONFLICT (dinamik_brand, parcatedarik_manufacturer_id)
+        ON CONFLICT (dbrands_id, manufacturer_id)
         DO UPDATE SET
           mapping_status = 'APPROVED',
-          confidence = ${confidenceValue},
-          approved_by = 'admin',
-          approved_at = NOW(),
-          updated_at = NOW()`
+          normalized = ${normalized}`
     )
     return { success: true, message: 'Marka eşleştirmesi oluşturuldu.' }
   } catch (error) {
@@ -328,7 +289,7 @@ export async function deleteDinamikParcaBrandAlias(input: {
 
   try {
     await db.$executeRaw(
-      Prisma.sql`DELETE FROM public.dinamik_parca_brand_aliases WHERE id = ${input.id}`
+      Prisma.sql`DELETE FROM parcatedarik.dbrands_match WHERE id = ${input.id}`
     )
     return { success: true, message: 'Marka eşleştirmesi silindi.' }
   } catch (error) {
@@ -370,7 +331,6 @@ export async function searchParcatedarikManufacturers(input: {
 
 export async function bulkApproveDinamikParcaBrandAliases(input: {
   ids: number[]
-  minConfidence?: number
 }): Promise<{ success: boolean; message: string; approved: number }> {
   await requireAdminAuth()
 
@@ -379,17 +339,11 @@ export async function bulkApproveDinamikParcaBrandAliases(input: {
     return { success: false, message: 'En az bir ID gerekli.', approved: 0 }
   }
 
-  const minConf = input.minConfidence ?? 0.85
-
   try {
     const result = await db.$executeRaw(
-      Prisma.sql`UPDATE public.dinamik_parca_brand_aliases
-        SET mapping_status = 'APPROVED',
-            approved_by = 'admin',
-            approved_at = NOW(),
-            updated_at = NOW()
+      Prisma.sql`UPDATE parcatedarik.dbrands_match
+        SET mapping_status = 'APPROVED'
         WHERE id IN (${Prisma.join(ids)})
-          AND confidence >= ${minConf}
           AND mapping_status = 'PENDING'`
     )
     return { success: true, message: `${result} eşleştirme onaylandı.`, approved: result }
@@ -415,11 +369,11 @@ export async function getDinamikParcaBrandAliasStats(): Promise<{
   try {
     const byStatus = await db.$queryRaw<
       Array<{ mapping_status: string; count: bigint }>
-    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM public.dinamik_parca_brand_aliases GROUP BY mapping_status`)
+    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
 
     const totalDinamikBrands = await db.$queryRaw<
       Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM dinamik.products d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
+    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM parcatedarik.dproducts d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
 
     const totalPcManufacturers = await db.$queryRaw<
       Array<{ count: bigint }>
@@ -427,7 +381,7 @@ export async function getDinamikParcaBrandAliasStats(): Promise<{
 
     const matchedBrands = await db.$queryRaw<
       Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT dinamik_brand) AS count FROM public.dinamik_parca_brand_aliases WHERE mapping_status IN ('PENDING', 'APPROVED')`)
+    >(Prisma.sql`SELECT COUNT(DISTINCT dbrands_id) AS count FROM parcatedarik.dbrands_match WHERE mapping_status IN ('PENDING', 'APPROVED')`)
 
     const statusMap = Object.fromEntries(byStatus.map(r => [r.mapping_status, Number(r.count)]))
 

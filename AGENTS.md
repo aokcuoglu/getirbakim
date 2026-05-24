@@ -252,13 +252,38 @@ Validation priority:
 1. typecheck / lint for touched code
 2. narrow tests related to the change
 3. broader test suites if the change is high-risk
-4. manual reasoning about untested edge cases
+4. Docker build verification (`docker compose -f docker-compose.local.yml up -d --build`)
+5. manual reasoning about untested edge cases
 
 When validating:
 - prefer targeted checks over expensive blanket runs at first
 - if tests cannot be run, explain why
 - do not claim confidence without evidence
 - mention what was validated and what was not
+
+### Docker Build (Mandatory)
+
+**Every development change that modifies source code (pages, components, API routes, scripts, Prisma schema) MUST be followed by a Docker build verification.**
+
+The local Docker setup uses OrbStack/Docker with `docker-compose.local.yml`. Build command:
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+After build, verify health:
+```bash
+curl -s http://localhost:3001/api/health | grep '"status":"ok"'
+```
+
+Why this is mandatory:
+- Next.js has different behavior in `next dev` vs `npx next build` (production build).
+- Turbopack dev server may succeed while production build fails (import issues, dynamic require, missing statics).
+- Prisma schema changes must pass `prisma generate` at build time.
+- Pages that use `fs`, `path`, or Node-specific APIs can break in production even if they work in dev.
+- API route handlers, middleware, and static generation paths differ between dev and production.
+
+If the Docker build fails, the change is NOT done — regardless of typecheck or test results.
 
 For risky changes, explicitly mention:
 - what could regress
@@ -309,6 +334,7 @@ A task is not done until:
 - the relevant code path has been inspected
 - the requested change has been implemented or the blocker is clearly explained
 - validation has been performed or its absence is clearly stated
+- Docker build has passed and health endpoint returns `"status":"ok"`
 - risks and assumptions are made explicit
 - the final diff has been reviewed for correctness and regressions
 

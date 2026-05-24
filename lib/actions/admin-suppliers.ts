@@ -648,7 +648,7 @@ async function getSupplierMappingCreationOptions(provider: {
     provider.code === 'dinamik'
       ? db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
           SELECT DISTINCT d.brand
-          FROM dinamik.products d
+          FROM parcatedarik.dproducts d
           WHERE d.brand IS NOT NULL
             AND BTRIM(d.brand) <> ''
           ORDER BY d.brand ASC
@@ -1256,7 +1256,7 @@ export async function getDinamikBrandMappings(input?: {
     const [countRows, summaryRows, rows] = await Promise.all([
       db.$queryRaw<DinamikBrandCountRow[]>(Prisma.sql`
         SELECT COUNT(*)::int AS total
-        FROM dinamik.brands d
+        FROM parcatedarik.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1276,7 +1276,7 @@ export async function getDinamikBrandMappings(input?: {
           SUM(CASE WHEN sba.part_brand_id IS NOT NULL AND sba.mapping_status = 'APPROVED' THEN 1 ELSE 0 END)::int AS mapped_total,
           SUM(CASE WHEN sba.mapping_status = 'PENDING' THEN 1 ELSE 0 END)::int AS pending_total,
           SUM(CASE WHEN sba.id IS NULL OR sba.part_brand_id IS NULL OR sba.mapping_status <> 'APPROVED' THEN 1 ELSE 0 END)::int AS unmapped_total
-        FROM dinamik.brands d
+        FROM parcatedarik.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1300,7 +1300,7 @@ export async function getDinamikBrandMappings(input?: {
           sba.updated_at,
           exact_pb.id AS exact_part_brand_id,
           exact_pb.name AS exact_part_brand_name
-        FROM dinamik.brands d
+        FROM parcatedarik.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1555,7 +1555,7 @@ export async function autoMapDinamikBrandsByName(input?: {
     SELECT
       d.brand AS supplier_brand,
       pb.id AS part_brand_id
-    FROM dinamik.brands d
+    FROM parcatedarik.dbrands d
     JOIN part_brands pb ON LOWER(TRIM(pb.name)) = LOWER(TRIM(d.brand))
     WHERE d.brand IS NOT NULL
       AND d.brand <> ''
@@ -1877,7 +1877,7 @@ async function ensureSupplierProductFromDinamikStockCode(
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM dinamik.products d
+    FROM parcatedarik.dproducts d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -2419,7 +2419,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
         const countRows = await db.$queryRaw<Array<{ total: number | string }>>(
           Prisma.sql`
             SELECT COUNT(*)::int AS total
-            FROM dinamik.products d
+            FROM parcatedarik.dproducts d
             LEFT JOIN supplier_part_mappings spm
               ON spm.provider_id = ${providerNonNull.id}
              AND spm.supplier_sku = d.stock_code
@@ -2467,7 +2467,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
             fallback.article_link_id::text
           ) AS matched_part_article_link_id,
           COALESCE(mapped.name, fallback.name) AS matched_part_name
-        FROM dinamik.products d
+        FROM parcatedarik.dproducts d
         LEFT JOIN supplier_products sp
           ON sp.provider_id = ${providerNonNull.id}
          AND sp.supplier_sku = d.stock_code
@@ -5806,7 +5806,7 @@ export async function getDinamikBrandsForManualMapping(input?: {
       SELECT
         d.query_brand,
         COUNT(*)::int AS product_count
-      FROM dinamik.products d
+      FROM parcatedarik.dproducts d
       WHERE d.query_brand IS NOT NULL
         AND d.query_brand <> ''
         ${qCondition}
@@ -5964,7 +5964,7 @@ export async function autoMapDinamikProductsByPartNo(input?: {
       d.barcode_2,
       d.barcode_3,
       p.id::text AS matched_part_id
-    FROM dinamik.products d
+    FROM parcatedarik.dproducts d
     JOIN LATERAL (
       SELECT a.part_brand_id
       FROM supplier_brand_aliases a
@@ -6241,7 +6241,7 @@ export async function manualMapDinamikProductToPart(input: {
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM dinamik.products d
+    FROM parcatedarik.dproducts d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
