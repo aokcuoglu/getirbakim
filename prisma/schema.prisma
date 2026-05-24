@@ -610,14 +610,14 @@ model supplier_sync_runs {
 
 model dpmatch {
   id              Int         @id @default(autoincrement())
-  dproducts_id    BigInt
-  product_id      Int
+  dproducts_id    BigInt?
+  product_id      Int?
   normalized      String?
   mapping_status  String      @default("PENDING")
   match_method    String?
 
-  dproducts       dproducts   @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
-  product_rel     product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  dproducts       dproducts?  @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
+  product_rel     product?    @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([dproducts_id, product_id], name: "uq_dpmatch_dproduct_product")
   @@index([product_id], name: "idx_dpmatch_product")

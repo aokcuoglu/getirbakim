@@ -1,6 +1,24 @@
-import { ShoppingCart, Eye } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ShoppingCart } from 'lucide-react'
 import { Link } from '@/lib/navigation'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
+import {
+  AdminCard,
+  AdminCardContent,
+  AdminCardDescription,
+  AdminCardHeader,
+  AdminCardTitle
+} from '@/components/admin/admin-card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
 
 interface Order {
   id: number
@@ -18,95 +36,105 @@ const statusConfig: Record<
   string,
   {
     label: string
-    color: string
-    bg: string
+    className: string
   }
 > = {
   PENDING: {
     label: 'Beklemede',
-    color: 'text-amber-700',
-    bg: 'bg-amber-50'
+    className: 'border-secondary text-secondary-foreground'
   },
   COMPLETED: {
     label: 'Tamamlandı',
-    color: 'text-emerald-700',
-    bg: 'bg-emerald-50'
+    className: 'border-border text-foreground'
   },
   CANCELLED: {
     label: 'İptal',
-    color: 'text-rose-700',
-    bg: 'bg-rose-50'
+    className: 'border-destructive/50 text-destructive'
   }
 }
 
 export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-        <h3 className="text-sm font-semibold text-slate-900">Son Siparişler</h3>
-        <Link
-          href="/admin/orders"
-          className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-        >
-          Tümünü Gör →
-        </Link>
-      </div>
-      <div className="divide-y divide-slate-100">
+    <AdminCard>
+      <AdminCardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div>
+          <AdminCardTitle>Son Siparişler</AdminCardTitle>
+          <AdminCardDescription>En son alınan siparişler</AdminCardDescription>
+        </div>
+        <Button variant="link" size="sm" className="px-0" asChild>
+          <Link href="/admin/orders">Tümünü Gör →</Link>
+        </Button>
+      </AdminCardHeader>
+      <AdminCardContent>
         {orders.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-slate-500">
-            Henüz sipariş bulunmuyor
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <ShoppingCart className="mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-medium">Henüz sipariş bulunmuyor</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Yeni siparişler burada listelenecek
+            </p>
           </div>
         ) : (
-          orders.slice(0, 8).map((order) => {
-            const status = statusConfig[order.status] || statusConfig.PENDING
-            return (
-              <div
-                key={order.id}
-                className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors group"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100">
-                    <ShoppingCart size={16} className="text-slate-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900">
-                      #{order.id}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate max-w-[180px] sm:max-w-[240px]">
-                      {order.customerName}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right hidden sm:block">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {order.totalAmount.toLocaleString('tr-TR', {
-                        style: 'currency',
-                        currency: 'TRY'
-                      })}
-                    </p>
-                  </div>
-                  <span
-                    className={cn(
-                      'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
-                      status.bg,
-                      status.color
-                    )}
-                  >
-                    {status.label}
-                  </span>
-                  <button 
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-slate-200"
-                    aria-label="Detayları gör"
-                  >
-                    <Eye size={14} className="text-slate-500" />
-                  </button>
-                </div>
-              </div>
-            )
-          })
+          <AdminTableShell>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="h-10 px-4">
+                    <AdminTableHead>Sipariş</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="h-10 px-4">
+                    <AdminTableHead>Müşteri</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="hidden h-10 px-4 sm:table-cell">
+                    <AdminTableHead>Tarih</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="hidden h-10 px-4 text-right md:table-cell">
+                    <AdminTableHead className="justify-end">Tutar</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="h-10 px-4">
+                    <AdminTableHead>Durum</AdminTableHead>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {orders.slice(0, 8).map((order) => {
+                  const status =
+                    statusConfig[order.status] || statusConfig.PENDING
+                  return (
+                    <TableRow key={order.id} className="cursor-pointer">
+                      <TableCell className="px-4 py-2.5 font-medium">
+                        <Link
+                          href="/admin/orders"
+                          className="hover:underline"
+                        >
+                          #{order.id}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="max-w-[180px] truncate px-4 py-2.5 text-muted-foreground sm:max-w-[240px]">
+                        {order.customerName}
+                      </TableCell>
+                      <TableCell className="hidden px-4 py-2.5 text-muted-foreground sm:table-cell">
+                        {new Date(order.createdAt).toLocaleDateString('tr-TR')}
+                      </TableCell>
+                      <TableCell className="hidden px-4 py-2.5 text-right font-medium md:table-cell">
+                        {order.totalAmount.toLocaleString('tr-TR', {
+                          style: 'currency',
+                          currency: 'TRY'
+                        })}
+                      </TableCell>
+                      <TableCell className="px-4 py-2.5">
+                        <Badge variant="outline" className={status.className}>
+                          {status.label}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </AdminTableShell>
         )}
-      </div>
-    </div>
+      </AdminCardContent>
+    </AdminCard>
   )
 }

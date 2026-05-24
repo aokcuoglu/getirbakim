@@ -12,26 +12,9 @@ const VALID_SORT_COLUMNS: Record<string, string> = {
   mapping_status: 'm.mapping_status',
 }
 
-function buildWhereClause(q: string, status: string): Prisma.Sql {
-  const conditions: Prisma.Sql[] = []
-  if (q) {
-    const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
-    conditions.push(Prisma.sql`(d.stock_code ILIKE ${pattern} OR d.stock_name ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR p.title ILIKE ${pattern} OR p.model ILIKE ${pattern})`)
-  }
-  if (status !== 'all') {
-    conditions.push(Prisma.sql`m.mapping_status = ${status.toUpperCase()}`)
-  }
-  if (conditions.length === 0) return Prisma.sql`1=1`
-  return Prisma.sql`(${Prisma.join(conditions, ' AND ')})`
-}
-
 export async function GET(request: NextRequest) {
   const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
-    keyPrefix: 'eslestirme:models:list',
-    limit: 120,
-    windowMs: 60_000,
-  })
+  const { context, limitedResponse } = withApiContext(request, { keyPrefix: 'eslestirme:models:list', limit: 120, windowMs: 60_000 })
   if (limitedResponse) return limitedResponse
   if (!auth?.user) return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
   if (auth.user.role !== 'ADMIN') return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
@@ -53,24 +36,30 @@ export async function GET(request: NextRequest) {
   const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'm.id'
   const orderBy = Prisma.sql`${Prisma.raw(orderColumn)} ${Prisma.raw(sortDir)}`
 
-  try {
-    const whereClause = buildWhereClause(q, status)
+  const whereClauses: Prisma.Sql[] = []
+  if (status !== 'all') whereClauses.push(Prisma.sql`m.mapping_status = ${status.toUpperCase()}`)
+  if (q) {
+    const p = `%${q.replace(/[%_\\]/g, '\\$&')}%`
+    whereClauses.push(Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(d.brand,'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.model,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`)
+  }
+  const whereClause = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``
 
+  try {
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.dpmatch m LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id LEFT JOIN parcatedarik.product p ON p.id = m.product_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM parcatedarik.dpmatch m LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id LEFT JOIN parcatedarik.product p ON p.id = m.product_id LEFT JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
 
     const rows = await db.$queryRaw<
       Array<{
-        id: number; dproducts_id: bigint; product_id: number
+        id: number; dproducts_id: bigint | null; product_id: number | null
         normalized: string | null; mapping_status: string; match_method: string | null
-        stock_code: string; stock_name: string | null; brand: string | null
+        stock_code: string | null; stock_name: string | null; brand: string | null
         barcode_1: string | null; barcode_2: string | null; barcode_3: string | null
         part_no: string | null; price: string | null
-        title: string; model: string | null; ref_no: string | null
-        manufacturer_id: number; manufacturer_name: string
+        title: string | null; model: string | null; ref_no: string | null
+        manufacturer_id: number | null; manufacturer_name: string | null
       }>
     >(Prisma.sql`
       SELECT m.id, m.dproducts_id, m.product_id, m.normalized, m.mapping_status, m.match_method,
@@ -80,45 +69,45 @@ export async function GET(request: NextRequest) {
       LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
       LEFT JOIN parcatedarik.product p ON p.id = m.product_id
       LEFT JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
-      WHERE ${whereClause}
+      ${whereClause}
       ORDER BY ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
     `)
 
     const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dpmatch GROUP BY mapping_status`
+      Prisma.sql`SELECT mapping_status, COUNT(*)::bigint AS count FROM parcatedarik.dpmatch GROUP BY mapping_status`
     )
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
 
     return successResponse({
       rows: rows.map(r => ({
         id: r.id,
-        dproductsId: r.dproducts_id.toString(),
+        dproductsId: r.dproducts_id?.toString() || null,
         productId: r.product_id,
         normalized: r.normalized,
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
         dinamik: {
-          stockCode: r.stock_code,
-          stockName: r.stock_name,
-          brand: r.brand,
-          barcode1: r.barcode_1,
-          barcode2: r.barcode_2,
-          barcode3: r.barcode_3,
-          partNo: r.part_no,
+          stockCode: r.stock_code || null,
+          stockName: r.stock_name || null,
+          brand: r.brand || null,
+          barcode1: r.barcode_1 || null,
+          barcode2: r.barcode_2 || null,
+          barcode3: r.barcode_3 || null,
+          partNo: r.part_no || null,
           price: r.price ? String(r.price) : null,
         },
         parcatedarik: {
-          title: r.title,
-          model: r.model,
-          refNo: r.ref_no,
+          title: r.title || '',
+          model: r.model || null,
+          refNo: r.ref_no || null,
           manufacturerId: r.manufacturer_id,
-          manufacturerName: r.manufacturer_name,
+          manufacturerName: r.manufacturer_name || '',
         },
       })),
       pagination: { page, limit, total, pages },
       summary: {
-        total,
+        total: Number(statusMap['PENDING'] ?? 0) + Number(statusMap['APPROVED'] ?? 0) + Number(statusMap['REJECTED'] ?? 0) + Number(statusMap['IGNORED'] ?? 0),
         approved: statusMap['APPROVED'] ?? 0,
         pending: statusMap['PENDING'] ?? 0,
         rejected: statusMap['REJECTED'] ?? 0,
@@ -134,11 +123,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
-    keyPrefix: 'eslestirme:models:generate',
-    limit: 10,
-    windowMs: 300_000,
-  })
+  const { context, limitedResponse } = withApiContext(request, { keyPrefix: 'eslestirme:models:generate', limit: 10, windowMs: 300_000 })
   if (limitedResponse) return limitedResponse
   if (!auth?.user) return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
   if (auth.user.role !== 'ADMIN') return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
@@ -147,7 +132,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const apply = body.apply === true
     const env = Object.assign({}, process.env, { APPLY: apply ? 'true' : 'false' } as Record<string, string>)
-    if (body.limit) env.LIMIT = String(body.limit)
     const { exec } = await import('child_process')
     const { promisify } = await import('util')
     const execAsync = promisify(exec)

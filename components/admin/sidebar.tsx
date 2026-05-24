@@ -14,6 +14,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, usePathname } from '@/lib/navigation'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 interface SidebarItemProps {
   icon: React.ElementType
@@ -38,28 +40,29 @@ const SidebarItem = ({
   const hasChildren = children && children.length > 0
 
   React.useEffect(() => {
-    if (hasChildren && children?.some(child => child.active)) {
+    if (hasChildren && children?.some((child) => child.active)) {
       setIsExpanded(true)
     }
   }, [children, hasChildren])
 
+  const itemClassName = cn(
+    'group flex cursor-pointer items-center rounded-lg transition-colors duration-150',
+    collapsed ? 'justify-center p-2' : 'px-3 py-1.5',
+    active
+      ? 'bg-primary text-primary-foreground'
+      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+  )
+
+  const iconClassName = cn(
+    'shrink-0',
+    active
+      ? 'text-primary-foreground'
+      : 'text-muted-foreground group-hover:text-accent-foreground'
+  )
+
   const content = (
-    <div
-      className={cn(
-        'group flex cursor-pointer items-center rounded-lg transition-all duration-150',
-        collapsed ? 'justify-center p-[9px]' : 'px-3 py-2',
-        active
-          ? 'bg-slate-900 text-white'
-          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-      )}
-    >
-      <Icon
-        size={18}
-        className={cn(
-          'shrink-0',
-          active ? 'text-white' : 'text-slate-500 group-hover:text-slate-700'
-        )}
-      />
+    <div className={itemClassName}>
+      <Icon size={collapsed ? 16 : 18} className={iconClassName} />
       {!collapsed && (
         <div className="ml-3 flex flex-1 items-center justify-between">
           <span className="text-sm font-medium">{label}</span>
@@ -73,7 +76,12 @@ const SidebarItem = ({
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           )}
         </div>
@@ -95,20 +103,9 @@ const SidebarItem = ({
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          className={cn(
-            'group flex w-full cursor-pointer items-center rounded-lg px-3 py-2 transition-all duration-150',
-            active
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          )}
+          className={cn('group w-full', itemClassName)}
         >
-          <Icon
-            size={18}
-            className={cn(
-              'shrink-0',
-              active ? 'text-white' : 'text-slate-500 group-hover:text-slate-700'
-            )}
-          />
+          <Icon size={collapsed ? 16 : 18} className={iconClassName} />
           <div className="ml-3 flex flex-1 items-center justify-between">
             <span className="text-sm font-medium">{label}</span>
             <svg
@@ -120,12 +117,17 @@ const SidebarItem = ({
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </div>
         </button>
         {isExpanded && (
-          <div className="ml-4 mt-1 space-y-0.5 border-l border-slate-200 pl-3">
+          <div className="ml-4 mt-1 space-y-0.5 border-l border-border pl-3">
             {children.map((child) => (
               <Link
                 key={child.label}
@@ -134,8 +136,8 @@ const SidebarItem = ({
                 className={cn(
                   'block rounded-md py-1.5 pl-3 text-sm transition-colors',
                   child.active
-                    ? 'font-medium text-slate-900'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'font-medium text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
               >
                 {child.label}
@@ -187,7 +189,9 @@ export function Sidebar({
             {
               label: 'Ürünler',
               href: '/admin/products',
-              active: pathname === '/admin/products' || pathname.startsWith('/admin/products/')
+              active:
+                pathname === '/admin/products' ||
+                pathname.startsWith('/admin/products/')
             },
             {
               label: 'Siparişler',
@@ -232,61 +236,66 @@ export function Sidebar({
   return (
     <div
       className={cn(
-        'relative z-20 flex h-full flex-col bg-white transition-all duration-300 ease-in-out',
-        isCollapsed ? 'w-[72px]' : 'w-[260px]',
-        !isCollapsed && 'border-r border-slate-200'
+        'sidebar-scroll relative z-20 flex h-full flex-col bg-card transition-all duration-300 ease-in-out',
+        isCollapsed ? 'w-16' : 'w-[240px]',
+        !isCollapsed && 'border-r border-border'
       )}
     >
-      <div
-        className={cn(
-          'flex items-center gap-3 px-3 py-4',
-          isCollapsed && 'justify-center px-0'
-        )}
-      >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900">
-          <LayoutDashboard className="h-5 w-5 text-white" />
-        </div>
-        {!isCollapsed && (
-          <>
-            <span className="flex-1 truncate text-base font-semibold text-slate-900">
-              Admin Panel
-            </span>
-            <button
-              type="button"
-              onClick={onToggleCollapsed}
-              className="flex h-7 w-7 items-center justify-center rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Sidebarı daralt"
-              title="Sidebarı daralt"
-            >
-              <PanelLeftClose className="h-3.5 w-3.5" />
-            </button>
-          </>
-        )}
-        {isCollapsed && (
-          <button
+      {isCollapsed ? (
+        <div className="flex flex-col items-center gap-1.5 px-2 py-3">
+          <Link
+            href="/admin"
+            aria-label="Ana Sayfa"
+            title="Ana Sayfa"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary"
+          >
+            <LayoutDashboard className="h-4 w-4 text-primary-foreground" />
+          </Link>
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onToggleCollapsed}
-            className="flex h-7 w-7 items-center justify-center rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="h-7 w-7"
             aria-label="Sidebarı genişlet"
             title="Sidebarı genişlet"
           >
             <PanelLeftOpen className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-3 py-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
+            <LayoutDashboard className="h-4 w-4 text-primary-foreground" />
+          </div>
+          <span className="flex-1 truncate text-sm font-semibold text-foreground">
+            Admin Panel
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onToggleCollapsed}
+            className="h-7 w-7"
+            aria-label="Sidebarı daralt"
+            title="Sidebarı daralt"
+          >
+            <PanelLeftClose className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
 
       {!isCollapsed && (
         <div className="mb-4 px-4">
           <div className="relative">
             <Search
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-              size={14}
+              className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             />
-            <input
+            <Input
               type="text"
               aria-label="Sidebar menü ara"
               placeholder="Ara..."
-              className="w-full rounded-md border border-slate-200 bg-white py-2 pl-8 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-300"
+              className="pl-8"
             />
           </div>
         </div>
@@ -301,12 +310,12 @@ export function Sidebar({
         {menuGroups.map((group, idx) => (
           <div key={idx} className="space-y-1">
             {!isCollapsed && (
-              <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {group.title}
               </p>
             )}
             <div className="space-y-0.5">
-              {group.items.map((item: any, itIdx) => (
+              {group.items.map((item, itIdx) => (
                 <SidebarItem
                   key={itIdx}
                   {...item}

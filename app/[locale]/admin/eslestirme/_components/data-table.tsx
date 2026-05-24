@@ -25,7 +25,7 @@ import {
 import { DataTablePagination } from './data-table-pagination'
 import { DataTableToolbar } from './data-table-toolbar'
 import { DataTableViewOptions } from './data-table-view-options'
-import { Skeleton } from '@/components/ui/skeleton'
+import { AdminLoadingState } from '@/components/admin/admin-loading-state'
 
 interface DataTablePaginationInfo {
   page: number
@@ -136,7 +136,10 @@ export function DataTable<TData, TValue>({
       {!toolbarFilterKey && (
         <DataTableViewOptions table={table} />
       )}
-      <div className="overflow-hidden rounded-md border">
+      <div className="relative overflow-hidden rounded-md border">
+        {isLoading ? (
+          <AdminLoadingState minHeight="min-h-[280px]" />
+        ) : (
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -152,17 +155,7 @@ export function DataTable<TData, TValue>({
             ))}
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              Array.from({ length: skeletonRows }).map((_, i) => (
-                <TableRow key={i}>
-                  {Array.from({ length: colCount }).map((_, j) => (
-                    <TableCell key={j}>
-                      <Skeleton className="h-5 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : table.getRowModel().rows?.length ? (
+            {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
                   {row.getVisibleCells().map((cell) => (
@@ -181,6 +174,7 @@ export function DataTable<TData, TValue>({
             )}
           </TableBody>
         </Table>
+        )}
       </div>
       {pagination && (
         <DataTablePagination

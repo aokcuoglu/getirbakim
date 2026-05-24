@@ -11,12 +11,8 @@ import {
   AlertTriangle,
   ChevronDown,
   DollarSign,
-  Filter,
   Loader2,
   Package,
-  RefreshCw,
-  Search,
-  SlidersHorizontal,
   TrendingDown
 } from 'lucide-react'
 import { usePathname } from 'next/navigation'
@@ -36,6 +32,12 @@ import {
   MobileDataCard,
   ResponsiveDataView
 } from '@/components/admin/responsive-data-view'
+import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
+import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
+import { AdminSortableHead } from '@/components/admin/data-table/admin-sortable-head'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
+import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import {
   Sheet,
   SheetContent,
@@ -68,7 +70,9 @@ import type {
   AdminProductFilters,
   AdminProductListItem,
   AdminProductOptions,
-  AdminProductsWorkbenchResult
+  AdminProductsWorkbenchResult,
+  AdminSortBy,
+  AdminSortOrder
 } from '@/lib/types/admin-products'
 
 const ProductDetailDrawer = dynamic(
@@ -348,6 +352,14 @@ export function ProductsAdminClient({
     applyUrlState(nextFilters, selectedProductIdRef.current, 'replace')
   }
 
+  const handleSort = (sortBy: AdminSortBy, sortOrder: AdminSortOrder) => {
+    applyUrlState(
+      { ...filtersRef.current, page: 1, sortBy, sortOrder },
+      selectedProductIdRef.current,
+      'replace'
+    )
+  }
+
   const resetFilters = () => {
     lastAutoOpenedQueryRef.current = ''
     setSearchValue('')
@@ -460,111 +472,71 @@ export function ProductsAdminClient({
   const totalPages = workbenchData.pagination.pages
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
+    <div className="space-y-4">
+      <AdminKpiGrid>
+        <AdminKpiCard
           label="Toplam Ürün"
           value={workbenchData.kpis.totalProducts}
-          tone="slate"
-          icon={<Package size={18} />}
+          tone="default"
+          icon={<Package size={16} />}
         />
-        <KpiCard
+        <AdminKpiCard
           label="Düşük Stok"
           value={workbenchData.kpis.lowStockCount}
-          tone="amber"
-          icon={<TrendingDown size={18} />}
+          tone="warning"
+          icon={<TrendingDown size={16} />}
         />
-        <KpiCard
+        <AdminKpiCard
           label="Sıfır Fiyat"
           value={workbenchData.kpis.zeroPriceCount}
-          tone="rose"
-          icon={<DollarSign size={18} />}
+          tone="danger"
+          icon={<DollarSign size={16} />}
         />
-        <KpiCard
+        <AdminKpiCard
           label="Senkron Hatası"
           value={workbenchData.kpis.syncErrorCount}
-          tone="violet"
-          icon={<AlertTriangle size={18} />}
+          tone="info"
+          icon={<AlertTriangle size={16} />}
         />
-      </div>
+      </AdminKpiGrid>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex w-full flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative w-full max-w-xl">
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                value={searchValue}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  setSearchValue(nextValue)
-                  setIsSearchPending(true)
-                  onSearch(nextValue)
-                }}
-                placeholder="Ürün adı veya part no ara..."
-                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-10 text-sm transition-all focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-              />
-              {isInputLoading ? (
-                <Loader2
-                  size={14}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
-                />
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={reloadCurrentPage}
-              disabled={isListUpdating}
-              className="w-full sm:w-auto"
-            >
-              {isListUpdating ? (
-                <Loader2 size={14} className="mr-2 animate-spin" />
-              ) : (
-                <RefreshCw size={14} className="mr-2" />
-              )}
-              Yenile
-            </Button>
-          </div>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <AdminTableToolbar
+          searchValue={searchValue}
+          onSearchChange={(nextValue) => {
+            setSearchValue(nextValue)
+            setIsSearchPending(true)
+            onSearch(nextValue)
+          }}
+          searchPlaceholder="Ürün adı veya part no ara..."
+          isSearchLoading={isInputLoading}
+          onRefresh={reloadCurrentPage}
+          isRefreshing={isListUpdating}
+          onAdvancedFilter={() => setFiltersOpen(true)}
+        />
 
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setFiltersOpen(true)}
-              className="w-full sm:w-auto"
-            >
-              <Filter size={14} className="mr-2" />
-              Gelişmiş Filtre
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <QuickChip
+        <AdminFilterBar onReset={resetFilters} className="mt-3">
+          <AdminFilterChip
             active={filters.stockStatus === 'low_stock'}
             onClick={() => setFilterParam('stockStatus', 'low_stock')}
             label="Düşük Stok"
           />
-          <QuickChip
+          <AdminFilterChip
             active={filters.stockStatus === 'zero_price'}
             onClick={() => setFilterParam('stockStatus', 'zero_price')}
             label="Sıfır Fiyat"
           />
-          <QuickChip
+          <AdminFilterChip
             active={filters.syncStatus === 'ERROR'}
             onClick={() => setFilterParam('syncStatus', 'ERROR')}
             label="Senkron Hatası"
           />
-          <QuickChip
+          <AdminFilterChip
             active={filters.visibility === 'hidden'}
             onClick={() => setFilterParam('visibility', 'hidden')}
             label="Gizli Ürün"
           />
-          <QuickChip
+          <AdminFilterChip
             active={filters.providerId === 1}
             onClick={() =>
               setFilterParam(
@@ -574,22 +546,7 @@ export function ProductsAdminClient({
             }
             label="Dinamik"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-8 px-2 text-xs"
-            onClick={resetFilters}
-          >
-            <SlidersHorizontal size={12} className="mr-1" />
-            Filtreleri Sıfırla
-          </Button>
-        </div>
-
-        {isListUpdating ? (
-          <p className="mt-3 text-xs text-gray-500">
-            Liste arka planda güncelleniyor...
-          </p>
-        ) : null}
+        </AdminFilterBar>
       </div>
 
       <ResponsiveDataView
@@ -708,25 +665,49 @@ export function ProductsAdminClient({
           )
         }
         desktop={
-          <div className="relative rounded-xl border border-gray-200/80 bg-white shadow-sm">
-            {isListUpdating ? (
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end bg-white/60 backdrop-blur-[1px] p-4">
-                <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-md">
-                  <Loader2 size={12} className="animate-spin text-slate-500" />
-                  Veriler güncelleniyor
-                </div>
-              </div>
-            ) : null}
+          <AdminTableShell isLoading={isListUpdating}>
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-gray-200/80 bg-gray-50/90 hover:bg-gray-50/90">
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 w-[280px]">Ürün</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Marka</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Kategori</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Fiyat</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">Stok</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Durum</TableHead>
-                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 text-right">Aksiyon</TableHead>
+                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-[280px]">
+                    <AdminSortableHead
+                      label="Ürün"
+                      sortKey="name"
+                      activeSortBy={filters.sortBy}
+                      activeSortOrder={filters.sortOrder}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Marka</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Kategori</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminSortableHead
+                      label="Fiyat"
+                      sortKey="selling_price"
+                      activeSortBy={filters.sortBy}
+                      activeSortOrder={filters.sortOrder}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                  <TableHead className="whitespace-nowrap">
+                    <AdminSortableHead
+                      label="Stok"
+                      sortKey="supplier_stock_qty"
+                      activeSortBy={filters.sortBy}
+                      activeSortOrder={filters.sortOrder}
+                      onSort={handleSort}
+                    />
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Durum</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <AdminTableHead className="justify-end">Aksiyon</AdminTableHead>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -878,7 +859,7 @@ export function ProductsAdminClient({
                 )}
               </TableBody>
             </Table>
-          </div>
+          </AdminTableShell>
         }
       />
 
@@ -1218,86 +1199,6 @@ function FilterSelect({
           </div>
         ) : null}
       </div>
-    </div>
-  )
-}
-
-function QuickChip({
-  label,
-  active,
-  onClick
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all duration-200 ${
-        active
-          ? 'border-slate-800 bg-slate-900 text-white shadow-sm'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-      }`}
-    >
-      {active ? (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" />
-      ) : null}
-      {label}
-    </button>
-  )
-}
-
-function KpiCard({
-  label,
-  value,
-  tone,
-  icon
-}: {
-  label: string
-  value: number
-  tone: 'slate' | 'amber' | 'rose' | 'violet'
-  icon: React.ReactNode
-}) {
-  const styles = {
-    slate: {
-      card: 'bg-linear-to-br from-slate-50 to-slate-100/80 border-slate-200/60',
-      icon: 'bg-white/80 text-slate-600 ring-slate-200/50',
-      label: 'text-slate-500',
-      value: 'text-slate-800'
-    },
-    amber: {
-      card: 'bg-linear-to-br from-amber-50 to-amber-100/60 border-amber-200/50',
-      icon: 'bg-white/80 text-amber-600 ring-amber-200/50',
-      label: 'text-amber-600',
-      value: 'text-amber-800'
-    },
-    rose: {
-      card: 'bg-linear-to-br from-rose-50 to-rose-100/60 border-rose-200/50',
-      icon: 'bg-white/80 text-rose-600 ring-rose-200/50',
-      label: 'text-rose-600',
-      value: 'text-rose-800'
-    },
-    violet: {
-      card: 'bg-linear-to-br from-violet-50 to-violet-100/60 border-violet-200/50',
-      icon: 'bg-white/80 text-violet-600 ring-violet-200/50',
-      label: 'text-violet-600',
-      value: 'text-violet-800'
-    }
-  }[tone]
-
-  return (
-    <div className={`rounded-xl border p-4 ${styles.card}`}>
-      <div className="flex items-center justify-between">
-        <p className={`text-[11px] font-semibold uppercase tracking-wider ${styles.label}`}>{label}</p>
-        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${styles.icon}`}>
-          {icon}
-        </div>
-      </div>
-      <p className={`mt-2 text-2xl font-bold tracking-tight ${styles.value}`}>
-        {value.toLocaleString('tr-TR')}
-      </p>
     </div>
   )
 }

@@ -15,7 +15,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Pagination } from '@/components/ui/Pagination'
-import { Skeleton } from '@/components/ui/skeleton'
+import { AdminLoadingState } from '@/components/admin/admin-loading-state'
 import {
   Table,
   TableBody,
@@ -380,14 +380,7 @@ export function BrandMappingsClient({
         <ResponsiveDataView
           mobile={
             isPending && rows.length === 0 ? (
-              <div className="space-y-3 px-4 py-4">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <MobileDataCard key={`mobile-brand-loading-${index}`}>
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="mt-2 h-4 w-3/4" />
-                  </MobileDataCard>
-                ))}
-              </div>
+              <AdminLoadingState minHeight="min-h-[240px]" />
             ) : rows.length === 0 ? (
               <div className="px-4 py-12 text-center text-slate-500">
                 Marka eşleştirme sonucu bulunamadı.
@@ -458,7 +451,11 @@ export function BrandMappingsClient({
 
               <TableBody>
                 {isPending && rows.length === 0 ? (
-                  <BrandLoadingRows />
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={5} className="p-0">
+                      <AdminLoadingState minHeight="min-h-[240px]" />
+                    </TableCell>
+                  </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow className="hover:bg-white">
                     <TableCell
@@ -605,25 +602,13 @@ function BrandMetric({
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       {loading ? (
-        <Skeleton className="mt-2 h-7 w-24" />
+        <Loader2 className="mt-2 h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
         <p className="mt-2 text-2xl font-semibold text-slate-900">{value.toLocaleString('tr-TR')}</p>
       )}
       <div className={`mt-2 h-1 w-10 rounded-full ${accentClass}`} />
     </div>
   )
-}
-
-function BrandLoadingRows() {
-  return Array.from({ length: 6 }).map((_, index) => (
-    <TableRow key={`brand-loading-${index}`} className="hover:bg-white">
-      {Array.from({ length: 5 }).map((__, cellIndex) => (
-        <TableCell key={`brand-loading-${index}-${cellIndex}`} className="px-4 py-3">
-          <Skeleton className="h-4 w-full" />
-        </TableCell>
-      ))}
-    </TableRow>
-  ))
 }
 
 function BrandStatusBadge({ status }: { status: 'APPROVED' | 'PENDING' | 'UNMAPPED' }) {

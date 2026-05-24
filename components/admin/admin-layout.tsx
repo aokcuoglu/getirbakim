@@ -7,6 +7,8 @@ import { Link, usePathname, useRouter } from '@/lib/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { useShop } from '@/components/ShopProvider'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetContent,
@@ -14,6 +16,14 @@ import {
   SheetTitle,
   SheetDescription
 } from '@/components/ui/sheet'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -21,8 +31,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, setUser } = useShop()
   const [isMobileNavOpen, setIsMobileNavOpen] = React.useState(false)
   const [isDesktopCollapsed, setIsDesktopCollapsed] = React.useState(false)
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = React.useState(false)
-  const profileMenuRef = React.useRef<HTMLDivElement | null>(null)
   const segments = pathname
     .split('/')
     .filter(Boolean)
@@ -43,7 +51,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     setIsMobileNavOpen(false)
-    setIsProfileMenuOpen(false)
   }, [pathname])
 
   React.useEffect(() => {
@@ -58,24 +65,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     coreRoutes.forEach((route) => router.prefetch(route))
   }, [router])
 
-  React.useEffect(() => {
-    if (!isProfileMenuOpen) return
-
-    const onClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (!profileMenuRef.current?.contains(target)) {
-        setIsProfileMenuOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', onClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', onClickOutside)
-    }
-  }, [isProfileMenuOpen])
-
   const handleSignOut = React.useCallback(async () => {
-    setIsProfileMenuOpen(false)
     setUser(null)
     const supabase = createClient()
     const { error } = await supabase.auth.signOut()
@@ -95,12 +85,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     requests: 'Talepler',
     categories: 'Kategoriler',
     new: 'Yeni',
-    edit: 'Düzenle'
+    edit: 'Düzenle',
+    eslestirme: 'Eşleştirmeler',
+    suppliers: 'Tedarikçiler'
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden">
-      <div className="hidden md:block shrink-0">
+    <div className="fixed inset-0 z-40 flex overflow-hidden bg-background text-foreground">
+      <div className="hidden shrink-0 md:block">
         <Sidebar
           collapsed={isDesktopCollapsed}
           onToggleCollapsed={() => setIsDesktopCollapsed((prev) => !prev)}
@@ -110,7 +102,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
         <SheetContent
           side="left"
-          className="w-[min(86vw,320px)] border-r border-slate-200 p-0 md:hidden"
+          className="w-[min(86vw,320px)] border-r border-border p-0 md:hidden"
           hideDefaultClose={false}
         >
           <SheetHeader className="sr-only">
@@ -124,35 +116,40 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       </Sheet>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-5 lg:px-6">
+        <header className="flex h-14 items-center justify-between border-b border-border bg-card/80 px-4 backdrop-blur-sm sm:px-5 lg:px-6">
           <div className="flex min-w-0 items-center gap-2 text-sm">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => setIsMobileNavOpen(true)}
-              className="inline-flex items-center justify-center rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 md:hidden"
+              className="md:hidden"
               aria-label="Admin menüyü aç"
             >
-              <Menu size={18} />
-            </button>
+              <Menu className="h-4 w-4" />
+            </Button>
 
             <div className="min-w-0 overflow-x-auto scrollbar-hide [-ms-overflow-style:none] [scrollbar-width:none]">
               <div className="flex items-center gap-1 whitespace-nowrap">
                 <Link
                   href="/admin"
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                   aria-label="Admin ana sayfa"
                 >
                   <Home size={16} />
                 </Link>
                 {segments.map((segment, idx) => (
-                  <div key={idx} className="flex items-center gap-1 min-w-0">
-                    <ChevronRight size={14} className="shrink-0 text-slate-400" />
+                  <div key={idx} className="flex min-w-0 items-center gap-1">
+                    <ChevronRight
+                      size={14}
+                      className="shrink-0 text-muted-foreground/70"
+                    />
                     <span
                       className={cn(
-                        'truncate rounded px-1.5 py-0.5 text-sm font-medium max-w-[120px] sm:max-w-[180px]',
+                        'max-w-[120px] truncate rounded px-1.5 py-0.5 text-sm font-medium sm:max-w-[180px]',
                         idx === segments.length - 1
-                          ? 'text-slate-900'
-                          : 'text-slate-500'
+                          ? 'text-foreground'
+                          : 'text-muted-foreground'
                       )}
                     >
                       {labelMap[segment] || segment}
@@ -165,60 +162,55 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-1 sm:gap-2">
             <NotificationBell
-              buttonClassName="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              iconClassName="relative flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              panelClassName="absolute right-0 top-full z-[120] mt-2 w-[min(92vw,340px)] rounded-lg bg-white shadow-lg ring-1 ring-slate-900/5"
+              buttonClassName="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              iconClassName="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              panelClassName="absolute right-0 top-full z-[120] mt-2 w-[min(92vw,340px)] rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
             />
-            <div className="mx-1 hidden h-5 w-px bg-slate-200 sm:mx-2 sm:block" />
-            <div className="relative" ref={profileMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900"
-                aria-label="Profil menüsü"
-              >
-                <User size={16} />
-              </button>
-
-              {isProfileMenuOpen && (
-                <div className="absolute right-0 top-full z-[130] mt-2 w-56 rounded-lg bg-white p-1.5 shadow-lg ring-1 ring-slate-900/5">
-                  <div className="border-b border-slate-100 px-3 py-2">
-                    <p className="truncate text-sm font-medium text-slate-900">
+            <div className="mx-1 hidden h-5 w-px bg-border sm:mx-2 sm:block" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Profil menüsü"
+                >
+                  <User className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="truncate text-sm font-medium">
                       {user?.name || 'Admin Kullanıcı'}
                     </p>
-                    <p className="truncate text-xs text-slate-500">{user?.email || '-'}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {user?.email || '-'}
+                    </p>
                   </div>
-
-                  <Link
-                    href="/account"
-                    className="mt-1 block rounded-md px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 hover:text-slate-900"
-                    onClick={() => setIsProfileMenuOpen(false)}
-                  >
-                    Hesabım
-                  </Link>
-
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="mt-0.5 flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
-                  >
-                    <LogOut size={14} />
-                    Çıkış Yap
-                  </button>
-                </div>
-              )}
-            </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/account">Hesabım</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={handleSignOut}
+                  className="cursor-pointer"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Çıkış Yap
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6 scrollbar-hide">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 scrollbar-hide sm:p-5 lg:p-6">
           {children}
         </div>
       </main>
     </div>
   )
-}
-
-function cn(...classes: any[]) {
-  return classes.filter(Boolean).join(' ')
 }

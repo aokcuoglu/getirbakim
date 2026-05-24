@@ -1,51 +1,62 @@
 import { AdminLayout } from '@/components/admin/admin-layout'
+import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { QuickActions } from '@/components/admin/quick-actions'
 import { StatsCards } from '@/components/admin/stats-cards'
 import { SalesReport } from '@/components/admin/sales-report'
 import { RecentOrdersWidget } from '@/components/admin/recent-orders-widget'
-import { ActivityFeed } from '@/components/admin/activity-feed'
+import { DashboardAlerts } from '@/components/admin/dashboard-alerts'
 import { getAdminDashboardData } from '@/lib/actions/admin-products'
+import { Button } from '@/components/ui/button'
+import { Link } from '@/lib/navigation'
+import { Package, ShoppingCart } from 'lucide-react'
 
 export default async function AdminPage() {
   const data = await getAdminDashboardData()
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        
-        {/* Header */}
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-900">Genel Bakış</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Mağaza performansınız ve son aktiviteler
-            </p>
-          </div>
-        </div>
+      <AdminPageShell width="wide">
+        <AdminPageHeader
+          eyebrow="Yönetim Paneli"
+          title="Genel Bakış"
+          description="Mağaza performansı, operasyon uyarıları ve son siparişler"
+          actions={
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/admin/products">
+                  <Package className="mr-2 h-4 w-4" />
+                  Ürünler
+                </Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/admin/orders">
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Siparişler
+                </Link>
+              </Button>
+            </>
+          }
+        />
 
-        {/* Stats Cards */}
         <StatsCards metrics={data.metrics} />
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Sales Report - Spans 2 columns */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            <SalesReport salesSeries={data.salesSeries} failedSyncRate={data.metrics.failedSyncRate} />
+            <SalesReport
+              salesSeries={data.salesSeries}
+              failedSyncRate={data.metrics.failedSyncRate}
+            />
           </div>
-          
-          {/* Activity Feed */}
-          <div>
-            <ActivityFeed activities={[]} />
-          </div>
+          <DashboardAlerts
+            alerts={data.alerts}
+            failedSyncRate={data.metrics.failedSyncRate}
+          />
         </div>
 
-        {/* Quick Actions */}
         <QuickActions />
 
-        {/* Recent Orders */}
         <RecentOrdersWidget orders={data.recentOrders} />
-        
-      </div>
+      </AdminPageShell>
     </AdminLayout>
   )
 }

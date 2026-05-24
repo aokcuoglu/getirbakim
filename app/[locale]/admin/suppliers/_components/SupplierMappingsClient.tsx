@@ -25,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { AdminLoadingState } from '@/components/admin/admin-loading-state'
 import {
   Table,
   TableBody,
@@ -716,14 +716,7 @@ export function SupplierMappingsClient({
         <ResponsiveDataView
           mobile={
             loadingRows && rows.length === 0 ? (
-              <div className="space-y-3 px-4 py-4">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <MobileDataCard key={`mobile-loading-${index}`}>
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="mt-2 h-4 w-3/4" />
-                  </MobileDataCard>
-                ))}
-              </div>
+              <AdminLoadingState minHeight="min-h-[240px]" />
             ) : rows.length === 0 ? (
               <div className="px-4 py-14 text-center text-slate-500">
                 Seçili filtrelerde ürün bulunamadı.
@@ -815,7 +808,11 @@ export function SupplierMappingsClient({
 
               <TableBody>
                 {loadingRows && rows.length === 0 ? (
-                  <LoadingRows />
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={8} className="p-0">
+                      <AdminLoadingState minHeight="min-h-[240px]" />
+                    </TableCell>
+                  </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow className="hover:bg-white">
                     <TableCell
@@ -956,25 +953,13 @@ function SummaryMetric({
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       {loading ? (
-        <Skeleton className="mt-2 h-7 w-24" />
+        <Loader2 className="mt-2 h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
         <p className="mt-2 text-2xl font-semibold text-slate-900">{value.toLocaleString('tr-TR')}</p>
       )}
       <div className={`mt-2 h-1 w-10 rounded-full ${accentClass}`} />
     </div>
   )
-}
-
-function LoadingRows() {
-  return Array.from({ length: 6 }).map((_, index) => (
-    <TableRow key={`loading-${index}`} className="hover:bg-white">
-      {Array.from({ length: 8 }).map((__, cellIndex) => (
-        <TableCell key={`loading-${index}-${cellIndex}`} className="px-4 py-3">
-          <Skeleton className="h-4 w-full" />
-        </TableCell>
-      ))}
-    </TableRow>
-  ))
 }
 
 function StatusBadge({

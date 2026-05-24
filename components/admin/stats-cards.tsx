@@ -6,6 +6,12 @@ import {
 } from 'lucide-react'
 import type { ElementType } from 'react'
 import { cn } from '@/lib/utils'
+import {
+  AdminCard,
+  AdminCardContent,
+  AdminCardHeader,
+  AdminCardTitle
+} from '@/components/admin/admin-card'
 
 interface StatsCardsProps {
   metrics: {
@@ -32,51 +38,48 @@ function StatsCard({
   icon: Icon,
   variant
 }: StatsCardProps) {
-  const variants = {
-    default: {
-      iconBg: 'bg-slate-100',
-      iconColor: 'text-slate-600'
-    },
-    warning: {
-      iconBg: 'bg-amber-50',
-      iconColor: 'text-amber-600'
-    },
-    danger: {
-      iconBg: 'bg-rose-50',
-      iconColor: 'text-rose-600'
-    }
+  const iconVariants = {
+    default: 'bg-muted text-muted-foreground',
+    warning: 'bg-secondary text-secondary-foreground',
+    danger: 'bg-destructive/10 text-destructive'
+  }
+
+  const subtitleVariants = {
+    default: 'text-muted-foreground',
+    warning: 'text-secondary-foreground',
+    danger: 'text-destructive'
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="text-2xl font-semibold text-slate-900">{value}</p>
-          {subtitle && (
-            <p className={cn(
-              'text-xs',
-              variant === 'default' ? 'text-slate-400' :
-              variant === 'warning' ? 'text-amber-600' : 'text-rose-600'
-            )}>
-              {subtitle}
-            </p>
+    <AdminCard>
+      <AdminCardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+        <AdminCardTitle className="text-xs font-medium text-muted-foreground">
+          {title}
+        </AdminCardTitle>
+        <div
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md',
+            iconVariants[variant]
           )}
+        >
+          <Icon className="h-4 w-4" />
         </div>
-        <div className={cn(
-          'flex h-11 w-11 items-center justify-center rounded-lg',
-          variants[variant].iconBg
-        )}>
-          <Icon size={20} className={variants[variant].iconColor} />
-        </div>
-      </div>
-    </div>
+      </AdminCardHeader>
+      <AdminCardContent>
+        <p className="text-xl font-semibold tracking-tight">{value}</p>
+        {subtitle ? (
+          <p className={cn('mt-0.5 text-xs', subtitleVariants[variant])}>
+            {subtitle}
+          </p>
+        ) : null}
+      </AdminCardContent>
+    </AdminCard>
   )
 }
 
 export function StatsCards({ metrics }: StatsCardsProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatsCard
         title="Toplam Ürün"
         value={metrics.totalProducts.toLocaleString('tr-TR')}
@@ -101,7 +104,11 @@ export function StatsCards({ metrics }: StatsCardsProps) {
       <StatsCard
         title="Senkron Hata Oranı"
         value={`%${metrics.failedSyncRate.toFixed(2)}`}
-        subtitle={metrics.syncErrorCount > 0 ? `${metrics.syncErrorCount} hata` : 'Hata yok'}
+        subtitle={
+          metrics.syncErrorCount > 0
+            ? `${metrics.syncErrorCount} hata`
+            : 'Hata yok'
+        }
         icon={ShieldAlert}
         variant={metrics.syncErrorCount > 0 ? 'danger' : 'default'}
       />

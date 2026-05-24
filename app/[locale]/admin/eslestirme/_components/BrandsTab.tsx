@@ -7,7 +7,7 @@ import { SortingState } from '@tanstack/react-table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { AdminLoadingState } from '@/components/admin/admin-loading-state'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DataTable } from './data-table'
 import { BrandRow, createBrandsColumns } from './columns/brands-columns'
@@ -154,9 +154,11 @@ export function BrandsTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {loading && !summary ? Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border bg-card px-4 py-3"><Skeleton className="h-3 w-20" /><Skeleton className="mt-2 h-7 w-16" /></div>
-        )) : summaryCards.map((card, i) => (
+        {loading && !summary ? (
+          <div className="col-span-full">
+            <AdminLoadingState minHeight="min-h-[120px]" label="Özet yükleniyor..." />
+          </div>
+        ) : summaryCards.map((card, i) => (
           <div key={i} className="rounded-xl border bg-card px-4 py-3">
             <div className="text-xs font-medium text-muted-foreground">{card.label}</div>
             <div className="mt-1.5 flex items-baseline gap-2">

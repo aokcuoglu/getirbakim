@@ -161,6 +161,36 @@ export function SomePageClient({ data }: Props) {
 </aside>
 ```
 
+### 4.5 Admin Compact Density (New York)
+
+Admin UI uses shadcn **new-york** style with tighter spacing than storefront pages.
+
+| Token / Pattern | Value |
+|-----------------|-------|
+| Page section spacing | `space-y-4` |
+| Page header | `p-4`, title `text-xl font-semibold` |
+| Admin card padding | `p-4` via `AdminCard` wrapper |
+| Buttons in admin | prefer `size="sm"` |
+| Inputs | default `h-9` |
+| Table headers | `text-xs font-medium uppercase tracking-wide text-muted-foreground`, row `h-10` |
+| Filter chips | `rounded-full border px-2.5 py-0.5 text-xs font-medium` |
+| Sidebar collapsed width | `w-16` (64px) |
+| Admin loading | centered **spinner** (`Loader2`), not skeleton |
+
+```tsx
+import { AdminCard, AdminCardHeader, AdminCardTitle, AdminCardContent } from '@/components/admin/admin-card'
+import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+
+<AdminCard>
+  <AdminCardHeader>
+    <AdminCardTitle>Section</AdminCardTitle>
+  </AdminCardHeader>
+  <AdminCardContent>{/* ... */}</AdminCardContent>
+</AdminCard>
+```
+
+Storefront pages keep skeleton loading patterns; admin pages use spinner loading.
+
 ---
 
 ## 5. Component Architecture
@@ -434,7 +464,8 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 
 Every data-fetching component MUST handle three states:
 ```tsx
-if (status === 'pending')   → <ComponentSkeleton />
+if (status === 'pending')   → <ComponentSkeleton />  // storefront
+if (status === 'pending')   → <AdminLoadingState />  // admin panels
 if (status === 'error')     → <ComponentError onRetry={refetch} />
 if (isEmpty(data))          → <ComponentEmpty />
 ```

@@ -10,6 +10,14 @@ import {
   YAxis
 } from 'recharts'
 import { AlertCircle } from 'lucide-react'
+import {
+  AdminCard,
+  AdminCardContent,
+  AdminCardDescription,
+  AdminCardHeader,
+  AdminCardTitle
+} from '@/components/admin/admin-card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 
 interface SalesReportProps {
   salesSeries: Array<{
@@ -25,98 +33,118 @@ export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
   const totalOrders = salesSeries.reduce((sum, item) => sum + item.orders, 0)
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-5">
-        <div>
-          <h3 className="text-base font-semibold text-slate-900">Satış Grafiği</h3>
-          <p className="text-sm text-slate-500 mt-0.5">Son 6 ay performansı</p>
-        </div>
-
-        {failedSyncRate > 0 && (
-          <div className="flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">
-            <AlertCircle size={14} />
-            Sync hata oranı: %{failedSyncRate.toFixed(2)}
+    <AdminCard>
+      <AdminCardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <AdminCardTitle>Satış Grafiği</AdminCardTitle>
+            <AdminCardDescription>Son 6 ay performansı</AdminCardDescription>
           </div>
-        )}
-      </div>
-
-      <div className="mb-5 grid grid-cols-2 gap-4">
-        <div className="rounded-lg bg-slate-50 p-4">
-          <p className="text-xs font-medium text-slate-500">Toplam Gelir</p>
-          <p className="mt-1 text-xl font-semibold text-slate-900">
-            {totalRevenue.toLocaleString('tr-TR', {
-              style: 'currency',
-              currency: 'TRY',
-              maximumFractionDigits: 0
-            })}
-          </p>
+          {failedSyncRate > 0 && (
+            <Alert className="max-w-xs border-border py-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Sync hata oranı: %{failedSyncRate.toFixed(2)}
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </AdminCardHeader>
+      <AdminCardContent>
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="rounded-md bg-muted/50 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Toplam Gelir
+            </p>
+            <p className="mt-0.5 text-lg font-semibold tracking-tight">
+              {totalRevenue.toLocaleString('tr-TR', {
+                style: 'currency',
+                currency: 'TRY',
+                maximumFractionDigits: 0
+              })}
+            </p>
+          </div>
+          <div className="rounded-md bg-muted/50 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Toplam Sipariş
+            </p>
+            <p className="mt-0.5 text-lg font-semibold tracking-tight">
+              {totalOrders.toLocaleString('tr-TR')}
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-lg bg-slate-50 p-4">
-          <p className="text-xs font-medium text-slate-500">Toplam Sipariş</p>
-          <p className="mt-1 text-xl font-semibold text-slate-900">
-            {totalOrders.toLocaleString('tr-TR')}
-          </p>
+        <div className="h-[220px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={salesSeries}>
+              <defs>
+                <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop
+                    offset="5%"
+                    stopColor="hsl(var(--primary))"
+                    stopOpacity={0.15}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor="hsl(var(--primary))"
+                    stopOpacity={0}
+                  />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                stroke="hsl(var(--border))"
+              />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                dy={10}
+              />
+              <YAxis hide />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: 'hsl(var(--popover))',
+                  border: '1px solid hsl(var(--border))',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  padding: '12px',
+                  color: 'hsl(var(--popover-foreground))'
+                }}
+                formatter={(
+                  rawValue: number | string | undefined,
+                  name: string | undefined
+                ) => {
+                  const value = Number(rawValue ?? 0)
+                  if (name === 'revenue') {
+                    return [
+                      value.toLocaleString('tr-TR', {
+                        style: 'currency',
+                        currency: 'TRY',
+                        maximumFractionDigits: 0
+                      }),
+                      'Gelir'
+                    ]
+                  }
+
+                  return [value.toLocaleString('tr-TR'), 'Sipariş']
+                }}
+                labelFormatter={(value) => `Dönem: ${value}`}
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="hsl(var(--primary))"
+                fill="url(#revenueFill)"
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
-      </div>
-
-      <div className="h-[280px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={salesSeries}>
-            <defs>
-              <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis
-              dataKey="month"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 12, fill: '#64748b' }}
-              dy={10}
-            />
-            <YAxis hide />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: '#fff',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                padding: '12px'
-              }}
-              formatter={(
-                rawValue: number | string | undefined,
-                name: string | undefined
-              ) => {
-                const value = Number(rawValue ?? 0)
-                if (name === 'revenue') {
-                  return [
-                    value.toLocaleString('tr-TR', {
-                      style: 'currency',
-                      currency: 'TRY',
-                      maximumFractionDigits: 0
-                    }),
-                    'Gelir'
-                  ]
-                }
-
-                return [value.toLocaleString('tr-TR'), 'Sipariş']
-              }}
-              labelFormatter={(value) => `Dönem: ${value}`}
-            />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              stroke="#6366f1"
-              fill="url(#revenueFill)"
-              strokeWidth={2}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      </AdminCardContent>
+    </AdminCard>
   )
 }
