@@ -18,10 +18,14 @@ export async function GET(request: NextRequest) {
   const dproductsIdStr = url.searchParams.get('dproductsId')
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10)), 100)
 
-  if (!q || q.length < 2) return successResponse([], context)
-
   const escaped = q.replace(/[%_\\]/g, '\\$&')
   const pattern = `%${escaped}%`
+  const textFilterDproducts = q.length >= 2
+    ? Prisma.sql`AND (d.stock_code ILIKE ${pattern} OR d.stock_name ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR d.barcode_1 ILIKE ${pattern} OR d.barcode_2 ILIKE ${pattern} OR d.barcode_3 ILIKE ${pattern} OR d.part_no ILIKE ${pattern})`
+    : Prisma.empty
+  const textFilterProducts = q.length >= 2
+    ? Prisma.sql`AND (p.title ILIKE ${pattern} OR p.model ILIKE ${pattern} OR mfr.name ILIKE ${pattern})`
+    : Prisma.empty
 
   try {
     if (direction === 'from_product' && productIdStr) {
@@ -39,7 +43,7 @@ export async function GET(request: NextRequest) {
             WHERE p.id = ${productId}
               AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
           )
-          AND (d.stock_code ILIKE ${pattern} OR d.stock_name ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR d.barcode_1 ILIKE ${pattern} OR d.barcode_2 ILIKE ${pattern} OR d.barcode_3 ILIKE ${pattern} OR d.part_no ILIKE ${pattern})
+          ${textFilterDproducts}
           ORDER BY d.stock_code ASC
           LIMIT ${limit}
         `
@@ -72,7 +76,7 @@ export async function GET(request: NextRequest) {
               AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
             WHERE d.id = ${dproductsId}
           )
-          AND (p.title ILIKE ${pattern} OR p.model ILIKE ${pattern} OR mfr.name ILIKE ${pattern})
+          ${textFilterProducts}
           ORDER BY p.title ASC
           LIMIT ${limit}
         `

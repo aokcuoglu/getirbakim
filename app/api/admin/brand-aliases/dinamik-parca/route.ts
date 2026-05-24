@@ -5,6 +5,7 @@ import {
   successResponse,
   withApiContext
 } from '@/lib/api/route-utils'
+import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
@@ -95,17 +96,7 @@ export async function GET(request: NextRequest) {
       Array<{ mapping_status: string; count: bigint }>
     >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
 
-    const totalDinamikBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM parcatedarik.dproducts d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
-
-    const totalPcManufacturers = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.manufacturer`)
-
-    const matchedBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT dbrands_id) AS count FROM parcatedarik.dbrands_match WHERE mapping_status IN ('PENDING', 'APPROVED')`)
+    const brandStats = await getDinamikBrandMatchStats()
 
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
 
@@ -126,10 +117,10 @@ export async function GET(request: NextRequest) {
         pending: statusMap['PENDING'] ?? 0,
         rejected: statusMap['REJECTED'] ?? 0,
         ignored: statusMap['IGNORED'] ?? 0,
-        totalDinamikBrands: Number(totalDinamikBrands[0]?.count ?? 0),
-        totalPcManufacturers: Number(totalPcManufacturers[0]?.count ?? 0),
-        matchedBrands: Number(matchedBrands[0]?.count ?? 0),
-        unmatchedBrands: Number(totalDinamikBrands[0]?.count ?? 0) - Number(matchedBrands[0]?.count ?? 0)
+        totalDinamikBrands: brandStats.totalDinamikBrands,
+        totalPcManufacturers: brandStats.totalPcManufacturers,
+        matchedBrands: brandStats.matchedBrands,
+        unmatchedBrands: brandStats.unmatchedBrands,
       },
       filters: { q, status }
     }, context)

@@ -1,21 +1,36 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, RefreshCw, Search } from 'lucide-react'
+import { Check, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SortingState } from '@tanstack/react-table'
+import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
+import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
+import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DataTable } from './data-table'
 import { ModelRow, createModelColumns } from './columns/model-columns'
 
+type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only'
+
 interface ModelFilters {
   q: string
   status: string
+  dinamikBrand: string | null
+  manufacturerId: number | null
+  matchSide: MatchSide
   page: number
   limit: number
   sort?: string
@@ -30,6 +45,37 @@ interface ModelSummary {
   ignored: number
 }
 
+interface ModelFilterOptions {
+  dinamikBrands: string[]
+  manufacturers: Array<{ id: number; name: string }>
+}
+
+const DEFAULT_MODEL_FILTERS: ModelFilters = {
+  q: '',
+  status: 'all',
+  dinamikBrand: null,
+  manufacturerId: null,
+  matchSide: 'all',
+  page: 1,
+  limit: 50,
+}
+
+function buildModelSearchParams(f: ModelFilters) {
+  const params = new URLSearchParams()
+  if (f.q) params.set('q', f.q)
+  if (f.status !== 'all') params.set('status', f.status)
+  if (f.dinamikBrand) params.set('dinamikBrand', f.dinamikBrand)
+  if (f.manufacturerId) params.set('manufacturerId', String(f.manufacturerId))
+  if (f.matchSide !== 'all') params.set('matchSide', f.matchSide)
+  params.set('page', String(f.page))
+  params.set('limit', String(f.limit))
+  if (f.sort) {
+    params.set('sort', f.sort)
+    params.set('sort_dir', f.sort_dir || 'asc')
+  }
+  return params
+}
+
 export function ProductsTab() {
   const [models, setModels] = useState<ModelRow[]>([])
   const [summary, setSummary] = useState<ModelSummary | null>(null)
@@ -38,7 +84,12 @@ export function ProductsTab() {
   const [generating, setGenerating] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
-  const [filters, setFilters] = useState<ModelFilters>({ q: '', status: 'all', page: 1, limit: 50 })
+  const [filters, setFilters] = useState<ModelFilters>(DEFAULT_MODEL_FILTERS)
+  const [searchValue, setSearchValue] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filterOptions, setFilterOptions] = useState<ModelFilterOptions>({ dinamikBrands: [], manufacturers: [] })
+  const [optionsLoading, setOptionsLoading] = useState(false)
+  const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
 
   useEffect(() => { filtersRef.current = filters }, [filters])
@@ -47,17 +98,13 @@ export function ProductsTab() {
   const [linkTarget, setLinkTarget] = useState<ModelRow | null>(null)
   const [linkSearch, setLinkSearch] = useState('')
   const [linkResults, setLinkResults] = useState<any[]>([])
+  const [linkLoading, setLinkLoading] = useState(false)
+  const [linkLoaded, setLinkLoaded] = useState(false)
 
   const loadModels = useCallback(async (f: ModelFilters) => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (f.q) params.set('q', f.q)
-      if (f.status !== 'all') params.set('status', f.status)
-      params.set('page', String(f.page))
-      params.set('limit', String(f.limit))
-      if (f.sort) { params.set('sort', f.sort); params.set('sort_dir', f.sort_dir || 'asc') }
-      const res = await fetch(`/api/admin/eslestirme/models?${params}`)
+      const res = await fetch(`/api/admin/eslestirme/models?${buildModelSearchParams(f)}`)
       if (!res.ok) { toast.error(`Eşleştirmeler yüklenemedi (${res.status})`); setLoading(false); return }
       const data = await res.json()
       if (!data.error) {
@@ -69,14 +116,42 @@ export function ProductsTab() {
     setLoading(false)
   }, [])
 
+  const loadFilterOptions = useCallback(async () => {
+    setOptionsLoading(true)
+    try {
+      const res = await fetch('/api/admin/eslestirme/models/options')
+      if (res.ok) {
+        const data = await res.json()
+        if (!data.error) {
+          setFilterOptions({
+            dinamikBrands: data.dinamikBrands || [],
+            manufacturers: data.manufacturers || [],
+          })
+        }
+      }
+    } catch {
+      toast.error('Filtre seçenekleri yüklenemedi')
+    } finally {
+      setOptionsLoading(false)
+    }
+  }, [])
+
   useEffect(() => { void loadModels(filters) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { void loadFilterOptions() }, [loadFilterOptions])
+
+  useEffect(() => {
+    setSearchValue(filters.q)
+  }, [filters.q])
 
   const handleSortingChange = useCallback((next: SortingState) => {
     setSorting(next)
     if (next.length === 0) { void loadModels(filtersRef.current); return }
     const s = next[0]
     const patch: Partial<ModelFilters> = { sort: s.id, sort_dir: s.desc ? 'desc' : 'asc', page: 1 }
-    void loadModels({ ...filtersRef.current, ...patch })
+    const updated = { ...filtersRef.current, ...patch }
+    setFilters(updated)
+    void loadModels(updated)
   }, [loadModels])
 
   const applyFilters = useCallback((patch: Partial<ModelFilters>) => {
@@ -84,6 +159,42 @@ export function ProductsTab() {
     setFilters(next)
     void loadModels(next)
   }, [loadModels])
+
+  const onSearch = useDebouncedCallback((term: string) => {
+    setIsSearchPending(false)
+    applyFilters({ q: term.trim(), page: 1 })
+  }, 250)
+
+  const setFilterParam = useCallback((
+    name: keyof Pick<ModelFilters, 'status' | 'dinamikBrand' | 'manufacturerId' | 'matchSide'>,
+    value?: string | null
+  ) => {
+    const patch: Partial<ModelFilters> = { page: 1 }
+    if (name === 'status') {
+      patch.status = value && value !== 'all' ? value : 'all'
+    } else if (name === 'dinamikBrand') {
+      patch.dinamikBrand = value && value !== 'all' ? value : null
+    } else if (name === 'manufacturerId') {
+      patch.manufacturerId = value && value !== 'all' ? Number(value) : null
+    } else if (name === 'matchSide') {
+      patch.matchSide = (value as MatchSide) || 'all'
+    }
+    applyFilters(patch)
+  }, [applyFilters])
+
+  const resetFilters = useCallback(() => {
+    setSearchValue('')
+    setIsSearchPending(false)
+    applyFilters(DEFAULT_MODEL_FILTERS)
+  }, [applyFilters])
+
+  const toggleChipFilter = useCallback((
+    name: 'status' | 'matchSide',
+    value: string,
+    currentValue: string
+  ) => {
+    setFilterParam(name, currentValue === value ? 'all' : value)
+  }, [setFilterParam])
 
   const handleAction = useCallback(async (id: number, action: string) => {
     try {
@@ -121,26 +232,45 @@ export function ProductsTab() {
     setLinkTarget(row)
     setLinkSearch('')
     setLinkResults([])
+    setLinkLoaded(false)
     setLinkOpen(true)
   }, [])
 
-  const searchLink = useCallback(async (q: string) => {
-    if (!q || q.length < 2 || !linkTarget) { setLinkResults([]); return }
-    const params = new URLSearchParams({ q, limit: '20' })
-    // If this row has only productId (PT product), search dproducts
-    if (linkTarget.productId && !linkTarget.dproductsId) {
-      params.set('direction', 'from_product')
-      params.set('productId', String(linkTarget.productId))
-    } else {
-      // If this row has dproductsId (Dinamik), search products
-      params.set('direction', 'from_dproducts')
-      params.set('dproductsId', linkTarget.dproductsId || '0')
-    }
+  const loadLinkResults = useCallback(async (q: string, target: ModelRow | null) => {
+    if (!target) { setLinkResults([]); return }
+    setLinkLoading(true)
     try {
+      const params = new URLSearchParams({ limit: '50' })
+      if (q.trim().length >= 2) params.set('q', q.trim())
+      if (target.productId && !target.dproductsId) {
+        params.set('direction', 'from_product')
+        params.set('productId', String(target.productId))
+      } else {
+        params.set('direction', 'from_dproducts')
+        params.set('dproductsId', target.dproductsId || '0')
+      }
       const res = await fetch(`/api/admin/eslestirme/models/search-dinamik?${params}`)
       if (res.ok) setLinkResults(await res.json())
-    } catch {}
-  }, [linkTarget])
+      else setLinkResults([])
+    } catch {
+      setLinkResults([])
+    } finally {
+      setLinkLoading(false)
+      setLinkLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (linkOpen && linkTarget) {
+      void loadLinkResults('', linkTarget)
+    }
+  }, [linkOpen, linkTarget, loadLinkResults])
+
+  const searchLink = useCallback(async (q: string) => {
+    if (!linkTarget) { setLinkResults([]); return }
+    if (q.trim().length === 1) return
+    await loadLinkResults(q, linkTarget)
+  }, [linkTarget, loadLinkResults])
 
   const handleManualLink = useCallback(async (targetId: string) => {
     if (!linkTarget) return
@@ -175,6 +305,22 @@ export function ProductsTab() {
 
   const selectedCount = Object.values(rowSelection).filter(Boolean).length
 
+  const linkBrandName = linkTarget
+    ? (linkTarget.dinamik.brand || linkTarget.parcatedarik.manufacturerName || '').trim()
+    : ''
+  const linkSearchTarget = linkTarget && linkTarget.productId && !linkTarget.dproductsId ? 'Dinamik' : 'PT'
+  const linkEmptyMessage = linkBrandName
+    ? `${linkBrandName} markasına ait ${linkSearchTarget} ürün bulunamadı.`
+    : `Onaylı marka eşleşmesi bulunamadı; ${linkSearchTarget} ürün listelenemedi.`
+
+  const isListUpdating = loading || isSearchPending
+  const hasActiveFilters =
+    filters.q !== '' ||
+    filters.status !== 'all' ||
+    filters.dinamikBrand != null ||
+    filters.manufacturerId != null ||
+    filters.matchSide !== 'all'
+
   return (
     <TooltipProvider delayDuration={300}>
     <div className="space-y-4">
@@ -204,25 +350,66 @@ export function ProductsTab() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="w-80">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground"><Search className="mr-1 inline h-3 w-3" />Ara</label>
-          <Input value={filters.q} onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') applyFilters({ q: filters.q, page: 1 }) }} placeholder="Stok kodu / ad / ürün..." className="h-8 text-sm" />
-        </div>
-        <div className="w-40">
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Durum</label>
-          <Select value={filters.status} onValueChange={v => applyFilters({ status: v, page: 1 })}>
-            <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tümü</SelectItem>
-              <SelectItem value="PENDING">Beklemede</SelectItem>
-              <SelectItem value="APPROVED">Onaylandı</SelectItem>
-              <SelectItem value="REJECTED">Reddedildi</SelectItem>
-              <SelectItem value="IGNORED">Yoksayıldı</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="sm" className="h-8" onClick={() => applyFilters({ page: 1 })}>Filtrele</Button>
+      <div className="rounded-lg border border-border bg-card p-4">
+        <AdminTableToolbar
+          searchValue={searchValue}
+          onSearchChange={(nextValue) => {
+            setSearchValue(nextValue)
+            setIsSearchPending(true)
+            onSearch(nextValue)
+          }}
+          searchPlaceholder="Stok kodu / ad / ürün ara..."
+          isSearchLoading={isListUpdating}
+          onRefresh={() => void loadModels(filtersRef.current)}
+          isRefreshing={loading}
+          onAdvancedFilter={() => setFiltersOpen(true)}
+        />
+
+        <AdminFilterBar onReset={hasActiveFilters ? resetFilters : undefined} className="mt-3">
+          <AdminFilterChip
+            label="Beklemede"
+            active={filters.status === 'PENDING'}
+            onClick={() => toggleChipFilter('status', 'PENDING', filters.status)}
+          />
+          <AdminFilterChip
+            label="PT Bekliyor"
+            active={filters.matchSide === 'dinamik_only'}
+            onClick={() => toggleChipFilter('matchSide', 'dinamik_only', filters.matchSide)}
+          />
+          <AdminFilterChip
+            label="Dinamik Bekliyor"
+            active={filters.matchSide === 'pt_only'}
+            onClick={() => toggleChipFilter('matchSide', 'pt_only', filters.matchSide)}
+          />
+          <AdminFilterChip
+            label="Tam Eşleşme"
+            active={filters.matchSide === 'matched'}
+            onClick={() => toggleChipFilter('matchSide', 'matched', filters.matchSide)}
+          />
+          <AdminFilterChip
+            label="Onaylandı"
+            active={filters.status === 'APPROVED'}
+            onClick={() => toggleChipFilter('status', 'APPROVED', filters.status)}
+          />
+        </AdminFilterBar>
+
+        {(filters.dinamikBrand || filters.manufacturerId) && (
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+            {filters.dinamikBrand && (
+              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+                Dinamik Marka: <strong className="text-foreground">{filters.dinamikBrand}</strong>
+              </span>
+            )}
+            {filters.manufacturerId && (
+              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+                PT Üretici:{' '}
+                <strong className="text-foreground">
+                  {filterOptions.manufacturers.find((m) => m.id === filters.manufacturerId)?.name || filters.manufacturerId}
+                </strong>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <DataTable
@@ -269,7 +456,25 @@ export function ProductsTab() {
                 className="h-9"
                 autoFocus
               />
-              {linkResults.length > 0 && (
+              {linkBrandName && (
+                <p className="text-xs text-muted-foreground">
+                  {linkSearch.trim().length >= 2
+                    ? `"${linkSearch.trim()}" araması — ${linkBrandName} markası`
+                    : `${linkBrandName} markasına ait ${linkSearchTarget} ürünler`}
+                </p>
+              )}
+              {linkLoading && (
+                <p className="text-sm text-muted-foreground py-2 text-center">Yükleniyor...</p>
+              )}
+              {!linkLoading && linkLoaded && linkResults.length === 0 && (
+                <div className="rounded border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  <p>{linkEmptyMessage}</p>
+                  {linkBrandName && (
+                    <p className="mt-1 text-xs">Arama kutusunu kullanarak farklı bir terim deneyebilirsiniz.</p>
+                  )}
+                </div>
+              )}
+              {!linkLoading && linkResults.length > 0 && (
                 <div className="max-h-56 overflow-y-auto rounded border p-1">
                   {linkResults.map((r: any) => (
                     <button key={r.id} className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent" onClick={() => handleManualLink(r.id)}>
@@ -292,6 +497,80 @@ export function ProductsTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[420px]">
+          <SheetHeader>
+            <SheetTitle>Gelişmiş Filtreler</SheetTitle>
+            <SheetDescription>
+              Marka ve eşleşme durumuna göre listeyi daraltın.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="mt-6 space-y-3">
+            <AdminFilterSelect
+              label="Dinamik Marka"
+              value={filters.dinamikBrand ?? 'all'}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                ...filterOptions.dinamikBrands.map((brand) => ({
+                  value: brand,
+                  label: brand,
+                })),
+              ]}
+              disabled={optionsLoading}
+              placeholder={optionsLoading ? 'Markalar yükleniyor...' : 'Seçiniz'}
+              onChange={(value) => setFilterParam('dinamikBrand', value)}
+            />
+            <AdminFilterSelect
+              label="PT Üretici"
+              value={filters.manufacturerId != null ? String(filters.manufacturerId) : 'all'}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                ...filterOptions.manufacturers.map((manufacturer) => ({
+                  value: String(manufacturer.id),
+                  label: manufacturer.name,
+                })),
+              ]}
+              disabled={optionsLoading}
+              placeholder={optionsLoading ? 'Üreticiler yükleniyor...' : 'Seçiniz'}
+              onChange={(value) => setFilterParam('manufacturerId', value)}
+            />
+            <AdminFilterSelect
+              label="Durum"
+              value={filters.status}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                { value: 'PENDING', label: 'Beklemede' },
+                { value: 'APPROVED', label: 'Onaylandı' },
+                { value: 'REJECTED', label: 'Reddedildi' },
+                { value: 'IGNORED', label: 'Yoksayıldı' },
+              ]}
+              onChange={(value) => setFilterParam('status', value)}
+            />
+            <AdminFilterSelect
+              label="Eşleşme Durumu"
+              value={filters.matchSide}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                { value: 'matched', label: 'Tam Eşleşme' },
+                { value: 'dinamik_only', label: 'PT Bekliyor (sadece Dinamik)' },
+                { value: 'pt_only', label: 'Dinamik Bekliyor (sadece PT)' },
+              ]}
+              onChange={(value) => setFilterParam('matchSide', value)}
+            />
+          </div>
+
+          <div className="mt-6 flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={resetFilters}>
+              Filtreleri Sıfırla
+            </Button>
+            <Button type="button" className="flex-1" onClick={() => setFiltersOpen(false)}>
+              Kapat
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
     </TooltipProvider>
   )

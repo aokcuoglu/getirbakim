@@ -1,6 +1,7 @@
 'use server'
 
 import { Prisma } from '@prisma/client'
+import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { normalizeModel } from '@/lib/matching/code-normalization'
@@ -107,13 +108,7 @@ export async function getDinamikParcaBrandAliases(input?: {
       Array<{ mapping_status: string; count: bigint }>
     >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
 
-    const totalDinamikBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM parcatedarik.dproducts d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
-
-    const mappedBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT dbrands_id) AS count FROM parcatedarik.dbrands_match WHERE mapping_status IN ('PENDING', 'APPROVED')`)
+    const brandStats = await getDinamikBrandMatchStats()
 
     const summary: BrandAliasSummary = {
       total: Number(summaryResult.find(r => r.mapping_status !== '__total__') ? 0 : 0),
@@ -121,7 +116,7 @@ export async function getDinamikParcaBrandAliases(input?: {
       pending: Number(summaryResult.find(r => r.mapping_status === 'PENDING')?.count ?? 0),
       rejected: Number(summaryResult.find(r => r.mapping_status === 'REJECTED')?.count ?? 0),
       ignored: Number(summaryResult.find(r => r.mapping_status === 'IGNORED')?.count ?? 0),
-      unmatchedBrands: Number(totalDinamikBrands[0]?.count ?? 0) - Number(mappedBrands[0]?.count ?? 0)
+      unmatchedBrands: brandStats.unmatchedBrands,
     }
     summary.total = summary.approved + summary.pending + summary.rejected + summary.ignored
 
@@ -371,17 +366,7 @@ export async function getDinamikParcaBrandAliasStats(): Promise<{
       Array<{ mapping_status: string; count: bigint }>
     >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
 
-    const totalDinamikBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT d.brand) AS count FROM parcatedarik.dproducts d WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`)
-
-    const totalPcManufacturers = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.manufacturer`)
-
-    const matchedBrands = await db.$queryRaw<
-      Array<{ count: bigint }>
-    >(Prisma.sql`SELECT COUNT(DISTINCT dbrands_id) AS count FROM parcatedarik.dbrands_match WHERE mapping_status IN ('PENDING', 'APPROVED')`)
+    const brandStats = await getDinamikBrandMatchStats()
 
     const statusMap = Object.fromEntries(byStatus.map(r => [r.mapping_status, Number(r.count)]))
 
@@ -391,10 +376,10 @@ export async function getDinamikParcaBrandAliasStats(): Promise<{
       pending: statusMap['PENDING'] ?? 0,
       rejected: statusMap['REJECTED'] ?? 0,
       ignored: statusMap['IGNORED'] ?? 0,
-      totalDinamikBrands: Number(totalDinamikBrands[0]?.count ?? 0),
-      totalPcManufacturers: Number(totalPcManufacturers[0]?.count ?? 0),
-      matchedBrands: Number(matchedBrands[0]?.count ?? 0),
-      unmatchedBrands: Number(totalDinamikBrands[0]?.count ?? 0) - Number(matchedBrands[0]?.count ?? 0)
+      totalDinamikBrands: brandStats.totalDinamikBrands,
+      totalPcManufacturers: brandStats.totalPcManufacturers,
+      matchedBrands: brandStats.matchedBrands,
+      unmatchedBrands: brandStats.unmatchedBrands,
     }
   } catch (error) {
     console.error('[getDinamikParcaBrandAliasStats] Error:', error)

@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
 const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const
+const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
   dproducts_id: 'm.dproducts_id',
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const q = (url.searchParams.get('q') ?? '').trim()
   const status = url.searchParams.get('status') ?? 'all'
+  const dinamikBrand = (url.searchParams.get('dinamikBrand') ?? '').trim()
+  const manufacturerIdStr = url.searchParams.get('manufacturerId')
+  const matchSide = url.searchParams.get('matchSide') ?? 'all'
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10))
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10)), 200)
   const offset = (page - 1) * limit
@@ -32,12 +36,33 @@ export async function GET(request: NextRequest) {
   if (!VALID_STATUSES.includes(status as typeof VALID_STATUSES[number])) {
     return errorResponse({ status: 400, code: 'INVALID_STATUS', message: `Invalid status: ${status}`, context })
   }
+  if (!VALID_MATCH_SIDES.includes(matchSide as typeof VALID_MATCH_SIDES[number])) {
+    return errorResponse({ status: 400, code: 'INVALID_MATCH_SIDE', message: `Invalid matchSide: ${matchSide}`, context })
+  }
+
+  const manufacturerId = manufacturerIdStr ? parseInt(manufacturerIdStr, 10) : null
+  if (manufacturerIdStr && (manufacturerId == null || isNaN(manufacturerId) || manufacturerId <= 0)) {
+    return errorResponse({ status: 400, code: 'INVALID_MANUFACTURER_ID', message: 'Geçersiz üretici ID.', context })
+  }
 
   const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'm.id'
   const orderBy = Prisma.sql`${Prisma.raw(orderColumn)} ${Prisma.raw(sortDir)}`
 
   const whereClauses: Prisma.Sql[] = []
   if (status !== 'all') whereClauses.push(Prisma.sql`m.mapping_status = ${status.toUpperCase()}`)
+  if (dinamikBrand) {
+    whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(d.brand, ''))) = BTRIM(LOWER(${dinamikBrand}))`)
+  }
+  if (manufacturerId) {
+    whereClauses.push(Prisma.sql`p.manufacturer_id = ${manufacturerId}`)
+  }
+  if (matchSide === 'matched') {
+    whereClauses.push(Prisma.sql`m.dproducts_id IS NOT NULL AND m.product_id IS NOT NULL`)
+  } else if (matchSide === 'dinamik_only') {
+    whereClauses.push(Prisma.sql`m.dproducts_id IS NOT NULL AND m.product_id IS NULL`)
+  } else if (matchSide === 'pt_only') {
+    whereClauses.push(Prisma.sql`m.dproducts_id IS NULL AND m.product_id IS NOT NULL`)
+  }
   if (q) {
     const p = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     whereClauses.push(Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(d.brand,'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.model,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`)
@@ -113,7 +138,7 @@ export async function GET(request: NextRequest) {
         rejected: statusMap['REJECTED'] ?? 0,
         ignored: statusMap['IGNORED'] ?? 0,
       },
-      filters: { q, status },
+      filters: { q, status, dinamikBrand: dinamikBrand || null, manufacturerId, matchSide },
     }, context)
   } catch (error) {
     console.error('[eslestirme:models:list] Error:', error)
