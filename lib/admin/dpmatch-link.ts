@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { resolveNormalizedForLink } from '@/lib/admin/dpmatch-normalized'
 import { Prisma } from '@prisma/client'
 
 export type DpmatchLinkInput = {
@@ -31,7 +32,7 @@ export class DpmatchLinkError extends Error {
 export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchLinkResult> {
   const status = input.mappingStatus ?? 'APPROVED'
   const method = input.matchMethod ?? 'MANUAL'
-  const normalized = input.normalized ?? null
+  const normalized = input.normalized ?? await resolveNormalizedForLink(input.dproductsId, input.productId)
 
   const productRows = await db.$queryRaw<Array<{ id: number; dproducts_id: bigint | null }>>(
     Prisma.sql`

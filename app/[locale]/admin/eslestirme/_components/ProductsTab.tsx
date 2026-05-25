@@ -103,6 +103,7 @@ export function ProductsTab() {
   const [linkResults, setLinkResults] = useState<any[]>([])
   const [linkLoading, setLinkLoading] = useState(false)
   const [linkLoaded, setLinkLoaded] = useState(false)
+  const linkAbortRef = useRef<AbortController | null>(null)
 
   const loadModels = useCallback(async (f: ModelFilters) => {
     const isInitial = !hasLoadedRef.current
@@ -242,19 +243,23 @@ export function ProductsTab() {
     }).catch(() => toast.error('Başarısız'))
   }, [rowSelection, loadModels])
 
-  const handleLink = useCallback((row: ModelRow) => {
-    setLinkTarget(row)
-    setLinkSearch('')
-    setLinkResults([])
-    setLinkLoaded(false)
-    setLinkOpen(true)
-  }, [])
+  function getInitialLinkSearch(row: ModelRow): string {
+    if (row.dproductsId) {
+      return row.dinamik.barcode1 || row.dinamik.partNo || row.dinamik.stockCode || ''
+    }
+    return row.parcatedarik.model || row.parcatedarik.refNo?.split(',')[0]?.trim() || ''
+  }
 
   const loadLinkResults = useCallback(async (q: string, target: ModelRow | null) => {
     if (!target) { setLinkResults([]); return }
+
+    linkAbortRef.current?.abort()
+    const controller = new AbortController()
+    linkAbortRef.current = controller
+
     setLinkLoading(true)
     try {
-      const params = new URLSearchParams({ limit: '50' })
+      const params = new URLSearchParams({ limit: '30' })
       if (q.trim().length >= 2) params.set('q', q.trim())
       if (target.productId && !target.dproductsId) {
         params.set('direction', 'from_product')
@@ -263,28 +268,43 @@ export function ProductsTab() {
         params.set('direction', 'from_dproducts')
         params.set('dproductsId', target.dproductsId || '0')
       }
-      const res = await fetch(`/api/admin/eslestirme/models/search-dinamik?${params}`)
+      const res = await fetch(`/api/admin/eslestirme/models/search-dinamik?${params}`, {
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
       if (res.ok) setLinkResults(await res.json())
       else setLinkResults([])
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
       setLinkResults([])
     } finally {
-      setLinkLoading(false)
-      setLinkLoaded(true)
+      if (!controller.signal.aborted) {
+        setLinkLoading(false)
+        setLinkLoaded(true)
+      }
     }
   }, [])
 
-  useEffect(() => {
-    if (linkOpen && linkTarget) {
-      void loadLinkResults('', linkTarget)
-    }
-  }, [linkOpen, linkTarget, loadLinkResults])
+  const handleLink = useCallback((row: ModelRow) => {
+    const initialSearch = getInitialLinkSearch(row)
+    setLinkTarget(row)
+    setLinkSearch(initialSearch)
+    setLinkResults([])
+    setLinkLoaded(false)
+    setLinkOpen(true)
+    void loadLinkResults(initialSearch, row)
+  }, [loadLinkResults])
 
-  const searchLink = useCallback(async (q: string) => {
+  const searchLinkDebounced = useDebouncedCallback((q: string, target: ModelRow) => {
+    void loadLinkResults(q, target)
+  }, 200)
+
+  const searchLink = useCallback((q: string) => {
     if (!linkTarget) { setLinkResults([]); return }
     if (q.trim().length === 1) return
-    await loadLinkResults(q, linkTarget)
-  }, [linkTarget, loadLinkResults])
+    setLinkLoaded(false)
+    searchLinkDebounced(q, linkTarget)
+  }, [linkTarget, searchLinkDebounced])
 
   const handleManualLink = useCallback(async (targetId: string) => {
     if (!linkTarget) return
@@ -444,7 +464,10 @@ export function ProductsTab() {
         emptyMessage="Eşleştirme bulunamadı"
       />
 
-      <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
+      <Dialog open={linkOpen} onOpenChange={(open) => {
+        if (!open) linkAbortRef.current?.abort()
+        setLinkOpen(open)
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Eşleştir</DialogTitle>
@@ -482,7 +505,11 @@ export function ProductsTab() {
                 </p>
               )}
               {linkLoading && (
-                <p className="text-sm text-muted-foreground py-2 text-center">Yükleniyor...</p>
+                <div className="space-y-2 py-1">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
               )}
               {!linkLoading && linkLoaded && linkResults.length === 0 && (
                 <div className="rounded border border-dashed p-4 text-center text-sm text-muted-foreground">

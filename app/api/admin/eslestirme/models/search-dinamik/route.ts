@@ -2,7 +2,37 @@ import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
+import { normalizeModel } from '@/lib/matching/code-normalization'
 import { Prisma } from '@prisma/client'
+
+function buildDproductsTextFilter(q: string, pattern: string) {
+  if (q.length < 2) return Prisma.empty
+  const normalizedQ = normalizeModel(q)
+  return Prisma.sql`AND (
+    d.stock_code ILIKE ${pattern}
+    OR d.stock_name ILIKE ${pattern}
+    OR d.brand ILIKE ${pattern}
+    OR d.barcode_1 ILIKE ${pattern}
+    OR d.barcode_2 ILIKE ${pattern}
+    OR d.barcode_3 ILIKE ${pattern}
+    OR d.part_no ILIKE ${pattern}
+    ${normalizedQ ? Prisma.sql`OR UPPER(REGEXP_REPLACE(COALESCE(d.barcode_1, ''), '[^A-Z0-9]', '', 'gi')) = ${normalizedQ}` : Prisma.empty}
+    ${normalizedQ ? Prisma.sql`OR UPPER(REGEXP_REPLACE(COALESCE(d.barcode_2, ''), '[^A-Z0-9]', '', 'gi')) = ${normalizedQ}` : Prisma.empty}
+    ${normalizedQ ? Prisma.sql`OR UPPER(REGEXP_REPLACE(COALESCE(d.barcode_3, ''), '[^A-Z0-9]', '', 'gi')) = ${normalizedQ}` : Prisma.empty}
+  )`
+}
+
+function buildProductsTextFilter(q: string, pattern: string) {
+  if (q.length < 2) return Prisma.empty
+  const normalizedQ = normalizeModel(q)
+  return Prisma.sql`AND (
+    p.title ILIKE ${pattern}
+    OR p.model ILIKE ${pattern}
+    OR p.ref_no ILIKE ${pattern}
+    OR mfr.name ILIKE ${pattern}
+    ${normalizedQ ? Prisma.sql`OR p.normalized_model = ${normalizedQ}` : Prisma.empty}
+  )`
+}
 
 export async function GET(request: NextRequest) {
   const auth = await getAdminAuth()
@@ -20,29 +50,27 @@ export async function GET(request: NextRequest) {
 
   const escaped = q.replace(/[%_\\]/g, '\\$&')
   const pattern = `%${escaped}%`
-  const textFilterDproducts = q.length >= 2
-    ? Prisma.sql`AND (d.stock_code ILIKE ${pattern} OR d.stock_name ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR d.barcode_1 ILIKE ${pattern} OR d.barcode_2 ILIKE ${pattern} OR d.barcode_3 ILIKE ${pattern} OR d.part_no ILIKE ${pattern})`
-    : Prisma.empty
-  const textFilterProducts = q.length >= 2
-    ? Prisma.sql`AND (p.title ILIKE ${pattern} OR p.model ILIKE ${pattern} OR mfr.name ILIKE ${pattern})`
-    : Prisma.empty
+  const textFilterDproducts = buildDproductsTextFilter(q, pattern)
+  const textFilterProducts = buildProductsTextFilter(q, pattern)
 
   try {
     if (direction === 'from_product' && productIdStr) {
       const productId = Number(productIdStr)
       if (isNaN(productId) || productId <= 0) return errorResponse({ status: 400, code: 'INVALID_PRODUCT_ID', message: 'Geçersiz ürün ID.', context })
 
-      // Get the manufacturer_id of this product, then find dproducts with matching brand
       const results = await db.$queryRaw<Array<{ id: bigint; stock_code: string; stock_name: string | null; brand: string | null; barcode_1: string | null; barcode_2: string | null; barcode_3: string | null; part_no: string | null }>>(
         Prisma.sql`
+          WITH matched_brands AS (
+            SELECT DISTINCT BTRIM(LOWER(alias.dbrands_id)) AS brand_norm
+            FROM parcatedarik.product p
+            JOIN parcatedarik.dbrands_match alias
+              ON alias.manufacturer_id = p.manufacturer_id
+             AND alias.mapping_status = 'APPROVED'
+            WHERE p.id = ${productId}
+          )
           SELECT d.id, d.stock_code, d.stock_name, d.brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
           FROM parcatedarik.dproducts d
-          WHERE EXISTS (
-            SELECT 1 FROM parcatedarik.product p
-            JOIN parcatedarik.dbrands_match alias ON alias.manufacturer_id = p.manufacturer_id AND alias.mapping_status = 'APPROVED'
-            WHERE p.id = ${productId}
-              AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
-          )
+          WHERE BTRIM(LOWER(COALESCE(d.brand, ''))) IN (SELECT brand_norm FROM matched_brands)
           ${textFilterDproducts}
           ORDER BY d.stock_code ASC
           LIMIT ${limit}
@@ -63,24 +91,82 @@ export async function GET(request: NextRequest) {
     if (direction === 'from_dproducts' && dproductsIdStr) {
       const dproductsId = BigInt(dproductsIdStr)
 
-      // Get the brand of this dproduct, then find products with matching manufacturer
+      const barcodeHintFilter = q.length < 2
+        ? Prisma.sql`AND p.normalized_model IN (
+            SELECT DISTINCT norm FROM (
+              SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_1, ''), '[^A-Z0-9]', '', 'gi')) AS norm
+              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              UNION ALL
+              SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_2, ''), '[^A-Z0-9]', '', 'gi'))
+              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              UNION ALL
+              SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_3, ''), '[^A-Z0-9]', '', 'gi'))
+              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              UNION ALL
+              SELECT UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi'))
+              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              UNION ALL
+              SELECT UPPER(REGEXP_REPLACE(COALESCE(stock_code, ''), '[^A-Z0-9]', '', 'gi'))
+              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+            ) hints
+            WHERE norm <> ''
+          )`
+        : Prisma.empty
+
       const results = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; manufacturer_id: number; manufacturer_name: string }>>(
         Prisma.sql`
+          WITH dproduct AS (
+            SELECT brand FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+          ),
+          matched_mfrs AS (
+            SELECT DISTINCT alias.manufacturer_id
+            FROM dproduct d
+            JOIN parcatedarik.dbrands_match alias
+              ON alias.mapping_status = 'APPROVED'
+             AND alias.manufacturer_id IS NOT NULL
+             AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
+          )
           SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
           FROM parcatedarik.product p
           JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
-          WHERE EXISTS (
-            SELECT 1 FROM parcatedarik.dproducts d
-            JOIN parcatedarik.dbrands_match alias ON alias.mapping_status = 'APPROVED'
-              AND alias.manufacturer_id = p.manufacturer_id
-              AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
-            WHERE d.id = ${dproductsId}
-          )
-          ${textFilterProducts}
+          WHERE p.manufacturer_id IN (SELECT manufacturer_id FROM matched_mfrs)
+          ${q.length >= 2 ? textFilterProducts : barcodeHintFilter}
           ORDER BY p.title ASC
           LIMIT ${limit}
         `
       )
+
+      if (results.length === 0 && q.length < 2) {
+        const fallback = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; manufacturer_id: number; manufacturer_name: string }>>(
+          Prisma.sql`
+            WITH dproduct AS (
+              SELECT brand FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+            ),
+            matched_mfrs AS (
+              SELECT DISTINCT alias.manufacturer_id
+              FROM dproduct d
+              JOIN parcatedarik.dbrands_match alias
+                ON alias.mapping_status = 'APPROVED'
+               AND alias.manufacturer_id IS NOT NULL
+               AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
+            )
+            SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
+            FROM parcatedarik.product p
+            JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
+            WHERE p.manufacturer_id IN (SELECT manufacturer_id FROM matched_mfrs)
+            ORDER BY p.title ASC
+            LIMIT ${limit}
+          `
+        )
+        return successResponse(fallback.map(r => ({
+          id: r.id,
+          title: r.title,
+          model: r.model,
+          manufacturerId: r.manufacturer_id,
+          manufacturerName: r.manufacturer_name,
+        })), context)
+      }
+
       return successResponse(results.map(r => ({
         id: r.id,
         title: r.title,

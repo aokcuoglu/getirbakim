@@ -186,6 +186,19 @@ export function createModelColumns(handlers: {
       },
     },
     {
+      accessorKey: 'normalized',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Normalized" />,
+      cell: ({ getValue }) => {
+        const v = getValue<string | null>()
+        if (!v) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <span className="text-sm font-mono text-foreground truncate max-w-[140px]" title={v}>
+            {v}
+          </span>
+        )
+      },
+    },
+    {
       accessorKey: 'matchMethod',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Yöntem" />,
       cell: ({ getValue }) => {

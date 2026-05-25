@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
+import { approveDpmatchRows } from '@/lib/admin/dpmatch-normalized'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
       )
       if (!match || match.length === 0) return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
 
-      await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dpmatch SET mapping_status = 'APPROVED', match_method = 'MANUAL' WHERE id = ${matchId}`)
+      await approveDpmatchRows([matchId], { matchMethod: 'MANUAL' })
       return successResponse({ message: 'Eşleştirme onaylandı.', id: matchId }, context)
     }
 

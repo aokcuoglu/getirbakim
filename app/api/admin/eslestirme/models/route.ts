@@ -11,6 +11,7 @@ const VALID_SORT_COLUMNS: Record<string, string> = {
   dproducts_id: 'm.dproducts_id',
   product_id: 'm.product_id',
   mapping_status: 'm.mapping_status',
+  normalized: 'm.normalized',
 }
 
 export async function GET(request: NextRequest) {
