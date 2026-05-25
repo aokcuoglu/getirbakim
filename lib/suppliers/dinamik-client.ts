@@ -7,7 +7,16 @@ import {
 } from '@/lib/suppliers/dinamik-stock'
 
 const DEFAULT_TIMEOUT_MS = 25_000
+/** getStockList/getPriceList — büyük markalar + eşzamanlı pipeline yükü için daha uzun. */
+const DEFAULT_LIST_TIMEOUT_MS = 60_000
 const MAX_RETRIES = 3
+
+function readListTimeoutMs(): number {
+  const raw = process.env.DINAMIK_STOCK_LIST_TIMEOUT_MS
+  const parsed = raw ? Number(raw) : DEFAULT_LIST_TIMEOUT_MS
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIST_TIMEOUT_MS
+  return Math.min(Math.trunc(parsed), 300_000)
+}
 
 type RetryableMethod = 'GET' | 'POST'
 
@@ -158,9 +167,21 @@ async function requestJson<T>(
     throw lastError
   }
 
-  throw new SupplierApiError('Dinamik API isteği başarısız.', {
+  const detail =
+    lastError instanceof Error ? lastError.message : String(lastError)
+  const lower = detail.toLowerCase()
+  const timeoutHint =
+    lastError instanceof Error &&
+    (lastError.name === 'AbortError' ||
+      lower.includes('abort') ||
+      lower.includes('timeout') ||
+      lower.includes('timed out'))
+      ? ' (zaman aşımı)'
+      : ''
+
+  throw new SupplierApiError(`Dinamik API isteği başarısız${timeoutHint}: ${detail}`, {
     code: 'DINAMIK_REQUEST_FAILED',
-    details: lastError instanceof Error ? lastError.message : String(lastError)
+    details: detail
   })
 }
 
@@ -241,7 +262,8 @@ export async function getStockList(brand: string): Promise<DinamikStockItem[]> {
     `/api/Dnmk_Customer/getStockList/${encodedBrand}`,
     {
       method: 'GET'
-    }
+    },
+    { timeoutMs: readListTimeoutMs() }
   )
 
   return normalizeDinamikStockOrPriceRows(
@@ -262,7 +284,8 @@ export async function getPriceList(brand: string): Promise<DinamikStockItem[]> {
     `/api/Dnmk_Customer/getPriceList/${encodedBrand}`,
     {
       method: 'GET'
-    }
+    },
+    { timeoutMs: readListTimeoutMs() }
   )
 
   return normalizeDinamikStockOrPriceRows(

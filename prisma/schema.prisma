@@ -1051,11 +1051,46 @@ model dproducts {
   query_brand String?
   part_no     String?
   updated_at  DateTime? @db.Timestamp(6)
+  is_passive  Boolean   @default(false)
+  passive_at  DateTime? @db.Timestamptz(6)
 
-  dpmatch     dpmatch[]
+  dpmatch          dpmatch[]
+  dproduct_offers  dproduct_offers?
+  offer_history    dproduct_offer_history[]
 
   @@index([stock_code])
   @@index([brand])
+  @@schema("parcatedarik")
+}
+
+model dproduct_offers {
+  id              BigInt    @id @default(autoincrement())
+  dproduct_id     BigInt    @unique
+  price           Decimal?  @db.Decimal(10, 2)
+  stock_qty       Int?
+  campaign_rate   Decimal?  @db.Decimal(6, 3)
+  regional_stock  Json?     @db.JsonB
+  raw             Json      @db.JsonB
+  source          String    @default("dinamik")
+  last_seen_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  dproducts dproducts @relation(fields: [dproduct_id], references: [id], onDelete: Cascade)
+
+  @@index([last_seen_at(sort: Desc)])
+  @@schema("parcatedarik")
+}
+
+model dproduct_offer_history {
+  id          BigInt    @id @default(autoincrement())
+  dproduct_id BigInt
+  price       Decimal?  @db.Decimal(10, 2)
+  stock_qty   Int?
+  captured_at DateTime  @default(now()) @db.Timestamptz(6)
+
+  dproducts dproducts @relation(fields: [dproduct_id], references: [id], onDelete: Cascade)
+
+  @@index([dproduct_id, captured_at(sort: Desc)])
   @@schema("parcatedarik")
 }
 

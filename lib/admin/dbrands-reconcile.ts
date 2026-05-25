@@ -110,7 +110,32 @@ export async function ensureDbrandsRows(brands: string[]): Promise<number> {
   return inserted
 }
 
-async function removeManufacturerOnlyDbrands(dryRun: boolean): Promise<number> {
+function normalizeBrandKeys(brands: string[]): string[] {
+  return Array.from(
+    new Set(
+      brands
+        .map((b) => b.trim().toLowerCase())
+        .filter((b) => b.length > 0)
+    )
+  )
+}
+
+/**
+ * Drops dbrands rows that duplicate parcatedarik.manufacturer names with no dproducts yet.
+ * Dinamik getBrandList names are kept so pipeline step 2 can fetch their catalog.
+ */
+async function removeManufacturerOnlyDbrands(
+  dryRun: boolean,
+  protectedApiBrands: string[] = []
+): Promise<number> {
+  const protectedKeys = normalizeBrandKeys(protectedApiBrands)
+  const apiExclusion =
+    protectedKeys.length > 0
+      ? Prisma.sql`AND LOWER(BTRIM(d.brand)) NOT IN (${Prisma.join(
+          protectedKeys.map((key) => Prisma.sql`${key}`)
+        )})`
+      : Prisma.empty
+
   if (dryRun) {
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
@@ -122,6 +147,7 @@ async function removeManufacturerOnlyDbrands(dryRun: boolean): Promise<number> {
         FROM parcatedarik.dproducts p
         WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
       )
+      ${apiExclusion}
     `)
     return row?.count ?? 0
   }
@@ -135,6 +161,7 @@ async function removeManufacturerOnlyDbrands(dryRun: boolean): Promise<number> {
         FROM parcatedarik.dproducts p
         WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
       )
+      ${apiExclusion}
   `)
   return Number(deleted)
 }
@@ -157,13 +184,17 @@ async function upsertDbrandsFromDproducts(dryRun: boolean): Promise<number> {
 
 export async function syncDbrandsFromApi(
   dryRun: boolean
-): Promise<{ inserted: number; apiBrandCount: number }> {
+): Promise<{ inserted: number; apiBrandCount: number; brandNames: string[] }> {
   const { getBrandList } = await import('@/lib/suppliers/dinamik-client')
   const apiBrands = await getBrandList()
-  const names = apiBrands.map((b) => b.brand).filter(Boolean)
+  const names = apiBrands
+    .map((b) => (typeof b.brand === 'string' ? b.brand.trim() : ''))
+    .filter((name) => name.length > 0)
 
   if (dryRun) {
-    if (names.length === 0) return { inserted: 0, apiBrandCount: 0 }
+    if (names.length === 0) {
+      return { inserted: 0, apiBrandCount: 0, brandNames: [] }
+    }
 
     const existing = await db.dbrands.findMany({ select: { brand: true } })
     const existingKeys = new Set(
@@ -172,11 +203,15 @@ export async function syncDbrandsFromApi(
     const missing = names.filter(
       (name) => !existingKeys.has(name.trim().toLowerCase())
     )
-    return { inserted: missing.length, apiBrandCount: names.length }
+    return {
+      inserted: missing.length,
+      apiBrandCount: names.length,
+      brandNames: names
+    }
   }
 
   const inserted = await ensureDbrandsRows(names)
-  return { inserted, apiBrandCount: names.length }
+  return { inserted, apiBrandCount: names.length, brandNames: names }
 }
 
 export async function reconcileDbrands(options?: {
@@ -188,16 +223,24 @@ export async function reconcileDbrands(options?: {
 
   const auditBefore = await auditDbrands()
 
-  const removedManufacturerOnly = await removeManufacturerOnlyDbrands(dryRun)
   const insertedFromDproducts = await upsertDbrandsFromDproducts(dryRun)
 
   let insertedFromApi = 0
   let apiBrandCount = 0
+  let apiBrandNames: string[] = []
   if (syncFromApi) {
     const api = await syncDbrandsFromApi(dryRun)
     insertedFromApi = api.inserted
     apiBrandCount = api.apiBrandCount
+    apiBrandNames = api.brandNames
   }
+
+  // After API upsert: remove manufacturer-name duplicates that are not in getBrandList
+  // and still have no dproducts (manual/stale rows). API brands stay for dproducts sync.
+  const removedManufacturerOnly = await removeManufacturerOnlyDbrands(
+    dryRun,
+    apiBrandNames
+  )
 
   const auditAfter = dryRun ? auditBefore : await auditDbrands()
 

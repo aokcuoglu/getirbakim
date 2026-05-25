@@ -3,6 +3,10 @@ import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import {
+  dproductOfferJoin,
+  dproductOfferPriceExpr
+} from '@/lib/sql/dproduct-offer'
 
 const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const
 const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
@@ -89,10 +93,12 @@ export async function GET(request: NextRequest) {
       }>
     >(Prisma.sql`
       SELECT m.id, m.dproducts_id, m.product_id, m.normalized, m.mapping_status, m.match_method,
-             d.stock_code, d.stock_name, d.brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no, d.price::text,
+             d.stock_code, d.stock_name, d.brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no,
+             ${dproductOfferPriceExpr}::text AS price,
              p.title, p.model, p.ref_no, p.manufacturer_id, mfr.name AS manufacturer_name
       FROM parcatedarik.dpmatch m
       LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
+      ${dproductOfferJoin}
       LEFT JOIN parcatedarik.product p ON p.id = m.product_id
       LEFT JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
       ${whereClause}

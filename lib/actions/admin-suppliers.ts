@@ -4,6 +4,10 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
+import {
+  dproductOfferJoin,
+  dproductOfferPriceExpr
+} from '@/lib/sql/dproduct-offer'
 import { deleteCachePattern } from '@/lib/redis'
 import { createAdminClient } from '@/lib/supabase/storage'
 import {
@@ -1878,12 +1882,13 @@ async function ensureSupplierProductFromDinamikStockCode(
       d.stock_code,
       d.stock_name,
       d.brand,
-      d.price::text AS price,
+      ${dproductOfferPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
     FROM parcatedarik.dproducts d
+    ${dproductOfferJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -2463,7 +2468,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
           d.stock_code,
           d.stock_name,
           d.brand,
-          d.price::text AS price,
+          ${dproductOfferPriceExpr}::text AS price,
           COALESCE(sp.currency, 'TRY') AS currency,
           COALESCE(sp.updated_at, d.updated_at) AS updated_at,
           spm.status::text AS mapping_status,
@@ -2474,6 +2479,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
           ) AS matched_part_article_link_id,
           COALESCE(mapped.name, fallback.name) AS matched_part_name
         FROM parcatedarik.dproducts d
+        ${dproductOfferJoin}
         LEFT JOIN supplier_products sp
           ON sp.provider_id = ${providerNonNull.id}
          AND sp.supplier_sku = d.stock_code
@@ -5965,12 +5971,13 @@ export async function autoMapDinamikProductsByPartNo(input?: {
       d.stock_code,
       d.stock_name,
       d.brand,
-      d.price::text AS price,
+      ${dproductOfferPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       p.id::text AS matched_part_id
     FROM parcatedarik.dproducts d
+    ${dproductOfferJoin}
     JOIN LATERAL (
       SELECT a.part_brand_id
       FROM supplier_brand_aliases a
@@ -6242,12 +6249,13 @@ export async function manualMapDinamikProductToPart(input: {
       d.stock_code,
       d.stock_name,
       d.brand,
-      d.price::text AS price,
+      ${dproductOfferPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
     FROM parcatedarik.dproducts d
+    ${dproductOfferJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC

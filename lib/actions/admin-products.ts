@@ -1,6 +1,10 @@
 'use server'
 
 import { Prisma } from '@prisma/client'
+import {
+  dproductOfferJoin,
+  dproductOfferPriceExpr
+} from '@/lib/sql/dproduct-offer'
 import { parse } from 'csv-parse/sync'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
@@ -404,7 +408,7 @@ function mapDinamikProductRow(
 }
 
 function buildDinamikWhereSql(filters: Required<AdminDinamikProductFilters>) {
-  const conditions: Prisma.Sql[] = [Prisma.sql`1=1`]
+  const conditions: Prisma.Sql[] = [Prisma.sql`1=1`, Prisma.sql`d.is_passive = false`]
 
   if (filters.q) {
     const like = `%${filters.q}%`
@@ -1239,12 +1243,13 @@ export async function getAdminDinamikProducts(
         d.stock_code,
         d.stock_name,
         d.brand,
-        d.price::text AS price,
+        ${dproductOfferPriceExpr}::text AS price,
         d.barcode_1,
         d.barcode_2,
         d.barcode_3,
         d.updated_at
       FROM parcatedarik.dproducts d
+      ${dproductOfferJoin}
       ${whereSql}
       ORDER BY d.updated_at DESC NULLS LAST, d.stock_code ASC
       LIMIT ${filters.limit}
@@ -1253,6 +1258,7 @@ export async function getAdminDinamikProducts(
       db.$queryRaw<DinamikCountRow[]>(Prisma.sql`
       SELECT COUNT(*)::int AS total
       FROM parcatedarik.dproducts d
+      ${dproductOfferJoin}
       ${whereSql}
     `),
       db.$queryRaw<DinamikKpiRow[]>(Prisma.sql`
@@ -1264,13 +1270,14 @@ export async function getAdminDinamikProducts(
         COALESCE(
           SUM(
             CASE
-              WHEN NULLIF(TRIM(COALESCE(d.price::text, '')), '') IS NOT NULL THEN 1
+              WHEN NULLIF(TRIM(COALESCE(${dproductOfferPriceExpr}::text, '')), '') IS NOT NULL THEN 1
               ELSE 0
             END
           ),
           0
         )::int AS priced_rows
       FROM parcatedarik.dproducts d
+      ${dproductOfferJoin}
       ${whereSql}
     `),
       db.$queryRaw<DinamikBrandRow[]>(Prisma.sql`
@@ -1380,8 +1387,9 @@ export async function createAdminPartFromDinamik(input: {
       d.stock_code,
       d.stock_name,
       d.brand,
-      d.price::text AS price
+      ${dproductOfferPriceExpr}::text AS price
     FROM parcatedarik.dproducts d
+    ${dproductOfferJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -1609,8 +1617,9 @@ export async function createAdminPartFromTemplate(input: {
       d.stock_code,
       d.stock_name,
       d.brand,
-      d.price::text AS price
+      ${dproductOfferPriceExpr}::text AS price
     FROM parcatedarik.dproducts d
+    ${dproductOfferJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC

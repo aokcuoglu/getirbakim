@@ -63,10 +63,15 @@ export async function runDinamikDbrandsReconcile(input?: {
     }
 
     const mode = input?.apply ? 'Uygulandı' : 'Önizleme (DRY_RUN)'
+    const remaining = data.audit.manufacturerOnlyInDbrands
+    const remainingNote =
+      remaining > 0
+        ? ` Uyarı: ${remaining} marka hâlâ üretici adıyla eşleşiyor ve dproducts’ta ürün yok (ör. ${data.audit.sampleManufacturerOnly.slice(0, 3).join(', ')}).`
+        : ''
     return {
       success: true,
       data,
-      message: `${mode}: ${data.removedManufacturerOnly} üretici-adı satırı kaldırıldı, ${data.insertedFromDproducts} dproducts, ${data.insertedFromApi} API markası eklendi.`
+      message: `${mode}: ${data.insertedFromApi} API + ${data.insertedFromDproducts} dproducts markası eklendi; API dışı üretici kopyalarından ${data.removedManufacturerOnly} satır silindi. Kalan uyarı: ${remaining}.${remainingNote}`
     }
   } catch (error) {
     return {

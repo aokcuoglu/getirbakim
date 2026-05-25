@@ -235,7 +235,10 @@ async function main() {
       const dinamikProduct = await db.$queryRaw<
         Array<{ id: bigint; stock_code: string; price: string | null }>
       >(Prisma.sql`
-        SELECT id, stock_code, price FROM parcatedarik.dproducts WHERE id = ${match.dinamik_product_id}
+        SELECT d.id, d.stock_code, COALESCE(o.price, d.price)::text AS price
+        FROM parcatedarik.dproducts d
+        LEFT JOIN parcatedarik.dproduct_offers o ON o.dproduct_id = d.id
+        WHERE d.id = ${match.dinamik_product_id}
       `)
 
       if (dinamikProduct.length === 0) {
