@@ -1,6 +1,7 @@
 import createMiddleware from 'next-intl/middleware'
 import { routing } from './lib/navigation'
 import { type NextRequest, NextResponse } from 'next/server'
+import { loginPathWithRedirect } from '@/lib/auth/safe-redirect'
 import { updateSession } from '@/lib/supabase/middleware'
 import { logSupabaseError } from '@/lib/supabase/error-utils'
 
@@ -86,7 +87,10 @@ export default async function middleware(request: NextRequest) {
 
       if (!user) {
         const url = request.nextUrl.clone()
-        url.pathname = localeAwareHome
+        url.pathname = loginPathWithRedirect(
+          localeMatch?.[1] ?? 'tr',
+          request.nextUrl.pathname + request.nextUrl.search
+        )
         return NextResponse.redirect(url)
       }
 

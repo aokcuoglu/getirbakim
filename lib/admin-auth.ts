@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
+import { loginPathWithRedirect } from '@/lib/auth/safe-redirect'
 import { db } from '@/lib/db'
 import { createClient } from '@/lib/supabase/server'
 
 interface RequireAdminAuthOptions {
   redirectTo?: string
+  locale?: string
 }
 
 export async function getAdminAuth() {
@@ -37,11 +39,12 @@ export async function getAdminAuth() {
 }
 
 export async function requireAdminAuth(options: RequireAdminAuthOptions = {}) {
-  const redirectTo = options.redirectTo || '/'
   const auth = await getAdminAuth()
 
   if (!auth || auth.user.role !== 'ADMIN') {
-    redirect(redirectTo)
+    const locale = options.locale ?? 'tr'
+    const returnPath = options.redirectTo ?? `/${locale}/admin`
+    redirect(loginPathWithRedirect(locale, returnPath))
   }
 
   return auth

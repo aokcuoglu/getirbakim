@@ -6,11 +6,12 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 
 import { useRouter } from '@/lib/navigation'
+import { safeRedirectPath } from '@/lib/auth/safe-redirect'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
-export function LoginForm() {
+export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +27,7 @@ export function LoginForm() {
       } else if (result?.success) {
         toast.success(t('loginSuccess'))
         router.refresh()
-        router.push('/')
+        router.push(safeRedirectPath(redirectTo, '/'))
       }
     } catch (e: any) {
       setError(e?.message || 'An unexpected error occurred')

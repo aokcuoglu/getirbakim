@@ -52,9 +52,9 @@ RUN npx next build
 FROM node:22-slim AS runner
 WORKDIR /app
 
-# CA bundle for HTTPS via VPS proxy (node:22-slim minimal image)
+# CA bundle + curl for container healthcheck (compose hits /api/health)
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production

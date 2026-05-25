@@ -4,7 +4,8 @@
 # This is for local Docker testing. The production docker-compose.yml
 # builds from the local Dockerfile on VPS and requires .env.production.
 #
-# For local development without Docker, use: bun run dev
+# For local development without Docker, use: bun run dev (port 3000).
+# This stack binds the app to host port 3001 (container listens on 3001 too).
 # See docs/DOCKER_LOCAL.md for detailed instructions.
 #
 # Meilisearch is included as a local service. Port 7700 is bound to
@@ -16,8 +17,9 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3001}
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        # Always 3001 for this compose file — do not inherit :3000 from .env (bun dev).
+        NEXT_PUBLIC_SITE_URL: http://localhost:3001
+        NEXT_PUBLIC_APP_URL: http://localhost:3001
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST:-http://localhost:7700}
@@ -31,6 +33,8 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: "3001"
       NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev-local}
       MEILI_ENABLED: "true"
       MEILI_HOST: http://meilisearch:7700
@@ -42,9 +46,9 @@ services:
     networks:
       - app-network
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:3001:3001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

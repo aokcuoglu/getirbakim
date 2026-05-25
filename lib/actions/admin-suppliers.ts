@@ -847,9 +847,10 @@ type ProviderStatsRow = {
   failed_rate_30d: string
 }
 
-export async function getAdminSupplierProviders(): Promise<SupplierProvider[]> {
-  await requireAdminAuth()
-
+/** DB-only provider dashboard rows (safe inside unstable_cache — no cookies/auth). */
+export async function loadAdminSupplierProvidersDashboard(): Promise<
+  SupplierProvider[]
+> {
   const now = Date.now()
   if (
     supplierProvidersDashboardCache &&
@@ -967,6 +968,11 @@ export async function getAdminSupplierProviders(): Promise<SupplierProvider[]> {
   }
 
   return data
+}
+
+export async function getAdminSupplierProviders(): Promise<SupplierProvider[]> {
+  await requireAdminAuth()
+  return loadAdminSupplierProvidersDashboard()
 }
 
 export async function getAdminSupplierProviderDetail(providerCode: string) {

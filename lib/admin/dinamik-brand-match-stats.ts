@@ -8,59 +8,44 @@ export type DinamikBrandMatchStats = {
   totalPcManufacturers: number
 }
 
+const ACTIVE_MATCH = Prisma.sql`
+  a.mapping_status IN ('PENDING', 'APPROVED')
+  AND a.manufacturer_id IS NOT NULL
+`
+
 /**
- * Counts Dinamik catalog brands from dproducts and how many have an active
- * (PENDING/APPROVED) row in dbrands_match. Both sides use the same source
- * so matched + unmatched always equals totalDinamikBrands.
+ * Brand coverage from canonical dbrands + dbrands_match (not dproducts scans).
  */
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
-  const brandFilter = Prisma.sql`d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`
-  const activeMatch = Prisma.sql`
-    EXISTS (
-      SELECT 1
-      FROM parcatedarik.dbrands db
-      WHERE db.id = a.dbrands_id
-        AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(d.brand))
-    )
-    AND a.mapping_status IN ('PENDING', 'APPROVED')
-  `
+  const [row] = await db.$queryRaw<
+    Array<{
+      total_dinamik_brands: number
+      matched_brands: number
+      total_pc_manufacturers: number
+    }>
+  >(Prisma.sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM parcatedarik.dbrands) AS total_dinamik_brands,
+      (
+        SELECT COUNT(*)::int
+        FROM parcatedarik.dbrands d
+        WHERE EXISTS (
+          SELECT 1
+          FROM parcatedarik.dbrands_match a
+          WHERE a.dbrands_id = d.id
+            AND ${ACTIVE_MATCH}
+        )
+      ) AS matched_brands,
+      (SELECT COUNT(*)::int FROM parcatedarik.manufacturer) AS total_pc_manufacturers
+  `)
 
-  const [totalDinamikBrands, matchedDinamikBrands, unmatchedDinamikBrands, totalPcManufacturers] =
-    await Promise.all([
-      db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-        SELECT COUNT(DISTINCT d.brand) AS count
-        FROM parcatedarik.dproducts d
-        WHERE ${brandFilter}
-      `),
-      db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-        SELECT COUNT(DISTINCT d.brand) AS count
-        FROM parcatedarik.dproducts d
-        WHERE ${brandFilter}
-          AND EXISTS (
-            SELECT 1
-            FROM parcatedarik.dbrands_match a
-            WHERE ${activeMatch}
-          )
-      `),
-      db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-        SELECT COUNT(DISTINCT d.brand) AS count
-        FROM parcatedarik.dproducts d
-        WHERE ${brandFilter}
-          AND NOT EXISTS (
-            SELECT 1
-            FROM parcatedarik.dbrands_match a
-            WHERE ${activeMatch}
-          )
-      `),
-      db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-        SELECT COUNT(*) AS count FROM parcatedarik.manufacturer
-      `),
-    ])
+  const total = row?.total_dinamik_brands ?? 0
+  const matched = row?.matched_brands ?? 0
 
   return {
-    totalDinamikBrands: Number(totalDinamikBrands[0]?.count ?? 0),
-    matchedBrands: Number(matchedDinamikBrands[0]?.count ?? 0),
-    unmatchedBrands: Number(unmatchedDinamikBrands[0]?.count ?? 0),
-    totalPcManufacturers: Number(totalPcManufacturers[0]?.count ?? 0),
+    totalDinamikBrands: total,
+    matchedBrands: matched,
+    unmatchedBrands: Math.max(0, total - matched),
+    totalPcManufacturers: row?.total_pc_manufacturers ?? 0
   }
 }

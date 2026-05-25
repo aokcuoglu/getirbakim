@@ -1,9 +1,11 @@
 import 'server-only'
 
+import { unstable_cache } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { db } from '@/lib/db'
-import { getAdminSupplierProviders } from '@/lib/actions/admin-suppliers'
+import { loadAdminSupplierProvidersDashboard } from '@/lib/actions/admin-suppliers'
+import { requireAdminAuth } from '@/lib/admin-auth'
 import type {
   MappingStatusCounts,
   SuppliersHubOverview,
@@ -69,63 +71,70 @@ async function getParcaCatalogStats(): Promise<{
   brokenUrls: number
   withModel: number
 }> {
-  const [row] = await db.$queryRaw<
-    Array<{
-      products: bigint
-      manufacturers: bigint
-      broken_urls: bigint
-      with_model: bigint
-    }>
-  >(Prisma.sql`
-    SELECT
-      (SELECT COUNT(*)::bigint FROM parcatedarik.product) AS products,
-      (SELECT COUNT(*)::bigint FROM parcatedarik.manufacturer) AS manufacturers,
-      (
-        SELECT COUNT(*)::bigint
-        FROM parcatedarik.product p
-        WHERE p.url IS NULL
-          OR BTRIM(p.url) = ''
-          OR p.url NOT LIKE 'http%'
-      ) AS broken_urls,
-      (
-        SELECT COUNT(*)::bigint
-        FROM parcatedarik.product p
-        WHERE p.normalized_model IS NOT NULL
-          AND BTRIM(p.normalized_model) <> ''
-      ) AS with_model
-  `)
+  const [productRow, manufacturerRow] = await Promise.all([
+    db.$queryRaw<
+      Array<{
+        products: bigint
+        broken_urls: bigint
+        with_model: bigint
+      }>
+    >(Prisma.sql`
+      SELECT
+        COUNT(*)::bigint AS products,
+        COUNT(*) FILTER (
+          WHERE p.url IS NULL
+            OR BTRIM(p.url) = ''
+            OR p.url NOT LIKE 'http%'
+        )::bigint AS broken_urls,
+        COUNT(*) FILTER (
+          WHERE p.normalized_model IS NOT NULL
+            AND BTRIM(p.normalized_model) <> ''
+        )::bigint AS with_model
+      FROM parcatedarik.product p
+    `),
+    db.$queryRaw<Array<{ manufacturers: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS manufacturers FROM parcatedarik.manufacturer
+    `)
+  ])
 
+  const row = productRow[0]
   return {
     products: Number(row?.products ?? 0),
-    manufacturers: Number(row?.manufacturers ?? 0),
+    manufacturers: Number(manufacturerRow[0]?.manufacturers ?? 0),
     brokenUrls: Number(row?.broken_urls ?? 0),
     withModel: Number(row?.with_model ?? 0)
   }
 }
 
+/** Fast row estimate; exact COUNT(*) on dproducts can exceed pooler statement_timeout. */
 async function getDinamikCatalogRowCount(): Promise<number> {
-  const [row] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+  const [estimateRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+    SELECT COALESCE(c.reltuples, 0)::bigint AS count
+    FROM pg_class c
+    INNER JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'parcatedarik'
+      AND c.relname = 'dproducts'
+  `)
+  const estimate = Number(estimateRow?.count ?? 0)
+  if (estimate > 0) return Math.round(estimate)
+
+  const [exactRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS count FROM parcatedarik.dproducts
   `)
-  return Number(row?.count ?? 0)
+  return Number(exactRow?.count ?? 0)
 }
 
-export async function getSuppliersHubOverview(): Promise<SuppliersHubOverview> {
-  const [
-    dbProviders,
-    brandStats,
-    dbrandsMatch,
-    dpmatch,
-    parcaStats,
-    dinamikRowCount
-  ] = await Promise.all([
-    getAdminSupplierProviders(),
-    getDinamikBrandMatchStats(),
-    getDbrandsMatchCounts(),
-    getDpmatchCounts(),
-    getParcaCatalogStats(),
-    getDinamikCatalogRowCount()
-  ])
+async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
+  const [dbProviders, brandStats, matchCounts, parcaStats, dinamikRowCount] =
+    await Promise.all([
+      loadAdminSupplierProvidersDashboard(),
+      getDinamikBrandMatchStats(),
+      Promise.all([getDbrandsMatchCounts(), getDpmatchCounts()]),
+      getParcaCatalogStats(),
+      getDinamikCatalogRowCount()
+    ])
+
+  const [dbrandsMatch, dpmatch] = matchCounts
 
   const dinamikProvider = dbProviders.find((p) => p.code === 'dinamik')
   const supplierProducts = dinamikProvider?.productCounts.total ?? 0
@@ -152,7 +161,7 @@ export async function getSuppliersHubOverview(): Promise<SuppliersHubOverview> {
       {
         label: 'Ham katalog (dproducts)',
         value: dinamikRowCount,
-        hint: 'API/sync ile parcatedarik şemasına yazılan satırlar'
+        hint: 'API/sync ile parcatedarik şemasına yazılan satırlar (yaklaşık satır sayısı)'
       },
       {
         label: 'Staging ürün (supplier_products)',
@@ -363,4 +372,15 @@ export async function getSuppliersHubOverview(): Promise<SuppliersHubOverview> {
     },
     providers: [dinamikCard, parcaCard, basbugCard]
   }
+}
+
+const getCachedSuppliersHubOverview = unstable_cache(
+  loadSuppliersHubOverviewData,
+  ['admin-suppliers-hub-overview'],
+  { revalidate: 90 }
+)
+
+export async function getSuppliersHubOverview(): Promise<SuppliersHubOverview> {
+  await requireAdminAuth()
+  return getCachedSuppliersHubOverview()
 }

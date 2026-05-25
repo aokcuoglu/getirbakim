@@ -23,6 +23,31 @@ curl -s http://localhost:3001/api/health
 
 The app runs at **http://localhost:3001**.
 
+### Ports (3000 vs 3001)
+
+| Mode | Host URL | Notes |
+|------|----------|--------|
+| `bun run dev` | http://localhost:3000 | Default Next dev server |
+| `docker-compose.local.yml` | http://localhost:3001 | Host **and** container listen on **3001** (`127.0.0.1:3001:3001`) |
+
+`docker-compose.local.yml` **hardcodes** `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` at image build time so a `.env` still pointing at `:3000` does not break auth or redirects in Docker.
+
+For Docker, also set in `.env` (runtime metadata, health checks, Supabase redirects):
+
+```env
+NEXT_PUBLIC_SITE_URL=http://localhost:3001
+NEXT_PUBLIC_APP_URL=http://localhost:3001
+```
+
+### Admin panel (`/tr/admin`)
+
+Admin routes require a Supabase session with `users.role = ADMIN` in the database.
+
+- **Log in on port 3001**, not 3000: `bun run dev` uses `:3000`; Docker uses `:3001`. Cookies are not shared between ports.
+- If you open `/tr/admin` without a session, you are redirected to `/tr/login?redirect=...` (not the storefront home).
+- Set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` in `.env` (see table above).
+- Supabase Auth redirect URLs must include `http://localhost:3001/**` if you use OAuth/magic links.
+
 ## Commands
 
 | Action | Command |
