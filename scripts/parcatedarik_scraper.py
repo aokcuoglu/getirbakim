@@ -9,8 +9,7 @@ Kullanım:
 - Tüm üreticilerin ürünlerini çeker
 - 120 ürün/sayfa olarak sayfalar
 - Kesinti sonrası devam edebilir
-- PostgreSQL parcatedarik şemasına yazar
-- Fiyat değişikliklerini price_history tablosuna kaydeder
+- PostgreSQL v0 şemasına yazar
 - Rate limiting ile sunucu yükünü azaltır
 
 Gerekli kütüphaneler:
@@ -53,7 +52,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-BASE_URL = "https://parcatedarik.com"
+BASE_URL = "https://v0.com"
 PAGE_SIZE = 120
 REQUEST_DELAY = 2.0
 MAX_RETRIES = 3
@@ -217,7 +216,7 @@ def apply_proxy_to_session(session, proxy):
 
 
 def make_manufacturer_url(name):
-    """Üretici isminden parcatedarik.com URL'si oluştur."""
+    """Üretici isminden v0.com URL'si oluştur."""
     # "BOSCH" -> "bosch", "MANN FILTER" -> "mann-filter"
     slug = name.lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
@@ -245,7 +244,7 @@ def load_manufacturers_from_csv(project_dir):
 
 
 def fetch_manufacturers_from_site(session, project_dir=None, proxy_rotator=None):
-    """Üretici listesini parcatedarik.com/manufacturer/all'dan çek ve CSV'ye kaydet."""
+    """Üretici listesini v0.com/manufacturer/all'dan çek ve CSV'ye kaydet."""
     print("\nÜretici listesi siteden çekiliyor...")
     manufacturers = []
     max_attempts = max(len(proxy_rotator.proxies), 1) * 2 if proxy_rotator and proxy_rotator.proxies else 1
@@ -336,7 +335,7 @@ def load_manufacturers_from_db(conn):
     manufacturers = []
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT name, url_key FROM "parcatedarik"."manufacturer" ORDER BY name'
+            'SELECT name, url_key FROM "v0"."ptbrands" ORDER BY name'
         )
         for row in cur.fetchall():
             name, url_key = row
@@ -353,7 +352,7 @@ def ensure_manufacturer_in_db(conn, name, url):
     with conn.cursor() as cur:
         # Önce url_key üzerinden mevcut mu kontrol et
         cur.execute(
-            'SELECT id FROM "parcatedarik"."manufacturer" WHERE url_key = %s',
+            'SELECT id FROM "v0"."ptbrands" WHERE url_key = %s',
             (url_key,),
         )
         row = cur.fetchone()
@@ -363,7 +362,7 @@ def ensure_manufacturer_in_db(conn, name, url):
         # Yoksa ekle
         cur.execute(
             """
-            INSERT INTO "parcatedarik"."manufacturer" (name, url_key, created_at, updated_at)
+            INSERT INTO "v0"."ptbrands" (name, url_key, created_at, updated_at)
             VALUES (%s, %s, NOW(), NOW())
             ON CONFLICT (url_key) DO UPDATE SET 
                 name = EXCLUDED.name,
@@ -377,10 +376,7 @@ def ensure_manufacturer_in_db(conn, name, url):
 
 
 def upsert_product(conn, manufacturer_id, product_data):
-    """
-    Ürünü DB'ye ekle veya güncelle.
-    Fiyat değişikliği varsa price_history'ye de kaydet.
-    """
+    """Ürünü DB'ye ekle veya güncelle."""
     product_id = product_data.get("product_id", "")
     if not product_id:
         return None
@@ -397,7 +393,7 @@ def upsert_product(conn, manufacturer_id, product_data):
     with conn.cursor() as cur:
         # Mevcut ürünü URL üzerinden kontrol et (Çünkü script product_id uydurabiliyor, URL kesin eşsiz)
         cur.execute(
-            'SELECT id, price, image_url FROM "parcatedarik"."product" WHERE url = %s',
+            'SELECT id, price, image_url FROM "v0"."ptproducts" WHERE url = %s',
             (url,),
         )
         existing = cur.fetchone()
@@ -411,7 +407,7 @@ def upsert_product(conn, manufacturer_id, product_data):
             if image_url and not existing_image_url:
                 cur.execute(
                     """
-                    UPDATE "parcatedarik"."product"
+                    UPDATE "v0"."ptproducts"
                     SET image_url = %s, updated_at = NOW()
                     WHERE id = %s
                     """,
@@ -419,22 +415,15 @@ def upsert_product(conn, manufacturer_id, product_data):
                 )
                 needs_update = True
 
-            # Fiyat değişikliği varsa güncelle ve history'ye kaydet
+            # Fiyat değişikliği varsa güncelle
             if price is not None and existing_price != price:
                 cur.execute(
                     """
-                    UPDATE "parcatedarik"."product"
+                    UPDATE "v0"."ptproducts"
                     SET price = %s, updated_at = NOW()
                     WHERE id = %s
                     """,
                     (price, existing_id),
-                )
-                cur.execute(
-                    """
-                    INSERT INTO "parcatedarik"."price_history" (product_id, price, recorded_at)
-                    VALUES (%s, %s, NOW())
-                    """,
-                    (existing_id, price),
                 )
                 needs_update = True
 
@@ -446,8 +435,8 @@ def upsert_product(conn, manufacturer_id, product_data):
             # Yeni ürün ekle
             cur.execute(
                 """
-                INSERT INTO "parcatedarik"."product"
-                    (manufacturer_id, product_id, title, url, image_url, ref_no, price, created_at, updated_at)
+                INSERT INTO "v0"."ptproducts"
+                    (ptbrands_id, product_id, title, url, image_url, ref_no, price, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (url) DO UPDATE
                     SET title = EXCLUDED.title,
@@ -461,16 +450,6 @@ def upsert_product(conn, manufacturer_id, product_data):
                 (manufacturer_id, product_id, title, url, image_url, ref_no, price),
             )
             new_id = cur.fetchone()[0]
-
-            # İlk fiyatı da history'ye kaydet
-            if price is not None:
-                cur.execute(
-                    """
-                    INSERT INTO "parcatedarik"."price_history" (product_id, price, recorded_at)
-                    VALUES (%s, %s, NOW())
-                    """,
-                    (new_id, price),
-                )
 
             return new_id
 
@@ -726,7 +705,7 @@ def get_existing_product_ids(conn, manufacturer_id):
     """DB'den bu üreticinin mevcut ürün ID'lerini çek."""
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT product_id FROM "parcatedarik"."product" WHERE manufacturer_id = %s',
+            'SELECT product_id FROM "v0"."ptproducts" WHERE ptbrands_id = %s',
             (manufacturer_id,),
         )
         return {row[0] for row in cur.fetchall()}

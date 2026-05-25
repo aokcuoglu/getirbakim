@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "trodo", "parcatedarik"]
+  schemas  = ["public", "trodo", "v0"]
 }
 
 model engines {
@@ -611,21 +611,21 @@ model supplier_sync_runs {
 model dpmatch {
   id              Int         @id @default(autoincrement())
   dproducts_id    BigInt?
-  product_id      Int?
+  ptproducts_id   Int?
   normalized      String?
   mapping_status  String      @default("PENDING")
   match_method    String?
 
-  dproducts       dproducts?  @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
-  product_rel     product?    @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  dproducts       dproducts?   @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
+  ptproduct       ptproducts?  @relation(fields: [ptproducts_id], references: [id], onDelete: Cascade)
 
-  // One row per dproducts_id / product_id enforced via partial unique indexes (see migration).
-  @@index([product_id], name: "idx_dpmatch_product")
+  // One row per dproducts_id / ptproducts_id enforced via partial unique indexes (see migration).
+  @@index([ptproducts_id], name: "idx_dpmatch_ptproducts")
   @@index([dproducts_id], name: "idx_dpmatch_dproduct")
   @@index([mapping_status], name: "idx_dpmatch_status")
   @@index([match_method], name: "idx_dpmatch_method")
   @@index([normalized], name: "idx_dpmatch_normalized")
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
 // ==========================================
@@ -637,20 +637,20 @@ model dpmatch {
 model dbrands_match {
   id              Int      @id @default(autoincrement())
   dbrands_id      BigInt?
-  manufacturer_id Int?
+  ptbrands_id     Int?
   normalized      String?
   mapping_status  String   @default("PENDING")
   match_method    String?
 
-  dbrands       dbrands?       @relation(fields: [dbrands_id], references: [id], onDelete: Cascade)
-  manufacturer  manufacturer?  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
+  dbrands       dbrands?   @relation(fields: [dbrands_id], references: [id], onDelete: Cascade)
+  ptbrand       ptbrands?  @relation(fields: [ptbrands_id], references: [id], onDelete: Cascade)
 
-  @@unique([dbrands_id, manufacturer_id], name: "uq_dbrands_match_brand_mfr")
-  @@index([manufacturer_id], name: "idx_dbrands_match_manufacturer")
+  @@unique([dbrands_id, ptbrands_id], name: "uq_dbrands_match_brand_ptbrands")
+  @@index([ptbrands_id], name: "idx_dbrands_match_ptbrands")
   @@index([mapping_status], name: "idx_dbrands_match_status")
   @@index([match_method], name: "idx_dbrands_match_method")
   @@index([normalized], name: "idx_dbrands_match_normalized")
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
 model user_vehicles {
@@ -976,62 +976,47 @@ model dinamik_sync_jobs {
 }
 
 // ==========================================
-// parcatedarik schema
+// v0 schema (ParcaTedarik catalog — no vehicle links yet)
 // ==========================================
 
-// Üreticiler (Manufacturer)
-model manufacturer {
-  id              Int        @id @default(autoincrement())
-  name            String     @unique
-  url_key         String?    @unique
-  created_at      DateTime?  @default(now()) @db.Timestamp(6)
-  updated_at      DateTime?  @default(now()) @db.Timestamp(6)
-  products        product[]
+// ParcaTedarik markaları (was manufacturer)
+model ptbrands {
+  id              Int          @id @default(autoincrement())
+  name            String       @unique
+  url_key         String?      @unique
+  created_at      DateTime?    @default(now()) @db.Timestamp(6)
+  updated_at      DateTime?    @default(now()) @db.Timestamp(6)
+  ptproducts      ptproducts[]
   dbrands_match   dbrands_match[]
 
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
-// Ürünler (Product)
-model product {
-  id              Int           @id @default(autoincrement())
-  manufacturer_id Int
-  product_id      String        @unique  // parcatedarik.com'daki ürün ID'si
-  title           String
-  url             String        @unique
-  image_url       String?
-  ref_no          String?       // Referans numaraları (virgülle ayrılmış)
-  model           String?
+// ParcaTedarik ürünleri (was product)
+model ptproducts {
+  id               Int           @id @default(autoincrement())
+  ptbrands_id      Int
+  product_id       String        @unique // v0.com product id
+  title            String
+  url              String        @unique
+  image_url        String?
+  ref_no           String?
+  model            String?
   normalized_model String?
-  model_imported_at DateTime?   @db.Timestamp(6)
-  model_source    String?
-  price           Decimal?      @db.Decimal(10, 2)
-  created_at      DateTime?     @default(now()) @db.Timestamp(6)
-  updated_at      DateTime?     @default(now()) @db.Timestamp(6)
+  model_imported_at DateTime?    @db.Timestamp(6)
+  model_source     String?
+  price            Decimal?      @db.Decimal(10, 2)
+  created_at       DateTime?     @default(now()) @db.Timestamp(6)
+  updated_at       DateTime?     @default(now()) @db.Timestamp(6)
 
-  manufacturer    manufacturer  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
-  price_histories price_history[]
-  dpmatch         dpmatch[]
+  ptbrand          ptbrands      @relation(fields: [ptbrands_id], references: [id], onDelete: Cascade)
+  dpmatch          dpmatch[]
 
-  @@index([manufacturer_id])
+  @@index([ptbrands_id])
   @@index([product_id])
   @@index([model])
   @@index([normalized_model])
-  @@schema("parcatedarik")
-}
-
-// Fiyat geçmişi (Price History)
-model price_history {
-  id              Int         @id @default(autoincrement())
-  product_id      Int
-  price           Decimal     @db.Decimal(10, 2)
-  recorded_at     DateTime    @default(now()) @db.Timestamp(6)
-
-  product         product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
-
-  @@index([product_id])
-  @@index([recorded_at])
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
 // ==========================================
@@ -1041,29 +1026,32 @@ model price_history {
 
 model dproducts {
   id          BigInt    @id
+  dbrands_id  BigInt
   stock_code  String
   stock_name  String?
-  brand       String?
-  price       Decimal?  @db.Decimal(10, 2)
+  part_no     String?
   barcode_1   String?
   barcode_2   String?
   barcode_3   String?
-  query_brand String?
-  part_no     String?
-  updated_at  DateTime? @db.Timestamp(6)
+  raw         Json      @db.JsonB
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  last_seen_at DateTime @default(now()) @db.Timestamptz(6)
   is_passive  Boolean   @default(false)
   passive_at  DateTime? @db.Timestamptz(6)
 
-  dpmatch          dpmatch[]
-  dproduct_offers  dproduct_offers?
-  offer_history    dproduct_offer_history[]
+  dbrands           dbrands              @relation(fields: [dbrands_id], references: [id], onDelete: Restrict)
+  dpmatch           dpmatch[]
+  dproduct_details  dproduct_details?
+  dproduct_history  dproduct_history[]
 
+  @@unique([dbrands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
+  @@index([dbrands_id], map: "idx_dproducts_dbrands_id")
   @@index([stock_code])
-  @@index([brand])
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
-model dproduct_offers {
+model dproduct_details {
   id              BigInt    @id @default(autoincrement())
   dproduct_id     BigInt    @unique
   price           Decimal?  @db.Decimal(10, 2)
@@ -1078,10 +1066,10 @@ model dproduct_offers {
   dproducts dproducts @relation(fields: [dproduct_id], references: [id], onDelete: Cascade)
 
   @@index([last_seen_at(sort: Desc)])
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
-model dproduct_offer_history {
+model dproduct_history {
   id          BigInt    @id @default(autoincrement())
   dproduct_id BigInt
   price       Decimal?  @db.Decimal(10, 2)
@@ -1091,7 +1079,7 @@ model dproduct_offer_history {
   dproducts dproducts @relation(fields: [dproduct_id], references: [id], onDelete: Cascade)
 
   @@index([dproduct_id, captured_at(sort: Desc)])
-  @@schema("parcatedarik")
+  @@schema("v0")
 }
 
 // ==========================================
@@ -1106,6 +1094,7 @@ model dbrands {
   updated_at     DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
   last_seen_at   DateTime         @default(now()) @db.Timestamptz(6)
   dbrands_match  dbrands_match[]
+  dproducts      dproducts[]
 
-  @@schema("parcatedarik")
+  @@schema("v0")
 }

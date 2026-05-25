@@ -1,5 +1,5 @@
 /**
- * Populate parcatedarik.dpmatch with individual dproducts and product rows
+ * Populate v0.dpmatch with individual dproducts and product rows
  * (not cross-join pairs). Each dproduct and product gets one row.
  * EXACT_MATCH updates the dproduct placeholder row in place.
  *
@@ -54,11 +54,11 @@ async function main() {
   }
 
   const brandMatchRows = await db.$queryRaw<
-    Array<{ dinamik_brand: string; manufacturer_id: number }>
+    Array<{ dinamik_brand: string; ptbrands_id: number }>
   >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, bm.manufacturer_id
-    FROM parcatedarik.dbrands_match bm
-    INNER JOIN parcatedarik.dbrands db ON db.id = bm.dbrands_id
+    SELECT db.brand AS dinamik_brand, bm.ptbrands_id
+    FROM v0.dbrands_match bm
+    INNER JOIN v0.dbrands db ON db.id = bm.dbrands_id
     WHERE bm.mapping_status = 'APPROVED'
     ORDER BY db.brand
   `)
@@ -76,17 +76,18 @@ async function main() {
     const dproducts = await db.$queryRaw<
       Array<{ id: bigint; part_no: string | null; barcode_1: string | null; barcode_2: string | null; barcode_3: string | null }>
     >(Prisma.sql`
-      SELECT id, part_no, barcode_1, barcode_2, barcode_3
-      FROM parcatedarik.dproducts
-      WHERE BTRIM(LOWER(COALESCE(brand, ''))) = BTRIM(LOWER(${bm.dinamik_brand}))
+      SELECT d.id, d.part_no, d.barcode_1, d.barcode_2, d.barcode_3
+      FROM v0.dproducts d
+      INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+      WHERE BTRIM(LOWER(db.brand)) = BTRIM(LOWER(${bm.dinamik_brand}))
     `)
 
     const products = await db.$queryRaw<
       Array<{ id: number; model: string | null; normalized_model: string | null }>
     >(Prisma.sql`
       SELECT id, model, normalized_model
-      FROM parcatedarik.product
-      WHERE manufacturer_id = ${bm.manufacturer_id}
+      FROM v0.ptproducts
+      WHERE ptbrands_id = ${bm.ptbrands_id}
     `)
 
     if (dproducts.length === 0 && products.length === 0) continue
@@ -100,7 +101,7 @@ async function main() {
       await batchInsert(
         dpValues,
         stats,
-        'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ',
+        'INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status) VALUES ',
         'ON CONFLICT (dproducts_id) WHERE dproducts_id IS NOT NULL DO NOTHING'
       )
     }
@@ -114,8 +115,8 @@ async function main() {
       await batchInsert(
         pValues,
         stats,
-        'INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status) VALUES ',
-        'ON CONFLICT (product_id) WHERE product_id IS NOT NULL DO NOTHING'
+        'INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status) VALUES ',
+        'ON CONFLICT (ptproducts_id) WHERE ptproducts_id IS NOT NULL DO NOTHING'
       )
     }
 

@@ -76,12 +76,12 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
     Array<{
       dinamik_brand: string
       normalized: string
-      manufacturer_id: number
+      ptbrands_id: number
     }>
   >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, a.normalized, a.manufacturer_id
-    FROM parcatedarik.dbrands_match a
-    INNER JOIN parcatedarik.dbrands db ON db.id = a.dbrands_id
+    SELECT db.brand AS dinamik_brand, a.normalized, a.ptbrands_id
+    FROM v0.dbrands_match a
+    INNER JOIN v0.dbrands db ON db.id = a.dbrands_id
     WHERE a.mapping_status = 'APPROVED'
   `)
 
@@ -91,7 +91,7 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
     if (!map.has(key)) {
       map.set(key, new Map())
     }
-    map.get(key)!.set(ba.manufacturer_id, 0.95)
+    map.get(key)!.set(ba.ptbrands_id, 0.95)
   }
   return map
 }
@@ -134,11 +134,11 @@ export async function findDinamikParcatedarikModelCandidates(
         id: number
         model: string | null
         normalized_model: string | null
-        manufacturer_id: number
+        ptbrands_id: number
       }>
     >(Prisma.sql`
-      SELECT p.id, p.model, p.normalized_model, p.manufacturer_id
-      FROM parcatedarik.product p
+      SELECT p.id, p.model, p.normalized_model, p.ptbrands_id
+      FROM v0.ptproducts p
       WHERE p.normalized_model = ${normalizedValue}
         AND p.normalized_model IS NOT NULL
         AND p.normalized_model <> ''
@@ -162,7 +162,7 @@ export async function findDinamikParcatedarikModelCandidates(
       let brandAliasMatch = false
       if (dinamikBrand && options?.parcatedarikManufacturerName) {
         const manufResult = await db.$queryRaw<Array<{ name: string }>>`
-          SELECT name FROM parcatedarik.manufacturer WHERE id = ${pt.manufacturer_id}
+          SELECT name FROM v0.ptbrands WHERE id = ${pt.ptbrands_id}
         `
         if (manufResult.length > 0) {
           const normalizedMfrName = normalizeModel(manufResult[0].name)
@@ -170,7 +170,7 @@ export async function findDinamikParcatedarikModelCandidates(
           brandMatch = normalizedMfrName === normalizedDinamikBrand
         }
       }
-      if (brandAliasManufacturers && brandAliasManufacturers.has(pt.manufacturer_id)) {
+      if (brandAliasManufacturers && brandAliasManufacturers.has(pt.ptbrands_id)) {
         brandAliasMatch = true
       }
 
@@ -196,7 +196,7 @@ export async function findDinamikParcatedarikModelCandidates(
       let disambiguatedPt: typeof parcatedarikProducts[0] | null = null
       if (brandAliasManufacturers && brandAliasManufacturers.size > 0) {
         for (const pt of parcatedarikProducts) {
-          if (brandAliasManufacturers.has(pt.manufacturer_id)) {
+          if (brandAliasManufacturers.has(pt.ptbrands_id)) {
             disambiguatedPt = pt
             break
           }
@@ -261,7 +261,7 @@ export async function findDinamikParcatedarikModelCandidates(
           let brandMatch = false
           if (dinamikBrand) {
             const manufResult = await db.$queryRaw<Array<{ name: string }>>`
-              SELECT name FROM parcatedarik.manufacturer WHERE id = ${pt.manufacturer_id}
+              SELECT name FROM v0.ptbrands WHERE id = ${pt.ptbrands_id}
             `
             if (manufResult.length > 0) {
               const normalizedMfrName = normalizeModel(manufResult[0].name)

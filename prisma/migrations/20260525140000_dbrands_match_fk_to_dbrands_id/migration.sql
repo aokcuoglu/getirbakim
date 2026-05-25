@@ -7,6 +7,7 @@ DROP INDEX IF EXISTS parcatedarik.uq_dbrands_match_pt_only_mfr;
 ALTER TABLE parcatedarik.dbrands_match
   DROP CONSTRAINT IF EXISTS fk_dbrands_match_brand;
 
+-- Temporary column only during migration (renamed to dbrands_id below); not a Prisma field.
 ALTER TABLE parcatedarik.dbrands_match
   ADD COLUMN IF NOT EXISTS dbrands_fk bigint;
 

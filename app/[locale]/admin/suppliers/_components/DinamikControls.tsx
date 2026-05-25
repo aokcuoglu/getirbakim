@@ -516,8 +516,8 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
           >
             <InfoHint>
               Master kayıt <span className="font-mono">dproducts</span>; fiyat/stok/API ham veri{' '}
-              <span className="font-mono">dproduct_offers</span> tablosunda tutulur (değişimler{' '}
-              <span className="font-mono">dproduct_offer_history</span>). Yanıtta olmayan SKU&apos;lar{' '}
+              <span className="font-mono">dproduct_details</span> tablosunda tutulur (değişimler{' '}
+              <span className="font-mono">dproduct_history</span>). Yanıtta olmayan SKU&apos;lar{' '}
               silinmez, <span className="font-mono">is_passive=true</span> olur. Marka boşsa güvenlik
               için ilk 5 marka işlenir; tek marka veya tüm katalog için üstte marka girin veya CLI:{' '}
               <span className="font-mono">scripts/sync-dproducts-from-dbrands.ts</span>.
@@ -738,7 +738,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         <span className="font-mono">supplier_sync_runs</span> her çalışmanın özetini,{' '}
         <span className="font-mono">supplier_products.last_seen_at</span> ise tazeliği izler. Fiyat
         değişim analitiği veya denetim ihtiyacı doğarsa{' '}
-        <span className="font-mono">dproduct_price_history</span> gibi append-only bir tablo
+        <span className="font-mono">dproduct_history</span> gibi append-only bir tablo
         eklenebilir — şimdilik operasyonel ihtiyaç için snapshot yeterli.
       </InfoHint>
     </div>

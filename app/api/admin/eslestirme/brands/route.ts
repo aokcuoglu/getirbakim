@@ -45,14 +45,14 @@ function buildWhereClause(input: {
     )
   }
   if (input.manufacturerId) {
-    conditions.push(Prisma.sql`a.manufacturer_id = ${input.manufacturerId}`)
+    conditions.push(Prisma.sql`a.ptbrands_id = ${input.manufacturerId}`)
   }
   if (input.matchSide === 'matched') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.manufacturer_id IS NOT NULL`)
+    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.ptbrands_id IS NOT NULL`)
   } else if (input.matchSide === 'dinamik_only') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.manufacturer_id IS NULL`)
+    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.ptbrands_id IS NULL`)
   } else if (input.matchSide === 'pt_only') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NULL AND a.manufacturer_id IS NOT NULL`)
+    conditions.push(Prisma.sql`a.dbrands_id IS NULL AND a.ptbrands_id IS NOT NULL`)
   }
 
   if (conditions.length === 0) return Prisma.sql`1=1`
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
     })
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.dbrands_match a LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dbrands_match a LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -119,24 +119,24 @@ export async function GET(request: NextRequest) {
     const rows = await db.$queryRaw<
       Array<{
         id: number; dinamik_brand: string | null; normalized: string
-        manufacturer_id: number | null; manufacturer_name: string
+        ptbrands_id: number | null; manufacturer_name: string
         mapping_status: string; match_method: string | null
       }>
     >(Prisma.sql`
       SELECT a.id, d.brand AS dinamik_brand,
              a.normalized,
-             a.manufacturer_id, m.name AS manufacturer_name,
+             a.ptbrands_id, m.name AS manufacturer_name,
              a.mapping_status, a.match_method
-      FROM parcatedarik.dbrands_match a
-      LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id
-      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
+      FROM v0.dbrands_match a
+      LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
+      LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
       WHERE ${whereClause}
       ORDER BY ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
     `)
 
     const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`
+      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dbrands_match GROUP BY mapping_status`
     )
 
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
         id: r.id,
         dinamikBrand: r.dinamik_brand ?? '',
         normalizedName: r.normalized ?? '',
-        parcatedarikManufacturerId: r.manufacturer_id ?? null,
+        parcatedarikManufacturerId: r.ptbrands_id ?? null,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
         return errorResponse({ status: 400, code: 'INVALID_IDS', message: '1-500 ID gerekli.', context })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE parcatedarik.dbrands_match SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
+        Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
       )
       return successResponse({ approved: result, message: `${result} eşleştirme onaylandı.` }, context)
     }

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     if (!q) return successResponse([], context)
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     const results = await db.$queryRaw<Array<{ id: number; name: string }>>(
-      Prisma.sql`SELECT id, name FROM parcatedarik.manufacturer WHERE name ILIKE ${pattern} ORDER BY name ASC LIMIT ${limit}`
+      Prisma.sql`SELECT id, name FROM v0.ptbrands WHERE name ILIKE ${pattern} ORDER BY name ASC LIMIT ${limit}`
     )
     return successResponse(results, context)
   } catch (error) {

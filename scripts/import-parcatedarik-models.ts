@@ -1,7 +1,7 @@
 /**
- * Import MODEL column from CSV into parcatedarik.products
+ * Import MODEL column from CSV into v0.ptproducts
  *
- * Matches CSV.id to parcatedarik.products.id and updates:
+ * Matches CSV.id to v0.ptproducts.id and updates:
  *   model            = CSV.MODEL (raw)
  *   normalized_model = normalizeModel(CSV.MODEL)
  *   model_imported_at = now()
@@ -156,7 +156,7 @@ async function main() {
     const batch = idsWithModel.slice(i, i + BATCH_SIZE)
     const products = await db.$queryRaw<
       Array<{ id: number; title: string; model: string | null }>
-    >`SELECT id, title, model FROM parcatedarik.product WHERE id IN (${Prisma.join(batch)})`
+    >`SELECT id, title, model FROM v0.ptproducts WHERE id IN (${Prisma.join(batch)})`
 
     for (const p of products) {
       const mv = modelValues.get(p.id)
@@ -236,7 +236,7 @@ async function main() {
     })
 
     const sql = `
-      UPDATE parcatedarik.product AS p
+      UPDATE v0.ptproducts AS p
       SET
         model = v.model,
         normalized_model = v.normalized_model,
@@ -260,22 +260,22 @@ async function main() {
   console.log('=== Validation SQL ===')
 
   const totalProducts = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM parcatedarik.product`
+    `SELECT COUNT(*) AS count FROM v0.ptproducts`
   console.log(`  Total products: ${totalProducts[0].count}`)
 
   const withModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM parcatedarik.product WHERE model IS NOT NULL AND model <> ''`
+    `SELECT COUNT(*) AS count FROM v0.ptproducts WHERE model IS NOT NULL AND model <> ''`
   console.log(`  Products with model: ${withModel[0].count}`)
 
   const withNormalizedModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''`
+    `SELECT COUNT(*) AS count FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''`
   console.log(`  Products with normalized_model: ${withNormalizedModel[0].count}`)
 
   const duplicateModels = await db.$queryRaw<
     Array<{ normalized_model: string; count: bigint }>
   >`
     SELECT normalized_model, COUNT(*) AS count
-    FROM parcatedarik.product
+    FROM v0.ptproducts
     WHERE normalized_model IS NOT NULL
     GROUP BY normalized_model
     HAVING COUNT(*) > 1
@@ -291,7 +291,7 @@ async function main() {
     Array<{ id: number; product_id: string; model: string | null; normalized_model: string | null; title: string }>
   >`
     SELECT id, product_id, model, normalized_model, title
-    FROM parcatedarik.product
+    FROM v0.ptproducts
     WHERE model_source = 'PARCATEDARIK_CSV_MODEL'
     ORDER BY model_imported_at DESC
     LIMIT 20
@@ -320,7 +320,7 @@ async function main() {
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
       )`
   console.log(`  Matches via barcode_1: ${bar1Match[0].count}`)
 
@@ -331,7 +331,7 @@ async function main() {
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
       )`
   console.log(`  Matches via barcode_2: ${bar2Match[0].count}`)
 
@@ -342,7 +342,7 @@ async function main() {
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
       )`
   console.log(`  Matches via barcode_3: ${bar3Match[0].count}`)
 
@@ -354,24 +354,24 @@ async function main() {
       AND (
         (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
           ))
         OR
         (sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
           ))
         OR
         (sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM parcatedarik.product WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
           ))
       )`
   console.log(`  Distinct Dinamik products matched: ${combinedMatch[0].count}`)
 
   const ptMatched = await db.$queryRaw<Array<{ count: bigint }>>`
     SELECT COUNT(DISTINCT p.id) AS count
-    FROM parcatedarik.product p
+    FROM v0.ptproducts p
     WHERE p.normalized_model IS NOT NULL AND p.normalized_model <> ''
       AND (
         EXISTS (SELECT 1 FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id
@@ -396,7 +396,7 @@ async function main() {
       SELECT sp.id AS din_id, COUNT(DISTINCT p.id) AS pt_count
       FROM supplier_products sp
       JOIN supplier_providers spr ON sp.provider_id = spr.id
-      JOIN parcatedarik.product p ON (
+      JOIN v0.ptproducts p ON (
         (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
         OR

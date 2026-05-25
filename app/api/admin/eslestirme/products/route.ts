@@ -4,13 +4,17 @@ import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import {
-  dproductOfferJoin,
-  dproductOfferPriceExpr
-} from '@/lib/sql/dproduct-offer'
+  dproductDbrandJoin,
+  dproductBrandNameExpr
+} from '@/lib/sql/dproduct-catalog'
+import {
+  dproductDetailsJoin,
+  dproductDetailsPriceExpr
+} from '@/lib/sql/dproduct-details'
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
   stock_code: 'd.stock_code',
-  brand: 'd.brand',
+  brand: 'db.brand',
   price: 'offer_price',
   stock_name: 'd.stock_name'
 }
@@ -37,31 +41,32 @@ export async function GET(request: NextRequest) {
 
   const orderBy =
     sortCol === 'price'
-      ? Prisma.sql`${dproductOfferPriceExpr} ${Prisma.raw(sortDir)} NULLS LAST`
+      ? Prisma.sql`${dproductDetailsPriceExpr} ${Prisma.raw(sortDir)} NULLS LAST`
       : Prisma.sql`${Prisma.raw(
           sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'd.stock_code'
         )} ${Prisma.raw(sortDir)}`
 
   try {
     const qCondition = q
-      ? Prisma.sql`AND d.is_passive = false AND (d.stock_code ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`} OR d.stock_name ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`} OR d.brand ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`})`
+      ? Prisma.sql`AND d.is_passive = false AND (d.stock_code ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`} OR d.stock_name ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`} OR ${dproductBrandNameExpr} ILIKE ${`%${q.replace(/[%_\\]/g, '\\$&')}%`})`
       : Prisma.sql`AND d.is_passive = false`
 
     const [countRows, summaryRows, rows] = await Promise.all([
       db.$queryRaw<Array<{ total: bigint }>>(
-        Prisma.sql`SELECT COUNT(*)::int AS total FROM parcatedarik.dproducts d ${dproductOfferJoin} WHERE 1=1 ${qCondition}`
+        Prisma.sql`SELECT COUNT(*)::int AS total FROM v0.dproducts d ${dproductDbrandJoin} ${dproductDetailsJoin} WHERE 1=1 ${qCondition}`
       ),
       db.$queryRaw<Array<{ total: bigint; distinct_brands: bigint; priced_rows: bigint; with_barcode: bigint }>>(
         Prisma.sql`
           SELECT
             COUNT(*)::int AS total,
-            COUNT(DISTINCT d.brand)::int AS distinct_brands,
-            COUNT(*) FILTER (WHERE ${dproductOfferPriceExpr} IS NOT NULL)::int AS priced_rows,
+            COUNT(DISTINCT d.dbrands_id)::int AS distinct_brands,
+            COUNT(*) FILTER (WHERE ${dproductDetailsPriceExpr} IS NOT NULL)::int AS priced_rows,
             COUNT(*) FILTER (
               WHERE d.barcode_1 IS NOT NULL OR d.barcode_2 IS NOT NULL OR d.barcode_3 IS NOT NULL
             )::int AS with_barcode
-          FROM parcatedarik.dproducts d
-          ${dproductOfferJoin}
+          FROM v0.dproducts d
+          ${dproductDbrandJoin}
+          ${dproductDetailsJoin}
           WHERE 1=1 ${qCondition}
         `
       ),
@@ -71,13 +76,14 @@ export async function GET(request: NextRequest) {
             d.id,
             d.stock_code,
             d.stock_name,
-            d.brand,
+            ${dproductBrandNameExpr} AS brand,
             d.barcode_1,
             d.barcode_2,
             d.barcode_3,
-            ${dproductOfferPriceExpr}::text AS price
-          FROM parcatedarik.dproducts d
-          ${dproductOfferJoin}
+            ${dproductDetailsPriceExpr}::text AS price
+          FROM v0.dproducts d
+          ${dproductDbrandJoin}
+          ${dproductDetailsJoin}
           WHERE 1=1 ${qCondition}
           ORDER BY ${orderBy}
           LIMIT ${limit} OFFSET ${offset}

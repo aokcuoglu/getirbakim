@@ -57,7 +57,7 @@ export async function POST(
     switch (action) {
       case 'approve': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE parcatedarik.dbrands_match
+          Prisma.sql`UPDATE v0.dbrands_match
             SET mapping_status = 'APPROVED'
             WHERE id = ${id}`
         )
@@ -66,7 +66,7 @@ export async function POST(
 
       case 'reject': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE parcatedarik.dbrands_match
+          Prisma.sql`UPDATE v0.dbrands_match
             SET mapping_status = 'REJECTED'
             WHERE id = ${id}`
         )
@@ -75,7 +75,7 @@ export async function POST(
 
       case 'ignore': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE parcatedarik.dbrands_match
+          Prisma.sql`UPDATE v0.dbrands_match
             SET mapping_status = 'IGNORED'
             WHERE id = ${id}`
         )
@@ -96,7 +96,7 @@ export async function POST(
         const mfrId = parseInt(String(parcatedarikManufacturerId), 10)
         const manufacturer = await db.$queryRaw<
           Array<{ id: number; name: string }>
-        >(Prisma.sql`SELECT id, name FROM parcatedarik.manufacturer WHERE id = ${mfrId}`)
+        >(Prisma.sql`SELECT id, name FROM v0.ptbrands WHERE id = ${mfrId}`)
 
         if (!manufacturer || manufacturer.length === 0) {
           return errorResponse({
@@ -111,8 +111,8 @@ export async function POST(
         const normalized = normalizeModel(mfrName) || ''
 
         await db.$executeRaw(
-          Prisma.sql`UPDATE parcatedarik.dbrands_match
-            SET manufacturer_id = ${mfrId},
+          Prisma.sql`UPDATE v0.dbrands_match
+            SET ptbrands_id = ${mfrId},
                 normalized = ${normalized},
                 match_method = 'MANUAL',
                 mapping_status = 'APPROVED'
@@ -123,7 +123,7 @@ export async function POST(
 
       case 'delete': {
         await db.$executeRaw(
-          Prisma.sql`DELETE FROM parcatedarik.dbrands_match WHERE id = ${id}`
+          Prisma.sql`DELETE FROM v0.dbrands_match WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }

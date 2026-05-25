@@ -14,17 +14,17 @@ const APPLY = process.env.APPLY === 'true'
 
 async function main() {
   const pending = await db.$queryRaw<
-    Array<{ id: number; manufacturer_id: number; manufacturer_name: string; normalized: string | null }>
+    Array<{ id: number; ptbrands_id: number; manufacturer_name: string; normalized: string | null }>
   >(Prisma.sql`
     SELECT
       a.id,
-      a.manufacturer_id,
+      a.ptbrands_id,
       m.name AS manufacturer_name,
       a.normalized
-    FROM parcatedarik.dbrands_match a
-    INNER JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
+    FROM v0.dbrands_match a
+    INNER JOIN v0.ptbrands m ON m.id = a.ptbrands_id
     WHERE a.dbrands_id IS NULL
-      AND a.manufacturer_id IS NOT NULL
+      AND a.ptbrands_id IS NOT NULL
       AND a.mapping_status = 'PENDING'
     ORDER BY a.id
   `)
@@ -67,7 +67,7 @@ async function main() {
     }
 
     await db.$executeRaw(Prisma.sql`
-      UPDATE parcatedarik.dbrands_match
+      UPDATE v0.dbrands_match
       SET
         dbrands_id = ${dbrandsId},
         mapping_status = 'APPROVED',
@@ -83,11 +83,11 @@ async function main() {
     Array<{ pending_pt_only: number; approved_paired: number; dbrands_total: number }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match
-        WHERE dbrands_id IS NULL AND manufacturer_id IS NOT NULL AND mapping_status = 'PENDING') AS pending_pt_only,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match
-        WHERE dbrands_id IS NOT NULL AND manufacturer_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_paired,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands) AS dbrands_total
+      (SELECT COUNT(*)::int FROM v0.dbrands_match
+        WHERE dbrands_id IS NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'PENDING') AS pending_pt_only,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match
+        WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_paired,
+      (SELECT COUNT(*)::int FROM v0.dbrands) AS dbrands_total
   `)
 
   console.log(`[approve-pt-only] Updated: ${updated}, skipped: ${skipped}`)

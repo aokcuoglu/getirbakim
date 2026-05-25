@@ -1,5 +1,5 @@
 /**
- * Reconcile parcatedarik.dbrands:
+ * Reconcile v0.dbrands:
  * - Remove rows that are only ParçaTedarik manufacturer names (not in dproducts.brand)
  * - Upsert missing rows from dproducts + optional Dinamik getBrandList API
  *

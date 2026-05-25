@@ -1,7 +1,14 @@
 'use client'
 
-import { type ReactNode, useMemo, useState } from 'react'
-import { Filter, RefreshCw, Search } from 'lucide-react'
+import { useEffect, useState, useTransition } from 'react'
+import {
+  HelpCircle,
+  Inbox,
+  MessageSquare,
+  PackageSearch,
+  Sparkles,
+  Tag
+} from 'lucide-react'
 import { useDebouncedCallback } from 'use-debounce'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
@@ -15,12 +22,26 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
+import {
   MobileDataCard,
   ResponsiveDataView
 } from '@/components/admin/responsive-data-view'
+import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
+import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
+import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import type {
   CustomerRequestListItem,
-  CustomerRequestsResult
+  CustomerRequestsResult,
+  CustomerRequestStatus
 } from '@/lib/types/customer-requests'
 import { RequestDetailDrawer } from './RequestDetailDrawer'
 
@@ -32,8 +53,22 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const [isRefreshing, startRefresh] = useTransition()
+  const [requests, setRequests] = useState<CustomerRequestListItem[]>(data.requests)
+  const [searchValue, setSearchValue] = useState(searchParams.get('q') || '')
   const [detailRequestId, setDetailRequestId] = useState<number | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+
+  const currentStatus = searchParams.get('status') || 'all'
+  const currentType = searchParams.get('type') || 'all'
+
+  useEffect(() => {
+    setRequests(data.requests)
+  }, [data.requests])
+
+  useEffect(() => {
+    setSearchValue(searchParams.get('q') || '')
+  }, [searchParams])
 
   const setParam = (name: string, value?: string | null) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -50,224 +85,317 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
 
   const onSearch = useDebouncedCallback((value: string) => {
     setParam('q', value.trim() || null)
-  }, 300)
+  }, 250)
+
+  const resetFilters = () => {
+    setSearchValue('')
+    router.push(pathname)
+  }
+
+  const handleRefresh = () => {
+    startRefresh(() => {
+      router.refresh()
+    })
+  }
+
+  const handleRequestSaved = (patch: {
+    id: number
+    status: CustomerRequestStatus
+  }) => {
+    setRequests((prev) =>
+      prev.map((request) =>
+        request.id === patch.id ? { ...request, status: patch.status } : request
+      )
+    )
+  }
 
   const totalPages = data.pagination.pages
 
-  const rows = useMemo(() => data.requests, [data.requests])
-
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard label="Açık Talep" value={data.kpis.openTotal} tone="slate" />
-        <KpiCard label="Bugün Yeni" value={data.kpis.newToday} tone="blue" />
-        <KpiCard
+    <div className="space-y-4">
+      <AdminKpiGrid className="lg:grid-cols-5">
+        <AdminKpiCard
+          label="Açık Talep"
+          value={data.kpis.openTotal}
+          icon={<Inbox size={16} />}
+        />
+        <AdminKpiCard
+          label="Bugün Yeni"
+          value={data.kpis.newToday}
+          tone="info"
+          icon={<Sparkles size={16} />}
+        />
+        <AdminKpiCard
           label="Fiyat Talebi"
           value={data.kpis.priceRequestsOpen}
-          tone="emerald"
+          tone="default"
+          icon={<Tag size={16} />}
         />
-        <KpiCard
+        <AdminKpiCard
           label="Ürün Sorusu"
           value={data.kpis.productQuestionsOpen}
-          tone="amber"
+          tone="warning"
+          icon={<HelpCircle size={16} />}
         />
-        <KpiCard
+        <AdminKpiCard
           label="Bulunamayan Ürün"
           value={data.kpis.missingProductsOpen}
-          tone="rose"
+          tone="danger"
+          icon={<PackageSearch size={16} />}
         />
-      </div>
+      </AdminKpiGrid>
 
-      <div className="rounded-xl border border-border bg-background p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full max-w-lg">
-            <Search
-              size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              defaultValue={searchParams.get('q') || ''}
-              onChange={(event) => onSearch(event.target.value)}
-              placeholder="İsim, e-posta, OEM, ürün adı veya not ara..."
-              className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
-            />
-          </div>
+      <div className="rounded-md border border-border bg-card p-4">
+        <AdminTableToolbar
+          searchValue={searchValue}
+          onSearchChange={(nextValue) => {
+            setSearchValue(nextValue)
+            onSearch(nextValue)
+          }}
+          searchPlaceholder="İsim, e-posta, OEM, ürün adı veya not ara..."
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+        />
 
-          <div className="flex flex-wrap items-center gap-2">
-            <FilterPill label="Tip">
-              <Select
-                value={searchParams.get('type') || 'all'}
-                onValueChange={(value) => setParam('type', value)}
-              >
-                <SelectTrigger className="h-7 w-[170px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
-                  <SelectValue placeholder="Tümü" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
-                  <SelectItem value="PRICE_REQUEST">PRICE_REQUEST</SelectItem>
-                  <SelectItem value="PRODUCT_QUESTION">PRODUCT_QUESTION</SelectItem>
-                  <SelectItem value="MISSING_PRODUCT">MISSING_PRODUCT</SelectItem>
-                </SelectContent>
-              </Select>
-            </FilterPill>
+        <AdminFilterBar onReset={resetFilters} className="mt-3">
+          <AdminFilterChip
+            active={currentStatus === 'NEW'}
+            onClick={() =>
+              setParam('status', currentStatus === 'NEW' ? null : 'NEW')
+            }
+            label="Yeni"
+          />
+          <AdminFilterChip
+            active={currentStatus === 'IN_REVIEW'}
+            onClick={() =>
+              setParam('status', currentStatus === 'IN_REVIEW' ? null : 'IN_REVIEW')
+            }
+            label="İncelemede"
+          />
+          <AdminFilterChip
+            active={currentStatus === 'RESOLVED'}
+            onClick={() =>
+              setParam('status', currentStatus === 'RESOLVED' ? null : 'RESOLVED')
+            }
+            label="Çözüldü"
+          />
+          <AdminFilterChip
+            active={currentType === 'PRICE_REQUEST'}
+            onClick={() =>
+              setParam(
+                'type',
+                currentType === 'PRICE_REQUEST' ? null : 'PRICE_REQUEST'
+              )
+            }
+            label="Fiyat Talebi"
+          />
+          <AdminFilterChip
+            active={currentType === 'PRODUCT_QUESTION'}
+            onClick={() =>
+              setParam(
+                'type',
+                currentType === 'PRODUCT_QUESTION' ? null : 'PRODUCT_QUESTION'
+              )
+            }
+            label="Ürün Sorusu"
+          />
+        </AdminFilterBar>
 
-            <FilterPill label="Durum">
-              <Select
-                value={searchParams.get('status') || 'all'}
-                onValueChange={(value) => setParam('status', value)}
-              >
-                <SelectTrigger className="h-7 w-[150px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
-                  <SelectValue placeholder="Tümü" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
-                  <SelectItem value="NEW">NEW</SelectItem>
-                  <SelectItem value="IN_REVIEW">IN_REVIEW</SelectItem>
-                  <SelectItem value="RESOLVED">RESOLVED</SelectItem>
-                  <SelectItem value="ARCHIVED">ARCHIVED</SelectItem>
-                </SelectContent>
-              </Select>
-            </FilterPill>
-
-            <FilterPill label="Kaynak">
-              <Select
-                value={searchParams.get('source') || 'all'}
-                onValueChange={(value) => setParam('source', value)}
-              >
-                <SelectTrigger className="h-7 w-[195px] border-none bg-transparent px-1 text-xs text-foreground shadow-none focus-visible:ring-0">
-                  <SelectValue placeholder="Tümü" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
-                  <SelectItem value="PRICE_MODAL">PRICE_MODAL</SelectItem>
-                  <SelectItem value="PRODUCT_FAQ_FORM">PRODUCT_FAQ_FORM</SelectItem>
-                  <SelectItem value="MISSING_PRODUCT_MODAL">
-                    MISSING_PRODUCT_MODAL
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </FilterPill>
-
-            <input
-              type="date"
-              defaultValue={searchParams.get('from') || ''}
-              onChange={(event) => setParam('from', event.target.value || null)}
-              className="rounded-md border border-border px-3 py-2 text-xs"
-            />
-            <input
-              type="date"
-              defaultValue={searchParams.get('to') || ''}
-              onChange={(event) => setParam('to', event.target.value || null)}
-              className="rounded-md border border-border px-3 py-2 text-xs"
-            />
-
-            <Button variant="outline" onClick={() => router.refresh()}>
-              <RefreshCw size={14} className="mr-2" />
-              Yenile
-            </Button>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          <Select
+            value={searchParams.get('source') || 'all'}
+            onValueChange={(value) => setParam('source', value)}
+          >
+            <SelectTrigger className="h-8 w-[195px] text-xs">
+              <SelectValue placeholder="Kaynak" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tüm Kaynaklar</SelectItem>
+              <SelectItem value="PRICE_MODAL">PRICE_MODAL</SelectItem>
+              <SelectItem value="PRODUCT_FAQ_FORM">PRODUCT_FAQ_FORM</SelectItem>
+              <SelectItem value="MISSING_PRODUCT_MODAL">
+                MISSING_PRODUCT_MODAL
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <input
+            type="date"
+            defaultValue={searchParams.get('from') || ''}
+            onChange={(event) => setParam('from', event.target.value || null)}
+            className="h-8 rounded-md border border-border bg-background px-3 text-xs"
+          />
+          <input
+            type="date"
+            defaultValue={searchParams.get('to') || ''}
+            onChange={(event) => setParam('to', event.target.value || null)}
+            className="h-8 rounded-md border border-border bg-background px-3 text-xs"
+          />
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-background p-3 md:p-0 md:border-0 md:bg-transparent">
-        <ResponsiveDataView
-          mobile={
-            rows.length > 0 ? (
-              <div className="space-y-3">
-                {rows.map((request) => (
-                  <MobileDataCard key={request.id}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-foreground">
-                          #{request.id} - {request.requestType}
+      <ResponsiveDataView
+        mobile={
+          requests.length > 0 ? (
+            <div className="space-y-3">
+              {requests.map((request) => (
+                <MobileDataCard key={request.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground">
+                        #{request.id} - {request.requestType}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {request.source}
+                      </p>
+                    </div>
+                    <StatusBadge status={request.status} />
+                  </div>
+
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <p className="font-medium text-foreground">
+                      {request.name} ({request.email})
+                    </p>
+                    <p>
+                      {request.partNameSnapshot ||
+                        request.requestedSkuOrOem ||
+                        'Genel talep'}
+                    </p>
+                    <p className="line-clamp-2">
+                      {request.message ||
+                        request.searchQuery ||
+                        request.pageUrl ||
+                        '-'}
+                    </p>
+                    <p>{new Date(request.createdAt).toLocaleString('tr-TR')}</p>
+                  </div>
+
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-xs"
+                      onClick={() => {
+                        setDetailRequestId(request.id)
+                        setDetailOpen(true)
+                      }}
+                    >
+                      Detay
+                    </Button>
+                  </div>
+                </MobileDataCard>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
+              Filtrelere uyan talep bulunamadı.
+            </div>
+          )
+        }
+        desktop={
+          <AdminTableShell isLoading={isRefreshing}>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                  <TableHead>
+                    <AdminTableHead>Talep</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Müşteri</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Bağlam</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Durum</AdminTableHead>
+                  </TableHead>
+                  <TableHead>
+                    <AdminTableHead>Tarih</AdminTableHead>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <AdminTableHead className="justify-end">Aksiyon</AdminTableHead>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {requests.length > 0 ? (
+                  requests.map((request) => (
+                    <TableRow
+                      key={request.id}
+                      className="group transition-colors duration-150"
+                    >
+                      <TableCell>
+                        <p className="font-semibold text-sm text-foreground">
+                          #{request.id}
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-[11px] text-muted-foreground">
+                          {request.requestType}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
                           {request.source}
                         </p>
+                      </TableCell>
+                      <TableCell>
+                        <p className="font-semibold text-sm text-foreground">
+                          {request.name}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {request.email}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {request.phone || '-'}
+                        </p>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          {request.partNameSnapshot ||
+                            request.requestedSkuOrOem ||
+                            'Genel talep'}
+                        </p>
+                        <p className="mt-1 line-clamp-2">
+                          {request.message ||
+                            request.searchQuery ||
+                            request.pageUrl ||
+                            '-'}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={request.status} />
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(request.createdAt).toLocaleString('tr-TR')}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setDetailRequestId(request.id)
+                            setDetailOpen(true)
+                          }}
+                        >
+                          Detay
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="h-48 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <MessageSquare size={32} className="text-muted-foreground/50" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                          Filtrelere uyan talep bulunamadı.
+                        </p>
                       </div>
-                      <StatusBadge status={request.status} />
-                    </div>
-
-                    <div className="mt-3 text-xs text-muted-foreground space-y-1">
-                      <p className="font-medium text-foreground">
-                        {request.name} ({request.email})
-                      </p>
-                      <p>
-                        {request.partNameSnapshot ||
-                          request.requestedSkuOrOem ||
-                          'Genel talep'}
-                      </p>
-                      <p className="line-clamp-2">
-                        {request.message ||
-                          request.searchQuery ||
-                          request.pageUrl ||
-                          '-'}
-                      </p>
-                      <p>{new Date(request.createdAt).toLocaleString('tr-TR')}</p>
-                    </div>
-
-                    <div className="mt-3 flex justify-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setDetailRequestId(request.id)
-                          setDetailOpen(true)
-                        }}
-                      >
-                        Detay
-                      </Button>
-                    </div>
-                  </MobileDataCard>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
-                Filtrelere uyan talep bulunamadı.
-              </div>
-            )
-          }
-          desktop={
-            <div className="overflow-x-auto rounded-xl border border-border bg-background">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="bg-muted/80 text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3">Talep</th>
-                    <th className="px-4 py-3">Müşteri</th>
-                    <th className="px-4 py-3">Bağlam</th>
-                    <th className="px-4 py-3">Durum</th>
-                    <th className="px-4 py-3">Tarih</th>
-                    <th className="px-4 py-3 text-right">Aksiyon</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rows.length > 0 ? (
-                    rows.map((request) => (
-                      <RequestRow
-                        key={request.id}
-                        request={request}
-                        onOpen={() => {
-                          setDetailRequestId(request.id)
-                          setDetailOpen(true)
-                        }}
-                      />
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-4 py-10 text-center text-sm text-muted-foreground"
-                      >
-                        Filtrelere uyan talep bulunamadı.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          }
-        />
-      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </AdminTableShell>
+        }
+      />
 
       {totalPages > 1 && (
         <Pagination
@@ -283,109 +411,55 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
         requestId={detailRequestId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        onSaved={handleRequestSaved}
       />
     </div>
   )
 }
 
-function RequestRow({
-  request,
-  onOpen
-}: {
-  request: CustomerRequestListItem
-  onOpen: () => void
-}) {
-  return (
-    <tr className="hover:bg-muted/60">
-      <td className="px-4 py-3 align-top">
-        <p className="font-semibold text-foreground">#{request.id}</p>
-        <p className="text-xs text-muted-foreground">{request.requestType}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{request.source}</p>
-      </td>
-      <td className="px-4 py-3 align-top">
-        <p className="font-semibold text-foreground">{request.name}</p>
-        <p className="text-xs text-muted-foreground">{request.email}</p>
-        <p className="text-xs text-muted-foreground">{request.phone || '-'}</p>
-      </td>
-      <td className="px-4 py-3 align-top text-xs text-muted-foreground">
-        <p className="font-medium text-foreground">
-          {request.partNameSnapshot || request.requestedSkuOrOem || 'Genel talep'}
-        </p>
-        <p className="mt-1 line-clamp-2">
-          {request.message || request.searchQuery || request.pageUrl || '-'}
-        </p>
-      </td>
-      <td className="px-4 py-3 align-top">
-        <StatusBadge status={request.status} />
-      </td>
-      <td className="px-4 py-3 align-top text-muted-foreground">
-        {new Date(request.createdAt).toLocaleString('tr-TR')}
-      </td>
-      <td className="px-4 py-3 align-top text-right">
-        <Button size="sm" variant="outline" onClick={onOpen}>
-          Detay
-        </Button>
-      </td>
-    </tr>
-  )
-}
-
-function FilterPill({
-  label,
-  children
-}: {
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
-      <Filter size={12} />
-      <span>{label}</span>
-      {children}
-    </div>
-  )
-}
-
 function StatusBadge({ status }: { status: string }) {
-  const className =
-    status === 'NEW'
-      ? 'bg-accent text-primary border-border'
-      : status === 'IN_REVIEW'
-        ? 'bg-warning/10 text-warning border-warning/20'
-        : status === 'RESOLVED'
-          ? 'bg-success/10 text-success border-success/20'
-          : 'bg-muted text-foreground border-border'
+  if (status === 'NEW') {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1.5 text-[10px] bg-accent text-primary border-border"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+        {status}
+      </Badge>
+    )
+  }
 
-  return (
-    <Badge variant="outline" className={`text-xs font-semibold ${className}`}>
-      {status}
-    </Badge>
-  )
-}
+  if (status === 'IN_REVIEW') {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1.5 text-[10px] bg-warning/10 text-warning border-warning/20"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+        {status}
+      </Badge>
+    )
+  }
 
-function KpiCard({
-  label,
-  value,
-  tone
-}: {
-  label: string
-  value: number
-  tone: 'slate' | 'blue' | 'emerald' | 'amber' | 'rose'
-}) {
-  const tones = {
-    slate: 'from-muted to-muted text-foreground',
-    blue: 'from-accent to-accent text-foreground',
-    emerald: 'from-success/10 to-success/10 text-success',
-    amber: 'from-warning/10 to-warning/10 text-warning',
-    rose: 'from-destructive/10 to-destructive/10 text-destructive'
+  if (status === 'RESOLVED') {
+    return (
+      <Badge
+        variant="outline"
+        className="gap-1.5 text-[10px] bg-success/10 text-success border-success/20"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+        {status}
+      </Badge>
+    )
   }
 
   return (
-    <div className={`rounded-xl border border-border bg-gradient-to-br p-4 ${tones[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
-        {label}
-      </p>
-      <p className="mt-3 text-3xl font-bold">{value}</p>
-    </div>
+    <Badge
+      variant="outline"
+      className="gap-1.5 text-[10px] bg-muted text-foreground border-border"
+    >
+      {status}
+    </Badge>
   )
 }

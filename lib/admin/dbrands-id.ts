@@ -23,7 +23,7 @@ export async function resolveDbrandsIdsByBrand(
 
   const rows = await db.$queryRaw<Array<{ id: bigint; brand: string }>>(Prisma.sql`
     SELECT id, brand
-    FROM parcatedarik.dbrands
+    FROM v0.dbrands
     WHERE brand IN (${Prisma.join(unique)})
   `)
 

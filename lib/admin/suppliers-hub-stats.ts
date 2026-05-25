@@ -48,7 +48,7 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM parcatedarik.dbrands_match
+    FROM v0.dbrands_match
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -59,7 +59,7 @@ async function getDpmatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM parcatedarik.dpmatch
+    FROM v0.dpmatch
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -90,10 +90,10 @@ async function getParcaCatalogStats(): Promise<{
           WHERE p.normalized_model IS NOT NULL
             AND BTRIM(p.normalized_model) <> ''
         )::bigint AS with_model
-      FROM parcatedarik.product p
+      FROM v0.ptproducts p
     `),
     db.$queryRaw<Array<{ manufacturers: bigint }>>(Prisma.sql`
-      SELECT COUNT(*)::bigint AS manufacturers FROM parcatedarik.manufacturer
+      SELECT COUNT(*)::bigint AS manufacturers FROM v0.ptbrands
     `)
   ])
 
@@ -112,14 +112,14 @@ async function getDinamikCatalogRowCount(): Promise<number> {
     SELECT COALESCE(c.reltuples, 0)::bigint AS count
     FROM pg_class c
     INNER JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'parcatedarik'
+    WHERE n.nspname = 'v0'
       AND c.relname = 'dproducts'
   `)
   const estimate = Number(estimateRow?.count ?? 0)
   if (estimate > 0) return Math.round(estimate)
 
   const [exactRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS count FROM parcatedarik.dproducts
+    SELECT COUNT(*)::bigint AS count FROM v0.dproducts
   `)
   return Number(exactRow?.count ?? 0)
 }
@@ -161,7 +161,7 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
       {
         label: 'Ham katalog (dproducts)',
         value: dinamikRowCount,
-        hint: 'API/sync ile parcatedarik şemasına yazılan satırlar (yaklaşık satır sayısı)'
+        hint: 'API/sync ile v0 şemasına yazılan satırlar (yaklaşık satır sayısı)'
       },
       {
         label: 'Staging ürün (supplier_products)',

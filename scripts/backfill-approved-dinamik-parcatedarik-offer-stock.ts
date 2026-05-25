@@ -221,7 +221,7 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT m.id, m.dinamik_product_id, m.parcatedarik_product_id, m.match_reason, m.confidence
-    FROM parcatedarik.dpmatch m
+    FROM v0.dpmatch m
     ${whereClause}
     ORDER BY m.confidence DESC, m.created_at ASC
     ${limitClause}
@@ -235,9 +235,9 @@ async function main() {
       const dinamikProduct = await db.$queryRaw<
         Array<{ id: bigint; stock_code: string; price: string | null }>
       >(Prisma.sql`
-        SELECT d.id, d.stock_code, COALESCE(o.price, d.price)::text AS price
-        FROM parcatedarik.dproducts d
-        LEFT JOIN parcatedarik.dproduct_offers o ON o.dproduct_id = d.id
+        SELECT d.id, d.stock_code, o.price::text AS price
+        FROM v0.dproducts d
+        LEFT JOIN v0.dproduct_details o ON o.dproduct_id = d.id
         WHERE d.id = ${match.dinamik_product_id}
       `)
 

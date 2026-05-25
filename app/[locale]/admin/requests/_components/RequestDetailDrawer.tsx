@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -33,14 +32,15 @@ interface RequestDetailDrawerProps {
   requestId: number | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSaved?: (patch: { id: number; status: CustomerRequestStatus }) => void
 }
 
 export function RequestDetailDrawer({
   requestId,
   open,
-  onOpenChange
+  onOpenChange,
+  onSaved
 }: RequestDetailDrawerProps) {
-  const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [isSaving, startSaving] = useTransition()
   const [detail, setDetail] = useState<CustomerRequestDetail | null>(null)
@@ -88,8 +88,8 @@ export function RequestDetailDrawer({
             }
           : prev
       )
+      onSaved?.({ id: requestId, status })
       toast.success(result.message)
-      router.refresh()
     })
   }
 

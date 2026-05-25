@@ -27,21 +27,21 @@ export async function auditDbrandsMatch(): Promise<DbrandsMatchAudit> {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match) AS match_total,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands) AS dbrands_total,
-      (SELECT COUNT(*)::int FROM parcatedarik.manufacturer) AS manufacturer_total,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match WHERE dbrands_id IS NOT NULL) AS with_dinamik_brand,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match WHERE manufacturer_id IS NOT NULL) AS with_manufacturer,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match WHERE dbrands_id IS NULL AND manufacturer_id IS NOT NULL) AS pt_only_rows,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match WHERE dbrands_id IS NOT NULL AND manufacturer_id IS NULL) AS dinamik_stub_rows,
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands_match WHERE dbrands_id IS NOT NULL AND manufacturer_id IS NOT NULL) AS paired_rows,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match) AS match_total,
+      (SELECT COUNT(*)::int FROM v0.dbrands) AS dbrands_total,
+      (SELECT COUNT(*)::int FROM v0.ptbrands) AS manufacturer_total,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match WHERE dbrands_id IS NOT NULL) AS with_dinamik_brand,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match WHERE ptbrands_id IS NOT NULL) AS with_manufacturer,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match WHERE dbrands_id IS NULL AND ptbrands_id IS NOT NULL) AS pt_only_rows,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NULL) AS dinamik_stub_rows,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NOT NULL) AS paired_rows,
       (
-        SELECT COUNT(*)::int FROM parcatedarik.manufacturer m
-        WHERE NOT EXISTS (SELECT 1 FROM parcatedarik.dbrands_match a WHERE a.manufacturer_id = m.id)
+        SELECT COUNT(*)::int FROM v0.ptbrands m
+        WHERE NOT EXISTS (SELECT 1 FROM v0.dbrands_match a WHERE a.ptbrands_id = m.id)
       ) AS manufacturers_missing,
       (
-        SELECT COUNT(*)::int FROM parcatedarik.dbrands d
-        WHERE NOT EXISTS (SELECT 1 FROM parcatedarik.dbrands_match a WHERE a.dbrands_id = d.id)
+        SELECT COUNT(*)::int FROM v0.dbrands d
+        WHERE NOT EXISTS (SELECT 1 FROM v0.dbrands_match a WHERE a.dbrands_id = d.id)
       ) AS dbrands_missing
   `)
 
@@ -63,10 +63,10 @@ export async function auditDbrandsMatch(): Promise<DbrandsMatchAudit> {
 async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM parcatedarik.dbrands d
+    FROM v0.dbrands d
     WHERE NOT EXISTS (
       SELECT 1
-      FROM parcatedarik.dbrands_match m
+      FROM v0.dbrands_match m
       WHERE m.dbrands_id = d.id
     )
   `)
@@ -75,14 +75,14 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
 
   return Number(
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO parcatedarik.dbrands_match (
-        dbrands_id, manufacturer_id, normalized, mapping_status, match_method
+      INSERT INTO v0.dbrands_match (
+        dbrands_id, ptbrands_id, normalized, mapping_status, match_method
       )
       SELECT d.id, NULL, NULL, 'PENDING', NULL
-      FROM parcatedarik.dbrands d
+      FROM v0.dbrands d
       WHERE NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dbrands_match m
+        FROM v0.dbrands_match m
         WHERE m.dbrands_id = d.id
       )
     `)
@@ -92,9 +92,9 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
 async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM parcatedarik.manufacturer m
+    FROM v0.ptbrands m
     WHERE NOT EXISTS (
-      SELECT 1 FROM parcatedarik.dbrands_match a WHERE a.manufacturer_id = m.id
+      SELECT 1 FROM v0.dbrands_match a WHERE a.ptbrands_id = m.id
     )
   `)
   const missing = row?.count ?? 0
@@ -102,8 +102,8 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
 
   return Number(
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO parcatedarik.dbrands_match (
-        dbrands_id, manufacturer_id, normalized, mapping_status, match_method
+      INSERT INTO v0.dbrands_match (
+        dbrands_id, ptbrands_id, normalized, mapping_status, match_method
       )
       SELECT
         NULL,
@@ -111,9 +111,9 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
         m.name,
         'PENDING',
         NULL
-      FROM parcatedarik.manufacturer m
+      FROM v0.ptbrands m
       WHERE NOT EXISTS (
-        SELECT 1 FROM parcatedarik.dbrands_match a WHERE a.manufacturer_id = m.id
+        SELECT 1 FROM v0.dbrands_match a WHERE a.ptbrands_id = m.id
       )
     `)
   )
@@ -122,13 +122,13 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
 async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
   const dinamikBrands = await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
     SELECT DISTINCT BTRIM(brand) AS brand
-    FROM parcatedarik.dproducts
+    FROM v0.dbrands
     WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
     ORDER BY brand ASC
   `)
 
   const manufacturers = await db.$queryRaw<Array<{ id: number; name: string }>>(
-    Prisma.sql`SELECT id, name FROM parcatedarik.manufacturer ORDER BY id`
+    Prisma.sql`SELECT id, name FROM v0.ptbrands ORDER BY id`
   )
 
   const exactNormMap = new Map<string, Array<{ id: number; name: string }>>()
@@ -155,22 +155,22 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
 
   const existingKeys = new Set<string>()
   const existing = await db.$queryRaw<
-    Array<{ dbrands_id: bigint | null; manufacturer_id: number | null }>
+    Array<{ dbrands_id: bigint | null; ptbrands_id: number | null }>
   >(Prisma.sql`
-    SELECT dbrands_id, manufacturer_id
-    FROM parcatedarik.dbrands_match
-    WHERE dbrands_id IS NOT NULL AND manufacturer_id IS NOT NULL
+    SELECT dbrands_id, ptbrands_id
+    FROM v0.dbrands_match
+    WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NOT NULL
   `)
   for (const row of existing) {
-    if (row.dbrands_id != null && row.manufacturer_id) {
-      existingKeys.add(`${row.dbrands_id}::${row.manufacturer_id}`)
+    if (row.dbrands_id != null && row.ptbrands_id) {
+      existingKeys.add(`${row.dbrands_id}::${row.ptbrands_id}`)
     }
   }
 
   const toInsert: Array<{
     dbrands_id: bigint
     normalized: string
-    manufacturer_id: number
+    ptbrands_id: number
     match_method: MatchMethod
   }> = []
 
@@ -211,7 +211,7 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
       toInsert.push({
         dbrands_id: dbrandsId,
         normalized: mm.name,
-        manufacturer_id: mm.id,
+        ptbrands_id: mm.id,
         match_method: mm.method
       })
       existingKeys.add(key)
@@ -221,15 +221,15 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
   if (dryRun || toInsert.length === 0) return toInsert.length
 
   await db.$executeRaw(Prisma.sql`
-    INSERT INTO parcatedarik.dbrands_match (dbrands_id, normalized, manufacturer_id, mapping_status, match_method)
-    SELECT v.dbrands_id, v.normalized, v.manufacturer_id, 'PENDING', v.match_method
+    INSERT INTO v0.dbrands_match (dbrands_id, normalized, ptbrands_id, mapping_status, match_method)
+    SELECT v.dbrands_id, v.normalized, v.ptbrands_id, 'PENDING', v.match_method
     FROM (VALUES ${Prisma.join(
       toInsert.map(
         (row) =>
-          Prisma.sql`(${row.dbrands_id}, ${row.normalized}, ${row.manufacturer_id}, ${row.match_method})`
+          Prisma.sql`(${row.dbrands_id}, ${row.normalized}, ${row.ptbrands_id}, ${row.match_method})`
       )
-    )}) AS v(dbrands_id, normalized, manufacturer_id, match_method)
-    ON CONFLICT (dbrands_id, manufacturer_id) DO NOTHING
+    )}) AS v(dbrands_id, normalized, ptbrands_id, match_method)
+    ON CONFLICT (dbrands_id, ptbrands_id) DO NOTHING
   `)
 
   return toInsert.length
@@ -238,13 +238,13 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
 async function removeRedundantDinamikStubs(dryRun: boolean): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM parcatedarik.dbrands_match a
-    WHERE a.manufacturer_id IS NULL
+    FROM v0.dbrands_match a
+    WHERE a.ptbrands_id IS NULL
       AND EXISTS (
         SELECT 1
-        FROM parcatedarik.dbrands_match b
+        FROM v0.dbrands_match b
         WHERE b.dbrands_id = a.dbrands_id
-          AND b.manufacturer_id IS NOT NULL
+          AND b.ptbrands_id IS NOT NULL
           AND b.id <> a.id
       )
   `)
@@ -253,13 +253,13 @@ async function removeRedundantDinamikStubs(dryRun: boolean): Promise<number> {
 
   return Number(
     await db.$executeRaw(Prisma.sql`
-      DELETE FROM parcatedarik.dbrands_match a
-      WHERE a.manufacturer_id IS NULL
+      DELETE FROM v0.dbrands_match a
+      WHERE a.ptbrands_id IS NULL
         AND EXISTS (
           SELECT 1
-          FROM parcatedarik.dbrands_match b
+          FROM v0.dbrands_match b
           WHERE b.dbrands_id = a.dbrands_id
-            AND b.manufacturer_id IS NOT NULL
+            AND b.ptbrands_id IS NOT NULL
             AND b.id <> a.id
         )
     `)
@@ -281,7 +281,7 @@ export async function seedDbrandsMatchWorkspace(options?: {
     : 0
 
   const [row] = await db.$queryRaw<Array<{ count: number }>>(
-    Prisma.sql`SELECT COUNT(*)::int AS count FROM parcatedarik.dbrands_match`
+    Prisma.sql`SELECT COUNT(*)::int AS count FROM v0.dbrands_match`
   )
 
   return {

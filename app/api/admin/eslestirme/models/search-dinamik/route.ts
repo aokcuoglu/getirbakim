@@ -4,6 +4,7 @@ import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-
 import { db } from '@/lib/db'
 import { normalizeModel } from '@/lib/matching/code-normalization'
 import { Prisma } from '@prisma/client'
+import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
 
 function buildDproductsTextFilter(q: string, pattern: string) {
   if (q.length < 2) return Prisma.empty
@@ -11,7 +12,7 @@ function buildDproductsTextFilter(q: string, pattern: string) {
   return Prisma.sql`AND (
     d.stock_code ILIKE ${pattern}
     OR d.stock_name ILIKE ${pattern}
-    OR d.brand ILIKE ${pattern}
+    OR ${dproductBrandNameExpr} ILIKE ${pattern}
     OR d.barcode_1 ILIKE ${pattern}
     OR d.barcode_2 ILIKE ${pattern}
     OR d.barcode_3 ILIKE ${pattern}
@@ -62,16 +63,17 @@ export async function GET(request: NextRequest) {
         Prisma.sql`
           WITH matched_brands AS (
             SELECT DISTINCT BTRIM(LOWER(db.brand)) AS brand_norm
-            FROM parcatedarik.product p
-            JOIN parcatedarik.dbrands_match alias
-              ON alias.manufacturer_id = p.manufacturer_id
+            FROM v0.ptproducts p
+            JOIN v0.dbrands_match alias
+              ON alias.ptbrands_id = p.ptbrands_id
              AND alias.mapping_status = 'APPROVED'
-            JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
+            JOIN v0.dbrands db ON db.id = alias.dbrands_id
             WHERE p.id = ${productId}
           )
-          SELECT d.id, d.stock_code, d.stock_name, d.brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
-          FROM parcatedarik.dproducts d
-          WHERE BTRIM(LOWER(COALESCE(d.brand, ''))) IN (SELECT brand_norm FROM matched_brands)
+          SELECT d.id, d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
+          FROM v0.dproducts d
+          INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+          WHERE BTRIM(LOWER(COALESCE(${dproductBrandNameExpr}, ''))) IN (SELECT brand_norm FROM matched_brands)
           ${textFilterDproducts}
           ORDER BY d.stock_code ASC
           LIMIT ${limit}
@@ -96,42 +98,45 @@ export async function GET(request: NextRequest) {
         ? Prisma.sql`AND p.normalized_model IN (
             SELECT DISTINCT norm FROM (
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_1, ''), '[^A-Z0-9]', '', 'gi')) AS norm
-              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              FROM v0.dproducts WHERE id = ${dproductsId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_2, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              FROM v0.dproducts WHERE id = ${dproductsId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_3, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              FROM v0.dproducts WHERE id = ${dproductsId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              FROM v0.dproducts WHERE id = ${dproductsId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(stock_code, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              FROM v0.dproducts WHERE id = ${dproductsId}
             ) hints
             WHERE norm <> ''
           )`
         : Prisma.empty
 
-      const results = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; manufacturer_id: number; manufacturer_name: string }>>(
+      const results = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptbrands_id: number; manufacturer_name: string }>>(
         Prisma.sql`
           WITH dproduct AS (
-            SELECT brand FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+            SELECT db.brand
+            FROM v0.dproducts d
+            INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+            WHERE d.id = ${dproductsId}
           ),
           matched_mfrs AS (
-            SELECT DISTINCT alias.manufacturer_id
+            SELECT DISTINCT alias.ptbrands_id
             FROM dproduct d
-            JOIN parcatedarik.dbrands_match alias
+            JOIN v0.dbrands_match alias
               ON alias.mapping_status = 'APPROVED'
-             AND alias.manufacturer_id IS NOT NULL
-            JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
+             AND alias.ptbrands_id IS NOT NULL
+            JOIN v0.dbrands db ON db.id = alias.dbrands_id
              AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
           )
-          SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
-          FROM parcatedarik.product p
-          JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
-          WHERE p.manufacturer_id IN (SELECT manufacturer_id FROM matched_mfrs)
+          SELECT p.id, p.title, p.model, p.ptbrands_id, mfr.name AS manufacturer_name
+          FROM v0.ptproducts p
+          JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
+          WHERE p.ptbrands_id IN (SELECT ptbrands_id FROM matched_mfrs)
           ${q.length >= 2 ? textFilterProducts : barcodeHintFilter}
           ORDER BY p.title ASC
           LIMIT ${limit}
@@ -139,24 +144,27 @@ export async function GET(request: NextRequest) {
       )
 
       if (results.length === 0 && q.length < 2) {
-        const fallback = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; manufacturer_id: number; manufacturer_name: string }>>(
+        const fallback = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptbrands_id: number; manufacturer_name: string }>>(
           Prisma.sql`
             WITH dproduct AS (
-              SELECT brand FROM parcatedarik.dproducts WHERE id = ${dproductsId}
+              SELECT db.brand
+              FROM v0.dproducts d
+              INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+              WHERE d.id = ${dproductsId}
             ),
             matched_mfrs AS (
-              SELECT DISTINCT alias.manufacturer_id
+              SELECT DISTINCT alias.ptbrands_id
               FROM dproduct d
-              JOIN parcatedarik.dbrands_match alias
+              JOIN v0.dbrands_match alias
                 ON alias.mapping_status = 'APPROVED'
-               AND alias.manufacturer_id IS NOT NULL
-              JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
+               AND alias.ptbrands_id IS NOT NULL
+              JOIN v0.dbrands db ON db.id = alias.dbrands_id
                AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
             )
-            SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
-            FROM parcatedarik.product p
-            JOIN parcatedarik.manufacturer mfr ON mfr.id = p.manufacturer_id
-            WHERE p.manufacturer_id IN (SELECT manufacturer_id FROM matched_mfrs)
+            SELECT p.id, p.title, p.model, p.ptbrands_id, mfr.name AS manufacturer_name
+            FROM v0.ptproducts p
+            JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
+            WHERE p.ptbrands_id IN (SELECT ptbrands_id FROM matched_mfrs)
             ORDER BY p.title ASC
             LIMIT ${limit}
           `
@@ -165,7 +173,7 @@ export async function GET(request: NextRequest) {
           id: r.id,
           title: r.title,
           model: r.model,
-          manufacturerId: r.manufacturer_id,
+          manufacturerId: r.ptbrands_id,
           manufacturerName: r.manufacturer_name,
         })), context)
       }
@@ -174,7 +182,7 @@ export async function GET(request: NextRequest) {
         id: r.id,
         title: r.title,
         model: r.model,
-        manufacturerId: r.manufacturer_id,
+        manufacturerId: r.ptbrands_id,
         manufacturerName: r.manufacturer_name,
       })), context)
     }

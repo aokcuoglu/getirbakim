@@ -1,10 +1,7 @@
 -- Enable pg_trgm extension for ILIKE '%search%' performance
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- pg_trgm GIN indexes for ILIKE searches on brand aliases
-CREATE INDEX IF NOT EXISTS idx_dbrands_match_dbrands_id_trgm
-  ON parcatedarik.dbrands_match USING GIN (dbrands_id gin_trgm_ops);
-
+-- pg_trgm GIN indexes for ILIKE searches on brand aliases (text columns only)
 CREATE INDEX IF NOT EXISTS idx_dbrands_match_normalized_trgm
   ON parcatedarik.dbrands_match USING GIN (normalized gin_trgm_ops);
 

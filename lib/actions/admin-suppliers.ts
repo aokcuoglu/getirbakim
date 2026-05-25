@@ -5,9 +5,13 @@ import { revalidatePath } from 'next/cache'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import {
-  dproductOfferJoin,
-  dproductOfferPriceExpr
-} from '@/lib/sql/dproduct-offer'
+  dproductDbrandJoin,
+  dproductBrandNameExpr
+} from '@/lib/sql/dproduct-catalog'
+import {
+  dproductDetailsJoin,
+  dproductDetailsPriceExpr
+} from '@/lib/sql/dproduct-details'
 import { deleteCachePattern } from '@/lib/redis'
 import { createAdminClient } from '@/lib/supabase/storage'
 import {
@@ -651,11 +655,12 @@ async function getSupplierMappingCreationOptions(provider: {
     }),
     provider.code === 'dinamik'
       ? db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
-          SELECT DISTINCT d.brand
-          FROM parcatedarik.dproducts d
-          WHERE d.brand IS NOT NULL
-            AND BTRIM(d.brand) <> ''
-          ORDER BY d.brand ASC
+          SELECT DISTINCT ${dproductBrandNameExpr} AS brand
+          FROM v0.dproducts d
+          ${dproductDbrandJoin}
+          WHERE ${dproductBrandNameExpr} IS NOT NULL
+            AND BTRIM(${dproductBrandNameExpr}) <> ''
+          ORDER BY brand ASC
           LIMIT 1000
         `)
       : db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
@@ -1266,7 +1271,7 @@ export async function getDinamikBrandMappings(input?: {
     const [countRows, summaryRows, rows] = await Promise.all([
       db.$queryRaw<DinamikBrandCountRow[]>(Prisma.sql`
         SELECT COUNT(*)::int AS total
-        FROM parcatedarik.dbrands d
+        FROM v0.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1286,7 +1291,7 @@ export async function getDinamikBrandMappings(input?: {
           SUM(CASE WHEN sba.part_brand_id IS NOT NULL AND sba.mapping_status = 'APPROVED' THEN 1 ELSE 0 END)::int AS mapped_total,
           SUM(CASE WHEN sba.mapping_status = 'PENDING' THEN 1 ELSE 0 END)::int AS pending_total,
           SUM(CASE WHEN sba.id IS NULL OR sba.part_brand_id IS NULL OR sba.mapping_status <> 'APPROVED' THEN 1 ELSE 0 END)::int AS unmapped_total
-        FROM parcatedarik.dbrands d
+        FROM v0.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1310,7 +1315,7 @@ export async function getDinamikBrandMappings(input?: {
           sba.updated_at,
           exact_pb.id AS exact_part_brand_id,
           exact_pb.name AS exact_part_brand_name
-        FROM parcatedarik.dbrands d
+        FROM v0.dbrands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1565,7 +1570,7 @@ export async function autoMapDinamikBrandsByName(input?: {
     SELECT
       d.brand AS supplier_brand,
       pb.id AS part_brand_id
-    FROM parcatedarik.dbrands d
+    FROM v0.dbrands d
     JOIN part_brands pb ON LOWER(TRIM(pb.name)) = LOWER(TRIM(d.brand))
     WHERE d.brand IS NOT NULL
       AND d.brand <> ''
@@ -1859,7 +1864,7 @@ async function ensureSupplierProductFromDinamikStockCode(
 
   const queryBrand = normalizeText(input.queryBrand)
   const brandCondition = queryBrand
-    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
     : Prisma.sql``
 
   const rows = await db.$queryRaw<
@@ -1877,18 +1882,19 @@ async function ensureSupplierProductFromDinamikStockCode(
     }>
   >(Prisma.sql`
     SELECT
-      d.query_brand,
+      ${dproductBrandNameExpr} AS query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      d.brand,
-      ${dproductOfferPriceExpr}::text AS price,
+      ${dproductBrandNameExpr} AS brand,
+      ${dproductDetailsPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM parcatedarik.dproducts d
-    ${dproductOfferJoin}
+    FROM v0.dproducts d
+    ${dproductDbrandJoin}
+    ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -2391,7 +2397,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
     if (providerNonNull.code === 'dinamik') {
       const like = `%${q}%`
       const brandCondition = queryBrand
-        ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+        ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
         : Prisma.sql``
 
       const qCondition = q
@@ -2403,7 +2409,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
               || ' '
               || COALESCE(d.stock_name, '')
               || ' '
-              || COALESCE(d.brand, '')
+              || COALESCE(${dproductBrandNameExpr}, '')
               || ' '
               || COALESCE(d.barcode_1, '')
             ) ILIKE ${like}
@@ -2430,7 +2436,8 @@ export async function exportSupplierProductMappingsCsv(input?: {
         const countRows = await db.$queryRaw<Array<{ total: number | string }>>(
           Prisma.sql`
             SELECT COUNT(*)::int AS total
-            FROM parcatedarik.dproducts d
+            FROM v0.dproducts d
+            ${dproductDbrandJoin}
             LEFT JOIN supplier_part_mappings spm
               ON spm.provider_id = ${providerNonNull.id}
              AND spm.supplier_sku = d.stock_code
@@ -2463,12 +2470,12 @@ export async function exportSupplierProductMappingsCsv(input?: {
       >(Prisma.sql`
         SELECT
           COALESCE(sp.id, 0)::int AS supplier_product_id,
-          d.query_brand,
+          ${dproductBrandNameExpr} AS query_brand,
           d.part_no,
           d.stock_code,
           d.stock_name,
-          d.brand,
-          ${dproductOfferPriceExpr}::text AS price,
+          ${dproductBrandNameExpr} AS brand,
+          ${dproductDetailsPriceExpr}::text AS price,
           COALESCE(sp.currency, 'TRY') AS currency,
           COALESCE(sp.updated_at, d.updated_at) AS updated_at,
           spm.status::text AS mapping_status,
@@ -2478,8 +2485,9 @@ export async function exportSupplierProductMappingsCsv(input?: {
             fallback.article_link_id::text
           ) AS matched_part_article_link_id,
           COALESCE(mapped.name, fallback.name) AS matched_part_name
-        FROM parcatedarik.dproducts d
-        ${dproductOfferJoin}
+        FROM v0.dproducts d
+        ${dproductDbrandJoin}
+        ${dproductDetailsJoin}
         LEFT JOIN supplier_products sp
           ON sp.provider_id = ${providerNonNull.id}
          AND sp.supplier_sku = d.stock_code
@@ -5808,7 +5816,7 @@ export async function getDinamikBrandsForManualMapping(input?: {
     input?.limit && input.limit > 0 ? Math.min(input.limit, 10000) : null
   const like = `%${q}%`
   const qCondition = q
-    ? Prisma.sql`AND d.query_brand ILIKE ${like}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} ILIKE ${like}`
     : Prisma.sql``
   const limitCondition =
     typeof limit === 'number' ? Prisma.sql`LIMIT ${limit}` : Prisma.sql``
@@ -5816,14 +5824,14 @@ export async function getDinamikBrandsForManualMapping(input?: {
   try {
     const rows = await db.$queryRaw<DinamikManualBrandRow[]>(Prisma.sql`
       SELECT
-        d.query_brand,
+        ${dproductBrandNameExpr} AS query_brand,
         COUNT(*)::int AS product_count
-      FROM parcatedarik.dproducts d
-      WHERE d.query_brand IS NOT NULL
-        AND d.query_brand <> ''
+      FROM v0.dproducts d
+      ${dproductDbrandJoin}
+      WHERE d.is_passive = false
         ${qCondition}
-      GROUP BY d.query_brand
-      ORDER BY d.query_brand ASC
+      GROUP BY ${dproductBrandNameExpr}
+      ORDER BY query_brand ASC
       ${limitCondition}
     `)
 
@@ -5951,7 +5959,7 @@ export async function autoMapDinamikProductsByPartNo(input?: {
   const like = `%${q}%`
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
     : Prisma.sql``
   const qCondition = q
     ? Prisma.sql`
@@ -5959,39 +5967,33 @@ export async function autoMapDinamikProductsByPartNo(input?: {
         COALESCE(d.part_no, '') ILIKE ${like}
         OR d.stock_code ILIKE ${like}
         OR COALESCE(d.stock_name, '') ILIKE ${like}
-        OR COALESCE(d.brand, '') ILIKE ${like}
+        OR COALESCE(${dproductBrandNameExpr}, '') ILIKE ${like}
       )
     `
     : Prisma.sql``
 
   const rows = await db.$queryRaw<DinamikAutoMatchSourceRow[]>(Prisma.sql`
     SELECT DISTINCT ON (d.stock_code)
-      d.query_brand,
+      ${dproductBrandNameExpr} AS query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      d.brand,
-      ${dproductOfferPriceExpr}::text AS price,
+      ${dproductBrandNameExpr} AS brand,
+      ${dproductDetailsPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       p.id::text AS matched_part_id
-    FROM parcatedarik.dproducts d
-    ${dproductOfferJoin}
+    FROM v0.dproducts d
+    ${dproductDbrandJoin}
+    ${dproductDetailsJoin}
     JOIN LATERAL (
       SELECT a.part_brand_id
       FROM supplier_brand_aliases a
       WHERE a.provider_id = ${provider.id}
         AND a.mapping_status = 'APPROVED'
         AND a.part_brand_id IS NOT NULL
-        AND (
-          LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(d.query_brand))
-          OR (
-            d.brand IS NOT NULL
-            AND d.brand <> ''
-            AND LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(d.brand))
-          )
-        )
+        AND LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(${dproductBrandNameExpr}))
       ORDER BY a.updated_at DESC
       LIMIT 1
     ) mapped_brand ON TRUE
@@ -6239,23 +6241,24 @@ export async function manualMapDinamikProductToPart(input: {
 
   const queryBrand = input.queryBrand?.trim() || null
   const brandCondition = queryBrand
-    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
     : Prisma.sql``
 
   const rows = await db.$queryRaw<DinamikManualProductRow[]>(Prisma.sql`
     SELECT
-      d.query_brand,
+      ${dproductBrandNameExpr} AS query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      d.brand,
-      ${dproductOfferPriceExpr}::text AS price,
+      ${dproductBrandNameExpr} AS brand,
+      ${dproductDetailsPriceExpr}::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM parcatedarik.dproducts d
-    ${dproductOfferJoin}
+    FROM v0.dproducts d
+    ${dproductDbrandJoin}
+    ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC

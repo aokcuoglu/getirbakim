@@ -30,15 +30,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     switch (action) {
       case 'approve': {
-        await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dbrands_match SET mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
       }
       case 'reject': {
-        await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dbrands_match SET mapping_status = 'REJECTED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'REJECTED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi reddedildi.' }, context)
       }
       case 'ignore': {
-        await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dbrands_match SET mapping_status = 'IGNORED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'IGNORED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi yoksayıldı.' }, context)
       }
       case 'update': {
@@ -48,18 +48,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
         const mfrId = parseInt(String(parcatedarikManufacturerId), 10)
         const manufacturer = await db.$queryRaw<Array<{ id: number; name: string }>>(
-          Prisma.sql`SELECT id, name FROM parcatedarik.manufacturer WHERE id = ${mfrId}`
+          Prisma.sql`SELECT id, name FROM v0.ptbrands WHERE id = ${mfrId}`
         )
         if (!manufacturer || manufacturer.length === 0) {
           return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Üretici bulunamadı.', context })
         }
         const mfrName = manufacturer[0].name
         const normalized = normalizeModel(mfrName) || ''
-        await db.$executeRaw(Prisma.sql`UPDATE parcatedarik.dbrands_match SET manufacturer_id = ${mfrId}, normalized = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET ptbrands_id = ${mfrId}, normalized = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
       }
       case 'delete': {
-        await db.$executeRaw(Prisma.sql`DELETE FROM parcatedarik.dbrands_match WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dbrands_match WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }
       default:

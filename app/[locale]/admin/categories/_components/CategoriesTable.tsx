@@ -20,6 +20,8 @@ import {
   MobileDataCard,
   ResponsiveDataView
 } from '@/components/admin/responsive-data-view'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 
 interface Category {
   id: number
@@ -326,7 +328,7 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
   }
 
   return (
-    <div className="bg-background rounded-md border border-border">
+    <AdminTableShell>
       <ResponsiveDataView
         mobile={
           rootCategories.length === 0 ? (
@@ -342,14 +344,28 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
         desktop={
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Image</TableHead>
-                <TableHead>URL Key</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Main Nav</TableHead>
-                <TableHead>Children</TableHead>
-                <TableHead>Actions</TableHead>
+              <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                <TableHead>
+                  <AdminTableHead>Ad</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>Görsel</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>URL Anahtarı</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>Durum</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>Ana Menü</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>Alt Kategori</AdminTableHead>
+                </TableHead>
+                <TableHead>
+                  <AdminTableHead>Aksiyon</AdminTableHead>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -373,6 +389,6 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
           </Table>
         }
       />
-    </div>
+    </AdminTableShell>
   )
 }

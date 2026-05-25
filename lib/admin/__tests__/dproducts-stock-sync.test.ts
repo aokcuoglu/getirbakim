@@ -13,7 +13,9 @@ describe('dproducts-stock-sync', () => {
     expect(source.includes('raw')).toBe(true)
     expect(source.includes('is_passive = false')).toBe(true)
     expect(source.includes('markDproductsBrandPassive')).toBe(true)
-    expect(source.includes('batchUpsertDproductOffers')).toBe(true)
+    expect(source.includes('batchUpsertDproductDetails')).toBe(true)
+    expect(source.includes('dbrands_id')).toBe(true)
+    expect(source.includes('ON CONFLICT (dbrands_id, stock_code)')).toBe(true)
   })
 })
 

@@ -119,12 +119,13 @@ export async function previewDinamikStockListForBrand(input: {
         SELECT
           d.stock_code,
           d.stock_name,
-          d.brand,
-          COALESCE(o.price, d.price)::text AS price
-        FROM parcatedarik.dproducts d
-        LEFT JOIN parcatedarik.dproduct_offers o ON o.dproduct_id = d.id
-        WHERE d.query_brand = ${brand}
-        ORDER BY updated_at DESC NULLS LAST
+          db.brand,
+          o.price::text AS price
+        FROM v0.dproducts d
+        INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+        LEFT JOIN v0.dproduct_details o ON o.dproduct_id = d.id
+        WHERE db.brand = ${brand}
+        ORDER BY d.updated_at DESC NULLS LAST
         LIMIT 5
       `)
 

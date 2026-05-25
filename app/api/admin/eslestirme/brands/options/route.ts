@@ -33,14 +33,14 @@ export async function GET(request: NextRequest) {
     const [brandRows, manufacturerRows] = await Promise.all([
       db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
         SELECT DISTINCT BTRIM(brand) AS brand
-        FROM parcatedarik.dbrands
+        FROM v0.dbrands
         WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
         ORDER BY brand ASC
       `),
       db.$queryRaw<Array<{ id: number; name: string }>>(Prisma.sql`
         SELECT DISTINCT m.id, m.name
-        FROM parcatedarik.dbrands_match a
-        INNER JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
+        FROM v0.dbrands_match a
+        INNER JOIN v0.ptbrands m ON m.id = a.ptbrands_id
         ORDER BY m.name ASC
       `),
     ])

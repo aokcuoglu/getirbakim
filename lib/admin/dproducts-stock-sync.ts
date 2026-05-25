@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
-import { batchUpsertDproductOffers } from '@/lib/admin/dproduct-offers'
+import { batchUpsertDproductDetails } from '@/lib/admin/dproduct-details'
+import { resolveDbrandsIdByBrandOrThrow } from '@/lib/admin/dbrands-resolve'
 import { deriveDproductsPartNo } from '@/lib/admin/dproducts-part-no'
 import { db } from '@/lib/db'
 import { getPriceList, getStockList, type DinamikStockItem } from '@/lib/suppliers/dinamik-client'
@@ -80,13 +81,12 @@ function dedupeItemsBySku(items: DinamikStockItem[]): DinamikStockItem[] {
   return Array.from(bySku.values())
 }
 
-function mapItemToDproductMasterRow(queryBrand: string, item: DinamikStockItem) {
+function mapItemToDproductMasterRow(dbrandsId: bigint, item: DinamikStockItem) {
   const stockCode = item.stokKodu.trim()
   return {
+    dbrands_id: dbrandsId,
     stock_code: stockCode,
     stock_name: item.stokAdi,
-    brand: item.marka?.trim() || queryBrand,
-    query_brand: queryBrand,
     part_no: deriveDproductsPartNo(stockCode),
     barcode_1: item.barkod1,
     barcode_2: item.barkod2,
@@ -113,38 +113,38 @@ export async function fetchDinamikItemsForBrand(
 
 /** Mark every row for the brand passive before applying the latest API snapshot. */
 export async function markDproductsBrandPassive(
-  queryBrand: string,
+  dbrandsId: bigint,
   dryRun: boolean
 ): Promise<number> {
   if (dryRun) {
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
-      FROM parcatedarik.dproducts
-      WHERE query_brand = ${queryBrand}
+      FROM v0.dproducts
+      WHERE dbrands_id = ${dbrandsId}
         AND is_passive = false
     `)
     return row?.count ?? 0
   }
 
   const updated = await db.$executeRaw(Prisma.sql`
-    UPDATE parcatedarik.dproducts
+    UPDATE v0.dproducts
     SET
       is_passive = true,
       passive_at = NOW(),
       updated_at = NOW()
-    WHERE query_brand = ${queryBrand}
+    WHERE dbrands_id = ${dbrandsId}
       AND is_passive = false
   `)
   return Number(updated)
 }
 
 export async function batchUpsertDproducts(
-  queryBrand: string,
+  dbrandsId: bigint,
   items: DinamikStockItem[],
   dryRun: boolean
 ): Promise<number> {
   const deduped = dedupeItemsBySku(items)
-  const rows = deduped.map((item) => mapItemToDproductMasterRow(queryBrand, item))
+  const rows = deduped.map((item) => mapItemToDproductMasterRow(dbrandsId, item))
   if (rows.length === 0) return 0
   if (dryRun) return rows.length
 
@@ -154,14 +154,13 @@ export async function batchUpsertDproducts(
     const values = batch.map(
       (row) =>
         Prisma.sql`(
+          ${row.dbrands_id},
           ${row.stock_code},
           ${row.stock_name},
-          ${row.brand},
+          ${row.part_no},
           ${row.barcode_1},
           ${row.barcode_2},
           ${row.barcode_3},
-          ${row.query_brand},
-          ${row.part_no},
           '{}'::jsonb,
           NOW(),
           NOW(),
@@ -171,15 +170,14 @@ export async function batchUpsertDproducts(
     )
 
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO parcatedarik.dproducts (
+      INSERT INTO v0.dproducts (
+        dbrands_id,
         stock_code,
         stock_name,
-        brand,
+        part_no,
         barcode_1,
         barcode_2,
         barcode_3,
-        query_brand,
-        part_no,
         raw,
         updated_at,
         last_seen_at,
@@ -187,21 +185,21 @@ export async function batchUpsertDproducts(
         passive_at
       )
       VALUES ${Prisma.join(values)}
-      ON CONFLICT (query_brand, stock_code) DO UPDATE SET
+      ON CONFLICT (dbrands_id, stock_code) DO UPDATE SET
         stock_name = EXCLUDED.stock_name,
-        brand = EXCLUDED.brand,
         barcode_1 = EXCLUDED.barcode_1,
         barcode_2 = EXCLUDED.barcode_2,
         barcode_3 = EXCLUDED.barcode_3,
-        part_no = COALESCE(EXCLUDED.part_no, parcatedarik.dproducts.part_no),
+        part_no = COALESCE(EXCLUDED.part_no, v0.dproducts.part_no),
         updated_at = NOW(),
+        last_seen_at = NOW(),
         is_passive = false,
         passive_at = NULL
     `)
     upserted += Number(count)
   }
 
-  await batchUpsertDproductOffers(queryBrand, deduped, dryRun)
+  await batchUpsertDproductDetails(dbrandsId, deduped, dryRun)
 
   return upserted
 }
@@ -211,13 +209,14 @@ async function syncDproductsForBrandOnce(
   options?: { dryRun?: boolean; fetchPrices?: boolean }
 ): Promise<DproductsBrandSyncSummary> {
   const dryRun = options?.dryRun !== false
+  const dbrandsId = await resolveDbrandsIdByBrandOrThrow(brand)
 
   const items = await fetchDinamikItemsForBrand(brand, {
     fetchPrices: options?.fetchPrices !== false
   })
 
-  const markedPassive = await markDproductsBrandPassive(brand, dryRun)
-  const upserted = await batchUpsertDproducts(brand, items, dryRun)
+  const markedPassive = await markDproductsBrandPassive(dbrandsId, dryRun)
+  const upserted = await batchUpsertDproducts(dbrandsId, items, dryRun)
 
   return {
     brand,

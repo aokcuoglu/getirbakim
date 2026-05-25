@@ -22,7 +22,7 @@ export function resolveDproductNormalized(source: DproductNormalizedSource): str
 }
 
 /**
- * product_id wins when both sides are linked; otherwise dproducts.part_no.
+ * ptproducts_id wins when both sides are linked; otherwise dproducts.part_no.
  */
 export function resolveDpmatchNormalized(input: {
   productId: number | null
@@ -41,7 +41,7 @@ export function resolveDpmatchNormalized(input: {
 
 const NORMALIZED_VALUE_SQL = Prisma.sql`
   CASE
-    WHEN m.product_id IS NOT NULL THEN COALESCE(
+    WHEN m.ptproducts_id IS NOT NULL THEN COALESCE(
       NULLIF(BTRIM(p.normalized_model), ''),
       NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')
     )
@@ -55,10 +55,9 @@ const NORMALIZED_VALUE_SQL = Prisma.sql`
 const DINAMIK_BRAND_HAS_APPROVED_MATCH = Prisma.sql`
   EXISTS (
     SELECT 1
-    FROM parcatedarik.dbrands_match bm
-    INNER JOIN parcatedarik.dbrands db ON db.id = bm.dbrands_id
-    WHERE BTRIM(LOWER(db.brand)) = BTRIM(LOWER(d.brand))
-      AND bm.manufacturer_id IS NOT NULL
+    FROM v0.dbrands_match bm
+    WHERE bm.dbrands_id = d.dbrands_id
+      AND bm.ptbrands_id IS NOT NULL
       AND bm.mapping_status = 'APPROVED'
   )
 `
@@ -67,9 +66,9 @@ const DINAMIK_BRAND_HAS_APPROVED_MATCH = Prisma.sql`
 const PT_MANUFACTURER_HAS_APPROVED_MATCH = Prisma.sql`
   EXISTS (
     SELECT 1
-    FROM parcatedarik.dbrands_match bm
-    WHERE bm.manufacturer_id = p.manufacturer_id
-      AND bm.manufacturer_id IS NOT NULL
+    FROM v0.dbrands_match bm
+    WHERE bm.ptbrands_id = p.ptbrands_id
+      AND bm.ptbrands_id IS NOT NULL
       AND bm.dbrands_id IS NOT NULL
       AND bm.mapping_status = 'APPROVED'
   )
@@ -83,15 +82,14 @@ const UNMATCHED_BRAND_DPMATCH_FILTER = Prisma.sql`
   AND (
     (
       m.dproducts_id IS NOT NULL
-      AND m.product_id IS NULL
-      AND d.brand IS NOT NULL
-      AND BTRIM(d.brand) <> ''
+      AND m.ptproducts_id IS NULL
+      AND d.dbrands_id IS NOT NULL
       AND NOT ${DINAMIK_BRAND_HAS_APPROVED_MATCH}
     )
     OR (
       m.dproducts_id IS NULL
-      AND m.product_id IS NOT NULL
-      AND p.manufacturer_id IS NOT NULL
+      AND m.ptproducts_id IS NOT NULL
+      AND p.ptbrands_id IS NOT NULL
       AND NOT ${PT_MANUFACTURER_HAS_APPROVED_MATCH}
     )
   )
@@ -101,15 +99,15 @@ export async function updateDpmatchNormalizedForIds(ids: number[]): Promise<numb
   if (ids.length === 0) return 0
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE parcatedarik.dpmatch m
+    UPDATE v0.dpmatch m
     SET normalized = src.val
     FROM (
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM parcatedarik.dpmatch m
-      LEFT JOIN parcatedarik.product p ON p.id = m.product_id
-      LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
+      FROM v0.dpmatch m
+      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
+      LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
       WHERE m.id IN (${Prisma.join(ids)})
     ) src
     WHERE m.id = src.id
@@ -130,7 +128,7 @@ export async function approveDpmatchRows(
     : Prisma.empty
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE parcatedarik.dpmatch m
+    UPDATE v0.dpmatch m
     SET
       mapping_status = 'APPROVED',
       match_method = COALESCE(${matchMethod}, m.match_method),
@@ -139,9 +137,9 @@ export async function approveDpmatchRows(
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM parcatedarik.dpmatch m
-      LEFT JOIN parcatedarik.product p ON p.id = m.product_id
-      LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
+      FROM v0.dpmatch m
+      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
+      LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
       WHERE m.id IN (${Prisma.join(ids)})
       ${pendingFilter}
     ) src
@@ -162,15 +160,15 @@ export async function backfillDpmatchNormalized(options?: {
   const limitSql = limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE parcatedarik.dpmatch m
+    UPDATE v0.dpmatch m
     SET normalized = src.val
     FROM (
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM parcatedarik.dpmatch m
-      LEFT JOIN parcatedarik.product p ON p.id = m.product_id
-      LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
+      FROM v0.dpmatch m
+      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
+      LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
       WHERE 1 = 1
       ${whereEmpty}
       ${limitSql}
@@ -186,7 +184,7 @@ export async function backfillDpmatchNormalized(options?: {
  */
 export async function approvePendingDpmatchWithoutBrandMatch(): Promise<number> {
   return db.$executeRaw(Prisma.sql`
-    UPDATE parcatedarik.dpmatch m
+    UPDATE v0.dpmatch m
     SET
       mapping_status = 'APPROVED',
       match_method = COALESCE(m.match_method, ${NO_BRAND_MATCH_METHOD}),
@@ -195,9 +193,9 @@ export async function approvePendingDpmatchWithoutBrandMatch(): Promise<number> 
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM parcatedarik.dpmatch m
-      LEFT JOIN parcatedarik.dproducts d ON d.id = m.dproducts_id
-      LEFT JOIN parcatedarik.product p ON p.id = m.product_id
+      FROM v0.dpmatch m
+      LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
+      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
       WHERE ${UNMATCHED_BRAND_DPMATCH_FILTER}
     ) src
     WHERE m.id = src.id
@@ -213,38 +211,32 @@ export async function insertApprovedDpmatchForUnmatchedBrands(): Promise<{
   productRows: number
 }> {
   const dproductRows = await db.$executeRaw(Prisma.sql`
-    INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status, match_method, normalized)
+    INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status, match_method, normalized)
     SELECT
       d.id,
       NULL,
       'APPROVED',
       ${NO_BRAND_MATCH_METHOD},
       NULLIF(UPPER(REGEXP_REPLACE(COALESCE(d.part_no, ''), '[^A-Z0-9]', '', 'gi')), '')
-    FROM parcatedarik.dproducts d
-    WHERE d.brand IS NOT NULL
-      AND BTRIM(d.brand) <> ''
+    FROM v0.dproducts d
+    WHERE d.dbrands_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dbrands_match bm
-        WHERE EXISTS (
-          SELECT 1
-          FROM parcatedarik.dbrands db
-          WHERE db.id = bm.dbrands_id
-            AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(d.brand))
-        )
-          AND bm.manufacturer_id IS NOT NULL
+        FROM v0.dbrands_match bm
+        WHERE bm.dbrands_id = d.dbrands_id
+          AND bm.ptbrands_id IS NOT NULL
           AND bm.mapping_status = 'APPROVED'
       )
       AND NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dpmatch m
+        FROM v0.dpmatch m
         WHERE m.dproducts_id = d.id
       )
     ON CONFLICT (dproducts_id) WHERE dproducts_id IS NOT NULL DO NOTHING
   `)
 
   const productRows = await db.$executeRaw(Prisma.sql`
-    INSERT INTO parcatedarik.dpmatch (dproducts_id, product_id, mapping_status, match_method, normalized)
+    INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status, match_method, normalized)
     SELECT
       NULL,
       p.id,
@@ -254,22 +246,22 @@ export async function insertApprovedDpmatchForUnmatchedBrands(): Promise<{
         NULLIF(BTRIM(p.normalized_model), ''),
         NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')
       )
-    FROM parcatedarik.product p
-    WHERE p.manufacturer_id IS NOT NULL
+    FROM v0.ptproducts p
+    WHERE p.ptbrands_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dbrands_match bm
-        WHERE bm.manufacturer_id = p.manufacturer_id
-          AND bm.manufacturer_id IS NOT NULL
+        FROM v0.dbrands_match bm
+        WHERE bm.ptbrands_id = p.ptbrands_id
+          AND bm.ptbrands_id IS NOT NULL
           AND bm.dbrands_id IS NOT NULL
           AND bm.mapping_status = 'APPROVED'
       )
       AND NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dpmatch m
-        WHERE m.product_id = p.id
+        FROM v0.dpmatch m
+        WHERE m.ptproducts_id = p.id
       )
-    ON CONFLICT (product_id) WHERE product_id IS NOT NULL DO NOTHING
+    ON CONFLICT (ptproducts_id) WHERE ptproducts_id IS NOT NULL DO NOTHING
   `)
 
   return { dproductRows, productRows }
@@ -282,7 +274,7 @@ export async function resolveNormalizedForLink(
   const rows = await db.$queryRaw<Array<{ normalized_model: string | null; model: string | null }>>(
     Prisma.sql`
       SELECT p.normalized_model, p.model
-      FROM parcatedarik.product p
+      FROM v0.ptproducts p
       WHERE p.id = ${productId}
       LIMIT 1
     `

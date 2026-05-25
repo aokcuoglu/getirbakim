@@ -18,56 +18,50 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM parcatedarik.dbrands) AS dbrands_total,
-      (SELECT COUNT(*)::int FROM parcatedarik.manufacturer) AS manufacturer_total,
+      (SELECT COUNT(*)::int FROM v0.dbrands) AS dbrands_total,
+      (SELECT COUNT(*)::int FROM v0.ptbrands) AS manufacturer_total,
       (
-        SELECT COUNT(*)::int FROM (
-          SELECT DISTINCT BTRIM(brand) AS brand
-          FROM parcatedarik.dproducts
-          WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
-        ) x
+        SELECT COUNT(DISTINCT dbrands_id)::int
+        FROM v0.dproducts
       ) AS dproducts_brand_total,
       (
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
-          FROM parcatedarik.dbrands d
-          INNER JOIN parcatedarik.manufacturer m
+          FROM v0.dbrands d
+          INNER JOIN v0.ptbrands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
         ) x
       ) AS dbrands_matching_manufacturer,
       (
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
-          FROM parcatedarik.dbrands d
-          INNER JOIN parcatedarik.manufacturer m
+          FROM v0.dbrands d
+          INNER JOIN v0.ptbrands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
           WHERE NOT EXISTS (
             SELECT 1
-            FROM parcatedarik.dproducts p
-            WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
+            FROM v0.dproducts p
+            WHERE p.dbrands_id = d.id
           )
         ) x
       ) AS manufacturer_only_in_dbrands,
       (
-        SELECT COUNT(*)::int FROM (
-          SELECT DISTINCT BTRIM(brand) AS brand
-          FROM parcatedarik.dproducts
-          WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
-          EXCEPT
-          SELECT BTRIM(brand) FROM parcatedarik.dbrands
-        ) x
+        SELECT COUNT(*)::int
+        FROM v0.dproducts p
+        LEFT JOIN v0.dbrands b ON b.id = p.dbrands_id
+        WHERE b.id IS NULL
       ) AS dproducts_missing_in_dbrands
   `)
 
   const samples = await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
     SELECT d.brand
-    FROM parcatedarik.dbrands d
-    INNER JOIN parcatedarik.manufacturer m
+    FROM v0.dbrands d
+    INNER JOIN v0.ptbrands m
       ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
     WHERE NOT EXISTS (
       SELECT 1
-      FROM parcatedarik.dproducts p
-      WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
+      FROM v0.dproducts p
+      WHERE p.dbrands_id = d.id
     )
     ORDER BY d.brand ASC
     LIMIT 20
@@ -100,7 +94,7 @@ export async function ensureDbrandsRows(brands: string[]): Promise<number> {
     const batch = unique.slice(i, i + BATCH_SIZE)
     const values = batch.map((brand) => Prisma.sql`(${brand})`)
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO parcatedarik.dbrands (brand)
+      INSERT INTO v0.dbrands (brand)
       VALUES ${Prisma.join(values)}
       ON CONFLICT (brand) DO NOTHING
     `)
@@ -121,7 +115,7 @@ function normalizeBrandKeys(brands: string[]): string[] {
 }
 
 /**
- * Drops dbrands rows that duplicate parcatedarik.manufacturer names with no dproducts yet.
+ * Drops dbrands rows that duplicate v0.ptbrands names with no dproducts yet.
  * Dinamik getBrandList names are kept so pipeline step 2 can fetch their catalog.
  */
 async function removeManufacturerOnlyDbrands(
@@ -139,13 +133,13 @@ async function removeManufacturerOnlyDbrands(
   if (dryRun) {
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
-      FROM parcatedarik.dbrands d
-      INNER JOIN parcatedarik.manufacturer m
+      FROM v0.dbrands d
+      INNER JOIN v0.ptbrands m
         ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       WHERE NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dproducts p
-        WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
+        FROM v0.dproducts p
+        WHERE p.dbrands_id = d.id
       )
       ${apiExclusion}
     `)
@@ -153,13 +147,13 @@ async function removeManufacturerOnlyDbrands(
   }
 
   const deleted = await db.$executeRaw(Prisma.sql`
-    DELETE FROM parcatedarik.dbrands d
-    USING parcatedarik.manufacturer m
+    DELETE FROM v0.dbrands d
+    USING v0.ptbrands m
     WHERE LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       AND NOT EXISTS (
         SELECT 1
-        FROM parcatedarik.dproducts p
-        WHERE LOWER(BTRIM(p.brand)) = LOWER(BTRIM(d.brand))
+        FROM v0.dproducts p
+        WHERE p.dbrands_id = d.id
       )
       ${apiExclusion}
   `)
@@ -172,14 +166,8 @@ async function upsertDbrandsFromDproducts(dryRun: boolean): Promise<number> {
     return audit.dproductsMissingInDbrands
   }
 
-  const inserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO parcatedarik.dbrands (brand)
-    SELECT DISTINCT BTRIM(brand)
-    FROM parcatedarik.dproducts
-    WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
-    ON CONFLICT (brand) DO NOTHING
-  `)
-  return Number(inserted)
+  // dproducts.dbrands_id FK ensures parent rows exist; nothing to backfill from product strings.
+  return 0
 }
 
 export async function syncDbrandsFromApi(

@@ -2,7 +2,7 @@
 """
 ParcaTedarik → Supplier Products Eslestirme Scripti
 ====================================================
-parcatedarik.product tablolundaki urunleri supplier_products ile eslestirir.
+v0.ptproducts tablolundaki urunleri supplier_products ile eslestirir.
 Eslesen kayitlara image_url aktarir ve ref_no'daki OEM kodlarini
 supplier_product_oems tablosuna ekler.
 
@@ -162,8 +162,8 @@ def fetch_parcatedarik_products(conn, manufacturer_filter=None, limit=None):
     cur = conn.cursor()
     query = """
         SELECT p.id, p.title, p.image_url, p.ref_no, m.name as manufacturer_name
-        FROM parcatedarik.product p
-        JOIN parcatedarik.manufacturer m ON p.manufacturer_id = m.id
+        FROM v0.ptproducts p
+        JOIN v0.ptbrands m ON p.ptbrands_id = m.id
         WHERE p.title IS NOT NULL AND p.title != ''
     """
     params = []

@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const whereClause = buildWhereClause(q, status)
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.dbrands_match a LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dbrands_match a LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
         id: number
         dinamik_brand: string | null
         normalized: string
-        manufacturer_id: number
+        ptbrands_id: number
         manufacturer_name: string
         mapping_status: string
         match_method: string | null
@@ -84,12 +84,12 @@ export async function GET(request: NextRequest) {
     >(Prisma.sql`
       SELECT a.id, d.brand AS dinamik_brand,
              a.normalized,
-             a.manufacturer_id,
+             a.ptbrands_id,
              m.name AS manufacturer_name,
              a.mapping_status, a.match_method
-      FROM parcatedarik.dbrands_match a
-      LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id
-      LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
+      FROM v0.dbrands_match a
+      LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
+      LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
       WHERE ${whereClause}
       ORDER BY d.brand ASC NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     const statusCounts = await db.$queryRaw<
       Array<{ mapping_status: string; count: bigint }>
-    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM parcatedarik.dbrands_match GROUP BY mapping_status`)
+    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dbrands_match GROUP BY mapping_status`)
 
     const brandStats = await getDinamikBrandMatchStats()
 
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
         id: r.id,
         dinamikBrand: r.dinamik_brand ?? '',
         normalizedName: r.normalized ?? '',
-        parcatedarikManufacturerId: r.manufacturer_id,
+        parcatedarikManufacturerId: r.ptbrands_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
         })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE parcatedarik.dbrands_match
+        Prisma.sql`UPDATE v0.dbrands_match
           SET mapping_status = 'APPROVED'
           WHERE id IN (${Prisma.join(ids)})
             AND mapping_status = 'PENDING'`

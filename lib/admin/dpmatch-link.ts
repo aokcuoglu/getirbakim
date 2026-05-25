@@ -37,8 +37,8 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
   const productRows = await db.$queryRaw<Array<{ id: number; dproducts_id: bigint | null }>>(
     Prisma.sql`
       SELECT id, dproducts_id
-      FROM parcatedarik.dpmatch
-      WHERE product_id = ${input.productId}
+      FROM v0.dpmatch
+      WHERE ptproducts_id = ${input.productId}
       LIMIT 1
     `
   )
@@ -54,10 +54,10 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
     )
   }
 
-  const dproductRows = await db.$queryRaw<Array<{ id: number; product_id: number | null }>>(
+  const dproductRows = await db.$queryRaw<Array<{ id: number; ptproducts_id: number | null }>>(
     Prisma.sql`
-      SELECT id, product_id
-      FROM parcatedarik.dpmatch
+      SELECT id, ptproducts_id
+      FROM v0.dpmatch
       WHERE dproducts_id = ${input.dproductsId}
       LIMIT 1
     `
@@ -65,8 +65,8 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
   const dproductRow = dproductRows[0]
 
   if (
-    dproductRow?.product_id != null &&
-    dproductRow.product_id !== input.productId
+    dproductRow?.ptproducts_id != null &&
+    dproductRow.ptproducts_id !== input.productId
   ) {
     throw new DpmatchLinkError(
       'DPRODUCT_ALREADY_LINKED',
@@ -76,8 +76,8 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
 
   if (dproductRow) {
     await db.$executeRaw(Prisma.sql`
-      UPDATE parcatedarik.dpmatch
-      SET product_id = ${input.productId},
+      UPDATE v0.dpmatch
+      SET ptproducts_id = ${input.productId},
           mapping_status = ${status},
           match_method = ${method},
           normalized = COALESCE(${normalized}, normalized)
@@ -85,7 +85,7 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
     `)
 
     if (productRow && productRow.id !== dproductRow.id) {
-      await db.$executeRaw(Prisma.sql`DELETE FROM parcatedarik.dpmatch WHERE id = ${productRow.id}`)
+      await db.$executeRaw(Prisma.sql`DELETE FROM v0.dpmatch WHERE id = ${productRow.id}`)
     }
 
     return { id: dproductRow.id, action: 'updated' }
@@ -93,7 +93,7 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
 
   if (productRow) {
     await db.$executeRaw(Prisma.sql`
-      UPDATE parcatedarik.dpmatch
+      UPDATE v0.dpmatch
       SET dproducts_id = ${input.dproductsId},
           mapping_status = ${status},
           match_method = ${method},
@@ -105,8 +105,8 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
 
   const inserted = await db.$queryRaw<Array<{ id: number }>>(
     Prisma.sql`
-      INSERT INTO parcatedarik.dpmatch (
-        dproducts_id, product_id, mapping_status, match_method, normalized
+      INSERT INTO v0.dpmatch (
+        dproducts_id, ptproducts_id, mapping_status, match_method, normalized
       ) VALUES (
         ${input.dproductsId}, ${input.productId}, ${status}, ${method}, ${normalized}
       )
@@ -131,8 +131,8 @@ export async function applyExactDpmatchLinks(
   for (const link of links) {
     const dproductRows = await db.$queryRaw<Array<{ id: number }>>(
       Prisma.sql`
-        UPDATE parcatedarik.dpmatch
-        SET product_id = ${link.productId},
+        UPDATE v0.dpmatch
+        SET ptproducts_id = ${link.productId},
             normalized = ${link.normalized},
             mapping_status = 'APPROVED',
             match_method = 'EXACT_MATCH'
@@ -145,9 +145,9 @@ export async function applyExactDpmatchLinks(
       updated += 1
       const orphanDelete = await db.$executeRaw(
         Prisma.sql`
-          DELETE FROM parcatedarik.dpmatch
+          DELETE FROM v0.dpmatch
           WHERE dproducts_id IS NULL
-            AND product_id = ${link.productId}
+            AND ptproducts_id = ${link.productId}
         `
       )
       deletedOrphans += orphanDelete

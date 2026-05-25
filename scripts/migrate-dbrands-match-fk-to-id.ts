@@ -35,8 +35,8 @@ async function main() {
     Array<{ match_id: number; dbrands_id: bigint | null; brand: string | null }>
   >`
     SELECT m.id AS match_id, m.dbrands_id, d.brand
-    FROM parcatedarik.dbrands_match m
-    LEFT JOIN parcatedarik.dbrands d ON d.id = m.dbrands_id
+    FROM v0.dbrands_match m
+    LEFT JOIN v0.dbrands d ON d.id = m.dbrands_id
     WHERE m.dbrands_id IS NOT NULL
     LIMIT 5
   `

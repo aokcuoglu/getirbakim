@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 
 const BATCH_SIZE = 400
 
-export type DproductOfferRow = {
+export type DproductDetailsRow = {
   stock_code: string
   price: number | null
   stock_qty: number | null
@@ -13,7 +13,7 @@ export type DproductOfferRow = {
   raw: Record<string, unknown>
 }
 
-function mapItemToOfferRow(item: DinamikStockItem): DproductOfferRow {
+function mapItemToDetailsRow(item: DinamikStockItem): DproductDetailsRow {
   const stockQty =
     typeof item.stokAdedi === 'number' && Number.isFinite(item.stokAdedi)
       ? Math.trunc(item.stokAdedi)
@@ -33,13 +33,13 @@ function mapItemToOfferRow(item: DinamikStockItem): DproductOfferRow {
   }
 }
 
-export async function batchUpsertDproductOffers(
-  queryBrand: string,
+export async function batchUpsertDproductDetails(
+  dbrandsId: bigint,
   items: DinamikStockItem[],
   dryRun: boolean
 ): Promise<{ upserted: number; historyInserted: number }> {
   const rows = items
-    .map((item) => mapItemToOfferRow(item))
+    .map((item) => mapItemToDetailsRow(item))
     .filter((row) => row.stock_code.length > 0)
 
   if (rows.length === 0) return { upserted: 0, historyInserted: 0 }
@@ -61,9 +61,9 @@ export async function batchUpsertDproductOffers(
       }>
     >(Prisma.sql`
       SELECT d.id AS dproduct_id, d.stock_code, o.price::text AS price, o.stock_qty
-      FROM parcatedarik.dproducts d
-      LEFT JOIN parcatedarik.dproduct_offers o ON o.dproduct_id = d.id
-      WHERE d.query_brand = ${queryBrand}
+      FROM v0.dproducts d
+      LEFT JOIN v0.dproduct_details o ON o.dproduct_id = d.id
+      WHERE d.dbrands_id = ${dbrandsId}
         AND d.stock_code IN (${Prisma.join(stockCodes.map((code) => Prisma.sql`${code}`))})
     `)
 
@@ -91,7 +91,7 @@ export async function batchUpsertDproductOffers(
     )
 
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO parcatedarik.dproduct_offers (
+      INSERT INTO v0.dproduct_details (
         dproduct_id,
         price,
         stock_qty,
@@ -115,11 +115,11 @@ export async function batchUpsertDproductOffers(
       FROM (
         VALUES ${Prisma.join(values)})
       ) AS v(stock_code, price, stock_qty, campaign_rate, regional_stock, raw)
-      INNER JOIN parcatedarik.dproducts d
-        ON d.query_brand = ${queryBrand}
+      INNER JOIN v0.dproducts d
+        ON d.dbrands_id = ${dbrandsId}
        AND d.stock_code = v.stock_code
       ON CONFLICT (dproduct_id) DO UPDATE SET
-        price = COALESCE(EXCLUDED.price, parcatedarik.dproduct_offers.price),
+        price = COALESCE(EXCLUDED.price, v0.dproduct_details.price),
         stock_qty = EXCLUDED.stock_qty,
         campaign_rate = EXCLUDED.campaign_rate,
         regional_stock = EXCLUDED.regional_stock,
@@ -150,7 +150,7 @@ export async function batchUpsertDproductOffers(
 
     if (historyValues.length > 0) {
       const histCount = await db.$executeRaw(Prisma.sql`
-        INSERT INTO parcatedarik.dproduct_offer_history (
+        INSERT INTO v0.dproduct_history (
           dproduct_id,
           price,
           stock_qty,

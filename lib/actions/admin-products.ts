@@ -2,9 +2,13 @@
 
 import { Prisma } from '@prisma/client'
 import {
-  dproductOfferJoin,
-  dproductOfferPriceExpr
-} from '@/lib/sql/dproduct-offer'
+  dproductDbrandJoin,
+  dproductBrandNameExpr
+} from '@/lib/sql/dproduct-catalog'
+import {
+  dproductDetailsJoin,
+  dproductDetailsPriceExpr
+} from '@/lib/sql/dproduct-details'
 import { parse } from 'csv-parse/sync'
 import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
@@ -417,14 +421,13 @@ function buildDinamikWhereSql(filters: Required<AdminDinamikProductFilters>) {
         d.stock_code ILIKE ${like}
         OR COALESCE(d.part_no, '') ILIKE ${like}
         OR COALESCE(d.stock_name, '') ILIKE ${like}
-        OR COALESCE(d.brand, '') ILIKE ${like}
-        OR COALESCE(d.query_brand, '') ILIKE ${like}
+        OR COALESCE(${dproductBrandNameExpr}, '') ILIKE ${like}
       )`
     )
   }
 
   if (filters.queryBrand) {
-    conditions.push(Prisma.sql`d.query_brand = ${filters.queryBrand}`)
+    conditions.push(Prisma.sql`${dproductBrandNameExpr} = ${filters.queryBrand}`)
   }
 
   return Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
@@ -1238,18 +1241,19 @@ export async function getAdminDinamikProducts(
     await Promise.all([
       db.$queryRaw<DinamikProductRawRow[]>(Prisma.sql`
       SELECT
-        d.query_brand,
+        ${dproductBrandNameExpr} AS query_brand,
         d.part_no,
         d.stock_code,
         d.stock_name,
-        d.brand,
-        ${dproductOfferPriceExpr}::text AS price,
+        ${dproductBrandNameExpr} AS brand,
+        ${dproductDetailsPriceExpr}::text AS price,
         d.barcode_1,
         d.barcode_2,
         d.barcode_3,
         d.updated_at
-      FROM parcatedarik.dproducts d
-      ${dproductOfferJoin}
+      FROM v0.dproducts d
+      ${dproductDbrandJoin}
+      ${dproductDetailsJoin}
       ${whereSql}
       ORDER BY d.updated_at DESC NULLS LAST, d.stock_code ASC
       LIMIT ${filters.limit}
@@ -1257,35 +1261,35 @@ export async function getAdminDinamikProducts(
     `),
       db.$queryRaw<DinamikCountRow[]>(Prisma.sql`
       SELECT COUNT(*)::int AS total
-      FROM parcatedarik.dproducts d
-      ${dproductOfferJoin}
+      FROM v0.dproducts d
+      ${dproductDbrandJoin}
+      ${dproductDetailsJoin}
       ${whereSql}
     `),
       db.$queryRaw<DinamikKpiRow[]>(Prisma.sql`
       SELECT
         COUNT(*)::int AS total_products,
-        COUNT(
-          DISTINCT NULLIF(TRIM(COALESCE(d.query_brand, '')), '')
-        )::int AS distinct_brands,
+        COUNT(DISTINCT d.dbrands_id)::int AS distinct_brands,
         COALESCE(
           SUM(
             CASE
-              WHEN NULLIF(TRIM(COALESCE(${dproductOfferPriceExpr}::text, '')), '') IS NOT NULL THEN 1
+              WHEN NULLIF(TRIM(COALESCE(${dproductDetailsPriceExpr}::text, '')), '') IS NOT NULL THEN 1
               ELSE 0
             END
           ),
           0
         )::int AS priced_rows
-      FROM parcatedarik.dproducts d
-      ${dproductOfferJoin}
+      FROM v0.dproducts d
+      ${dproductDbrandJoin}
+      ${dproductDetailsJoin}
       ${whereSql}
     `),
       db.$queryRaw<DinamikBrandRow[]>(Prisma.sql`
-      SELECT DISTINCT d.query_brand
-      FROM parcatedarik.dproducts d
-      WHERE d.query_brand IS NOT NULL
-        AND d.query_brand <> ''
-      ORDER BY d.query_brand ASC
+      SELECT DISTINCT ${dproductBrandNameExpr} AS query_brand
+      FROM v0.dproducts d
+      ${dproductDbrandJoin}
+      WHERE d.is_passive = false
+      ORDER BY query_brand ASC
       LIMIT 500
     `),
       db.part_brands.findMany({
@@ -1378,18 +1382,19 @@ export async function createAdminPartFromDinamik(input: {
   }
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
     : Prisma.sql``
   const sourceRows = await db.$queryRaw<DinamikSourceRow[]>(Prisma.sql`
     SELECT
-      d.query_brand,
+      ${dproductBrandNameExpr} AS query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      d.brand,
-      ${dproductOfferPriceExpr}::text AS price
-    FROM parcatedarik.dproducts d
-    ${dproductOfferJoin}
+      ${dproductBrandNameExpr} AS brand,
+      ${dproductDetailsPriceExpr}::text AS price
+    FROM v0.dproducts d
+    ${dproductDbrandJoin}
+    ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -1608,18 +1613,19 @@ export async function createAdminPartFromTemplate(input: {
   }
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
+    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
     : Prisma.sql``
   const sourceRows = await db.$queryRaw<DinamikSourceRow[]>(Prisma.sql`
     SELECT
-      d.query_brand,
+      ${dproductBrandNameExpr} AS query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      d.brand,
-      ${dproductOfferPriceExpr}::text AS price
-    FROM parcatedarik.dproducts d
-    ${dproductOfferJoin}
+      ${dproductBrandNameExpr} AS brand,
+      ${dproductDetailsPriceExpr}::text AS price
+    FROM v0.dproducts d
+    ${dproductDbrandJoin}
+    ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
