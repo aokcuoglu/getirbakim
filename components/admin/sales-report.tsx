@@ -35,7 +35,7 @@ export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
   return (
     <AdminCard>
       <AdminCardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <AdminCardTitle>Satış Grafiği</AdminCardTitle>
             <AdminCardDescription>Son 6 ay performansı</AdminCardDescription>
@@ -51,12 +51,12 @@ export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
         </div>
       </AdminCardHeader>
       <AdminCardContent>
-        <div className="mb-4 grid grid-cols-2 gap-3">
+        <div className="mb-3 grid grid-cols-2 gap-2">
           <div className="rounded-md bg-muted/50 p-3">
             <p className="text-xs font-medium text-muted-foreground">
               Toplam Gelir
             </p>
-            <p className="mt-0.5 text-lg font-semibold tracking-tight">
+            <p className="mt-0.5 text-base font-semibold tracking-tight">
               {totalRevenue.toLocaleString('tr-TR', {
                 style: 'currency',
                 currency: 'TRY',
@@ -68,7 +68,7 @@ export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
             <p className="text-xs font-medium text-muted-foreground">
               Toplam Sipariş
             </p>
-            <p className="mt-0.5 text-lg font-semibold tracking-tight">
+            <p className="mt-0.5 text-base font-semibold tracking-tight">
               {totalOrders.toLocaleString('tr-TR')}
             </p>
           </div>

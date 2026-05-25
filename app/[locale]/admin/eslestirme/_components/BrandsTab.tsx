@@ -11,14 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { AdminFormSheet } from '@/components/admin/admin-form-sheet'
 import {
   Sheet,
   SheetContent,
@@ -389,13 +382,13 @@ export function BrandsTab() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {isInitialLoading
             ? Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="rounded-xl border bg-card px-4 py-3">
+                <div key={i} className="rounded-lg border bg-card px-4 py-3">
                   <Skeleton className="h-3 w-20" />
                   <Skeleton className="mt-3 h-7 w-16" />
                 </div>
               ))
             : summaryCards.map((card, i) => (
-                <div key={i} className="rounded-xl border bg-card px-4 py-3">
+                <div key={i} className="rounded-lg border bg-card px-4 py-3">
                   <div className="text-xs font-medium text-muted-foreground">{card.label}</div>
                   <div className="mt-1.5 flex items-baseline gap-2">
                     <span className="text-2xl font-semibold">
@@ -468,13 +461,13 @@ export function BrandsTab() {
           {(filters.dinamikBrand || filters.manufacturerId) && (
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
               {filters.dinamikBrand && (
-                <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+                <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
                   Dinamik Marka:{' '}
                   <strong className="text-foreground">{filters.dinamikBrand}</strong>
                 </span>
               )}
               {filters.manufacturerId && (
-                <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+                <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
                   PT Üretici:{' '}
                   <strong className="text-foreground">
                     {filterOptions.manufacturers.find((m) => m.id === filters.manufacturerId)
@@ -500,63 +493,62 @@ export function BrandsTab() {
           emptyMessage="Eşleştirme bulunamadı"
         />
 
-        <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Eşleştirmeyi Değiştir</DialogTitle>
-              <DialogDescription>
-                {updateTarget && (
-                  <span>
-                    &quot;{updateTarget.dinamikBrand || 'PT-only'}&quot; için ParçaTedarik üreticisi
-                    seçin
-                  </span>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium">
-                  ParçaTedarik Üretici ID veya Adı
-                </label>
-                <Input
-                  value={manufacturerSearch}
-                  onChange={(e) => {
-                    setManufacturerSearch(e.target.value)
-                    if (e.target.value.length >= 2) void searchManufacturers(e.target.value)
-                  }}
-                  placeholder="Üretici adı veya ID ara..."
-                  className="h-9"
-                />
-              </div>
-              {manufacturerResults.length > 0 && (
-                <div className="max-h-48 overflow-y-auto rounded border p-1">
-                  {manufacturerResults.map((mfr) => (
-                    <button
-                      key={mfr.id}
-                      type="button"
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                      onClick={() => {
-                        setManufacturerSearch(String(mfr.id))
-                        setManufacturerResults([])
-                      }}
-                    >
-                      <span className="text-muted-foreground">#{mfr.id}</span>
-                      <span className="font-medium">{mfr.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+        <AdminFormSheet
+          open={updateDialogOpen}
+          onOpenChange={setUpdateDialogOpen}
+          title="Eşleştirmeyi Değiştir"
+          description={
+            updateTarget ? (
+              <>
+                &quot;{updateTarget.dinamikBrand || 'PT-only'}&quot; için ParçaTedarik
+                üreticisi seçin
+              </>
+            ) : undefined
+          }
+          onSave={handleUpdate}
+          isSaving={isPending}
+          saveLabel="Kaydet"
+          width="sm"
+        >
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="manufacturer-search"
+                className="mb-1.5 block text-sm font-medium"
+              >
+                ParçaTedarik Üretici ID veya Adı
+              </label>
+              <Input
+                id="manufacturer-search"
+                value={manufacturerSearch}
+                onChange={(e) => {
+                  setManufacturerSearch(e.target.value)
+                  if (e.target.value.length >= 2) void searchManufacturers(e.target.value)
+                }}
+                placeholder="Üretici adı veya ID ara..."
+                className="h-8 rounded-md"
+              />
             </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setUpdateDialogOpen(false)}>
-                İptal
-              </Button>
-              <Button size="sm" onClick={handleUpdate} disabled={isPending}>
-                {isPending ? 'Kaydediliyor...' : 'Kaydet'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            {manufacturerResults.length > 0 && (
+              <div className="max-h-48 overflow-y-auto rounded-md border border-border/60 p-1">
+                {manufacturerResults.map((mfr) => (
+                  <button
+                    key={mfr.id}
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    onClick={() => {
+                      setManufacturerSearch(String(mfr.id))
+                      setManufacturerResults([])
+                    }}
+                  >
+                    <span className="text-muted-foreground">#{mfr.id}</span>
+                    <span className="font-medium">{mfr.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </AdminFormSheet>
 
         <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
           <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[420px]">

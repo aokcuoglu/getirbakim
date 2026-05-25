@@ -58,7 +58,7 @@ export function SearchInput({
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        className="w-full pl-10 pr-4 py-2 bg-muted/50 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/10 transition-all"
+        className="w-full rounded-md border border-border bg-muted/50 py-2 pl-10 pr-4 text-sm transition-all focus:outline-none focus:ring-2 focus-visible:ring-ring/50/10"
       />
     </div>
   )

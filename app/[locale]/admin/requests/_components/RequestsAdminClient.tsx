@@ -12,7 +12,6 @@ import {
 import { useDebouncedCallback } from 'use-debounce'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/Pagination'
 import {
   Select,
@@ -35,7 +34,8 @@ import {
 } from '@/components/admin/responsive-data-view'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminRowActions } from '@/components/admin/data-table/admin-row-actions'
+import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
 import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import type {
@@ -270,23 +270,23 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                   </div>
 
                   <div className="mt-3 flex justify-end">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-xs"
-                      onClick={() => {
-                        setDetailRequestId(request.id)
-                        setDetailOpen(true)
-                      }}
-                    >
-                      Detay
-                    </Button>
+                    <AdminRowActions
+                      actions={[
+                        {
+                          label: 'Detay',
+                          onClick: () => {
+                            setDetailRequestId(request.id)
+                            setDetailOpen(true)
+                          }
+                        }
+                      ]}
+                    />
                   </div>
                 </MobileDataCard>
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
               Filtrelere uyan talep bulunamadı.
             </div>
           )
@@ -295,7 +295,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
           <AdminTableShell isLoading={isRefreshing}>
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                <TableRow className={adminTableHeaderRowClassName()}>
                   <TableHead>
                     <AdminTableHead>Talep</AdminTableHead>
                   </TableHead>
@@ -365,17 +365,17 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
                         {new Date(request.createdAt).toLocaleString('tr-TR')}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
-                          onClick={() => {
-                            setDetailRequestId(request.id)
-                            setDetailOpen(true)
-                          }}
-                        >
-                          Detay
-                        </Button>
+                        <AdminRowActions
+                          actions={[
+                            {
+                              label: 'Detay',
+                              onClick: () => {
+                                setDetailRequestId(request.id)
+                                setDetailOpen(true)
+                              }
+                            }
+                          ]}
+                        />
                       </TableCell>
                     </TableRow>
                   ))
@@ -404,6 +404,7 @@ export function RequestsAdminClient({ data }: RequestsAdminClientProps) {
           totalItems={data.pagination.total}
           itemsPerPage={data.pagination.limit}
           onPageChange={(page) => setParam('page', String(page))}
+          compact
         />
       )}
 

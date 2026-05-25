@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { adminTableHeadClassName } from '@/components/admin/data-table/admin-table-head'
 
 interface DataTableColumnHeaderProps<TData, TValue>
   extends React.HTMLAttributes<HTMLDivElement> {
@@ -24,25 +25,28 @@ export function DataTableColumnHeader<TData, TValue>({
   className,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   if (!column.getCanSort()) {
-    return <div className={cn('text-xs', className)}>{title}</div>
+    return <span className={adminTableHeadClassName(className)}>{title}</span>
   }
 
   return (
-    <div className={cn('flex items-center space-x-2', className)}>
+    <div className={cn('flex items-center', className)}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
-            className="-ml-3 h-8 data-[state=open]:bg-accent"
+            className={cn(
+              '-ml-3 h-8 px-2 hover:bg-transparent data-[state=open]:bg-accent',
+              adminTableHeadClassName()
+            )}
           >
             <span>{title}</span>
             {column.getIsSorted() === 'desc' ? (
-              <ArrowDown className="ml-1 h-4 w-4" />
+              <ArrowDown className="ml-1 h-3.5 w-3.5" />
             ) : column.getIsSorted() === 'asc' ? (
-              <ArrowUp className="ml-1 h-4 w-4" />
+              <ArrowUp className="ml-1 h-3.5 w-3.5" />
             ) : (
-              <ChevronsUpDown className="ml-1 h-4 w-4" />
+              <ChevronsUpDown className="ml-1 h-3.5 w-3.5 opacity-50" />
             )}
           </Button>
         </DropdownMenuTrigger>

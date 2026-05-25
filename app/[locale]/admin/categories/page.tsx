@@ -4,6 +4,7 @@ import {
   AdminPageShell,
   AdminSurface
 } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getCategories } from '@/lib/actions/category-actions'
 import { Link } from '@/lib/navigation'
 import { Plus } from 'lucide-react'
@@ -39,7 +40,7 @@ export default async function AdminCategoriesPage({
         <AdminPageHeader
           title="Kategoriler"
           description="Kategori ağacını yönetin ve yeni kategoriler oluşturun."
-          eyebrow="Katalog"
+          breadcrumbs={getAdminBreadcrumbs('/admin/categories')}
           actions={
             <Button asChild className="inline-flex w-full items-center gap-2 sm:w-auto">
               <Link href="/admin/categories/new">

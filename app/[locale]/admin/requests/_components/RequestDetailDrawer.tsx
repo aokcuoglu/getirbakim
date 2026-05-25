@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -12,13 +11,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
+import { AdminFormSheet } from '@/components/admin/admin-form-sheet'
 import {
   getAdminCustomerRequestDetail,
   updateAdminCustomerRequest
@@ -94,18 +87,23 @@ export function RequestDetailDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[760px]">
-        <SheetHeader>
-          <SheetTitle>Talep Detayı</SheetTitle>
-          <SheetDescription>
-            {detail
-              ? `#${detail.id} - ${detail.name} / ${detail.requestType}`
-              : 'Talep detayı yükleniyor'}
-          </SheetDescription>
-        </SheetHeader>
-
-        {isPending && !detail ? (
+    <AdminFormSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Talep Detayı"
+      description={
+        detail
+          ? `#${detail.id} - ${detail.name} / ${detail.requestType}`
+          : 'Talep detayı yükleniyor'
+      }
+      onSave={handleSave}
+      isSaving={isSaving}
+      saveDisabled={!detail}
+      saveLabel="Kaydet"
+      width="md"
+      contentClassName="sm:max-w-[520px]"
+    >
+      {isPending && !detail ? (
           <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 size={18} className="mr-2 animate-spin" />
             Yükleniyor...
@@ -182,7 +180,10 @@ export function RequestDetailDrawer({
                   </h4>
                   <div className="mt-3 space-y-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      <label
+                        htmlFor="request-status"
+                        className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                      >
                         Durum
                       </label>
                       <Select
@@ -191,7 +192,7 @@ export function RequestDetailDrawer({
                           setStatus(value as CustomerRequestStatus)
                         }
                       >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger id="request-status" className="h-8 w-full rounded-md">
                           <SelectValue placeholder="Durum seçin" />
                         </SelectTrigger>
                         <SelectContent>
@@ -203,19 +204,20 @@ export function RequestDetailDrawer({
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      <label
+                        htmlFor="request-admin-note"
+                        className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                      >
                         Admin Notu
                       </label>
                       <Textarea
+                        id="request-admin-note"
                         value={adminNote}
                         onChange={(event) => setAdminNote(event.target.value)}
                         rows={8}
                         placeholder="Müşteriye dönüş notu, fiyat araştırma durumu, tedarikçi bilgisi..."
                       />
                     </div>
-                    <Button onClick={handleSave} disabled={isSaving}>
-                      {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
-                    </Button>
                   </div>
                 </section>
               </div>
@@ -224,8 +226,7 @@ export function RequestDetailDrawer({
         ) : (
           <div className="mt-8 text-sm text-muted-foreground">Talep bulunamadı.</div>
         )}
-      </SheetContent>
-    </Sheet>
+    </AdminFormSheet>
   )
 }
 

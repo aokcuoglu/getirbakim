@@ -7,13 +7,7 @@ import { toast } from 'sonner'
 import { RegionalStockSummary } from '@/components/admin/regional-stock-summary'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from '@/components/ui/sheet'
+import { AdminFormDialog } from '@/components/admin/admin-form-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   adminProductDetailQueryKey,
@@ -172,28 +166,29 @@ export function ProductDetailDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full overflow-y-auto sm:max-w-[760px]"
-      >
-        <SheetHeader className="border-b border-border pb-4">
-          <SheetTitle>Ürün Detayı</SheetTitle>
-          <SheetDescription>
-            {detail
-              ? `#${detail.id} - ${detail.name}`
-              : 'Ürün bilgileri yükleniyor.'}
-          </SheetDescription>
-        </SheetHeader>
-
-        {detailQuery.isLoading && !detail ? (
+    <AdminFormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Ürün Detayı"
+      description={
+        detail
+          ? `#${detail.id} - ${detail.name}`
+          : 'Ürün bilgileri yükleniyor.'
+      }
+      onSave={handleSave}
+      isSaving={isSaving}
+      saveDisabled={detailQuery.isFetching || !detail}
+      saveLabel="Kaydet"
+      size="4xl"
+    >
+      {detailQuery.isLoading && !detail ? (
           <div className="mt-8 flex items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             Yükleniyor...
           </div>
         ) : detail ? (
           <div className="mt-6 space-y-4">
-            <div className="sticky top-0 z-10 rounded-xl border border-border bg-white/95 p-4 shadow-sm backdrop-blur">
+            <div className="sticky top-0 z-10 rounded-lg border border-border bg-white/95 p-4 backdrop-blur">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <SummaryCard label="Parça ID" value={`#${detail.id}`} />
                 <SummaryCard
@@ -287,7 +282,7 @@ export function ProductDetailDrawer({
                 </div>
 
                 {activeRegionalOffer ? (
-                  <div className="mt-4 rounded-xl border border-border bg-accent/50 p-4">
+                  <div className="mt-4 rounded-lg border border-border bg-accent/50 p-4">
                     <h4 className="mb-3 text-sm font-semibold text-foreground">
                       Fiyat Hesaplama Detayı ({activeRegionalOffer.providerName}
                       )
@@ -635,22 +630,6 @@ export function ProductDetailDrawer({
                 </div>
               </TabsContent>
             </Tabs>
-
-            <div className="flex justify-end gap-2 border-t pt-4">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Kapat
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={isSaving || detailQuery.isFetching}
-               
-              >
-                {isSaving ? (
-                  <Loader2 size={14} className="mr-2 animate-spin" />
-                ) : null}
-                Kaydet
-              </Button>
-            </div>
           </div>
         ) : detailQuery.isError ? (
           <div className="mt-8 text-sm text-muted-foreground">
@@ -661,8 +640,7 @@ export function ProductDetailDrawer({
             Ürün detayı bulunamadı.
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+    </AdminFormDialog>
   )
 }
 

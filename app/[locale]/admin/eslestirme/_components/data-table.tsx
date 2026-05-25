@@ -26,7 +26,9 @@ import { DataTablePagination } from './data-table-pagination'
 import { DataTableToolbar } from './data-table-toolbar'
 import { DataTableViewOptions } from './data-table-view-options'
 import { AdminLoadingState } from '@/components/admin/admin-loading-state'
-import { Loader2 } from 'lucide-react'
+import { AdminTableEmptyState } from '@/components/admin/data-table/admin-table-empty-state'
+import { adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 
 interface DataTablePaginationInfo {
   page: number
@@ -57,7 +59,6 @@ export function DataTable<TData, TValue>({
   data,
   getRowId,
   isLoading = false,
-  skeletonRows = 8,
   pagination,
   onPaginationChange,
   sorting: externalSorting,
@@ -119,6 +120,8 @@ export function DataTable<TData, TValue>({
   })
 
   const colCount = table.getAllColumns().length
+  const isInitialLoading = isLoading && data.length === 0
+  const isRefreshing = isLoading && data.length > 0
 
   const handlePageChange = useCallback(
     (page: number) => onPaginationChange?.(page),
@@ -137,53 +140,46 @@ export function DataTable<TData, TValue>({
       {!toolbarFilterKey && (
         <DataTableViewOptions table={table} />
       )}
-      <div className="relative overflow-hidden rounded-md border">
-        {isLoading && data.length === 0 ? (
+      <AdminTableShell isRefreshing={isRefreshing}>
+        {isInitialLoading ? (
           <AdminLoadingState minHeight="min-h-[280px]" />
         ) : (
-        <>
-        <Table className={isLoading ? 'opacity-60' : undefined}>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} colSpan={header.colSpan}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id} className={adminTableHeaderRowClassName()}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
                   ))}
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={colCount} className="h-24 text-center">
-                  {emptyMessage}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-        {isLoading && data.length > 0 ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40">
-            <Loader2 className="size-5 animate-spin text-primary" />
-          </div>
-        ) : null}
-        </>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {table.getRowModel().rows?.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id} data-state={row.getIsSelected() && 'selected'}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={colCount} className="h-24 p-0">
+                    <AdminTableEmptyState title={emptyMessage} description="" />
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </AdminTableShell>
       {pagination && (
         <DataTablePagination
           table={table}

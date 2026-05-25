@@ -1,5 +1,6 @@
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getAdminCustomers } from '@/lib/actions/admin-customers'
 import { CustomersAdminClient } from './_components/CustomersAdminClient'
 
@@ -26,7 +27,7 @@ export default async function AdminCustomersPage(props: {
         <AdminPageHeader
           title="Müşteri Operasyonu"
           description="Müşteri listesini yönetin, rolleri güncelleyin ve müşteri detaylarını inceleyin."
-          eyebrow="CRM"
+          breadcrumbs={getAdminBreadcrumbs('/admin/customers')}
         />
         <CustomersAdminClient data={data} />
       </AdminPageShell>

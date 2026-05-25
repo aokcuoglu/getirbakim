@@ -58,7 +58,7 @@ function StatsCard({
         </AdminCardTitle>
         <div
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-md',
+            'flex h-7 w-7 items-center justify-center rounded-md',
             iconVariants[variant]
           )}
         >
@@ -66,7 +66,7 @@ function StatsCard({
         </div>
       </AdminCardHeader>
       <AdminCardContent>
-        <p className="text-xl font-semibold tracking-tight">{value}</p>
+        <p className="text-base font-semibold tracking-tight">{value}</p>
         {subtitle ? (
           <p className={cn('mt-0.5 text-xs', subtitleVariants[variant])}>
             {subtitle}

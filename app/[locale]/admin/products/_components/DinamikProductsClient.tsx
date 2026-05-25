@@ -1,10 +1,8 @@
 'use client'
 
-import { Loader2, RefreshCw, Search } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
-import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/Pagination'
 import {
   Select,
@@ -13,6 +11,18 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table'
+import { AdminRowActions } from '@/components/admin/data-table/admin-row-actions'
+import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
+import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import {
   MobileDataCard,
   ResponsiveDataView
@@ -32,6 +42,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  const [searchValue, setSearchValue] = useState(searchParams.get('dq') || '')
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailProduct, setDetailProduct] = useState<AdminDinamikProductListItem | null>(null)
 
@@ -56,6 +67,17 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
     setParam('dq', term.trim() || null)
   }, 300)
 
+  const handleSearchChange = (value: string) => {
+    setSearchValue(value)
+    onSearch(value)
+  }
+
+  const handleRefresh = () => {
+    startTransition(() => {
+      router.refresh()
+    })
+  }
+
   const goPage = (page: number) => {
     const params = new URLSearchParams(searchParams.toString())
     params.set('source', 'dinamik')
@@ -63,9 +85,9 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
     router.push(`${pathname}?${params.toString()}`)
   }
 
-  const currentSearch = searchParams.get('dq') || ''
   const currentBrand = searchParams.get('dbrand') || 'all'
   const numberLocale = locale === 'tr' ? 'tr-TR' : 'en-US'
+  const isRefreshing = isPending && data.products.length > 0
 
   const openDetail = (product: AdminDinamikProductListItem) => {
     setDetailProduct(product)
@@ -96,66 +118,41 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
         />
       </div>
 
-      <div className="rounded-xl border border-border bg-background p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex w-full flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative w-full max-w-xl">
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                defaultValue={currentSearch}
-                onChange={(event) => onSearch(event.target.value)}
-                placeholder={t('searchPlaceholder')}
-                className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
-              />
-            </div>
-
+      <div className="rounded-lg border border-border/60 bg-card p-4">
+        <AdminTableToolbar
+          searchValue={searchValue}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder={t('searchPlaceholder')}
+          onRefresh={handleRefresh}
+          isRefreshing={isPending}
+          showRefresh
+          filters={
             <Select
               value={currentBrand}
               onValueChange={(value) =>
                 setParam('dbrand', value === 'all' ? null : value)
               }
             >
-              <SelectTrigger className="w-full sm:w-auto sm:min-w-[220px]">
-                <SelectValue
-                  placeholder={t('allQueryBrands')}
-                />
+              <SelectTrigger className="h-8 w-full rounded-md border-border/60 bg-muted/40 sm:w-auto sm:min-w-[220px]">
+                <SelectValue placeholder={t('allQueryBrands')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">
-                  {t('allQueryBrands')}
-                </SelectItem>
-              {data.options.queryBrands.map((brand) => (
-                <SelectItem key={brand} value={brand}>
-                  {brand}
-                </SelectItem>
-              ))}
+                <SelectItem value="all">{t('allQueryBrands')}</SelectItem>
+                {data.options.queryBrands.map((brand) => (
+                  <SelectItem key={brand} value={brand}>
+                    {brand}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => startTransition(() => router.refresh())}
-            disabled={isPending}
-          >
-            {isPending ? (
-              <Loader2 size={14} className="mr-2 animate-spin" />
-            ) : (
-              <RefreshCw size={14} className="mr-2" />
-            )}
-            {t('refresh')}
-          </Button>
-        </div>
+          }
+        />
       </div>
 
       <ResponsiveDataView
         mobile={
           data.products.length === 0 ? (
-            <div className="rounded-xl border border-border bg-background px-6 py-14 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-border bg-background px-6 py-14 text-center text-sm text-muted-foreground">
               {t('noRecords')}
             </div>
           ) : (
@@ -171,14 +168,14 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
                         {row.partNo || '-'}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openDetail(row)}
-                    >
-                      {t('detail')}
-                    </Button>
+                    <AdminRowActions
+                      actions={[
+                        {
+                          label: t('detail'),
+                          onClick: () => openDetail(row)
+                        }
+                      ]}
+                    />
                   </div>
 
                   <div className="mt-3 space-y-1 text-xs text-muted-foreground">
@@ -209,83 +206,82 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
           )
         }
         desktop={
-          <div className="overflow-x-auto rounded-xl border border-border bg-background">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-muted/80 text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3">{t('columns.stockCode')}</th>
-                  <th className="px-4 py-3">{t('columns.partNo')}</th>
-                  <th className="px-4 py-3">{t('columns.stockName')}</th>
-                  <th className="px-4 py-3">{t('columns.brand')}</th>
-                  <th className="px-4 py-3">{t('columns.price')}</th>
-                  <th className="px-4 py-3">{t('columns.barcode')}</th>
-                  <th className="px-4 py-3">{t('columns.updated')}</th>
-                  <th className="px-4 py-3 text-right">{t('columns.action')}</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-border text-sm">
+          <AdminTableShell isRefreshing={isRefreshing}>
+            <Table>
+              <TableHeader>
+                <TableRow className={adminTableHeaderRowClassName()}>
+                  <TableHead><AdminTableHead>{t('columns.stockCode')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.partNo')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.stockName')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.brand')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.price')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.barcode')}</AdminTableHead></TableHead>
+                  <TableHead><AdminTableHead>{t('columns.updated')}</AdminTableHead></TableHead>
+                  <TableHead className="text-right"><AdminTableHead className="justify-end">{t('columns.action')}</AdminTableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.products.map((row, index) => (
-                  <tr
+                  <TableRow
                     key={`${row.stockCode}-${row.partNo || '-'}-${index}`}
-                    className="hover:bg-muted/60"
+                    className="group transition-colors duration-150"
                   >
-                    <td className="px-4 py-3 align-top font-mono text-xs text-foreground">
+                    <TableCell className="font-mono text-xs text-foreground">
                       {row.stockCode}
-                    </td>
-                    <td className="px-4 py-3 align-top text-foreground">
+                    </TableCell>
+                    <TableCell className="text-foreground">
                       {row.partNo || '-'}
-                    </td>
-                    <td className="max-w-[280px] px-4 py-3 align-top text-foreground">
+                    </TableCell>
+                    <TableCell className="max-w-[280px] text-foreground">
                       <p className="truncate" title={row.stockName || '-'}>
                         {row.stockName || '-'}
                       </p>
-                    </td>
-                    <td className="px-4 py-3 align-top text-foreground">
+                    </TableCell>
+                    <TableCell className="text-foreground">
                       {row.brand || '-'}
-                    </td>
-                    <td className="px-4 py-3 align-top text-foreground">
+                    </TableCell>
+                    <TableCell className="text-foreground">
                       {row.price == null
                         ? '-'
                         : row.price.toLocaleString(numberLocale, {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2
                           })}
-                    </td>
-                    <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
                       {row.barcode1 || row.barcode2 || row.barcode3 || '-'}
-                    </td>
-                    <td className="px-4 py-3 align-top text-xs text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
                       {row.updatedAt
                         ? new Date(row.updatedAt).toLocaleString(numberLocale)
                         : '-'}
-                    </td>
-                    <td className="px-4 py-3 align-top text-right">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openDetail(row)}
-                      >
-                        {t('detail')}
-                      </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AdminRowActions
+                        actions={[
+                          {
+                            label: t('detail'),
+                            onClick: () => openDetail(row)
+                          }
+                        ]}
+                      />
+                    </TableCell>
+                  </TableRow>
                 ))}
 
                 {data.products.length === 0 && (
-                  <tr>
-                    <td
+                  <TableRow>
+                    <TableCell
                       colSpan={8}
                       className="px-6 py-14 text-center text-sm text-muted-foreground"
                     >
                       {t('noRecords')}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </AdminTableShell>
         }
       />
 
@@ -295,6 +291,7 @@ export function DinamikProductsClient({ data, locale }: DinamikProductsClientPro
         totalItems={data.pagination.total}
         itemsPerPage={data.pagination.limit}
         onPageChange={goPage}
+        compact
       />
 
       <DinamikProductDetailDrawer
@@ -319,7 +316,7 @@ function DinamikKpiCard({
   value: number
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted p-4 text-foreground">
+    <div className="rounded-lg border border-border bg-muted p-4 text-foreground">
       <p className="text-xs font-medium uppercase tracking-wider">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value.toLocaleString()}</p>
     </div>

@@ -1,41 +1,39 @@
 import { cn } from '@/lib/utils'
 
-type AdminKpiTone = 'default' | 'warning' | 'danger' | 'info'
+type AdminKpiTone = 'default' | 'warning' | 'danger' | 'success' | 'info'
 
 interface AdminKpiCardProps {
   label: string
   value: number | string
   tone?: AdminKpiTone
+  subtitle?: string
+  /** @deprecated Icons removed in favor of color bars */
   icon?: React.ReactNode
 }
 
 const toneStyles: Record<
   AdminKpiTone,
-  { card: string; label: string; value: string; icon: string }
+  { bar: string; value: string }
 > = {
   default: {
-    card: 'border-border bg-card',
-    label: 'text-muted-foreground',
-    value: 'text-foreground',
-    icon: 'bg-muted text-muted-foreground'
+    bar: 'bg-primary',
+    value: 'text-foreground'
   },
   warning: {
-    card: 'border-border bg-secondary/30',
-    label: 'text-muted-foreground',
-    value: 'text-foreground',
-    icon: 'bg-secondary text-secondary-foreground'
+    bar: 'bg-warning',
+    value: 'text-foreground'
   },
   danger: {
-    card: 'border-destructive/20 bg-destructive/5',
-    label: 'text-muted-foreground',
-    value: 'text-destructive',
-    icon: 'bg-destructive/10 text-destructive'
+    bar: 'bg-destructive',
+    value: 'text-foreground'
+  },
+  success: {
+    bar: 'bg-success',
+    value: 'text-foreground'
   },
   info: {
-    card: 'border-border bg-muted/40',
-    label: 'text-muted-foreground',
-    value: 'text-foreground',
-    icon: 'bg-muted text-muted-foreground'
+    bar: 'bg-muted-foreground',
+    value: 'text-foreground'
   }
 }
 
@@ -43,30 +41,25 @@ export function AdminKpiCard({
   label,
   value,
   tone = 'default',
-  icon
+  subtitle
 }: AdminKpiCardProps) {
   const styles = toneStyles[tone]
 
+  const formattedValue =
+    typeof value === 'number' ? value.toLocaleString('tr-TR') : value
+
   return (
-    <div className={cn('rounded-md border p-3', styles.card)}>
-      <div className="flex items-center justify-between gap-2">
-        <p className={cn('text-[11px] font-medium uppercase tracking-wide', styles.label)}>
-          {label}
+    <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      <div className="mt-1.5 flex items-end gap-2">
+        <p className={cn('text-lg font-semibold tracking-tight', styles.value)}>
+          {formattedValue}
         </p>
-        {icon ? (
-          <div
-            className={cn(
-              'flex h-7 w-7 items-center justify-center rounded-md',
-              styles.icon
-            )}
-          >
-            {icon}
-          </div>
-        ) : null}
+        <div className={cn('mb-1 h-1 w-8 shrink-0 rounded-sm', styles.bar)} />
       </div>
-      <p className={cn('mt-1 text-lg font-semibold tracking-tight', styles.value)}>
-        {typeof value === 'number' ? value.toLocaleString('tr-TR') : value}
-      </p>
+      {subtitle ? (
+        <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+      ) : null}
     </div>
   )
 }
@@ -80,7 +73,7 @@ export function AdminKpiGrid({ children, className }: AdminKpiGridProps) {
   return (
     <div
       className={cn(
-        'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4',
+        'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4',
         className
       )}
     >

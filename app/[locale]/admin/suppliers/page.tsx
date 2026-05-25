@@ -1,5 +1,6 @@
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getSuppliersHubOverview } from '@/lib/admin/suppliers-hub-stats'
 import { SuppliersHubClient } from './_components/SuppliersHubClient'
 
@@ -11,8 +12,8 @@ export default async function AdminSuppliersPage() {
       <AdminPageShell width="wide">
         <AdminPageHeader
           title="Tedarikçi Entegrasyon Merkezi"
-          description="Dinamik, ParçaTedarik ve planlanan Başbuğ kaynaklarından gelen API verisini yönetin; eşleştirme ekranını besleyen marka ve ürün hatlarını buradan takip edin."
-          eyebrow="Tedarikçi operasyonları"
+          description="Dinamik ve ParçaTedarik tedarikçi entegrasyonlarını buradan yönetin; API senkronu, katalog metrikleri ve eşleştirme akışına hızlı erişim."
+          breadcrumbs={getAdminBreadcrumbs('/admin/suppliers')}
         />
         <SuppliersHubClient overview={overview} />
       </AdminPageShell>

@@ -3,8 +3,6 @@
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
-  CircleDashed,
   Clock,
   Layers,
   Link2,
@@ -101,7 +99,7 @@ function SummaryStrip({ overview }: { overview: SuppliersHubOverview }) {
       {items.map((item) => (
         <div
           key={item.label}
-          className="rounded-xl border bg-card px-4 py-3 shadow-sm"
+          className="rounded-lg border bg-card px-4 py-3"
         >
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {item.label}
@@ -286,7 +284,7 @@ export function SuppliersHubClient({ overview }: { overview: SuppliersHubOvervie
     <div className="space-y-8">
       <SummaryStrip overview={overview} />
 
-      <section className="rounded-xl border bg-gradient-to-br from-muted/50 via-background to-background p-5 sm:p-6">
+      <section className="rounded-lg border bg-gradient-to-br from-muted/50 via-background to-background p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-xl space-y-2">
             <h2 className="flex items-center gap-2 text-base font-semibold">
@@ -323,28 +321,6 @@ export function SuppliersHubClient({ overview }: { overview: SuppliersHubOvervie
           <ProviderCard key={provider.id} provider={provider} />
         ))}
       </div>
-
-      <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
-        <p className="flex items-center gap-2 font-medium text-foreground">
-          <CircleDashed className="size-4" aria-hidden />
-          Diğer entegrasyonlar
-        </p>
-        <p className="mt-2">
-          SETA ve Parts2World mevcut sync altyapısında duruyor; bu hub odaklı
-          akış Dinamik ↔ ParçaTedarik eşleştirmesine göre kurgulandı.{' '}
-          <Link
-            href="/admin/suppliers/mappings"
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            Klasik mapping ekranı
-          </Link>{' '}
-          hâlâ erişilebilir.
-        </p>
-        <p className="mt-3 flex items-center gap-1.5 text-xs">
-          <CheckCircle2 className="size-3.5 text-success" aria-hidden />
-          Özet güncellendi: {formatDate(overview.generatedAt)}
-        </p>
-      </section>
     </div>
   )
 }

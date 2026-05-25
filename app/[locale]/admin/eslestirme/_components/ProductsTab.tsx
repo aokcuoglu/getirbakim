@@ -362,13 +362,13 @@ export function ProductsTab() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {isInitialLoading ? (
           Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="rounded-xl border bg-card px-4 py-3">
+            <div key={i} className="rounded-lg border bg-card px-4 py-3">
               <Skeleton className="h-3 w-20" />
               <Skeleton className="mt-3 h-7 w-16" />
             </div>
           ))
         ) : summaryCards.map((c, i) => (
-          <div key={i} className="rounded-xl border bg-card px-4 py-3">
+          <div key={i} className="rounded-lg border bg-card px-4 py-3">
             <div className="text-xs font-medium text-muted-foreground">{c.label}</div>
             <div className="mt-1.5 flex items-baseline gap-2">
               <span className="text-2xl font-semibold">{c.value.toLocaleString('tr-TR')}</span>
@@ -434,12 +434,12 @@ export function ProductsTab() {
         {(filters.dinamikBrand || filters.manufacturerId) && (
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
             {filters.dinamikBrand && (
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+              <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
                 Dinamik Marka: <strong className="text-foreground">{filters.dinamikBrand}</strong>
               </span>
             )}
             {filters.manufacturerId && (
-              <span className="rounded-full border bg-muted/40 px-2.5 py-1">
+              <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
                 PT Üretici:{' '}
                 <strong className="text-foreground">
                   {filterOptions.manufacturers.find((m) => m.id === filters.manufacturerId)?.name || filters.manufacturerId}

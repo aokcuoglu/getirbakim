@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import React from 'react'
-import { Link } from '@/lib/navigation'
 import { Edit, Trash2, ChevronRight, ChevronDown, Image as ImageIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import {
   Table,
   TableBody,
@@ -16,11 +14,12 @@ import {
 import { deleteCategory } from '@/lib/actions/category-actions'
 import { getCategoryImagePath } from '@/lib/utils/category-image'
 import Image from 'next/image'
+import { AdminRowActions } from '@/components/admin/data-table/admin-row-actions'
 import {
   MobileDataCard,
   ResponsiveDataView
 } from '@/components/admin/responsive-data-view'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
 import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 
 interface Category {
@@ -200,25 +199,23 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
             )}
           </TableCell>
           <TableCell>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" asChild>
-                <Link
-                  href={`/admin/categories/${category.id}/edit`}
-                  aria-label={`${category.name} kategorisini duzenle`}
-                >
-                  <Edit size={14} />
-                </Link>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleDelete(category.id)}
-                disabled={deletingId === category.id}
-                aria-label={`${category.name} kategorisini sil`}
-              >
-                <Trash2 size={14} className="text-destructive" />
-              </Button>
-            </div>
+            <AdminRowActions
+              actions={[
+                {
+                  label: 'Düzenle',
+                  href: `/admin/categories/${category.id}/edit`,
+                  icon: <Edit className="h-4 w-4" />
+                },
+                {
+                  label: 'Sil',
+                  icon: <Trash2 className="h-4 w-4" />,
+                  onClick: () => handleDelete(category.id),
+                  disabled: deletingId === category.id,
+                  destructive: true,
+                  separatorBefore: true
+                }
+              ]}
+            />
           </TableCell>
         </TableRow>
         {hasChildren && isExpanded && (
@@ -295,26 +292,24 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
             </p>
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link
-                href={`/admin/categories/${category.id}/edit`}
-                aria-label={`${category.name} kategorisini duzenle`}
-              >
-                <Edit size={14} className="mr-1" />
-                Duzenle
-              </Link>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleDelete(category.id)}
-              disabled={deletingId === category.id}
-              aria-label={`${category.name} kategorisini sil`}
-            >
-              <Trash2 size={14} className="mr-1 text-destructive" />
-              Sil
-            </Button>
+          <div className="mt-3 flex items-center justify-end">
+            <AdminRowActions
+              actions={[
+                {
+                  label: 'Düzenle',
+                  href: `/admin/categories/${category.id}/edit`,
+                  icon: <Edit className="h-4 w-4" />
+                },
+                {
+                  label: 'Sil',
+                  icon: <Trash2 className="h-4 w-4" />,
+                  onClick: () => handleDelete(category.id),
+                  disabled: deletingId === category.id,
+                  destructive: true,
+                  separatorBefore: true
+                }
+              ]}
+            />
           </div>
         </MobileDataCard>
 
@@ -344,7 +339,7 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
         desktop={
           <Table>
             <TableHeader>
-              <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+              <TableRow className={adminTableHeaderRowClassName()}>
                 <TableHead>
                   <AdminTableHead>Ad</AdminTableHead>
                 </TableHead>

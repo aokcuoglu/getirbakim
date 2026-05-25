@@ -214,7 +214,7 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
         label: 'Katalog mapping',
         description: 'Onaylı supplier_part_mappings',
         count: mappingApproved,
-        href: '/admin/suppliers/mappings?provider=dinamik&tab=products',
+        href: '/admin/suppliers/dinamik',
         status: mappingQueue > 0 ? 'warning' : 'ok'
       }
     ],

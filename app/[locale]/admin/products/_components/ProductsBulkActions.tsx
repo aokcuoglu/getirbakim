@@ -207,7 +207,7 @@ export function ProductsBulkActions({
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-background p-4">
+    <div className="space-y-4 rounded-lg border border-border bg-background p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground">

@@ -34,9 +34,9 @@ export function MobileDataCard({
   return (
     <article
       className={cn(
-        'rounded-2xl border border-border/60 bg-card/80 p-4 shadow-sm backdrop-blur-sm',
-        'transition-all duration-200',
-        'hover:border-border hover:shadow-md hover:-translate-y-0.5',
+        'rounded-lg border border-border/60 bg-card p-3',
+        'transition-colors duration-200',
+        'hover:border-border/80',
         className
       )}
     >

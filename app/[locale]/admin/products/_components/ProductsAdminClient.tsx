@@ -35,8 +35,9 @@ import {
 } from '@/components/admin/responsive-data-view'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
+import { AdminRowActions } from '@/components/admin/data-table/admin-row-actions'
 import { AdminSortableHead } from '@/components/admin/data-table/admin-sortable-head'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
 import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import {
@@ -554,13 +555,13 @@ export function ProductsAdminClient({
       <ResponsiveDataView
         mobile={
           workbenchData.products.length === 0 ? (
-            <div className="rounded-xl border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border border-border bg-background px-4 py-14 text-center text-sm text-muted-foreground">
               Kayıt bulunamadı.
             </div>
           ) : (
             <div className="space-y-3">
               {isListUpdating ? (
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm">
+                <div className="inline-flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
                   <Loader2 size={12} className="animate-spin" />
                   Veriler güncelleniyor
                 </div>
@@ -638,27 +639,20 @@ export function ProductsAdminClient({
                       </div>
                     </div>
 
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openDetail(row.id)}
-                      >
-                        Detay
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => saveInline(row.id)}
-                        disabled={isSaving || isListUpdating}
-                       
-                      >
-                        {isSaving ? (
-                          <Loader2 size={14} className="mr-1 animate-spin" />
-                        ) : null}
-                        Kaydet
-                      </Button>
+                    <div className="mt-3 flex items-center justify-end">
+                      <AdminRowActions
+                        actions={[
+                          {
+                            label: 'Detay',
+                            onClick: () => openDetail(row.id)
+                          },
+                          {
+                            label: isSaving ? 'Kaydediliyor…' : 'Kaydet',
+                            onClick: () => saveInline(row.id),
+                            disabled: isSaving || isListUpdating
+                          }
+                        ]}
+                      />
                     </div>
                   </MobileDataCard>
                 )
@@ -670,7 +664,7 @@ export function ProductsAdminClient({
           <AdminTableShell isLoading={isListUpdating}>
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                <TableRow className={adminTableHeaderRowClassName()}>
                   <TableHead className="w-[280px]">
                     <AdminSortableHead
                       label="Ürün"
@@ -812,33 +806,20 @@ export function ProductsAdminClient({
                       </TableCell>
 
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => openDetail(row.id)}
-                            onMouseEnter={() => prefetchDetail(row.id)}
-                            className="h-8 text-xs font-medium text-muted-foreground hover:text-foreground"
-                          >
-                            Detay
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => saveInline(row.id)}
-                            disabled={isSaving || isListUpdating || !isDirty}
-                            className={`h-8 text-xs font-medium transition-all ${
-                              isDirty
-                                ? 'bg-primary text-white hover:bg-primary/90 shadow-sm'
-                                : 'bg-muted text-muted-foreground hover:bg-muted cursor-not-allowed'
-                            }`}
-                          >
-                            {isSaving ? (
-                              <Loader2 size={12} className="mr-1 animate-spin" />
-                            ) : null}
-                            Kaydet
-                          </Button>
+                        <div className="flex items-center justify-end">
+                          <AdminRowActions
+                            actions={[
+                              {
+                                label: 'Detay',
+                                onClick: () => openDetail(row.id)
+                              },
+                              {
+                                label: isSaving ? 'Kaydediliyor…' : 'Kaydet',
+                                onClick: () => saveInline(row.id),
+                                disabled: isSaving || isListUpdating || !isDirty
+                              }
+                            ]}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
@@ -880,6 +861,7 @@ export function ProductsAdminClient({
             'push'
           )
         }}
+        compact
       />
 
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>

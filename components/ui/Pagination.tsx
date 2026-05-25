@@ -10,6 +10,11 @@ interface PaginationProps {
   totalItems: number
   itemsPerPage: number
   onPageChange: (page: number) => void
+  itemLabel?: string
+  showItemCount?: boolean
+  previousLabel?: string
+  nextLabel?: string
+  compact?: boolean
 }
 
 export function Pagination({
@@ -17,9 +22,14 @@ export function Pagination({
   totalPages,
   totalItems,
   itemsPerPage,
-  onPageChange
+  onPageChange,
+  itemLabel = 'ürün',
+  showItemCount = true,
+  previousLabel = 'Önceki',
+  nextLabel = 'Sonraki',
+  compact = false
 }: PaginationProps) {
-  if (totalPages <= 1) return null
+  if (totalPages <= 0) return null
 
   const startItem = (currentPage - 1) * itemsPerPage + 1
   const endItem = Math.min(currentPage * itemsPerPage, totalItems)
@@ -59,25 +69,36 @@ export function Pagination({
   const pageNumbers = getPageNumbers()
 
   return (
-    <div className="flex flex-col items-center justify-between gap-3 py-4 sm:flex-row">
-      <p className="text-sm text-muted-foreground">
-        Showing{' '}
-        <span className="font-medium text-foreground">
-          {startItem}-{endItem}
-        </span>{' '}
-        of <span className="font-medium text-foreground">{totalItems}</span>{' '}
-        products
-      </p>
+    <div
+      className={cn(
+        'flex flex-col sm:flex-row sm:items-center',
+        compact ? 'gap-2 py-1' : 'gap-3 py-2',
+        showItemCount ? 'justify-between' : 'justify-center'
+      )}
+    >
+      {showItemCount ? (
+        <p className={cn('text-muted-foreground', compact ? 'text-xs' : 'text-sm')}>
+          <span className="font-medium text-foreground">
+            {startItem}-{endItem}
+          </span>{' '}
+          / {totalItems} {itemLabel}
+        </p>
+      ) : null}
 
       <div className="flex items-center gap-1">
         <Button
           variant="outline"
-          size="icon-sm"
+          size="sm"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          aria-label="Previous page"
+          className={cn(
+            'rounded-md border-border/60',
+            compact && 'h-7 px-2 text-xs'
+          )}
+          aria-label="Go to previous page"
         >
-          <ChevronLeft className="size-4" />
+          <ChevronLeft className="mr-1 size-4" />
+          {previousLabel}
         </Button>
 
         {pageNumbers.map((page, index) =>
@@ -91,7 +112,13 @@ export function Pagination({
               variant={currentPage === page ? 'default' : 'outline'}
               size="sm"
               onClick={() => onPageChange(page)}
-              className={cn('min-w-[34px]')}
+              className={cn(
+                'rounded-md',
+                compact ? 'h-7 min-w-[30px] px-1.5 text-xs' : 'min-w-[36px] rounded-md',
+                currentPage === page
+                  ? ''
+                  : 'border-border/60 bg-card'
+              )}
             >
               {page}
             </Button>
@@ -100,12 +127,17 @@ export function Pagination({
 
         <Button
           variant="outline"
-          size="icon-sm"
+          size="sm"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          aria-label="Next page"
+          className={cn(
+            'rounded-md border-border/60',
+            compact && 'h-7 px-2 text-xs'
+          )}
+          aria-label="Go to next page"
         >
-          <ChevronRight className="size-4" />
+          {nextLabel}
+          <ChevronRight className="ml-1 size-4" />
         </Button>
       </div>
     </div>

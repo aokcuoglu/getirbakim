@@ -50,11 +50,11 @@ const statusStyles: Record<string, { label: string; icon: ElementType; tone: str
 
 export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-      <div className="xl:col-span-2 rounded-2xl border border-border/50 bg-background p-4 shadow-sm sm:p-5">
-        <div className="mb-5 flex items-center justify-between">
-          <h3 className="text-lg font-bold text-foreground">Son Siparişler</h3>
-          <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+      <div className="xl:col-span-2 rounded-lg border border-border/50 bg-background p-3">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-medium text-foreground">Son Siparişler</h3>
+          <span className="rounded-sm bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
             {orders.length} kayıt
           </span>
         </div>
@@ -108,11 +108,11 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3">Sipariş</th>
-                    <th className="px-4 py-3">Müşteri</th>
-                    <th className="px-4 py-3">Tarih</th>
-                    <th className="px-4 py-3">Tutar</th>
-                    <th className="px-4 py-3">Durum</th>
+                    <th className="px-3 py-2">Sipariş</th>
+                    <th className="px-3 py-2">Müşteri</th>
+                    <th className="px-3 py-2">Tarih</th>
+                    <th className="px-3 py-2">Tutar</th>
+                    <th className="px-3 py-2">Durum</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -122,10 +122,10 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                     const Icon = style.icon
                     return (
                       <tr key={order.id} className="transition-colors hover:bg-muted/50">
-                        <td className="px-4 py-3 font-semibold text-foreground">
+                        <td className="px-3 py-2 font-semibold text-foreground">
                           #{order.id}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <div className="font-medium text-foreground">
                             {order.customerName}
                           </div>
@@ -133,17 +133,17 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                             {order.customerEmail || '-'}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">
+                        <td className="px-3 py-2 text-muted-foreground">
                           {new Date(order.createdAt).toLocaleDateString('tr-TR')}
                         </td>
-                        <td className="px-4 py-3 font-bold text-foreground">
+                        <td className="px-3 py-2 font-bold text-foreground">
                           {order.totalAmount.toLocaleString('tr-TR', {
                             style: 'currency',
                             currency: 'TRY',
                             maximumFractionDigits: 2
                           })}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2">
                           <Badge variant="outline" className={cn('gap-1 text-xs font-semibold', style.tone)}>
                             <Icon size={12} />
                             {style.label}
@@ -174,9 +174,9 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
         />
       </div>
 
-      <div className="rounded-2xl border border-border/50 bg-background p-4 shadow-sm sm:p-5">
-        <div className="mb-5 flex items-center gap-2">
-          <h3 className="text-lg font-bold text-foreground">Kritik Uyarılar</h3>
+      <div className="rounded-lg border border-border/50 bg-background p-3">
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="text-sm font-medium text-foreground">Kritik Uyarılar</h3>
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-destructive/15 text-[10px] font-bold text-destructive">
             {alerts.length}
           </span>
@@ -186,7 +186,7 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
             <div
               key={alert.id}
               className={cn(
-                'relative overflow-hidden rounded-xl border p-4',
+                'relative overflow-hidden rounded-lg border p-3',
                 alert.severity === 'high'
                   ? 'border-destructive/20 bg-gradient-to-br from-destructive/10 to-destructive/10'
                   : alert.severity === 'medium'
@@ -208,7 +208,7 @@ export function TransactionsTable({ orders, alerts }: TransactionsTableProps) {
                   )}
                 />
               </div>
-              <p className="mt-2 text-2xl font-bold text-foreground">
+              <p className="mt-1.5 text-lg font-semibold text-foreground">
                 {alert.value.toLocaleString('tr-TR')}
               </p>
             </div>

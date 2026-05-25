@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { getDbrandsMatchPtBrandColumn } from '@/lib/admin/v0-dbrands-match-schema'
 
 export type DinamikBrandMatchStats = {
   totalDinamikBrands: number
@@ -8,15 +9,16 @@ export type DinamikBrandMatchStats = {
   totalPcManufacturers: number
 }
 
-const ACTIVE_MATCH = Prisma.sql`
-  a.mapping_status IN ('PENDING', 'APPROVED')
-  AND a.ptbrands_id IS NOT NULL
-`
-
 /**
  * Brand coverage from canonical dbrands + dbrands_match (not dproducts scans).
  */
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
+  const ptBrandCol = await getDbrandsMatchPtBrandColumn()
+  const activeMatch = Prisma.sql`
+    a.mapping_status IN ('PENDING', 'APPROVED')
+    AND a.${Prisma.raw(ptBrandCol)} IS NOT NULL
+  `
+
   const [row] = await db.$queryRaw<
     Array<{
       total_dinamik_brands: number
@@ -33,7 +35,7 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
           SELECT 1
           FROM v0.dbrands_match a
           WHERE a.dbrands_id = d.id
-            AND ${ACTIVE_MATCH}
+            AND ${activeMatch}
         )
       ) AS matched_brands,
       (SELECT COUNT(*)::int FROM v0.ptbrands) AS total_pc_manufacturers

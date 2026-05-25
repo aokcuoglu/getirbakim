@@ -332,7 +332,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-background p-4">
+      <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-foreground">Dinamik API bağlantısı</h2>
@@ -394,7 +394,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         </p>
       </InfoHint>
 
-      <div className="rounded-xl border border-border bg-background p-4">
+      <div className="rounded-lg border border-border bg-background p-4">
         <p className="text-xs font-semibold text-foreground">İşlem parametreleri</p>
         <p className="mt-1 text-xs text-muted-foreground">
           Marka alanı doldurulursa işlemler yalnızca o marka için çalışır; boş bırakılırsa
@@ -422,7 +422,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         </div>
       </div>
 
-      <Tabs defaultValue="catalog" className="rounded-xl border border-border bg-background p-4">
+      <Tabs defaultValue="catalog" className="rounded-lg border border-border bg-background p-4">
         <TabsList className="w-full flex-wrap h-auto gap-1">
           <TabsTrigger value="catalog" className="gap-1.5">
             <Database size={14} />

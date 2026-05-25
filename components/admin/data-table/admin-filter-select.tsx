@@ -117,7 +117,7 @@ export function AdminFilterSelect({
           type="button"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
-          className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-[color,box-shadow] outline-none hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-2.5 text-sm shadow-xs transition-[color,box-shadow] outline-none hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
           <span className={selectedOption ? 'text-foreground' : 'text-muted-foreground'}>
             {selectedOption?.label || placeholder}

@@ -15,7 +15,16 @@ interface AdminCardProps {
 }
 
 export function AdminCard({ children, className }: AdminCardProps) {
-  return <Card className={className}>{children}</Card>
+  return (
+    <Card
+      className={cn(
+        'gap-3 rounded-lg border-border py-4 shadow-sm',
+        className
+      )}
+    >
+      {children}
+    </Card>
+  )
 }
 
 export function AdminCardHeader({
@@ -25,7 +34,11 @@ export function AdminCardHeader({
   children: ReactNode
   className?: string
 }) {
-  return <CardHeader className={className}>{children}</CardHeader>
+  return (
+    <CardHeader className={cn('gap-1 px-3 [.border-b]:pb-3', className)}>
+      {children}
+    </CardHeader>
+  )
 }
 
 export function AdminCardTitle({
@@ -35,7 +48,11 @@ export function AdminCardTitle({
   children: ReactNode
   className?: string
 }) {
-  return <CardTitle className={className}>{children}</CardTitle>
+  return (
+    <CardTitle className={cn('text-sm font-medium', className)}>
+      {children}
+    </CardTitle>
+  )
 }
 
 export function AdminCardDescription({
@@ -45,7 +62,11 @@ export function AdminCardDescription({
   children: ReactNode
   className?: string
 }) {
-  return <CardDescription className={className}>{children}</CardDescription>
+  return (
+    <CardDescription className={cn('text-xs', className)}>
+      {children}
+    </CardDescription>
+  )
 }
 
 export function AdminCardContent({
@@ -55,7 +76,7 @@ export function AdminCardContent({
   children: ReactNode
   className?: string
 }) {
-  return <CardContent className={className}>{children}</CardContent>
+  return <CardContent className={cn('px-3', className)}>{children}</CardContent>
 }
 
 export function AdminCardFooter({
@@ -65,5 +86,9 @@ export function AdminCardFooter({
   children: ReactNode
   className?: string
 }) {
-  return <CardFooter className={className}>{children}</CardFooter>
+  return (
+    <CardFooter className={cn('px-3 [.border-t]:pt-3', className)}>
+      {children}
+    </CardFooter>
+  )
 }

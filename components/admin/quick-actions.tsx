@@ -59,7 +59,7 @@ const quickActions: QuickAction[] = [
   {
     icon: RefreshCw,
     label: 'Senkronizasyon',
-    href: '/admin/suppliers/mappings'
+    href: '/admin/suppliers/dinamik'
   },
   {
     icon: Search,
@@ -83,7 +83,7 @@ export function QuickActions() {
                 key={action.label}
                 variant="outline"
                 size="sm"
-                className="h-auto flex-col gap-1.5 py-3"
+                className="h-auto flex-col gap-1 py-2"
                 asChild
               >
                 <Link href={action.href}>

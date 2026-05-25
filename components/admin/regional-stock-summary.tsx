@@ -16,13 +16,13 @@ export function RegionalStockSummary({
   emptyLabel = 'Bolgesel stok kaydi yok.'
 }: RegionalStockSummaryProps) {
   return (
-    <div className="rounded-xl border border-border/60 bg-card/80 p-4 shadow-sm backdrop-blur-sm">
+    <div className="rounded-lg border border-border/60 bg-card p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </p>
 
       {regionalStock ? (
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:gap-2.5 md:grid-cols-4">
           {DINAMIK_REGIONAL_STOCK_ORDER.map((key) => {
             const entry = regionalStock[key]
             const toneClass =
@@ -35,7 +35,7 @@ export function RegionalStockSummary({
             return (
               <div
                 key={key}
-                className={`rounded-md border px-3 py-2.5 ${toneClass}`}
+                className={`rounded-md border px-2.5 py-2 ${toneClass}`}
               >
                 <p className="text-[11px] font-semibold uppercase tracking-wide">
                   {DINAMIK_REGIONAL_STOCK_LABELS[key]}

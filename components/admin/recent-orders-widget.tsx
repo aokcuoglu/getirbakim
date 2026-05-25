@@ -1,6 +1,6 @@
 import { ShoppingCart } from 'lucide-react'
 import { Link } from '@/lib/navigation'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
+import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
 import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 import {
   AdminCard,
@@ -78,20 +78,20 @@ export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
           <AdminTableShell>
             <Table>
               <TableHeader>
-                <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
-                  <TableHead className="px-4">
+                <TableRow className={adminTableHeaderRowClassName()}>
+                  <TableHead className="px-3">
                     <AdminTableHead>Sipariş</AdminTableHead>
                   </TableHead>
-                  <TableHead className="px-4">
+                  <TableHead className="px-3">
                     <AdminTableHead>Müşteri</AdminTableHead>
                   </TableHead>
-                  <TableHead className="hidden h-10 px-4 sm:table-cell">
+                  <TableHead className="hidden h-8 px-3 sm:table-cell">
                     <AdminTableHead>Tarih</AdminTableHead>
                   </TableHead>
-                  <TableHead className="hidden h-10 px-4 text-right md:table-cell">
+                  <TableHead className="hidden h-8 px-3 text-right md:table-cell">
                     <AdminTableHead className="justify-end">Tutar</AdminTableHead>
                   </TableHead>
-                  <TableHead className="px-4">
+                  <TableHead className="px-3">
                     <AdminTableHead>Durum</AdminTableHead>
                   </TableHead>
                 </TableRow>
@@ -102,7 +102,7 @@ export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
                     statusConfig[order.status] || statusConfig.PENDING
                   return (
                     <TableRow key={order.id} className="cursor-pointer">
-                      <TableCell className="px-4 py-2.5 font-medium">
+                      <TableCell className="px-3 py-2 font-medium">
                         <Link
                           href="/admin/orders"
                           className="hover:underline"
@@ -110,19 +110,19 @@ export function RecentOrdersWidget({ orders }: RecentOrdersWidgetProps) {
                           #{order.id}
                         </Link>
                       </TableCell>
-                      <TableCell className="max-w-[180px] truncate px-4 py-2.5 text-muted-foreground sm:max-w-[240px]">
+                      <TableCell className="max-w-[180px] truncate px-3 py-2 text-muted-foreground sm:max-w-[240px]">
                         {order.customerName}
                       </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 text-muted-foreground sm:table-cell">
+                      <TableCell className="hidden px-3 py-2 text-muted-foreground sm:table-cell">
                         {new Date(order.createdAt).toLocaleDateString('tr-TR')}
                       </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 text-right font-medium md:table-cell">
+                      <TableCell className="hidden px-3 py-2 text-right font-medium md:table-cell">
                         {order.totalAmount.toLocaleString('tr-TR', {
                           style: 'currency',
                           currency: 'TRY'
                         })}
                       </TableCell>
-                      <TableCell className="px-4 py-2.5">
+                      <TableCell className="px-3 py-2">
                         <Badge variant="outline" className={status.className}>
                           {status.label}
                         </Badge>

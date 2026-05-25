@@ -1,5 +1,6 @@
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getAdminCustomerRequests } from '@/lib/actions/customer-requests'
 import { RequestsAdminClient } from './_components/RequestsAdminClient'
 
@@ -50,7 +51,7 @@ export default async function AdminRequestsPage(props: {
         <AdminPageHeader
           title="Müşteri Talepleri"
           description="Fiyat soruları, ürün soruları ve bulunamayan ürün bildirimlerini tek ekrandan yönetin."
-          eyebrow="Destek"
+          breadcrumbs={getAdminBreadcrumbs('/admin/requests')}
         />
         <RequestsAdminClient data={data} />
       </AdminPageShell>

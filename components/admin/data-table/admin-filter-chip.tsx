@@ -16,14 +16,14 @@ export function AdminFilterChip({ label, active, onClick }: AdminFilterChipProps
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors',
+        'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
         active
-          ? 'border-primary bg-primary text-primary-foreground'
+          ? 'border-foreground/20 bg-foreground text-background'
           : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground'
       )}
     >
       {active ? (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary-foreground" />
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-background" />
       ) : null}
       {label}
     </button>

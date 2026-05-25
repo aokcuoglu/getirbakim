@@ -33,6 +33,7 @@ export function PaginationWrapper({
       totalItems={totalItems}
       itemsPerPage={itemsPerPage}
       onPageChange={handlePageChange}
+      compact
     />
   )
 }

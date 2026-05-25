@@ -128,7 +128,7 @@ export function ProductsFilter({
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
       <SheetTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-2 bg-background border border-border rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted relative">
+        <button className="flex items-center gap-2 px-3 py-2 bg-background border border-border rounded-md text-sm font-medium text-muted-foreground hover:bg-muted relative">
           <Filter size={14} />
           <span>Filter</span>
           {activeFilterCount > 0 && (
@@ -168,11 +168,11 @@ export function ProductsFilter({
                 placeholder="Search categories..."
                 value={categorySearch}
                 onChange={(e) => setCategorySearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
+                className="w-full pl-9 pr-4 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
               />
             </div>
             {/* Category list */}
-            <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
+            <div className="max-h-48 overflow-y-auto border border-border rounded-md">
               <div
                 onClick={() => setSelectedCategory(null)}
                 className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${
@@ -229,11 +229,11 @@ export function ProductsFilter({
                 placeholder="Search brands..."
                 value={brandSearch}
                 onChange={(e) => setBrandSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
+                className="w-full pl-9 pr-4 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus-visible:ring-ring/50/20 focus-visible:border-ring"
               />
             </div>
             {/* Brand list */}
-            <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
+            <div className="max-h-48 overflow-y-auto border border-border rounded-md">
               <div
                 onClick={() => setSelectedBrand(null)}
                 className={`px-3 py-2 text-sm cursor-pointer hover:bg-muted flex items-center justify-between ${

@@ -1,5 +1,6 @@
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { ProductsBulkActions } from '../_components/ProductsBulkActions'
 
 export default async function AdminProductToolsPage(props: {
@@ -22,7 +23,7 @@ export default async function AdminProductToolsPage(props: {
         <AdminPageHeader
           title="Ürün Araçları"
           description="CSV dışa aktarma ve içe aktarma operasyonlarını bu ekrandan yönetin."
-          eyebrow="Katalog Araçları"
+          breadcrumbs={getAdminBreadcrumbs('/admin/products/tools')}
         />
         <ProductsBulkActions
           selectedIds={[]}

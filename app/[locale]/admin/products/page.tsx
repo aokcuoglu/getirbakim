@@ -2,6 +2,7 @@ import { Plus } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getAdminProducts } from '@/lib/actions/admin-products'
 import { parseAdminProductsUrlState } from '@/lib/admin-products-workbench'
 import { Link } from '@/lib/navigation'
@@ -37,20 +38,20 @@ export default async function AdminProductsPage(props: {
         <AdminPageHeader
           title="Ürün Operasyonu"
           description="Katalog, fiyat, stok ve görünürlük yönetimini tek yerden yönetin."
-          eyebrow="Katalog"
+          breadcrumbs={getAdminBreadcrumbs('/admin/products')}
           actions={
             <>
               <Link
                 href="/admin/products/tools"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:bg-muted sm:w-auto"
               >
                 Araçlar
               </Link>
               <Link
                 href="/admin/products/new"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-semibold text-white transition-colors hover:bg-primary/90 sm:w-auto"
               >
-                <Plus size={18} />
+                <Plus size={16} />
                 Ürün Ekle
               </Link>
             </>

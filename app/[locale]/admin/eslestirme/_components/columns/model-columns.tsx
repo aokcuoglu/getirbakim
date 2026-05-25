@@ -1,9 +1,12 @@
+'use client'
+
 import { ColumnDef } from '@tanstack/react-table'
 import { Check, X, Ban, Link2, ArrowRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AdminRowActions, type AdminRowAction } from '@/components/admin/data-table/admin-row-actions'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
 import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface ModelRow {
@@ -92,7 +95,7 @@ export function createModelColumns(handlers: {
     },
     {
       id: 'productInfo',
-      header: () => <span className="text-xs font-medium">Ürün Eşleşmesi</span>,
+      header: () => <AdminTableHead>Ürün Eşleşmesi</AdminTableHead>,
       cell: ({ row }) => {
         const r = row.original
         const isApproved = r.mappingStatus === 'APPROVED'
@@ -215,31 +218,46 @@ export function createModelColumns(handlers: {
       id: 'actions',
       cell: ({ row }) => {
         const m = row.original
-        return (
-          <div className="flex items-center gap-0.5">
-            {m.mappingStatus === 'PENDING' && (
-              <>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-success hover:text-success" onClick={() => handlers.onAction(m.id, 'approve')} title="Onayla">
-                  <Check className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => handlers.onAction(m.id, 'reject')} title="Reddet">
-                  <X className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => handlers.onAction(m.id, 'ignore')} title="Yoksay">
-                  <Ban className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-            {(m.mappingStatus === 'APPROVED' || m.mappingStatus === 'REJECTED') && (
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handlers.onAction(m.id, 'unmatch')} title="Eşleştirmeyi Kaldır">
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-primary hover:text-primary" onClick={() => handlers.onLinkDproducts(m)} title="Eşleştir">
-              <Link2 className="h-4 w-4" />
-            </Button>
-          </div>
-        )
+        const actions: AdminRowAction[] = []
+
+        if (m.mappingStatus === 'PENDING') {
+          actions.push(
+            {
+              label: 'Onayla',
+              icon: <Check className="h-4 w-4" />,
+              onClick: () => handlers.onAction(m.id, 'approve')
+            },
+            {
+              label: 'Reddet',
+              icon: <X className="h-4 w-4" />,
+              destructive: true,
+              onClick: () => handlers.onAction(m.id, 'reject')
+            },
+            {
+              label: 'Yoksay',
+              icon: <Ban className="h-4 w-4" />,
+              onClick: () => handlers.onAction(m.id, 'ignore')
+            }
+          )
+        }
+
+        if (m.mappingStatus === 'APPROVED' || m.mappingStatus === 'REJECTED') {
+          actions.push({
+            label: 'Eşleştirmeyi Kaldır',
+            icon: <X className="h-4 w-4" />,
+            destructive: true,
+            onClick: () => handlers.onAction(m.id, 'unmatch')
+          })
+        }
+
+        actions.push({
+          label: 'Eşleştir',
+          icon: <Link2 className="h-4 w-4" />,
+          onClick: () => handlers.onLinkDproducts(m),
+          separatorBefore: actions.length > 0
+        })
+
+        return <AdminRowActions actions={actions} />
       },
       enableSorting: false,
       enableHiding: false,

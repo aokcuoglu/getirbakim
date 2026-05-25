@@ -3,9 +3,10 @@
 import { ColumnDef } from '@tanstack/react-table'
 import { ArrowRight, Ban, Check, Link2, Unlink, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { AdminRowActions, type AdminRowAction } from '@/components/admin/data-table/admin-row-actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
 import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface BrandRow {
@@ -92,7 +93,7 @@ export function createBrandsColumns(handlers: {
     },
     {
       id: 'brandMatch',
-      header: () => <span className="text-xs font-medium">Marka Eşleşmesi</span>,
+      header: () => <AdminTableHead>Marka Eşleşmesi</AdminTableHead>,
       cell: ({ row }) => {
         const r = row.original
         const paired = isPaired(r)
@@ -225,59 +226,46 @@ export function createBrandsColumns(handlers: {
       id: 'actions',
       cell: ({ row }) => {
         const alias = row.original
-        return (
-          <div className="flex items-center gap-0.5">
-            {alias.mappingStatus === 'PENDING' && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-success hover:text-success"
-                  onClick={() => handlers.onAction(alias.id, 'approve')}
-                  title="Onayla"
-                >
-                  <Check className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                  onClick={() => handlers.onAction(alias.id, 'reject')}
-                  title="Reddet"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => handlers.onAction(alias.id, 'ignore')}
-                  title="Yoksay"
-                >
-                  <Ban className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-primary hover:text-primary"
-              onClick={() => handlers.onUpdate(alias)}
-              title="Eşleştirmeyi Değiştir"
-            >
-              <Link2 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-              onClick={() => handlers.onAction(alias.id, 'delete')}
-              title="Sil"
-            >
-              <Unlink className="h-4 w-4" />
-            </Button>
-          </div>
+        const actions: AdminRowAction[] = []
+
+        if (alias.mappingStatus === 'PENDING') {
+          actions.push(
+            {
+              label: 'Onayla',
+              icon: <Check className="h-4 w-4" />,
+              onClick: () => handlers.onAction(alias.id, 'approve')
+            },
+            {
+              label: 'Reddet',
+              icon: <X className="h-4 w-4" />,
+              destructive: true,
+              onClick: () => handlers.onAction(alias.id, 'reject')
+            },
+            {
+              label: 'Yoksay',
+              icon: <Ban className="h-4 w-4" />,
+              onClick: () => handlers.onAction(alias.id, 'ignore')
+            }
+          )
+        }
+
+        actions.push(
+          {
+            label: 'Eşleştirmeyi Değiştir',
+            icon: <Link2 className="h-4 w-4" />,
+            onClick: () => handlers.onUpdate(alias),
+            separatorBefore: alias.mappingStatus === 'PENDING'
+          },
+          {
+            label: 'Sil',
+            icon: <Unlink className="h-4 w-4" />,
+            destructive: true,
+            onClick: () => handlers.onAction(alias.id, 'delete'),
+            separatorBefore: true
+          }
         )
+
+        return <AdminRowActions actions={actions} />
       },
       enableSorting: false,
       enableHiding: false,

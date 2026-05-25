@@ -1,11 +1,12 @@
 'use client'
 
-import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AdminTableLoadingIndicator } from './admin-table-loading-indicator'
 
 interface AdminTableShellProps {
   children: React.ReactNode
   isLoading?: boolean
+  isRefreshing?: boolean
   loadingLabel?: string
   className?: string
 }
@@ -13,23 +14,30 @@ interface AdminTableShellProps {
 export function AdminTableShell({
   children,
   isLoading = false,
+  isRefreshing = false,
   loadingLabel = 'Veriler güncelleniyor',
   className
 }: AdminTableShellProps) {
+  const showRefreshOverlay = isLoading || isRefreshing
+
   return (
     <div
+      data-admin-table-shell
+      data-loading={showRefreshOverlay || undefined}
       className={cn(
-        'relative overflow-hidden rounded-md border border-border bg-card shadow-sm',
+        'relative overflow-hidden rounded-lg border border-border bg-card shadow-sm',
+        showRefreshOverlay && [
+          'pointer-events-none',
+          '[&_[data-slot=table-body]]:opacity-50',
+          '[&_[data-slot=table-body]]:transition-opacity',
+          '[&_tbody:not([data-slot])]:opacity-50',
+          '[&_tbody:not([data-slot])]:transition-opacity'
+        ],
         className
       )}
     >
-      {isLoading ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-end bg-background/60 p-3 backdrop-blur-[1px]">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {loadingLabel}
-          </div>
-        </div>
+      {showRefreshOverlay ? (
+        <AdminTableLoadingIndicator label={loadingLabel} />
       ) : null}
       {children}
     </div>

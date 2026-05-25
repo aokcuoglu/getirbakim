@@ -7,6 +7,7 @@ import {
   AdminPageShell,
   AdminSurface
 } from '@/components/admin/admin-page-shell'
+import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { Badge } from '@/components/ui/badge'
 import { getDinamikDbrandsAudit } from '@/lib/actions/admin-dbrands'
 import { getAdminSupplierProviderDetail } from '@/lib/actions/admin-suppliers'
@@ -33,7 +34,7 @@ export default async function AdminDinamikSupplierPage() {
         <AdminPageHeader
           title="Dinamik Sağlayıcı Yönetimi"
           description="Dinamik API'den marka ve ürün kataloğunu çekin; mağaza teklifleri ve senkron geçmişini ayrı hatlarda izleyin."
-          eyebrow="Dinamik Provider"
+          breadcrumbs={getAdminBreadcrumbs('/admin/suppliers/dinamik')}
         />
 
         <div className="space-y-3">
@@ -125,13 +126,13 @@ export default async function AdminDinamikSupplierPage() {
 
           <div className="mt-3 space-y-3 md:hidden">
             {detail.runs.length === 0 ? (
-              <div className="rounded-xl border border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border px-3 py-6 text-center text-sm text-muted-foreground">
                 Henüz mağaza senkron kaydı yok. Mağaza sekmesinden ilk çalıştırmayı
                 yapabilirsiniz.
               </div>
             ) : (
               detail.runs.map((run) => (
-                <article key={run.id} className="rounded-xl border border-border p-3">
+                <article key={run.id} className="rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="font-semibold text-foreground">#{run.id}</p>
                     <RunStatusBadge status={run.status} />
@@ -257,7 +258,7 @@ function MetricCard({
   tone?: 'default' | 'warning'
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+    <div className="rounded-lg border border-border bg-background p-4">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
