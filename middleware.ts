@@ -9,6 +9,13 @@ import { createServerClient } from '@supabase/ssr'
 
 const intlMiddleware = createMiddleware(routing)
 
+function isServerActionRequest(request: NextRequest): boolean {
+  return (
+    request.method === 'POST' &&
+    (request.headers.has('next-action') || request.headers.has('x-action'))
+  )
+}
+
 export default async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isLocalHost =
@@ -25,11 +32,26 @@ export default async function middleware(request: NextRequest) {
     .getAll()
     .some((cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token'))
 
+  // Server Actions POST back to the page URL with `next-action`. Running i18n
+  // redirects or other middleware rewrites on those requests returns HTML
+  // instead of the RSC payload, which surfaces as "An unexpected response was
+  // received from the server." in the login modal and other client callers.
+  if (isServerActionRequest(request)) {
+    let response = NextResponse.next({ request })
+    if (hasSupabaseAuthCookie) {
+      try {
+        response = await updateSession(request, response)
+      } catch (error) {
+        logSupabaseError('proxy:updateSession', error)
+      }
+    }
+    return response
+  }
+
   // Skip middleware for API routes (they don't need locale prefix)
   // API routes handle their own authentication in route handlers
   if (pathname.startsWith('/api/')) {
-    // Just pass through - API routes handle auth internally
-    return new NextResponse()
+    return NextResponse.next()
   }
 
   // Canonicalize accidental repeated locale prefixes: /tr/tr/... -> /tr/...
