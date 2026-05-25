@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { normalizeModel } from '@/lib/matching/code-normalization'
 import { Prisma } from '@prisma/client'
 import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
+import { ptproductNormalizedModelExpr } from '@/lib/sql/ptproduct-model'
 
 function buildDproductsTextFilter(q: string, pattern: string) {
   if (q.length < 2) return Prisma.empty
@@ -31,7 +32,7 @@ function buildProductsTextFilter(q: string, pattern: string) {
     OR p.model ILIKE ${pattern}
     OR p.ref_no ILIKE ${pattern}
     OR mfr.name ILIKE ${pattern}
-    ${normalizedQ ? Prisma.sql`OR p.normalized_model = ${normalizedQ}` : Prisma.empty}
+    ${normalizedQ ? Prisma.sql`OR ${ptproductNormalizedModelExpr} = ${normalizedQ}` : Prisma.empty}
   )`
 }
 
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
       const dproductsId = BigInt(dproductsIdStr)
 
       const barcodeHintFilter = q.length < 2
-        ? Prisma.sql`AND p.normalized_model IN (
+        ? Prisma.sql`AND ${ptproductNormalizedModelExpr} IN (
             SELECT DISTINCT norm FROM (
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_1, ''), '[^A-Z0-9]', '', 'gi')) AS norm
               FROM v0.dproducts WHERE id = ${dproductsId}

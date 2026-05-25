@@ -1,11 +1,15 @@
 import { Prisma } from '@prisma/client'
+import { extractStockCodeFromStokKodu } from '@/lib/admin/dproducts-part-no'
 import type { DinamikStockItem } from '@/lib/suppliers/dinamik-client'
 import { db } from '@/lib/db'
 
 const BATCH_SIZE = 400
 
 export type DproductDetailsRow = {
-  stock_code: string
+  /** Full stokKodu for joining v0.dproducts.stock_code. */
+  fullStockCode: string
+  /** Suffix after brand prefix, stored on dproduct_details.stock_code. */
+  stock_code: string | null
   price: number | null
   stock_qty: number | null
   campaign_rate: number | null
@@ -23,8 +27,11 @@ function mapItemToDetailsRow(item: DinamikStockItem): DproductDetailsRow {
       ? item.campaignRate
       : null
 
+  const fullStockCode = item.stokKodu.trim()
+
   return {
-    stock_code: item.stokKodu.trim(),
+    fullStockCode,
+    stock_code: extractStockCodeFromStokKodu(item.stokKodu),
     price: item.fiyat,
     stock_qty: stockQty,
     campaign_rate: campaignRate,
@@ -40,7 +47,7 @@ export async function batchUpsertDproductDetails(
 ): Promise<{ upserted: number; historyInserted: number }> {
   const rows = items
     .map((item) => mapItemToDetailsRow(item))
-    .filter((row) => row.stock_code.length > 0)
+    .filter((row) => row.fullStockCode.length > 0)
 
   if (rows.length === 0) return { upserted: 0, historyInserted: 0 }
   if (dryRun) return { upserted: rows.length, historyInserted: 0 }
@@ -50,7 +57,7 @@ export async function batchUpsertDproductDetails(
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
-    const stockCodes = batch.map((row) => row.stock_code)
+    const stockCodes = batch.map((row) => row.fullStockCode)
 
     const existing = await db.$queryRaw<
       Array<{
@@ -81,6 +88,7 @@ export async function batchUpsertDproductDetails(
     const values = batch.map(
       (row) =>
         Prisma.sql`(
+          ${row.fullStockCode},
           ${row.stock_code},
           ${row.price},
           ${row.stock_qty},
@@ -93,32 +101,33 @@ export async function batchUpsertDproductDetails(
     const count = await db.$executeRaw(Prisma.sql`
       INSERT INTO v0.dproduct_details (
         dproduct_id,
+        stock_code,
         price,
         stock_qty,
         campaign_rate,
         regional_stock,
         raw,
-        source,
         last_seen_at,
         updated_at
       )
       SELECT
         d.id,
+        v.stock_code,
         v.price,
         v.stock_qty,
         v.campaign_rate,
         v.regional_stock,
         v.raw,
-        'dinamik',
         NOW(),
         NOW()
       FROM (
         VALUES ${Prisma.join(values)})
-      ) AS v(stock_code, price, stock_qty, campaign_rate, regional_stock, raw)
+      ) AS v(full_stock_code, stock_code, price, stock_qty, campaign_rate, regional_stock, raw)
       INNER JOIN v0.dproducts d
         ON d.dbrands_id = ${dbrandsId}
-       AND d.stock_code = v.stock_code
+       AND d.stock_code = v.full_stock_code
       ON CONFLICT (dproduct_id) DO UPDATE SET
+        stock_code = EXCLUDED.stock_code,
         price = COALESCE(EXCLUDED.price, v0.dproduct_details.price),
         stock_qty = EXCLUDED.stock_qty,
         campaign_rate = EXCLUDED.campaign_rate,
@@ -131,7 +140,7 @@ export async function batchUpsertDproductDetails(
 
     const historyValues = batch
       .map((row) => {
-        const prev = existingByCode.get(row.stock_code)
+        const prev = existingByCode.get(row.fullStockCode)
         if (!prev) return null
         const priceChanged =
           row.price != null &&

@@ -4,7 +4,7 @@ import { approveDpmatchRows } from '@/lib/admin/dpmatch-normalized'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { DpmatchLinkError, linkDpmatchPair } from '@/lib/admin/dpmatch-link'
+import { linkDpmatchPair } from '@/lib/admin/dpmatch-link'
 
 export async function POST(request: NextRequest) {
   const auth = await getAdminAuth()
@@ -48,9 +48,6 @@ export async function POST(request: NextRequest) {
 
     return errorResponse({ status: 400, code: 'MISSING_INPUT', message: 'matchId veya (dproductsId + productId) gerekli.', context })
   } catch (error) {
-    if (error instanceof DpmatchLinkError) {
-      return errorResponse({ status: 409, code: error.code, message: error.message, context })
-    }
     console.error('[eslestirme:models:manual-match] Error:', error)
     return errorResponse({ status: 500, code: 'INTERNAL_ERROR', message: 'Manuel eşleştirme sırasında hata oluştu.', context })
   }

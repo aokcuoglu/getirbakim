@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
+import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dbrands-match-approve'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
@@ -199,6 +200,20 @@ export async function POST(request: NextRequest) {
         Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
       )
       return successResponse({ approved: result, message: `${result} eşleştirme onaylandı.` }, context)
+    }
+
+    if (action === 'bulk-approve-pt-only') {
+      const approved = await approvePendingPtOnlyDbrandsMatch()
+      return successResponse(
+        {
+          approved,
+          message:
+            approved > 0
+              ? `${approved} PT-only marka eşleştirmesi onaylandı (Dinamik karşılığı yok).`
+              : 'Onaylanacak bekleyen PT-only kayıt yok.',
+        },
+        context
+      )
     }
 
     return errorResponse({ status: 400, code: 'INVALID_ACTION', message: `Invalid action: ${action}`, context })

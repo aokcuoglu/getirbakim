@@ -45,6 +45,7 @@ const STATUS_LABELS: Record<string, string> = {
 const METHOD_LABELS: Record<string, string> = {
   EXACT_MATCH: 'Birebir Eşleşti',
   MANUAL: 'Manuel',
+  NO_BRAND_MATCH: 'Marka eşleşmesi yok',
 }
 
 export function createModelColumns(handlers: {

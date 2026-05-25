@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { deriveDproductsPartNo } from '../dproducts-part-no'
+import { deriveDproductsPartNo, extractStockCodeFromStokKodu } from '../dproducts-part-no'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,5 +22,23 @@ describe('dproducts-stock-sync', () => {
 describe('deriveDproductsPartNo', () => {
   it('uses suffix after first space in stock_code', () => {
     expect(deriveDproductsPartNo('BOSCH 0258017001')).toBe('0258017001')
+  })
+})
+
+describe('extractStockCodeFromStokKodu', () => {
+  it('extracts suffix after brand prefix', () => {
+    expect(extractStockCodeFromStokKodu('KRAFTVOLL 07040001')).toBe('07040001')
+  })
+
+  it('joins remainder when multiple spaces follow brand', () => {
+    expect(extractStockCodeFromStokKodu('BRAND ABC 123')).toBe('ABC 123')
+  })
+
+  it('returns full value when no space separator', () => {
+    expect(extractStockCodeFromStokKodu('07040001')).toBe('07040001')
+  })
+
+  it('returns null for non-string input', () => {
+    expect(extractStockCodeFromStokKodu(null)).toBeNull()
   })
 })

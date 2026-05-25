@@ -2,7 +2,7 @@
  * Backfill v0.dpmatch.normalized from linked product/dproduct data.
  *
  * Rules:
- * - product_id present (matched or PT-only): product.normalized_model || normalize(model)
+ * - product_id present (matched or PT-only): normalize(model)
  * - dproducts_id only (Dinamik-only approved): normalize(dproducts.part_no)
  *
  * Usage:

@@ -87,8 +87,8 @@ async function getParcaCatalogStats(): Promise<{
             OR p.url NOT LIKE 'http%'
         )::bigint AS broken_urls,
         COUNT(*) FILTER (
-          WHERE p.normalized_model IS NOT NULL
-            AND BTRIM(p.normalized_model) <> ''
+          WHERE p.model IS NOT NULL
+            AND BTRIM(p.model) <> ''
         )::bigint AS with_model
       FROM v0.ptproducts p
     `),

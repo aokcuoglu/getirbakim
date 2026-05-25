@@ -33,12 +33,22 @@ const METHOD_LABELS: Record<string, string> = {
   MANUAL: 'Manuel',
 }
 
+export type BrandMatchSide = 'paired' | 'dinamik_only' | 'pt_only' | 'empty'
+
+/** Which catalog side exists on the row (filter matchSide uses the missing side name). */
+export function getBrandMatchSide(row: BrandRow): BrandMatchSide {
+  const hasDinamik = Boolean(row.dinamikBrand?.trim())
+  const hasPt =
+    row.parcatedarikManufacturerId != null &&
+    Boolean(row.parcatedarikManufacturerName?.trim())
+  if (hasDinamik && hasPt) return 'paired'
+  if (hasDinamik) return 'dinamik_only'
+  if (hasPt) return 'pt_only'
+  return 'empty'
+}
+
 function isPaired(row: BrandRow): boolean {
-  return Boolean(
-    row.dinamikBrand?.trim() &&
-      row.parcatedarikManufacturerId != null &&
-      row.parcatedarikManufacturerName?.trim()
-  )
+  return getBrandMatchSide(row) === 'paired'
 }
 
 function isApprovedSingleSide(row: BrandRow): boolean {
@@ -96,14 +106,10 @@ export function createBrandsColumns(handlers: {
       header: () => <AdminTableHead>Marka Eşleşmesi</AdminTableHead>,
       cell: ({ row }) => {
         const r = row.original
-        const paired = isPaired(r)
-        const hasDinamik = Boolean(r.dinamikBrand?.trim())
-        const hasPt =
-          r.parcatedarikManufacturerId != null &&
-          Boolean(r.parcatedarikManufacturerName?.trim())
+        const side = getBrandMatchSide(r)
         const approvedSingleSide = isApprovedSingleSide(r)
 
-        if (paired) {
+        if (side === 'paired') {
           return (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -131,7 +137,7 @@ export function createBrandsColumns(handlers: {
           )
         }
 
-        if (hasDinamik && !hasPt) {
+        if (side === 'dinamik_only') {
           if (approvedSingleSide) {
             return (
               <Tooltip>
@@ -162,7 +168,7 @@ export function createBrandsColumns(handlers: {
           )
         }
 
-        if (hasPt && !hasDinamik) {
+        if (side === 'pt_only') {
           if (approvedSingleSide) {
             return (
               <Tooltip>

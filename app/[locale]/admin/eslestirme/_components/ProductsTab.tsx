@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { Check, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SortingState } from '@tanstack/react-table'
@@ -84,6 +84,7 @@ export function ProductsTab() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [isFetching, setIsFetching] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [, startTransition] = useTransition()
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const [filters, setFilters] = useState<ModelFilters>(DEFAULT_MODEL_FILTERS)
@@ -224,12 +225,62 @@ export function ProductsTab() {
 
   const handleGenerate = useCallback(() => {
     setGenerating(true)
-    fetch('/api/admin/eslestirme/models', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: true })
-    }).then(r => r.json()).then(data => {
-      if (!data.error) { toast.success(data.message || 'Eşleştirmeler oluşturuldu'); void loadModels(filtersRef.current) }
-      else toast.error(data.error?.message || 'Oluşturma başarısız')
-    }).catch(() => toast.error('Oluşturma başarısız')).finally(() => setGenerating(false))
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'generate', apply: true }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Eşleştirmeler oluşturuldu')
+          void loadModels(filtersRef.current)
+        } else toast.error(data.error?.message || 'Oluşturma başarısız')
+      } catch {
+        toast.error('Oluşturma başarısız')
+      } finally {
+        setGenerating(false)
+      }
+    })
+  }, [loadModels])
+
+  const handleBulkApproveNoBrand = useCallback(() => {
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'bulk-approve-no-brand' }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || `${data.approved ?? 0} markasız kayıt onaylandı`)
+          void loadModels(filtersRef.current)
+        } else toast.error(data.error?.message || 'Markasız toplu onay başarısız')
+      } catch {
+        toast.error('Markasız toplu onay başarısız')
+      }
+    })
+  }, [loadModels])
+
+  const handlePopulateUnpairedBrands = useCallback(() => {
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'populate-unpaired-brands', apply: true }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Eşleşmemiş marka ürünleri eklendi')
+          void loadModels(filtersRef.current)
+        } else toast.error(data.error?.message || 'Eşleşmemiş marka populate başarısız')
+      } catch {
+        toast.error('Eşleşmemiş marka populate başarısız')
+      }
+    })
   }, [loadModels])
 
   const handleBulkApprove = useCallback(() => {
@@ -324,10 +375,12 @@ export function ProductsTab() {
 
   const columns = createModelColumns({
     onAction: handleAction,
-    onLinkProduct: () => {},
+    onLinkProduct: handleLink,
     onLinkDproducts: handleLink,
     onBulkApproveRows: () => {},
   })
+
+  const isEmptyCatalog = !initialLoading && summary?.total === 0
 
   const summaryCards = summary ? [
     { label: 'Toplam', value: summary.total, color: 'bg-muted-foreground' },
@@ -386,7 +439,29 @@ export function ProductsTab() {
         <Button variant="outline" size="sm" onClick={handleBulkApprove} disabled={selectedCount === 0}>
           <Check className="mr-1.5 h-3.5 w-3.5" /> Seçilenleri Onayla ({selectedCount})
         </Button>
+        <Button variant="outline" size="sm" onClick={handleBulkApproveNoBrand}>
+          Markasız Kayıtları Onayla
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handlePopulateUnpairedBrands}
+          title="Onaylı eşleşmiş marka çifti olmayan ürünleri tek taraflı APPROVED olarak ekle"
+        >
+          Eşleşmemiş Marka Ürünleri Ekle
+        </Button>
       </div>
+
+      {isEmptyCatalog && (
+        <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+          <p className="font-medium text-foreground">Henüz ürün eşleştirmesi yok</p>
+          <p className="mt-1">
+            Onaylı ve eşleşmiş marka çiftlerine göre{' '}
+            <span className="font-mono text-xs">part_no = model</span> kuralıyla otomatik eşleştirme yapılır.
+            &quot;Populate &amp; Eşleştir&quot; ile başlatın; büyük kataloglarda işlem birkaç dakika sürebilir.
+          </p>
+        </div>
+      )}
 
       <div className="rounded-md border border-border bg-card p-4">
         <AdminTableToolbar
@@ -461,7 +536,7 @@ export function ProductsTab() {
         onSortingChange={handleSortingChange}
         rowSelection={rowSelection}
         onRowSelectionChange={setRowSelection}
-        emptyMessage="Eşleştirme bulunamadı"
+        emptyMessage={isEmptyCatalog ? 'Ürün eşleştirmesi bulunamadı — Populate & Eşleştir ile başlatın' : 'Eşleştirme bulunamadı'}
       />
 
       <Dialog open={linkOpen} onOpenChange={(open) => {

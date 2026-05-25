@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
+import { approveDpmatchRows, approvePendingDpmatchWithoutBrandMatch } from '@/lib/admin/dpmatch-normalized'
+import { insertApprovedDpmatchForUnpairedBrands, populateDpmatch } from '@/lib/admin/dpmatch-populate'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+
+export const maxDuration = 300
 import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
 import {
   dproductDetailsJoin,
@@ -164,13 +168,64 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}))
-    const apply = body.apply === true
-    const env = Object.assign({}, process.env, { APPLY: apply ? 'true' : 'false' } as Record<string, string>)
-    const { exec } = await import('child_process')
-    const { promisify } = await import('util')
-    const execAsync = promisify(exec)
-    const { stdout: result } = await execAsync('bun scripts/generate-dinamik-parcatedarik-model-matches.ts', { env: env as NodeJS.ProcessEnv, timeout: 300_000, encoding: 'utf-8' })
-    return successResponse({ message: apply ? 'Eşleştirmeler oluşturuldu.' : 'Kuru çalışma tamamlandı.', apply, output: result.slice(-3000) }, context)
+    const action = body?.action ?? (body?.apply != null ? 'generate' : null)
+
+    if (action === 'bulk-approve') {
+      const ids: number[] = body?.ids ?? []
+      if (ids.length === 0 || ids.length > 500) {
+        return errorResponse({ status: 400, code: 'INVALID_IDS', message: '1-500 ID gerekli.', context })
+      }
+      const approved = await approveDpmatchRows(ids, { onlyPending: true })
+      return successResponse({ approved, message: `${approved} eşleştirme onaylandı.` }, context)
+    }
+
+    if (action === 'bulk-approve-no-brand') {
+      const approved = await approvePendingDpmatchWithoutBrandMatch()
+      return successResponse(
+        {
+          approved,
+          message:
+            approved > 0
+              ? `${approved} markasız ürün eşleştirmesi onaylandı (karşı platform yok).`
+              : 'Onaylanacak bekleyen markasız kayıt yok.',
+        },
+        context
+      )
+    }
+
+    if (action === 'populate-unpaired-brands') {
+      const apply = body?.apply === true
+      const stats = await insertApprovedDpmatchForUnpairedBrands({ apply })
+      return successResponse(
+        {
+          apply,
+          stats,
+          message: apply
+            ? `${stats.unpairedDproductInserted} Dinamik-only, ${stats.unpairedProductInserted} PT-only eşleştirme eklendi.`
+            : `${stats.unpairedDproductCandidates} Dinamik-only, ${stats.unpairedProductCandidates} PT-only eklenebilir.`,
+        },
+        context
+      )
+    }
+
+    if (action === 'generate' || body?.apply != null) {
+      const apply = body?.apply === true
+      const stats = await populateDpmatch({
+        apply,
+        includePlaceholders: body?.includePlaceholders !== false,
+        cleanInvalid: body?.cleanInvalid === true,
+      })
+      return successResponse(
+        {
+          message: apply ? 'Eşleştirmeler oluşturuldu.' : 'Kuru çalışma tamamlandı.',
+          apply,
+          stats,
+        },
+        context
+      )
+    }
+
+    return errorResponse({ status: 400, code: 'INVALID_ACTION', message: `Invalid action: ${String(action)}`, context })
   } catch (error) {
     console.error('[eslestirme:models:generate] Error:', error)
     return errorResponse({ status: 500, code: 'GENERATE_FAILED', message: 'Eşleştirme oluşturma başarısız.', context })

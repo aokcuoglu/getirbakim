@@ -1,198 +1,68 @@
 /**
- * Populate v0.dpmatch with individual dproducts and product rows
- * (not cross-join pairs). Each dproduct and product gets one row.
- * EXACT_MATCH updates the dproduct placeholder row in place.
+ * Populate v0.dpmatch under approved paired dbrands_match rows.
+ *
+ * Rules:
+ * - Brand prerequisite: dbrands_match with BOTH dbrands_id AND ptbrands_id, APPROVED
+ * - Auto-match: normalized(dproducts.part_no) = normalized(ptproducts.model)
+ * - Optional placeholders for unmatched products under paired brands (PLACEHOLDERS=false to skip)
  *
  * Usage:
+ *   bun scripts/generate-dinamik-parcatedarik-model-matches.ts          # dry-run counts
  *   APPLY=true bun scripts/generate-dinamik-parcatedarik-model-matches.ts
+ *   APPLY=true CLEAN=true bun scripts/generate-dinamik-parcatedarik-model-matches.ts
+ *   APPLY=true PLACEHOLDERS=false bun scripts/generate-dinamik-parcatedarik-model-matches.ts
+ *
+ * Repopulate strategy for legacy rows (~522k placeholders from old logic):
+ *   1. Dry-run to see exact match candidate count
+ *   2. APPLY=true CLEAN=true PLACEHOLDERS=false  — exact matches only, drop invalid rows
+ *   3. APPLY=true PLACEHOLDERS=true              — add pending rows for manual review
  */
 
 import 'dotenv/config'
 import { db } from '../lib/db'
-import { Prisma } from '@prisma/client'
-import { normalizeModel } from '../lib/matching/code-normalization'
-import { applyExactDpmatchLinks } from '../lib/admin/dpmatch-link'
-import {
-  approvePendingDpmatchWithoutBrandMatch,
-  insertApprovedDpmatchForUnmatchedBrands,
-} from '../lib/admin/dpmatch-normalized'
+import { populateDpmatch } from '../lib/admin/dpmatch-populate'
 
 const DRY_RUN = process.env.APPLY !== 'true'
-const BATCH_SIZE = 500
-
-interface Stats {
-  brandMatches: number
-  dproductRows: number
-  productRows: number
-  exactMatches: number
-  exactUpdated: number
-  orphanRowsDeleted: number
-  inserted: number
-  skipped: number
-  unmatchedBrandDproductRows: number
-  unmatchedBrandProductRows: number
-  unmatchedBrandApproved: number
-}
+const CLEAN = process.env.CLEAN === 'true'
+const PLACEHOLDERS = process.env.PLACEHOLDERS !== 'false'
 
 async function main() {
-  console.log('[generate-dpmatch] Populate dpmatch — tekil approach')
+  console.log('[generate-dpmatch] Populate dpmatch — paired brands, part_no = model')
   console.log(`[generate-dpmatch] MODE = ${DRY_RUN ? 'DRY_RUN' : 'APPLY'}`)
+  console.log(`[generate-dpmatch] CLEAN invalid rows = ${CLEAN}`)
+  console.log(`[generate-dpmatch] PLACEHOLDERS = ${PLACEHOLDERS}`)
   console.log()
 
-  const stats: Stats = {
-    brandMatches: 0,
-    dproductRows: 0,
-    productRows: 0,
-    exactMatches: 0,
-    exactUpdated: 0,
-    orphanRowsDeleted: 0,
-    inserted: 0,
-    skipped: 0,
-    unmatchedBrandDproductRows: 0,
-    unmatchedBrandProductRows: 0,
-    unmatchedBrandApproved: 0,
-  }
-
-  const brandMatchRows = await db.$queryRaw<
-    Array<{ dinamik_brand: string; ptbrands_id: number }>
-  >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, bm.ptbrands_id
-    FROM v0.dbrands_match bm
-    INNER JOIN v0.dbrands db ON db.id = bm.dbrands_id
-    WHERE bm.mapping_status = 'APPROVED'
-    ORDER BY db.brand
-  `)
-  stats.brandMatches = brandMatchRows.length
-  console.log(`[generate-dpmatch] ${stats.brandMatches} approved brand matches`)
-
-  const exactLinks: Array<{ dproductsId: bigint; productId: number; normalized: string }> = []
-
-  if (brandMatchRows.length > 0) {
-  let idx = 0
-  for (const bm of brandMatchRows) {
-    idx++
-    if (idx % 100 === 0) console.log(`[generate-dpmatch] Processing ${idx}/${stats.brandMatches}...`)
-
-    const dproducts = await db.$queryRaw<
-      Array<{ id: bigint; part_no: string | null; barcode_1: string | null; barcode_2: string | null; barcode_3: string | null }>
-    >(Prisma.sql`
-      SELECT d.id, d.part_no, d.barcode_1, d.barcode_2, d.barcode_3
-      FROM v0.dproducts d
-      INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
-      WHERE BTRIM(LOWER(db.brand)) = BTRIM(LOWER(${bm.dinamik_brand}))
-    `)
-
-    const products = await db.$queryRaw<
-      Array<{ id: number; model: string | null; normalized_model: string | null }>
-    >(Prisma.sql`
-      SELECT id, model, normalized_model
-      FROM v0.ptproducts
-      WHERE ptbrands_id = ${bm.ptbrands_id}
-    `)
-
-    if (dproducts.length === 0 && products.length === 0) continue
-
-    const dpValues: string[] = []
-    for (const dp of dproducts) {
-      dpValues.push(`(${dp.id}, NULL, 'PENDING')`)
-      stats.dproductRows++
-    }
-    if (dpValues.length > 0) {
-      await batchInsert(
-        dpValues,
-        stats,
-        'INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status) VALUES ',
-        'ON CONFLICT (dproducts_id) WHERE dproducts_id IS NOT NULL DO NOTHING'
-      )
-    }
-
-    const pValues: string[] = []
-    for (const p of products) {
-      pValues.push(`(NULL, ${p.id}, 'PENDING')`)
-      stats.productRows++
-    }
-    if (pValues.length > 0) {
-      await batchInsert(
-        pValues,
-        stats,
-        'INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status) VALUES ',
-        'ON CONFLICT (ptproducts_id) WHERE ptproducts_id IS NOT NULL DO NOTHING'
-      )
-    }
-
-    for (const dp of dproducts) {
-      const normFields = [
-        dp.part_no ? normalizeModel(dp.part_no) : '',
-        dp.barcode_1 ? normalizeModel(dp.barcode_1) : '',
-        dp.barcode_2 ? normalizeModel(dp.barcode_2) : '',
-        dp.barcode_3 ? normalizeModel(dp.barcode_3) : '',
-      ]
-      let matched = false
-      for (const p of products) {
-        if (matched) break
-        const productModel = p.normalized_model || (p.model ? normalizeModel(p.model) : '')
-        if (!productModel) continue
-        for (const nf of normFields) {
-          if (nf && nf === productModel) {
-            exactLinks.push({ dproductsId: dp.id, productId: p.id, normalized: nf })
-            stats.exactMatches++
-            matched = true
-            break
-          }
-        }
-      }
-    }
-  }
-  }
-
-  if (!DRY_RUN && exactLinks.length > 0) {
-    for (let i = 0; i < exactLinks.length; i += BATCH_SIZE) {
-      const batch = exactLinks.slice(i, i + BATCH_SIZE)
-      const result = await applyExactDpmatchLinks(batch)
-      stats.exactUpdated += result.updated
-      stats.orphanRowsDeleted += result.deletedOrphans
-    }
-  }
-
-  if (!DRY_RUN) {
-    const unmatchedInsert = await insertApprovedDpmatchForUnmatchedBrands()
-    stats.unmatchedBrandDproductRows = unmatchedInsert.dproductRows
-    stats.unmatchedBrandProductRows = unmatchedInsert.productRows
-    stats.unmatchedBrandApproved = await approvePendingDpmatchWithoutBrandMatch()
-  }
+  const stats = await populateDpmatch({
+    apply: !DRY_RUN,
+    includePlaceholders: PLACEHOLDERS,
+    cleanInvalid: CLEAN,
+    onProgress: (message) => console.log(message.replace('[dpmatch-populate]', '[generate-dpmatch]')),
+  })
 
   console.log()
   console.log('=== Summary ===')
-  console.log(`  Brand matches:       ${stats.brandMatches}`)
-  console.log(`  Dproduct rows:       ${stats.dproductRows}`)
-  console.log(`  Product rows:        ${stats.productRows}`)
-  console.log(`  Exact matches:       ${stats.exactMatches}`)
-  if (!DRY_RUN) console.log(`  Exact updated:       ${stats.exactUpdated}`)
-  if (!DRY_RUN) console.log(`  Orphan rows deleted: ${stats.orphanRowsDeleted}`)
-  if (!DRY_RUN) console.log(`  Unmatched dproduct:  ${stats.unmatchedBrandDproductRows}`)
-  if (!DRY_RUN) console.log(`  Unmatched product:   ${stats.unmatchedBrandProductRows}`)
-  if (!DRY_RUN) console.log(`  Unmatched approved:  ${stats.unmatchedBrandApproved}`)
-  if (!DRY_RUN) console.log(`  Inserted:            ${stats.inserted}`)
-  if (!DRY_RUN) console.log(`  Skipped:             ${stats.skipped}`)
-  console.log(`  Total placeholders:  ${stats.dproductRows + stats.productRows}`)
+  console.log(`  Paired brand matches:  ${stats.brandMatches}`)
+  console.log(`  Exact match candidates: ${stats.exactMatchCandidates}`)
+  if (!DRY_RUN) {
+    console.log(`  Exact inserted:        ${stats.exactMatchesInserted}`)
+    console.log(`  Exact updated:         ${stats.exactMatchesUpdated}`)
+    console.log(`  Orphan rows deleted:   ${stats.orphanRowsDeleted}`)
+    if (CLEAN) console.log(`  Invalid rows deleted:  ${stats.invalidRowsDeleted}`)
+    if (PLACEHOLDERS) {
+      console.log(`  Dinamik placeholders:  ${stats.dproductPlaceholders}`)
+      console.log(`  PT placeholders:       ${stats.productPlaceholders}`)
+      console.log(`  Placeholders inserted: ${stats.inserted}`)
+    }
+  } else if (PLACEHOLDERS) {
+    console.log(`  Would add Dinamik placeholders: ${stats.dproductPlaceholders}`)
+    console.log(`  Would add PT placeholders:      ${stats.productPlaceholders}`)
+  }
   console.log('[generate-dpmatch] Done.')
   await db.$disconnect()
 }
 
-async function batchInsert(values: string[], stats: Stats, prefix: string, suffix: string) {
-  if (DRY_RUN) return
-  for (let i = 0; i < values.length; i += BATCH_SIZE) {
-    const batch = values.slice(i, i + BATCH_SIZE)
-    const sql = `${prefix} ${batch.join(', ')} ${suffix}`
-    try {
-      const result = await db.$executeRawUnsafe(sql)
-      stats.inserted += result
-      stats.skipped += batch.length - result
-    } catch (e) {
-      console.error(`  Batch error:`, String(e).slice(0, 300))
-      console.error(`  SQL sample: ${sql.slice(0, 200)}`)
-    }
-  }
-}
-
-main().catch(err => { console.error('[generate-dpmatch] Fatal:', err); process.exit(1) })
+main().catch((err) => {
+  console.error('[generate-dpmatch] Fatal:', err)
+  process.exit(1)
+})

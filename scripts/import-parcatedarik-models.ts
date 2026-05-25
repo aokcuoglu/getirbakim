@@ -2,10 +2,7 @@
  * Import MODEL column from CSV into v0.ptproducts
  *
  * Matches CSV.id to v0.ptproducts.id and updates:
- *   model            = CSV.MODEL (raw)
- *   normalized_model = normalizeModel(CSV.MODEL)
- *   model_imported_at = now()
- *   model_source     = 'PARCATEDARIK_CSV_MODEL'
+ *   model = CSV.MODEL (raw)
  *
  * Usage:
  *   DRY_RUN=true  CSV_PATH=/path/to/parca_tedarik.csv bun scripts/import-parcatedarik-models.ts
@@ -183,7 +180,7 @@ async function main() {
 
   stats.rowsWouldUpdate = updates.length
 
-  // Compute duplicate normalized_model counts
+  // Compute duplicate normalized model counts (from raw model values)
   const normalizedCounts = new Map<string, number>()
   for (const u of updates) {
     if (u.normalizedModel) {
@@ -231,18 +228,13 @@ async function main() {
     const batch = updates.slice(i, i + BATCH_SIZE)
     const valuesClauses = batch.map(u => {
       const modelEscaped = escapeSqlString(u.model)
-      const normalizedEscaped = u.normalizedModel ? `'${escapeSqlString(u.normalizedModel)}'` : 'NULL'
-      return `(${u.id}, '${modelEscaped}', ${normalizedEscaped})`
+      return `(${u.id}, '${modelEscaped}')`
     })
 
     const sql = `
       UPDATE v0.ptproducts AS p
-      SET
-        model = v.model,
-        normalized_model = v.normalized_model,
-        model_imported_at = now(),
-        model_source = 'PARCATEDARIK_CSV_MODEL'
-      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, model, normalized_model)
+      SET model = v.model
+      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, model)
       WHERE p.id = v.id
     `
 
@@ -267,38 +259,50 @@ async function main() {
     `SELECT COUNT(*) AS count FROM v0.ptproducts WHERE model IS NOT NULL AND model <> ''`
   console.log(`  Products with model: ${withModel[0].count}`)
 
-  const withNormalizedModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''`
-  console.log(`  Products with normalized_model: ${withNormalizedModel[0].count}`)
+  const normalizedModelSubquery = `
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    FROM v0.ptproducts
+    WHERE model IS NOT NULL AND BTRIM(model) <> ''
+  `
+
+  const withNormalizedModel = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.sql`
+      SELECT COUNT(*) AS count FROM (${Prisma.raw(normalizedModelSubquery)}) sub WHERE sub.norm IS NOT NULL
+    `
+  )
+  console.log(`  Distinct normalized models: ${withNormalizedModel[0].count}`)
 
   const duplicateModels = await db.$queryRaw<
-    Array<{ normalized_model: string; count: bigint }>
-  >`
-    SELECT normalized_model, COUNT(*) AS count
-    FROM v0.ptproducts
-    WHERE normalized_model IS NOT NULL
-    GROUP BY normalized_model
+    Array<{ norm: string; count: bigint }>
+  >(Prisma.sql`
+    SELECT sub.norm, COUNT(*) AS count
+    FROM v0.ptproducts p
+    CROSS JOIN LATERAL (
+      SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    ) sub
+    WHERE sub.norm IS NOT NULL
+    GROUP BY sub.norm
     HAVING COUNT(*) > 1
     ORDER BY count DESC
     LIMIT 20
-  `
-  console.log('  Duplicate normalized_model values (top 20):')
+  `)
+  console.log('  Duplicate normalized model values (top 20):')
   for (const d of duplicateModels) {
-    console.log(`    ${d.normalized_model}: ${d.count}`)
+    console.log(`    ${d.norm}: ${d.count}`)
   }
 
   const recentUpdates = await db.$queryRaw<
-    Array<{ id: number; product_id: string; model: string | null; normalized_model: string | null; title: string }>
+    Array<{ id: number; product_id: string; model: string | null; title: string }>
   >`
-    SELECT id, product_id, model, normalized_model, title
+    SELECT id, product_id, model, title
     FROM v0.ptproducts
-    WHERE model_source = 'PARCATEDARIK_CSV_MODEL'
-    ORDER BY model_imported_at DESC
+    WHERE model IS NOT NULL AND model <> ''
+    ORDER BY updated_at DESC NULLS LAST
     LIMIT 20
   `
   console.log('  Recent updates (sample):')
   for (const r of recentUpdates) {
-    console.log(`    id=${r.id} product_id=${r.product_id} model="${r.model}" normalized="${r.normalized_model}" title="${r.title.slice(0, 50)}"`)
+    console.log(`    id=${r.id} product_id=${r.product_id} model="${r.model}" title="${r.title.slice(0, 50)}"`)
   }
 
   // Phase 6: Dinamik barcode match potential report
@@ -313,40 +317,54 @@ async function main() {
     `SELECT COUNT(*) AS count FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id WHERE spr.code ILIKE '%dinamik%' AND (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> '' OR sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> '' OR sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> '')`
   console.log(`  Dinamik products with any barcode: ${dinWithBarcode[0].count}`)
 
-  const bar1Match = await db.$queryRaw<Array<{ count: bigint }>>`
+  const ptNormalizedModelsSubquery = `
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    FROM v0.ptproducts
+    WHERE model IS NOT NULL AND BTRIM(model) <> ''
+  `
+  const ptModelNormExpr = `NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')`
+
+  const bar1Match = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(DISTINCT sp.id) AS count
     FROM supplier_products sp
     JOIN supplier_providers spr ON sp.provider_id = spr.id
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
-      )`
+        SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
+      )`)
+  )
   console.log(`  Matches via barcode_1: ${bar1Match[0].count}`)
 
-  const bar2Match = await db.$queryRaw<Array<{ count: bigint }>>`
+  const bar2Match = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(DISTINCT sp.id) AS count
     FROM supplier_products sp
     JOIN supplier_providers spr ON sp.provider_id = spr.id
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
-      )`
+        SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
+      )`)
+  )
   console.log(`  Matches via barcode_2: ${bar2Match[0].count}`)
 
-  const bar3Match = await db.$queryRaw<Array<{ count: bigint }>>`
+  const bar3Match = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(DISTINCT sp.id) AS count
     FROM supplier_products sp
     JOIN supplier_providers spr ON sp.provider_id = spr.id
     WHERE spr.code ILIKE '%dinamik%'
       AND sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
       AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) IN (
-        SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
-      )`
+        SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
+      )`)
+  )
   console.log(`  Matches via barcode_3: ${bar3Match[0].count}`)
 
-  const combinedMatch = await db.$queryRaw<Array<{ count: bigint }>>`
+  const combinedMatch = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(DISTINCT sp.id) AS count
     FROM supplier_products sp
     JOIN supplier_providers spr ON sp.provider_id = spr.id
@@ -354,63 +372,68 @@ async function main() {
       AND (
         (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
           ))
         OR
         (sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
           ))
         OR
         (sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) IN (
-            SELECT DISTINCT normalized_model FROM v0.ptproducts WHERE normalized_model IS NOT NULL AND normalized_model <> ''
+            SELECT norm FROM (${ptNormalizedModelsSubquery}) sub WHERE norm IS NOT NULL
           ))
-      )`
+      )`)
+  )
   console.log(`  Distinct Dinamik products matched: ${combinedMatch[0].count}`)
 
-  const ptMatched = await db.$queryRaw<Array<{ count: bigint }>>`
+  const ptMatched = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(DISTINCT p.id) AS count
     FROM v0.ptproducts p
-    WHERE p.normalized_model IS NOT NULL AND p.normalized_model <> ''
+    WHERE ${ptModelNormExpr} IS NOT NULL
       AND (
         EXISTS (SELECT 1 FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id
                 WHERE spr.code ILIKE '%dinamik%'
                   AND sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
-                  AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
+                  AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
         OR
         EXISTS (SELECT 1 FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id
                 WHERE spr.code ILIKE '%dinamik%'
                   AND sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
-                  AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
+                  AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
         OR
         EXISTS (SELECT 1 FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id
                 WHERE spr.code ILIKE '%dinamik%'
                   AND sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
-                  AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
-      )`
+                  AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
+      )`)
+  )
   console.log(`  Distinct ParçaTedarik products matched: ${ptMatched[0].count}`)
 
-  const ambiguous = await db.$queryRaw<Array<{ count: bigint }>>`
+  const ambiguous = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.raw(`
     SELECT COUNT(*) AS count FROM (
       SELECT sp.id AS din_id, COUNT(DISTINCT p.id) AS pt_count
       FROM supplier_products sp
       JOIN supplier_providers spr ON sp.provider_id = spr.id
       JOIN v0.ptproducts p ON (
         (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
-          AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
+          AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
         OR
         (sp.barcode_2 IS NOT NULL AND sp.barcode_2 <> ''
-          AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
+          AND UPPER(REGEXP_REPLACE(sp.barcode_2, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
         OR
         (sp.barcode_3 IS NOT NULL AND sp.barcode_3 <> ''
-          AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) = p.normalized_model)
+          AND UPPER(REGEXP_REPLACE(sp.barcode_3, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
       )
       WHERE spr.code ILIKE '%dinamik%'
-        AND p.normalized_model IS NOT NULL AND p.normalized_model <> ''
+        AND ${ptModelNormExpr} IS NOT NULL
       GROUP BY sp.id
       HAVING COUNT(DISTINCT p.id) > 1
-    ) sub`
+    ) sub`)
+  )
   console.log(`  Ambiguous matches (1 Dinamik -> 2+ PT): ${ambiguous[0].count}`)
 
   console.log()

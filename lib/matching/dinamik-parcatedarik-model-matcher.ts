@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { ptproductNormalizedModelExpr } from '@/lib/sql/ptproduct-model'
 import { Prisma } from '@prisma/client'
 import { normalizeModel } from './code-normalization'
 
@@ -133,15 +134,14 @@ export async function findDinamikParcatedarikModelCandidates(
       Array<{
         id: number
         model: string | null
-        normalized_model: string | null
         ptbrands_id: number
       }>
     >(Prisma.sql`
-      SELECT p.id, p.model, p.normalized_model, p.ptbrands_id
+      SELECT p.id, p.model, p.ptbrands_id
       FROM v0.ptproducts p
-      WHERE p.normalized_model = ${normalizedValue}
-        AND p.normalized_model IS NOT NULL
-        AND p.normalized_model <> ''
+      WHERE ${ptproductNormalizedModelExpr} = ${normalizedValue}
+        AND p.model IS NOT NULL
+        AND BTRIM(p.model) <> ''
       LIMIT 50
     `)
 
@@ -187,7 +187,7 @@ export async function findDinamikParcatedarikModelCandidates(
         dinamikBarcodeValue: value,
         normalizedBarcodeValue: normalizedValue,
         parcatedarikModel: pt.model || '',
-        normalizedModel: pt.normalized_model || normalizedValue,
+        normalizedModel: normalizeModel(pt.model) || normalizedValue,
         matchReason,
         confidence,
         status: 'CANDIDATE'
@@ -221,7 +221,7 @@ export async function findDinamikParcatedarikModelCandidates(
             dinamikBarcodeValue: value,
             normalizedBarcodeValue: normalizedValue,
             parcatedarikModel: disambiguatedPt.model || '',
-            normalizedModel: disambiguatedPt.normalized_model || normalizedValue,
+            normalizedModel: normalizeModel(disambiguatedPt.model) || normalizedValue,
             matchReason,
             confidence,
             status: 'CANDIDATE'
@@ -246,7 +246,7 @@ export async function findDinamikParcatedarikModelCandidates(
             dinamikBarcodeValue: value,
             normalizedBarcodeValue: normalizedValue,
             parcatedarikModel: pt.model || '',
-            normalizedModel: pt.normalized_model || normalizedValue,
+            normalizedModel: normalizeModel(pt.model) || normalizedValue,
             matchReason: 'MULTIPLE_PARCA_MODEL_MATCHES',
             confidence,
             status: 'NEEDS_REVIEW'
@@ -282,7 +282,7 @@ export async function findDinamikParcatedarikModelCandidates(
             dinamikBarcodeValue: value,
             normalizedBarcodeValue: normalizedValue,
             parcatedarikModel: pt.model || '',
-            normalizedModel: pt.normalized_model || normalizedValue,
+            normalizedModel: normalizeModel(pt.model) || normalizedValue,
             matchReason: 'MULTIPLE_PARCA_MODEL_MATCHES',
             confidence,
             status: 'NEEDS_REVIEW'

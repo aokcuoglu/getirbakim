@@ -1,96 +1,48 @@
 /**
- * PT-only rows (Dinamik bekliyor): create dbrands from manufacturer name and APPROVE match.
+ * Approve PT-only dbrands_match rows (Dinamik bekliyor) without linking dbrands_id.
  *
- *   DRY_RUN=true bun scripts/approve-pt-only-dbrands-match.ts
+ *   bun scripts/approve-pt-only-dbrands-match.ts
  *   APPLY=true bun scripts/approve-pt-only-dbrands-match.ts
  */
 
 import 'dotenv/config'
 import { Prisma } from '@prisma/client'
-import { resolveDbrandsIdsByBrand } from '../lib/admin/dbrands-id'
+import {
+  approvePendingPtOnlyDbrandsMatch,
+  countPendingPtOnlyDbrandsMatch,
+} from '../lib/admin/dbrands-match-approve'
 import { db } from '../lib/db'
 
 const APPLY = process.env.APPLY === 'true'
 
 async function main() {
-  const pending = await db.$queryRaw<
-    Array<{ id: number; ptbrands_id: number; manufacturer_name: string; normalized: string | null }>
-  >(Prisma.sql`
-    SELECT
-      a.id,
-      a.ptbrands_id,
-      m.name AS manufacturer_name,
-      a.normalized
-    FROM v0.dbrands_match a
-    INNER JOIN v0.ptbrands m ON m.id = a.ptbrands_id
-    WHERE a.dbrands_id IS NULL
-      AND a.ptbrands_id IS NOT NULL
-      AND a.mapping_status = 'PENDING'
-    ORDER BY a.id
-  `)
-
-  console.log(`[approve-pt-only] PENDING PT-only rows: ${pending.length}`)
-
-  const brandByMatchId = new Map<number, string>()
-  const uniqueBrands = new Set<string>()
-
-  for (const row of pending) {
-    const brand =
-      row.normalized?.trim() || row.manufacturer_name?.trim() || ''
-    if (!brand) continue
-    brandByMatchId.set(row.id, brand)
-    uniqueBrands.add(brand)
-  }
-
-  console.log(`[approve-pt-only] Distinct brand names: ${uniqueBrands.size}`)
+  const pending = await countPendingPtOnlyDbrandsMatch()
+  console.log(`[approve-pt-only] PENDING PT-only rows (dbrands_id NULL): ${pending}`)
 
   if (!APPLY) {
-    console.log('[approve-pt-only] DRY_RUN — APPLY=true ile uygulayın.')
-    console.log('Sample:', [...uniqueBrands].slice(0, 15))
+    console.log('[approve-pt-only] DRY_RUN — set APPLY=true to approve.')
     return
   }
 
-  const idByBrand = await resolveDbrandsIdsByBrand([...uniqueBrands])
-  let updated = 0
-  let skipped = 0
-
-  for (const row of pending) {
-    const brand = brandByMatchId.get(row.id)
-    if (!brand) {
-      skipped++
-      continue
-    }
-    const dbrandsId = idByBrand.get(brand.trim().toLowerCase())
-    if (dbrandsId == null) {
-      skipped++
-      continue
-    }
-
-    await db.$executeRaw(Prisma.sql`
-      UPDATE v0.dbrands_match
-      SET
-        dbrands_id = ${dbrandsId},
-        mapping_status = 'APPROVED',
-        match_method = COALESCE(match_method, 'MANUAL')
-      WHERE id = ${row.id}
-        AND dbrands_id IS NULL
-        AND mapping_status = 'PENDING'
-    `)
-    updated++
-  }
+  const updated = await approvePendingPtOnlyDbrandsMatch()
 
   const [after] = await db.$queryRaw<
-    Array<{ pending_pt_only: number; approved_paired: number; dbrands_total: number }>
+    Array<{
+      pending_pt_only: number
+      approved_pt_only: number
+      approved_paired: number
+    }>
   >(Prisma.sql`
     SELECT
       (SELECT COUNT(*)::int FROM v0.dbrands_match
         WHERE dbrands_id IS NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'PENDING') AS pending_pt_only,
       (SELECT COUNT(*)::int FROM v0.dbrands_match
-        WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_paired,
-      (SELECT COUNT(*)::int FROM v0.dbrands) AS dbrands_total
+        WHERE dbrands_id IS NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_pt_only,
+      (SELECT COUNT(*)::int FROM v0.dbrands_match
+        WHERE dbrands_id IS NOT NULL AND ptbrands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_paired
   `)
 
-  console.log(`[approve-pt-only] Updated: ${updated}, skipped: ${skipped}`)
+  console.log(`[approve-pt-only] Approved: ${updated}`)
   console.log('[approve-pt-only] After:', after)
 }
 

@@ -11,3 +11,9 @@ export function deriveDproductsPartNo(stockCode: string): string | null {
 
   return trimmed
 }
+
+/** Dinamik raw stokKodu → stock code suffix (everything after first space). */
+export function extractStockCodeFromStokKodu(stokKodu: unknown): string | null {
+  if (typeof stokKodu !== 'string') return null
+  return deriveDproductsPartNo(stokKodu)
+}

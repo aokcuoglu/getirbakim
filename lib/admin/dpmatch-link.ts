@@ -15,92 +15,89 @@ export type DpmatchLinkResult = {
   action: 'updated' | 'inserted'
 }
 
-export class DpmatchLinkError extends Error {
-  constructor(
-    public readonly code: 'DPRODUCT_ALREADY_LINKED' | 'PRODUCT_ALREADY_LINKED',
-    message: string
-  ) {
-    super(message)
-    this.name = 'DpmatchLinkError'
-  }
-}
-
 /**
- * Link one Dinamik dproduct to one PT product in a single dpmatch row.
- * Merges placeholder rows instead of creating duplicates.
+ * Link one Dinamik dproduct to one PT product in a dpmatch row.
+ * Supports many ptproducts per dproduct (and many dproducts per ptproduct).
+ * Merges single-side placeholder rows when present; otherwise inserts a new pair row.
  */
 export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchLinkResult> {
   const status = input.mappingStatus ?? 'APPROVED'
   const method = input.matchMethod ?? 'MANUAL'
   const normalized = input.normalized ?? await resolveNormalizedForLink(input.dproductsId, input.productId)
 
-  const productRows = await db.$queryRaw<Array<{ id: number; dproducts_id: bigint | null }>>(
+  const existingPairRows = await db.$queryRaw<Array<{ id: number }>>(
     Prisma.sql`
-      SELECT id, dproducts_id
-      FROM v0.dpmatch
-      WHERE ptproducts_id = ${input.productId}
-      LIMIT 1
-    `
-  )
-  const productRow = productRows[0]
-
-  if (
-    productRow?.dproducts_id != null &&
-    productRow.dproducts_id !== input.dproductsId
-  ) {
-    throw new DpmatchLinkError(
-      'PRODUCT_ALREADY_LINKED',
-      'Bu PT ürünü başka bir Dinamik ürünle eşleşmiş.'
-    )
-  }
-
-  const dproductRows = await db.$queryRaw<Array<{ id: number; ptproducts_id: number | null }>>(
-    Prisma.sql`
-      SELECT id, ptproducts_id
+      SELECT id
       FROM v0.dpmatch
       WHERE dproducts_id = ${input.dproductsId}
+        AND ptproducts_id = ${input.productId}
       LIMIT 1
     `
   )
-  const dproductRow = dproductRows[0]
+  const existingPair = existingPairRows[0]
 
-  if (
-    dproductRow?.ptproducts_id != null &&
-    dproductRow.ptproducts_id !== input.productId
-  ) {
-    throw new DpmatchLinkError(
-      'DPRODUCT_ALREADY_LINKED',
-      'Bu Dinamik ürün başka bir PT ürünüyle eşleşmiş.'
-    )
+  if (existingPair) {
+    await db.$executeRaw(Prisma.sql`
+      UPDATE v0.dpmatch
+      SET mapping_status = ${status},
+          match_method = ${method},
+          normalized = COALESCE(${normalized}, normalized)
+      WHERE id = ${existingPair.id}
+    `)
+    return { id: existingPair.id, action: 'updated' }
   }
 
-  if (dproductRow) {
+  const dproductPlaceholderRows = await db.$queryRaw<Array<{ id: number }>>(
+    Prisma.sql`
+      SELECT id
+      FROM v0.dpmatch
+      WHERE dproducts_id = ${input.dproductsId}
+        AND ptproducts_id IS NULL
+      LIMIT 1
+    `
+  )
+  const dproductPlaceholder = dproductPlaceholderRows[0]
+
+  if (dproductPlaceholder) {
     await db.$executeRaw(Prisma.sql`
       UPDATE v0.dpmatch
       SET ptproducts_id = ${input.productId},
           mapping_status = ${status},
           match_method = ${method},
           normalized = COALESCE(${normalized}, normalized)
-      WHERE id = ${dproductRow.id}
+      WHERE id = ${dproductPlaceholder.id}
     `)
 
-    if (productRow && productRow.id !== dproductRow.id) {
-      await db.$executeRaw(Prisma.sql`DELETE FROM v0.dpmatch WHERE id = ${productRow.id}`)
-    }
+    await db.$executeRaw(Prisma.sql`
+      DELETE FROM v0.dpmatch
+      WHERE dproducts_id IS NULL
+        AND ptproducts_id = ${input.productId}
+    `)
 
-    return { id: dproductRow.id, action: 'updated' }
+    return { id: dproductPlaceholder.id, action: 'updated' }
   }
 
-  if (productRow) {
+  const productPlaceholderRows = await db.$queryRaw<Array<{ id: number }>>(
+    Prisma.sql`
+      SELECT id
+      FROM v0.dpmatch
+      WHERE ptproducts_id = ${input.productId}
+        AND dproducts_id IS NULL
+      LIMIT 1
+    `
+  )
+  const productPlaceholder = productPlaceholderRows[0]
+
+  if (productPlaceholder) {
     await db.$executeRaw(Prisma.sql`
       UPDATE v0.dpmatch
       SET dproducts_id = ${input.dproductsId},
           mapping_status = ${status},
           match_method = ${method},
           normalized = COALESCE(${normalized}, normalized)
-      WHERE id = ${productRow.id}
+      WHERE id = ${productPlaceholder.id}
     `)
-    return { id: productRow.id, action: 'updated' }
+    return { id: productPlaceholder.id, action: 'updated' }
   }
 
   const inserted = await db.$queryRaw<Array<{ id: number }>>(
@@ -118,41 +115,79 @@ export async function linkDpmatchPair(input: DpmatchLinkInput): Promise<DpmatchL
 }
 
 /**
- * Apply exact-match updates after populate inserts placeholder rows.
+ * Apply exact-match upserts for explicit pair links (used by batch tooling).
  */
 export async function applyExactDpmatchLinks(
   links: Array<{ dproductsId: bigint; productId: number; normalized: string }>
-): Promise<{ updated: number; deletedOrphans: number }> {
-  if (links.length === 0) return { updated: 0, deletedOrphans: 0 }
+): Promise<{ updated: number; inserted: number; deletedOrphans: number }> {
+  if (links.length === 0) return { updated: 0, inserted: 0, deletedOrphans: 0 }
 
   let updated = 0
+  let inserted = 0
   let deletedOrphans = 0
 
   for (const link of links) {
-    const dproductRows = await db.$queryRaw<Array<{ id: number }>>(
+    const existingPairRows = await db.$queryRaw<Array<{ id: number }>>(
       Prisma.sql`
-        UPDATE v0.dpmatch
-        SET ptproducts_id = ${link.productId},
-            normalized = ${link.normalized},
-            mapping_status = 'APPROVED',
-            match_method = 'EXACT_MATCH'
+        SELECT id
+        FROM v0.dpmatch
         WHERE dproducts_id = ${link.dproductsId}
-        RETURNING id
+          AND ptproducts_id = ${link.productId}
+        LIMIT 1
       `
     )
 
-    if (dproductRows.length > 0) {
+    if (existingPairRows.length > 0) {
+      await db.$executeRaw(Prisma.sql`
+        UPDATE v0.dpmatch
+        SET normalized = ${link.normalized},
+            mapping_status = 'APPROVED',
+            match_method = 'EXACT_MATCH'
+        WHERE id = ${existingPairRows[0]!.id}
+      `)
       updated += 1
-      const orphanDelete = await db.$executeRaw(
+    } else {
+      const placeholderRows = await db.$queryRaw<Array<{ id: number }>>(
         Prisma.sql`
-          DELETE FROM v0.dpmatch
-          WHERE dproducts_id IS NULL
-            AND ptproducts_id = ${link.productId}
+          SELECT id
+          FROM v0.dpmatch
+          WHERE dproducts_id = ${link.dproductsId}
+            AND ptproducts_id IS NULL
+          LIMIT 1
         `
       )
-      deletedOrphans += orphanDelete
+
+      if (placeholderRows.length > 0) {
+        await db.$executeRaw(Prisma.sql`
+          UPDATE v0.dpmatch
+          SET ptproducts_id = ${link.productId},
+              normalized = ${link.normalized},
+              mapping_status = 'APPROVED',
+              match_method = 'EXACT_MATCH'
+          WHERE id = ${placeholderRows[0]!.id}
+        `)
+        updated += 1
+      } else {
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO v0.dpmatch (
+            dproducts_id, ptproducts_id, mapping_status, match_method, normalized
+          ) VALUES (
+            ${link.dproductsId}, ${link.productId}, 'APPROVED', 'EXACT_MATCH', ${link.normalized}
+          )
+        `)
+        inserted += 1
+      }
     }
+
+    const orphanDelete = await db.$executeRaw(
+      Prisma.sql`
+        DELETE FROM v0.dpmatch
+        WHERE dproducts_id IS NULL
+          AND ptproducts_id = ${link.productId}
+      `
+    )
+    deletedOrphans += orphanDelete
   }
 
-  return { updated, deletedOrphans }
+  return { updated, inserted, deletedOrphans }
 }

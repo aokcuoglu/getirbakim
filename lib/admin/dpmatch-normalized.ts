@@ -1,9 +1,15 @@
 import { db } from '@/lib/db'
 import { normalizeModel } from '@/lib/matching/code-normalization'
+import {
+  dproductNotUnderPairedApprovedBrand,
+  ptproductNotUnderPairedApprovedBrand,
+  SINGLE_SIDE_APPROVED_MATCH_METHOD,
+} from '@/lib/sql/dpmatch-exact'
+import { insertApprovedDpmatchForUnpairedBrands } from '@/lib/admin/dpmatch-populate'
+import { ptproductNormalizedModelExpr } from '@/lib/sql/ptproduct-model'
 import { Prisma } from '@prisma/client'
 
 type ProductNormalizedSource = {
-  normalized_model: string | null
   model: string | null
 }
 
@@ -12,8 +18,6 @@ type DproductNormalizedSource = {
 }
 
 export function resolveProductNormalized(source: ProductNormalizedSource): string | null {
-  const fromColumn = source.normalized_model?.trim()
-  if (fromColumn) return fromColumn
   return normalizeModel(source.model)
 }
 
@@ -41,42 +45,16 @@ export function resolveDpmatchNormalized(input: {
 
 const NORMALIZED_VALUE_SQL = Prisma.sql`
   CASE
-    WHEN m.ptproducts_id IS NOT NULL THEN COALESCE(
-      NULLIF(BTRIM(p.normalized_model), ''),
-      NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')
-    )
+    WHEN m.ptproducts_id IS NOT NULL THEN ${ptproductNormalizedModelExpr}
     WHEN m.dproducts_id IS NOT NULL THEN
       NULLIF(UPPER(REGEXP_REPLACE(COALESCE(d.part_no, ''), '[^A-Z0-9]', '', 'gi')), '')
     ELSE NULL
   END
 `
 
-/** Dinamik brand linked to a PT manufacturer in dbrands_match (both sides set, APPROVED). */
-const DINAMIK_BRAND_HAS_APPROVED_MATCH = Prisma.sql`
-  EXISTS (
-    SELECT 1
-    FROM v0.dbrands_match bm
-    WHERE bm.dbrands_id = d.dbrands_id
-      AND bm.ptbrands_id IS NOT NULL
-      AND bm.mapping_status = 'APPROVED'
-  )
-`
+const NO_BRAND_MATCH_METHOD = SINGLE_SIDE_APPROVED_MATCH_METHOD
 
-/** PT manufacturer linked to a Dinamik brand in dbrands_match (both sides set, APPROVED). */
-const PT_MANUFACTURER_HAS_APPROVED_MATCH = Prisma.sql`
-  EXISTS (
-    SELECT 1
-    FROM v0.dbrands_match bm
-    WHERE bm.ptbrands_id = p.ptbrands_id
-      AND bm.ptbrands_id IS NOT NULL
-      AND bm.dbrands_id IS NOT NULL
-      AND bm.mapping_status = 'APPROVED'
-  )
-`
-
-const NO_BRAND_MATCH_METHOD = 'NO_BRAND_MATCH'
-
-/** Placeholder rows whose brand/manufacturer has no approved dbrands_match link. */
+/** Placeholder rows whose brand/manufacturer has no approved paired dbrands_match link. */
 const UNMATCHED_BRAND_DPMATCH_FILTER = Prisma.sql`
   m.mapping_status = 'PENDING'
   AND (
@@ -84,13 +62,13 @@ const UNMATCHED_BRAND_DPMATCH_FILTER = Prisma.sql`
       m.dproducts_id IS NOT NULL
       AND m.ptproducts_id IS NULL
       AND d.dbrands_id IS NOT NULL
-      AND NOT ${DINAMIK_BRAND_HAS_APPROVED_MATCH}
+      AND ${dproductNotUnderPairedApprovedBrand}
     )
     OR (
       m.dproducts_id IS NULL
       AND m.ptproducts_id IS NOT NULL
       AND p.ptbrands_id IS NOT NULL
-      AND NOT ${PT_MANUFACTURER_HAS_APPROVED_MATCH}
+      AND ${ptproductNotUnderPairedApprovedBrand}
     )
   )
 `
@@ -203,77 +181,27 @@ export async function approvePendingDpmatchWithoutBrandMatch(): Promise<number> 
 }
 
 /**
- * Insert APPROVED dpmatch rows for Dinamik/PT products whose brand side is not
- * linked in dbrands_match yet.
+ * Insert APPROVED dpmatch rows for Dinamik/PT products whose brand side lacks
+ * an approved paired dbrands_match link.
  */
 export async function insertApprovedDpmatchForUnmatchedBrands(): Promise<{
   dproductRows: number
   productRows: number
 }> {
-  const dproductRows = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status, match_method, normalized)
-    SELECT
-      d.id,
-      NULL,
-      'APPROVED',
-      ${NO_BRAND_MATCH_METHOD},
-      NULLIF(UPPER(REGEXP_REPLACE(COALESCE(d.part_no, ''), '[^A-Z0-9]', '', 'gi')), '')
-    FROM v0.dproducts d
-    WHERE d.dbrands_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM v0.dbrands_match bm
-        WHERE bm.dbrands_id = d.dbrands_id
-          AND bm.ptbrands_id IS NOT NULL
-          AND bm.mapping_status = 'APPROVED'
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM v0.dpmatch m
-        WHERE m.dproducts_id = d.id
-      )
-    ON CONFLICT (dproducts_id) WHERE dproducts_id IS NOT NULL DO NOTHING
-  `)
-
-  const productRows = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.dpmatch (dproducts_id, ptproducts_id, mapping_status, match_method, normalized)
-    SELECT
-      NULL,
-      p.id,
-      'APPROVED',
-      ${NO_BRAND_MATCH_METHOD},
-      COALESCE(
-        NULLIF(BTRIM(p.normalized_model), ''),
-        NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')
-      )
-    FROM v0.ptproducts p
-    WHERE p.ptbrands_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM v0.dbrands_match bm
-        WHERE bm.ptbrands_id = p.ptbrands_id
-          AND bm.ptbrands_id IS NOT NULL
-          AND bm.dbrands_id IS NOT NULL
-          AND bm.mapping_status = 'APPROVED'
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM v0.dpmatch m
-        WHERE m.ptproducts_id = p.id
-      )
-    ON CONFLICT (ptproducts_id) WHERE ptproducts_id IS NOT NULL DO NOTHING
-  `)
-
-  return { dproductRows, productRows }
+  const stats = await insertApprovedDpmatchForUnpairedBrands({ apply: true })
+  return {
+    dproductRows: stats.unpairedDproductInserted,
+    productRows: stats.unpairedProductInserted,
+  }
 }
 
 export async function resolveNormalizedForLink(
   _dproductsId: bigint,
   productId: number
 ): Promise<string | null> {
-  const rows = await db.$queryRaw<Array<{ normalized_model: string | null; model: string | null }>>(
+  const rows = await db.$queryRaw<Array<{ model: string | null }>>(
     Prisma.sql`
-      SELECT p.normalized_model, p.model
+      SELECT p.model
       FROM v0.ptproducts p
       WHERE p.id = ${productId}
       LIMIT 1

@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
@@ -30,14 +31,18 @@ export interface AdminFormDialogProps {
   description?: ReactNode
   children: ReactNode
   onSave?: () => void
+  onClose?: () => void
   saveLabel?: string
+  closeLabel?: string
   savingLabel?: string
   isSaving?: boolean
   saveDisabled?: boolean
   formId?: string
   size?: AdminFormDialogSize
   showSave?: boolean
+  showClose?: boolean
   footer?: ReactNode
+  footerLayout?: 'stacked' | 'row'
   contentClassName?: string
   bodyClassName?: string
 }
@@ -49,18 +54,33 @@ export function AdminFormDialog({
   description,
   children,
   onSave,
+  onClose,
   saveLabel = 'Değişiklikleri Kaydet',
+  closeLabel = 'Kapat',
   savingLabel = 'Kaydediliyor...',
   isSaving = false,
   saveDisabled = false,
   formId,
   size = '3xl',
   showSave = true,
+  showClose = false,
   footer,
+  footerLayout = 'row',
   contentClassName,
   bodyClassName
 }: AdminFormDialogProps) {
-  const showFooter = Boolean(footer) || (showSave && onSave)
+  const handleClose = () => {
+    if (onClose) {
+      onClose()
+      return
+    }
+    onOpenChange(false)
+  }
+
+  const showFooter =
+    Boolean(footer) ||
+    (showClose && onOpenChange) ||
+    (showSave && onSave)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -90,24 +110,56 @@ export function AdminFormDialog({
         </div>
 
         {showFooter ? (
-          <div className="shrink-0 border-t border-border/60 px-5 py-3">
+          <div className="shrink-0 border-t border-border/60 px-5 py-4">
             {footer ?? (
-              <div className="flex justify-end">
-                <Button
-                  type={formId ? 'submit' : 'button'}
-                  form={formId}
-                  size="sm"
-                  className="h-8 rounded-md px-3"
-                  onClick={formId ? undefined : onSave}
-                  disabled={isSaving || saveDisabled}
-                  aria-label={isSaving ? savingLabel : saveLabel}
-                >
-                  {isSaving ? (
-                    <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                  ) : null}
-                  {isSaving ? savingLabel : saveLabel}
-                </Button>
-              </div>
+              <DialogFooter
+                className={cn(
+                  'gap-2 p-0',
+                  footerLayout === 'stacked'
+                    ? 'flex-col sm:flex-col'
+                    : 'flex-row flex-nowrap justify-end sm:flex-row'
+                )}
+              >
+                {showClose ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      'h-8 rounded-md transition-colors',
+                      footerLayout === 'stacked'
+                        ? 'w-full'
+                        : 'w-auto shrink-0 px-3'
+                    )}
+                    onClick={handleClose}
+                    disabled={isSaving}
+                    aria-label={closeLabel}
+                  >
+                    {closeLabel}
+                  </Button>
+                ) : null}
+                {showSave && onSave ? (
+                  <Button
+                    type={formId ? 'submit' : 'button'}
+                    form={formId}
+                    size="sm"
+                    className={cn(
+                      'h-8 rounded-md transition-all',
+                      footerLayout === 'stacked'
+                        ? 'w-full'
+                        : 'w-auto shrink-0 px-3'
+                    )}
+                    onClick={formId ? undefined : onSave}
+                    disabled={isSaving || saveDisabled}
+                    aria-label={isSaving ? savingLabel : saveLabel}
+                  >
+                    {isSaving ? (
+                      <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                    ) : null}
+                    {isSaving ? savingLabel : saveLabel}
+                  </Button>
+                ) : null}
+              </DialogFooter>
             )}
           </div>
         ) : null}

@@ -619,7 +619,10 @@ model dpmatch {
   dproducts       dproducts?   @relation(fields: [dproducts_id], references: [id], onDelete: Cascade)
   ptproduct       ptproducts?  @relation(fields: [ptproducts_id], references: [id], onDelete: Cascade)
 
-  // One row per dproducts_id / ptproducts_id enforced via partial unique indexes (see migration).
+  // Constraints (partial unique indexes, see migrations):
+  // - uq_dpmatch_pair: unique (dproducts_id, ptproducts_id) when both set — many pairs per product allowed
+  // - uq_dpmatch_dproducts_only: one dinamik-only row per dproducts_id
+  // - uq_dpmatch_ptproducts_only: one pt-only row per ptproducts_id
   @@index([ptproducts_id], name: "idx_dpmatch_ptproducts")
   @@index([dproducts_id], name: "idx_dpmatch_dproduct")
   @@index([mapping_status], name: "idx_dpmatch_status")
@@ -1002,9 +1005,6 @@ model ptproducts {
   image_url        String?
   ref_no           String?
   model            String?
-  normalized_model String?
-  model_imported_at DateTime?    @db.Timestamp(6)
-  model_source     String?
   price            Decimal?      @db.Decimal(10, 2)
   created_at       DateTime?     @default(now()) @db.Timestamp(6)
   updated_at       DateTime?     @default(now()) @db.Timestamp(6)
@@ -1015,7 +1015,6 @@ model ptproducts {
   @@index([ptbrands_id])
   @@index([product_id])
   @@index([model])
-  @@index([normalized_model])
   @@schema("v0")
 }
 
@@ -1054,18 +1053,19 @@ model dproducts {
 model dproduct_details {
   id              BigInt    @id @default(autoincrement())
   dproduct_id     BigInt    @unique
+  stock_code      String?
   price           Decimal?  @db.Decimal(10, 2)
   stock_qty       Int?
   campaign_rate   Decimal?  @db.Decimal(6, 3)
   regional_stock  Json?     @db.JsonB
   raw             Json      @db.JsonB
-  source          String    @default("dinamik")
   last_seen_at    DateTime  @default(now()) @db.Timestamptz(6)
   updated_at      DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
   dproducts dproducts @relation(fields: [dproduct_id], references: [id], onDelete: Cascade)
 
   @@index([last_seen_at(sort: Desc)])
+  @@index([stock_code])
   @@schema("v0")
 }
 
