@@ -1,13 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BrandsTab } from './BrandsTab'
 import { ProductsTab } from './ProductsTab'
 
+const VALID_TABS = new Set(['brands', 'products'])
+
 export function EslestirmeMainClient() {
-  const [activeTab, setActiveTab] = useState('brands')
-  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(['brands']))
+  const searchParams = useSearchParams()
+  const initialTab = useMemo(() => {
+    const tab = searchParams.get('tab')
+    return tab && VALID_TABS.has(tab) ? tab : 'brands'
+  }, [searchParams])
+
+  const [activeTab, setActiveTab] = useState(initialTab)
+  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set([initialTab]))
 
   const handleTabChange = (value: string) => {
     setActiveTab(value)

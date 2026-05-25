@@ -12,6 +12,10 @@ import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
 import { normalizeModel } from '../lib/matching/code-normalization'
 import { applyExactDpmatchLinks } from '../lib/admin/dpmatch-link'
+import {
+  approvePendingDpmatchWithoutBrandMatch,
+  insertApprovedDpmatchForUnmatchedBrands,
+} from '../lib/admin/dpmatch-normalized'
 
 const DRY_RUN = process.env.APPLY !== 'true'
 const BATCH_SIZE = 500
@@ -25,6 +29,9 @@ interface Stats {
   orphanRowsDeleted: number
   inserted: number
   skipped: number
+  unmatchedBrandDproductRows: number
+  unmatchedBrandProductRows: number
+  unmatchedBrandApproved: number
 }
 
 async function main() {
@@ -41,23 +48,26 @@ async function main() {
     orphanRowsDeleted: 0,
     inserted: 0,
     skipped: 0,
+    unmatchedBrandDproductRows: 0,
+    unmatchedBrandProductRows: 0,
+    unmatchedBrandApproved: 0,
   }
 
   const brandMatchRows = await db.$queryRaw<
-    Array<{ dbrands_id: string; manufacturer_id: number }>
+    Array<{ dinamik_brand: string; manufacturer_id: number }>
   >(Prisma.sql`
-    SELECT dbrands_id, manufacturer_id
-    FROM parcatedarik.dbrands_match
-    WHERE mapping_status = 'APPROVED'
-    ORDER BY dbrands_id
+    SELECT db.brand AS dinamik_brand, bm.manufacturer_id
+    FROM parcatedarik.dbrands_match bm
+    INNER JOIN parcatedarik.dbrands db ON db.id = bm.dbrands_id
+    WHERE bm.mapping_status = 'APPROVED'
+    ORDER BY db.brand
   `)
   stats.brandMatches = brandMatchRows.length
   console.log(`[generate-dpmatch] ${stats.brandMatches} approved brand matches`)
 
-  if (brandMatchRows.length === 0) { await db.$disconnect(); return }
-
   const exactLinks: Array<{ dproductsId: bigint; productId: number; normalized: string }> = []
 
+  if (brandMatchRows.length > 0) {
   let idx = 0
   for (const bm of brandMatchRows) {
     idx++
@@ -68,7 +78,7 @@ async function main() {
     >(Prisma.sql`
       SELECT id, part_no, barcode_1, barcode_2, barcode_3
       FROM parcatedarik.dproducts
-      WHERE BTRIM(LOWER(COALESCE(brand, ''))) = BTRIM(LOWER(${bm.dbrands_id}))
+      WHERE BTRIM(LOWER(COALESCE(brand, ''))) = BTRIM(LOWER(${bm.dinamik_brand}))
     `)
 
     const products = await db.$queryRaw<
@@ -132,6 +142,7 @@ async function main() {
       }
     }
   }
+  }
 
   if (!DRY_RUN && exactLinks.length > 0) {
     for (let i = 0; i < exactLinks.length; i += BATCH_SIZE) {
@@ -142,6 +153,13 @@ async function main() {
     }
   }
 
+  if (!DRY_RUN) {
+    const unmatchedInsert = await insertApprovedDpmatchForUnmatchedBrands()
+    stats.unmatchedBrandDproductRows = unmatchedInsert.dproductRows
+    stats.unmatchedBrandProductRows = unmatchedInsert.productRows
+    stats.unmatchedBrandApproved = await approvePendingDpmatchWithoutBrandMatch()
+  }
+
   console.log()
   console.log('=== Summary ===')
   console.log(`  Brand matches:       ${stats.brandMatches}`)
@@ -150,6 +168,9 @@ async function main() {
   console.log(`  Exact matches:       ${stats.exactMatches}`)
   if (!DRY_RUN) console.log(`  Exact updated:       ${stats.exactUpdated}`)
   if (!DRY_RUN) console.log(`  Orphan rows deleted: ${stats.orphanRowsDeleted}`)
+  if (!DRY_RUN) console.log(`  Unmatched dproduct:  ${stats.unmatchedBrandDproductRows}`)
+  if (!DRY_RUN) console.log(`  Unmatched product:   ${stats.unmatchedBrandProductRows}`)
+  if (!DRY_RUN) console.log(`  Unmatched approved:  ${stats.unmatchedBrandApproved}`)
   if (!DRY_RUN) console.log(`  Inserted:            ${stats.inserted}`)
   if (!DRY_RUN) console.log(`  Skipped:             ${stats.skipped}`)
   console.log(`  Total placeholders:  ${stats.dproductRows + stats.productRows}`)

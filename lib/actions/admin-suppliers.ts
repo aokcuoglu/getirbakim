@@ -6698,10 +6698,13 @@ export async function testDinamikEndpoint(input: {
   try {
     if (input.endpoint === 'getBrandList') {
       const data = await getBrandList()
+      const { ensureDbrandsRows } = await import('@/lib/admin/dbrands-reconcile')
+      const inserted = await ensureDbrandsRows(data.map((row) => row.brand))
       return {
         success: true,
-        message: `${data.length} marka döndü.`,
-        sample: data.slice(0, 5)
+        message: `${data.length} marka döndü. dbrands: ${inserted} yeni kayıt.`,
+        sample: data.slice(0, 5),
+        dbrandsInserted: inserted
       }
     }
 

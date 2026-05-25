@@ -16,7 +16,9 @@ function buildWhereClause(q: string, status: string): Prisma.Sql {
 
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
-    conditions.push(Prisma.sql`(a.dbrands_id ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`)
+    conditions.push(
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`
+    )
   }
   if (status !== 'all') {
     conditions.push(Prisma.sql`a.mapping_status = ${status.toUpperCase()}`)
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
     const whereClause = buildWhereClause(q, status)
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.dbrands_match a LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM parcatedarik.dbrands_match a LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest) {
     const rows = await db.$queryRaw<
       Array<{
         id: number
-        dbrands_id: string
+        dinamik_brand: string | null
         normalized: string
         manufacturer_id: number
         manufacturer_name: string
@@ -80,15 +82,16 @@ export async function GET(request: NextRequest) {
         match_method: string | null
       }>
     >(Prisma.sql`
-      SELECT a.id, a.dbrands_id,
+      SELECT a.id, d.brand AS dinamik_brand,
              a.normalized,
              a.manufacturer_id,
              m.name AS manufacturer_name,
              a.mapping_status, a.match_method
       FROM parcatedarik.dbrands_match a
+      LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id
       LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
       WHERE ${whereClause}
-      ORDER BY a.dbrands_id ASC
+      ORDER BY d.brand ASC NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `)
 
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
     return successResponse({
       rows: rows.map(r => ({
         id: r.id,
-        dinamikBrand: r.dbrands_id,
+        dinamikBrand: r.dinamik_brand ?? '',
         normalizedName: r.normalized ?? '',
         parcatedarikManufacturerId: r.manufacturer_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',

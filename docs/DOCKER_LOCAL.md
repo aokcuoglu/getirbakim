@@ -77,6 +77,28 @@ The local compose passes these `NEXT_PUBLIC_*` build args from your `.env`:
 
 Server-side env vars (DATABASE_URL, secrets, etc.) are injected at runtime via `env_file: .env`.
 
+### Dinamik API (proxy zorunlu)
+
+Dinamik, yalnızca whitelist’teki VPS IP’sinden istek kabul eder. Yerel Docker veya `bun run dev` ortamında admin API testleri **doğrudan internete değil**, VPS Squid proxy’sine gitmelidir.
+
+`.env` içine ekleyin (Postman’de kullandığınız kullanıcı/şifre/port ile aynı):
+
+```env
+DINAMIK_BASE=https://dinamikapp-api.dinamik.online
+DINAMIK_APIKEY=...
+DINAMIK_SECRETKEY=...
+DINAMIK_PROXY_URL=http://dinamik:your-password@173.249.36.2:8888
+DINAMIK_PROXY_REQUIRED=true
+```
+
+Değişiklikten sonra:
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+Admin panelde `/admin/suppliers/dinamik` üzerinde **Proxy 173.249.36.2:8888** rozeti görünmeli. Squid `acl` satırında Mac’inizin güncel public IP’si (`curl -4 ifconfig.me`) tanımlı olmalı.
+
 ## Common Issues
 
 ### EMAXCONNSESSION / Supabase pool exhaustion

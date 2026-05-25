@@ -1,5 +1,12 @@
 import "server-only";
-import { ProxyAgent } from "undici";
+import {
+  fetch as undiciFetch,
+  ProxyAgent,
+  type RequestInit as UndiciRequestInit,
+} from "undici";
+import type { DinamikProxyDiagnostics } from "@/lib/types/dinamik-proxy";
+
+export type { DinamikProxyDiagnostics } from "@/lib/types/dinamik-proxy";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const REQUIRE_PROXY_BY_DEFAULT = true;
@@ -12,18 +19,64 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+function readProxyUrl(): string | undefined {
+  return process.env.DINAMIK_PROXY_URL?.trim() || undefined;
+}
+
+function isProxyRequired(): boolean {
+  return parseBool(process.env.DINAMIK_PROXY_REQUIRED, REQUIRE_PROXY_BY_DEFAULT);
+}
+
+/** Safe summary for admin UI — never exposes proxy password. */
+export function getDinamikProxyDiagnostics(): DinamikProxyDiagnostics {
+  const required = isProxyRequired();
+  const proxyUrl = readProxyUrl();
+
+  if (!proxyUrl) {
+    return {
+      required,
+      configured: false,
+      proxyHost: null,
+      proxyPort: null,
+      proxyUser: null,
+      setupError: required
+        ? "DINAMIK_PROXY_URL tanımlı değil. VPS Squid proxy adresini .env dosyasına ekleyin."
+        : null,
+    };
+  }
+
+  try {
+    const parsed = new URL(proxyUrl);
+    return {
+      required,
+      configured: true,
+      proxyHost: parsed.hostname,
+      proxyPort: parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80,
+      proxyUser: parsed.username || null,
+      setupError: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      required,
+      configured: false,
+      proxyHost: null,
+      proxyPort: null,
+      proxyUser: null,
+      setupError: `DINAMIK_PROXY_URL geçersiz: ${message}`,
+    };
+  }
+}
+
 function initProxyOnce() {
   if (proxyInitialized) return;
 
-  const proxyUrl = process.env.DINAMIK_PROXY_URL?.trim();
-  const proxyRequired = parseBool(
-    process.env.DINAMIK_PROXY_REQUIRED,
-    REQUIRE_PROXY_BY_DEFAULT
-  );
+  const proxyUrl = readProxyUrl();
+  const proxyRequired = isProxyRequired();
 
   if (proxyRequired && !proxyUrl) {
     throw new Error(
-      "DINAMIK_PROXY_URL is required. Set VPS proxy URL or set DINAMIK_PROXY_REQUIRED=false for local direct access."
+      "DINAMIK_PROXY_URL is required. Örnek: http://dinamik:SIFRE@173.249.36.2:8888 — veya yerel geliştirmede DINAMIK_PROXY_REQUIRED=false"
     );
   }
 
@@ -35,7 +88,16 @@ function initProxyOnce() {
     }
 
     try {
-      proxyAgent = new ProxyAgent(proxyUrl);
+      const allowInsecureTls = parseBool(
+        process.env.DINAMIK_PROXY_TLS_INSECURE,
+        false
+      );
+      proxyAgent = new ProxyAgent({
+        uri: proxyUrl,
+        ...(allowInsecureTls
+          ? { requestTls: { rejectUnauthorized: false } }
+          : {}),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Invalid DINAMIK_PROXY_URL: ${message}`);
@@ -47,13 +109,13 @@ function initProxyOnce() {
   proxyInitialized = true;
 }
 
-type UndiciRequestInit = RequestInit & {
+type DinamikRequestInit = UndiciRequestInit & {
   dispatcher?: ProxyAgent;
 };
 
-function withProxyDispatcher(init: RequestInit): UndiciRequestInit {
+function withProxyDispatcher(init: RequestInit): DinamikRequestInit {
   initProxyOnce();
-  const requestInit: UndiciRequestInit = { ...init };
+  const requestInit: DinamikRequestInit = { ...(init as UndiciRequestInit) };
   if (proxyAgent) requestInit.dispatcher = proxyAgent;
   return requestInit;
 }
@@ -69,12 +131,56 @@ function validateDinamikEnv() {
   }
 }
 
+function formatFetchError(error: unknown): string {
+  const base =
+    error instanceof Error ? error.message : "Dinamik isteği başarısız.";
+
+  const diagnostics = getDinamikProxyDiagnostics();
+  if (diagnostics.required && !diagnostics.configured) {
+    return `${base} — Proxy yapılandırılmamış (DINAMIK_PROXY_URL).`;
+  }
+
+  const lower = base.toLowerCase();
+  if (
+    lower.includes("etimedout") ||
+    lower.includes("econnrefused") ||
+    lower.includes("connect") ||
+    lower.includes("socket")
+  ) {
+    const via = diagnostics.configured
+      ? `${diagnostics.proxyHost}:${diagnostics.proxyPort}`
+      : "proxy yok";
+    return `${base} — Dinamik API VPS IP whitelist kullanıyor; istekler ${via} üzerinden gitmeli. Squid/ufw ve .env proxy ayarını kontrol edin.`;
+  }
+
+  return base;
+}
+
 type DinamikFetchOptions = {
   timeoutMs?: number;
 };
 
+async function dinamikUndiciFetch(
+  url: string,
+  init: DinamikRequestInit
+): Promise<Response> {
+  try {
+    const response = await undiciFetch(url, init as UndiciRequestInit);
+    return response as unknown as Response;
+  } catch (error) {
+    const cause =
+      error instanceof Error && error.cause instanceof Error
+        ? `: ${error.cause.message}`
+        : "";
+    throw new Error(`${formatFetchError(error)}${cause}`);
+  }
+}
+
 export async function proxiedFetch(url: string, init: RequestInit = {}) {
-  return fetch(url, withProxyDispatcher({ ...init, cache: "no-store" }));
+  return dinamikUndiciFetch(url, {
+    ...withProxyDispatcher(init),
+    cache: "no-store",
+  });
 }
 
 export async function dinamikFetch(
@@ -90,14 +196,19 @@ export async function dinamikFetch(
   const signal = requestInit.signal ?? AbortSignal.timeout(timeoutMs);
   const url = `${base}${path.startsWith("/") ? "" : "/"}${path}`;
 
-  const headers = new Headers(requestInit.headers);
+  const headers = new Headers(requestInit.headers as globalThis.HeadersInit);
   headers.set("ApiKey", process.env.DINAMIK_APIKEY || "");
   headers.set("SecretKey", process.env.DINAMIK_SECRETKEY || "");
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
 
-  return fetch(url, {
+  const headerRecord: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    headerRecord[key] = value;
+  });
+
+  return dinamikUndiciFetch(url, {
     ...requestInit,
-    headers,
+    headers: headerRecord,
     signal,
     cache: "no-store",
   });

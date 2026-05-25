@@ -16,7 +16,12 @@ export type DinamikBrandMatchStats = {
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
   const brandFilter = Prisma.sql`d.brand IS NOT NULL AND BTRIM(d.brand) <> ''`
   const activeMatch = Prisma.sql`
-    BTRIM(LOWER(a.dbrands_id)) = BTRIM(LOWER(d.brand))
+    EXISTS (
+      SELECT 1
+      FROM parcatedarik.dbrands db
+      WHERE db.id = a.dbrands_id
+        AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(d.brand))
+    )
     AND a.mapping_status IN ('PENDING', 'APPROVED')
   `
 

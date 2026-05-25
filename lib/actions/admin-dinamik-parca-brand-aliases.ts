@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
+import { resolveDbrandsIdByBrand } from '@/lib/admin/dbrands-id'
 import { normalizeModel } from '@/lib/matching/code-normalization'
 
 export type BrandAliasStatusFilter = 'all' | 'pending' | 'approved' | 'unmapped'
@@ -32,7 +33,9 @@ function buildWhereClause(q: string, status: BrandAliasStatusFilter): Prisma.Sql
 
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
-    conditions.push(Prisma.sql`(a.dbrands_id ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`)
+    conditions.push(
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`
+    )
   }
   if (status === 'approved') {
     conditions.push(Prisma.sql`a.mapping_status = 'APPROVED'`)
@@ -74,6 +77,7 @@ export async function getDinamikParcaBrandAliases(input?: {
     >(Prisma.sql`
       SELECT COUNT(*) AS count
       FROM parcatedarik.dbrands_match a
+      LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id
       LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
       WHERE ${whereClause}
     `)
@@ -84,7 +88,7 @@ export async function getDinamikParcaBrandAliases(input?: {
     const rows = await db.$queryRaw<
       Array<{
         id: number
-        dbrands_id: string
+        dinamik_brand: string | null
         normalized: string
         manufacturer_id: number
         manufacturer_name: string
@@ -92,15 +96,16 @@ export async function getDinamikParcaBrandAliases(input?: {
         match_method: string | null
       }>
     >(Prisma.sql`
-      SELECT a.id, a.dbrands_id,
+      SELECT a.id, d.brand AS dinamik_brand,
              a.normalized,
              a.manufacturer_id,
              m.name AS manufacturer_name,
              a.mapping_status, a.match_method
       FROM parcatedarik.dbrands_match a
+      LEFT JOIN parcatedarik.dbrands d ON d.id = a.dbrands_id
       LEFT JOIN parcatedarik.manufacturer m ON m.id = a.manufacturer_id
       WHERE ${whereClause}
-      ORDER BY a.dbrands_id ASC
+      ORDER BY d.brand ASC NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
     `)
 
@@ -123,7 +128,7 @@ export async function getDinamikParcaBrandAliases(input?: {
     return {
       rows: rows.map(r => ({
         id: r.id,
-        dinamikBrand: r.dbrands_id,
+        dinamikBrand: r.dinamik_brand ?? '',
         normalizedName: r.normalized ?? '',
         parcatedarikManufacturerId: r.manufacturer_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
@@ -254,12 +259,17 @@ export async function createDinamikParcaBrandAlias(input: {
 
     const normalized = normalizeModel(manufacturer[0].name) || ''
 
+    const dbrandsId = await resolveDbrandsIdByBrand(trimmedBrand)
+    if (dbrandsId == null) {
+      return { success: false, message: 'Dinamik marka kaydı oluşturulamadı.' }
+    }
+
     await db.$executeRaw(
       Prisma.sql`INSERT INTO parcatedarik.dbrands_match (
           dbrands_id, normalized, manufacturer_id,
           mapping_status, match_method
         ) VALUES (
-          ${trimmedBrand},
+          ${dbrandsId},
           ${normalized},
           ${input.parcatedarikManufacturerId},
           'APPROVED',

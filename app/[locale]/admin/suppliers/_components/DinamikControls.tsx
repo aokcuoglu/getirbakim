@@ -1,12 +1,20 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { Loader2, Play, Save, ShieldCheck, TestTube2 } from 'lucide-react'
+import { useEffect, useState, useTransition } from 'react'
+import { Database, Loader2, Play, Save, ShieldCheck, TestTube2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { DinamikProxyDiagnostics } from '@/lib/types/dinamik-proxy'
+import type { DbrandsAudit, DbrandsMatchAudit } from '@/lib/types/dbrands'
+import {
+  getDinamikDbrandsAudit,
+  getDinamikDbrandsMatchAudit,
+  runDinamikDbrandsMatchSeed,
+  runDinamikDbrandsReconcile
+} from '@/lib/actions/admin-dbrands'
 import {
   testDinamikEndpoint,
   triggerDinamikSync,
@@ -14,6 +22,7 @@ import {
 } from '@/lib/actions/admin-suppliers'
 
 interface DinamikControlsProps {
+  proxy: DinamikProxyDiagnostics
   provider: {
     id: number
     code: string
@@ -46,8 +55,12 @@ type PricingPolicyUpdateResult = {
   recalculatedParts?: number
 }
 
-export function DinamikControls({ provider }: DinamikControlsProps) {
+export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
+  const proxyReady = proxy.configured && !proxy.setupError
   const [isPending, startTransition] = useTransition()
+  const [dbrandsAudit, setDbrandsAudit] = useState<DbrandsAudit | null>(null)
+  const [matchAudit, setMatchAudit] = useState<DbrandsMatchAudit | null>(null)
+  const [auditLoading, setAuditLoading] = useState(true)
   const [brandInput, setBrandInput] = useState('')
   const [stockCodeInput, setStockCodeInput] = useState('')
   const [lastResult, setLastResult] = useState<unknown>(null)
@@ -61,6 +74,55 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
   const [fixedFee, setFixedFee] = useState(
     String(provider.pricingPolicy.fixedFee.toFixed(2))
   )
+
+  const refreshDbrandsAudit = () => {
+    setAuditLoading(true)
+    void Promise.all([getDinamikDbrandsAudit(), getDinamikDbrandsMatchAudit()]).then(
+      ([dbrandsResult, matchResult]) => {
+        if (dbrandsResult.success && dbrandsResult.data) {
+          setDbrandsAudit(dbrandsResult.data)
+        } else if (dbrandsResult.message) {
+          toast.error(dbrandsResult.message)
+        }
+        if (matchResult.success && matchResult.data) {
+          setMatchAudit(matchResult.data)
+        } else if (matchResult.message) {
+          toast.error(matchResult.message)
+        }
+        setAuditLoading(false)
+      }
+    )
+  }
+
+  useEffect(() => {
+    refreshDbrandsAudit()
+  }, [])
+
+  const runDbrandsReconcile = (apply: boolean) => {
+    startTransition(async () => {
+      const result = await runDinamikDbrandsReconcile({ apply, syncFromApi: true })
+      if (!result.success) {
+        toast.error(result.message)
+        return
+      }
+      setLastResult(result.data)
+      toast.success(result.message)
+      refreshDbrandsAudit()
+    })
+  }
+
+  const runMatchSeed = (apply: boolean) => {
+    startTransition(async () => {
+      const result = await runDinamikDbrandsMatchSeed({ apply, runAutoMatch: true })
+      if (!result.success) {
+        toast.error(result.message)
+        return
+      }
+      setLastResult(result.data)
+      toast.success(result.message)
+      refreshDbrandsAudit()
+    })
+  }
 
   const runTest = (endpoint: 'getBrandList' | 'getStockList' | 'getPriceList' | 'getStock') => {
     startTransition(async () => {
@@ -77,6 +139,9 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
 
       setLastResult({ endpoint, ...result })
       toast.success(result.message)
+      if (endpoint === 'getBrandList') {
+        refreshDbrandsAudit()
+      }
     })
   }
 
@@ -135,11 +200,37 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
             Endpoint testleri ve manuel sync tetikleme. Sağlayıcı: {provider.name} ({provider.code})
           </p>
         </div>
-        <Badge variant="outline" className="bg-success/10 text-success border-success/20">
-          <ShieldCheck size={12} />
-          {provider.status}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            variant="outline"
+            className={
+              proxyReady
+                ? 'bg-success/10 text-success border-success/20'
+                : 'bg-warning/10 text-warning border-warning/20'
+            }
+          >
+            <ShieldCheck size={12} />
+            {proxyReady
+              ? `Proxy ${proxy.proxyHost}:${proxy.proxyPort}`
+              : 'Proxy yapılandırılmadı'}
+          </Badge>
+          <Badge variant="outline" className="bg-muted/50 text-foreground border-border">
+            {provider.status}
+          </Badge>
+        </div>
       </div>
+
+      {!proxyReady ? (
+        <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5 text-xs text-warning">
+          {proxy.setupError ??
+            'DINAMIK_PROXY_URL eksik. Postman’de kullandığınız Squid adresini .env dosyasına ekleyin (ör. http://dinamik:SIFRE@173.249.36.2:8888), ardından Docker’ı yeniden başlatın.'}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          İstekler VPS üzerinden Dinamik API’ye gider (IP whitelist). Kullanıcı:{' '}
+          <span className="font-mono text-foreground">{proxy.proxyUser ?? '—'}</span>
+        </p>
+      )}
 
       <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="space-y-2">
@@ -160,21 +251,152 @@ export function DinamikControls({ provider }: DinamikControlsProps) {
         </div>
       </div>
 
+      <div className="mt-4 rounded-md border border-border bg-muted/40 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            <Database size={14} aria-hidden />
+            dbrands kataloğu
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending || auditLoading}
+              onClick={() => runDbrandsReconcile(false)}
+            >
+              Önizleme
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPending || auditLoading}
+              onClick={() => runDbrandsReconcile(true)}
+            >
+              dbrands düzelt
+            </Button>
+          </div>
+        </div>
+        {auditLoading ? (
+          <p className="mt-2 text-xs text-muted-foreground">Denetim yükleniyor…</p>
+        ) : (
+          <div className="mt-2 space-y-3">
+            {dbrandsAudit ? (
+              <div className="grid grid-cols-2 gap-2 text-xs lg:grid-cols-4">
+                <div>
+                  <span className="text-muted-foreground">dbrands (Dinamik)</span>
+                  <p className="font-semibold tabular-nums">
+                    {dbrandsAudit.dbrandsTotal.toLocaleString('tr-TR')}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">dproducts marka</span>
+                  <p className="font-semibold tabular-nums">
+                    {dbrandsAudit.dproductsBrandTotal.toLocaleString('tr-TR')}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Yanlış dbrands</span>
+                  <p className="font-semibold tabular-nums text-warning">
+                    {dbrandsAudit.manufacturerOnlyInDbrands.toLocaleString('tr-TR')}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Eksik dbrands</span>
+                  <p className="font-semibold tabular-nums">
+                    {dbrandsAudit.dproductsMissingInDbrands.toLocaleString('tr-TR')}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            {matchAudit ? (
+              <div className="rounded-md border border-border/60 bg-background/80 p-2">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  dbrands_match (eşleştirme kuyruğu)
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs lg:grid-cols-4">
+                  <div>
+                    <span className="text-muted-foreground">Toplam satır</span>
+                    <p className="font-semibold tabular-nums">
+                      {matchAudit.matchTotal.toLocaleString('tr-TR')}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Eşleşmiş çift</span>
+                    <p className="font-semibold tabular-nums">
+                      {matchAudit.pairedRows.toLocaleString('tr-TR')}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">PT-only (Dinamik yok)</span>
+                    <p className="font-semibold tabular-nums text-warning">
+                      {matchAudit.ptOnlyRows.toLocaleString('tr-TR')} / eksik{' '}
+                      {matchAudit.manufacturersMissingFromMatch.toLocaleString('tr-TR')}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Dinamik stub</span>
+                    <p className="font-semibold tabular-nums">
+                      {matchAudit.dinamikStubRows.toLocaleString('tr-TR')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isPending || auditLoading}
+            onClick={() => runMatchSeed(false)}
+          >
+            Match önizleme
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={isPending || auditLoading}
+            onClick={() => runMatchSeed(true)}
+          >
+            dbrands_match doldur
+          </Button>
+        </div>
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => runTest('getBrandList')} disabled={isPending}>
+        <Button
+          variant="outline"
+          onClick={() => runTest('getBrandList')}
+          disabled={isPending || !proxyReady}
+        >
           {isPending ? <Loader2 size={14} className="mr-2 animate-spin" /> : <TestTube2 size={14} className="mr-2" />}
           getBrandList Test
         </Button>
-        <Button variant="outline" onClick={() => runTest('getStockList')} disabled={isPending}>
+        <Button
+          variant="outline"
+          onClick={() => runTest('getStockList')}
+          disabled={isPending || !proxyReady}
+        >
           getStockList Test
         </Button>
-        <Button variant="outline" onClick={() => runTest('getPriceList')} disabled={isPending}>
+        <Button
+          variant="outline"
+          onClick={() => runTest('getPriceList')}
+          disabled={isPending || !proxyReady}
+        >
           getPriceList Test
         </Button>
-        <Button variant="outline" onClick={() => runTest('getStock')} disabled={isPending}>
+        <Button
+          variant="outline"
+          onClick={() => runTest('getStock')}
+          disabled={isPending || !proxyReady}
+        >
           getStock Test
         </Button>
-        <Button onClick={runSync} disabled={isPending}>
+        <Button onClick={runSync} disabled={isPending || !proxyReady}>
           {isPending ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Play size={14} className="mr-2" />}
           Manuel Sync Başlat
         </Button>

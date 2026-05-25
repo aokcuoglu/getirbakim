@@ -10,7 +10,7 @@ const withBundleAnalyzer = bundleAnalyzer({
 const nextConfig = {
     output: 'standalone',
     reactStrictMode: true,
-    serverExternalPackages: ['pg', '@prisma/adapter-pg'],
+    serverExternalPackages: ['pg', '@prisma/adapter-pg', 'undici'],
     typescript: {
         ignoreBuildErrors: true, // For smoother migration
     },

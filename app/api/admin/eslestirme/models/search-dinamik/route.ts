@@ -61,11 +61,12 @@ export async function GET(request: NextRequest) {
       const results = await db.$queryRaw<Array<{ id: bigint; stock_code: string; stock_name: string | null; brand: string | null; barcode_1: string | null; barcode_2: string | null; barcode_3: string | null; part_no: string | null }>>(
         Prisma.sql`
           WITH matched_brands AS (
-            SELECT DISTINCT BTRIM(LOWER(alias.dbrands_id)) AS brand_norm
+            SELECT DISTINCT BTRIM(LOWER(db.brand)) AS brand_norm
             FROM parcatedarik.product p
             JOIN parcatedarik.dbrands_match alias
               ON alias.manufacturer_id = p.manufacturer_id
              AND alias.mapping_status = 'APPROVED'
+            JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
             WHERE p.id = ${productId}
           )
           SELECT d.id, d.stock_code, d.stock_name, d.brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
@@ -124,7 +125,8 @@ export async function GET(request: NextRequest) {
             JOIN parcatedarik.dbrands_match alias
               ON alias.mapping_status = 'APPROVED'
              AND alias.manufacturer_id IS NOT NULL
-             AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
+            JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
+             AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
           )
           SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
           FROM parcatedarik.product p
@@ -148,7 +150,8 @@ export async function GET(request: NextRequest) {
               JOIN parcatedarik.dbrands_match alias
                 ON alias.mapping_status = 'APPROVED'
                AND alias.manufacturer_id IS NOT NULL
-               AND BTRIM(LOWER(alias.dbrands_id)) = BTRIM(LOWER(COALESCE(d.brand, '')))
+              JOIN parcatedarik.dbrands db ON db.id = alias.dbrands_id
+               AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
             )
             SELECT p.id, p.title, p.model, p.manufacturer_id, mfr.name AS manufacturer_name
             FROM parcatedarik.product p

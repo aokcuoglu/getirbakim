@@ -10,16 +10,22 @@
  *   APPLY=true bun scripts/backfill-dpmatch-normalized.ts
  *   APPLY=true LIMIT=1000 bun scripts/backfill-dpmatch-normalized.ts
  *   APPLY=true REFRESH=true bun scripts/backfill-dpmatch-normalized.ts
+ *   APPLY=true APPROVE_UNMATCHED=true bun scripts/backfill-dpmatch-normalized.ts
  */
 
 import 'dotenv/config'
-import { backfillDpmatchNormalized } from '../lib/admin/dpmatch-normalized'
+import {
+  approvePendingDpmatchWithoutBrandMatch,
+  backfillDpmatchNormalized,
+  insertApprovedDpmatchForUnmatchedBrands,
+} from '../lib/admin/dpmatch-normalized'
 import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
 
 const DRY_RUN = process.env.APPLY !== 'true'
 const LIMIT = process.env.LIMIT ? parseInt(process.env.LIMIT, 10) : undefined
 const REFRESH = process.env.REFRESH === 'true'
+const APPROVE_UNMATCHED = process.env.APPROVE_UNMATCHED === 'true'
 
 async function main() {
   const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
@@ -35,6 +41,7 @@ async function main() {
   console.log(`  mode:        ${DRY_RUN ? 'DRY_RUN' : 'APPLY'}`)
   console.log(`  only empty:  ${!REFRESH}`)
   console.log(`  limit:       ${LIMIT ?? 'none'}`)
+  console.log(`  approve unmatched brands: ${APPROVE_UNMATCHED}`)
   console.log(`  candidates:  ${pending.toLocaleString('tr-TR')}`)
 
   if (DRY_RUN) {
@@ -48,7 +55,16 @@ async function main() {
     limit: LIMIT,
   })
 
-  console.log(`[backfill-dpmatch-normalized] Updated ${updated.toLocaleString('tr-TR')} rows`)
+  console.log(`[backfill-dpmatch-normalized] Updated ${updated.toLocaleString('tr-TR')} normalized rows`)
+
+  if (APPROVE_UNMATCHED) {
+    const inserted = await insertApprovedDpmatchForUnmatchedBrands()
+    const approved = await approvePendingDpmatchWithoutBrandMatch()
+    console.log(
+      `[backfill-dpmatch-normalized] Unmatched brands: inserted dproduct=${inserted.dproductRows}, product=${inserted.productRows}, approved pending=${approved}`
+    )
+  }
+
   await db.$disconnect()
 }
 

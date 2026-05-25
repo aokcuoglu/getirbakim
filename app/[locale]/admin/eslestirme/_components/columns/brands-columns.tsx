@@ -1,16 +1,18 @@
 'use client'
 
 import { ColumnDef } from '@tanstack/react-table'
-import { Check, X, Ban, Link2, Unlink } from 'lucide-react'
+import { ArrowRight, Ban, Check, Link2, Unlink, X } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface BrandRow {
   id: number
   dinamikBrand: string
   normalizedName: string
-  parcatedarikManufacturerId: number
+  parcatedarikManufacturerId: number | null
   parcatedarikManufacturerName: string
   mappingStatus: string
   matchMethod: string | null
@@ -23,18 +25,23 @@ const STATUS_LABELS: Record<string, string> = {
   IGNORED: 'Yoksayıldı',
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-warning/10 text-warning ring-warning/10',
-  APPROVED: 'bg-success/10 text-success ring-success/10',
-  REJECTED: 'bg-destructive/10 text-destructive ring-destructive/10',
-  IGNORED: 'bg-muted text-muted-foreground ring-muted-foreground/10',
-}
-
 const METHOD_LABELS: Record<string, string> = {
   EXACT_NORMALIZED: 'Birebir',
   CASE_INSENSITIVE: 'Harf',
   NORMALIZED_BRAND_NAME: 'Marka',
   MANUAL: 'Manuel',
+}
+
+function isPaired(row: BrandRow): boolean {
+  return Boolean(
+    row.dinamikBrand?.trim() &&
+      row.parcatedarikManufacturerId != null &&
+      row.parcatedarikManufacturerName?.trim()
+  )
+}
+
+function isApprovedSingleSide(row: BrandRow): boolean {
+  return row.mappingStatus === 'APPROVED'
 }
 
 export function createBrandsColumns(handlers: {
@@ -54,52 +61,164 @@ export function createBrandsColumns(handlers: {
           aria-label="Select all"
         />
       ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-        />
-      ),
+      cell: ({ row }) =>
+        row.original.mappingStatus === 'PENDING' ? (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        ) : null,
       enableSorting: false,
       enableHiding: false,
-    },
-    {
-      accessorKey: 'dinamikBrand',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Dinamik Marka" />,
-      cell: ({ getValue }) => <span className="text-sm font-medium">{getValue<string>()}</span>,
-    },
-    {
-      accessorKey: 'normalizedName',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Normalize" />,
-      cell: ({ getValue }) => <span className="text-xs text-muted-foreground font-mono">{getValue<string>()}</span>,
-    },
-    {
-      accessorKey: 'parcatedarikManufacturerName',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="PT Üretici" />,
-      cell: ({ getValue }) => <span className="text-sm">{getValue<string>() || '-'}</span>,
-    },
-    {
-      accessorKey: 'matchMethod',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Yöntem" />,
-      cell: ({ getValue }) => {
-        const v = getValue<string | null>()
-        return <span className="text-xs text-muted-foreground">{v ? (METHOD_LABELS[v] || v) : '-'}</span>
-      },
     },
     {
       accessorKey: 'mappingStatus',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Durum" />,
       cell: ({ getValue }) => {
         const v = getValue<string>()
+        const colors: Record<string, string> = {
+          PENDING: 'bg-warning/15 text-warning border-warning/20',
+          APPROVED: 'bg-success/15 text-success border-success/20',
+          REJECTED: 'bg-destructive/15 text-destructive border-destructive/20',
+          IGNORED: 'bg-muted text-muted-foreground border-border',
+        }
         return (
-          <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${STATUS_COLORS[v] || 'bg-muted text-muted-foreground'}`}>
+          <Badge variant="outline" className={`text-xs font-medium ${colors[v] || ''}`}>
             {STATUS_LABELS[v] || v}
+          </Badge>
+        )
+      },
+    },
+    {
+      id: 'brandMatch',
+      header: () => <span className="text-xs font-medium">Marka Eşleşmesi</span>,
+      cell: ({ row }) => {
+        const r = row.original
+        const paired = isPaired(r)
+        const hasDinamik = Boolean(r.dinamikBrand?.trim())
+        const hasPt =
+          r.parcatedarikManufacturerId != null &&
+          Boolean(r.parcatedarikManufacturerName?.trim())
+        const approvedSingleSide = isApprovedSingleSide(r)
+
+        if (paired) {
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex min-w-0 cursor-default items-center gap-1.5">
+                  <span className="max-w-[140px] truncate text-sm font-medium">
+                    {r.dinamikBrand}
+                  </span>
+                  <ArrowRight className="h-3 w-3 shrink-0 text-success" />
+                  <span className="max-w-[180px] truncate text-sm text-primary">
+                    {r.parcatedarikManufacturerName || '—'}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm space-y-1.5 p-3 text-xs">
+                <div>
+                  <p className="font-semibold text-primary">Dinamik Marka</p>
+                  <p>{r.dinamikBrand}</p>
+                </div>
+                <div className="border-t pt-1.5">
+                  <p className="font-semibold text-primary">ParçaTedarik Üretici</p>
+                  <p>{r.parcatedarikManufacturerName}</p>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          )
+        }
+
+        if (hasDinamik && !hasPt) {
+          if (approvedSingleSide) {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="min-w-0 cursor-default">
+                    <p className="truncate text-sm font-medium">{r.dinamikBrand}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Onaylı · yalnızca Dinamik (PT eşleşmesi yok)
+                    </p>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  Bu marka onaylandı; ParçaTedarik üreticisi bağlı değil.
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          return (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="max-w-[200px] truncate text-sm font-medium">{r.dinamikBrand}</span>
+              <Badge
+                variant="outline"
+                className="shrink-0 border-warning/20 bg-warning/10 text-xs text-warning"
+              >
+                PT bekliyor
+              </Badge>
+            </div>
+          )
+        }
+
+        if (hasPt && !hasDinamik) {
+          if (approvedSingleSide) {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="min-w-0 cursor-default">
+                    <p className="truncate text-sm font-medium">{r.parcatedarikManufacturerName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Onaylı · yalnızca PT (Dinamik katalogda yoktu)
+                    </p>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  Üretici onaylandı; kayıt sonradan Dinamik marka olarak eklendi veya tek taraflı onaylı.
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          return (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Badge
+                variant="outline"
+                className="shrink-0 border-warning/20 bg-warning/10 text-xs text-warning"
+              >
+                Dinamik bekliyor
+              </Badge>
+              <span className="max-w-[220px] truncate text-sm">{r.parcatedarikManufacturerName}</span>
+            </div>
+          )
+        }
+
+        return <span className="text-xs text-muted-foreground">—</span>
+      },
+    },
+    {
+      accessorKey: 'normalizedName',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Normalized" />,
+      cell: ({ getValue }) => {
+        const v = getValue<string>()
+        if (!v) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <span className="max-w-[140px] truncate font-mono text-sm text-foreground" title={v}>
+            {v}
           </span>
         )
       },
-      filterFn: (row, id, value) => {
-        return row.getValue<string>(id) === value
+    },
+    {
+      accessorKey: 'matchMethod',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Yöntem" />,
+      cell: ({ getValue }) => {
+        const v = getValue<string | null>()
+        if (!v) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <Badge variant="outline" className="border-success/20 bg-success/10 text-xs text-success">
+            {METHOD_LABELS[v] || v}
+          </Badge>
+        )
       },
     },
     {
@@ -107,24 +226,54 @@ export function createBrandsColumns(handlers: {
       cell: ({ row }) => {
         const alias = row.original
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {alias.mappingStatus === 'PENDING' && (
               <>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-success hover:text-success" onClick={() => handlers.onAction(alias.id, 'approve')} title="Onayla">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-success hover:text-success"
+                  onClick={() => handlers.onAction(alias.id, 'approve')}
+                  title="Onayla"
+                >
                   <Check className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive" onClick={() => handlers.onAction(alias.id, 'reject')} title="Reddet">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                  onClick={() => handlers.onAction(alias.id, 'reject')}
+                  title="Reddet"
+                >
                   <X className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" onClick={() => handlers.onAction(alias.id, 'ignore')} title="Yoksay">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => handlers.onAction(alias.id, 'ignore')}
+                  title="Yoksay"
+                >
                   <Ban className="h-4 w-4" />
                 </Button>
               </>
             )}
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-primary hover:text-primary" onClick={() => handlers.onUpdate(alias)} title="Eşleştirmeyi Değiştir">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-primary hover:text-primary"
+              onClick={() => handlers.onUpdate(alias)}
+              title="Eşleştirmeyi Değiştir"
+            >
               <Link2 className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => handlers.onAction(alias.id, 'delete')} title="Sil">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+              onClick={() => handlers.onAction(alias.id, 'delete')}
+              title="Sil"
+            >
               <Unlink className="h-4 w-4" />
             </Button>
           </div>

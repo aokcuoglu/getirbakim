@@ -5,6 +5,7 @@
 import 'dotenv/config'
 import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
+import { resolveDbrandsIdsByBrand } from '../lib/admin/dbrands-id'
 import { normalizeModel, normalizeBrandName } from '../lib/matching/code-normalization'
 
 const DRY_RUN = process.env.APPLY !== 'true'
@@ -14,7 +15,8 @@ const BATCH_SIZE = parseInt(process.env.BATCH_SIZE ?? '500', 10)
 type MatchMethod = 'EXACT_NORMALIZED' | 'CASE_INSENSITIVE' | 'NORMALIZED_BRAND_NAME'
 
 interface AliasRow {
-  dbrands_id: string
+  brand: string
+  dbrands_id: bigint
   normalized: string
   manufacturer_id: number
   mapping_status: string
@@ -85,10 +87,11 @@ async function main() {
 
   console.log('[generate-brand-aliases] Loading existing brand aliases...')
   const existingAliases = await db.$queryRaw<
-    Array<{ dbrands_id: string; manufacturer_id: number }>
+    Array<{ dbrands_id: bigint; manufacturer_id: number }>
   >(Prisma.sql`
     SELECT dbrands_id, manufacturer_id
     FROM parcatedarik.dbrands_match
+    WHERE dbrands_id IS NOT NULL
   `)
 
   const existingKeys = new Set<string>()
@@ -96,6 +99,11 @@ async function main() {
     existingKeys.add(`${ea.dbrands_id}::${ea.manufacturer_id}`)
   }
   console.log(`[generate-brand-aliases] ${existingKeys.size} existing aliases`)
+
+  console.log('[generate-brand-aliases] Resolving dbrands ids...')
+  const brandIdByName = await resolveDbrandsIdsByBrand(
+    dinamikBrands.map((row) => row.brand)
+  )
 
   console.log('[generate-brand-aliases] Matching brands to manufacturers...')
   const aliasesToInsert: AliasRow[] = []
@@ -170,18 +178,21 @@ async function main() {
       stats.multi_match += matchedManufacturers.length
     }
 
+    const dbrandsId = brandIdByName.get(trimmedBrand.toLowerCase())
+    if (dbrandsId == null) continue
+
     for (const mm of matchedManufacturers) {
-      const key = `${trimmedBrand}::${mm.id}`
+      const key = `${dbrandsId}::${mm.id}`
       if (existingKeys.has(key)) {
         stats.already_exists++
         continue
       }
 
-      const normalizedPcManuf = normalizeModel(mm.name) || ''
-      const normalized = mm.name // use readable manufacturer name
+      const normalized = mm.name
 
       aliasesToInsert.push({
-        dbrands_id: trimmedBrand,
+        brand: trimmedBrand,
+        dbrands_id: dbrandsId,
         normalized,
         manufacturer_id: mm.id,
         mapping_status: 'PENDING',
@@ -214,7 +225,7 @@ async function main() {
   console.log('=== Sample Aliases (first 30) ===')
   for (const alias of aliasesToInsert.slice(0, 30)) {
     console.log(
-      `  "${alias.dbrands_id}" (norm:${alias.normalized}) → ` +
+      `  "${alias.brand}" (norm:${alias.normalized}) → ` +
       `mfr_id=${alias.manufacturer_id} ` +
       `method=${alias.match_method}`
     )
@@ -222,10 +233,24 @@ async function main() {
 
   console.log()
   console.log('=== Unmatched Dinamik Brands ===')
-  const matchedBrands = new Set(aliasesToInsert.map(a => a.dbrands_id))
+  const matchedBrands = new Set(aliasesToInsert.map((a) => a.brand))
+  const existingBrandNames = new Set(
+    (
+      await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
+        SELECT db.brand
+        FROM parcatedarik.dbrands_match a
+        INNER JOIN parcatedarik.dbrands db ON db.id = a.dbrands_id
+      `)
+    ).map((row) => row.brand.trim().toLowerCase())
+  )
   const unmatchedBrands = dinamikBrands
-    .map(b => b.brand.trim())
-    .filter(b => b && !matchedBrands.has(b) && !existingAliases.some(ea => ea.dbrands_id === b))
+    .map((b) => b.brand.trim())
+    .filter(
+      (b) =>
+        b &&
+        !matchedBrands.has(b) &&
+        !existingBrandNames.has(b.toLowerCase())
+    )
   for (const ub of unmatchedBrands.slice(0, 50)) {
     const normKey = normalizeModel(ub) || ''
     const ciKey = ub.toLowerCase()
@@ -250,25 +275,22 @@ async function main() {
 
   for (let i = 0; i < aliasesToInsert.length; i += BATCH_SIZE) {
     const batch = aliasesToInsert.slice(i, i + BATCH_SIZE)
-    const valuesClauses = batch.map(a => {
-      const dbi = a.dbrands_id.replace(/'/g, "''")
-      const nn = a.normalized.replace(/'/g, "''")
-      const mm = a.match_method
-      return `('${dbi}', '${nn}', ${a.manufacturer_id}, '${a.mapping_status}', '${mm}')`
-    })
-
-    const sql = `
-      INSERT INTO parcatedarik.dbrands_match (
-        dbrands_id, normalized, manufacturer_id,
-        mapping_status, match_method
-      ) VALUES ${valuesClauses.join(', ')}
-      ON CONFLICT (dbrands_id, manufacturer_id)
-      DO NOTHING
-    `
-
     try {
-      const result = await db.$executeRawUnsafe(sql)
-      totalInserted += result
+      const result = await db.$executeRaw(Prisma.sql`
+        INSERT INTO parcatedarik.dbrands_match (
+          dbrands_id, normalized, manufacturer_id,
+          mapping_status, match_method
+        )
+        SELECT v.dbrands_id, v.normalized, v.manufacturer_id, v.mapping_status, v.match_method
+        FROM (VALUES ${Prisma.join(
+          batch.map(
+            (a) =>
+              Prisma.sql`(${a.dbrands_id}, ${a.normalized}, ${a.manufacturer_id}, ${a.mapping_status}, ${a.match_method})`
+          )
+        )}) AS v(dbrands_id, normalized, manufacturer_id, mapping_status, match_method)
+        ON CONFLICT (dbrands_id, manufacturer_id) DO NOTHING
+      `)
+      totalInserted += Number(result)
       console.log(`  Batch ${Math.floor(i / BATCH_SIZE) + 1}: inserted ${result} rows`)
     } catch (error) {
       console.error(`  Batch ${Math.floor(i / BATCH_SIZE) + 1}: error inserting`, error)

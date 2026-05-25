@@ -52,6 +52,11 @@ RUN npx next build
 FROM node:22-slim AS runner
 WORKDIR /app
 
+# CA bundle for HTTPS via VPS proxy (node:22-slim minimal image)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
@@ -97,6 +102,7 @@ COPY --from=builder /app/node_modules/meilisearch/ /app/node_modules/meilisearch
 COPY --from=builder /app/node_modules/dotenv/ /app/node_modules/dotenv/
 COPY --from=builder /app/node_modules/pg/ /app/node_modules/pg/
 COPY --from=builder /app/node_modules/postgres/ /app/node_modules/postgres/
+COPY --from=builder /app/node_modules/undici/ /app/node_modules/undici/
 
 USER nextjs
 

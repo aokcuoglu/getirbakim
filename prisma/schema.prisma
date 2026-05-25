@@ -636,13 +636,13 @@ model dpmatch {
 
 model dbrands_match {
   id              Int      @id @default(autoincrement())
-  dbrands_id      String
+  dbrands_id      BigInt?
   manufacturer_id Int?
   normalized      String?
   mapping_status  String   @default("PENDING")
   match_method    String?
 
-  dbrands       dbrands       @relation(fields: [dbrands_id], references: [brand], onDelete: Cascade)
+  dbrands       dbrands?       @relation(fields: [dbrands_id], references: [id], onDelete: Cascade)
   manufacturer  manufacturer?  @relation(fields: [manufacturer_id], references: [id], onDelete: Cascade)
 
   @@unique([dbrands_id, manufacturer_id], name: "uq_dbrands_match_brand_mfr")
@@ -1065,7 +1065,11 @@ model dproducts {
 // ==========================================
 
 model dbrands {
-  brand          String           @id
+  id             BigInt           @id @default(autoincrement())
+  brand          String           @unique
+  created_at     DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  last_seen_at   DateTime         @default(now()) @db.Timestamptz(6)
   dbrands_match  dbrands_match[]
 
   @@schema("parcatedarik")

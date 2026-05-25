@@ -8,6 +8,7 @@ import {
   AdminSurface
 } from '@/components/admin/admin-page-shell'
 import { getAdminSupplierProviderDetail } from '@/lib/actions/admin-suppliers'
+import { getDinamikProxyDiagnostics } from '@/lib/dinamik'
 import { DinamikControls } from '../_components/DinamikControls'
 
 export default async function AdminDinamikSupplierPage() {
@@ -18,6 +19,7 @@ export default async function AdminDinamikSupplierPage() {
   }
 
   const detail = result.data
+  const proxy = getDinamikProxyDiagnostics()
 
   return (
     <AdminLayout>
@@ -35,7 +37,7 @@ export default async function AdminDinamikSupplierPage() {
           <MetricCard label="Ignore" value={detail.counts.ignoredCount} icon={AlertTriangle} />
         </div>
 
-        <DinamikControls provider={detail.provider} />
+        <DinamikControls provider={detail.provider} proxy={proxy} />
 
         <AdminSurface className="p-4">
           <h2 className="text-sm font-semibold text-foreground">Son Senkron Çalışmaları</h2>
