@@ -27,6 +27,11 @@ export async function getV0HomePageData(locale: string): Promise<V0HomePageData>
     topCategories,
     navbarCategories: mainNav,
     catalogData,
-    brands
+    brands: brands.map(({ matchId, brandName, logoUrl, slug }) => ({
+      matchId,
+      brandName,
+      logoUrl,
+      slug
+    }))
   }
 }

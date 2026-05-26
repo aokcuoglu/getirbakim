@@ -23,6 +23,8 @@ MEILI_INDEX_V0=v0-catalog
 
 If `MEILI_ENABLED=true` but the `v0-catalog` index is missing or empty, search automatically falls back to PostgreSQL. For production performance, always run setup + reindex after approvals.
 
+Indexed product fields (priority order in Meilisearch): `brandName` (from `v0.dbrands_match`), `name`, `ptproducts.title`, `ptproducts.model`, Dinamik `stock_code`, `ptproducts.ref_no` (cross-refs, lower priority), `dproduct_details.raw`, part numbers/barcodes in `oemCodes`.
+
 Setup and reindex (from host — use port 7700, not the Docker service name):
 
 ```bash

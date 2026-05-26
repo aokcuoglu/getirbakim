@@ -3,6 +3,8 @@ import {
   getActiveCategorySlugs,
   getCanonicalSiteUrl
 } from '@/lib/seo/sitemap'
+import { getApprovedDbrandsMatch } from '@/lib/v0/getDbrandsMatch'
+import { buildBrandPath } from '@/lib/v0/brandSlug'
 import { isIndexingAllowed } from '@/lib/site-url'
 
 export const dynamic = 'force-dynamic'
@@ -23,11 +25,15 @@ export async function GET(
   const { locale } = await context.params
   const safeLocale = locale === 'tr' ? 'tr' : 'en'
   const baseUrl = getCanonicalSiteUrl()
-  const slugs = await getActiveCategorySlugs()
+  const [slugs, brands] = await Promise.all([
+    getActiveCategorySlugs(),
+    getApprovedDbrandsMatch()
+  ])
 
   const urls = [
     `${baseUrl}/${safeLocale}`,
-    ...slugs.map((slug) => `${baseUrl}/${safeLocale}/${slug}`)
+    ...slugs.map((slug) => `${baseUrl}/${safeLocale}/${slug}`),
+    ...brands.map((brand) => `${baseUrl}/${safeLocale}${buildBrandPath(brand.slug)}`)
   ]
 
   const now = new Date().toISOString()

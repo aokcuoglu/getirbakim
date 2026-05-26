@@ -2188,6 +2188,7 @@ export async function getAdminProductDetail(
         },
         take: 50
       },
+      part_infos: { select: { content: true }, orderBy: { id: 'asc' }, take: 20 },
       part_images: { select: { image: true }, take: 20 }
     }
   })
@@ -2324,6 +2325,11 @@ export async function getAdminProductDetail(
     brandId: product.brand_id ?? null,
     categoryId: product.category_id ?? null,
     inBasket: product.in_basket,
+    description:
+      product.part_infos
+        .map((item) => item.content.trim())
+        .filter(Boolean)
+        .join('\n\n') || null,
     computedCostExVat: toNullableNumber(
       product.part_pricing_inventory?.computed_cost_ex_vat?.toString()
     ),
@@ -2472,6 +2478,9 @@ export async function updateAdminProductInline(input: {
 
 export async function updateAdminProductDetail(input: {
   partId: string
+  name?: string
+  description?: string | null
+  imageUrls?: string[]
   sellingPriceOverride?: number | null
   isVisible?: boolean
   lockPrice?: boolean
@@ -2489,7 +2498,53 @@ export async function updateAdminProductDetail(input: {
     return { success: false, message: 'Geçersiz ürün kimliği.' }
   }
 
+  const normalizedName = normalizeTextValue(input.name)
+  if (input.name !== undefined && !normalizedName) {
+    return { success: false, message: 'Ürün adı boş olamaz.' }
+  }
+
+  const normalizedImages =
+    input.imageUrls !== undefined
+      ? normalizeUniqueTexts(input.imageUrls)
+      : undefined
+
   await db.$transaction(async (tx) => {
+    if (normalizedName) {
+      await tx.parts.update({
+        where: { id: parsedPartId },
+        data: {
+          name: normalizedName,
+          updated_at: new Date()
+        }
+      })
+    }
+
+    if (input.description !== undefined) {
+      await tx.part_infos.deleteMany({ where: { part_id: parsedPartId } })
+      const description = normalizeTextValue(input.description)
+      if (description) {
+        await tx.part_infos.create({
+          data: {
+            part_id: parsedPartId,
+            content: description
+          }
+        })
+      }
+    }
+
+    if (normalizedImages !== undefined) {
+      await tx.part_images.deleteMany({ where: { part_id: parsedPartId } })
+      if (normalizedImages.length > 0) {
+        await tx.part_images.createMany({
+          data: normalizedImages.map((image) => ({
+            part_id: parsedPartId,
+            image,
+            thumb: image
+          }))
+        })
+      }
+    }
+
     const overridesUpdate: Prisma.part_admin_overridesUncheckedUpdateInput = {
       updated_by: userId
     }

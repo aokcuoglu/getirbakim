@@ -20,7 +20,7 @@ import type {
 import { DataTable } from '../../eslestirme/_components/data-table'
 import { approvedProductColumns } from './approved-product-columns'
 
-type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only'
+type MatchSide = 'all' | 'matched' | 'unmatched' | 'dinamik_only' | 'pt_only'
 
 type ProductFilters = {
   q: string
@@ -231,13 +231,13 @@ export function ApprovedDpmatchProductsClient({
           icon={<Link2 size={16} />}
         />
         <AdminKpiCard
-          label={t('kpiDinamikOnly')}
-          value={summary.dinamikOnly}
+          label={t('kpiUnmatched')}
+          value={summary.unmatched}
           tone="warning"
         />
         <AdminKpiCard
-          label={t('kpiPtOnly')}
-          value={summary.ptOnly}
+          label={t('kpiPending')}
+          value={summary.pending}
           tone="info"
         />
       </AdminKpiGrid>
@@ -258,6 +258,16 @@ export function ApprovedDpmatchProductsClient({
         />
 
         <AdminFilterBar onReset={resetFilters} className="mt-3">
+          <AdminFilterChip
+            active={filters.matchSide === 'unmatched'}
+            onClick={() =>
+              setFilterParam(
+                'matchSide',
+                filters.matchSide === 'unmatched' ? 'all' : 'unmatched'
+              )
+            }
+            label={t('filterUnmatched')}
+          />
           <AdminFilterChip
             active={filters.matchSide === 'matched'}
             onClick={() =>

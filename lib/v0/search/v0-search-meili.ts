@@ -45,6 +45,7 @@ function buildBrandFilter(brandNames?: string[]): string | undefined {
 }
 
 function meiliDocToBrandRow(doc: V0MeiliDocument): V0BrandMatchRow {
+  const slug = doc.detailUrl.replace(/^\/b\//, '')
   return {
     matchId: doc.matchId,
     dbrandsId: null,
@@ -52,7 +53,8 @@ function meiliDocToBrandRow(doc: V0MeiliDocument): V0BrandMatchRow {
     ptbrandsId: null,
     brandName: doc.brandName,
     ptUrlKey: null,
-    logoUrl: doc.brandLogo
+    logoUrl: doc.brandLogo,
+    slug
   }
 }
 
@@ -161,6 +163,7 @@ export async function searchV0CatalogMeili(options: {
         dinamikStockCode: null,
         dinamikStockName: null,
         dinamikBrand: doc.brandName,
+        matchedBrandName: doc.brandName,
         dinamikPartNo: null,
         dinamikBarcode1: null,
         dinamikBarcode2: null,
@@ -214,7 +217,10 @@ export async function searchV0Catalog(options: {
   const sql = await searchV0CatalogSql(options)
   const brandFacet: Record<string, number> = {}
   for (const row of sql.products) {
-    const name = row.dinamikBrand?.trim() || row.ptManufacturerName?.trim()
+    const name =
+      row.matchedBrandName?.trim() ||
+      row.dinamikBrand?.trim() ||
+      row.ptManufacturerName?.trim()
     if (name) {
       brandFacet[name] = (brandFacet[name] ?? 0) + 1
     }

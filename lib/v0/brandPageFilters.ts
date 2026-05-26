@@ -107,10 +107,10 @@ export function buildBrandPageSearchParams(
 
 export function buildBrandPageHref(
   locale: string,
-  brandMatchId: number,
+  brandSlug: string,
   filters: BrandPageFilters
 ): string {
-  const base = `/${locale}/marka/${brandMatchId}`
+  const base = `/${locale}/b/${brandSlug}`
   const params = new URLSearchParams(buildBrandPageSearchParams(filters))
   const query = params.toString()
 

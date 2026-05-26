@@ -39,10 +39,19 @@ function collectOemCodes(row: V0DpmatchProductRow): string[] {
     row.dinamikBarcode1,
     row.dinamikBarcode2,
     row.dinamikBarcode3,
-    row.ptRefNo,
     row.ptModel,
-    row.normalized
+    row.normalized,
+    row.dinamikStockCode
   ].filter((value): value is string => Boolean(value?.trim()))
+}
+
+function resolveBrandName(row: V0DpmatchProductRow): string {
+  return (
+    row.matchedBrandName?.trim() ||
+    row.dinamikBrand?.trim() ||
+    row.ptManufacturerName?.trim() ||
+    'Unknown'
+  )
 }
 
 function resolveV0DpmatchDetailUrl(row: V0DpmatchProductRow): string {
@@ -65,10 +74,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
     hasPartId: false
   })
 
-  const brandName =
-    row.dinamikBrand?.trim() ||
-    row.ptManufacturerName?.trim() ||
-    'Unknown'
+  const brandName = resolveBrandName(row)
 
   const name = resolveProductName(row, brandName)
 
@@ -120,7 +126,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
     matchReason: row.matchMethod,
     hasSupplierOffer: hasRealPrice,
     offerCount: hasRealPrice ? 1 : 0,
-    referenceNumbers: collectOemCodes(row)
+    referenceNumbers: row.ptRefNo?.trim() ? [row.ptRefNo.trim()] : []
   }
 }
 

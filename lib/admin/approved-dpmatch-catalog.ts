@@ -10,12 +10,17 @@ export type AdminApprovedDpmatchFilters = {
   q?: string
   dinamikBrand?: string | null
   manufacturerId?: number | null
-  matchSide?: 'all' | 'matched' | 'dinamik_only' | 'pt_only'
+  matchSide?: 'all' | 'matched' | 'unmatched' | 'dinamik_only' | 'pt_only'
   page?: number
   limit?: number
   sort?: string
   sortDir?: 'asc' | 'desc'
 }
+
+export type AdminApprovedDpmatchMatchSide =
+  | 'matched'
+  | 'dinamik_only'
+  | 'pt_only'
 
 export type AdminApprovedDpmatchRow = {
   id: number
@@ -24,6 +29,7 @@ export type AdminApprovedDpmatchRow = {
   normalized: string | null
   mappingStatus: string
   matchMethod: string | null
+  matchSide: AdminApprovedDpmatchMatchSide
   dinamik: {
     stockCode: string | null
     stockName: string | null
@@ -46,7 +52,14 @@ export type AdminApprovedDpmatchRow = {
 export type AdminApprovedDpmatchListResult = {
   rows: AdminApprovedDpmatchRow[]
   pagination: { page: number; limit: number; total: number; pages: number }
-  summary: { total: number; matched: number; dinamikOnly: number; ptOnly: number }
+  summary: {
+    total: number
+    matched: number
+    unmatched: number
+    dinamikOnly: number
+    ptOnly: number
+    pending: number
+  }
   filters: Required<
     Pick<
       AdminApprovedDpmatchFilters,
@@ -79,6 +92,7 @@ function normalizeFilters(
         : null,
     matchSide:
       matchSide === 'matched' ||
+      matchSide === 'unmatched' ||
       matchSide === 'dinamik_only' ||
       matchSide === 'pt_only'
         ? matchSide
@@ -90,11 +104,20 @@ function normalizeFilters(
   }
 }
 
+function resolveMatchSide(
+  dproductsId: bigint | null,
+  ptproductsId: number | null
+): AdminApprovedDpmatchMatchSide {
+  if (dproductsId != null && ptproductsId != null) return 'matched'
+  if (dproductsId != null) return 'dinamik_only'
+  return 'pt_only'
+}
+
 function buildWhereClause(
   filters: ReturnType<typeof normalizeFilters>
 ): Prisma.Sql {
   const clauses: Prisma.Sql[] = [
-    Prisma.sql`m.mapping_status = 'APPROVED'`,
+    Prisma.sql`m.mapping_status IN ('APPROVED', 'PENDING')`,
     Prisma.sql`(d.id IS NULL OR d.is_passive IS DISTINCT FROM TRUE)`
   ]
 
@@ -115,6 +138,13 @@ function buildWhereClause(
   if (filters.matchSide === 'matched') {
     clauses.push(
       Prisma.sql`m.dproducts_id IS NOT NULL AND m.ptproducts_id IS NOT NULL`
+    )
+  } else if (filters.matchSide === 'unmatched') {
+    clauses.push(
+      Prisma.sql`(
+        (m.dproducts_id IS NOT NULL AND m.ptproducts_id IS NULL)
+        OR (m.dproducts_id IS NULL AND m.ptproducts_id IS NOT NULL)
+      )`
     )
   } else if (filters.matchSide === 'dinamik_only') {
     clauses.push(
@@ -157,6 +187,7 @@ function mapRow(r: {
     normalized: r.normalized,
     mappingStatus: r.mapping_status,
     matchMethod: r.match_method,
+    matchSide: resolveMatchSide(r.dproducts_id, r.ptproducts_id),
     dinamik: {
       stockCode: r.stock_code,
       stockName: r.stock_name,
@@ -207,8 +238,10 @@ export async function listApprovedDpmatchForAdmin(
       Array<{
         total: bigint
         matched: bigint
+        unmatched: bigint
         dinamik_only: bigint
         pt_only: bigint
+        pending: bigint
       }>
     >(Prisma.sql`
       SELECT
@@ -217,11 +250,18 @@ export async function listApprovedDpmatchForAdmin(
           WHERE m.dproducts_id IS NOT NULL AND m.ptproducts_id IS NOT NULL
         )::bigint AS matched,
         COUNT(*) FILTER (
+          WHERE (m.dproducts_id IS NOT NULL AND m.ptproducts_id IS NULL)
+            OR (m.dproducts_id IS NULL AND m.ptproducts_id IS NOT NULL)
+        )::bigint AS unmatched,
+        COUNT(*) FILTER (
           WHERE m.dproducts_id IS NOT NULL AND m.ptproducts_id IS NULL
         )::bigint AS dinamik_only,
         COUNT(*) FILTER (
           WHERE m.dproducts_id IS NULL AND m.ptproducts_id IS NOT NULL
-        )::bigint AS pt_only
+        )::bigint AS pt_only,
+        COUNT(*) FILTER (
+          WHERE m.mapping_status = 'PENDING'
+        )::bigint AS pending
       ${fromJoin}
     `),
     db.$queryRaw<
@@ -287,8 +327,10 @@ export async function listApprovedDpmatchForAdmin(
     summary: {
       total: Number(summary?.total ?? 0),
       matched: Number(summary?.matched ?? 0),
+      unmatched: Number(summary?.unmatched ?? 0),
       dinamikOnly: Number(summary?.dinamik_only ?? 0),
-      ptOnly: Number(summary?.pt_only ?? 0)
+      ptOnly: Number(summary?.pt_only ?? 0),
+      pending: Number(summary?.pending ?? 0)
     },
     filters: {
       q: filters.q,

@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { ExternalLink, Loader2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { RegionalStockSummary } from '@/components/admin/regional-stock-summary'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { AdminFormDialog } from '@/components/admin/admin-form-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Link } from '@/lib/navigation'
 import {
   adminProductDetailQueryKey,
   fetchAdminProductDetail
@@ -30,10 +32,14 @@ export function ProductDetailDrawer({
   onOpenChange,
   onSaved
 }: ProductDetailDrawerProps) {
+  const t = useTranslations('AdminCatalog.products')
   const queryClient = useQueryClient()
   const [isSaving, setIsSaving] = useState(false)
   const [isCheckingStock, setIsCheckingStock] = useState<string | null>(null)
 
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [imageUrlsText, setImageUrlsText] = useState('')
   const [sellingPrice, setSellingPrice] = useState('')
   const [minStock, setMinStock] = useState('3')
   const [reservedStock, setReservedStock] = useState('0')
@@ -62,6 +68,9 @@ export function ProductDetailDrawer({
   }, [detail])
 
   const syncFormFromDetail = (value: AdminProductDetail) => {
+    setName(value.name)
+    setDescription(value.description || '')
+    setImageUrlsText(value.imageUrls.join('\n'))
     setSellingPrice(value.sellingPrice.toString())
     setMinStock(value.minStockLevel.toString())
     setReservedStock(value.reservedStockQty.toString())
@@ -86,8 +95,30 @@ export function ProductDetailDrawer({
     }
   }, [detail])
 
+  const matchingHref = useMemo(() => {
+    const query = (detail?.name || detail?.articleLinkId || '').trim()
+    return query
+      ? `/admin/eslestirme?tab=products&q=${encodeURIComponent(query)}`
+      : '/admin/eslestirme?tab=products'
+  }, [detail?.articleLinkId, detail?.name])
+
+  const parsedImageUrls = useMemo(
+    () =>
+      imageUrlsText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+    [imageUrlsText]
+  )
+
   const handleSave = async () => {
     if (!partId) return
+
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      toast.error('Ürün adı boş olamaz.')
+      return
+    }
 
     const parsedPrice = Number(sellingPrice)
     if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
@@ -110,6 +141,9 @@ export function ProductDetailDrawer({
     setIsSaving(true)
     const response = await updateAdminProductDetail({
       partId,
+      name: trimmedName,
+      description: description.trim() || null,
+      imageUrls: parsedImageUrls,
       sellingPriceOverride: parsedPrice,
       minStockLevel: parsedMinStock,
       reservedStockQty: parsedReserved,
@@ -169,7 +203,7 @@ export function ProductDetailDrawer({
     <AdminFormDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Ürün Detayı"
+      title={t('productDetails')}
       description={
         detail
           ? `#${detail.id} - ${detail.name}`
@@ -189,6 +223,17 @@ export function ProductDetailDrawer({
         ) : detail ? (
           <div className="mt-6 space-y-4">
             <div className="sticky top-0 z-10 rounded-lg border border-border bg-white/95 p-4 backdrop-blur">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {t('productDetails')}
+                </p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={matchingHref}>
+                    <ExternalLink className="mr-1.5 h-4 w-4" />
+                    {t('openMatching')}
+                  </Link>
+                </Button>
+              </div>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                 <SummaryCard label="Parça ID" value={`#${detail.id}`} />
                 <SummaryCard
@@ -226,11 +271,54 @@ export function ProductDetailDrawer({
                 value="genel"
                 className="space-y-3 rounded-md border p-4"
               >
+                <Field
+                  label={t('detailName')}
+                  value={name}
+                  onChange={setName}
+                />
                 <InfoRow label="Parça ID" value={detail.id} />
                 <InfoRow label="Article Link ID" value={detail.articleLinkId} />
-                <InfoRow label="Ad" value={detail.name} />
                 <InfoRow label="Marka" value={detail.brand || '-'} />
                 <InfoRow label="Kategori" value={detail.category || '-'} />
+                <label className="block text-sm font-medium text-foreground">
+                  {t('detailDescription')}
+                </label>
+                <Textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
+                  placeholder="Ürün açıklaması"
+                />
+                <label className="block text-sm font-medium text-foreground">
+                  {t('detailImages')}
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  {t('detailImagesHint')}
+                </p>
+                <Textarea
+                  value={imageUrlsText}
+                  onChange={(event) => setImageUrlsText(event.target.value)}
+                  rows={4}
+                  placeholder="https://..."
+                  className="font-mono text-xs"
+                />
+                {parsedImageUrls.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    {parsedImageUrls.slice(0, 8).map((url) => (
+                      <div
+                        key={url}
+                        className="overflow-hidden rounded-md border border-border bg-muted"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt=""
+                          className="aspect-square w-full object-contain"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <InfoRow
                   label="Güncelleme"
                   value={new Date(detail.updatedAt).toLocaleString('tr-TR')}

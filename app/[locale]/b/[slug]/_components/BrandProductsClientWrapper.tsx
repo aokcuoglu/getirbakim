@@ -116,11 +116,11 @@ export function BrandProductsClientWrapper({
         nextFilters.page = 1
       }
 
-      router.push(buildBrandPageHref(locale, brand.matchId, nextFilters), {
+      router.push(buildBrandPageHref(locale, brand.slug, nextFilters), {
         scroll: false
       })
     },
-    [brand.matchId, filters, locale, router]
+    [brand.slug, filters, locale, router]
   )
 
   const handleToggleFacet = (field: string, value: string) => {

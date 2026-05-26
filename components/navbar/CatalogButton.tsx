@@ -4,7 +4,7 @@ import React from 'react'
 import { Menu } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { CatalogSheet } from '@/components/CatalogSheet'
-import { SoonNavItem } from '@/components/ui/SoonFeature'
+import { SoonNavTrigger } from '@/components/ui/SoonFeature'
 
 interface CatalogButtonProps {
   isCatalogOpen: boolean
@@ -32,9 +32,22 @@ export const CatalogButton: React.FC<CatalogButtonProps> = ({
 
   if (comingSoon) {
     return (
-      <SoonNavItem className="flex items-center gap-2.5 pr-5 border-r border-border h-full text-foreground font-medium">
-        {label}
-      </SoonNavItem>
+      <>
+        <SoonNavTrigger
+          className="flex items-center gap-2.5 pr-5 border-r border-border h-full font-medium"
+          onTrigger={() => {
+            closeDropdowns()
+            setIsCatalogOpen(true)
+          }}
+        >
+          {label}
+        </SoonNavTrigger>
+        <CatalogSheet
+          open={isCatalogOpen}
+          onOpenChange={setIsCatalogOpen}
+          comingSoon
+        />
+      </>
     )
   }
 

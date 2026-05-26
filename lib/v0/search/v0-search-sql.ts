@@ -6,10 +6,12 @@ import {
   dproductDetailsPriceExpr,
   dproductDetailsStockExpr
 } from '@/lib/sql/dproduct-details'
+import { dbrandsMatchBrandNameExpr } from '@/lib/v0/dbrandsMatchBrandNameSql'
 import { dbrandsMatchLogoExpr } from '@/lib/v0/dbrandsMatchLogoSql'
 import { compactCode, normalizeCode } from '@/lib/search/code-normalization'
 import type { V0DpmatchProductRow } from '@/lib/v0/types'
 import type { V0BrandMatchRow } from '@/lib/v0/types'
+import { toBrandSlug } from '@/lib/v0/brandSlug'
 import { mapDpmatchIndexRowToProductRow } from '@/lib/v0/search/v0-search-document'
 
 export type V0SqlSearchResult = {
@@ -63,6 +65,8 @@ const DPMATCH_PRODUCT_SELECT = Prisma.sql`
     p.price::text AS pt_price,
     p.image_url,
     mfr.name AS manufacturer_name,
+    ${dbrandsMatchBrandNameExpr} AS matched_brand,
+    o.raw AS dinamik_raw,
     ${dbrandsMatchLogoExpr} AS brand_logo_url
 `
 
@@ -121,7 +125,7 @@ async function lookupV0ExactPartCode(options: {
 
   const brandFilter =
     options.brandNames && options.brandNames.length > 0
-      ? Prisma.sql`AND COALESCE(${dproductBrandNameExpr}, mfr.name, '') IN (${Prisma.join(
+      ? Prisma.sql`AND COALESCE(${dbrandsMatchBrandNameExpr}, '') IN (${Prisma.join(
           options.brandNames.map((name) => Prisma.sql`${name}`)
         )})`
       : Prisma.empty
@@ -210,18 +214,18 @@ function buildProductSearchClause(query: string): Prisma.Sql {
       : Prisma.empty
 
   return Prisma.sql`(
-    COALESCE(d.stock_code, '') ILIKE ${pattern}
-    OR COALESCE(d.stock_name, '') ILIKE ${pattern}
-    OR COALESCE(${dproductBrandNameExpr}, '') ILIKE ${pattern}
+    COALESCE(${dbrandsMatchBrandNameExpr}, '') ILIKE ${pattern}
     OR COALESCE(p.title, '') ILIKE ${pattern}
     OR COALESCE(p.model, '') ILIKE ${pattern}
-    OR COALESCE(p.ref_no, '') ILIKE ${pattern}
-    OR COALESCE(mfr.name, '') ILIKE ${pattern}
+    OR COALESCE(d.stock_code, '') ILIKE ${pattern}
+    OR COALESCE(d.stock_name, '') ILIKE ${pattern}
     OR COALESCE(d.part_no, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_1, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_2, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_3, '') ILIKE ${pattern}
     OR COALESCE(m.normalized, '') ILIKE ${pattern}
+    OR COALESCE(o.raw::text, '') ILIKE ${pattern}
+    OR COALESCE(p.ref_no, '') ILIKE ${pattern}
     ${compactIlike}
     OR ${compactFieldMatch(Prisma.sql`d.stock_code`)}
     OR ${compactFieldMatch(Prisma.sql`d.part_no`)}
@@ -250,7 +254,8 @@ function mapBrandSearchRow(row: BrandSearchRow): V0BrandMatchRow {
     ptbrandsId: row.ptbrands_id,
     brandName: row.brand_name,
     ptUrlKey: row.pt_url_key,
-    logoUrl: row.logo_url
+    logoUrl: row.logo_url,
+    slug: toBrandSlug(row.pt_url_key, row.brand_name)
   }
 }
 
@@ -350,7 +355,7 @@ export async function searchV0CatalogSql(options: {
   const skipExactCount = limit <= 10 && Boolean(trimmed)
   const brandFilter =
     options.brandNames && options.brandNames.length > 0
-      ? Prisma.sql`AND COALESCE(${dproductBrandNameExpr}, mfr.name, '') IN (${Prisma.join(
+      ? Prisma.sql`AND COALESCE(${dbrandsMatchBrandNameExpr}, '') IN (${Prisma.join(
           options.brandNames.map((name) => Prisma.sql`${name}`)
         )})`
       : Prisma.empty
@@ -377,6 +382,8 @@ export async function searchV0CatalogSql(options: {
         p.price::text AS pt_price,
         p.image_url,
         mfr.name AS manufacturer_name,
+        ${dbrandsMatchBrandNameExpr} AS matched_brand,
+        o.raw AS dinamik_raw,
         ${dbrandsMatchLogoExpr} AS brand_logo_url
       ${DPMATCH_SEARCH_FROM}
         AND ${searchClause}
@@ -413,6 +420,8 @@ export async function searchV0CatalogSql(options: {
         p.price::text AS pt_price,
         p.image_url,
         mfr.name AS manufacturer_name,
+        ${dbrandsMatchBrandNameExpr} AS matched_brand,
+        o.raw AS dinamik_raw,
         ${dbrandsMatchLogoExpr} AS brand_logo_url
       ${DPMATCH_SEARCH_FROM}
         AND ${searchClause}

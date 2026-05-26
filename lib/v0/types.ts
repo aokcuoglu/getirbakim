@@ -25,6 +25,8 @@ export type V0DpmatchProductRow = {
   ptImageUrl: string | null
   ptUrl: string | null
   ptManufacturerName: string | null
+  /** Canonical brand from v0.dbrands_match when approved. */
+  matchedBrandName?: string | null
   brandLogoUrl: string | null
 }
 
@@ -37,11 +39,18 @@ export type V0BrandMatchRow = {
   brandName: string
   ptUrlKey: string | null
   logoUrl: string | null
+  slug: string
 }
+
+/** Slim brand shape for homepage slider — avoids shipping query-only fields in RSC payload. */
+export type V0HomeBrandItem = Pick<
+  V0BrandMatchRow,
+  'matchId' | 'brandName' | 'logoUrl' | 'slug'
+>
 
 export type V0HomePageData = {
   topCategories: TopCategoryItem[]
   navbarCategories: MainNavCategoryItem[]
   catalogData: CatalogData
-  brands: V0BrandMatchRow[]
+  brands: V0HomeBrandItem[]
 }

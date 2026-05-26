@@ -2,7 +2,7 @@
 
 import React from 'react'
 
-import { SoonNavItem } from '@/components/ui/SoonFeature'
+import { SoonNavTrigger } from '@/components/ui/SoonFeature'
 
 interface CategoryItemProps {
   name: string
@@ -30,7 +30,7 @@ export const CategoryItem: React.FC<CategoryItemProps> = ({
   }`
 
   if (comingSoon) {
-    return <SoonNavItem className={className}>{name}</SoonNavItem>
+    return <SoonNavTrigger className={className}>{name}</SoonNavTrigger>
   }
 
   return (

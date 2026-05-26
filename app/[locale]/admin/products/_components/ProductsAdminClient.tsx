@@ -643,7 +643,7 @@ export function ProductsAdminClient({
                       <AdminRowActions
                         actions={[
                           {
-                            label: 'Detay',
+                            label: 'Ürün Detayları',
                             onClick: () => openDetail(row.id)
                           },
                           {
@@ -810,7 +810,7 @@ export function ProductsAdminClient({
                           <AdminRowActions
                             actions={[
                               {
-                                label: 'Detay',
+                                label: 'Ürün Detayları',
                                 onClick: () => openDetail(row.id)
                               },
                               {

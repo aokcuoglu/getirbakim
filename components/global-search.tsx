@@ -173,7 +173,7 @@ export function GlobalSearch({
 
   const handleSelectBrand = (brand: SearchResultBrand) => {
     setOpen(false)
-    router.push(`/${locale}/marka/${brand.matchId}`)
+    router.push(`/${locale}/b/${brand.slug}`)
   }
 
   const handleSearchParts = () => {

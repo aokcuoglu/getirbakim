@@ -61,6 +61,30 @@ async function main() {
   await client.createIndex(INDEX_NAME, { primaryKey: 'id' }).catch(() => {})
   const index = client.index(INDEX_NAME)
 
+  console.log('[meili-v0-reindex] Updating index settings...')
+  const settingsTask = await index.updateSettings({
+    searchableAttributes: [
+      'brandName',
+      'name',
+      'title',
+      'model',
+      'sku',
+      'refNo',
+      'rawText',
+      'oemCodes',
+      'searchableText',
+      'detailUrl'
+    ],
+    filterableAttributes: ['documentType', 'brandName', 'matchId'],
+    sortableAttributes: ['price', 'stockQty', 'matchId'],
+    typoTolerance: {
+      enabled: true,
+      minWordSizeForTypos: { oneTypo: 4, twoTypos: 8 }
+    },
+    pagination: { maxTotalHits: 50000 }
+  })
+  await waitForTask(client, settingsTask.taskUid, TASK_WAIT_MS)
+
   if (CLEAR_BEFORE) {
     console.log('[meili-v0-reindex] Clearing index...')
     const clearTask = await index.deleteAllDocuments()

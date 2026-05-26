@@ -12,7 +12,7 @@ import { PopularManufacturers } from './hero/PopularManufacturers'
 import { HeroBrandsSlider } from '@/components/v0/HeroBrandsSlider'
 import type { CatalogData } from '@/lib/actions/getCatalogCategories'
 import type { PopularManufacturer } from '@/lib/actions/getPopularManufacturers'
-import type { V0BrandMatchRow } from '@/lib/v0/types'
+import type { V0HomeBrandItem } from '@/lib/v0/types'
 import { useShop } from '@/components/ShopProvider'
 import { buildCatalogUrl } from '@/lib/catalog-url'
 import { SoonFeature } from '@/components/ui/SoonFeature'
@@ -22,7 +22,7 @@ interface HeroProps {
   topCategories: TopCategoryItem[]
   catalogData: CatalogData
   manufacturers?: PopularManufacturer[]
-  brands?: V0BrandMatchRow[]
+  brands?: V0HomeBrandItem[]
   onMakeSelect?: (make: string) => void
   onBrandSelect?: (brand: string) => void
 }

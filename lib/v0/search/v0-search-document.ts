@@ -7,8 +7,11 @@ import {
   dproductDetailsPriceExpr,
   dproductDetailsStockExpr
 } from '@/lib/sql/dproduct-details'
+import { dbrandsMatchBrandNameExpr } from '@/lib/v0/dbrandsMatchBrandNameSql'
 import { dbrandsMatchLogoExpr } from '@/lib/v0/dbrandsMatchLogoSql'
+import { extractDproductRawSearchText } from '@/lib/v0/search/v0-raw-search-text'
 import { stripLeadingBrandPrefix } from '@/lib/product-display-name'
+import { toBrandSlug } from '@/lib/v0/brandSlug'
 import type { V0DpmatchProductRow } from '@/lib/v0/types'
 
 export type V0MeiliDocumentType = 'v0_product' | 'v0_brand'
@@ -19,6 +22,11 @@ export type V0MeiliDocument = {
   matchId: number
   name: string
   brandName: string
+  title: string | null
+  model: string | null
+  sku: string | null
+  refNo: string | null
+  rawText: string | null
   brandLogo: string | null
   image: string | null
   price: number | null
@@ -46,12 +54,15 @@ export type DpmatchIndexRow = {
   pt_price: string | null
   image_url: string | null
   manufacturer_name: string | null
+  matched_brand: string | null
+  dinamik_raw: unknown
   brand_logo_url: string | null
 }
 
 type BrandIndexRow = {
   id: number
   brand_name: string
+  pt_url_key: string | null
   logo_url: string | null
 }
 
@@ -65,13 +76,13 @@ function resolveProductName(row: DpmatchIndexRow, brandName: string): string {
   return stripLeadingBrandPrefix(rawName, brandName)
 }
 
+/** Part numbers and barcodes only — cross-ref ref_no is indexed separately at lower priority. */
 function collectOemCodes(row: DpmatchIndexRow): string[] {
   const raw = [
     row.part_no,
     row.barcode_1,
     row.barcode_2,
     row.barcode_3,
-    row.ref_no,
     row.model,
     row.normalized,
     row.stock_code
@@ -94,13 +105,26 @@ function parsePrice(value: string | null): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+function resolveCanonicalBrandName(row: DpmatchIndexRow): string {
+  return (
+    row.matched_brand?.trim() ||
+    row.brand?.trim() ||
+    row.manufacturer_name?.trim() ||
+    'Unknown'
+  )
+}
+
 export function mapDpmatchRowToMeiliDoc(row: DpmatchIndexRow): V0MeiliDocument {
-  const brandName =
-    row.brand?.trim() || row.manufacturer_name?.trim() || 'Unknown'
+  const brandName = resolveCanonicalBrandName(row)
   const name = resolveProductName(row, brandName)
   const price =
     parsePrice(row.pt_price) ?? parsePrice(row.dinamik_price)
   const oemCodes = collectOemCodes(row)
+  const title = row.title?.trim() || null
+  const model = row.model?.trim() || null
+  const sku = row.stock_code?.trim() || model
+  const refNo = row.ref_no?.trim() || null
+  const rawText = extractDproductRawSearchText(row.dinamik_raw) || null
 
   return {
     id: `p-${row.id}`,
@@ -108,31 +132,44 @@ export function mapDpmatchRowToMeiliDoc(row: DpmatchIndexRow): V0MeiliDocument {
     matchId: row.id,
     name,
     brandName,
+    title,
+    model,
+    sku,
+    refNo,
+    rawText,
     brandLogo: row.brand_logo_url?.trim() || null,
     image: row.image_url?.trim() || null,
     price,
     stockQty: row.dinamik_stock_qty ?? 0,
     oemCodes,
-    searchableText: [name, brandName, ...oemCodes].filter(Boolean).join(' '),
+    searchableText: [brandName, name, title, model, sku, rawText, refNo, ...oemCodes]
+      .filter(Boolean)
+      .join(' '),
     detailUrl: `/part/${row.id}`
   }
 }
 
 export function mapBrandRowToMeiliDoc(row: BrandIndexRow): V0MeiliDocument {
   const brandName = row.brand_name.trim()
+  const slug = toBrandSlug(row.pt_url_key, brandName)
   return {
     id: `b-${row.id}`,
     documentType: 'v0_brand',
     matchId: row.id,
     name: brandName,
     brandName,
+    title: null,
+    model: null,
+    sku: null,
+    refNo: null,
+    rawText: null,
     brandLogo: row.logo_url?.trim() || null,
     image: row.logo_url?.trim() || null,
     price: null,
     stockQty: 0,
     oemCodes: [],
     searchableText: brandName,
-    detailUrl: `/marka/${row.id}`
+    detailUrl: `/b/${slug}`
   }
 }
 
@@ -155,6 +192,8 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     p.price::text AS pt_price,
     p.image_url,
     mfr.name AS manufacturer_name,
+    ${dbrandsMatchBrandNameExpr} AS matched_brand,
+    o.raw AS dinamik_raw,
     ${dbrandsMatchLogoExpr} AS brand_logo_url
   FROM v0.dpmatch m
   INNER JOIN v0.dproducts d ON d.id = m.dproducts_id
@@ -173,7 +212,8 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
       a.normalized,
       a.logo_url,
       d.brand AS dinamik_brand,
-      m.name AS ptbrand_name
+      m.name AS ptbrand_name,
+      m.url_key AS pt_url_key
     FROM v0.dbrands_match a
     LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
     LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
@@ -197,11 +237,12 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
         MAX(NULLIF(BTRIM(normalized), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
+      MAX(pt_url_key) AS pt_url_key,
       MAX(logo_url) FILTER (WHERE logo_url IS NOT NULL) AS logo_url
     FROM with_key
     GROUP BY group_key
   )
-  SELECT g.id, g.brand_name, g.logo_url FROM grouped g
+  SELECT g.id, g.brand_name, g.pt_url_key, g.logo_url FROM grouped g
 `
 
 const V0_MEILI_PRODUCT_FETCH_BATCH = 2_000
@@ -269,6 +310,7 @@ export function mapDpmatchIndexRowToProductRow(row: DpmatchIndexRow): V0DpmatchP
     ptImageUrl: row.image_url,
     ptUrl: null,
     ptManufacturerName: row.manufacturer_name,
+    matchedBrandName: row.matched_brand,
     brandLogoUrl: row.brand_logo_url
   }
 }

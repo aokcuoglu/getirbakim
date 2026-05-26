@@ -3,6 +3,8 @@ import {
   getActiveCategorySlugs,
   getCanonicalSiteUrl
 } from '@/lib/seo/sitemap'
+import { getApprovedDbrandsMatch } from '@/lib/v0/getDbrandsMatch'
+import { buildBrandPath } from '@/lib/v0/brandSlug'
 import { isIndexingAllowed } from '@/lib/site-url'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +21,10 @@ export async function GET() {
     })
   }
 
-  const slugs = await getActiveCategorySlugs()
+  const [slugs, brands] = await Promise.all([
+    getActiveCategorySlugs(),
+    getApprovedDbrandsMatch()
+  ])
   const locales: Array<'en' | 'tr'> = ['en', 'tr']
 
   const urls: string[] = []
@@ -27,6 +32,9 @@ export async function GET() {
     urls.push(`${baseUrl}/${locale}`)
     slugs.forEach((slug) => {
       urls.push(`${baseUrl}/${locale}/${slug}`)
+    })
+    brands.forEach((brand) => {
+      urls.push(`${baseUrl}/${locale}${buildBrandPath(brand.slug)}`)
     })
   })
 

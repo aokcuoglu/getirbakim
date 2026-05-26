@@ -35,6 +35,7 @@ export type SearchResultBrand = {
   matchId: number
   brandName: string
   logoUrl: string | null
+  slug: string
   type: 'brand'
 }
 

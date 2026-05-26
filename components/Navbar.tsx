@@ -19,7 +19,7 @@ import { CatalogSheet } from './CatalogSheet'
 import { MobileGarageModal } from './navbar/MobileGarageModal'
 import { TopUtilityBar } from './navbar/TopUtilityBar'
 import { isV0OnlySite } from '@/lib/v0/siteMode'
-import { SoonNavItem } from '@/components/ui/SoonFeature'
+import { SoonNavTrigger } from '@/components/ui/SoonFeature'
 
 interface NavbarProps {
   navbarCategories?: PartCategory[]
@@ -186,9 +186,13 @@ const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-1">
             {/* Hamburger Menu - Mobile Only */}
             {comingSoon ? (
-              <SoonNavItem className="md:hidden p-2 rounded-lg text-muted-foreground">
+              <SoonNavTrigger
+                className="md:hidden p-2 rounded-lg"
+                onTrigger={() => setIsMobileMenuOpen(true)}
+                ariaLabel="Menu"
+              >
                 <Menu size={24} strokeWidth={1.5} aria-hidden />
-              </SoonNavItem>
+              </SoonNavTrigger>
             ) : (
             <button
               onClick={() => setIsMobileMenuOpen(true)}
@@ -308,16 +312,13 @@ const Navbar: React.FC<NavbarProps> = ({
       />
 
       {/* Mobile Menu - Uses CatalogSheet for full category navigation */}
-      {!comingSoon && (
       <CatalogSheet
         open={isMobileMenuOpen}
         onOpenChange={setIsMobileMenuOpen}
         comingSoon={comingSoon}
       />
-      )}
 
       {/* Mobile Garage Modal */}
-      {!comingSoon && (
       <MobileGarageModal
         isOpen={isMobileGarageOpen}
         onClose={() => setIsMobileGarageOpen(false)}
@@ -333,7 +334,6 @@ const Navbar: React.FC<NavbarProps> = ({
           }, 100)
         }}
       />
-      )}
 
       {/* Spacer for Fixed Nav: mobile=70px, desktop=150px (32+70+48) */}
       <div className="h-[70px] md:h-[150px]" />

@@ -7,6 +7,9 @@ import {
 } from '@/lib/seo/url'
 import { createTimerGroup } from '@/lib/performance/timing'
 
+/** Aligned with v0 approved brands data cache (see lib/v0/brandCache.ts). */
+export const revalidate = 300
+
 interface PageProps {
   params: Promise<{ locale: string }>
 }

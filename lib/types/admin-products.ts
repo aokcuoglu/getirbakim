@@ -59,6 +59,7 @@ export interface AdminProductDetail extends AdminProductListItem {
   brandId: number | null
   categoryId: number | null
   inBasket: boolean
+  description: string | null
   computedCostExVat: number | null
   eans: string[]
   oemReferences: Array<{ brand: string; code: string }>

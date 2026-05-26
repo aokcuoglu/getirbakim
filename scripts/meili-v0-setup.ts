@@ -29,8 +29,13 @@ async function main() {
   const index = client.index(INDEX_NAME)
   const settingsTask = await index.updateSettings({
     searchableAttributes: [
-      'name',
       'brandName',
+      'name',
+      'title',
+      'model',
+      'sku',
+      'refNo',
+      'rawText',
       'oemCodes',
       'searchableText',
       'detailUrl'

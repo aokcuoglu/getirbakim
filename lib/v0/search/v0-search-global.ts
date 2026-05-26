@@ -6,6 +6,7 @@ export type V0GlobalSearchBrand = {
   matchId: number
   brandName: string
   logoUrl: string | null
+  slug: string
   type: 'brand'
 }
 
@@ -41,6 +42,7 @@ export async function searchV0Global(query: string): Promise<V0GlobalSearchResul
       matchId: brand.matchId,
       brandName: brand.brandName,
       logoUrl: brand.logoUrl,
+      slug: brand.slug,
       type: 'brand' as const
     })),
     products: result.products.slice(0, 5).map((row) => {

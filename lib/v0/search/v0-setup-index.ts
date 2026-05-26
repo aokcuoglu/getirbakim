@@ -11,8 +11,13 @@ export async function configureV0MeilisearchIndex(): Promise<void> {
   const index = client.index(indexName)
   await index.updateSettings({
     searchableAttributes: [
-      'name',
       'brandName',
+      'name',
+      'title',
+      'model',
+      'sku',
+      'refNo',
+      'rawText',
       'oemCodes',
       'searchableText',
       'detailUrl'

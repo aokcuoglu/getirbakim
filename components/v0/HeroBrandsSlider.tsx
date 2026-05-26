@@ -1,23 +1,36 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 
 import { Input } from '@/components/ui/input'
 import { SafeImage } from '@/components/ui/SafeImage'
-import type { V0BrandMatchRow } from '@/lib/v0/types'
+import type { V0HomeBrandItem } from '@/lib/v0/types'
 
 interface HeroBrandsSliderProps {
-  brands: V0BrandMatchRow[]
+  brands: V0HomeBrandItem[]
+}
+
+const GRID_ROWS = 3
+/** ~8 visible columns on desktop + one buffer column. */
+const INITIAL_RENDER_COUNT = GRID_ROWS * 9
+const LOAD_MORE_COUNT = GRID_ROWS * 4
+/** First row of visible logos (column-major grid) get priority loading. */
+const PRIORITY_COLS = 8
+
+function isPriorityLogo(index: number): boolean {
+  return index % GRID_ROWS === 0 && index < GRID_ROWS * PRIORITY_COLS
 }
 
 export function HeroBrandsSlider({ brands }: HeroBrandsSliderProps) {
   const t = useTranslations('Hero')
   const locale = useLocale()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
+  const [renderCount, setRenderCount] = useState(INITIAL_RENDER_COUNT)
 
   const filteredBrands = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase(locale)
@@ -26,6 +39,33 @@ export function HeroBrandsSlider({ brands }: HeroBrandsSliderProps) {
       brand.brandName.toLocaleLowerCase(locale).includes(normalized)
     )
   }, [brands, query, locale])
+
+  useEffect(() => {
+    setRenderCount(INITIAL_RENDER_COUNT)
+  }, [query])
+
+  useEffect(() => {
+    const root = scrollRef.current
+    const sentinel = loadMoreRef.current
+    if (!root || !sentinel || renderCount >= filteredBrands.length) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setRenderCount((current) =>
+            Math.min(current + LOAD_MORE_COUNT, filteredBrands.length)
+          )
+        }
+      },
+      { root, rootMargin: '240px' }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [renderCount, filteredBrands.length])
+
+  const visibleBrands = filteredBrands.slice(0, renderCount)
+  const hasMoreBrands = renderCount < filteredBrands.length
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -93,10 +133,10 @@ export function HeroBrandsSlider({ brands }: HeroBrandsSliderProps) {
             className="grid grid-flow-col grid-rows-3 gap-2.5 overflow-x-auto pb-2 snap-x scrollbar-hide"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            {filteredBrands.map((brand) => (
+            {visibleBrands.map((brand, index) => (
               <Link
                 key={brand.matchId}
-                href={`/${locale}/marka/${brand.matchId}`}
+                href={`/${locale}/b/${brand.slug}`}
                 className="w-[172px] shrink-0 snap-start rounded-sm p-0.5 opacity-75 grayscale transition-all hover:opacity-100 hover:grayscale-0"
               >
                 <div className="flex h-[56px] w-full items-center justify-center overflow-hidden rounded-sm border border-border bg-background px-3">
@@ -107,6 +147,8 @@ export function HeroBrandsSlider({ brands }: HeroBrandsSliderProps) {
                       width={100}
                       height={50}
                       className="h-full w-full object-contain"
+                      priority={isPriorityLogo(index)}
+                      loading={isPriorityLogo(index) ? undefined : 'lazy'}
                       fallback={
                         <span className="text-sm font-bold text-foreground">
                           {brand.brandName}
@@ -121,6 +163,13 @@ export function HeroBrandsSlider({ brands }: HeroBrandsSliderProps) {
                 </div>
               </Link>
             ))}
+            {hasMoreBrands ? (
+              <div
+                ref={loadMoreRef}
+                aria-hidden
+                className="col-span-1 row-span-3 w-[172px] shrink-0"
+              />
+            ) : null}
           </div>
         )}
       </div>

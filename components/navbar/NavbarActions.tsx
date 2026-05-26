@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import {
   User,
   LogOut,
@@ -19,7 +19,7 @@ import { buildCatalogPath } from '@/lib/catalog-url'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
-import { SoonNavItem } from '@/components/ui/SoonFeature'
+import { SoonFeature } from '@/components/ui/SoonFeature'
 
 interface NavbarActionsProps {
   onGarageOpenChange?: (open: boolean) => void
@@ -59,6 +59,35 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
     selectFromHistory,
     clearSelectedVehicle
   } = useShop()
+
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const garageRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return
+
+    const onPointerDownOutside = (event: MouseEvent) => {
+      if (!userMenuRef.current?.contains(event.target as Node)) {
+        onUserMenuOpenChange?.(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDownOutside)
+    return () => document.removeEventListener('mousedown', onPointerDownOutside)
+  }, [isUserMenuOpen, onUserMenuOpenChange])
+
+  useEffect(() => {
+    if (!isGarageOpen) return
+
+    const onPointerDownOutside = (event: MouseEvent) => {
+      if (!garageRef.current?.contains(event.target as Node)) {
+        onGarageOpenChange?.(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDownOutside)
+    return () => document.removeEventListener('mousedown', onPointerDownOutside)
+  }, [isGarageOpen, onGarageOpenChange])
 
   const handleUserClick = () => {
     if (user) {
@@ -100,8 +129,6 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
   }
 
   const handleGarageClick = () => {
-    if (garageComingSoon) return
-
     // Mobile: use full-screen modal
     if (window.innerWidth < 768 && onMobileGarageClick) {
       onMobileGarageClick()
@@ -129,7 +156,7 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
       </div>
 
       {/* My Profile - Hidden on Mobile */}
-      <div className="relative hidden md:block">
+      <div className="relative hidden md:block" ref={userMenuRef}>
         <button
           onClick={handleUserClick}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-lg group transition-colors"
@@ -183,34 +210,19 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
       </div>
 
       {/* My Garage */}
-      <div className="relative">
-        {garageComingSoon ? (
-          <SoonNavItem className="flex items-center gap-2 px-2 py-1.5 rounded-lg">
-            <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground">
-              <Car size={18} strokeWidth={1.5} aria-hidden />
-            </div>
-            <div className="hidden lg:flex w-[120px] flex-col items-start overflow-hidden">
-              <span className="text-[11px] text-muted-foreground font-medium leading-none mb-0.5">
-                {t('garage')}
-              </span>
-              <span className="text-[13px] font-semibold text-foreground leading-none truncate w-full text-left">
-                {t('addVehicle')}
-              </span>
-            </div>
-          </SoonNavItem>
-        ) : (
+      <div className="relative" ref={garageRef}>
         <button
           onClick={handleGarageClick}
-          onBlur={() => {
-            setTimeout(() => onGarageOpenChange?.(false), 200)
-          }}
-          className={`flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-lg group transition-colors ${
-            isGarageOpen ? 'bg-muted' : ''
-          }`}
+          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg group transition-colors ${
+            garageComingSoon
+              ? 'opacity-60 text-muted-foreground cursor-pointer'
+              : 'hover:bg-muted'
+          } ${isGarageOpen && !garageComingSoon ? 'bg-muted' : ''}`}
+          aria-label={garageComingSoon ? t('addVehicle') : undefined}
         >
           <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground group-hover:text-amber-500 transition-colors relative">
             <Car size={18} strokeWidth={1.5} />
-            {selectedVehicle && (
+            {!garageComingSoon && selectedVehicle && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-4 w-4 bg-warning/100 border-2 border-white items-center justify-center">
@@ -225,20 +237,40 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
             </span>
             <div className="flex items-center gap-1 w-full">
               <span className="text-[13px] font-semibold text-foreground leading-none truncate w-full text-left">
-                {selectedVehicle ? `${selectedVehicle.model}` : t('addVehicle')}
+                {garageComingSoon
+                  ? t('addVehicle')
+                  : selectedVehicle
+                    ? `${selectedVehicle.model}`
+                    : t('addVehicle')}
               </span>
-              <ChevronDown size={12} className="text-muted-foreground shrink-0" />
+              {!garageComingSoon ? (
+                <ChevronDown size={12} className="text-muted-foreground shrink-0" />
+              ) : null}
             </div>
           </div>
         </button>
-        )}
 
         {/* Garage Panel */}
-        {isGarageOpen && !garageComingSoon && (
-          <div
-            className="absolute top-full right-0 mt-2 w-80 bg-background rounded-xl shadow-xl border border-border z-100 animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
-            onMouseDown={(e) => e.preventDefault()}
-          >
+        {isGarageOpen && (
+          <div className="absolute top-full right-0 mt-2 w-80 bg-background rounded-xl shadow-xl border border-border z-100 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+            {garageComingSoon ? (
+              <SoonFeature variant="panel" className="min-h-[240px]">
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-foreground">{t('garage')}</h3>
+                  </div>
+                  <div className="text-center py-6 bg-muted rounded-md border border-dashed border-border">
+                    <Car size={32} className="mx-auto text-muted-foreground/70 mb-2" />
+                    <p className="text-sm text-muted-foreground">{t('noActiveVehicle')}</p>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <Button className="w-full" disabled>
+                      <Plus size={14} /> {t('addNewVehicle')}
+                    </Button>
+                  </div>
+                </div>
+              </SoonFeature>
+            ) : (
               <div className="p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-bold text-foreground">
@@ -358,6 +390,7 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
               </Button>
             </div>
               </div>
+            )}
           </div>
         )}
       </div>

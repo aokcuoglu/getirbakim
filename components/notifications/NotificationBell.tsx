@@ -150,7 +150,7 @@ export function NotificationBell({
   }, [open, isMobileViewport])
 
   useEffect(() => {
-    if (!open) return
+    if (!open || isMobileViewport) return
 
     const onClickOutside = (event: MouseEvent) => {
       const target = event.target as Node
@@ -159,11 +159,11 @@ export function NotificationBell({
       }
     }
 
-    document.addEventListener('mousedown', onClickOutside)
+    document.addEventListener('mousedown', onClickOutside, true)
     return () => {
-      document.removeEventListener('mousedown', onClickOutside)
+      document.removeEventListener('mousedown', onClickOutside, true)
     }
-  }, [open])
+  }, [open, isMobileViewport])
 
   const onOpenToggle = () => {
     if (!user?.id) {
@@ -271,7 +271,7 @@ export function NotificationBell({
             <button
               type="button"
               className="fixed inset-0 z-[140] bg-black/20"
-              onClick={() => setOpen(false)}
+              onMouseDown={() => setOpen(false)}
               aria-label="Bildirim panelini kapat"
             />
             <div

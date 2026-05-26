@@ -7,6 +7,11 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle
+} from '@/components/ui/dialog'
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -128,6 +133,56 @@ function SoonOverlayCard({
 }
 
 const inertProps = { inert: true } as React.HTMLAttributes<HTMLDivElement>
+
+/** Passive nav control — muted appearance, click shows Yakında or runs a custom handler. */
+export function SoonNavTrigger({
+  children,
+  className,
+  onTrigger,
+  ariaLabel
+}: {
+  children: React.ReactNode
+  className?: string
+  /** Opens external UI (sheet/modal/dropdown) instead of the default dialog */
+  onTrigger?: () => void
+  ariaLabel?: string
+}) {
+  const t = useTranslations('ComingSoon')
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+
+  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    if (onTrigger) {
+      onTrigger()
+      return
+    }
+    setDialogOpen(true)
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        className={cn(
+          'opacity-60 text-muted-foreground transition-colors cursor-pointer',
+          className
+        )}
+        aria-label={ariaLabel ?? t('title')}
+      >
+        {children}
+      </button>
+      {!onTrigger ? (
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent className="border-0 bg-transparent p-0 shadow-none sm:max-w-md">
+            <DialogTitle className="sr-only">{t('title')}</DialogTitle>
+            <SoonPanelBanner />
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
+  )
+}
 
 /** Non-interactive nav label with optional badge — no navigation or link focus. */
 export function SoonNavItem({

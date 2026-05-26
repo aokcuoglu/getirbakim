@@ -65,15 +65,16 @@ export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
   }
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 z-[100] md:hidden animate-in fade-in duration-200"
+    <div className="fixed inset-0 z-[100] md:hidden animate-in fade-in duration-200">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
         onClick={onClose}
+        aria-label={t('garage')}
       />
 
-      {/* Modal */}
-      <div className="fixed inset-x-0 bottom-0 top-0 z-[101] flex flex-col bg-background md:hidden animate-in slide-in-from-bottom duration-300">
+      {/* Modal — top inset leaves a tappable dimmed backdrop area */}
+      <div className="absolute inset-x-0 bottom-0 top-14 z-10 flex flex-col bg-background animate-in slide-in-from-bottom duration-300">
         {/* Header */}
         <div className="flex items-center justify-center px-4 h-14 border-b border-border relative">
           <span className="text-base font-semibold text-foreground">
@@ -206,6 +207,6 @@ export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
         </div>
         )}
       </div>
-    </>
+    </div>
   )
 }

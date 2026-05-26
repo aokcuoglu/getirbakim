@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
       manufacturerId,
       matchSide:
         matchSide === 'matched' ||
+        matchSide === 'unmatched' ||
         matchSide === 'dinamik_only' ||
         matchSide === 'pt_only'
           ? matchSide

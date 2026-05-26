@@ -1,143 +1,44 @@
-import { Suspense } from 'react'
-import { notFound } from 'next/navigation'
-import type { Metadata } from 'next'
-import Link from 'next/link'
-import Navbar from '@/components/Navbar'
-import Footer from '@/components/Footer'
-import { SafeImage } from '@/components/ui/SafeImage'
-import { BrandProductsSection } from './_components/BrandProductsSection'
-import { BrandPageProductsSkeleton } from './_components/BrandPageProductsSkeleton'
-import { getMainNavCategories } from '@/lib/mainNavCategories'
+import { notFound, permanentRedirect } from 'next/navigation'
 import { getDbrandsMatchById } from '@/lib/v0/getDbrandsMatch'
-import { parseBrandPageFilters } from '@/lib/v0/brandPageFilters'
-import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
-import { getTranslations } from 'next-intl/server'
-import { createTimerGroup } from '@/lib/performance/timing'
+import { buildBrandHref } from '@/lib/v0/brandSlug'
 
-interface BrandPageProps {
+interface LegacyBrandRedirectProps {
   params: Promise<{
     locale: string
     id: string
   }>
-  searchParams: Promise<{
-    page?: string
-    limit?: string
-    sort?: string
-    stock?: string
-    minPrice?: string
-    maxPrice?: string
-  }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
-export const revalidate = 300
-
-export async function generateMetadata({ params }: BrandPageProps): Promise<Metadata> {
-  const { id, locale } = await params
+export default async function LegacyBrandRedirect({
+  params,
+  searchParams
+}: LegacyBrandRedirectProps) {
+  const { locale, id } = await params
   const brandMatchId = parseInt(id, 10)
 
   if (isNaN(brandMatchId)) {
-    return { title: 'Brand Not Found' }
+    notFound()
   }
 
   const brand = await getDbrandsMatchById(brandMatchId)
   if (!brand) {
-    return { title: 'Brand Not Found' }
+    notFound()
   }
 
-  const safeLocale = locale === 'tr' ? 'tr' : 'en'
-  const title =
-    safeLocale === 'tr'
-      ? `${brand.brandName} Yedek Parçalar | GetirBakim`
-      : `${brand.brandName} Spare Parts | GetirBakim`
-  const description =
-    safeLocale === 'tr'
-      ? `${brand.brandName} markasına ait yedek parçaları keşfedin.`
-      : `Browse spare parts from ${brand.brandName}.`
-
-  return {
-    title,
-    description,
-    alternates: buildLocaleAlternates(locale, `/marka/${brandMatchId}`),
-    robots: defaultRobotsIndexing()
-  }
-}
-
-export default async function BrandPage({ params, searchParams }: BrandPageProps) {
-  const { locale, id } = await params
   const resolvedSearchParams = await searchParams
-  const brandMatchId = parseInt(id, 10)
-  const filters = parseBrandPageFilters(resolvedSearchParams)
-
-  if (isNaN(brandMatchId)) {
-    notFound()
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(resolvedSearchParams)) {
+    if (typeof value === 'string') {
+      query.set(key, value)
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        query.append(key, item)
+      }
+    }
   }
 
-  const tg = createTimerGroup('brandPage')
-  const tShell = tg.start('shell')
-
-  const [brand, navbarCategories, t] = await Promise.all([
-    getDbrandsMatchById(brandMatchId),
-    getMainNavCategories(locale),
-    getTranslations('V0Home')
-  ])
-
-  if (!brand) {
-    notFound()
-  }
-
-  tg.end(tShell, { brandMatchId, page: filters.page })
-  tg.logSummary()
-
-  return (
-    <div className="min-h-screen text-foreground selection:bg-accent/20 flex flex-col">
-      <Navbar navbarCategories={navbarCategories} />
-
-      <main className="flex-1 pb-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-3 pb-2">
-          <nav className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
-            <Link href={`/${locale}`} className="transition-colors hover:text-foreground">
-              {t('breadcrumbHome')}
-            </Link>
-            <span className="text-muted-foreground">/</span>
-            <span className="font-medium text-foreground">{brand.brandName}</span>
-          </nav>
-        </div>
-
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-8">
-          <div className="mb-4 border-b border-border pb-3">
-            {brand.logoUrl ? (
-              <>
-                <h1 className="sr-only">{brand.brandName}</h1>
-                <div className="flex h-14 w-[140px] shrink-0 items-center justify-center">
-                  <SafeImage
-                    src={brand.logoUrl}
-                    alt={brand.brandName}
-                    width={140}
-                    height={56}
-                    className="max-h-14 w-auto max-w-full object-contain object-left"
-                    fallback={
-                      <span className="text-sm font-bold text-foreground">
-                        {brand.brandName}
-                      </span>
-                    }
-                  />
-                </div>
-              </>
-            ) : (
-              <h1 className="text-xl font-semibold text-foreground">{brand.brandName}</h1>
-            )}
-          </div>
-
-          <Suspense
-            key={`${brandMatchId}-${JSON.stringify(filters)}`}
-            fallback={<BrandPageProductsSkeleton />}
-          >
-            <BrandProductsSection brand={brand} locale={locale} filters={filters} />
-          </Suspense>
-        </div>
-      </main>
-
-      <Footer />
-    </div>
-  )
+  const queryString = query.toString()
+  const target = `${buildBrandHref(locale, brand.slug)}${queryString ? `?${queryString}` : ''}`
+  permanentRedirect(target)
 }

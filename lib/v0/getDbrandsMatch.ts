@@ -1,7 +1,17 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { unstable_cache } from 'next/cache'
+import {
+  V0_APPROVED_BRANDS_CACHE_TAG,
+  V0_APPROVED_BRANDS_REVALIDATE
+} from '@/lib/v0/brandCache'
+import { toBrandSlug } from '@/lib/v0/brandSlug'
 import type { V0BrandMatchRow } from '@/lib/v0/types'
+
+const approvedBrandsCacheOptions = {
+  revalidate: V0_APPROVED_BRANDS_REVALIDATE,
+  tags: [V0_APPROVED_BRANDS_CACHE_TAG]
+}
 
 type DbrandsMatchQueryRow = {
   id: number
@@ -22,7 +32,8 @@ function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
     ptbrandsId: row.ptbrands_id,
     brandName: row.brand_name,
     ptUrlKey: row.pt_url_key,
-    logoUrl: row.logo_url
+    logoUrl: row.logo_url,
+    slug: toBrandSlug(row.pt_url_key, row.brand_name)
   }
 }
 
@@ -100,7 +111,7 @@ export async function getApprovedDbrandsMatch(limit?: number): Promise<V0BrandMa
   return unstable_cache(
     () => fetchApprovedDbrandsMatch(limit),
     ['v0-home-dbrands-match-grouped', limit != null ? String(limit) : 'all'],
-    { revalidate: 300 }
+    approvedBrandsCacheOptions
   )()
 }
 
@@ -174,6 +185,22 @@ export async function getDbrandsMatchById(matchId: number): Promise<V0BrandMatch
   return unstable_cache(
     () => fetchDbrandsMatchById(matchId),
     ['v0-dbrands-match-by-id-grouped', String(matchId)],
-    { revalidate: 300 }
+    approvedBrandsCacheOptions
+  )()
+}
+
+async function fetchDbrandsMatchBySlug(slug: string): Promise<V0BrandMatchRow | null> {
+  const normalizedSlug = slug.trim().toLowerCase()
+  if (!normalizedSlug) return null
+
+  const brands = await fetchApprovedDbrandsMatch()
+  return brands.find((brand) => brand.slug === normalizedSlug) ?? null
+}
+
+export async function getDbrandsMatchBySlug(slug: string): Promise<V0BrandMatchRow | null> {
+  return unstable_cache(
+    () => fetchDbrandsMatchBySlug(slug),
+    ['v0-dbrands-match-by-slug', slug.trim().toLowerCase()],
+    approvedBrandsCacheOptions
   )()
 }

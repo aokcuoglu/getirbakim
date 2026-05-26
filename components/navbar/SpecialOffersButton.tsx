@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useTranslations } from 'next-intl'
-import { SoonNavItem } from '@/components/ui/SoonFeature'
+import { SoonNavTrigger } from '@/components/ui/SoonFeature'
 
 interface SpecialOffersButtonProps {
   onClick: () => void
@@ -24,9 +24,9 @@ export const SpecialOffersButton: React.FC<SpecialOffersButtonProps> = ({
 
   if (comingSoon) {
     return (
-      <SoonNavItem className="whitespace-nowrap text-destructive/70 transition-colors flex items-center gap-1.5 ml-auto text-[13px] font-medium">
+      <SoonNavTrigger className="whitespace-nowrap text-destructive/70 flex items-center gap-1.5 ml-auto text-[13px] font-medium">
         {label}
-      </SoonNavItem>
+      </SoonNavTrigger>
     )
   }
 
