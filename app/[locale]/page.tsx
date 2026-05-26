@@ -1,8 +1,5 @@
-import { getMainNavCategories } from '@/lib/mainNavCategories'
-import { getCatalogData } from '@/lib/actions/getCatalogCategories'
-import { getPopularManufacturers } from '@/lib/actions/getPopularManufacturers'
-import HomePageClient from './HomePageClient'
-import type { TopCategoryItem } from '@/components/hero/TopCategories'
+import { getV0HomePageData } from '@/lib/v0/getHomePageData'
+import V0HomePageClient from '@/components/v0/V0HomePageClient'
 import type { Metadata } from 'next'
 import {
   buildLocaleAlternates,
@@ -38,37 +35,14 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function Page({ params }: PageProps) {
   const { locale } = await params
-  const tg = createTimerGroup('homepage')
-  const tCatalog = tg.start('catalogData')
-  const tMfrs = tg.start('manufacturers')
-  const tNav = tg.start('mainNav')
+  const tg = createTimerGroup('homepage-v0')
+  const tData = tg.start('v0HomePageData')
 
-  const [catalogData, manufacturers, mainNav] = await Promise.all([
-    getCatalogData(locale).then((d) => { tg.end(tCatalog); return d }),
-    getPopularManufacturers().then((d) => { tg.end(tMfrs); return d }),
-    getMainNavCategories(locale).then((d) => { tg.end(tNav); return d })
-  ])
+  const homePageData = await getV0HomePageData(locale).then((data) => {
+    tg.end(tData, { brandCount: data.brands.length })
+    return data
+  })
   tg.logSummary()
 
-  const topCategories: TopCategoryItem[] = mainNav
-    .filter(
-      (c): c is typeof c & { urlKey: string } =>
-        typeof c.urlKey === 'string' && c.urlKey.length > 0
-    )
-    .map((c) => ({
-      id: c.id,
-      name: c.name,
-      urlKey: c.urlKey,
-      image: c.image ?? null
-    }))
-  const navbarCategories = mainNav
-
-  return (
-    <HomePageClient
-      topCategories={topCategories}
-      navbarCategories={navbarCategories}
-      catalogData={catalogData}
-      manufacturers={manufacturers}
-    />
-  )
+  return <V0HomePageClient {...homePageData} />
 }

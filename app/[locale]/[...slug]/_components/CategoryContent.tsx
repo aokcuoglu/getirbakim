@@ -202,7 +202,7 @@ export function CategoryContent({
   // For leaf categories, show product grid
   if (category.isLeaf) {
     return (
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         {/* Info message when vehicle is selected but no products found or filtering failed */}
         {hasVehicleSelected && !isLoading && (
           <Alert className="mb-6 bg-accent border-border">
@@ -381,7 +381,7 @@ export function CategoryContent({
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="flex min-w-0 flex-col gap-3">
               {parts.map((part, idx) => (
                 <ProductCard
                   key={part.id}
@@ -443,7 +443,7 @@ export function CategoryContent({
 
   // For category pages, show subcategory grid (icon + label cards)
   return (
-    <div className="flex-1">
+    <div className="min-w-0 flex-1">
       <div className="mb-4 flex items-end justify-between gap-4 border-b border-border pb-3">
         <div>
           <h2 className="text-xl font-semibold text-foreground">

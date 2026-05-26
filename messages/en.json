@@ -2,7 +2,22 @@
   "Hero": {
     "popularManufacturers": "Popular Manufacturers",
     "popularMakes": "Popular Vehicle Makes",
-    "allMakes": "All Makes"
+    "allMakes": "All Makes",
+    "brandsTitle": "Brands",
+    "brandsSearchPlaceholder": "Search brands...",
+    "brandsSearchEmpty": "No brands match your search.",
+    "brandsScrollLeft": "Scroll left",
+    "brandsScrollRight": "Scroll right"
+  },
+  "V0Home": {
+    "brandsTitle": "Brands",
+    "brandsDescription": "Browse spare parts from approved brands.",
+    "breadcrumbHome": "Home",
+    "brandProductsDescription": "Products from {brand}.",
+    "brandProductsEmpty": "No products are listed for this brand yet.",
+    "brandProductsPage": "Page {page}",
+    "brandProductsPaginationLabel": "Brand products pagination",
+    "brandCategoriesPlaceholder": "Category filters will be available soon."
   },
   "CatalogSection": {
     "shortWipers": "Wipers",

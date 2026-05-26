@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react'
 import { SafeImage } from '@/components/ui/SafeImage'
 import Link from 'next/link'
-import { Package, Calendar, CheckCircle } from 'lucide-react'
+import { Package, Calendar } from 'lucide-react'
 import { useTranslations, useFormatter } from 'next-intl'
 import {
   Select,
@@ -143,6 +143,12 @@ export function GridProductCard({
     : resolvedAvailability === 'VERIFY_FITMENT' ? 'verify_fitment' as SearchCTA
     : 'request_price' as SearchCTA
   )
+  const stockStatusClass =
+    resolvedAvailability === 'PURCHASABLE'
+      ? 'text-success'
+      : resolvedAvailability === 'OUT_OF_STOCK'
+        ? 'text-destructive'
+        : 'text-muted-foreground'
   const productLink = detailUrl ?? `/part/${id}`
 
   const handleAddToCart = () => {
@@ -183,10 +189,7 @@ export function GridProductCard({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-sm border border-border bg-background transition-colors hover:border-input">
-      <div className="flex items-center gap-2 px-3 pt-3">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive/100 shrink-0">
-          <CheckCircle className="h-3.5 w-3.5 text-success-foreground" />
-        </div>
+      <div className="flex items-center px-3 pt-3">
         {brandLogo ? (
           <SafeImage
             src={brandLogo}
@@ -257,7 +260,9 @@ export function GridProductCard({
           )}
         </div>
 
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-success">
+        <p
+          className={`mb-2 text-[11px] font-semibold uppercase tracking-wide ${stockStatusClass}`}
+        >
           {canAddToCart ? t('inStock') : t('outOfStock')}
         </p>
 

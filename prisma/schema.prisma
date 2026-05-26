@@ -642,6 +642,7 @@ model dbrands_match {
   dbrands_id      BigInt?
   ptbrands_id     Int?
   normalized      String?
+  logo_url        String?
   mapping_status  String   @default("PENDING")
   match_method    String?
 
@@ -987,6 +988,7 @@ model ptbrands {
   id              Int          @id @default(autoincrement())
   name            String       @unique
   url_key         String?      @unique
+  logo_url        String?
   created_at      DateTime?    @default(now()) @db.Timestamp(6)
   updated_at      DateTime?    @default(now()) @db.Timestamp(6)
   ptproducts      ptproducts[]

@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react'
 import { SafeImage } from '@/components/ui/SafeImage'
 import Link from 'next/link'
-import { Package, Calendar, CheckCircle } from 'lucide-react'
+import { Package, Calendar } from 'lucide-react'
 import { useTranslations, useFormatter } from 'next-intl'
 import {
   Select,
@@ -144,6 +144,12 @@ export function ProductCard({
     : resolvedAvailability === 'VERIFY_FITMENT' ? 'verify_fitment' as SearchCTA
     : 'request_price' as SearchCTA
   )
+  const stockStatusClass =
+    resolvedAvailability === 'PURCHASABLE'
+      ? 'text-success'
+      : resolvedAvailability === 'OUT_OF_STOCK'
+        ? 'text-destructive'
+        : 'text-muted-foreground'
   const productLink = detailUrl ?? `/part/${id}`
 
   const handleAddToCart = () => {
@@ -184,13 +190,10 @@ export function ProductCard({
   }, [format])
 
   return (
-    <div className="rounded-sm border border-border bg-background px-4 py-3 transition-colors hover:border-input">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+    <div className="min-w-0 w-full rounded-sm border border-border bg-background px-4 py-3 transition-colors hover:border-input">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
         <div className="flex shrink-0 flex-col gap-2.5 lg:w-[176px]">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive/100">
-              <CheckCircle className="h-3.5 w-3.5 text-success-foreground" />
-            </div>
+          <div className="flex items-center">
             {brandLogo ? (
               <div className="flex h-6 w-[104px] items-center">
                 <SafeImage
@@ -265,7 +268,9 @@ export function ProductCard({
             )}
           </div>
 
-          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-success">
+          <p
+            className={`mt-3 text-[11px] font-semibold uppercase tracking-wide ${stockStatusClass}`}
+          >
             {canAddToCart ? t('inStock') : t('outOfStock')}
           </p>
 

@@ -2,9 +2,14 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import {
   getPartHeroById,
-  getPartMetadataById,
-  getRelatedParts
+  getPartMetadataById
 } from '@/lib/actions/getPartById'
+import { getDpmatchById } from '@/lib/v0/getDpmatchById'
+import {
+  mapDpmatchToPartHero,
+  mapDpmatchToPartMetadata,
+  mapDpmatchToPartTabsData
+} from '@/lib/v0/mapDpmatchToPartDetail'
 import { getCategoryByUrlKey } from '@/lib/actions/getPartCategories'
 import { getMainNavCategories } from '@/lib/mainNavCategories'
 import Navbar from '@/components/Navbar'
@@ -12,6 +17,8 @@ import Footer from '@/components/Footer'
 import { ProductImageGallery } from './_components/ProductImageGallery'
 import { ProductInfo } from './_components/ProductInfo'
 import { PartDetailLazySections } from './_components/PartDetailLazySections'
+import { ProductTabs } from './_components/ProductTabs'
+import { ProductFAQ } from './_components/ProductFAQ'
 import { BreadcrumbSection } from '../../[...slug]/_components/BreadcrumbSection'
 import { FallbackBreadcrumb } from './_components/FallbackBreadcrumb'
 import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
@@ -47,7 +54,11 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
       return { title: 'Part Not Found' }
     }
 
-    const part = await getPartMetadataById(partId)
+    const part =
+      (await getPartMetadataById(partId)) ??
+      (await getDpmatchById(partId).then((row) =>
+        row ? mapDpmatchToPartMetadata(row) : null
+      ))
 
     if (!part) {
       return { title: 'Part Not Found' }
@@ -102,22 +113,29 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       notFound()
     }
 
-    const [part, navbarCategories] = await Promise.all([
+    const [catalogPart, dpmatchRow, navbarCategories] = await Promise.all([
       getPartHeroById(partId),
+      getDpmatchById(partId),
       getMainNavCategories(locale)
     ])
+
+    const isDpmatch = !catalogPart && Boolean(dpmatchRow)
+    const part = catalogPart ?? (dpmatchRow ? mapDpmatchToPartHero(dpmatchRow) : null)
+    const dpmatchTabsData =
+      isDpmatch && dpmatchRow ? mapDpmatchToPartTabsData(dpmatchRow) : null
 
     if (!part) {
       notFound()
     }
 
     // Fetch category hierarchy for breadcrumbs (related parts are lazy-loaded on client)
-    const partCategory = part.category.urlKey
-      ? await getCategoryByUrlKey(part.category.urlKey).catch((error) => {
-          console.error('Error fetching category:', error)
-          return null
-        })
-      : null
+    const partCategory =
+      !isDpmatch && part.category.urlKey
+        ? await getCategoryByUrlKey(part.category.urlKey).catch((error) => {
+            console.error('Error fetching category:', error)
+            return null
+          })
+        : null
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -172,14 +190,32 @@ export default async function PartDetailPage({ params }: PartPageProps) {
 
           {/* Product Tabs */}
           <div className="mt-4 md:mt-8">
-            <PartDetailLazySections
-              partId={part.id}
-              categoryId={part.category.id}
-              categoryName={part.category.name}
-              excludePartId={part.id}
-              productName={`${part.category.name} ${part.brand.name} ${part.name}`}
-              brandName={part.brand.name}
-            />
+            {isDpmatch && dpmatchTabsData ? (
+              <>
+                <ProductTabs
+                  properties={dpmatchTabsData.properties}
+                  infos={dpmatchTabsData.infos}
+                  oens={dpmatchTabsData.oens}
+                  compatibleVehicles={dpmatchTabsData.compatibleVehicles}
+                  crossReferences={dpmatchTabsData.crossReferences}
+                />
+                <ProductFAQ
+                  partId={part.id}
+                  productName={`${part.category.name} ${part.brand.name} ${part.name}`}
+                  brandName={part.brand.name}
+                  categoryName={part.category.name}
+                />
+              </>
+            ) : (
+              <PartDetailLazySections
+                partId={part.id}
+                categoryId={part.category.id}
+                categoryName={part.category.name}
+                excludePartId={part.id}
+                productName={`${part.category.name} ${part.brand.name} ${part.name}`}
+                brandName={part.brand.name}
+              />
+            )}
           </div>
         </div>
       </main>

@@ -2,7 +2,22 @@
   "Hero": {
     "popularManufacturers": "Popüler Üreticiler",
     "popularMakes": "Popüler Araç Markaları",
-    "allMakes": "Tüm Markalar"
+    "allMakes": "Tüm Markalar",
+    "brandsTitle": "Markalar",
+    "brandsSearchPlaceholder": "Marka ara...",
+    "brandsSearchEmpty": "Aramanızla eşleşen marka bulunamadı.",
+    "brandsScrollLeft": "Sola kaydır",
+    "brandsScrollRight": "Sağa kaydır"
+  },
+  "V0Home": {
+    "brandsTitle": "Markalar",
+    "brandsDescription": "Onaylanmış markalardan yedek parça keşfedin.",
+    "breadcrumbHome": "Ana Sayfa",
+    "brandProductsDescription": "{brand} markasına ait ürünler.",
+    "brandProductsEmpty": "Bu marka için henüz listelenen ürün bulunmuyor.",
+    "brandProductsPage": "Sayfa {page}",
+    "brandProductsPaginationLabel": "Marka ürünleri sayfalama",
+    "brandCategoriesPlaceholder": "Kategori filtreleri yakında eklenecek."
   },
   "CatalogSection": {
     "shortWipers": "Silecekler",

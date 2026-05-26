@@ -9,15 +9,18 @@ import { CampaignCarousel } from './hero/CampaignCarousel'
 import { CatalogSection } from './hero/CatalogSection'
 import { PopularMakes } from './hero/PopularMakes'
 import { PopularManufacturers } from './hero/PopularManufacturers'
+import { HeroBrandsSlider } from '@/components/v0/HeroBrandsSlider'
 import type { CatalogData } from '@/lib/actions/getCatalogCategories'
 import type { PopularManufacturer } from '@/lib/actions/getPopularManufacturers'
+import type { V0BrandMatchRow } from '@/lib/v0/types'
 import { useShop } from '@/components/ShopProvider'
 import { buildCatalogUrl } from '@/lib/catalog-url'
 
 interface HeroProps {
   topCategories: TopCategoryItem[]
   catalogData: CatalogData
-  manufacturers: PopularManufacturer[]
+  manufacturers?: PopularManufacturer[]
+  brands?: V0BrandMatchRow[]
   onMakeSelect?: (make: string) => void
   onBrandSelect?: (brand: string) => void
 }
@@ -25,7 +28,8 @@ interface HeroProps {
 const Hero: React.FC<HeroProps> = ({
   topCategories,
   catalogData,
-  manufacturers,
+  manufacturers = [],
+  brands,
   onMakeSelect,
   onBrandSelect
 }) => {
@@ -62,11 +66,15 @@ const Hero: React.FC<HeroProps> = ({
       {/* 5. Popular Vehicle Makes */}
       <PopularMakes onMakeSelect={onMakeSelect} />
 
-      {/* 6. Popular Manufacturers */}
-      <PopularManufacturers
-        manufacturers={manufacturers}
-        onBrandSelect={onBrandSelect}
-      />
+      {/* 6. Brands (v0) or Popular Manufacturers (legacy) */}
+      {brands && brands.length > 0 ? (
+        <HeroBrandsSlider brands={brands} />
+      ) : (
+        <PopularManufacturers
+          manufacturers={manufacturers}
+          onBrandSelect={onBrandSelect}
+        />
+      )}
     </div>
   )
 }

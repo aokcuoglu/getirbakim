@@ -28,25 +28,36 @@ export function createAdminClient() {
  * @param bucket - Storage bucket name (default: "part-images")
  * @returns Public URL of uploaded image or null on failure
  */
+export type UploadImageFromUrlOptions = {
+  bucket?: string
+  /** Override Referer/Origin for hotlink-protected sources (e.g. parcatedarik.com). */
+  referer?: string
+}
+
 export async function uploadImageFromUrl(
   sourceUrl: string,
   storagePath: string,
-  bucket: string = 'part-images'
+  bucketOrOptions: string | UploadImageFromUrlOptions = 'part-images'
 ): Promise<{ publicUrl: string | null; status?: number; error?: string }> {
+  const options =
+    typeof bucketOrOptions === 'string'
+      ? { bucket: bucketOrOptions }
+      : bucketOrOptions
+  const bucket = options.bucket ?? 'part-images'
   const supabase = createAdminClient()
 
   try {
-    // Get site URL for Referer header
     const siteUrl = resolveSiteUrl()
-    
+    const referer = options.referer ?? siteUrl
+
     // Fetch the image with proper headers to avoid 403 errors
     const response = await fetch(sourceUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': siteUrl,
-        'Origin': siteUrl,
+        'Referer': referer,
+        'Origin': referer,
         'Cache-Control': 'no-cache'
       }
     })
