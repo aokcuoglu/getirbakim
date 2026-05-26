@@ -1,4 +1,9 @@
 import { Prisma } from '@prisma/client'
+import {
+  countRedundantDinamikStubs,
+  countRedundantPtOnlyRows,
+  removeRedundantDbrandsMatchRows,
+} from '@/lib/admin/dbrands-match-cleanup'
 import { resolveDbrandsIdsByBrand } from '@/lib/admin/dbrands-id'
 import { db } from '@/lib/db'
 import { normalizeBrandName, normalizeModel } from '@/lib/matching/code-normalization'
@@ -235,37 +240,6 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
   return toInsert.length
 }
 
-async function removeRedundantDinamikStubs(dryRun: boolean): Promise<number> {
-  const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
-    SELECT COUNT(*)::int AS count
-    FROM v0.dbrands_match a
-    WHERE a.ptbrands_id IS NULL
-      AND EXISTS (
-        SELECT 1
-        FROM v0.dbrands_match b
-        WHERE b.dbrands_id = a.dbrands_id
-          AND b.ptbrands_id IS NOT NULL
-          AND b.id <> a.id
-      )
-  `)
-  const redundant = row?.count ?? 0
-  if (dryRun || redundant === 0) return redundant
-
-  return Number(
-    await db.$executeRaw(Prisma.sql`
-      DELETE FROM v0.dbrands_match a
-      WHERE a.ptbrands_id IS NULL
-        AND EXISTS (
-          SELECT 1
-          FROM v0.dbrands_match b
-          WHERE b.dbrands_id = a.dbrands_id
-            AND b.ptbrands_id IS NOT NULL
-            AND b.id <> a.id
-        )
-    `)
-  )
-}
-
 export async function seedDbrandsMatchWorkspace(options?: {
   dryRun?: boolean
   runAutoMatch?: boolean
@@ -273,12 +247,28 @@ export async function seedDbrandsMatchWorkspace(options?: {
   const dryRun = options?.dryRun !== false
   const runAutoMatch = options?.runAutoMatch !== false
 
-  const removedRedundantStubs = await removeRedundantDinamikStubs(dryRun)
+  let removedRedundantStubs = 0
+  let removedRedundantPtOnly = 0
+  if (dryRun) {
+    removedRedundantStubs = await countRedundantDinamikStubs()
+    removedRedundantPtOnly = await countRedundantPtOnlyRows()
+  } else {
+    const removed = await removeRedundantDbrandsMatchRows()
+    removedRedundantStubs = removed.removedDinamikStubs
+    removedRedundantPtOnly = removed.removedPtOnlyRows
+  }
+
   const insertedDinamikStubs = await countDinamikStubInserts(dryRun)
   const insertedPtOnly = await countPtOnlyInserts(dryRun)
   const insertedAutoMatched = runAutoMatch
     ? await seedAutoMatchedPairs(dryRun)
     : 0
+
+  if (!dryRun) {
+    const removedAfterMatch = await removeRedundantDbrandsMatchRows()
+    removedRedundantStubs += removedAfterMatch.removedDinamikStubs
+    removedRedundantPtOnly += removedAfterMatch.removedPtOnlyRows
+  }
 
   const [row] = await db.$queryRaw<Array<{ count: number }>>(
     Prisma.sql`SELECT COUNT(*)::int AS count FROM v0.dbrands_match`
@@ -287,6 +277,7 @@ export async function seedDbrandsMatchWorkspace(options?: {
   return {
     dryRun,
     removedRedundantStubs,
+    removedRedundantPtOnly,
     insertedDinamikStubs,
     insertedPtOnly,
     insertedAutoMatched,

@@ -125,6 +125,27 @@ export function extractFilenameFromPath(urlPath: string): string {
 /**
  * Check if a file already exists in Supabase Storage
  */
+export async function uploadImageBuffer(
+  buffer: Uint8Array,
+  storagePath: string,
+  contentType: string,
+  bucket: string = 'part-images'
+): Promise<{ publicUrl: string | null; error?: string }> {
+  const supabase = createAdminClient()
+
+  const { error } = await supabase.storage.from(bucket).upload(storagePath, buffer, {
+    contentType,
+    upsert: true
+  })
+
+  if (error) {
+    console.error(`Failed to upload buffer: ${storagePath}`, error.message)
+    return { publicUrl: null, error: error.message }
+  }
+
+  return { publicUrl: getStoragePublicUrl(storagePath, bucket) }
+}
+
 export async function fileExistsInStorage(
   storagePath: string,
   bucket: string = 'part-images'

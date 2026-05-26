@@ -8,6 +8,7 @@
  *
  * Optional:
  *   SKIP_MIGRATION=true  Skip ADD COLUMN migration (column already exists)
+ *   URL_KEYS=chery,mes   Only insert/update these url_key values (comma-separated)
  */
 
 import 'dotenv/config'
@@ -21,11 +22,17 @@ const BASE_URL = 'https://parcatedarik.com'
 const MANUFACTURERS_URL = `${BASE_URL}/manufacturer/all`
 const DRY_RUN = process.env.APPLY !== 'true'
 const SKIP_MIGRATION = process.env.SKIP_MIGRATION === 'true'
+const URL_KEYS = process.env.URL_KEYS
+  ? process.env.URL_KEYS.split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  : undefined
 
 const MANUFACTURER_ITEM_RE =
-  /class=manufacturer-item[\s\S]*?<h2\s+class=title><a\s+href=\/?([^"\s>]+)[^>]*>[\s\S]*?<\/a><\/h2>[\s\S]*?data-lazyloadsrc=([^\s>]+)/gi
+  /class=manufacturer-item[\s\S]*?<h2\s+class=title><a\s+href=\/?([^"\s>]+)[^>]*>([^<]*)<\/a><\/h2>[\s\S]*?data-lazyloadsrc=([^\s>]+)/gi
 
 type ScrapedBrand = {
+  name: string
   urlKey: string
   logoUrl: string
 }
@@ -51,10 +58,11 @@ function parseManufacturers(html: string): ScrapedBrand[] {
 
   for (const match of html.matchAll(MANUFACTURER_ITEM_RE)) {
     const urlKey = normalizeUrlKey(match[1])
-    const logoUrl = match[2].trim()
-    if (!urlKey || !logoUrl || seen.has(urlKey)) continue
+    const name = match[2].replace(/\s+/g, ' ').trim()
+    const logoUrl = match[3].trim()
+    if (!urlKey || !name || !logoUrl || seen.has(urlKey)) continue
     seen.add(urlKey)
-    brands.push({ urlKey, logoUrl })
+    brands.push({ name, urlKey, logoUrl })
   }
 
   return brands
@@ -97,7 +105,13 @@ async function main() {
   await applyMigration()
 
   const html = await fetchManufacturerPage()
-  const scraped = parseManufacturers(html)
+  let scraped = parseManufacturers(html)
+  if (URL_KEYS != null && URL_KEYS.length > 0) {
+    scraped = scraped.filter((brand) => URL_KEYS.includes(brand.urlKey))
+    console.log(
+      `[sync-ptbrands-logos] URL_KEYS filter active (${URL_KEYS.join(', ')}): ${scraped.length} brand(s)`
+    )
+  }
   console.log(`[sync-ptbrands-logos] Scraped ${scraped.length} brands with logos from site`)
 
   if (scraped.length === 0) {
@@ -177,8 +191,40 @@ async function main() {
     console.log(`  ... and ${ptbrandsWithoutLogo.length - 20} more`)
   }
 
+  if (unmatchedScraped.length > 0) {
+    console.log(`\n[sync-ptbrands-logos] Missing ptbrands to insert: ${unmatchedScraped.length}`)
+    if (DRY_RUN) {
+      for (const brand of unmatchedScraped) {
+        console.log(`  - ${brand.name} (${brand.urlKey}) -> ${brand.logoUrl}`)
+      }
+    } else {
+      const insertValues = Prisma.join(
+        unmatchedScraped.map(
+          (brand) => Prisma.sql`(${brand.name}, ${brand.urlKey}, ${brand.logoUrl})`
+        )
+      )
+      const inserted = await db.$executeRaw(Prisma.sql`
+        INSERT INTO v0.ptbrands (name, url_key, logo_url, created_at, updated_at)
+        SELECT v.name, v.url_key, v.logo_url, NOW(), NOW()
+        FROM (VALUES ${insertValues}) AS v(name, url_key, logo_url)
+        ON CONFLICT (url_key) DO UPDATE SET
+          name = EXCLUDED.name,
+          logo_url = COALESCE(v0.ptbrands.logo_url, EXCLUDED.logo_url),
+          updated_at = NOW()
+      `)
+      console.log(`[sync-ptbrands-logos] Inserted/upserted ${inserted} ptbrands rows`)
+    }
+  }
+
+  if (updates.length === 0 && unmatchedScraped.length === 0) {
+    console.log('[sync-ptbrands-logos] Nothing to update or insert.')
+    return
+  }
+
   if (updates.length === 0) {
-    console.log('[sync-ptbrands-logos] Nothing to update.')
+    if (DRY_RUN) {
+      console.log('\nRe-run with APPLY=true to persist changes.')
+    }
     return
   }
 

@@ -14,7 +14,8 @@ import {
   User,
   Truck,
   GitCompare,
-  ChevronsUpDown
+  ChevronsUpDown,
+  Tags
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, usePathname } from '@/lib/navigation'
@@ -334,6 +335,12 @@ export function Sidebar({
           active:
             pathname === '/admin/products' ||
             pathname.startsWith('/admin/products/')
+        },
+        {
+          icon: Tags,
+          label: 'Markalar',
+          href: '/admin/brands',
+          active: pathname.startsWith('/admin/brands')
         },
         {
           icon: ShoppingCart,

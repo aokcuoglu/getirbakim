@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dbrands-match-approve'
+import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dbrands-match-cleanup'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
@@ -199,6 +200,7 @@ export async function POST(request: NextRequest) {
       const result = await db.$executeRaw(
         Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
       )
+      await removeRedundantDbrandsMatchRows()
       return successResponse({ approved: result, message: `${result} eşleştirme onaylandı.` }, context)
     }
 

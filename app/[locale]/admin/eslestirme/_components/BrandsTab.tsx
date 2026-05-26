@@ -400,26 +400,6 @@ export function BrandsTab() {
     })
   }, [rowSelection, loadBrands])
 
-  const handleBulkApprovePtOnly = useCallback(() => {
-    startTransition(async () => {
-      try {
-        const res = await fetch('/api/admin/eslestirme/brands', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'bulk-approve-pt-only' }),
-        })
-        const data = await res.json()
-        if (!data.error) {
-          toast.success(data.message || `${data.approved ?? 0} PT-only onaylandı`)
-          setRowSelection({})
-          void loadBrands(filtersRef.current)
-        } else toast.error(data.error?.message || 'PT-only toplu onay başarısız')
-      } catch {
-        toast.error('PT-only toplu onay başarısız')
-      }
-    })
-  }, [loadBrands])
-
   const searchMatchItems = useCallback(async (q: string) => {
     const trimmed = q.trim()
     if (!trimmed || trimmed.length < 2) {
@@ -558,15 +538,6 @@ export function BrandsTab() {
             disabled={isPending || selectedCount === 0}
           >
             <Check className="mr-1.5 h-3.5 w-3.5" /> Seçilenleri Onayla ({selectedCount})
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBulkApprovePtOnly}
-            disabled={isPending}
-            title="Dinamik karşılığı olmayan bekleyen PT-only markaları onayla"
-          >
-            <Check className="mr-1.5 h-3.5 w-3.5" /> PT-only Bekleyenleri Onayla
           </Button>
         </div>
 

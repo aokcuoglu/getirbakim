@@ -13,6 +13,7 @@ import {
   SheetTitle,
   SheetDescription
 } from '@/components/ui/sheet'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -42,6 +43,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     const coreRoutes = [
       '/admin',
       '/admin/products',
+      '/admin/brands',
       '/admin/orders',
       '/admin/customers',
       '/admin/categories',
@@ -128,7 +130,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
           data-admin-scroll
           className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 scrollbar-hide sm:p-6"
         >
-          {children}
+          <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
         </div>
       </div>
     </div>

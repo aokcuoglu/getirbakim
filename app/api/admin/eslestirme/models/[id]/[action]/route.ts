@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
+import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
 import { approveDpmatchRows } from '@/lib/admin/dpmatch-normalized'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'approve') {
       await approveDpmatchRows([matchId])
+      revalidateAdminCatalogPaths()
       return successResponse({ id: matchId, action: 'approved', message: 'Eşleştirme onaylandı.' }, context)
     }
     if (action === 'reject') {

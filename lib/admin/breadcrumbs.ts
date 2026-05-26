@@ -9,6 +9,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
   '/admin/products': 'Ürünler',
   '/admin/products/new': 'Yeni Ürün',
   '/admin/products/tools': 'Araçlar',
+  '/admin/brands': 'Markalar',
   '/admin/orders': 'Siparişler',
   '/admin/customers': 'Müşteriler',
   '/admin/categories': 'Kategoriler',
@@ -22,6 +23,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
 /** Fallback segment labels for nested or dynamic routes */
 const SEGMENT_LABELS: Record<string, string> = {
   products: 'Ürünler',
+  brands: 'Markalar',
   orders: 'Siparişler',
   customers: 'Müşteriler',
   categories: 'Kategoriler',

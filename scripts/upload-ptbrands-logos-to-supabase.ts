@@ -9,6 +9,7 @@
  *   LIMIT=10           Process only N rows (for testing)
  *   CONCURRENCY=5      Parallel uploads (default 5)
  *   BRAND_ID=123       Process a single ptbrands id
+ *   URL_KEYS=chery,mes Process specific url_key values (comma-separated)
  */
 
 import 'dotenv/config'
@@ -36,6 +37,11 @@ const BRAND_ID =
   process.env.BRAND_ID != null
     ? Number.parseInt(process.env.BRAND_ID, 10)
     : undefined
+const URL_KEYS = process.env.URL_KEYS
+  ? process.env.URL_KEYS.split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  : undefined
 
 type PtBrandRow = {
   id: number
@@ -124,10 +130,18 @@ async function fetchCandidates(): Promise<PtBrandRow[]> {
   )
 
   const filtered = rows.filter((row) => isExternalCandidate(row.logo_url))
+  const byUrlKey =
+    URL_KEYS != null && URL_KEYS.length > 0
+      ? filtered.filter(
+          (row) =>
+            row.url_key != null &&
+            URL_KEYS.includes(row.url_key.trim().toLowerCase())
+        )
+      : filtered
   if (LIMIT != null && LIMIT > 0) {
-    return filtered.slice(0, LIMIT)
+    return byUrlKey.slice(0, LIMIT)
   }
-  return filtered
+  return byUrlKey
 }
 
 async function main() {

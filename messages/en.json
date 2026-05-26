@@ -958,5 +958,54 @@
       "k123": "Mark as Used"
     },
     "ordersListed": "{count} orders listed."
+  },
+  "AdminCatalog": {
+    "products": {
+      "title": "Approved Products",
+      "description": "Products approved in matching (v0.dpmatch). New approvals appear here.",
+      "toolsLink": "Tools",
+      "searchPlaceholder": "Search stock code, product name, or brand...",
+      "loadError": "Failed to load approved products",
+      "optionsError": "Failed to load filter options",
+      "empty": "No approved products found.",
+      "goToMatching": "Go to matching",
+      "kpiTotal": "Total Approved",
+      "kpiMatched": "Matched",
+      "kpiDinamikOnly": "Dinamik Only",
+      "kpiPtOnly": "PT Only",
+      "filterMatched": "Matched",
+      "filterDinamikOnly": "Dinamik Only",
+      "filterPtOnly": "PT Only",
+      "filterDinamikBrand": "Dinamik brand",
+      "filterManufacturer": "PT manufacturer",
+      "filterAll": "All",
+      "pagination": "Page {page} / {pages} · {total} records"
+    },
+    "brands": {
+      "title": "Approved Brands",
+      "description": "Brands approved in matching (v0.dbrands_match). Upload missing logos.",
+      "searchPlaceholder": "Search brand or manufacturer...",
+      "loadError": "Failed to load approved brands",
+      "upload": "Upload",
+      "uploadFromFile": "Upload from file",
+      "uploadFromUrl": "Upload from URL",
+      "uploadFromUrlTitle": "Upload logo from URL",
+      "uploadFromUrlDescription": "Enter a direct http or https image URL. Maximum file size is 2 MB.",
+      "uploadFromUrlLabel": "Image URL",
+      "uploadFromUrlCancel": "Cancel",
+      "uploadFromUrlSubmit": "Upload",
+      "uploadFromUrlSubmitting": "Uploading...",
+      "uploadSuccess": "Logo uploaded",
+      "uploadError": "Failed to upload logo",
+      "empty": "No approved brands found.",
+      "goToMatching": "Go to brand matching",
+      "kpiTotal": "Total Approved",
+      "kpiWithLogo": "With Logo",
+      "kpiMissingLogo": "Missing Logo",
+      "filterMissingLogo": "Missing logo",
+      "filterHasLogo": "Has logo",
+      "filterMatched": "Matched",
+      "pagination": "Page {page} / {pages} · {total} records"
+    }
   }
 }

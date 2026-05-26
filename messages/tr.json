@@ -958,5 +958,54 @@
       "k123": "Kullanildi Isaretle"
     },
     "ordersListed": "{count} sipariş listeleniyor."
+  },
+  "AdminCatalog": {
+    "products": {
+      "title": "Onaylı Ürünler",
+      "description": "Eşleştirmede onaylanan ürünler (v0.dpmatch). Yeni onaylar burada görünür.",
+      "toolsLink": "Araçlar",
+      "searchPlaceholder": "Stok kodu, ürün adı veya marka ara...",
+      "loadError": "Onaylı ürünler yüklenemedi",
+      "optionsError": "Filtre seçenekleri yüklenemedi",
+      "empty": "Onaylı ürün bulunamadı.",
+      "goToMatching": "Eşleştirmeye git",
+      "kpiTotal": "Toplam Onaylı",
+      "kpiMatched": "Eşleşmiş",
+      "kpiDinamikOnly": "Sadece Dinamik",
+      "kpiPtOnly": "Sadece PT",
+      "filterMatched": "Eşleşmiş",
+      "filterDinamikOnly": "Sadece Dinamik",
+      "filterPtOnly": "Sadece PT",
+      "filterDinamikBrand": "Dinamik marka",
+      "filterManufacturer": "PT üretici",
+      "filterAll": "Tümü",
+      "pagination": "Sayfa {page} / {pages} · {total} kayıt"
+    },
+    "brands": {
+      "title": "Onaylı Markalar",
+      "description": "Eşleştirmede onaylanan markalar (v0.dbrands_match). Eksik logoları yükleyin.",
+      "searchPlaceholder": "Marka veya üretici ara...",
+      "loadError": "Onaylı markalar yüklenemedi",
+      "upload": "Yükle",
+      "uploadFromFile": "Dosyadan yükle",
+      "uploadFromUrl": "URL'den yükle",
+      "uploadFromUrlTitle": "URL'den logo yükle",
+      "uploadFromUrlDescription": "Görselin doğrudan erişilebilir http veya https adresini girin. Dosya en fazla 2 MB olmalıdır.",
+      "uploadFromUrlLabel": "Görsel URL",
+      "uploadFromUrlCancel": "İptal",
+      "uploadFromUrlSubmit": "Yükle",
+      "uploadFromUrlSubmitting": "Yükleniyor...",
+      "uploadSuccess": "Logo yüklendi",
+      "uploadError": "Logo yüklenemedi",
+      "empty": "Onaylı marka bulunamadı.",
+      "goToMatching": "Marka eşleştirmesine git",
+      "kpiTotal": "Toplam Onaylı",
+      "kpiWithLogo": "Logolu",
+      "kpiMissingLogo": "Logo Eksik",
+      "filterMissingLogo": "Logo eksik",
+      "filterHasLogo": "Logolu",
+      "filterMatched": "Eşleşmiş",
+      "pagination": "Sayfa {page} / {pages} · {total} kayıt"
+    }
   }
 }

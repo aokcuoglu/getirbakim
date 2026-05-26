@@ -52,10 +52,13 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-BASE_URL = "https://v0.com"
+BASE_URL = "https://parcatedarik.com"
 PAGE_SIZE = 120
 REQUEST_DELAY = 2.0
 MAX_RETRIES = 3
+# Report-only threshold for long ref_no samples. ref_no must NEVER be truncated on
+# scrape or upsert — store the full site value exactly (ptproducts.ref_no is text).
+REF_NO_WARN_LENGTH = 80
 
 
 class ProxyRotator:
@@ -216,7 +219,7 @@ def apply_proxy_to_session(session, proxy):
 
 
 def make_manufacturer_url(name):
-    """Üretici isminden v0.com URL'si oluştur."""
+    """Üretici isminden parcatedarik.com URL'si oluştur."""
     # "BOSCH" -> "bosch", "MANN FILTER" -> "mann-filter"
     slug = name.lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
@@ -244,7 +247,7 @@ def load_manufacturers_from_csv(project_dir):
 
 
 def fetch_manufacturers_from_site(session, project_dir=None, proxy_rotator=None):
-    """Üretici listesini v0.com/manufacturer/all'dan çek ve CSV'ye kaydet."""
+    """Üretici listesini parcatedarik.com/manufacturer/all'dan çek ve CSV'ye kaydet."""
     print("\nÜretici listesi siteden çekiliyor...")
     manufacturers = []
     max_attempts = max(len(proxy_rotator.proxies), 1) * 2 if proxy_rotator and proxy_rotator.proxies else 1
@@ -375,100 +378,349 @@ def ensure_manufacturer_in_db(conn, name, url):
         return cur.fetchone()[0]
 
 
-def upsert_product(conn, manufacturer_id, product_data):
+def upsert_product(conn, manufacturer_id, product_data, dry_run=False):
     """Ürünü DB'ye ekle veya güncelle."""
     product_id = product_data.get("product_id", "")
     if not product_id:
         return None
 
-    title = product_data.get("product_title", "")
-    url = product_data.get("product_url", "")
+    title = product_data.get("product_title") or product_data.get("title", "")
+    url = product_data.get("product_url") or product_data.get("url", "")
     image_url = product_data.get("image_url", "") or None
+    # Full ref_no as scraped — no length cap (legacy rows may be 80-char truncated).
     ref_no = product_data.get("ref_no", "") or None
+    model = product_data.get("model") or None
 
-    # Fiyatı parse et
-    price_raw = product_data.get("price", "")
+    price_raw = product_data.get("price_list")
+    if price_raw is None:
+        price_raw = product_data.get("price", "")
     price = parse_price(price_raw)
 
+    if dry_run:
+        return ("dry_run", None)
+
     with conn.cursor() as cur:
-        # Mevcut ürünü URL üzerinden kontrol et (Çünkü script product_id uydurabiliyor, URL kesin eşsiz)
         cur.execute(
-            'SELECT id, price, image_url FROM "v0"."ptproducts" WHERE url = %s',
+            'SELECT id, price, image_url, ref_no, title, model FROM "v0"."ptproducts" WHERE url = %s',
             (url,),
         )
         existing = cur.fetchone()
 
         if existing:
-            existing_id, existing_price, existing_image_url = existing
+            existing_id, existing_price, existing_image_url, existing_ref_no, existing_title, existing_model = existing
 
             needs_update = False
+            updates = []
 
-            # image_url güncellenmesi gerekiyor mu?
             if image_url and not existing_image_url:
-                cur.execute(
-                    """
-                    UPDATE "v0"."ptproducts"
-                    SET image_url = %s, updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (image_url, existing_id),
-                )
+                updates.append(("image_url = %s", image_url))
                 needs_update = True
 
-            # Fiyat değişikliği varsa güncelle
             if price is not None and existing_price != price:
-                cur.execute(
-                    """
-                    UPDATE "v0"."ptproducts"
-                    SET price = %s, updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (price, existing_id),
-                )
+                updates.append(("price = %s", price))
+                needs_update = True
+
+            if ref_no and existing_ref_no != ref_no:
+                updates.append(("ref_no = %s", ref_no))
+                needs_update = True
+
+            if title and existing_title != title:
+                updates.append(("title = %s", title))
+                needs_update = True
+
+            if model and existing_model != model:
+                updates.append(("model = %s", model))
                 needs_update = True
 
             if not needs_update:
                 return ("skipped", existing_id)
 
-            return ("updated", existing_id)
-        else:
-            # Yeni ürün ekle
+            set_clause = ", ".join([u[0] for u in updates] + ["updated_at = NOW()"])
+            values = [u[1] for u in updates] + [existing_id]
             cur.execute(
-                """
-                INSERT INTO "v0"."ptproducts"
-                    (ptbrands_id, product_id, title, url, image_url, ref_no, price, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON CONFLICT (url) DO UPDATE
-                    SET title = EXCLUDED.title,
-                        product_id = EXCLUDED.product_id,
-                        image_url = EXCLUDED.image_url,
-                        ref_no = EXCLUDED.ref_no,
-                        price = EXCLUDED.price,
-                        updated_at = NOW()
-                RETURNING id
-                """,
-                (manufacturer_id, product_id, title, url, image_url, ref_no, price),
+                f'UPDATE "v0"."ptproducts" SET {set_clause} WHERE id = %s',
+                values,
             )
-            new_id = cur.fetchone()[0]
+            return ("updated", existing_id)
 
-            return new_id
+        cur.execute(
+            """
+            INSERT INTO "v0"."ptproducts"
+                (ptbrands_id, product_id, title, url, image_url, ref_no, model, price, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            ON CONFLICT (url) DO UPDATE
+                SET title = EXCLUDED.title,
+                    product_id = EXCLUDED.product_id,
+                    image_url = EXCLUDED.image_url,
+                    ref_no = EXCLUDED.ref_no,
+                    model = EXCLUDED.model,
+                    price = EXCLUDED.price,
+                    updated_at = NOW()
+            RETURNING id
+            """,
+            (manufacturer_id, product_id, title, url, image_url, ref_no, model, price),
+        )
+        new_id = cur.fetchone()[0]
+        return ("inserted", new_id)
 
 
 def parse_price(price_str):
-    """Fiyat string'ini Decimal'e çevir."""
-    if not price_str:
+    """Fiyat string'ini Decimal'e çevir (HTML entity ve TL/₺ destekli)."""
+    if price_str is None or price_str == "":
         return None
 
-    # "1.234,56 TL" -> "1234.56"
-    cleaned = price_str.replace("TL", "").strip()
-    cleaned = cleaned.replace(".", "").replace(",", ".")
-    # Boşlukları temizle
-    cleaned = cleaned.replace(" ", "")
+    if isinstance(price_str, Decimal):
+        return price_str
+
+    cleaned = html.unescape(str(price_str))
+    cleaned = cleaned.replace("\u20ba", "").replace("₺", "").replace("TL", "")
+    cleaned = cleaned.strip().replace(" ", "")
+
+    if not cleaned:
+        return None
+
+    if "," in cleaned:
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+    elif cleaned.count(".") == 1 and len(cleaned.split(".")[-1]) != 2:
+        cleaned = cleaned.replace(".", "")
 
     try:
         return Decimal(cleaned)
     except (InvalidOperation, ValueError):
         return None
+
+
+def derive_model_from_sku(sku, url_key=None):
+    """SKU suffix'inden model çıkar (örn. 3rg-10109 -> 10109)."""
+    if not sku:
+        return None
+
+    sku_norm = sku.strip().lower()
+    if url_key:
+        prefix = f"{url_key.strip().lower()}-"
+        if sku_norm.startswith(prefix):
+            model = sku_norm[len(prefix):]
+            return model or None
+
+    if "-" in sku_norm:
+        suffix = sku_norm.split("-", 1)[1]
+        return suffix or None
+
+    return None
+
+
+def normalize_compare_text(value):
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", html.unescape(str(value)).strip())
+
+
+def decimal_equal(left, right):
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    return Decimal(str(left)) == Decimal(str(right))
+
+
+def get_brand_by_url_key(conn, url_key):
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT id, name, url_key FROM "v0"."ptbrands" WHERE url_key = %s',
+            (url_key.strip().lower(),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {"id": row[0], "name": row[1], "url_key": row[2]}
+
+
+def load_db_products_for_brand(conn, ptbrands_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT url, title, ref_no, model, price, product_id
+            FROM "v0"."ptproducts"
+            WHERE ptbrands_id = %s
+            """,
+            (ptbrands_id,),
+        )
+        return {
+            row[0]: {
+                "url": row[0],
+                "title": row[1],
+                "ref_no": row[2],
+                "model": row[3],
+                "price": row[4],
+                "product_id": row[5],
+            }
+            for row in cur.fetchall()
+        }
+
+
+def build_product_record(
+    *,
+    ptbrands_id,
+    ptbrands_url_key,
+    product_id,
+    title,
+    url,
+    image_url,
+    ref_no,
+    sku,
+    model,
+    price_list,
+    price_actual,
+):
+    return {
+        "ptbrands_id": ptbrands_id,
+        "ptbrands_url_key": ptbrands_url_key,
+        "product_id": product_id,
+        "title": title,
+        "url": url,
+        "image_url": image_url or "",
+        "ref_no": ref_no or "",
+        "model": model,
+        "price_list": price_list,
+        "price_actual": price_actual,
+        "sku": sku or "",
+        # Legacy keys used by upsert/scrape loop
+        "product_title": title,
+        "product_url": url,
+        "price": price_list,
+    }
+
+
+def compare_brand_products(scraped_products, db_by_url, brand_info):
+    scraped_by_url = {p["url"]: p for p in scraped_products}
+    scraped_urls = set(scraped_by_url)
+    db_urls = set(db_by_url)
+
+    missing = []
+    for url in sorted(scraped_urls - db_urls):
+        item = scraped_by_url[url]
+        missing.append({"url": url, "title": item.get("title"), "sku": item.get("sku")})
+
+    extra = []
+    for url in sorted(db_urls - scraped_urls):
+        item = db_by_url[url]
+        extra.append({"url": url, "title": item.get("title"), "product_id": item.get("product_id")})
+
+    price_changed = []
+    ref_no_changed = []
+    title_changed = []
+    ref_no_long = []
+
+    for url in sorted(scraped_urls & db_urls):
+        scraped = scraped_by_url[url]
+        db_item = db_by_url[url]
+
+        if not decimal_equal(scraped.get("price_list"), db_item.get("price")):
+            price_changed.append(
+                {
+                    "url": url,
+                    "sku": scraped.get("sku"),
+                    "scraped": float(scraped["price_list"]) if scraped.get("price_list") is not None else None,
+                    "db": float(db_item["price"]) if db_item.get("price") is not None else None,
+                }
+            )
+
+        if normalize_compare_text(scraped.get("ref_no")) != normalize_compare_text(db_item.get("ref_no")):
+            ref_no_changed.append(
+                {
+                    "url": url,
+                    "sku": scraped.get("sku"),
+                    "scraped": scraped.get("ref_no"),
+                    "db": db_item.get("ref_no"),
+                }
+            )
+
+        if normalize_compare_text(scraped.get("title")) != normalize_compare_text(db_item.get("title")):
+            title_changed.append(
+                {
+                    "url": url,
+                    "sku": scraped.get("sku"),
+                    "scraped": scraped.get("title"),
+                    "db": db_item.get("title"),
+                }
+            )
+
+        ref_no = scraped.get("ref_no") or ""
+        if len(ref_no) > REF_NO_WARN_LENGTH:
+            ref_no_long.append(
+                {
+                    "url": url,
+                    "sku": scraped.get("sku"),
+                    "length": len(ref_no),
+                    # Display-only ellipsis in JSON report; scraped ref_no stays full length.
+                    "ref_no": ref_no[:120] + ("..." if len(ref_no) > 120 else ""),
+                }
+            )
+
+    return {
+        "brand": brand_info["url_key"],
+        "brand_name": brand_info["name"],
+        "ptbrands_id": brand_info["id"],
+        "scraped_count": len(scraped_products),
+        "db_count": len(db_by_url),
+        "missing": missing,
+        "extra": extra,
+        "price_changed": price_changed,
+        "ref_no_changed": ref_no_changed,
+        "title_changed": title_changed,
+        "ref_no_over_80_chars": ref_no_long,
+    }
+
+
+def print_brand_report(report):
+    print(f"\n{'=' * 60}")
+    print(f"Brand: {report['brand']} ({report['brand_name']})")
+    print(f"Scraped: {report['scraped_count']} | DB: {report['db_count']}")
+    print(f"Missing in DB: {len(report['missing'])}")
+    print(f"Extra in DB: {len(report['extra'])}")
+    print(f"Price changed: {len(report['price_changed'])}")
+    print(f"Ref.No changed: {len(report['ref_no_changed'])}")
+    print(f"Title changed: {len(report['title_changed'])}")
+    if report["ref_no_over_80_chars"]:
+        print(f"Ref.No > {REF_NO_WARN_LENGTH} chars: {len(report['ref_no_over_80_chars'])}")
+
+    def _sample(items, label, limit=3):
+        if not items:
+            return
+        print(f"  Sample {label}:")
+        for item in items[:limit]:
+            print(f"    - {item}")
+
+    _sample(report["missing"], "missing")
+    _sample(report["extra"], "extra")
+    _sample(report["price_changed"], "price_changed")
+    _sample(report["ref_no_changed"], "ref_no_changed")
+    _sample(report["title_changed"], "title_changed")
+    _sample(report["ref_no_over_80_chars"], "long ref_no")
+
+
+def save_reports_json(reports, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    serializable = []
+    for report in reports:
+        item = dict(report)
+        for key in ("price_changed",):
+            item[key] = [
+                {
+                    **entry,
+                    "scraped": entry.get("scraped"),
+                    "db": entry.get("db"),
+                }
+                for entry in report.get(key, [])
+            ]
+        serializable.append(item)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(serializable, f, ensure_ascii=False, indent=2, default=str)
+
+    print(f"\n✓ Report saved: {output_path}")
 
 
 def load_state(project_dir):
@@ -488,11 +740,11 @@ def save_state(project_dir, state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
+def parse_products_from_html(html_content, manufacturer_url, manufacturer_name, url_key=None, ptbrands_id=None):
     """HTML içeriğinden ürünleri çek."""
     products = []
+    brand_slug = url_key or manufacturer_url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
 
-    # Eski detay stili (Bazı sayfalarda h1+strong ve h2+RefNo yapısı var)
     product_pattern_old = re.compile(
         r"<h1[^>]*>(?:<img[^>]*>\s*)?<strong>([^<]+)</strong></h1>.*?"
         r"<h2[^>]*><label>Ref\.?\s*No:</label>\s*([^<]+)</h2>.*?"
@@ -500,82 +752,103 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
         re.DOTALL | re.IGNORECASE,
     )
 
-    # Yeni Grid Stili (class="product-item" içeren bloklar)
     blocks = re.split(r'class=[\"\']?product-item[\"\']?', html_content)[1:]
     if len(blocks) > 0:
         for block in blocks:
-            # Sadece ürün bloklarını al, sayfa altı kısımlarında hata olmaması için
-            title_match = re.search(r'href=[\"\']?([^\"\'>\s]+)[\"\']?[^>]*title=[\"\']([^\"\']+)[\"\']', block, re.IGNORECASE)
+            title_match = re.search(
+                r'href=[\"\']?([^\"\'>\s]+)[\"\']?[^>]*title=[\"\']([^\"\']+)[\"\']',
+                block,
+                re.IGNORECASE,
+            )
             if not title_match:
                 continue
-                
-            href = title_match.group(1).strip()
-            title = title_match.group(2).strip()
-            
-            # Fiyatı bul ("old-price" veya "actual-price" olabilir)
-            price_match = re.search(r'class=[\"\']?price old-price[\"\']?>([^<]+)</span>', block, re.IGNORECASE)
-            if not price_match:
-                price_match = re.search(r'class=[\"\']?price actual-price[\"\']?>([^<]+)</span>', block, re.IGNORECASE)
-                
-            if not price_match:
-                continue
-                
-            price_raw = price_match.group(1)
-            
-            # Başlıkları temizle ("için ayrıntıları göster" vb. at)
-            # title değişkeni şuan <a title="..."> içindeki değer. Bu genelde tam uzun isimdir.
-            title = html.unescape(title)
-            title = re.sub(r'\siçin ayrıntıları göster.*', '', title, flags=re.IGNORECASE).strip()
-            
-            ref_no = ""
 
-            # ÖNCELİK 1: Bazı sayfalarda <h2 class="product-detail hidden-on-mobile"> <label>Ref. No:</label>... </h2> var
-            explicit_ref_match = re.search(r'<h2 class=[\"\']?product-detail[^>]*>\s*<label>Ref\.?\s*No:</label>(.*?)</h2>', block, re.IGNORECASE | re.DOTALL)
+            href = title_match.group(1).strip()
+            title = html.unescape(title_match.group(2).strip())
+            title = re.sub(r"\siçin ayrıntıları göster.*", "", title, flags=re.IGNORECASE).strip()
+
+            old_price_match = re.search(
+                r'class=[\"\']?price old-price[\"\']?[^>]*>([^<]+)</span>',
+                block,
+                re.IGNORECASE,
+            )
+            actual_price_match = re.search(
+                r'class=[\"\']?price actual-price[\"\']?[^>]*>([^<]+)</span>',
+                block,
+                re.IGNORECASE,
+            )
+
+            price_list = parse_price(old_price_match.group(1) if old_price_match else None)
+            price_actual = parse_price(actual_price_match.group(1) if actual_price_match else None)
+
+            if price_list is None and price_actual is not None:
+                price_list = price_actual
+
+            if price_list is None and price_actual is None:
+                continue
+
+            ref_no = ""
+            explicit_ref_match = re.search(
+                r'<div class=[\"\']?product-detail[\"\']?>\s*<label>Ref\.?\s*No:</label>\s*(.*?)</div>',
+                block,
+                re.IGNORECASE | re.DOTALL,
+            )
             if explicit_ref_match:
                 ref_no = html.unescape(explicit_ref_match.group(1).strip())
-            
-            # ÖNCELİK 2: Eğer explicit etiket yoksa (örn. 4u) Grid view'de Ref No bazen tam başlığın sonunda virgülle ayrılmış olarak bulunur
-            # Örn title attribute: "4u 1603357 Rot Mili 1603264, 1603357, 93181229"
-            if not ref_no and ',' in title:
-                parts = title.split(' ')
+            else:
+                legacy_ref_match = re.search(
+                    r'<h2 class=[\"\']?product-detail[^>]*>\s*<label>Ref\.?\s*No:</label>(.*?)</h2>',
+                    block,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if legacy_ref_match:
+                    ref_no = html.unescape(legacy_ref_match.group(1).strip())
+
+            if not ref_no and "," in title:
+                parts = title.split(" ")
                 ref_parts = []
-                for p in reversed(parts):
-                    if any(c.isdigit() for c in p) or ',' in p:
-                        ref_parts.insert(0, p.strip(','))
+                for part in reversed(parts):
+                    if any(c.isdigit() for c in part) or "," in part:
+                        ref_parts.insert(0, part.strip(","))
                     else:
                         break
-                
+
                 if ref_parts and len(ref_parts) < len(parts):
                     ref_no = ", ".join([r for r in ref_parts if r])
-                    # Ürün adını temizle
-                    title = title.replace(", ".join(ref_parts), "").strip().strip(',')
-                    title = title.replace(",".join(ref_parts), "").strip().strip(',')
+                    title = title.replace(", ".join(ref_parts), "").strip().strip(",")
+                    title = title.replace(",".join(ref_parts), "").strip().strip(",")
 
-            # ÖNCELİK 3: Alternatif son kelime sayı barındırıyorsa
             if not ref_no:
-                last_word_match = re.search(r'\s+([A-Za-z0-9\-]{5,})$', title)
+                last_word_match = re.search(r"\s+([A-Za-z0-9\-]{5,})$", title)
                 if last_word_match and any(c.isdigit() for c in last_word_match.group(1)):
                     ref_no = last_word_match.group(1)
-                    title = title[:last_word_match.start()].strip()
+                    title = title[: last_word_match.start()].strip()
 
-            # Resim URL'sini bul — data-lazyloadsrc öncelikli (lazy-load gerçek resim)
-            # Marka logosu değil ürün resmini almak için data-lazyloadsrc'yi tercih et
+            sku = ""
+            sku_match = re.search(r'<div class=[\"\']?sku[\"\']?>([^<]+)</div>', block, re.IGNORECASE)
+            if sku_match:
+                sku = html.unescape(sku_match.group(1).strip())
+
+            model = derive_model_from_sku(sku, brand_slug)
+
             image_url = ""
-            img_matches = re.findall(r'<img[^>]+>', block, re.IGNORECASE)
+            img_matches = re.findall(r"<img[^>]+>", block, re.IGNORECASE)
             for img_tag in img_matches:
-                # Önce data-lazyloadsrc, sonra data-src, en son src dene
-                for attr in ('data-lazyloadsrc', 'data-src', 'src'):
-                    attr_match = re.search(rf'{attr}=["\']?([^\s"\'<>]+)["\']?', img_tag, re.IGNORECASE)
+                for attr in ("data-lazyloadsrc", "data-src", "src"):
+                    attr_match = re.search(
+                        rf'{attr}=["\']?([^\s"\'<>]+)["\']?',
+                        img_tag,
+                        re.IGNORECASE,
+                    )
                     if attr_match:
                         img_src = attr_match.group(1).strip()
-                        # Logo/placeholder filtrele — _200.png genelde marka logosu
-                        if not img_src or 'no-image' in img_src.lower() or 'placeholder' in img_src.lower():
+                        if not img_src or "no-image" in img_src.lower() or "placeholder" in img_src.lower():
                             continue
-                        if '_200.png' in img_src.lower():
+                        if "_200.png" in img_src.lower():
                             continue
-                        if img_src.startswith('/'):
+                        if img_src.startswith("/"):
                             image_url = f"{BASE_URL}{img_src}"
-                        elif img_src.startswith('http'):
+                        elif img_src.startswith("http"):
                             image_url = img_src
                         else:
                             image_url = f"{BASE_URL}/{img_src}"
@@ -583,31 +856,33 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
                 if image_url:
                     break
 
-            # Link düzeltme
-            if not href.startswith('/'):
-                href = '/' + href
+            if not href.startswith("/"):
+                href = "/" + href
 
             product_id = href.strip("/")
 
-            # '&#x20BA;' gibi karakterleri temizle
-            price = html.unescape(price_raw.strip()).replace(" TL", "").replace("₺", "").strip()
+            products.append(
+                build_product_record(
+                    ptbrands_id=ptbrands_id,
+                    ptbrands_url_key=brand_slug,
+                    product_id=product_id,
+                    title=title,
+                    url=f"{BASE_URL}{href}",
+                    image_url=image_url,
+                    ref_no=ref_no,
+                    sku=sku,
+                    model=model,
+                    price_list=price_list,
+                    price_actual=price_actual,
+                )
+            )
 
-            products.append({
-                "product_id": product_id,
-                "product_title": title,
-                "product_url": f"{BASE_URL}{href}",
-                "image_url": image_url,
-                "ref_no": ref_no,  # Çıkarılan referans kodlarını kullan
-                "price": f"{price} TL",
-            })
-        
         return products
 
-    # Eğer grid yoksa eski yapıyı kullan
     for match in product_pattern_old.finditer(html_content):
         title = html.unescape(match.group(1).strip())
         ref_no = html.unescape(match.group(2).strip())
-        price = match.group(3).strip().replace(".", "").replace(",", ".")
+        price_list = parse_price(match.group(3).strip())
 
         match_start = match.start()
         match_end = match.end()
@@ -615,9 +890,7 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
         search_window = html_content[search_start : match_end + 200]
 
         url_patterns = [
-            r"href=([/-][^\s>]+-"
-            + r"(\d+)"
-            + r")[^\s>]*",
+            r"href=([/-][^\s>]+-" + r"(\d+)" + r")[^\s>]*",
             r'href="(/[^-]+-[^-]+-(\\d+))"',
         ]
 
@@ -630,9 +903,7 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
                 href = lm.group(1)
                 if href.startswith("/") and not href.startswith("//"):
                     slug = manufacturer_name.lower().replace(" ", "-")
-                    if slug in href or any(
-                        c.isdigit() for c in href.split("-")[-1] if c.isdigit()
-                    ):
+                    if slug in href or any(c.isdigit() for c in href.split("-")[-1] if c.isdigit()):
                         product_url = BASE_URL + href
                         product_id = lm.group(2)
                         break
@@ -640,18 +911,27 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name):
                 break
 
         if not product_id:
-            # Yedek ID olarak ref_no veya title hash'ini kullan
             product_id = ref_no if ref_no else str(hash(title))
 
-        product = {
-            "product_id": product_id,
-            "product_title": title,
-            "product_url": product_url,
-            "image_url": "",
-            "ref_no": ref_no,
-            "price": f"{price} TL",
-        }
-        products.append(product)
+        sku_match = re.search(r'<div class=[\"\']?sku[\"\']?>([^<]+)</div>', search_window, re.IGNORECASE)
+        sku = html.unescape(sku_match.group(1).strip()) if sku_match else ""
+        model = derive_model_from_sku(sku, brand_slug)
+
+        products.append(
+            build_product_record(
+                ptbrands_id=ptbrands_id,
+                ptbrands_url_key=brand_slug,
+                product_id=product_id,
+                title=title,
+                url=product_url,
+                image_url="",
+                ref_no=ref_no,
+                sku=sku,
+                model=model,
+                price_list=price_list,
+                price_actual=None,
+            )
+        )
 
     return products
 
@@ -711,7 +991,55 @@ def get_existing_product_ids(conn, manufacturer_id):
         return {row[0] for row in cur.fetchall()}
 
 
-def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, full_rescan=False, proxy_rotator=None):
+def fetch_all_brand_products(session, brand_info, proxy_rotator=None):
+    """Tek markanın tüm sayfalarını çek (DB yazmadan)."""
+    url = f"{BASE_URL}/{brand_info['url_key']}"
+    all_products = []
+    page = 1
+    consecutive_errors = 0
+
+    while consecutive_errors < 3:
+        html_content = fetch_products_page(session, url, page, proxy_rotator=proxy_rotator)
+        if html_content is None:
+            consecutive_errors += 1
+            time.sleep(REQUEST_DELAY * 2)
+            continue
+
+        if "ürün bulunamadı" in html_content.lower() or "no products" in html_content.lower():
+            break
+
+        products = parse_products_from_html(
+            html_content,
+            url,
+            brand_info["name"],
+            url_key=brand_info["url_key"],
+            ptbrands_id=brand_info["id"],
+        )
+
+        if not products:
+            if page == 1:
+                break
+            consecutive_errors += 1
+            continue
+
+        consecutive_errors = 0
+        all_products.extend(products)
+        page += 1
+        time.sleep(REQUEST_DELAY)
+
+    return all_products
+
+
+def validate_brand(session, conn, brand_info, proxy_rotator=None):
+    print(f"\nValidating brand: {brand_info['url_key']} ({brand_info['name']})")
+    scraped_products = fetch_all_brand_products(session, brand_info, proxy_rotator=proxy_rotator)
+    db_by_url = load_db_products_for_brand(conn, brand_info["id"])
+    report = compare_brand_products(scraped_products, db_by_url, brand_info)
+    print_brand_report(report)
+    return report
+
+
+def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, full_rescan=False, proxy_rotator=None, dry_run=False):
     """Tek bir üreticinin tüm ürünlerini çek ve DB'ye yaz."""
     name = manufacturer["name"]
     url = manufacturer["url"]
@@ -721,21 +1049,31 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
     print(f"URL: {url}")
     print(f"{'=' * 60}")
 
+    url_key = url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
+
     # Üreticiyi DB'ye ekle/güncelle
-    manufacturer_id = ensure_manufacturer_in_db(conn, name, url)
-    print(f"  DB manufacturer_id: {manufacturer_id}")
+    if dry_run:
+        manufacturer_id = None
+        brand_info = get_brand_by_url_key(conn, url_key)
+        if brand_info:
+            manufacturer_id = brand_info["id"]
+        print("  Dry-run: DB yazılmayacak")
+    else:
+        manufacturer_id = ensure_manufacturer_in_db(conn, name, url)
+        print(f"  DB manufacturer_id: {manufacturer_id}")
 
     # Mevcut ürün ID'lerini al
-    existing_ids = get_existing_product_ids(conn, manufacturer_id)
-    if existing_ids:
-        print(f"  DB'de mevcut: {len(existing_ids)} ürün")
-        # full_rescan modunda sayfa 1'den başla (image güncellemesi için)
-        if full_rescan:
-            start_page = 1
-            print(f"  Tam tarama modu -> Sayfa 1'den başlanıyor")
-        elif start_page == 1:
-            start_page = (len(existing_ids) // PAGE_SIZE) + 1
-            print(f"  Kaldığı yerden devam ediliyor -> Sayfa {start_page}")
+    existing_ids = set()
+    if manufacturer_id and not dry_run:
+        existing_ids = get_existing_product_ids(conn, manufacturer_id)
+        if existing_ids:
+            print(f"  DB'de mevcut: {len(existing_ids)} ürün")
+            if full_rescan:
+                start_page = 1
+                print("  Tam tarama modu -> Sayfa 1'den başlanıyor")
+            elif start_page == 1:
+                start_page = (len(existing_ids) // PAGE_SIZE) + 1
+                print(f"  Kaldığı yerden devam ediliyor -> Sayfa {start_page}")
 
     page = start_page
     consecutive_errors = 0
@@ -759,7 +1097,13 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
             print(f"  Sayfa {page}: Ürün yok, işlem tamamlandı.")
             break
 
-        products = parse_products_from_html(html_content, url, name)
+        products = parse_products_from_html(
+            html_content,
+            url,
+            name,
+            url_key=url_key,
+            ptbrands_id=manufacturer_id,
+        )
 
         if not products:
             if page == start_page and start_page == 1:
@@ -780,7 +1124,10 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
                 continue
 
             is_new = pid not in existing_ids
-            result = upsert_product(conn, manufacturer_id, product)
+            result = upsert_product(conn, manufacturer_id, product, dry_run=dry_run)
+
+            if dry_run:
+                continue
 
             if is_new:
                 page_new += 1
@@ -790,7 +1137,8 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
             else:
                 page_updated += 1
 
-        conn.commit()
+        if not dry_run:
+            conn.commit()
 
         total_new += page_new
         total_updated += page_updated
@@ -820,6 +1168,31 @@ def main():
     )
     parser.add_argument(
         "--manufacturer", type=str, help="Sadece belirli üreticiyi çek (isim veya URL slug)"
+    )
+    parser.add_argument(
+        "--brand-url-key",
+        type=str,
+        help="Tek veya virgülle ayrılmış ptbrands url_key (örn. 3rg,borgwarner)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Scrape yap ama DB'ye yazma",
+    )
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="Scrape + DB karşılaştırması yap, yazma (validate ile aynı)",
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Scrape edilen veriyi DB ile karşılaştır, yazma",
+    )
+    parser.add_argument(
+        "--output-json",
+        type=str,
+        help="Validation raporunu JSON dosyasına yaz (varsayılan: scripts/output/validation-<timestamp>.json)",
     )
     parser.add_argument(
         "--reset", action="store_true", help="Tüm durumu sıfırla ve baştan başla"
@@ -881,6 +1254,47 @@ def main():
 
     session = setup_session(proxy=initial_proxy)
 
+    validation_mode = args.validate or args.report_only
+    brand_url_keys = []
+    if args.brand_url_key:
+        brand_url_keys = [k.strip().lower() for k in args.brand_url_key.split(",") if k.strip()]
+
+    if validation_mode:
+        if not brand_url_keys:
+            print("Hata: --validate/--report-only için --brand-url-key gerekli")
+            conn.close()
+            return
+
+        reports = []
+        for url_key in brand_url_keys:
+            brand_info = get_brand_by_url_key(conn, url_key)
+            if not brand_info:
+                print(f"Uyarı: url_key bulunamadı: {url_key}")
+                continue
+            reports.append(validate_brand(session, conn, brand_info, proxy_rotator=proxy_rotator))
+
+        if reports:
+            output_path = args.output_json
+            if not output_path:
+                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                output_path = project_dir / "scripts" / "output" / f"validation-{ts}.json"
+            save_reports_json(reports, output_path)
+
+            print("\n" + "=" * 60)
+            print("VALIDATION SUMMARY")
+            print("=" * 60)
+            for report in reports:
+                print(
+                    f"{report['brand']}: scraped={report['scraped_count']} db={report['db_count']} "
+                    f"missing={len(report['missing'])} extra={len(report['extra'])} "
+                    f"priceΔ={len(report['price_changed'])} refΔ={len(report['ref_no_changed'])} "
+                    f"titleΔ={len(report['title_changed'])}"
+                )
+
+        print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        conn.close()
+        return
+
     if args.reset:
         print("\n!!! DURUM SIFIRLANIYOR !!!")
         state_file = (
@@ -890,7 +1304,31 @@ def main():
             state_file.unlink()
         print("Durum sıfırlandı.")
 
-    # --manufacturer ile tek üretici çekiliyorsa CSV gerekmez
+    # --brand-url-key veya --manufacturer ile tek/marka çekimi
+    if brand_url_keys:
+        for url_key in brand_url_keys:
+            brand_info = get_brand_by_url_key(conn, url_key)
+            if not brand_info:
+                print(f"Uyarı: url_key bulunamadı: {url_key}")
+                continue
+            target = {
+                "name": brand_info["name"],
+                "url": f"{BASE_URL}/{brand_info['url_key']}",
+            }
+            print(f"\nSadece '{brand_info['name']}' ({url_key}) çekilecek.")
+            scrape_manufacturer(
+                session,
+                conn,
+                project_dir,
+                target,
+                full_rescan=args.full_rescan,
+                proxy_rotator=proxy_rotator,
+                dry_run=args.dry_run,
+            )
+        print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        conn.close()
+        return
+
     if args.manufacturer:
         name = args.manufacturer.strip()
         url = make_manufacturer_url(name)
@@ -899,7 +1337,15 @@ def main():
         print(f"\nSadece '{name}' çekilecek.")
         print(f"URL: {url}")
 
-        scrape_manufacturer(session, conn, project_dir, target, full_rescan=args.full_rescan, proxy_rotator=proxy_rotator)
+        scrape_manufacturer(
+            session,
+            conn,
+            project_dir,
+            target,
+            full_rescan=args.full_rescan,
+            proxy_rotator=proxy_rotator,
+            dry_run=args.dry_run,
+        )
         print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         conn.close()
         return

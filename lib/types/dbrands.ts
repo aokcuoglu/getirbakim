@@ -33,6 +33,7 @@ export type DbrandsMatchAudit = {
 export type DbrandsMatchSeedResult = {
   dryRun: boolean
   removedRedundantStubs: number
+  removedRedundantPtOnly: number
   insertedDinamikStubs: number
   insertedPtOnly: number
   insertedAutoMatched: number

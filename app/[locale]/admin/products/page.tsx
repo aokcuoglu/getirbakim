@@ -1,63 +1,68 @@
-import { Plus } from 'lucide-react'
-import { notFound } from 'next/navigation'
 import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
-import { getAdminProducts } from '@/lib/actions/admin-products'
-import { parseAdminProductsUrlState } from '@/lib/admin-products-workbench'
+import { listApprovedDpmatchForAdmin } from '@/lib/admin/approved-dpmatch-catalog'
+import { requireAdminAuth } from '@/lib/admin-auth'
 import { Link } from '@/lib/navigation'
-import { ProductsAdminClient } from './_components/ProductsAdminClient'
+import { getTranslations } from 'next-intl/server'
+import { ApprovedDpmatchProductsClient } from './_components/ApprovedDpmatchProductsClient'
 
 export default async function AdminProductsPage(props: {
   params: Promise<{ locale: string }>
   searchParams: Promise<{
-    source?: string
     q?: string
-    brand?: string
-    category?: string
-    stockStatus?: string
-    visibility?: string
-    syncStatus?: string
+    dinamikBrand?: string
+    manufacturerId?: string
+    matchSide?: string
     page?: string
     limit?: string
-    sortBy?: string
-    sortOrder?: string
   }>
 }) {
+  await requireAdminAuth()
   await props.params
   const searchParams = await props.searchParams
-  if (searchParams.source === 'dinamik') {
-    notFound()
-  }
-  const initialState = parseAdminProductsUrlState(searchParams)
-  const data = await getAdminProducts(initialState.filters)
+  const t = await getTranslations('AdminCatalog.products')
+
+  const manufacturerIdStr = searchParams.manufacturerId
+  const manufacturerId = manufacturerIdStr
+    ? parseInt(manufacturerIdStr, 10)
+    : null
+  const matchSide = searchParams.matchSide ?? 'all'
+
+  const data = await listApprovedDpmatchForAdmin({
+    q: searchParams.q ?? '',
+    dinamikBrand: searchParams.dinamikBrand ?? null,
+    manufacturerId:
+      manufacturerId != null && !Number.isNaN(manufacturerId) && manufacturerId > 0
+        ? manufacturerId
+        : null,
+    matchSide:
+      matchSide === 'matched' ||
+      matchSide === 'dinamik_only' ||
+      matchSide === 'pt_only'
+        ? matchSide
+        : 'all',
+    page: parseInt(searchParams.page ?? '1', 10),
+    limit: parseInt(searchParams.limit ?? '50', 10)
+  })
 
   return (
     <AdminLayout>
-      <AdminPageShell>
+      <AdminPageShell width="wide">
         <AdminPageHeader
-          title="Ürün Operasyonu"
-          description="Katalog, fiyat, stok ve görünürlük yönetimini tek yerden yönetin."
+          title={t('title')}
+          description={t('description')}
           breadcrumbs={getAdminBreadcrumbs('/admin/products')}
           actions={
-            <>
-              <Link
-                href="/admin/products/tools"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:bg-muted sm:w-auto"
-              >
-                Araçlar
-              </Link>
-              <Link
-                href="/admin/products/new"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-semibold text-white transition-colors hover:bg-primary/90 sm:w-auto"
-              >
-                <Plus size={16} />
-                Ürün Ekle
-              </Link>
-            </>
+            <Link
+              href="/admin/products/tools"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:bg-muted sm:w-auto"
+            >
+              {t('toolsLink')}
+            </Link>
           }
         />
-        <ProductsAdminClient data={data} initialProductId={initialState.productId} />
+        <ApprovedDpmatchProductsClient initialData={data} />
       </AdminPageShell>
     </AdminLayout>
   )

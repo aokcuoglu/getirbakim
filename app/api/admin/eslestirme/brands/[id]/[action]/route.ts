@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
+import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
+import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dbrands-match-cleanup'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -31,6 +33,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     switch (action) {
       case 'approve': {
         await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await removeRedundantDbrandsMatchRows()
+        revalidateAdminCatalogPaths()
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
       }
       case 'reject': {
@@ -59,6 +63,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const mfrName = manufacturer[0].name
           const normalized = normalizeModel(mfrName) || ''
           await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET ptbrands_id = ${mfrId}, normalized = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          await removeRedundantDbrandsMatchRows()
+          revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
         }
 
@@ -74,6 +80,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Dinamik marka bulunamadı.', context })
           }
           await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET dbrands_id = ${brandId}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          await removeRedundantDbrandsMatchRows()
+          revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
         }
 

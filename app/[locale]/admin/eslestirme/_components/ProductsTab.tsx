@@ -245,44 +245,6 @@ export function ProductsTab() {
     })
   }, [loadModels])
 
-  const handleBulkApproveNoBrand = useCallback(() => {
-    startTransition(async () => {
-      try {
-        const res = await fetch('/api/admin/eslestirme/models', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'bulk-approve-no-brand' }),
-        })
-        const data = await res.json()
-        if (!data.error) {
-          toast.success(data.message || `${data.approved ?? 0} markasız kayıt onaylandı`)
-          void loadModels(filtersRef.current)
-        } else toast.error(data.error?.message || 'Markasız toplu onay başarısız')
-      } catch {
-        toast.error('Markasız toplu onay başarısız')
-      }
-    })
-  }, [loadModels])
-
-  const handlePopulateUnpairedBrands = useCallback(() => {
-    startTransition(async () => {
-      try {
-        const res = await fetch('/api/admin/eslestirme/models', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'populate-unpaired-brands', apply: true }),
-        })
-        const data = await res.json()
-        if (!data.error) {
-          toast.success(data.message || 'Eşleşmemiş marka ürünleri eklendi')
-          void loadModels(filtersRef.current)
-        } else toast.error(data.error?.message || 'Eşleşmemiş marka populate başarısız')
-      } catch {
-        toast.error('Eşleşmemiş marka populate başarısız')
-      }
-    })
-  }, [loadModels])
-
   const handleBulkApprove = useCallback(() => {
     const ids = Object.entries(rowSelection).filter(([, s]) => s).map(([id]) => Number(id))
     if (ids.length === 0) { toast.error('En az bir eşleştirme seçin'); return }
@@ -438,17 +400,6 @@ export function ProductsTab() {
         </Button>
         <Button variant="outline" size="sm" onClick={handleBulkApprove} disabled={selectedCount === 0}>
           <Check className="mr-1.5 h-3.5 w-3.5" /> Seçilenleri Onayla ({selectedCount})
-        </Button>
-        <Button variant="outline" size="sm" onClick={handleBulkApproveNoBrand}>
-          Markasız Kayıtları Onayla
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlePopulateUnpairedBrands}
-          title="Onaylı eşleşmiş marka çifti olmayan ürünleri tek taraflı APPROVED olarak ekle"
-        >
-          Eşleşmemiş Marka Ürünleri Ekle
         </Button>
       </div>
 
