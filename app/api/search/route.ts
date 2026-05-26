@@ -50,6 +50,8 @@ import {
   lookupExactCode,
   mergeExactCodeResults,
 } from '@/lib/search/exact-code-lookup'
+import { isV0OnlySite } from '@/lib/v0/siteMode'
+import { buildV0SearchApiResponse } from '@/lib/v0/search/v0-search-api'
 
 type SearchFiltersPayload = {
   brands?: string[]
@@ -315,14 +317,47 @@ export async function POST(request: NextRequest) {
     if (!parsedBody.success) return parsedBody.response
 
     body = parsedBody.data
-    const { 
-      query = '', 
-      filters = {}, 
-      page = 1, 
-      limit = 24, 
+    const {
+      query = '',
+      filters = {},
+      page = 1,
+      limit = 24,
       sort,
-      multiSearch = false 
+      multiSearch = false
     } = body
+
+    if (isV0OnlySite()) {
+      const v0CacheKeyData = JSON.stringify({
+        v: 1,
+        query,
+        filters,
+        page,
+        limit,
+        sort,
+        multiSearch
+      })
+      const v0CacheKey = `v0:search:${crypto.createHash('md5').update(v0CacheKeyData).digest('hex')}`
+      const v0Cached = await getFromCache(v0CacheKey)
+      if (v0Cached) {
+        const res = successResponse({ ...v0Cached, cached: true }, context)
+        res.headers.set('X-Cache', 'HIT')
+        return res
+      }
+
+      const v0Payload = await buildV0SearchApiResponse({
+        query,
+        filters,
+        page,
+        limit,
+        sort,
+        multiSearch
+      })
+      await setCache(v0CacheKey, v0Payload, 120).catch(() => {})
+      const res = successResponse(v0Payload, context)
+      res.headers.set('X-Cache', 'MISS')
+      return res
+    }
+
     const requireRealPrice = isPriceSensitiveSearch({ sort, filters })
 
     // Create cache key from search parameters (include multiSearch flag)

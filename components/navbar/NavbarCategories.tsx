@@ -16,6 +16,7 @@ interface NavbarCategoriesProps {
   onCategoryHover: (slug: string) => void
   closeDropdowns: () => void
   categoryTriggerRef: React.RefObject<HTMLDivElement | null>
+  comingSoon?: boolean
 }
 
 export const NavbarCategories: React.FC<NavbarCategoriesProps> = ({
@@ -27,36 +28,45 @@ export const NavbarCategories: React.FC<NavbarCategoriesProps> = ({
   onCategoryClick,
   onCategoryHover,
   closeDropdowns,
-  categoryTriggerRef
+  categoryTriggerRef,
+  comingSoon = false
 }) => {
   return (
-    <div className="hidden md:block border-t border-border bg-background h-[48px] relative z-10">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-full flex items-center gap-5">
-        {/* Catalog Trigger */}
-        <CatalogButton
-          isCatalogOpen={isCatalogOpen}
-          setIsCatalogOpen={setIsCatalogOpen}
-          closeDropdowns={closeDropdowns}
-        />
+    <div className="hidden md:block border-t border-border">
+      <div className="bg-background h-[48px] relative z-10">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 h-full flex items-center gap-5">
+          <CatalogButton
+            isCatalogOpen={isCatalogOpen}
+            setIsCatalogOpen={setIsCatalogOpen}
+            closeDropdowns={closeDropdowns}
+            comingSoon={comingSoon}
+          />
 
-        {/* Categories Scroll */}
-        <div
-          ref={categoryTriggerRef}
-          className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-5 h-full text-[13px] font-medium text-muted-foreground"
-        >
-          {(categories || []).map((cat) =>
-            cat.urlKey ? (
-              <CategoryItem
-                key={cat.id}
-                name={cat.name}
-                urlKey={cat.urlKey}
-                isActive={hoveredCategorySlug === cat.urlKey || activeCategoryUrlKey === cat.urlKey}
-                onClick={onCategoryClick}
-                onHover={onCategoryHover}
-              />
-            ) : null
-          )}
-          <SpecialOffersButton onClick={closeDropdowns} />
+          <div
+            ref={categoryTriggerRef}
+            className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-5 h-full text-[13px] font-medium text-muted-foreground"
+          >
+            {(categories || []).map((cat) =>
+              cat.urlKey ? (
+                <CategoryItem
+                  key={cat.id}
+                  name={cat.name}
+                  urlKey={cat.urlKey}
+                  isActive={
+                    hoveredCategorySlug === cat.urlKey ||
+                    activeCategoryUrlKey === cat.urlKey
+                  }
+                  onClick={onCategoryClick}
+                  onHover={onCategoryHover}
+                  comingSoon={comingSoon}
+                />
+              ) : null
+            )}
+            <SpecialOffersButton
+              onClick={closeDropdowns}
+              comingSoon={comingSoon}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -1007,7 +1007,9 @@ model ptproducts {
   image_url        String?
   ref_no           String?
   model            String?
-  price            Decimal?      @db.Decimal(10, 2)
+  sku              String?
+  price            Decimal?      @db.Decimal(10, 2) // price_list from parcatedarik.com
+  price_actual     Decimal?      @db.Decimal(10, 2)
   created_at       DateTime?     @default(now()) @db.Timestamp(6)
   updated_at       DateTime?     @default(now()) @db.Timestamp(6)
 
@@ -1017,6 +1019,7 @@ model ptproducts {
   @@index([ptbrands_id])
   @@index([product_id])
   @@index([model])
+  @@index([sku])
   @@schema("v0")
 }
 

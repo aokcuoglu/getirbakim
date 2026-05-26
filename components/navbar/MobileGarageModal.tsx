@@ -7,17 +7,20 @@ import { useShop } from '@/components/ShopProvider'
 import { useRouter } from '@/lib/navigation'
 import { buildCatalogPath } from '@/lib/catalog-url'
 import { Button } from '@/components/ui/button'
+import { SoonFeature } from '@/components/ui/SoonFeature'
 
 interface MobileGarageModalProps {
   isOpen: boolean
   onClose: () => void
   onSelectVehicle: () => void
+  comingSoon?: boolean
 }
 
 export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
   isOpen,
   onClose,
-  onSelectVehicle
+  onSelectVehicle,
+  comingSoon = false
 }) => {
   const t = useTranslations('Navbar')
   const router = useRouter()
@@ -70,7 +73,7 @@ export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
       />
 
       {/* Modal */}
-      <div className="fixed inset-x-0 bottom-0 top-0 bg-background z-[101] md:hidden animate-in slide-in-from-bottom duration-300">
+      <div className="fixed inset-x-0 bottom-0 top-0 z-[101] flex flex-col bg-background md:hidden animate-in slide-in-from-bottom duration-300">
         {/* Header */}
         <div className="flex items-center justify-center px-4 h-14 border-b border-border relative">
           <span className="text-base font-semibold text-foreground">
@@ -85,6 +88,20 @@ export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
         </div>
 
         {/* Content */}
+        {comingSoon ? (
+          <SoonFeature variant="panel" className="min-h-0 flex-1">
+            <div className="overflow-y-auto h-[calc(100vh-56px)] p-4">
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                  {t('myVehicle') || 'My vehicle'}
+                </h3>
+                <Button className="w-full" disabled>
+                  {t('selectYourVehicle') || 'Select your vehicle'}
+                </Button>
+              </div>
+            </div>
+          </SoonFeature>
+        ) : (
         <div className="overflow-y-auto h-[calc(100vh-56px)] p-4">
           {/* My Vehicle Section */}
           <div className="mb-6">
@@ -187,6 +204,7 @@ export const MobileGarageModal: React.FC<MobileGarageModalProps> = ({
             </div>
           )}
         </div>
+        )}
       </div>
     </>
   )

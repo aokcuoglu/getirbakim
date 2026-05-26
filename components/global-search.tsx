@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Car, Loader2, Package, Search } from 'lucide-react'
+import { Car, Loader2, Package, Search, Tag } from 'lucide-react'
 import {
   CommandDialog,
   CommandEmpty,
@@ -19,7 +19,7 @@ import { useShop } from '@/components/ShopProvider'
 import { Button } from '@/components/ui/button'
 import { CustomerRequestDialog } from '@/components/customer-requests/CustomerRequestDialog'
 import { useTranslations } from 'next-intl'
-import { searchGlobal } from '@/lib/actions/search'
+import { searchGlobal, type SearchResultBrand } from '@/lib/actions/search'
 
 interface VehicleDocument {
   id: number
@@ -69,9 +69,14 @@ export function GlobalSearch({
     []
   )
   const [partResults, setPartResults] = React.useState<PartDocument[]>([])
+  const [brandResults, setBrandResults] = React.useState<SearchResultBrand[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [searchTimedOut, setSearchTimedOut] = React.useState(false)
+  const searchRequestRef = React.useRef(0)
 
   React.useEffect(() => {
+    if (mobilePosition) return
+
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
@@ -81,25 +86,39 @@ export function GlobalSearch({
 
     document.addEventListener('keydown', down)
     return () => document.removeEventListener('keydown', down)
-  }, [])
+  }, [mobilePosition])
 
   React.useEffect(() => {
-    const controller = new AbortController()
+    const requestId = ++searchRequestRef.current
+    const SEARCH_TIMEOUT_MS = 12_000
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
 
     const search = async () => {
       if (!debouncedQuery || debouncedQuery.length < 2) {
         setVehicleResults([])
         setPartResults([])
+        setBrandResults([])
         setLoading(false)
+        setSearchTimedOut(false)
         return
       }
 
       setLoading(true)
+      setSearchTimedOut(false)
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('GLOBAL_SEARCH_TIMEOUT'))
+        }, SEARCH_TIMEOUT_MS)
+      })
 
       try {
-        const data = await searchGlobal(debouncedQuery)
+        const data = await Promise.race([
+          searchGlobal(debouncedQuery),
+          timeoutPromise
+        ])
 
-        if (controller.signal.aborted) {
+        if (requestId !== searchRequestRef.current) {
           return
         }
 
@@ -113,26 +132,32 @@ export function GlobalSearch({
             price: product.price
           }))
         )
-        // Vehicle index search is disabled while Meilisearch is inactive.
+        setBrandResults(data.brands ?? [])
         setVehicleResults([])
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (requestId !== searchRequestRef.current) {
+          return
+        }
+        if (
+          error instanceof Error &&
+          error.message === 'GLOBAL_SEARCH_TIMEOUT'
+        ) {
+          setSearchTimedOut(true)
+        } else {
           console.warn('Global search fallback error:', error)
         }
         setPartResults([])
+        setBrandResults([])
         setVehicleResults([])
       } finally {
-        if (!controller.signal.aborted) {
+        if (timeoutId) clearTimeout(timeoutId)
+        if (requestId === searchRequestRef.current) {
           setLoading(false)
         }
       }
     }
 
     search()
-
-    return () => {
-      controller.abort()
-    }
   }, [debouncedQuery])
 
   const handleSelectVehicle = (vehicle: VehicleDocument) => {
@@ -144,6 +169,11 @@ export function GlobalSearch({
   const handleSelectPart = (part: PartDocument) => {
     setOpen(false)
     router.push(`/${locale}/part/${String(part.id)}`)
+  }
+
+  const handleSelectBrand = (brand: SearchResultBrand) => {
+    setOpen(false)
+    router.push(`/${locale}/marka/${brand.matchId}`)
   }
 
   const handleSearchParts = () => {
@@ -170,14 +200,14 @@ export function GlobalSearch({
     if (onSearchFocus) onSearchFocus()
   }
 
-  return (
+  const searchTriggers = (
     <>
       {/* Mobile Trigger */}
       <button
         onClick={handleOpen}
         className={cn(
           'md:hidden p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors',
-          mobilePosition === 'left' ? '' : 'hidden' // Only show if explicitly enabled for mobile or default position logic
+          mobilePosition === 'left' ? '' : 'hidden'
         )}
         aria-label={t('ariaSearch')}
       >
@@ -200,8 +230,14 @@ export function GlobalSearch({
           </kbd>
         </button>
       )}
+    </>
+  )
 
-      <CommandDialog open={open} onOpenChange={setOpen}>
+  return (
+    <>
+      {searchTriggers}
+
+      <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false}>
         <CommandInput
           placeholder={t('searchPlaceholder')}
           value={query}
@@ -215,8 +251,21 @@ export function GlobalSearch({
             </div>
           )}
 
+          {searchTimedOut && !loading && (
+            <CommandEmpty>
+              <div className="flex flex-col items-center gap-2 py-2 text-center">
+                <p>{t('searchTimeout')}</p>
+                <p className="max-w-md text-xs text-muted-foreground">
+                  {t('searchTimeoutDescription')}
+                </p>
+              </div>
+            </CommandEmpty>
+          )}
+
           {!loading &&
+            !searchTimedOut &&
             partResults.length === 0 &&
+            brandResults.length === 0 &&
             vehicleResults.length === 0 &&
             debouncedQuery &&
             debouncedQuery.length >= 2 && (
@@ -294,9 +343,24 @@ export function GlobalSearch({
             </CommandGroup>
           )}
 
-          {partResults.length > 0 && vehicleResults.length > 0 && (
-            <CommandSeparator />
+          {brandResults.length > 0 && (
+            <CommandGroup heading={t('brandsHeading')} forceMount>
+              {brandResults.map((brand) => (
+                <CommandItem
+                  key={brand.matchId}
+                  value={`brand-${brand.matchId}-${brand.brandName}`}
+                  onSelect={() => handleSelectBrand(brand)}
+                  forceMount
+                >
+                  <Tag className="mr-2 h-4 w-4" />
+                  <span className="font-medium">{brand.brandName}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
           )}
+
+          {(partResults.length > 0 || brandResults.length > 0) &&
+            vehicleResults.length > 0 && <CommandSeparator />}
 
           {/* Vehicle Results */}
           {vehicleResults.length > 0 && (

@@ -1,4 +1,9 @@
 {
+  "ComingSoon": {
+    "badge": "Soon",
+    "title": "Coming Soon",
+    "description": "We're preparing this feature. You can browse approved brands below for now."
+  },
   "Hero": {
     "popularManufacturers": "Popular Manufacturers",
     "popularMakes": "Popular Vehicle Makes",
@@ -659,11 +664,14 @@
     "smartSearch": "Smart search...",
     "searchPlaceholder": "Search: Part name, OEM code, vehicle model...",
     "noResults": "No results found.",
+    "searchTimeout": "Search is taking too long.",
+    "searchTimeoutDescription": "Try again in a moment or open the full search page.",
     "noResultsDescription": "Couldn't find the part you are looking for? Contact us.",
     "requestPart": "Request This Part",
     "quickAccessHeading": "Quick Access",
     "browseAllParts": "Browse All Parts",
     "partsHeading": "Parts",
+    "brandsHeading": "Brands",
     "viewAllResultsForQuery": "View all results for \"{query}\" →",
     "vehiclesHeading": "Vehicles"
   },

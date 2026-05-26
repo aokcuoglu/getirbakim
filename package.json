@@ -25,7 +25,9 @@
     "parts2world:sync-article-info": "bun lib/suppliers/parts2world/sync-article-info.ts",
     "search:setup": "bun scripts/meili-setup.ts",
     "search:reindex": "bun scripts/meili-reindex.ts",
-    "search:debug-category": "bun scripts/debug-meili-category.ts"
+    "search:debug-category": "bun scripts/debug-meili-category.ts",
+    "search:v0:setup": "bun scripts/meili-v0-setup.ts",
+    "search:v0:reindex": "bun scripts/meili-v0-reindex.ts"
   },
   "dependencies": {
     "@google/genai": "^1.32.0",

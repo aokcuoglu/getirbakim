@@ -15,6 +15,8 @@ import type { PopularManufacturer } from '@/lib/actions/getPopularManufacturers'
 import type { V0BrandMatchRow } from '@/lib/v0/types'
 import { useShop } from '@/components/ShopProvider'
 import { buildCatalogUrl } from '@/lib/catalog-url'
+import { SoonFeature } from '@/components/ui/SoonFeature'
+import { isV0OnlySite } from '@/lib/v0/siteMode'
 
 interface HeroProps {
   topCategories: TopCategoryItem[]
@@ -36,6 +38,7 @@ const Hero: React.FC<HeroProps> = ({
   const router = useRouter()
   const locale = useLocale()
   const { selectedVehicle } = useShop()
+  const v0OnlySite = isV0OnlySite()
 
   const handleCategoryClick = (cat: TopCategoryItem) => {
     const selectedVehicleUrlKey = (selectedVehicle as any)?.urlKey
@@ -52,19 +55,27 @@ const Hero: React.FC<HeroProps> = ({
       <PartFinder />
 
       {/* 2. Top Category Images - from DB where is_top_category=true */}
-      <TopCategories
-        categories={topCategories}
-        onCategoryClick={handleCategoryClick}
-      />
+      <SoonFeature enabled={v0OnlySite} className="min-h-[7.5rem]">
+        <TopCategories
+          categories={topCategories}
+          onCategoryClick={handleCategoryClick}
+        />
+      </SoonFeature>
 
       {/* 3. Campaign Carousel */}
-      <CampaignCarousel />
+      <SoonFeature enabled={v0OnlySite}>
+        <CampaignCarousel />
+      </SoonFeature>
 
       {/* 4. Subcategory Catalog Grid */}
-      <CatalogSection catalogData={catalogData} />
+      <SoonFeature enabled={v0OnlySite} className="min-h-[min(60vh,28rem)]">
+        <CatalogSection catalogData={catalogData} />
+      </SoonFeature>
 
       {/* 5. Popular Vehicle Makes */}
-      <PopularMakes onMakeSelect={onMakeSelect} />
+      <SoonFeature enabled={v0OnlySite}>
+        <PopularMakes onMakeSelect={onMakeSelect} />
+      </SoonFeature>
 
       {/* 6. Brands (v0) or Popular Manufacturers (legacy) */}
       {brands && brands.length > 0 ? (

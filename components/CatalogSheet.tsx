@@ -28,10 +28,12 @@ import { buildCatalogPath } from '@/lib/catalog-url'
 import { resolveVehicleTypeId } from '@/lib/utils/vehicleSlug'
 import { createClient } from '@/lib/supabase/client'
 import { Input } from '@/components/ui/input'
+import { SoonFeature } from '@/components/ui/SoonFeature'
 
 interface CatalogSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  comingSoon?: boolean
 }
 
 // Interface for flattened search results
@@ -41,7 +43,8 @@ interface SearchResult extends PartCategory {
 
 export const CatalogSheet: React.FC<CatalogSheetProps> = ({
   open,
-  onOpenChange
+  onOpenChange,
+  comingSoon = false
 }) => {
   const t = useTranslations('CatalogSheet')
   const locale = useLocale()
@@ -211,6 +214,164 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
     router.refresh()
   }
 
+  const catalogNavContent = (
+    <>
+      <div className="px-4 py-3 bg-background">
+        <div className="relative">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="text"
+            placeholder={t('search')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            readOnly={comingSoon}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      {isVehicleFiltered && selectedVehicle && (
+        <div className="px-4 py-2 bg-accent border-b border-border flex items-center gap-2 text-xs text-primary">
+          <Car size={14} />
+          <span className="font-medium">
+            {selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.year}
+          </span>
+          <span className="text-primary">{t('filteredByVehicle') || 'için filtrelendi'}</span>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto bg-background">
+        {loading ? (
+          <div className="p-8 text-center text-muted-foreground">
+            {t('loadingCategories')}
+          </div>
+        ) : (
+          <div className="flex flex-col">
+            {filteredItems.map((item) => {
+              const searchResult = item as SearchResult
+              const hasBreadcrumbs =
+                isSearching &&
+                'breadcrumbs' in searchResult &&
+                searchResult.breadcrumbs.length > 0
+
+              const rowContent = (
+                <>
+                  {hasBreadcrumbs && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+                      {searchResult.breadcrumbs.map((bc, idx) => (
+                        <React.Fragment key={bc.id}>
+                          {idx > 0 && <ChevronRight size={10} />}
+                          <span>{getCategoryName(bc)}</span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-foreground text-sm">
+                      {getCategoryName(item)}
+                    </span>
+                    {item.children && item.children.length > 0 && (
+                      <ChevronRight size={16} className="text-muted-foreground" />
+                    )}
+                  </div>
+                </>
+              )
+
+              if (comingSoon) {
+                return (
+                  <div
+                    key={item.id}
+                    className="group flex flex-col px-6 py-3 text-left"
+                  >
+                    {rowContent}
+                  </div>
+                )
+              }
+
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleSelect(item)}
+                  onMouseEnter={() => handleCategoryHover(item)}
+                  onFocus={() => handleCategoryHover(item)}
+                  className="group flex flex-col px-6 py-3 hover:bg-muted transition-colors text-left"
+                >
+                  {rowContent}
+                </button>
+              )
+            })}
+
+            {filteredItems.length === 0 && (
+              <div className="p-8 text-center text-muted-foreground text-sm">
+                {searchQuery ? t('noResults') : t('noSubcategories')}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+
+  const footerContent = (
+    <div className="mt-auto border-t border-border bg-background shrink-0">
+      {!user && (
+        <LoginModal
+          onLoginSuccess={(loggedInUser) => {
+            setUser(loggedInUser)
+          }}
+        >
+          <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm">
+            <div className="w-8 flex justify-center">
+              <User size={20} />
+            </div>
+            {t('logIn')}
+          </button>
+        </LoginModal>
+      )}
+      {user && (
+        <>
+          <button
+            onClick={() => {
+              onOpenChange(false)
+              router.push('/account')
+            }}
+            className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm"
+          >
+            <div className="w-8 flex justify-center">
+              <User size={20} className="text-primary" />
+            </div>
+            <div className="flex flex-col items-start">
+              <span>
+                {t('hello')}, {user.name || 'User'}
+              </span>
+              <span className="text-xs text-muted-foreground">{t('myAccount')}</span>
+            </div>
+            <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm"
+          >
+            <div className="w-8 flex justify-center">
+              <LogOut size={20} />
+            </div>
+            {t('logout')}
+          </button>
+        </>
+      )}
+      <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm">
+        <div className="w-8 flex justify-center">
+          <Info size={20} />
+        </div>
+        {t('contactUs')}
+        <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
+      </button>
+    </div>
+  )
+
   return (
     <Sheet
       open={open}
@@ -293,143 +454,17 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
           </div>
         </div>
 
-        {/* SEARCH INPUT */}
-        <div className="px-4 py-3 bg-background">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              type="text"
-              placeholder={t('search')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        </div>
-
-        {/* Vehicle Filter Indicator */}
-        {isVehicleFiltered && selectedVehicle && (
-          <div className="px-4 py-2 bg-accent border-b border-border flex items-center gap-2 text-xs text-primary">
-            <Car size={14} />
-            <span className="font-medium">
-              {selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.year}
-            </span>
-            <span className="text-primary">{t('filteredByVehicle') || 'için filtrelendi'}</span>
-          </div>
+        {/* Catalog navigation */}
+        {comingSoon ? (
+          <SoonFeature variant="panel" className="min-h-0 flex-1">
+            {catalogNavContent}
+          </SoonFeature>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">{catalogNavContent}</div>
         )}
 
-        {/* CONTENT LIST */}
-        <div className="flex-1 overflow-y-auto bg-background">
-          {loading ? (
-            <div className="p-8 text-center text-muted-foreground">
-              {t('loadingCategories')}
-            </div>
-          ) : (
-            <div className="flex flex-col">
-              {filteredItems.map((item) => {
-                const searchResult = item as SearchResult
-                const hasBreadcrumbs = isSearching && 'breadcrumbs' in searchResult && searchResult.breadcrumbs.length > 0
-                
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleSelect(item)}
-                    onMouseEnter={() => handleCategoryHover(item)}
-                    onFocus={() => handleCategoryHover(item)}
-                    className="group flex flex-col px-6 py-3 hover:bg-muted transition-colors text-left"
-                  >
-                    {/* Breadcrumbs for search results */}
-                    {hasBreadcrumbs && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                        {searchResult.breadcrumbs.map((bc, idx) => (
-                          <React.Fragment key={bc.id}>
-                            {idx > 0 && <ChevronRight size={10} />}
-                            <span>{getCategoryName(bc)}</span>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-foreground text-sm">
-                        {getCategoryName(item)}
-                      </span>
-                      {item.children && item.children.length > 0 && (
-                        <ChevronRight size={16} className="text-muted-foreground" />
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
-
-              {filteredItems.length === 0 && (
-                <div className="p-8 text-center text-muted-foreground text-sm">
-                  {searchQuery ? t('noResults') : t('noSubcategories')}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Footer - Log In + Info */}
-          {isRoot && (
-            <div className="mt-4 border-t border-border">
-              {!user && (
-                <LoginModal
-                  onLoginSuccess={(loggedInUser) => {
-                    setUser(loggedInUser)
-                  }}
-                >
-                  <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm">
-                    <div className="w-8 flex justify-center">
-                      <User size={20} />
-                    </div>
-                    {t('logIn')}
-                  </button>
-                </LoginModal>
-              )}
-              {user && (
-                <>
-                  <button
-                    onClick={() => {
-                      onOpenChange(false)
-                      router.push('/account')
-                    }}
-                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-foreground font-medium text-sm"
-                  >
-                    <div className="w-8 flex justify-center">
-                      <User size={20} className="text-primary" />
-                    </div>
-                    <div className="flex flex-col items-start">
-                      <span>{t('hello')}, {user.name || 'User'}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {t('myAccount')}
-                      </span>
-                    </div>
-                    <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm"
-                  >
-                    <div className="w-8 flex justify-center">
-                      <LogOut size={20} />
-                    </div>
-                    {t('logout')}
-                  </button>
-                </>
-              )}
-              <button className="w-full flex items-center gap-3 px-6 py-4 hover:bg-muted text-destructive font-medium text-sm">
-                <div className="w-8 flex justify-center">
-                  <Info size={20} />
-                </div>
-                {t('contactUs')}
-                <ChevronRight size={16} className="ml-auto text-muted-foreground/70" />
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Account & support — always functional */}
+        {isRoot && footerContent}
       </SheetContent>
     </Sheet>
   )

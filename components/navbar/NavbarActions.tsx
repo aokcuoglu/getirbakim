@@ -19,6 +19,7 @@ import { buildCatalogPath } from '@/lib/catalog-url'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
+import { SoonNavItem } from '@/components/ui/SoonFeature'
 
 interface NavbarActionsProps {
   onGarageOpenChange?: (open: boolean) => void
@@ -30,6 +31,7 @@ interface NavbarActionsProps {
   isLanguageOpen?: boolean
   onLoginClick?: () => void
   onMobileGarageClick?: () => void
+  garageComingSoon?: boolean
 }
 
 export const NavbarActions: React.FC<NavbarActionsProps> = ({
@@ -41,7 +43,8 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
   isUserMenuOpen = false,
   isLanguageOpen = false,
   onLoginClick,
-  onMobileGarageClick
+  onMobileGarageClick,
+  garageComingSoon = false
 }) => {
   const router = useRouter()
   const t = useTranslations('Navbar')
@@ -94,6 +97,23 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
         element.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
     }, 100)
+  }
+
+  const handleGarageClick = () => {
+    if (garageComingSoon) return
+
+    // Mobile: use full-screen modal
+    if (window.innerWidth < 768 && onMobileGarageClick) {
+      onMobileGarageClick()
+      return
+    }
+    // Desktop: use dropdown
+    if (!isGarageOpen) {
+      closeAllDropdowns()
+      onGarageOpenChange?.(true)
+    } else {
+      onGarageOpenChange?.(false)
+    }
   }
 
   return (
@@ -164,22 +184,26 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
 
       {/* My Garage */}
       <div className="relative">
+        {garageComingSoon ? (
+          <SoonNavItem className="flex items-center gap-2 px-2 py-1.5 rounded-lg">
+            <div className="w-8 h-8 rounded-full bg-muted border border-border flex items-center justify-center text-muted-foreground">
+              <Car size={18} strokeWidth={1.5} aria-hidden />
+            </div>
+            <div className="hidden lg:flex w-[120px] flex-col items-start overflow-hidden">
+              <span className="text-[11px] text-muted-foreground font-medium leading-none mb-0.5">
+                {t('garage')}
+              </span>
+              <span className="text-[13px] font-semibold text-foreground leading-none truncate w-full text-left">
+                {t('addVehicle')}
+              </span>
+            </div>
+          </SoonNavItem>
+        ) : (
         <button
-          onClick={() => {
-            // Mobile: use full-screen modal
-            if (window.innerWidth < 768 && onMobileGarageClick) {
-              onMobileGarageClick()
-              return
-            }
-            // Desktop: use dropdown
-            if (!isGarageOpen) {
-              closeAllDropdowns()
-              onGarageOpenChange?.(true)
-            } else {
-              onGarageOpenChange?.(false)
-            }
+          onClick={handleGarageClick}
+          onBlur={() => {
+            setTimeout(() => onGarageOpenChange?.(false), 200)
           }}
-          onBlur={() => setTimeout(() => onGarageOpenChange?.(false), 200)}
           className={`flex items-center gap-2 px-2 py-1.5 hover:bg-muted rounded-lg group transition-colors ${
             isGarageOpen ? 'bg-muted' : ''
           }`}
@@ -207,24 +231,26 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
             </div>
           </div>
         </button>
+        )}
 
         {/* Garage Panel */}
-        {isGarageOpen && (
+        {isGarageOpen && !garageComingSoon && (
           <div
-            className="absolute top-full right-0 mt-2 w-80 bg-background rounded-xl shadow-xl border border-border p-4 z-100 animate-in fade-in zoom-in-95 duration-200"
+            className="absolute top-full right-0 mt-2 w-80 bg-background rounded-xl shadow-xl border border-border z-100 animate-in fade-in zoom-in-95 duration-200 overflow-hidden"
             onMouseDown={(e) => e.preventDefault()}
           >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-foreground">
-                {t('garage')}
-              </h3>
-              <span className="text-xs text-muted-foreground">
-                {vehicleHistory.length} {t('saved')}
-              </span>
-            </div>
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-foreground">
+                    {t('garage')}
+                  </h3>
+                  <span className="text-xs text-muted-foreground">
+                    {vehicleHistory.length} {t('saved')}
+                  </span>
+                </div>
 
-            {/* Active Vehicle */}
-            {selectedVehicle ? (
+                {/* Active Vehicle */}
+                {selectedVehicle ? (
               <div
                 className="p-3 bg-warning/10 border border-amber-100 rounded-lg mb-3 relative group cursor-pointer hover:bg-warning/15/50 transition-colors"
                 onClick={() => {
@@ -327,13 +353,11 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
             </div>
 
             <div className="mt-3 pt-3 border-t border-border">
-              <Button
-                onClick={handleScrollToSelector}
-                className="w-full"
-              >
+              <Button onClick={handleScrollToSelector} className="w-full">
                 <Plus size={14} /> {t('addNewVehicle')}
               </Button>
             </div>
+              </div>
           </div>
         )}
       </div>

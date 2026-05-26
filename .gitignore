@@ -95,3 +95,11 @@ proxies.txt
 nohup.out
 aux*
 data/imports/
+
+# Scrape run artifacts (active logs kept locally during runs)
+scripts/output/*.log
+scripts/output/*.nohup.log
+scripts/output/*.pid
+
+# Cursor IDE (local MCP config)
+.cursor/

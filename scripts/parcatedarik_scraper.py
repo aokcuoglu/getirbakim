@@ -51,10 +51,15 @@ except ImportError:
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+try:
+    from parcatedarik_image_upload import PtProductImageUploader
+except ImportError:
+    from scripts.parcatedarik_image_upload import PtProductImageUploader
+
 
 BASE_URL = "https://parcatedarik.com"
 PAGE_SIZE = 120
-REQUEST_DELAY = 2.0
+REQUEST_DELAY = 1.0
 MAX_RETRIES = 3
 # Report-only threshold for long ref_no samples. ref_no must NEVER be truncated on
 # scrape or upsert — store the full site value exactly (ptproducts.ref_no is text).
@@ -378,7 +383,28 @@ def ensure_manufacturer_in_db(conn, name, url):
         return cur.fetchone()[0]
 
 
-def upsert_product(conn, manufacturer_id, product_data, dry_run=False):
+def fetch_existing_image_urls_by_urls(conn, urls):
+    """Batch-fetch existing image_url values for product URLs."""
+    if not urls:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT url, image_url FROM "v0"."ptproducts" WHERE url = ANY(%s)',
+            (urls,),
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def upsert_product(
+    conn,
+    manufacturer_id,
+    product_data,
+    dry_run=False,
+    upload_images=False,
+    image_uploader=None,
+    brand_url_key=None,
+    pre_resolved_image_url=None,
+):
     """Ürünü DB'ye ekle veya güncelle."""
     product_id = product_data.get("product_id", "")
     if not product_id:
@@ -386,41 +412,62 @@ def upsert_product(conn, manufacturer_id, product_data, dry_run=False):
 
     title = product_data.get("product_title") or product_data.get("title", "")
     url = product_data.get("product_url") or product_data.get("url", "")
-    image_url = product_data.get("image_url", "") or None
+    source_image_url = product_data.get("image_url", "") or None
     # Full ref_no as scraped — no length cap (legacy rows may be 80-char truncated).
     ref_no = product_data.get("ref_no", "") or None
     model = product_data.get("model") or None
+    sku = product_data.get("sku") or None
 
     price_raw = product_data.get("price_list")
     if price_raw is None:
         price_raw = product_data.get("price", "")
     price = parse_price(price_raw)
+    price_actual = parse_price(product_data.get("price_actual"))
 
     if dry_run:
         return ("dry_run", None)
 
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT id, price, image_url, ref_no, title, model FROM "v0"."ptproducts" WHERE url = %s',
+            'SELECT id, price, image_url, ref_no, title, model, sku, price_actual FROM "v0"."ptproducts" WHERE url = %s',
             (url,),
         )
         existing = cur.fetchone()
 
+        existing_image_url = existing[2] if existing else None
+        image_url = source_image_url
+        if pre_resolved_image_url is not None:
+            image_url = pre_resolved_image_url
+        elif upload_images and image_uploader and source_image_url:
+            image_url = image_uploader.resolve_image_url(
+                source_url=source_image_url,
+                brand_url_key=brand_url_key or "",
+                product_id=product_id,
+                existing_image_url=existing_image_url,
+            )
+        elif existing_image_url:
+            image_url = existing_image_url
+
         if existing:
-            existing_id, existing_price, existing_image_url, existing_ref_no, existing_title, existing_model = existing
+            (
+                existing_id,
+                existing_price,
+                _existing_image_url,
+                existing_ref_no,
+                existing_title,
+                existing_model,
+                existing_sku,
+                existing_price_actual,
+            ) = existing
 
             needs_update = False
             updates = []
 
-            if image_url and not existing_image_url:
+            if image_url and image_url != existing_image_url:
                 updates.append(("image_url = %s", image_url))
                 needs_update = True
 
-            if price is not None and existing_price != price:
-                updates.append(("price = %s", price))
-                needs_update = True
-
-            if ref_no and existing_ref_no != ref_no:
+            if ref_no is not None and existing_ref_no != ref_no:
                 updates.append(("ref_no = %s", ref_no))
                 needs_update = True
 
@@ -428,8 +475,20 @@ def upsert_product(conn, manufacturer_id, product_data, dry_run=False):
                 updates.append(("title = %s", title))
                 needs_update = True
 
-            if model and existing_model != model:
+            if model is not None and existing_model != model:
                 updates.append(("model = %s", model))
+                needs_update = True
+
+            if sku is not None and existing_sku != sku:
+                updates.append(("sku = %s", sku))
+                needs_update = True
+
+            if not decimal_equal(price, existing_price):
+                updates.append(("price = %s", price))
+                needs_update = True
+
+            if not decimal_equal(price_actual, existing_price_actual):
+                updates.append(("price_actual = %s", price_actual))
                 needs_update = True
 
             if not needs_update:
@@ -446,22 +505,26 @@ def upsert_product(conn, manufacturer_id, product_data, dry_run=False):
         cur.execute(
             """
             INSERT INTO "v0"."ptproducts"
-                (ptbrands_id, product_id, title, url, image_url, ref_no, model, price, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                (ptbrands_id, product_id, title, url, image_url, ref_no, model, sku, price, price_actual, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (url) DO UPDATE
                 SET title = EXCLUDED.title,
                     product_id = EXCLUDED.product_id,
                     image_url = EXCLUDED.image_url,
                     ref_no = EXCLUDED.ref_no,
                     model = EXCLUDED.model,
+                    sku = EXCLUDED.sku,
                     price = EXCLUDED.price,
+                    price_actual = EXCLUDED.price_actual,
                     updated_at = NOW()
-            RETURNING id
+            RETURNING id, (xmax = 0) AS inserted
             """,
-            (manufacturer_id, product_id, title, url, image_url, ref_no, model, price),
+            (manufacturer_id, product_id, title, url, image_url, ref_no, model, sku, price, price_actual),
         )
-        new_id = cur.fetchone()[0]
-        return ("inserted", new_id)
+        row = cur.fetchone()
+        new_id = row[0]
+        action = "inserted" if row[1] else "updated"
+        return (action, new_id)
 
 
 def parse_price(price_str):
@@ -539,7 +602,7 @@ def load_db_products_for_brand(conn, ptbrands_id):
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT url, title, ref_no, model, price, product_id
+            SELECT url, title, ref_no, model, price, product_id, sku, price_actual
             FROM "v0"."ptproducts"
             WHERE ptbrands_id = %s
             """,
@@ -553,6 +616,8 @@ def load_db_products_for_brand(conn, ptbrands_id):
                 "model": row[3],
                 "price": row[4],
                 "product_id": row[5],
+                "sku": row[6],
+                "price_actual": row[7],
             }
             for row in cur.fetchall()
         }
@@ -1039,7 +1104,112 @@ def validate_brand(session, conn, brand_info, proxy_rotator=None):
     return report
 
 
-def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, full_rescan=False, proxy_rotator=None, dry_run=False):
+def get_parcatedarik_image_rows(conn, manufacturer_id):
+    """Products whose image_url still points at parcatedarik.com."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, product_id, image_url
+            FROM "v0"."ptproducts"
+            WHERE ptbrands_id = %s
+              AND image_url IS NOT NULL
+              AND image_url ILIKE %s
+            """,
+            (manufacturer_id, "%parcatedarik.com%"),
+        )
+        return [
+            {"id": row[0], "product_id": row[1], "image_url": row[2]}
+            for row in cur.fetchall()
+        ]
+
+
+def upload_brand_images_only(
+    session,
+    conn,
+    manufacturer,
+    *,
+    workers=6,
+    dry_run=False,
+):
+    """Phase B: upload images for rows still pointing at parcatedarik.com."""
+    name = manufacturer["name"]
+    url = manufacturer["url"]
+    url_key = url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
+
+    print(f"\n{'=' * 60}")
+    print(f"Görsel yükleme: {name}")
+    print(f"URL: {url}")
+    print(f"{'=' * 60}")
+
+    brand_info = get_brand_by_url_key(conn, url_key)
+    if not brand_info:
+        print("  Marka DB'de bulunamadı, atlanıyor.")
+        return name
+
+    manufacturer_id = brand_info["id"]
+    rows = get_parcatedarik_image_rows(conn, manufacturer_id)
+    if not rows:
+        print("  Yüklenecek parcatedarik görseli yok.")
+        return name
+
+    print(f"  Yüklenecek görsel: {len(rows)} (workers={workers})")
+    if dry_run:
+        print("  Dry-run: görsel yüklenmeyecek")
+        return name
+
+    image_uploader = PtProductImageUploader(session=session)
+    print(f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptproducts)")
+
+    batch_size = max(120, workers * 20)
+    updated = 0
+
+    for offset in range(0, len(rows), batch_size):
+        batch = rows[offset : offset + batch_size]
+        resolve_items = [
+            {
+                "key": row["product_id"],
+                "source_url": row["image_url"],
+                "brand_url_key": url_key,
+                "product_id": row["product_id"],
+                "existing_image_url": row["image_url"],
+            }
+            for row in batch
+        ]
+        resolved = image_uploader.resolve_batch(resolve_items, max_workers=workers)
+
+        with conn.cursor() as cur:
+            for row in batch:
+                new_url = resolved.get(row["product_id"])
+                if new_url and new_url != row["image_url"]:
+                    cur.execute(
+                        'UPDATE "v0"."ptproducts" SET image_url = %s, updated_at = NOW() WHERE id = %s',
+                        (new_url, row["id"]),
+                    )
+                    updated += 1
+        conn.commit()
+        print(f"  Batch {offset // batch_size + 1}: {len(batch)} işlendi, {updated} güncellendi")
+
+    stats = image_uploader.stats
+    print(f"  Sonuç: {updated} görsel URL güncellendi")
+    print(
+        f"  Görseller: uploaded={stats.uploaded} skipped={stats.skipped} "
+        f"failed={stats.failed} no_source={stats.no_source}"
+    )
+    return name
+
+
+def scrape_manufacturer(
+    session,
+    conn,
+    project_dir,
+    manufacturer,
+    start_page=1,
+    full_rescan=False,
+    proxy_rotator=None,
+    dry_run=False,
+    upload_images=False,
+    workers=1,
+):
     """Tek bir üreticinin tüm ürünlerini çek ve DB'ye yaz."""
     name = manufacturer["name"]
     url = manufacturer["url"]
@@ -1050,6 +1220,12 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
     print(f"{'=' * 60}")
 
     url_key = url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
+    image_uploader = None
+    if upload_images and not dry_run:
+        image_uploader = PtProductImageUploader(session=session)
+        print(
+            f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptproducts, workers={workers})"
+        )
 
     # Üreticiyi DB'ye ekle/güncelle
     if dry_run:
@@ -1118,13 +1294,53 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
         page_updated = 0
         page_skipped = 0
 
+        resolved_images = {}
+        if upload_images and image_uploader and workers > 1:
+            product_urls = [
+                p.get("product_url") or p.get("url", "")
+                for p in products
+                if p.get("product_id")
+            ]
+            existing_by_url = fetch_existing_image_urls_by_urls(conn, product_urls)
+            resolve_items = []
+            for product in products:
+                pid = product.get("product_id")
+                if not pid:
+                    continue
+                source_url = product.get("image_url")
+                if not source_url:
+                    continue
+                product_url = product.get("product_url") or product.get("url", "")
+                resolve_items.append(
+                    {
+                        "key": pid,
+                        "source_url": source_url,
+                        "brand_url_key": url_key,
+                        "product_id": pid,
+                        "existing_image_url": existing_by_url.get(product_url),
+                    }
+                )
+            if resolve_items:
+                resolved_images = image_uploader.resolve_batch(
+                    resolve_items, max_workers=workers
+                )
+
         for product in products:
             pid = product.get("product_id")
             if not pid:
                 continue
 
             is_new = pid not in existing_ids
-            result = upsert_product(conn, manufacturer_id, product, dry_run=dry_run)
+            result = upsert_product(
+                conn,
+                manufacturer_id,
+                product,
+                dry_run=dry_run,
+                upload_images=upload_images,
+                image_uploader=image_uploader,
+                brand_url_key=url_key,
+                pre_resolved_image_url=resolved_images.get(pid),
+            )
 
             if dry_run:
                 continue
@@ -1144,7 +1360,7 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
         total_updated += page_updated
 
         print(
-            f"  Sayfa {page}: {page_new} yeni, {page_updated} image güncellendi, "
+            f"  Sayfa {page}: {page_new} yeni, {page_updated} güncellendi, "
             f"{page_skipped} skip (Toplam: {len(existing_ids)})"
         )
 
@@ -1152,6 +1368,12 @@ def scrape_manufacturer(session, conn, project_dir, manufacturer, start_page=1, 
         time.sleep(REQUEST_DELAY)
 
     print(f"  Sonuç: {total_new} yeni ürün, {total_updated} güncelleme")
+    if image_uploader is not None:
+        stats = image_uploader.stats
+        print(
+            f"  Görseller: uploaded={stats.uploaded} skipped={stats.skipped} "
+            f"failed={stats.failed} no_source={stats.no_source}"
+        )
     return name
 
 
@@ -1163,8 +1385,14 @@ def main():
     parser.add_argument(
         "--delay",
         type=float,
-        default=2.0,
+        default=1.0,
         help="İstekler arası bekleme süresi (saniye)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=6,
+        help="Paralel görsel indirme/yükleme worker sayısı (varsayılan: 6)",
     )
     parser.add_argument(
         "--manufacturer", type=str, help="Sadece belirli üreticiyi çek (isim veya URL slug)"
@@ -1178,6 +1406,17 @@ def main():
         "--dry-run",
         action="store_true",
         help="Scrape yap ama DB'ye yazma",
+    )
+    parser.add_argument(
+        "--upload-images",
+        action="store_true",
+        default=None,
+        help="ParcaTedarik görsellerini Supabase Storage'a yükle (varsayılan: dry-run/validate dışında açık)",
+    )
+    parser.add_argument(
+        "--no-upload-images",
+        action="store_true",
+        help="Görsel yükleme kapalı (sadece parcatedarik URL'si kaydedilir)",
     )
     parser.add_argument(
         "--report-only",
@@ -1255,6 +1494,13 @@ def main():
     session = setup_session(proxy=initial_proxy)
 
     validation_mode = args.validate or args.report_only
+    if args.no_upload_images:
+        upload_images = False
+    elif args.upload_images:
+        upload_images = True
+    else:
+        upload_images = not args.dry_run and not validation_mode
+
     brand_url_keys = []
     if args.brand_url_key:
         brand_url_keys = [k.strip().lower() for k in args.brand_url_key.split(",") if k.strip()]
@@ -1324,6 +1570,8 @@ def main():
                 full_rescan=args.full_rescan,
                 proxy_rotator=proxy_rotator,
                 dry_run=args.dry_run,
+                upload_images=upload_images,
+                workers=args.workers,
             )
         print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         conn.close()
@@ -1345,6 +1593,8 @@ def main():
             full_rescan=args.full_rescan,
             proxy_rotator=proxy_rotator,
             dry_run=args.dry_run,
+            upload_images=upload_images,
+            workers=args.workers,
         )
         print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         conn.close()
@@ -1398,7 +1648,17 @@ def main():
         print(f"\n[{i + 1}/{len(manufacturers)}] İşleniyor: {manufacturer['name']}")
 
         try:
-            scrape_manufacturer(session, conn, project_dir, manufacturer, full_rescan=args.full_rescan, proxy_rotator=proxy_rotator)
+            scrape_manufacturer(
+                session,
+                conn,
+                project_dir,
+                manufacturer,
+                full_rescan=args.full_rescan,
+                proxy_rotator=proxy_rotator,
+                dry_run=args.dry_run,
+                upload_images=upload_images,
+                workers=args.workers,
+            )
 
             state["last_manufacturer_index"] = i
             if manufacturer["name"] not in completed:

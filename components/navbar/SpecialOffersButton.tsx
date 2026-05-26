@@ -2,23 +2,40 @@
 
 import React from 'react'
 import { useTranslations } from 'next-intl'
+import { SoonNavItem } from '@/components/ui/SoonFeature'
 
 interface SpecialOffersButtonProps {
   onClick: () => void
+  comingSoon?: boolean
 }
 
 export const SpecialOffersButton: React.FC<SpecialOffersButtonProps> = ({
-  onClick
+  onClick,
+  comingSoon = false
 }) => {
   const t = useTranslations('Navbar')
+
+  const label = (
+    <>
+      <span className="w-1.5 h-1.5 rounded-full bg-destructive/100 animate-pulse" />
+      {t('specialOffers')}
+    </>
+  )
+
+  if (comingSoon) {
+    return (
+      <SoonNavItem className="whitespace-nowrap text-destructive/70 transition-colors flex items-center gap-1.5 ml-auto text-[13px] font-medium">
+        {label}
+      </SoonNavItem>
+    )
+  }
 
   return (
     <button
       onClick={onClick}
       className="whitespace-nowrap text-destructive hover:text-destructive transition-colors flex items-center gap-1.5 ml-auto text-[13px] font-medium"
     >
-      <span className="w-1.5 h-1.5 rounded-full bg-destructive/100 animate-pulse" />
-      {t('specialOffers')}
+      {label}
     </button>
   )
 }

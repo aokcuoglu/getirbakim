@@ -246,7 +246,10 @@ export function useSearch(): UseSearchResult {
         if (controller.signal.aborted) return
 
         // Process multi-search results
-        const mainResults = data.results[0]
+        const mainResults = data.results?.[0]
+        if (!mainResults) {
+          throw new Error('Search API returned an empty results payload')
+        }
         setHits(mainResults.hits as SearchHit[])
         setTotalHits(mainResults.estimatedTotalHits || 0)
 
@@ -268,8 +271,8 @@ export function useSearch(): UseSearchResult {
 
         // Store facet distributions (use disjunctive results)
         setFacetDistributions({
-          brandName: data.results[1].facetDistribution || {},
-          categoryName: data.results[2].facetDistribution || {}
+          brandName: data.results?.[1]?.facetDistribution || {},
+          categoryName: data.results?.[2]?.facetDistribution || {}
         })
       } catch (err) {
         if (controller.signal.aborted) return

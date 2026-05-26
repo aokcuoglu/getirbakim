@@ -5,10 +5,13 @@ import { VehicleSelector } from './selector/VehicleSelector'
 import { useShop } from './ShopProvider'
 import { Star } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { SoonFeature } from '@/components/ui/SoonFeature'
+import { isV0OnlySite } from '@/lib/v0/siteMode'
 
 export const PartFinder: React.FC = () => {
   const { selectedVehicle } = useShop()
   const t = useTranslations('PartFinder')
+  const v0OnlySite = isV0OnlySite()
 
   // Format vehicle display string: "MAKE MODEL (CODE) Fuel Engine Power"
   const formatVehicleInfo = () => {
@@ -99,12 +102,16 @@ export const PartFinder: React.FC = () => {
               {t('selectVehicle')}
             </p>
 
-            <div
-              id="vehicle-selector"
+            <SoonFeature
+              enabled={v0OnlySite}
+              variant="inline"
+              tone="dark"
               className="animate-in fade-in slide-in-from-bottom-10 duration-700 delay-300 mt-3"
             >
-              <VehicleSelector />
-            </div>
+              <div id="vehicle-selector">
+                <VehicleSelector />
+              </div>
+            </SoonFeature>
           </>
         )}
       </div>

@@ -1,4 +1,9 @@
 {
+  "ComingSoon": {
+    "badge": "Yakında",
+    "title": "Çok Yakında",
+    "description": "Bu özelliği hazırlıyoruz. Şimdilik aşağıdaki onaylı markaları inceleyebilirsiniz."
+  },
   "Hero": {
     "popularManufacturers": "Popüler Üreticiler",
     "popularMakes": "Popüler Araç Markaları",
@@ -659,11 +664,14 @@
     "smartSearch": "Akıllı arama...",
     "searchPlaceholder": "Ara: Parça adı, OEM kodu, araç modeli...",
     "noResults": "Sonuç bulunamadı.",
+    "searchTimeout": "Arama çok uzun sürüyor.",
+    "searchTimeoutDescription": "Biraz sonra tekrar deneyin veya tam arama sayfasını açın.",
     "noResultsDescription": "Aradığınız parçayı bulamadınız mı? Bizimle iletişime geçin.",
     "requestPart": "Parça Talebi Oluştur",
     "quickAccessHeading": "Hızlı Erişim",
     "browseAllParts": "Tüm Parçalara Göz At",
     "partsHeading": "Parçalar",
+    "brandsHeading": "Markalar",
     "viewAllResultsForQuery": "\"{query}\" için tüm sonuçları gör →",
     "vehiclesHeading": "Araçlar"
   },

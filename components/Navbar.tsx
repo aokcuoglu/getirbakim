@@ -18,13 +18,22 @@ import { NavbarCategories } from './navbar/NavbarCategories'
 import { CatalogSheet } from './CatalogSheet'
 import { MobileGarageModal } from './navbar/MobileGarageModal'
 import { TopUtilityBar } from './navbar/TopUtilityBar'
+import { isV0OnlySite } from '@/lib/v0/siteMode'
+import { SoonNavItem } from '@/components/ui/SoonFeature'
 
 interface NavbarProps {
   navbarCategories?: PartCategory[]
   onHomeClick?: () => void
+  /** @deprecated Navbar reads site mode from env via isV0OnlySite() */
+  v0OnlySite?: boolean
 }
 
-const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
+const Navbar: React.FC<NavbarProps> = ({
+  navbarCategories,
+  onHomeClick,
+  v0OnlySite: _v0OnlySiteProp
+}) => {
+  const comingSoon = isV0OnlySite()
   const router = useRouter()
   const locale = useLocale()
   const pathname = usePathname() ?? ''
@@ -105,6 +114,8 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
 
   const handleCategoryHover = useCallback(
     (slug: string) => {
+      if (comingSoon) return
+
       if (opensMegaMenu(slug)) {
         return
       }
@@ -117,10 +128,12 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
       prefetchedCategoryUrlsRef.current.add(href)
       router.prefetch(href)
     },
-    [locale, router, selectedVehicle]
+    [comingSoon, locale, router, selectedVehicle]
   )
 
   const handleCategoryClick = (slug: string) => {
+    if (comingSoon) return
+
     // Categories with children open the MegaMenu
     if (opensMegaMenu(slug)) {
       ensureTrodoCategories()
@@ -172,6 +185,11 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
           {/* Mobile Left: Hamburger + Search | Desktop: Logo */}
           <div className="flex items-center gap-1">
             {/* Hamburger Menu - Mobile Only */}
+            {comingSoon ? (
+              <SoonNavItem className="md:hidden p-2 rounded-lg text-muted-foreground">
+                <Menu size={24} strokeWidth={1.5} aria-hidden />
+              </SoonNavItem>
+            ) : (
             <button
               onClick={() => setIsMobileMenuOpen(true)}
               className="md:hidden p-2 hover:bg-muted rounded-lg text-muted-foreground hover:text-foreground transition-colors"
@@ -179,6 +197,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
             >
               <Menu size={24} strokeWidth={1.5} />
             </button>
+            )}
 
             {/* Mobile Search Button - Next to Hamburger */}
             <GlobalSearch
@@ -223,6 +242,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
 
           <NavbarActions
             isGarageOpen={isGarageOpen}
+            garageComingSoon={comingSoon}
             onGarageOpenChange={(open) => {
               if (open) {
                 setIsMenuOpen(false)
@@ -263,9 +283,11 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
           onCategoryHover={handleCategoryHover}
           closeDropdowns={closeDropdowns}
           categoryTriggerRef={categoryTriggerRef}
+          comingSoon={comingSoon}
         />
 
         {/* Mega Menu - Direct child of fixed nav for better positioning */}
+        {!comingSoon && (
         <MegaMenu
           isOpen={isMegaMenuOpen}
           onClose={handleMegaMenuClose}
@@ -273,6 +295,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
           triggerRef={categoryTriggerRef}
           categories={getMegaMenuCategories()}
         />
+        )}
       </nav>
 
       <LoginModal
@@ -285,15 +308,20 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
       />
 
       {/* Mobile Menu - Uses CatalogSheet for full category navigation */}
+      {!comingSoon && (
       <CatalogSheet
         open={isMobileMenuOpen}
         onOpenChange={setIsMobileMenuOpen}
+        comingSoon={comingSoon}
       />
+      )}
 
       {/* Mobile Garage Modal */}
+      {!comingSoon && (
       <MobileGarageModal
         isOpen={isMobileGarageOpen}
         onClose={() => setIsMobileGarageOpen(false)}
+        comingSoon={comingSoon}
         onSelectVehicle={() => {
           // Scroll to vehicle selector on the page
           router.push('/')
@@ -305,6 +333,7 @@ const Navbar: React.FC<NavbarProps> = ({ navbarCategories, onHomeClick }) => {
           }, 100)
         }}
       />
+      )}
 
       {/* Spacer for Fixed Nav: mobile=70px, desktop=150px (32+70+48) */}
       <div className="h-[70px] md:h-[150px]" />
