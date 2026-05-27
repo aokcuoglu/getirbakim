@@ -1,0 +1,68 @@
+name: VPS Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Git status and fix
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && echo '=== GIT STATUS ===' \
+             && git status \
+             && echo '=== GIT LOG -5 ===' \
+             && git log --oneline -5 \
+             && echo '=== GIT FETCH ===' \
+             && git fetch origin 2>&1 \
+             && echo '=== GIT RESET ===' \
+             && git reset --hard origin/main 2>&1 \
+             && echo '=== GIT STATUS AFTER ===' \
+             && git status"
+
+      - name: Docker container status
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && echo '=== DOCKER PS -A ===' \
+             && docker ps -a \
+             && echo '' \
+             && echo '=== MEILISEARCH LOGS ===' \
+             && docker logs getirbakim-meilisearch --tail=80 2>&1 || echo 'No such container' \
+             && echo '' \
+             && echo '=== APP LOGS ===' \
+             && docker logs getirbakim-app --tail=80 2>&1 || echo 'No such container' \
+             && echo '' \
+             && echo '=== NGINX LOGS ===' \
+             && docker logs getirbakim-nginx --tail=80 2>&1 || echo 'No such container' \
+             && echo '' \
+             && echo '=== DISK USAGE ===' \
+             && df -h / \
+             && echo '' \
+             && echo '=== MEMORY ===' \
+             && free -h"
+
+      - name: Check .env.production
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && echo '=== MEILI ENV CONFIG ===' \
+             && grep -E 'MEILI|MEILI_MASTER_KEY' .env.production || echo 'NOT FOUND'" 2>&1 | sed 's/[^=]*$/[REDACTED]/'
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
