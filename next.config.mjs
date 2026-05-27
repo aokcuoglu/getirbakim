@@ -1,5 +1,6 @@
 import createNextIntlPlugin from 'next-intl/plugin';
 import bundleAnalyzer from '@next/bundle-analyzer';
+import { withSentryConfig } from '@sentry/nextjs';
 
 const withNextIntl = createNextIntlPlugin('./lib/i18n.ts');
 const withBundleAnalyzer = bundleAnalyzer({
@@ -90,4 +91,15 @@ const nextConfig = {
     },
 };
 
-export default withBundleAnalyzer(withNextIntl(nextConfig));
+const sentryConfig = withBundleAnalyzer(withNextIntl(nextConfig));
+
+export default withSentryConfig(sentryConfig, {
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT || 'getirbakim',
+    silent: !process.env.CI,
+    widenClientFileUpload: true,
+    webpack: {
+        autoInstrumentServerFunctions: true,
+        autoInstrumentMiddleware: true,
+    },
+});
