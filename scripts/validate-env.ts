@@ -143,10 +143,6 @@ if (getEnv('MEILI_ENABLED') === 'true') {
   ])
 }
 
-if (getEnv('UPSTASH_REDIS_REST_URL')) {
-  requireVar('UPSTASH_REDIS_REST_TOKEN')
-}
-
 validateUrl('NEXT_PUBLIC_SITE_URL', target === 'local' ? 'absolute' : 'https')
 validateUrl('NEXT_PUBLIC_APP_URL', target === 'local' ? 'absolute' : 'https')
 validateUrl('NEXT_PUBLIC_SUPABASE_URL', 'https')

@@ -45,13 +45,15 @@ echo "Env file:  ${ENV_FILE}"
 echo ""
 
 echo ">>> Fetching origin..."
-git fetch origin
+git fetch origin || { echo "WARN: fetch failed, continuing..."; }
 
 echo ">>> Checking out ${BRANCH}..."
 git checkout "${BRANCH}"
 
 echo ">>> Pulling latest from origin/${BRANCH}..."
-git pull origin "${BRANCH}"
+git reset --hard "origin/${BRANCH}" 2>/dev/null || \
+  git pull origin "${BRANCH}" --ff-only 2>/dev/null || \
+  { echo "WARN: git pull failed, using current state"; }
 
 AFTER=$(git rev-parse --short HEAD)
 
@@ -86,8 +88,36 @@ docker compose --env-file "${ENV_FILE}" down --remove-orphans
 echo ">>> Building and starting containers (NEXT_PUBLIC_BUILD_VERSION=${DEPLOY_VERSION})..."
 NEXT_PUBLIC_BUILD_VERSION="${DEPLOY_VERSION}" docker compose --env-file "${ENV_FILE}" up -d --build
 
-echo ">>> Waiting for container to start (20s)..."
-sleep 20
+echo ">>> Waiting for containers to become healthy..."
+wait_for_healthy() {
+  local container="$1"
+  local timeout="$2"
+  local elapsed=0
+  local interval=5
+  while [ $elapsed -lt $timeout ]; do
+    local status
+    status=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "unknown")
+    if [ "$status" = "healthy" ]; then
+      echo "  $container: healthy (${elapsed}s)"
+      return 0
+    fi
+    if [ "$status" = "unhealthy" ]; then
+      echo "  $container: unhealthy after ${elapsed}s — checking logs..."
+      docker logs "$container" --tail=30 2>/dev/null || true
+      return 1
+    fi
+    echo "  $container: $status (waiting ${elapsed}s/${timeout}s)..."
+    sleep $interval
+    elapsed=$((elapsed + interval))
+  done
+  echo "  $container: timed out after ${timeout}s"
+  docker logs "$container" --tail=30 2>/dev/null || true
+  return 1
+}
+
+wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
+wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
+wait_for_healthy "getirbakim-nginx" 30 || echo "WARN: nginx not healthy"
 
 echo ""
 echo ">>> Container status:"

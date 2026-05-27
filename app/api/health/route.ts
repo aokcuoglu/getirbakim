@@ -1,9 +1,30 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { isRedisAvailable } from '@/lib/redis'
+
 import { isMeiliEnabled, checkMeiliHealth } from '@/lib/search/meilisearch-client'
 
 export const dynamic = 'force-dynamic'
+
+const HEALTH_DB_TIMEOUT_MS = 8000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`health database check timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
 
 export async function GET() {
   const startedAt = Date.now()
@@ -11,18 +32,17 @@ export async function GET() {
   const timings: Record<string, number> = {}
   const checks: Record<string, string> = {}
 
+  const dbStart = Date.now()
   try {
-    const dbStart = Date.now()
-    await db.$queryRaw`SELECT 1`
-    timings.db = Date.now() - dbStart
+    await withTimeout(db.$queryRaw`SELECT 1`, HEALTH_DB_TIMEOUT_MS)
     checks.database = 'ok'
-  } catch (error) {
-    const dbStart = Date.now()
+  } catch {
     checks.database = 'error'
+  } finally {
     timings.db = Date.now() - dbStart
   }
 
-  checks.redis = isRedisAvailable() ? 'ok' : 'unavailable'
+  checks.redis = 'disabled'
 
   const meiliEnabled = isMeiliEnabled()
   if (meiliEnabled) {
