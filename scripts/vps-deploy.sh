@@ -70,9 +70,13 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 echo ""
+echo ">>> Stopping host nginx (if running) to free ports 80/443..."
+systemctl stop nginx 2>/dev/null || true
+
 echo ">>> Removing any stale containers..."
 docker rm -f getirbakim-app 2>/dev/null || true
 docker rm -f getirbakim-meilisearch 2>/dev/null || true
+docker rm -f getirbakim-nginx 2>/dev/null || true
 docker rm -f getirbakim-v2-app 2>/dev/null || true
 docker rm -f getirbakim-v2-meilisearch 2>/dev/null || true
 
@@ -90,20 +94,35 @@ echo ">>> Container status:"
 docker compose --env-file "${ENV_FILE}" ps
 
 echo ""
-echo ">>> Internal health check (http://127.0.0.1:3000/api/health)..."
-if HEALTH=$(curl -sf http://127.0.0.1:3000/api/health 2>/dev/null); then
+echo ">>> Container health checks..."
+APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-app 2>/dev/null || echo "unknown")
+NGINX_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-nginx 2>/dev/null || echo "unknown")
+MEILI_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-meilisearch 2>/dev/null || echo "unknown")
+echo "  app:        ${APP_HEALTH}"
+echo "  nginx:      ${NGINX_HEALTH}"
+echo "  meilisearch: ${MEILI_HEALTH}"
+
+# Verify app health endpoint via Docker internal network
+if HEALTH=$(docker compose --env-file "${ENV_FILE}" exec -T app curl -sf http://localhost:3000/api/health 2>/dev/null); then
   if echo "${HEALTH}" | grep -q '"status":"ok"'; then
-    echo "OK: Internal health check passed"
+    echo "OK: App health check passed"
     HEALTH_VERSION=$(echo "${HEALTH}" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
-    echo "Reported version: ${HEALTH_VERSION}"
+    echo "  Reported version: ${HEALTH_VERSION}"
   else
-    echo "WARNING: Internal health check returned unexpected response"
+    echo "WARNING: App health check returned unexpected response"
     echo "${HEALTH}"
   fi
 else
-  echo "FAILED: Internal health check did not respond"
+  echo "FAILED: App health check did not respond"
   docker compose --env-file "${ENV_FILE}" logs app --tail=50
   exit 1
+fi
+
+# Verify nginx is proxying correctly
+if docker compose --env-file "${ENV_FILE}" exec -T nginx curl -sf http://localhost/api/health 2>/dev/null | grep -q '"status":"ok"'; then
+  echo "OK: Nginx proxy health check passed"
+else
+  echo "WARN: Nginx proxy health check failed"
 fi
 
 if [[ -n "${DOMAIN}" ]]; then
