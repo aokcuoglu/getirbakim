@@ -65,55 +65,54 @@ export async function getAdminCustomers(
     ]
   }
 
-  const [users, totalCount, allCustomersCount, adminCount, verifiedCount] =
-    await Promise.all([
-      db.users.findMany({
-        where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined,
-        take: filters.limit,
-        skip: offset,
-        orderBy: { created_at: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          email_verified: true,
-          image: true,
-          created_at: true,
-          updated_at: true
-        }
-      }),
-      db.users.count({
-        where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined
-      }),
-      db.users.count(),
-      db.users.count({ where: { role: 'ADMIN' } }),
-      db.users.count({ where: { email_verified: true } })
-    ])
+  const [users, totalCount, roleAndVerifiedCounts] = await Promise.all([
+    db.users.findMany({
+      where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined,
+      take: filters.limit,
+      skip: offset,
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        email_verified: true,
+        image: true,
+        created_at: true,
+        updated_at: true
+      }
+    }),
+    db.users.count({
+      where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined
+    }),
+    db.users.groupBy({
+      by: ['role', 'email_verified'],
+      _count: { _all: true }
+    })
+  ])
+
+  let allCustomersCount = 0
+  let adminCount = 0
+  let verifiedCount = 0
+
+  for (const row of roleAndVerifiedCounts) {
+    const count = row._count._all
+    allCustomersCount += count
+    if (row.role === 'ADMIN') adminCount += count
+    if (row.email_verified === true) verifiedCount += count
+  }
 
   const userIds = users.map((user) => user.id)
 
-  const [orderAgg, latestOrders] = userIds.length
-    ? await Promise.all([
-        db.orders.groupBy({
-          by: ['user_id'],
-          where: { user_id: { in: userIds } },
-          _count: { _all: true },
-          _sum: { total_amount: true },
-          _max: { created_at: true }
-        }),
-        db.orders.findMany({
-          where: { user_id: { in: userIds } },
-          orderBy: { created_at: 'desc' },
-          take: userIds.length * 2,
-          select: {
-            id: true,
-            user_id: true,
-            created_at: true
-          }
-        })
-      ])
-    : [[], []]
+  const orderAgg = userIds.length
+    ? await db.orders.groupBy({
+        by: ['user_id'],
+        where: { user_id: { in: userIds } },
+        _count: { _all: true },
+        _sum: { total_amount: true },
+        _max: { created_at: true }
+      })
+    : []
 
   const aggMap = new Map(
     orderAgg.map((item) => [
@@ -125,14 +124,6 @@ export async function getAdminCustomers(
       }
     ])
   )
-
-  const latestOrderMap = new Map<string, string>()
-  for (const order of latestOrders) {
-    if (!order.user_id) continue
-    if (!latestOrderMap.has(order.user_id)) {
-      latestOrderMap.set(order.user_id, order.created_at.toISOString())
-    }
-  }
 
   const customers: AdminCustomerListItem[] = users.map((user) => {
     const agg = aggMap.get(user.id)
@@ -146,7 +137,7 @@ export async function getAdminCustomers(
       createdAt: user.created_at.toISOString(),
       ordersCount: agg?.count || 0,
       totalSpent: agg?.total || 0,
-      lastOrderAt: latestOrderMap.get(user.id) || agg?.lastOrderAt || null
+      lastOrderAt: agg?.lastOrderAt || null
     }
   })
 

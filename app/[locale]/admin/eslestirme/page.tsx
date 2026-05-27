@@ -1,22 +1,20 @@
 import { Suspense } from 'react'
-import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { EslestirmeMainClient } from './_components/EslestirmeMainClient'
 
-export default async function EslestirmePage() {
+export default function EslestirmePage() {
   return (
-    <AdminLayout>
-      <AdminPageShell width="wide">
-        <AdminPageHeader
-          title="Eşleştirme Yönetimi"
-          description="Dinamik markalarını ParçaTedarik üreticileriyle eşleştirin, ürün verilerini görüntüleyin ve model eşleştirmelerini yönetin."
-          breadcrumbs={getAdminBreadcrumbs('/admin/eslestirme')}
-        />
-        <Suspense fallback={<div className="text-sm text-muted-foreground">Yükleniyor…</div>}>
-          <EslestirmeMainClient />
-        </Suspense>
-      </AdminPageShell>
-    </AdminLayout>
+    <AdminPageShell width="wide">
+      <AdminPageHeader
+        title="Eşleştirme Yönetimi"
+        description="Dinamik markalarını ParçaTedarik üreticileriyle eşleştirin, ürün verilerini görüntüleyin ve model eşleştirmelerini yönetin."
+        breadcrumbs={getAdminBreadcrumbs('/admin/eslestirme')}
+      />
+      <Suspense fallback={<AdminTablePageSkeleton kpiCount={0} rowCount={5} columnCount={4} />}>
+        <EslestirmeMainClient />
+      </Suspense>
+    </AdminPageShell>
   )
 }

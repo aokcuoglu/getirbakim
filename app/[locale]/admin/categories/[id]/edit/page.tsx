@@ -1,4 +1,3 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getCategoryById, getCategories } from '@/lib/actions/category-actions'
@@ -29,8 +28,7 @@ export default async function EditCategoryPage({
   )
 
   return (
-    <AdminLayout>
-      <AdminPageShell width="default">
+    <AdminPageShell width="default">
         <AdminPageHeader
           title="Edit Category"
           description="Update category information and settings."
@@ -39,7 +37,6 @@ export default async function EditCategoryPage({
           })}
         />
         <CategoryForm category={categoryResult.data} categories={availableParents} />
-      </AdminPageShell>
-    </AdminLayout>
+    </AdminPageShell>
   )
 }

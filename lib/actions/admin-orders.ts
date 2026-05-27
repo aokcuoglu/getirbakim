@@ -91,34 +91,45 @@ export async function getAdminOrders(
     whereCondition.OR = orConditions
   }
 
-  const [orders, totalCount, pendingCount, completedCount, cancelledCount] =
-    await Promise.all([
-      db.orders.findMany({
-        where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined,
-        take: filters.limit,
-        skip: offset,
-        orderBy: { created_at: 'desc' },
-        include: {
-          users: {
-            select: {
-              name: true,
-              email: true
-            }
-          },
-          _count: {
-            select: {
-              order_items: true
-            }
+  const [orders, totalCount, statusCounts] = await Promise.all([
+    db.orders.findMany({
+      where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined,
+      take: filters.limit,
+      skip: offset,
+      orderBy: { created_at: 'desc' },
+      include: {
+        users: {
+          select: {
+            name: true,
+            email: true
+          }
+        },
+        _count: {
+          select: {
+            order_items: true
           }
         }
-      }),
-      db.orders.count({
-        where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined
-      }),
-      db.orders.count({ where: { status: 'PENDING_PAYMENT' } }),
-      db.orders.count({ where: { status: 'COMPLETED' } }),
-      db.orders.count({ where: { status: { in: ['CANCELLED', 'REFUNDED', 'PAYMENT_FAILED'] } } })
-    ])
+      }
+    }),
+    db.orders.count({
+      where: Object.keys(whereCondition).length > 0 ? whereCondition : undefined
+    }),
+    db.orders.groupBy({
+      by: ['status'],
+      _count: { status: true }
+    })
+  ])
+
+  const statusCountMap = new Map<string, number>()
+  for (const row of statusCounts) {
+    statusCountMap.set(row.status, row._count.status)
+  }
+  const pendingCount = statusCountMap.get('PENDING_PAYMENT') ?? 0
+  const completedCount = statusCountMap.get('COMPLETED') ?? 0
+  const cancelledCount =
+    (statusCountMap.get('CANCELLED') ?? 0) +
+    (statusCountMap.get('REFUNDED') ?? 0) +
+    (statusCountMap.get('PAYMENT_FAILED') ?? 0)
 
   const mappedOrders: AdminOrderListItem[] = orders.map((order) => ({
     id: order.id,

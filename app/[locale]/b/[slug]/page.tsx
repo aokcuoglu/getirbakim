@@ -2,12 +2,9 @@ import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Navbar from '@/components/Navbar'
-import Footer from '@/components/Footer'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { BrandProductsSection } from './_components/BrandProductsSection'
 import { BrandPageProductsSkeleton } from './_components/BrandPageProductsSkeleton'
-import { getMainNavCategories } from '@/lib/mainNavCategories'
 import { getDbrandsMatchBySlug } from '@/lib/v0/getDbrandsMatch'
 import { buildBrandPath } from '@/lib/v0/brandSlug'
 import { parseBrandPageFilters } from '@/lib/v0/brandPageFilters'
@@ -66,9 +63,8 @@ export default async function BrandPage({ params, searchParams }: BrandPageProps
   const tg = createTimerGroup('brandPage')
   const tShell = tg.start('shell')
 
-  const [brand, navbarCategories, t] = await Promise.all([
+  const [brand, t] = await Promise.all([
     getDbrandsMatchBySlug(slug),
-    getMainNavCategories(locale),
     getTranslations('V0Home')
   ])
 
@@ -80,55 +76,49 @@ export default async function BrandPage({ params, searchParams }: BrandPageProps
   tg.logSummary()
 
   return (
-    <div className="min-h-screen text-foreground selection:bg-accent/20 flex flex-col">
-      <Navbar navbarCategories={navbarCategories} />
+    <>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-3 pb-2">
+        <nav className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
+          <Link href={`/${locale}`} className="transition-colors hover:text-foreground">
+            {t('breadcrumbHome')}
+          </Link>
+          <span className="text-muted-foreground">/</span>
+          <span className="font-medium text-foreground">{brand.brandName}</span>
+        </nav>
+      </div>
 
-      <main className="flex-1 pb-16">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-3 pb-2">
-          <nav className="mb-2 flex items-center gap-2 text-[13px] text-muted-foreground">
-            <Link href={`/${locale}`} className="transition-colors hover:text-foreground">
-              {t('breadcrumbHome')}
-            </Link>
-            <span className="text-muted-foreground">/</span>
-            <span className="font-medium text-foreground">{brand.brandName}</span>
-          </nav>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-8">
+        <div className="mb-4 border-b border-border pb-3">
+          {brand.logoUrl ? (
+            <>
+              <h1 className="sr-only">{brand.brandName}</h1>
+              <div className="flex h-14 w-[140px] shrink-0 items-center justify-center">
+                <SafeImage
+                  src={brand.logoUrl}
+                  alt={brand.brandName}
+                  width={140}
+                  height={56}
+                  className="max-h-14 w-auto max-w-full object-contain object-left"
+                  fallback={
+                    <span className="text-sm font-bold text-foreground">
+                      {brand.brandName}
+                    </span>
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <h1 className="text-xl font-semibold text-foreground">{brand.brandName}</h1>
+          )}
         </div>
 
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-8">
-          <div className="mb-4 border-b border-border pb-3">
-            {brand.logoUrl ? (
-              <>
-                <h1 className="sr-only">{brand.brandName}</h1>
-                <div className="flex h-14 w-[140px] shrink-0 items-center justify-center">
-                  <SafeImage
-                    src={brand.logoUrl}
-                    alt={brand.brandName}
-                    width={140}
-                    height={56}
-                    className="max-h-14 w-auto max-w-full object-contain object-left"
-                    fallback={
-                      <span className="text-sm font-bold text-foreground">
-                        {brand.brandName}
-                      </span>
-                    }
-                  />
-                </div>
-              </>
-            ) : (
-              <h1 className="text-xl font-semibold text-foreground">{brand.brandName}</h1>
-            )}
-          </div>
-
-          <Suspense
-            key={`${brand.slug}-${JSON.stringify(filters)}`}
-            fallback={<BrandPageProductsSkeleton />}
-          >
-            <BrandProductsSection brand={brand} locale={locale} filters={filters} />
-          </Suspense>
-        </div>
-      </main>
-
-      <Footer />
-    </div>
+        <Suspense
+          key={`${brand.slug}-${JSON.stringify(filters)}`}
+          fallback={<BrandPageProductsSkeleton />}
+        >
+          <BrandProductsSection brand={brand} locale={locale} filters={filters} />
+        </Suspense>
+      </div>
+    </>
   )
 }

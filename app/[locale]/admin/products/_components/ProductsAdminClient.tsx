@@ -1,45 +1,32 @@
 'use client'
 
-import dynamic from 'next/dynamic'
 import {
   keepPreviousData,
-  useQuery,
-  useQueryClient
+  useQuery
 } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ChevronDown,
-  DollarSign,
   Loader2,
   Package,
   TrendingDown
 } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
-import { toast } from 'sonner'
+import { useTranslations } from 'next-intl'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Pagination } from '@/components/ui/Pagination'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table'
-import {
-  MobileDataCard,
-  ResponsiveDataView
-} from '@/components/admin/responsive-data-view'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { MobileDataCard, ResponsiveDataView } from '@/components/admin/responsive-data-view'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
 import { AdminRowActions } from '@/components/admin/data-table/admin-row-actions'
-import { AdminSortableHead } from '@/components/admin/data-table/admin-sortable-head'
-import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
-import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
+import { DpmatchDetailModal } from './DpmatchDetailModal'
+import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import {
   Sheet,
   SheetContent,
@@ -48,52 +35,30 @@ import {
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
+import type { AdminDpmatchFilterOptions } from '@/lib/admin/dpmatch-filter-options'
 import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent
-} from '@/components/ui/tooltip'
-import { updateAdminProductInline } from '@/lib/actions/admin-products'
+  buildDpmatchWorkbenchSearchParams,
+  DEFAULT_DPMATCH_WORKBENCH_FILTERS,
+  parseDpmatchWorkbenchUrlState,
+  type AdminDpmatchWorkbenchFilters
+} from '@/lib/admin/dpmatch-workbench-url'
 import {
-  buildAdminProductsSearchParams,
-  DEFAULT_ADMIN_PRODUCT_FILTERS,
-  parseAdminProductsUrlState
-} from '@/lib/admin-products-workbench'
+  buildDpmatchRowsMap,
+  createEmptyDpmatchWorkbenchResult
+} from '@/lib/admin/dpmatch-workbench-mapper'
+import type { AdminDpmatchRow } from '@/lib/admin/dpmatch-catalog'
 import {
-  adminProductDetailQueryKey,
-  adminProductsWorkbenchQueryKey,
-  fetchAdminProductDetail,
-  fetchAdminProductOptions,
-  fetchAdminProductsWorkbench
-} from '@/lib/api/admin-products-workbench'
-import type {
-  AdminProductDetail,
-  AdminProductFilters,
-  AdminProductListItem,
-  AdminProductOptions,
-  AdminProductsWorkbenchResult,
-  AdminSortBy,
-  AdminSortOrder
-} from '@/lib/types/admin-products'
-
-const ProductDetailDrawer = dynamic(
-  () =>
-    import('./ProductDetailDrawer').then((module) => ({
-      default: module.ProductDetailDrawer
-    })),
-  { ssr: false }
-)
+  adminDpmatchWorkbenchQueryKey,
+  fetchDpmatchFilterOptions,
+  fetchDpmatchWorkbench
+} from '@/lib/api/admin-dpmatch-workbench'
+import { DataTable } from '@/components/admin/data-table/data-table'
+import { getProductColumns } from './product-columns'
+import { formatCurrency } from '@/lib/utils'
 
 interface ProductsAdminClientProps {
-  data: AdminProductsWorkbenchResult
+  initialFilters: AdminDpmatchWorkbenchFilters
   initialProductId: string | null
-}
-
-interface RowDraft {
-  sellingPrice: string
-  isVisible: boolean
 }
 
 interface FilterOption {
@@ -102,107 +67,37 @@ interface FilterOption {
   groupLabel?: string
 }
 
-function mapCategoryToFilterOption(category: {
-  id: number
-  name: string
-}): FilterOption {
-  const slashIndex = category.name.indexOf('/')
-  if (slashIndex <= 0) {
-    return {
-      value: String(category.id),
-      label: category.name
-    }
-  }
-
-  const parent = category.name.slice(0, slashIndex).trim()
-  const subcategory = category.name.slice(slashIndex + 1).trim()
-  return {
-    value: String(category.id),
-    label: subcategory || category.name,
-    groupLabel: parent
-  }
-}
-
 function areFiltersEqual(
-  a: Required<AdminProductFilters>,
-  b: Required<AdminProductFilters>
+  a: AdminDpmatchWorkbenchFilters,
+  b: AdminDpmatchWorkbenchFilters
 ) {
   return (
     a.q === b.q &&
     a.page === b.page &&
     a.limit === b.limit &&
-    a.brandId === b.brandId &&
-    a.categoryId === b.categoryId &&
-    a.providerId === b.providerId &&
-    a.stockStatus === b.stockStatus &&
-    a.visibility === b.visibility &&
-    a.syncStatus === b.syncStatus &&
-    a.sortBy === b.sortBy &&
-    a.sortOrder === b.sortOrder
+    a.dinamikBrand === b.dinamikBrand &&
+    a.manufacturerId === b.manufacturerId &&
+    a.matchSide === b.matchSide &&
+    a.mappingStatus === b.mappingStatus &&
+    a.stockStatus === b.stockStatus
   )
-}
-
-function toRowPatch(detail: AdminProductDetail): Partial<AdminProductListItem> {
-  return {
-    articleLinkId: detail.articleLinkId,
-    name: detail.name,
-    brand: detail.brand,
-    category: detail.category,
-    supplierPrice: detail.supplierPrice,
-    sellingPrice: detail.sellingPrice,
-    supplierStockQty: detail.supplierStockQty,
-    reservedStockQty: detail.reservedStockQty,
-    minStockLevel: detail.minStockLevel,
-    availableStockQty: detail.availableStockQty,
-    stockStatus: detail.stockStatus,
-    syncStatus: detail.syncStatus,
-    lastSyncedAt: detail.lastSyncedAt,
-    isVisible: detail.isVisible,
-    lockPrice: detail.lockPrice,
-    lockVisibility: detail.lockVisibility,
-    note: detail.note,
-    createdAt: detail.createdAt,
-    updatedAt: detail.updatedAt
-  }
-}
-
-function patchWorkbenchRow(
-  current: AdminProductsWorkbenchResult | undefined,
-  partId: string,
-  patch: Partial<AdminProductListItem>
-) {
-  if (!current) return current
-
-  return {
-    ...current,
-    products: current.products.map((product) =>
-      product.id === partId ? { ...product, ...patch } : product
-    )
-  }
 }
 
 export function ProductsAdminClient({
-  data,
+  initialFilters,
   initialProductId
 }: ProductsAdminClientProps) {
+  const t = useTranslations('AdminCatalog.products')
   const pathname = usePathname()
-  const queryClient = useQueryClient()
 
-  const [filters, setFilters] = useState<Required<AdminProductFilters>>(
-    data.filters
-  )
-  const [searchValue, setSearchValue] = useState(data.filters.q)
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(
-    initialProductId
-  )
+  const [filters, setFilters] = useState<AdminDpmatchWorkbenchFilters>(initialFilters)
+  const [searchValue, setSearchValue] = useState(initialFilters.q)
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(initialProductId)
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [rowDrafts, setRowDrafts] = useState<Record<string, RowDraft>>({})
-  const [isSaving, startSavingTransition] = useTransition()
   const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
   const selectedProductIdRef = useRef(selectedProductId)
-  const lastAutoOpenedQueryRef = useRef('')
-  const initialFiltersRef = useRef(data.filters)
+  const dpmatchRowsRef = useRef<Record<string, AdminDpmatchRow>>({})
 
   useEffect(() => {
     filtersRef.current = filters
@@ -213,12 +108,12 @@ export function ProductsAdminClient({
   }, [selectedProductId])
 
   const syncUrlState = (
-    nextFilters: Required<AdminProductFilters>,
+    nextFilters: AdminDpmatchWorkbenchFilters,
     nextProductId: string | null,
     mode: 'replace' | 'push'
   ) => {
     if (typeof window === 'undefined') return
-    const params = buildAdminProductsSearchParams({
+    const params = buildDpmatchWorkbenchSearchParams({
       filters: nextFilters,
       productId: nextProductId
     })
@@ -230,7 +125,7 @@ export function ProductsAdminClient({
   }
 
   const applyUrlState = (
-    nextFilters: Required<AdminProductFilters>,
+    nextFilters: AdminDpmatchWorkbenchFilters,
     nextProductId: string | null,
     mode: 'replace' | 'push'
   ) => {
@@ -241,7 +136,7 @@ export function ProductsAdminClient({
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextState = parseAdminProductsUrlState(
+      const nextState = parseDpmatchWorkbenchUrlState(
         new URLSearchParams(window.location.search)
       )
       setFilters((current) =>
@@ -259,56 +154,38 @@ export function ProductsAdminClient({
   }, [])
 
   const workbenchQuery = useQuery({
-    queryKey: adminProductsWorkbenchQueryKey(filters),
-    queryFn: () => fetchAdminProductsWorkbench(filters),
-    initialData: () =>
-      areFiltersEqual(filters, initialFiltersRef.current) ? data : undefined,
+    queryKey: adminDpmatchWorkbenchQueryKey(filters),
+    queryFn: async () => {
+      const result = await fetchDpmatchWorkbench(
+        filters,
+        selectedProductIdRef.current
+      )
+      dpmatchRowsRef.current = buildDpmatchRowsMap(result.dpmatchRows)
+      return result
+    },
     placeholderData: keepPreviousData
   })
 
   const optionsQuery = useQuery({
-    queryKey: ['admin-products-options'],
-    queryFn: fetchAdminProductOptions,
+    queryKey: ['admin-dpmatch-filter-options'],
+    queryFn: fetchDpmatchFilterOptions,
     enabled: filtersOpen,
     staleTime: 10 * 60 * 1000
   })
 
-  const workbenchData = workbenchQuery.data ?? data
-  const isListUpdating = workbenchQuery.isFetching
-  const isInputLoading = isSearchPending || isListUpdating
-  const options: AdminProductOptions = optionsQuery.data ?? {
-    brands: [],
-    categories: []
+  const workbenchData =
+    workbenchQuery.data ?? createEmptyDpmatchWorkbenchResult(filters)
+  const isInitialLoading = workbenchQuery.isLoading && !workbenchQuery.data
+  const isListUpdating = workbenchQuery.isFetching && !!workbenchQuery.data
+  const isInputLoading = isSearchPending || workbenchQuery.isFetching
+  const filterOptions: AdminDpmatchFilterOptions = optionsQuery.data ?? {
+    dinamikBrands: [],
+    manufacturers: []
   }
-
-  useEffect(() => {
-    const nextDrafts: Record<string, RowDraft> = {}
-    for (const row of workbenchData.products) {
-      nextDrafts[row.id] = {
-        sellingPrice: row.sellingPrice.toString(),
-        isVisible: row.isVisible
-      }
-    }
-    setRowDrafts(nextDrafts)
-  }, [workbenchData.products])
 
   useEffect(() => {
     setSearchValue(filters.q)
   }, [filters.q])
-
-  useEffect(() => {
-    const { normalizedQuery, primaryMatchPartId } = workbenchData.searchMeta
-    if (!normalizedQuery) {
-      lastAutoOpenedQueryRef.current = ''
-      return
-    }
-    if (!primaryMatchPartId) return
-    if (lastAutoOpenedQueryRef.current === normalizedQuery) return
-
-    lastAutoOpenedQueryRef.current = normalizedQuery
-    setSelectedProductId(primaryMatchPartId)
-    syncUrlState(filtersRef.current, primaryMatchPartId, 'replace')
-  }, [workbenchData.searchMeta])
 
   const onSearch = useDebouncedCallback((term: string) => {
     const trimmed = term.trim()
@@ -322,61 +199,55 @@ export function ProductsAdminClient({
   }, 250)
 
   const setFilterParam = (
-    name: keyof Required<AdminProductFilters>,
+    name: keyof AdminDpmatchWorkbenchFilters,
     value?: string | null
   ) => {
     const nextFilters = { ...filtersRef.current, page: 1 }
 
     if (name === 'q') {
       nextFilters.q = value?.trim() || ''
-    } else if (name === 'brandId') {
-      nextFilters.brandId = value && value !== 'all' ? Number(value) : null
-    } else if (name === 'categoryId') {
-      nextFilters.categoryId = value && value !== 'all' ? Number(value) : null
+    } else if (name === 'dinamikBrand') {
+      nextFilters.dinamikBrand =
+        value && value !== 'all' ? value.trim() : null
+    } else if (name === 'manufacturerId') {
+      nextFilters.manufacturerId =
+        value && value !== 'all' ? Number(value) : null
+    } else if (name === 'matchSide') {
+      nextFilters.matchSide =
+        (value as AdminDpmatchWorkbenchFilters['matchSide']) || 'all'
+    } else if (name === 'mappingStatus') {
+      nextFilters.mappingStatus =
+        (value as AdminDpmatchWorkbenchFilters['mappingStatus']) || 'all'
     } else if (name === 'stockStatus') {
       nextFilters.stockStatus =
-        (value as Required<AdminProductFilters>['stockStatus']) || 'all'
-    } else if (name === 'visibility') {
-      nextFilters.visibility =
-        (value as Required<AdminProductFilters>['visibility']) || 'all'
-    } else if (name === 'syncStatus') {
-      nextFilters.syncStatus =
-        (value as Required<AdminProductFilters>['syncStatus']) || 'all'
-    } else if (name === 'sortBy') {
-      nextFilters.sortBy =
-        (value as Required<AdminProductFilters>['sortBy']) || 'created_at'
-    } else if (name === 'sortOrder') {
-      nextFilters.sortOrder =
-        (value as Required<AdminProductFilters>['sortOrder']) || 'desc'
-    } else if (name === 'providerId') {
-      nextFilters.providerId = value ? Number(value) : null
+        (value as AdminDpmatchWorkbenchFilters['stockStatus']) || 'all'
     }
 
     applyUrlState(nextFilters, selectedProductIdRef.current, 'replace')
   }
 
-  const handleSort = (sortBy: AdminSortBy, sortOrder: AdminSortOrder) => {
-    applyUrlState(
-      { ...filtersRef.current, page: 1, sortBy, sortOrder },
-      selectedProductIdRef.current,
-      'replace'
+  const toggleMatchSide = (
+    side: AdminDpmatchWorkbenchFilters['matchSide']
+  ) => {
+    setFilterParam(
+      'matchSide',
+      filtersRef.current.matchSide === side ? 'all' : side
     )
   }
 
   const resetFilters = () => {
-    lastAutoOpenedQueryRef.current = ''
     setSearchValue('')
     setIsSearchPending(false)
     applyUrlState(
-      DEFAULT_ADMIN_PRODUCT_FILTERS,
+      DEFAULT_DPMATCH_WORKBENCH_FILTERS,
       selectedProductIdRef.current,
       'replace'
     )
   }
 
-  const openDetail = (partId: string, mode: 'replace' | 'push' = 'push') => {
-    setSelectedProductId(partId)
-    syncUrlState(filtersRef.current, partId, mode)
+  const openDetail = (rowId: string, mode: 'replace' | 'push' = 'push') => {
+    setSelectedProductId(rowId)
+    syncUrlState(filtersRef.current, rowId, mode)
   }
 
   const closeDetail = (mode: 'replace' | 'push' = 'push') => {
@@ -384,120 +255,66 @@ export function ProductsAdminClient({
     syncUrlState(filtersRef.current, null, mode)
   }
 
-  const prefetchDetail = (partId: string) => {
-    void queryClient.prefetchQuery({
-      queryKey: adminProductDetailQueryKey(partId),
-      queryFn: () => fetchAdminProductDetail(partId),
-      staleTime: 60 * 1000
-    })
-  }
-
-  const updateDraft = (id: string, patch: Partial<RowDraft>) => {
-    setRowDrafts((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        ...patch
-      }
-    }))
-  }
-
-  const saveInline = (id: string) => {
-    const draft = rowDrafts[id]
-    if (!draft) return
-
-    const parsedPrice = Number(draft.sellingPrice)
-    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
-      toast.error('Geçerli fiyat girin.')
-      return
-    }
-
-    startSavingTransition(async () => {
-      const result = await updateAdminProductInline({
-        partId: id,
-        sellingPriceOverride: parsedPrice,
-        isVisible: draft.isVisible
-      })
-
-      if (!result.success) {
-        toast.error(result.message)
-        return
-      }
-
-      queryClient.setQueryData<AdminProductsWorkbenchResult>(
-        adminProductsWorkbenchQueryKey(filtersRef.current),
-        (current) =>
-          patchWorkbenchRow(current, id, {
-            sellingPrice: parsedPrice,
-            isVisible: draft.isVisible
-          })
-      )
-      void queryClient.invalidateQueries({
-        queryKey: adminProductDetailQueryKey(id)
-      })
-      void queryClient.invalidateQueries({
-        queryKey: ['admin-products-workbench'],
-        refetchType: 'active'
-      })
-      toast.success('Satır güncellendi.')
-    })
-  }
-
-  const handleDetailSaved = (detail: AdminProductDetail) => {
-    const patch = toRowPatch(detail)
-    queryClient.setQueryData<AdminProductsWorkbenchResult>(
-      adminProductsWorkbenchQueryKey(filtersRef.current),
-      (current) => patchWorkbenchRow(current, detail.id, patch)
-    )
-    queryClient.setQueryData(adminProductDetailQueryKey(detail.id), detail)
-    setRowDrafts((prev) => ({
-      ...prev,
-      [detail.id]: {
-        sellingPrice: detail.sellingPrice.toString(),
-        isVisible: detail.isVisible
-      }
-    }))
-    void queryClient.invalidateQueries({
-      queryKey: ['admin-products-workbench'],
-      refetchType: 'active'
-    })
-  }
-
   const reloadCurrentPage = () => {
     void workbenchQuery.refetch()
-    if (selectedProductIdRef.current) {
-      void queryClient.invalidateQueries({
-        queryKey: adminProductDetailQueryKey(selectedProductIdRef.current)
-      })
-    }
   }
 
+  const summary = workbenchData.dpmatchSummary
   const totalPages = workbenchData.pagination.pages
+
+  // Memoize columns so meta reference is stable
+  const columns = useMemo(
+    () =>
+      getProductColumns({
+        onOpenDetail: (id) => openDetail(id)
+      }),
+    []
+  )
+
+  if (isInitialLoading) {
+    return <AdminTablePageSkeleton />
+  }
+
+  if (workbenchQuery.isError) {
+    return (
+      <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-8 text-center">
+        <p className="text-sm font-medium text-destructive">{t('loadError')}</p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-4"
+          onClick={() => void workbenchQuery.refetch()}
+        >
+          Tekrar dene
+        </Button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
       <AdminKpiGrid>
         <AdminKpiCard
-          label="Toplam Ürün"
-          value={workbenchData.kpis.totalProducts}
+          label={t('kpiTotal')}
+          value={summary.total}
           tone="default"
           icon={<Package size={16} />}
         />
         <AdminKpiCard
-          label="Düşük Stok"
-          value={workbenchData.kpis.lowStockCount}
+          label={t('kpiMatched')}
+          value={summary.matched}
+          tone="default"
+          icon={<Package size={16} />}
+        />
+        <AdminKpiCard
+          label={t('kpiUnmatched')}
+          value={summary.unmatched}
           tone="warning"
           icon={<TrendingDown size={16} />}
         />
         <AdminKpiCard
-          label="Sıfır Fiyat"
-          value={workbenchData.kpis.zeroPriceCount}
-          tone="danger"
-          icon={<DollarSign size={16} />}
-        />
-        <AdminKpiCard
-          label="Senkron Hatası"
-          value={workbenchData.kpis.syncErrorCount}
+          label={t('kpiPending')}
+          value={summary.pending}
           tone="info"
           icon={<AlertTriangle size={16} />}
         />
@@ -511,7 +328,7 @@ export function ProductsAdminClient({
             setIsSearchPending(true)
             onSearch(nextValue)
           }}
-          searchPlaceholder="Ürün adı veya part no ara..."
+          searchPlaceholder={t('searchPlaceholder')}
           isSearchLoading={isInputLoading}
           onRefresh={reloadCurrentPage}
           isRefreshing={isListUpdating}
@@ -520,34 +337,34 @@ export function ProductsAdminClient({
 
         <AdminFilterBar onReset={resetFilters} className="mt-3">
           <AdminFilterChip
-            active={filters.stockStatus === 'low_stock'}
-            onClick={() => setFilterParam('stockStatus', 'low_stock')}
-            label="Düşük Stok"
+            active={filters.matchSide === 'matched'}
+            onClick={() => toggleMatchSide('matched')}
+            label={t('filterMatched')}
           />
           <AdminFilterChip
-            active={filters.stockStatus === 'zero_price'}
-            onClick={() => setFilterParam('stockStatus', 'zero_price')}
-            label="Sıfır Fiyat"
+            active={filters.matchSide === 'unmatched'}
+            onClick={() => toggleMatchSide('unmatched')}
+            label={t('filterUnmatched')}
           />
           <AdminFilterChip
-            active={filters.syncStatus === 'ERROR'}
-            onClick={() => setFilterParam('syncStatus', 'ERROR')}
-            label="Senkron Hatası"
-          />
-          <AdminFilterChip
-            active={filters.visibility === 'hidden'}
-            onClick={() => setFilterParam('visibility', 'hidden')}
-            label="Gizli Ürün"
-          />
-          <AdminFilterChip
-            active={filters.providerId === 1}
+            active={filters.mappingStatus === 'PENDING'}
             onClick={() =>
               setFilterParam(
-                'providerId',
-                filters.providerId === 1 ? null : '1'
+                'mappingStatus',
+                filters.mappingStatus === 'PENDING' ? 'all' : 'PENDING'
               )
             }
-            label="Dinamik"
+            label={t('kpiPending')}
+          />
+          <AdminFilterChip
+            active={filters.matchSide === 'dinamik_only'}
+            onClick={() => toggleMatchSide('dinamik_only')}
+            label={t('filterDinamikOnly')}
+          />
+          <AdminFilterChip
+            active={filters.matchSide === 'pt_only'}
+            onClick={() => toggleMatchSide('pt_only')}
+            label={t('filterPtOnly')}
           />
         </AdminFilterBar>
       </div>
@@ -568,7 +385,6 @@ export function ProductsAdminClient({
               ) : null}
 
               {workbenchData.products.map((row) => {
-                const draft = rowDrafts[row.id]
                 const isSelected = selectedProductId === row.id
                 return (
                   <MobileDataCard
@@ -610,32 +426,16 @@ export function ProductsAdminClient({
 
                     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
                       <div>
-                        <input
-                          value={draft?.sellingPrice ?? row.sellingPrice.toString()}
-                          onChange={(event) =>
-                            updateDraft(row.id, {
-                              sellingPrice: event.target.value
-                            })
-                          }
-                          className="w-full rounded-md border border-border px-2 py-2 text-sm"
-                          inputMode="decimal"
-                        />
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatCurrency(row.sellingPrice)}
+                        </p>
                         <p className="mt-1 text-xs text-muted-foreground">TRY</p>
                       </div>
                       <div className="space-y-1">
                         <SyncBadge status={row.syncStatus} />
-                        <label className="flex items-center gap-2 text-xs text-foreground">
-                          <input
-                            type="checkbox"
-                            checked={draft?.isVisible ?? row.isVisible}
-                            onChange={(event) =>
-                              updateDraft(row.id, {
-                                isVisible: event.target.checked
-                              })
-                            }
-                          />
-                          Görünür
-                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          {row.isVisible ? 'Görünür' : 'Gizli'}
+                        </p>
                       </div>
                     </div>
 
@@ -645,11 +445,6 @@ export function ProductsAdminClient({
                           {
                             label: 'Ürün Detayları',
                             onClick: () => openDetail(row.id)
-                          },
-                          {
-                            label: isSaving ? 'Kaydediliyor…' : 'Kaydet',
-                            onClick: () => saveInline(row.id),
-                            disabled: isSaving || isListUpdating
                           }
                         ]}
                       />
@@ -661,191 +456,33 @@ export function ProductsAdminClient({
           )
         }
         desktop={
-          <AdminTableShell isLoading={isListUpdating}>
-            <Table>
-              <TableHeader>
-                <TableRow className={adminTableHeaderRowClassName()}>
-                  <TableHead className="w-[280px]">
-                    <AdminSortableHead
-                      label="Ürün"
-                      sortKey="name"
-                      activeSortBy={filters.sortBy}
-                      activeSortOrder={filters.sortOrder}
-                      onSort={handleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <AdminTableHead>Marka</AdminTableHead>
-                  </TableHead>
-                  <TableHead>
-                    <AdminTableHead>Kategori</AdminTableHead>
-                  </TableHead>
-                  <TableHead>
-                    <AdminSortableHead
-                      label="Fiyat"
-                      sortKey="selling_price"
-                      activeSortBy={filters.sortBy}
-                      activeSortOrder={filters.sortOrder}
-                      onSort={handleSort}
-                    />
-                  </TableHead>
-                  <TableHead className="whitespace-nowrap">
-                    <AdminSortableHead
-                      label="Stok"
-                      sortKey="supplier_stock_qty"
-                      activeSortBy={filters.sortBy}
-                      activeSortOrder={filters.sortOrder}
-                      onSort={handleSort}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <AdminTableHead>Durum</AdminTableHead>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <AdminTableHead className="justify-end">Aksiyon</AdminTableHead>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {workbenchData.products.map((row) => {
-                  const draft = rowDrafts[row.id]
-                  const isSelected = selectedProductId === row.id
-                  const isDirty =
-                    draft != null &&
-                    (draft.sellingPrice !== row.sellingPrice.toString() ||
-                      draft.isVisible !== row.isVisible)
-                  return (
-                    <TableRow
-                      key={row.id}
-                      className={`group transition-colors duration-150 ${
-                        isSelected
-                          ? 'bg-muted'
-                          : ''
-                      }`}
-                      onMouseEnter={() => prefetchDetail(row.id)}
-                      onFocus={() => prefetchDetail(row.id)}
-                    >
-                      <TableCell className="max-w-[280px]">
-                        <button
-                          type="button"
-                          onClick={() => openDetail(row.id)}
-                          className="flex items-center gap-3 text-left group/product w-full"
-                        >
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-muted to-muted text-muted-foreground ring-1 ring-border/60 transition-all group-hover/product:text-muted-foreground">
-                            <Package size={14} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-foreground text-sm leading-snug truncate group-hover/product:text-foreground transition-colors">
-                              {row.name}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground font-mono truncate">
-                              #{row.id} · ArtLink {row.articleLinkId}
-                              {row.variantCount && row.variantCount > 1
-                                ? ` · ${row.variantCount} varyant`
-                                : null}
-                            </p>
-                          </div>
-                        </button>
-                      </TableCell>
-
-                      <TableCell>
-                        <span className="text-sm font-medium text-foreground">
-                          {row.brand || <span className="text-muted-foreground italic">—</span>}
-                        </span>
-                      </TableCell>
-
-                      <TableCell>
-                        <span className="text-sm text-muted-foreground max-w-[140px] truncate block">
-                          {row.category || <span className="text-muted-foreground italic">—</span>}
-                        </span>
-                      </TableCell>
-
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            value={draft?.sellingPrice ?? row.sellingPrice.toString()}
-                            onChange={(event) =>
-                              updateDraft(row.id, {
-                                sellingPrice: event.target.value
-                              })
-                            }
-                            className="w-24 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-sm font-medium text-foreground transition-all focus-visible:border-ring focus:bg-background focus:outline-none focus:ring-2 focus-visible:ring-ring/50"
-                            inputMode="decimal"
-                          />
-                          <span className="text-[11px] font-medium text-muted-foreground">₺</span>
-                        </div>
-                      </TableCell>
-
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <StockBadge status={row.stockStatus} />
-                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                            {row.availableStockQty} adet
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <SyncBadge status={row.syncStatus} />
-                          <div className="flex items-center gap-1.5">
-                            <Switch
-                              checked={draft?.isVisible ?? row.isVisible}
-                              onCheckedChange={(checked) =>
-                                updateDraft(row.id, {
-                                  isVisible: checked
-                                })
-                              }
-                              className="data-[state=checked]:bg-success/100"
-                            />
-                            <span className="text-[11px] font-medium text-muted-foreground">
-                              {(draft?.isVisible ?? row.isVisible) ? 'Görünür' : 'Gizli'}
-                            </span>
-                          </div>
-                        </div>
-                      </TableCell>
-
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end">
-                          <AdminRowActions
-                            actions={[
-                              {
-                                label: 'Ürün Detayları',
-                                onClick: () => openDetail(row.id)
-                              },
-                              {
-                                label: isSaving ? 'Kaydediliyor…' : 'Kaydet',
-                                onClick: () => saveInline(row.id),
-                                disabled: isSaving || isListUpdating || !isDirty
-                              }
-                            ]}
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-
-                {workbenchData.products.length === 0 && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={7}
-                      className="h-48 text-center"
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        <Package size={32} className="text-muted-foreground/50" />
-                        <p className="text-sm font-medium text-muted-foreground">Kayıt bulunamadı.</p>
-                        <p className="text-xs text-muted-foreground">Farklı filtreler deneyebilirsiniz.</p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </AdminTableShell>
+          <DataTable
+            columns={columns}
+            data={workbenchData.products}
+            isLoading={isListUpdating}
+            emptyMessage="Kayıt bulunamadı."
+            showViewOptions={false}
+            pagination={{
+              page: workbenchData.pagination.page,
+              limit: workbenchData.pagination.limit,
+              total: workbenchData.pagination.total,
+              pages: totalPages
+            }}
+            onPaginationChange={(page) => {
+              applyUrlState(
+                { ...filtersRef.current, page },
+                selectedProductIdRef.current,
+                'push'
+              )
+            }}
+            getRowClassName={(row) =>
+              selectedProductId === row.id ? 'bg-muted' : undefined
+            }
+          />
         }
       />
 
+      {/* Pagination is handled by DataTable now, but keep old one for mobile safety */}
       <Pagination
         currentPage={workbenchData.pagination.page}
         totalPages={totalPages}
@@ -853,10 +490,7 @@ export function ProductsAdminClient({
         itemsPerPage={workbenchData.pagination.limit}
         onPageChange={(page) => {
           applyUrlState(
-            {
-              ...filtersRef.current,
-              page
-            },
+            { ...filtersRef.current, page },
             selectedProductIdRef.current,
             'push'
           )
@@ -878,89 +512,78 @@ export function ProductsAdminClient({
 
           <div className="space-y-3">
             <FilterSelect
-              label="Marka"
-              value={filters.brandId != null ? String(filters.brandId) : 'all'}
+              label={t('filterDinamikBrand')}
+              value={filters.dinamikBrand ?? 'all'}
               options={[
-                { value: 'all', label: 'Tümü' },
-                ...options.brands.map((brand) => ({
-                  value: String(brand.id),
-                  label: brand.name
+                { value: 'all', label: t('filterAll') },
+                ...filterOptions.dinamikBrands.map((brand) => ({
+                  value: brand,
+                  label: brand
                 }))
               ]}
               disabled={optionsQuery.isLoading}
               placeholder={
                 optionsQuery.isLoading ? 'Markalar yükleniyor...' : 'Seçiniz'
               }
-              onChange={(value) => setFilterParam('brandId', value)}
+              onChange={(value) => setFilterParam('dinamikBrand', value)}
             />
             <FilterSelect
-              label="Kategori"
+              label={t('filterManufacturer')}
               value={
-                filters.categoryId != null ? String(filters.categoryId) : 'all'
+                filters.manufacturerId != null
+                  ? String(filters.manufacturerId)
+                  : 'all'
               }
               options={[
-                { value: 'all', label: 'Tümü' },
-                ...options.categories.map(mapCategoryToFilterOption)
+                { value: 'all', label: t('filterAll') },
+                ...filterOptions.manufacturers.map((manufacturer) => ({
+                  value: String(manufacturer.id),
+                  label: manufacturer.name
+                }))
               ]}
               disabled={optionsQuery.isLoading}
               placeholder={
-                optionsQuery.isLoading ? 'Kategoriler yükleniyor...' : 'Seçiniz'
+                optionsQuery.isLoading
+                  ? 'Üreticiler yükleniyor...'
+                  : 'Seçiniz'
               }
-              onChange={(value) => setFilterParam('categoryId', value)}
+              onChange={(value) => setFilterParam('manufacturerId', value)}
+            />
+            <FilterSelect
+              label={t('filterMatched')}
+              value={filters.matchSide}
+              options={[
+                { value: 'all', label: t('filterAll') },
+                { value: 'matched', label: t('filterMatched') },
+                { value: 'unmatched', label: t('filterUnmatched') },
+                { value: 'dinamik_only', label: t('filterDinamikOnly') },
+                { value: 'pt_only', label: t('filterPtOnly') }
+              ]}
+              onChange={(value) => setFilterParam('matchSide', value)}
+            />
+            <FilterSelect
+              label="Eşleştirme durumu"
+              value={filters.mappingStatus}
+              options={[
+                { value: 'all', label: t('filterAll') },
+                { value: 'APPROVED', label: 'APPROVED' },
+                { value: 'PENDING', label: 'PENDING' },
+                { value: 'REJECTED', label: 'REJECTED' },
+                { value: 'IGNORED', label: 'IGNORED' }
+              ]}
+              onChange={(value) => setFilterParam('mappingStatus', value)}
             />
             <FilterSelect
               label="Stok"
               value={filters.stockStatus}
               options={[
-                { value: 'all', label: 'Tümü' },
+                { value: 'all', label: t('filterAll') },
                 { value: 'in_stock', label: 'Stokta' },
                 { value: 'low_stock', label: 'Düşük Stok' },
                 { value: 'out_of_stock', label: 'Stok Yok' },
                 { value: 'zero_price', label: 'Sıfır Fiyat' }
               ]}
               onChange={(value) => setFilterParam('stockStatus', value)}
-            />
-            <FilterSelect
-              label="Senkron"
-              value={filters.syncStatus}
-              options={[
-                { value: 'all', label: 'Tümü' },
-                { value: 'OK', label: 'OK' },
-                { value: 'PENDING', label: 'PENDING' },
-                { value: 'ERROR', label: 'ERROR' }
-              ]}
-              onChange={(value) => setFilterParam('syncStatus', value)}
-            />
-            <FilterSelect
-              label="Görünürlük"
-              value={filters.visibility}
-              options={[
-                { value: 'all', label: 'Tümü' },
-                { value: 'visible', label: 'Görünür' },
-                { value: 'hidden', label: 'Gizli' }
-              ]}
-              onChange={(value) => setFilterParam('visibility', value)}
-            />
-            <FilterSelect
-              label="Sırala"
-              value={filters.sortBy}
-              options={[
-                { value: 'created_at', label: 'Oluşturma' },
-                { value: 'name', label: 'Ürün Adı' },
-                { value: 'selling_price', label: 'Satış Fiyatı' },
-                { value: 'supplier_stock_qty', label: 'Stok Adedi' },
-                { value: 'last_synced_at', label: 'Son Senkron' }
-              ]}
-              onChange={(value) => setFilterParam('sortBy', value)}
-            />
-            <FilterSelect
-              label="Sıra Yönü"
-              value={filters.sortOrder}
-              options={[
-                { value: 'desc', label: 'Azalan' },
-                { value: 'asc', label: 'Artan' }
-              ]}
-              onChange={(value) => setFilterParam('sortOrder', value)}
             />
           </div>
 
@@ -987,16 +610,20 @@ export function ProductsAdminClient({
         </SheetContent>
       </Sheet>
 
-      {selectedProductId ? (
-        <ProductDetailDrawer
-          partId={selectedProductId}
-          open={Boolean(selectedProductId)}
-          onOpenChange={(open) => {
-            if (!open) closeDetail()
-          }}
-          onSaved={handleDetailSaved}
-        />
-      ) : null}
+      {(() => {
+        const selectedDpmatchRow = selectedProductId
+          ? dpmatchRowsRef.current[selectedProductId]
+          : null
+        if (!selectedProductId || !selectedDpmatchRow) return null
+        const row = selectedDpmatchRow
+        return (
+          <DpmatchDetailModal
+            row={row}
+            open={true}
+            onClose={closeDetail}
+          />
+        )
+      })()}
     </div>
   )
 }

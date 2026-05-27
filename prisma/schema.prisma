@@ -116,6 +116,7 @@ model orders {
   @@index([status])
   @@index([payment_status])
   @@index([guest_email])
+  @@index([status, created_at])
   @@schema("public")
 }
 
@@ -152,6 +153,8 @@ model customer_requests {
   @@index([created_at])
   @@index([user_id])
   @@index([part_id])
+  @@index([status, created_at])
+  @@index([request_type, status])
   @@schema("public")
 }
 

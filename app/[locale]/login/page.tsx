@@ -1,13 +1,13 @@
 import { LoginForm } from '@/components/auth/LoginForm'
 import { Link } from '@/lib/navigation'
-import { useTranslations } from 'next-intl'
+import { getTranslations } from 'next-intl/server'
 
 export default async function LoginPage({
   searchParams
 }: {
   searchParams: Promise<{ redirect?: string }>
 }) {
-  const t = useTranslations('Auth')
+  const t = await getTranslations('Auth')
   const { redirect } = await searchParams
 
   return (

@@ -1,10 +1,5 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
-import { AdminLoadingState } from '@/components/admin/admin-loading-state'
+import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 
 export default function AdminLoading() {
-  return (
-    <AdminLayout>
-      <AdminLoadingState minHeight="min-h-[60vh]" />
-    </AdminLayout>
-  )
+  return <AdminTablePageSkeleton kpiCount={0} rowCount={4} columnCount={4} />
 }

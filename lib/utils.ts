@@ -55,3 +55,14 @@ export function parseDecimalToNumber(
 
   return Number(numValue.toFixed(decimalPlaces))
 }
+
+export function formatCurrency(
+  value: number | string | null | undefined,
+  currency: string = 'TRY',
+  locale: string = 'tr-TR'
+): string {
+  if (value == null || Number.isNaN(value)) return '-'
+  const num = typeof value === 'string' ? parseFloat(value) : value
+  if (!Number.isFinite(num)) return '-'
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(num)
+}

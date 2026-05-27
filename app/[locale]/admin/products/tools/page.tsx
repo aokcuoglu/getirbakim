@@ -1,4 +1,3 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { ProductsBulkActions } from '../_components/ProductsBulkActions'
@@ -18,8 +17,7 @@ export default async function AdminProductToolsPage(props: {
   const searchParams = await props.searchParams
 
   return (
-    <AdminLayout>
-      <AdminPageShell width="narrow">
+    <AdminPageShell width="narrow">
         <AdminPageHeader
           title="Ürün Araçları"
           description="CSV dışa aktarma ve içe aktarma operasyonlarını bu ekrandan yönetin."
@@ -51,7 +49,6 @@ export default async function AdminProductToolsPage(props: {
             sortOrder: searchParams.sortOrder as 'asc' | 'desc' | undefined
           }}
         />
-      </AdminPageShell>
-    </AdminLayout>
+    </AdminPageShell>
   )
 }

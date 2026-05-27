@@ -2,7 +2,7 @@
 
 import { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
-import { DataTableColumnHeader } from '../../eslestirme/_components/data-table-column-header'
+import { DataTableColumnHeader } from '@/components/admin/data-table/data-table-column-header'
 import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dbrands-catalog'
 import { BrandLogoUploadCell } from './BrandLogoUploadCell'
 

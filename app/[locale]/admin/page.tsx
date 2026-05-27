@@ -1,63 +1,40 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
+import { Suspense } from 'react'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { AdminDashboardSkeleton } from '@/components/admin/admin-dashboard-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
-import { QuickActions } from '@/components/admin/quick-actions'
-import { StatsCards } from '@/components/admin/stats-cards'
-import { SalesReport } from '@/components/admin/sales-report'
-import { RecentOrdersWidget } from '@/components/admin/recent-orders-widget'
-import { DashboardAlerts } from '@/components/admin/dashboard-alerts'
-import { getAdminDashboardData } from '@/lib/actions/admin-products'
 import { Button } from '@/components/ui/button'
 import { Link } from '@/lib/navigation'
 import { Package, ShoppingCart } from 'lucide-react'
+import { AdminDashboardContent } from './_components/AdminDashboardContent'
 
-export default async function AdminPage() {
-  const data = await getAdminDashboardData()
-
+export default function AdminPage() {
   return (
-    <AdminLayout>
-      <AdminPageShell width="wide">
-        <AdminPageHeader
-          title="Genel Bakış"
-          description="Mağaza performansı, operasyon uyarıları ve son siparişler"
-          breadcrumbs={getAdminBreadcrumbs('/admin')}
-          actions={
-            <>
-              <Button variant="outline" size="default" asChild>
-                <Link href="/admin/products">
-                  <Package className="mr-2 h-4 w-4" />
-                  Ürünler
-                </Link>
-              </Button>
-              <Button size="default" asChild>
-                <Link href="/admin/orders">
-                  <ShoppingCart className="mr-2 h-4 w-4" />
-                  Siparişler
-                </Link>
-              </Button>
-            </>
-          }
-        />
+    <AdminPageShell width="wide">
+      <AdminPageHeader
+        title="Genel Bakış"
+        description="Mağaza performansı, operasyon uyarıları ve son siparişler"
+        breadcrumbs={getAdminBreadcrumbs('/admin')}
+        actions={
+          <>
+            <Button variant="outline" size="default" asChild>
+              <Link href="/admin/products">
+                <Package className="mr-2 h-4 w-4" />
+                Ürünler
+              </Link>
+            </Button>
+            <Button size="default" asChild>
+              <Link href="/admin/orders">
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                Siparişler
+              </Link>
+            </Button>
+          </>
+        }
+      />
 
-        <StatsCards metrics={data.metrics} />
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <SalesReport
-              salesSeries={data.salesSeries}
-              failedSyncRate={data.metrics.failedSyncRate}
-            />
-          </div>
-          <DashboardAlerts
-            alerts={data.alerts}
-            failedSyncRate={data.metrics.failedSyncRate}
-          />
-        </div>
-
-        <QuickActions />
-
-        <RecentOrdersWidget orders={data.recentOrders} />
-      </AdminPageShell>
-    </AdminLayout>
+      <Suspense fallback={<AdminDashboardSkeleton />}>
+        <AdminDashboardContent />
+      </Suspense>
+    </AdminPageShell>
   )
 }

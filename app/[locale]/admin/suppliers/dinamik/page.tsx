@@ -1,7 +1,6 @@
 import { AlertTriangle, DatabaseZap, GitMerge, PackageSearch, Tags } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import type { ElementType } from 'react'
-import { AdminLayout } from '@/components/admin/admin-layout'
 import {
   AdminPageHeader,
   AdminPageShell,
@@ -29,8 +28,7 @@ export default async function AdminDinamikSupplierPage() {
   const catalogAudit = dbrandsAuditResult.success ? dbrandsAuditResult.data : null
 
   return (
-    <AdminLayout>
-      <AdminPageShell>
+    <AdminPageShell>
         <AdminPageHeader
           title="Dinamik Sağlayıcı Yönetimi"
           description="Dinamik API'den marka ve ürün kataloğunu çekin; mağaza teklifleri ve senkron geçmişini ayrı hatlarda izleyin."
@@ -208,8 +206,7 @@ export default async function AdminDinamikSupplierPage() {
             </table>
           </div>
         </AdminSurface>
-      </AdminPageShell>
-    </AdminLayout>
+    </AdminPageShell>
   )
 }
 

@@ -1,14 +1,14 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
+import { Suspense } from 'react'
 import {
   AdminPageHeader,
   AdminPageShell,
   AdminSurface
 } from '@/components/admin/admin-page-shell'
+import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
-import { getCategories } from '@/lib/actions/category-actions'
 import { Link } from '@/lib/navigation'
 import { Plus } from 'lucide-react'
-import { CategoriesTable } from './_components/CategoriesTable'
+import { CategoriesAdminContent } from './_components/CategoriesAdminContent'
 import { Button } from '@/components/ui/button'
 import { SearchInput } from '../products/_components/SearchInput'
 
@@ -20,46 +20,32 @@ export default async function AdminCategoriesPage({
   const params = await searchParams
   const searchQuery = params.q || ''
 
-  const result = await getCategories()
-
-  if (!result.success) {
-    return (
-      <AdminLayout>
-        <AdminPageShell>
-          <AdminSurface className="p-4 text-destructive">Error: {result.error}</AdminSurface>
-        </AdminPageShell>
-      </AdminLayout>
-    )
-  }
-
-  const categories = result.flat || []
-
   return (
-    <AdminLayout>
-      <AdminPageShell>
-        <AdminPageHeader
-          title="Kategoriler"
-          description="Kategori ağacını yönetin ve yeni kategoriler oluşturun."
-          breadcrumbs={getAdminBreadcrumbs('/admin/categories')}
-          actions={
-            <Button asChild className="inline-flex w-full items-center gap-2 sm:w-auto">
-              <Link href="/admin/categories/new">
-                <Plus size={16} />
-                Add Category
-              </Link>
-            </Button>
-          }
+    <AdminPageShell>
+      <AdminPageHeader
+        title="Kategoriler"
+        description="Kategori ağacını yönetin ve yeni kategoriler oluşturun."
+        breadcrumbs={getAdminBreadcrumbs('/admin/categories')}
+        actions={
+          <Button asChild className="inline-flex w-full items-center gap-2 sm:w-auto">
+            <Link href="/admin/categories/new">
+              <Plus size={16} />
+              Add Category
+            </Link>
+          </Button>
+        }
+      />
+
+      <AdminSurface className="p-4">
+        <SearchInput
+          defaultValue={searchQuery}
+          placeholder="Search categories by name..."
         />
+      </AdminSurface>
 
-        <AdminSurface className="p-4">
-          <SearchInput
-            defaultValue={searchQuery}
-            placeholder="Search categories by name..."
-          />
-        </AdminSurface>
-
-        <CategoriesTable categories={categories} searchQuery={searchQuery} />
-      </AdminPageShell>
-    </AdminLayout>
+      <Suspense fallback={<AdminTablePageSkeleton kpiCount={0} rowCount={6} />}>
+        <CategoriesAdminContent searchQuery={searchQuery} />
+      </Suspense>
+    </AdminPageShell>
   )
 }

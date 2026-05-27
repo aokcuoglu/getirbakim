@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { listApprovedDpmatchForAdmin } from '@/lib/admin/approved-dpmatch-catalog'
+import { listDpmatchForAdmin } from '@/lib/admin/dpmatch-catalog'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 
@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     ? parseInt(manufacturerIdStr, 10)
     : null
   const matchSide = url.searchParams.get('matchSide') ?? 'all'
+  const mappingStatus = url.searchParams.get('mappingStatus') ?? 'all'
+  const stockStatus = url.searchParams.get('stockStatus') ?? 'all'
 
   if (
     manufacturerIdStr &&
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const data = await listApprovedDpmatchForAdmin({
+    const data = await listDpmatchForAdmin({
       q: url.searchParams.get('q') ?? '',
       dinamikBrand: url.searchParams.get('dinamikBrand'),
       manufacturerId,
@@ -58,6 +60,20 @@ export async function GET(request: NextRequest) {
         matchSide === 'dinamik_only' ||
         matchSide === 'pt_only'
           ? matchSide
+          : 'all',
+      mappingStatus:
+        mappingStatus === 'APPROVED' ||
+        mappingStatus === 'PENDING' ||
+        mappingStatus === 'REJECTED' ||
+        mappingStatus === 'IGNORED'
+          ? mappingStatus
+          : 'all',
+      stockStatus:
+        stockStatus === 'in_stock' ||
+        stockStatus === 'low_stock' ||
+        stockStatus === 'out_of_stock' ||
+        stockStatus === 'zero_price'
+          ? stockStatus
           : 'all',
       page: parseInt(url.searchParams.get('page') ?? '1', 10),
       limit: parseInt(url.searchParams.get('limit') ?? '50', 10),
@@ -70,7 +86,7 @@ export async function GET(request: NextRequest) {
     return errorResponse({
       status: 500,
       code: 'ADMIN_CATALOG_PRODUCTS_FAILED',
-      message: 'Onaylı ürünler yüklenemedi.',
+      message: 'Ürün eşleştirmeleri yüklenemedi.',
       context
     })
   }

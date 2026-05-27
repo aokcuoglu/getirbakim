@@ -11,9 +11,6 @@ import {
   mapDpmatchToPartTabsData
 } from '@/lib/v0/mapDpmatchToPartDetail'
 import { getCategoryByUrlKey } from '@/lib/actions/getPartCategories'
-import { getMainNavCategories } from '@/lib/mainNavCategories'
-import Navbar from '@/components/Navbar'
-import Footer from '@/components/Footer'
 import { ProductImageGallery } from './_components/ProductImageGallery'
 import { ProductInfo } from './_components/ProductInfo'
 import { PartDetailLazySections } from './_components/PartDetailLazySections'
@@ -113,10 +110,9 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       notFound()
     }
 
-    const [catalogPart, dpmatchRow, navbarCategories] = await Promise.all([
+    const [catalogPart, dpmatchRow] = await Promise.all([
       getPartHeroById(partId),
-      getDpmatchById(partId),
-      getMainNavCategories(locale)
+      getDpmatchById(partId)
     ])
 
     const isDpmatch = !catalogPart && Boolean(dpmatchRow)
@@ -138,91 +134,82 @@ export default async function PartDetailPage({ params }: PartPageProps) {
         : null
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Navbar */}
-      <Navbar navbarCategories={navbarCategories} />
+    <>
+      {/* Breadcrumb */}
+      {partCategory ? (
+        <div className="bg-background border-b border-border">
+          <BreadcrumbSection
+            category={partCategory}
+            extraCrumb={part.name}
+          />
+        </div>
+      ) : (
+        <FallbackBreadcrumb
+          categoryName={part.category.name}
+          categoryUrlKey={partCategory ? part.category.urlKey : null}
+          partName={part.name}
+        />
+      )}
 
-      {/* Main Content */}
-      <main className="flex-1 bg-muted">
-        {/* Breadcrumb */}
-        {partCategory ? (
-          <div className="bg-background border-b border-border">
-            <BreadcrumbSection
-              category={partCategory}
-              extraCrumb={part.name}
+      {/* Main Product Section */}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
+        <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+            {/* Left - Image Gallery */}
+            <ProductImageGallery
+              images={part.images}
+              productName={`${part.name} ${part.brand.name}`}
+            />
+
+            {/* Right - Product Info */}
+            <ProductInfo
+              id={part.id}
+              name={part.name}
+              articleNumber={part.articleNumber}
+              brand={part.brand}
+              categoryName={part.category.name}
+              price={part.price}
+              stockQty={part.stockQty}
+              priceSource={part.priceSource}
+              isPlaceholderPrice={part.isPlaceholderPrice}
+              isPurchasable={part.isPurchasable}
+              eans={part.eans}
+              properties={part.properties}
             />
           </div>
-        ) : (
-          <FallbackBreadcrumb
-            categoryName={part.category.name}
-            categoryUrlKey={partCategory ? part.category.urlKey : null}
-            partName={part.name}
-          />
-        )}
+        </div>
 
-        {/* Main Product Section */}
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
-          <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-              {/* Left - Image Gallery */}
-              <ProductImageGallery
-                images={part.images}
-                productName={`${part.name} ${part.brand.name}`}
+        {/* Product Tabs */}
+        <div className="mt-4 md:mt-8">
+          {isDpmatch && dpmatchTabsData ? (
+            <>
+              <ProductTabs
+                properties={dpmatchTabsData.properties}
+                infos={dpmatchTabsData.infos}
+                oens={dpmatchTabsData.oens}
+                compatibleVehicles={dpmatchTabsData.compatibleVehicles}
+                crossReferences={dpmatchTabsData.crossReferences}
               />
-
-              {/* Right - Product Info */}
-              <ProductInfo
-                id={part.id}
-                name={part.name}
-                articleNumber={part.articleNumber}
-                brand={part.brand}
-                categoryName={part.category.name}
-                price={part.price}
-                stockQty={part.stockQty}
-                priceSource={part.priceSource}
-                isPlaceholderPrice={part.isPlaceholderPrice}
-                isPurchasable={part.isPurchasable}
-                eans={part.eans}
-                properties={part.properties}
-              />
-            </div>
-          </div>
-
-          {/* Product Tabs */}
-          <div className="mt-4 md:mt-8">
-            {isDpmatch && dpmatchTabsData ? (
-              <>
-                <ProductTabs
-                  properties={dpmatchTabsData.properties}
-                  infos={dpmatchTabsData.infos}
-                  oens={dpmatchTabsData.oens}
-                  compatibleVehicles={dpmatchTabsData.compatibleVehicles}
-                  crossReferences={dpmatchTabsData.crossReferences}
-                />
-                <ProductFAQ
-                  partId={part.id}
-                  productName={`${part.category.name} ${part.brand.name} ${part.name}`}
-                  brandName={part.brand.name}
-                  categoryName={part.category.name}
-                />
-              </>
-            ) : (
-              <PartDetailLazySections
+              <ProductFAQ
                 partId={part.id}
-                categoryId={part.category.id}
-                categoryName={part.category.name}
-                excludePartId={part.id}
                 productName={`${part.category.name} ${part.brand.name} ${part.name}`}
                 brandName={part.brand.name}
+                categoryName={part.category.name}
               />
-            )}
-          </div>
+            </>
+          ) : (
+            <PartDetailLazySections
+              partId={part.id}
+              categoryId={part.category.id}
+              categoryName={part.category.name}
+              excludePartId={part.id}
+              productName={`${part.category.name} ${part.brand.name} ${part.name}`}
+              brandName={part.brand.name}
+            />
+          )}
         </div>
-      </main>
-
-      {/* Footer */}
-      <Footer />
-    </div>
+      </div>
+    </>
   )
   } catch (error) {
     console.error('Error rendering part detail page:', error)

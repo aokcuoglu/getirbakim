@@ -1,4 +1,3 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
 import {
   AdminPageHeader,
   AdminPageShell,
@@ -15,8 +14,7 @@ export default async function NewProductPage() {
   ])
 
   return (
-    <AdminLayout>
-      <AdminPageShell width="default">
+    <AdminPageShell width="default">
         <AdminPageHeader
           title="Yeni Ürün Ekle"
           description="Sisteme yeni bir yedek parça ekleyin."
@@ -25,7 +23,6 @@ export default async function NewProductPage() {
         <AdminSurface className="p-4 sm:p-6">
           <ProductForm brands={brands} categories={categories} />
         </AdminSurface>
-      </AdminPageShell>
-    </AdminLayout>
+    </AdminPageShell>
   )
 }

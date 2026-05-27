@@ -16,7 +16,7 @@ import type {
   AdminApprovedBrandListResult,
   AdminApprovedBrandRow
 } from '@/lib/admin/approved-dbrands-catalog'
-import { DataTable } from '../../eslestirme/_components/data-table'
+import { DataTable } from '@/components/admin/data-table/data-table'
 import { createApprovedBrandColumns } from './approved-brand-columns'
 
 type LogoStatus = 'all' | 'missing' | 'has_logo'

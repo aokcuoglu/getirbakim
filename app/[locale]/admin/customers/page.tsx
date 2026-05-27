@@ -1,8 +1,8 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
+import { Suspense } from 'react'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
+import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
-import { getAdminCustomers } from '@/lib/actions/admin-customers'
-import { CustomersAdminClient } from './_components/CustomersAdminClient'
+import { CustomersAdminContent } from './_components/CustomersAdminContent'
 
 export default async function AdminCustomersPage(props: {
   searchParams: Promise<{
@@ -14,23 +14,16 @@ export default async function AdminCustomersPage(props: {
 }) {
   const searchParams = await props.searchParams
 
-  const data = await getAdminCustomers({
-    q: searchParams.q,
-    role: searchParams.role as 'all' | 'ADMIN' | 'CUSTOMER' | undefined,
-    page: searchParams.page ? Number(searchParams.page) : 1,
-    limit: searchParams.limit ? Number(searchParams.limit) : 20
-  })
-
   return (
-    <AdminLayout>
-      <AdminPageShell>
-        <AdminPageHeader
-          title="Müşteri Operasyonu"
-          description="Müşteri listesini yönetin, rolleri güncelleyin ve müşteri detaylarını inceleyin."
-          breadcrumbs={getAdminBreadcrumbs('/admin/customers')}
-        />
-        <CustomersAdminClient data={data} />
-      </AdminPageShell>
-    </AdminLayout>
+    <AdminPageShell>
+      <AdminPageHeader
+        title="Müşteri Operasyonu"
+        description="Müşteri listesini yönetin, rolleri güncelleyin ve müşteri detaylarını inceleyin."
+        breadcrumbs={getAdminBreadcrumbs('/admin/customers')}
+      />
+      <Suspense fallback={<AdminTablePageSkeleton kpiCount={0} />}>
+        <CustomersAdminContent searchParams={searchParams} />
+      </Suspense>
+    </AdminPageShell>
   )
 }

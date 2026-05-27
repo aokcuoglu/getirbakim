@@ -103,3 +103,6 @@ scripts/output/*.pid
 
 # Cursor IDE (local MCP config)
 .cursor/
+
+# Sentry Config File
+.env.sentry-build-plugin

@@ -11,6 +11,7 @@ import {
 } from '@/lib/sql/dproduct-details'
 import { parse } from 'csv-parse/sync'
 import { revalidatePath } from 'next/cache'
+import { unstable_cache } from 'next/cache'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import {
@@ -4488,7 +4489,7 @@ export async function importAdminProductsCsv(
   }
 }
 
-export async function getAdminDashboardData(): Promise<AdminDashboardData> {
+async function queryAdminDashboardData(): Promise<AdminDashboardData> {
   await requireAdminAuth()
 
   const [
@@ -4624,4 +4625,9 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     })),
     alerts
   }
+}
+
+export async function getAdminDashboardData(): Promise<AdminDashboardData> {
+  await requireAdminAuth()
+  return queryAdminDashboardData()
 }

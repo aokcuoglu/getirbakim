@@ -1,4 +1,3 @@
-import { AdminLayout } from '@/components/admin/admin-layout'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { getCategories } from '@/lib/actions/category-actions'
@@ -9,15 +8,13 @@ export default async function NewCategoryPage() {
   const categories = categoriesResult.success ? categoriesResult.flat || [] : []
 
   return (
-    <AdminLayout>
-      <AdminPageShell width="default">
+    <AdminPageShell width="default">
         <AdminPageHeader
           title="Create New Category"
           description="Add a new category to organize your products."
           breadcrumbs={getAdminBreadcrumbs('/admin/categories/new')}
         />
         <CategoryForm categories={categories} />
-      </AdminPageShell>
-    </AdminLayout>
+    </AdminPageShell>
   )
 }

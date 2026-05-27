@@ -1,3 +1,4 @@
+import { AdminLayout } from '@/components/admin/admin-layout'
 import { requireAdminAuth } from '@/lib/admin-auth'
 
 export default async function AdminGuardLayout({
@@ -9,5 +10,5 @@ export default async function AdminGuardLayout({
 }) {
   const { locale } = await params
   await requireAdminAuth({ locale, redirectTo: `/${locale}/admin` })
-  return children
+  return <AdminLayout>{children}</AdminLayout>
 }
