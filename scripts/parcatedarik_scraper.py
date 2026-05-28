@@ -1056,6 +1056,74 @@ def get_existing_product_ids(conn, manufacturer_id):
         return {row[0] for row in cur.fetchall()}
 
 
+def get_site_product_count(session, brand_url, proxy_rotator=None):
+    """Bir markanın sitedeki toplam ürün sayısını döndür (None = başarısız).
+
+    Sayfa 1'i çeker, pagination'dan son sayfa numarasını bulur,
+    son sayfayı da çekerek toplam ürün sayısını hesaplar.
+    Son sayfada 120'den az ürün olabileceği için birebir sayar.
+    """
+    html_content = fetch_products_page(session, brand_url, 1, proxy_rotator=proxy_rotator)
+    if html_content is None:
+        return None
+
+    if "ürün bulunamadı" in html_content.lower() or "no products" in html_content.lower():
+        return 0
+
+    blocks = re.split(r'class=[\"\']?product-item[\"\']?', html_content)[1:]
+    page_1_count = len(blocks)
+
+    if page_1_count == 0:
+        old_matches = list(re.finditer(
+            r"<h1[^>]*>(?:<img[^>]*>\s*)?<strong>[^<]+</strong></h1>",
+            html_content,
+            re.DOTALL | re.IGNORECASE,
+        ))
+        page_1_count = len(old_matches)
+
+    last_page_match = re.search(
+        r'<li\s+class=["\']?last-page["\']?[^>]*>.*?pagenumber=(\d+)',
+        html_content,
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    if not last_page_match:
+        return page_1_count
+
+    last_page = int(last_page_match.group(1))
+    if last_page <= 1:
+        return page_1_count
+
+    html_last = fetch_products_page(session, brand_url, last_page, proxy_rotator=proxy_rotator)
+    if html_last is None:
+        return None
+
+    blocks_last = re.split(r'class=[\"\']?product-item[\"\']?', html_last)[1:]
+    last_count = len(blocks_last)
+
+    if last_count == 0:
+        old_matches = list(re.finditer(
+            r"<h1[^>]*>(?:<img[^>]*>\s*)?<strong>[^<]+</strong></h1>",
+            html_last,
+            re.DOTALL | re.IGNORECASE,
+        ))
+        last_count = len(old_matches)
+
+    return (last_page - 1) * PAGE_SIZE + last_count
+
+
+def get_db_product_count_for_url_key(conn, url_key):
+    """Bir markanın DB'deki ürün sayısını döndür (0 = marka yok veya ürün yok)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT COUNT(*) FROM "v0"."ptproducts" p '
+            'JOIN "v0"."ptbrands" b ON b.id = p.ptbrands_id '
+            'WHERE b.url_key = %s',
+            (url_key,),
+        )
+        return cur.fetchone()[0]
+
+
 def fetch_all_brand_products(session, brand_info, proxy_rotator=None):
     """Tek markanın tüm sayfalarını çek (DB yazmadan)."""
     url = f"{BASE_URL}/{brand_info['url_key']}"
@@ -1561,6 +1629,13 @@ def main():
                 "name": brand_info["name"],
                 "url": f"{BASE_URL}/{brand_info['url_key']}",
             }
+            if not args.full_rescan:
+                db_count = get_db_product_count_for_url_key(conn, url_key)
+                if db_count > 0:
+                    site_count = get_site_product_count(session, target["url"], proxy_rotator=proxy_rotator)
+                    if site_count is not None and db_count == site_count:
+                        print(f"\n'{brand_info['name']}' ({url_key}) ATLANDI - sayı eşleşmesi: DB={db_count}")
+                        continue
             print(f"\nSadece '{brand_info['name']}' ({url_key}) çekilecek.")
             scrape_manufacturer(
                 session,
@@ -1581,6 +1656,17 @@ def main():
         name = args.manufacturer.strip()
         url = make_manufacturer_url(name)
         target = {"name": name, "url": url}
+        url_key = url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
+
+        if not args.full_rescan:
+            db_count = get_db_product_count_for_url_key(conn, url_key)
+            if db_count > 0:
+                site_count = get_site_product_count(session, url, proxy_rotator=proxy_rotator)
+                if site_count is not None and db_count == site_count:
+                    print(f"\n'{name}' ATLANDI - sayı eşleşmesi: DB={db_count}")
+                    print(f"\nTamamlandı: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    conn.close()
+                    return
 
         print(f"\nSadece '{name}' çekilecek.")
         print(f"URL: {url}")
@@ -1644,6 +1730,24 @@ def main():
                 f"\n[{i + 1}/{len(manufacturers)}] {manufacturer['name']} (ATLANDI - zaten tamamlandı)"
             )
             continue
+
+        if not args.full_rescan:
+            brand_url = manufacturer["url"]
+            url_key = brand_url.replace(BASE_URL, "").strip("/").split("?")[0].lower()
+            db_count = get_db_product_count_for_url_key(conn, url_key)
+            if db_count > 0:
+                site_count = get_site_product_count(session, brand_url, proxy_rotator=proxy_rotator)
+                if site_count is not None and db_count == site_count:
+                    print(
+                        f"\n[{i + 1}/{len(manufacturers)}] {manufacturer['name']} "
+                        f"(ATLANDI - sayı eşleşmesi: DB={db_count})"
+                    )
+                    state["last_manufacturer_index"] = i
+                    if manufacturer["name"] not in completed:
+                        completed.append(manufacturer["name"])
+                    state["completed_manufacturers"] = completed
+                    save_state(project_dir, state)
+                    continue
 
         print(f"\n[{i + 1}/{len(manufacturers)}] İşleniyor: {manufacturer['name']}")
 

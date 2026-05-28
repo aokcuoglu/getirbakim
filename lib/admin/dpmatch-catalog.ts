@@ -164,9 +164,7 @@ function resolveMatchSide(
 function buildWhereClause(
   filters: ReturnType<typeof normalizeFilters>
 ): Prisma.Sql {
-  const clauses: Prisma.Sql[] = [
-    Prisma.sql`(d.id IS NULL OR d.is_passive IS DISTINCT FROM TRUE)`
-  ]
+  const clauses: Prisma.Sql[] = []
 
   if (filters.mappingStatus !== 'all') {
     clauses.push(Prisma.sql`m.mapping_status = ${filters.mappingStatus}`)
@@ -220,6 +218,7 @@ function buildWhereClause(
     )
   }
 
+  if (clauses.length === 0) return Prisma.sql``
   return Prisma.sql`WHERE ${Prisma.join(clauses, ' AND ')}`
 }
 

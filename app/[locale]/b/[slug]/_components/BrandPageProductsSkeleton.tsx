@@ -1,5 +1,5 @@
 import { SearchSidebarSkeleton } from '@/components/search/SearchSidebarSkeleton'
-import { ProductGridSkeleton } from '@/app/[locale]/[...slug]/_components/ProductCardSkeleton'
+import { GridProductCardSkeleton } from '@/app/[locale]/[...slug]/_components/GridProductCardSkeleton'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export function BrandPageProductsSkeleton() {
@@ -16,7 +16,11 @@ export function BrandPageProductsSkeleton() {
               <Skeleton className="h-4 w-24" />
             </div>
           </div>
-          <ProductGridSkeleton count={6} />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <GridProductCardSkeleton key={i} />
+            ))}
+          </div>
         </div>
       </div>
     </div>

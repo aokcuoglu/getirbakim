@@ -173,11 +173,12 @@ async function upsertDbrandsFromDproducts(dryRun: boolean): Promise<number> {
 export async function syncDbrandsFromApi(
   dryRun: boolean
 ): Promise<{ inserted: number; apiBrandCount: number; brandNames: string[] }> {
-  const { getBrandList } = await import('@/lib/suppliers/dinamik-client')
-  const apiBrands = await getBrandList()
+  const { dinamikFetch } = await import('@/lib/dinamik')
+  const apiBrandsResponse = await dinamikFetch('/api/Dnmk_Customer/getBrandList')
+  const apiBrands: Array<{ brand: string }> = await apiBrandsResponse.json()
   const names = apiBrands
-    .map((b) => (typeof b.brand === 'string' ? b.brand.trim() : ''))
-    .filter((name) => name.length > 0)
+    .map((b: { brand: string }) => (typeof b.brand === 'string' ? b.brand.trim() : ''))
+    .filter((name: string) => name.length > 0)
 
   if (dryRun) {
     if (names.length === 0) {

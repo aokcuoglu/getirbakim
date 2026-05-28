@@ -1,22 +1,16 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import {
-  getPartHeroById,
-  getPartMetadataById
-} from '@/lib/actions/getPartById'
 import { getDpmatchById } from '@/lib/v0/getDpmatchById'
 import {
-  mapDpmatchToPartHero,
   mapDpmatchToPartMetadata,
+  mapDpmatchToPartHero,
   mapDpmatchToPartTabsData
 } from '@/lib/v0/mapDpmatchToPartDetail'
-import { getCategoryByUrlKey } from '@/lib/actions/getPartCategories'
 import { ProductImageGallery } from './_components/ProductImageGallery'
 import { ProductInfo } from './_components/ProductInfo'
 import { PartDetailLazySections } from './_components/PartDetailLazySections'
 import { ProductTabs } from './_components/ProductTabs'
 import { ProductFAQ } from './_components/ProductFAQ'
-import { BreadcrumbSection } from '../../[...slug]/_components/BreadcrumbSection'
 import { FallbackBreadcrumb } from './_components/FallbackBreadcrumb'
 import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
 
@@ -27,19 +21,7 @@ interface PartPageProps {
   }>
 }
 
-/**
- * On-demand ISR: Pages are generated on first request, then cached
- * This avoids long build times while still providing fast page loads
- * 
- * Removed generateStaticParams to speed up deployments.
- * Pages will be generated on-demand and cached for 1 hour.
- */
-export const dynamicParams = true // Allow dynamic params not returned by generateStaticParams
-
-/**
- * ISR: Revalidate every hour
- * Pages are generated on first request, then cached for 1 hour
- */
+export const dynamicParams = true
 export const revalidate = 3600
 
 export async function generateMetadata({ params }: PartPageProps): Promise<Metadata> {
@@ -51,11 +33,8 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
       return { title: 'Part Not Found' }
     }
 
-    const part =
-      (await getPartMetadataById(partId)) ??
-      (await getDpmatchById(partId).then((row) =>
-        row ? mapDpmatchToPartMetadata(row) : null
-      ))
+    const row = await getDpmatchById(partId)
+    const part = row ? mapDpmatchToPartMetadata(row) : null
 
     if (!part) {
       return { title: 'Part Not Found' }
@@ -70,14 +49,7 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
       description,
       alternates: buildLocaleAlternates(locale, `/part/${partId}`),
       robots: defaultRobotsIndexing(),
-      keywords: [
-        part.name,
-        part.brandName,
-        part.categoryName,
-        'auto parts',
-        'yedek parça',
-        ...part.eans
-      ],
+      keywords: [part.name, part.brandName, part.categoryName, 'auto parts', 'yedek parça', ...part.eans],
       openGraph: {
         title,
         description,
@@ -94,10 +66,7 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
     }
   } catch (error) {
     console.error('Error generating metadata for part:', error)
-    return {
-      title: 'Part Not Found',
-      description: 'The requested part could not be found.'
-    }
+    return { title: 'Part Not Found', description: 'The requested part could not be found.' }
   }
 }
 
@@ -110,115 +79,85 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       notFound()
     }
 
-    const [catalogPart, dpmatchRow] = await Promise.all([
-      getPartHeroById(partId),
-      getDpmatchById(partId)
-    ])
-
-    const isDpmatch = !catalogPart && Boolean(dpmatchRow)
-    const part = catalogPart ?? (dpmatchRow ? mapDpmatchToPartHero(dpmatchRow) : null)
-    const dpmatchTabsData =
-      isDpmatch && dpmatchRow ? mapDpmatchToPartTabsData(dpmatchRow) : null
+    const dpmatchRow = await getDpmatchById(partId)
+    const part = dpmatchRow ? mapDpmatchToPartHero(dpmatchRow) : null
+    const dpmatchTabsData = dpmatchRow ? mapDpmatchToPartTabsData(dpmatchRow) : null
 
     if (!part) {
       notFound()
     }
 
-    // Fetch category hierarchy for breadcrumbs (related parts are lazy-loaded on client)
-    const partCategory =
-      !isDpmatch && part.category.urlKey
-        ? await getCategoryByUrlKey(part.category.urlKey).catch((error) => {
-            console.error('Error fetching category:', error)
-            return null
-          })
-        : null
-
-  return (
-    <>
-      {/* Breadcrumb */}
-      {partCategory ? (
+    return (
+      <>
         <div className="bg-background border-b border-border">
-          <BreadcrumbSection
-            category={partCategory}
-            extraCrumb={part.name}
+          <FallbackBreadcrumb
+            categoryName={part.category.name}
+            categoryUrlKey={null}
+            partName={part.name}
           />
         </div>
-      ) : (
-        <FallbackBreadcrumb
-          categoryName={part.category.name}
-          categoryUrlKey={partCategory ? part.category.urlKey : null}
-          partName={part.name}
-        />
-      )}
 
-      {/* Main Product Section */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
-        <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-            {/* Left - Image Gallery */}
-            <ProductImageGallery
-              images={part.images}
-              productName={`${part.name} ${part.brand.name}`}
-            />
-
-            {/* Right - Product Info */}
-            <ProductInfo
-              id={part.id}
-              name={part.name}
-              articleNumber={part.articleNumber}
-              brand={part.brand}
-              categoryName={part.category.name}
-              price={part.price}
-              stockQty={part.stockQty}
-              priceSource={part.priceSource}
-              isPlaceholderPrice={part.isPlaceholderPrice}
-              isPurchasable={part.isPurchasable}
-              eans={part.eans}
-              properties={part.properties}
-            />
-          </div>
-        </div>
-
-        {/* Product Tabs */}
-        <div className="mt-4 md:mt-8">
-          {isDpmatch && dpmatchTabsData ? (
-            <>
-              <ProductTabs
-                properties={dpmatchTabsData.properties}
-                infos={dpmatchTabsData.infos}
-                oens={dpmatchTabsData.oens}
-                compatibleVehicles={dpmatchTabsData.compatibleVehicles}
-                crossReferences={dpmatchTabsData.crossReferences}
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
+          <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+              <ProductImageGallery
+                images={part.images}
+                productName={`${part.name} ${part.brand.name}`}
               />
-              <ProductFAQ
+              <ProductInfo
+                id={part.id}
+                name={part.name}
+                articleNumber={part.articleNumber}
+                brand={part.brand}
+                categoryName={part.category.name}
+                price={part.price}
+                stockQty={part.stockQty}
+                priceSource={part.priceSource}
+                isPlaceholderPrice={part.isPlaceholderPrice}
+                isPurchasable={part.isPurchasable}
+                eans={part.eans}
+                properties={part.properties}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 md:mt-8">
+            {dpmatchTabsData ? (
+              <>
+                <ProductTabs
+                  properties={dpmatchTabsData.properties}
+                  infos={dpmatchTabsData.infos}
+                  oens={dpmatchTabsData.oens}
+                  compatibleVehicles={dpmatchTabsData.compatibleVehicles}
+                  crossReferences={dpmatchTabsData.crossReferences}
+                />
+                <ProductFAQ
+                  partId={part.id}
+                  productName={`${part.category.name} ${part.brand.name} ${part.name}`}
+                  brandName={part.brand.name}
+                  categoryName={part.category.name}
+                />
+              </>
+            ) : (
+              <PartDetailLazySections
                 partId={part.id}
+                categoryId={part.category.id}
+                categoryName={part.category.name}
+                excludePartId={part.id}
                 productName={`${part.category.name} ${part.brand.name} ${part.name}`}
                 brandName={part.brand.name}
-                categoryName={part.category.name}
               />
-            </>
-          ) : (
-            <PartDetailLazySections
-              partId={part.id}
-              categoryId={part.category.id}
-              categoryName={part.category.name}
-              excludePartId={part.id}
-              productName={`${part.category.name} ${part.brand.name} ${part.name}`}
-              brandName={part.brand.name}
-            />
-          )}
+            )}
+          </div>
         </div>
-      </div>
-    </>
-  )
+      </>
+    )
   } catch (error) {
     console.error('Error rendering part detail page:', error)
-    // Log the error details for debugging
     if (error instanceof Error) {
       console.error('Error message:', error.message)
       console.error('Error stack:', error.stack)
     }
-    // Re-throw to trigger Next.js error boundary
     throw error
   }
 }

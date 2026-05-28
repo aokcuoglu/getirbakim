@@ -2,7 +2,8 @@
 
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { AdminSortBy, AdminSortOrder } from '@/lib/types/admin-products'
+type AdminSortBy = string
+type AdminSortOrder = 'asc' | 'desc'
 import { adminTableHeadClassName } from './admin-table-head'
 
 interface AdminSortableHeadProps {

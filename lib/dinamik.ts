@@ -4,9 +4,14 @@ import {
   ProxyAgent,
   type RequestInit as UndiciRequestInit,
 } from "undici";
-import type { DinamikProxyDiagnostics } from "@/lib/types/dinamik-proxy";
-
-export type { DinamikProxyDiagnostics } from "@/lib/types/dinamik-proxy";
+export type DinamikProxyDiagnostics = {
+  required: boolean
+  configured: boolean
+  proxyHost: string | null
+  proxyPort: number | null
+  proxyUser: string | null
+  setupError: string | null
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const REQUIRE_PROXY_BY_DEFAULT = true;

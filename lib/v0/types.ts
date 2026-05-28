@@ -1,7 +1,3 @@
-import type { CatalogData } from '@/lib/actions/getCatalogCategories'
-import type { MainNavCategoryItem } from '@/lib/mainNavCategories'
-import type { TopCategoryItem } from '@/components/hero/TopCategories'
-
 export type V0DpmatchProductRow = {
   matchId: number
   dproductsId: string | null
@@ -25,7 +21,6 @@ export type V0DpmatchProductRow = {
   ptImageUrl: string | null
   ptUrl: string | null
   ptManufacturerName: string | null
-  /** Canonical brand from v0.dbrands_match when approved. */
   matchedBrandName?: string | null
   brandLogoUrl: string | null
 }
@@ -33,7 +28,6 @@ export type V0DpmatchProductRow = {
 export type V0BrandMatchRow = {
   matchId: number
   dbrandsId: string | null
-  /** All Dinamik brand ids in this normalized group (for product queries). */
   dbrandsIds: string[]
   ptbrandsId: number | null
   brandName: string
@@ -42,15 +36,11 @@ export type V0BrandMatchRow = {
   slug: string
 }
 
-/** Slim brand shape for homepage slider — avoids shipping query-only fields in RSC payload. */
 export type V0HomeBrandItem = Pick<
   V0BrandMatchRow,
   'matchId' | 'brandName' | 'logoUrl' | 'slug'
 >
 
 export type V0HomePageData = {
-  topCategories: TopCategoryItem[]
-  navbarCategories: MainNavCategoryItem[]
-  catalogData: CatalogData
   brands: V0HomeBrandItem[]
 }

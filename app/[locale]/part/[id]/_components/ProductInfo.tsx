@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useShop } from '@/components/ShopProvider'
-import { CustomerRequestDialog } from '@/components/customer-requests/CustomerRequestDialog'
+
 import { buildProductDisplayName } from '@/lib/product-display-name'
 import {
   PRODUCT_SPEC_KEYS,
@@ -220,21 +220,9 @@ export function ProductInfo({
             <p className="text-base md:text-lg text-muted-foreground">
               {t('requestQuote')}
             </p>
-            <CustomerRequestDialog
-              requestType="PRICE_REQUEST"
-              source="PRICE_MODAL"
-              product={{
-                partId: id,
-                partName: displayName,
-                brandName: brand.name,
-                categoryName
-              }}
-              trigger={
-                <Button className="bg-success text-success-foreground hover:bg-success/90">
-                  {t('askForPrice')}
-                </Button>
-              }
-            />
+            <Button className="bg-success text-success-foreground hover:bg-success/90" disabled>
+              {t('askForPrice')}
+            </Button>
           </div>
         )}
       </div>

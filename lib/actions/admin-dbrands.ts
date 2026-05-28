@@ -17,7 +17,7 @@ import type {
   DbrandsMatchSeedResult,
   DbrandsReconcileResult
 } from '@/lib/types/dbrands'
-import { getBrandList } from '@/lib/suppliers/dinamik-client'
+import { dinamikFetch } from '@/lib/dinamik'
 
 function revalidateDbrandsPaths() {
   revalidatePath('/admin/suppliers')
@@ -146,8 +146,9 @@ export async function syncDinamikDbrandsFromBrandList(): Promise<{
 }> {
   try {
     await requireAdminAuth()
-    const apiBrands = await getBrandList()
-    const names = apiBrands.map((b) => b.brand).filter(Boolean)
+    const apiBrandsResponse = await dinamikFetch('/api/Dnmk_Customer/getBrandList')
+    const apiBrands: Array<{ brand: string }> = await apiBrandsResponse.json()
+    const names = apiBrands.map((b: { brand: string }) => b.brand).filter(Boolean)
     const inserted = await ensureDbrandsRows(names)
     revalidateDbrandsPaths()
     return {

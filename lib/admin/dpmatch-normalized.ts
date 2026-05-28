@@ -18,11 +18,11 @@ type DproductNormalizedSource = {
 }
 
 export function resolveProductNormalized(source: ProductNormalizedSource): string | null {
-  return normalizeModel(source.model)
+  return source.model ? normalizeModel(source.model) : null
 }
 
 export function resolveDproductNormalized(source: DproductNormalizedSource): string | null {
-  return normalizeModel(source.part_no)
+  return source.part_no ? normalizeModel(source.part_no) : null
 }
 
 /**

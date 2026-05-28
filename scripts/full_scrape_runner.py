@@ -22,6 +22,8 @@ from parcatedarik_scraper import (  # noqa: E402
     BASE_URL,
     get_brand_by_url_key,
     get_db_connection,
+    get_db_product_count_for_url_key,
+    get_site_product_count,
     setup_session,
     scrape_manufacturer,
     upload_brand_images_only,
@@ -198,6 +200,21 @@ def run_brand(
             "name": brand_info["name"],
             "url": f"{BASE_URL}/{brand_info['url_key']}",
         }
+
+        if phase != "images":
+            url_key = brand_info["url_key"]
+            db_count = get_db_product_count_for_url_key(conn, url_key)
+            if db_count > 0:
+                site_count = get_site_product_count(session, target["url"])
+                if site_count is not None and db_count == site_count:
+                    print(f"  ATLANDI (sayı eşleşmesi): DB={db_count}, Site={site_count}")
+                    return "ok", {
+                        "inserted": 0, "updated": 0,
+                        "images_uploaded": 0, "images_skipped": 0,
+                        "images_failed": 0, "images_no_source": 0,
+                        "images_url_updated": 0,
+                    }
+
         if phase == "images":
             upload_brand_images_only(
                 session,

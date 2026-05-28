@@ -1,45 +1,30 @@
-import {
-  buildSitemapXml,
-  getActiveCategorySlugs,
-  getCanonicalSiteUrl
-} from '@/lib/seo/sitemap'
 import { getApprovedDbrandsMatch } from '@/lib/v0/getDbrandsMatch'
 import { buildBrandPath } from '@/lib/v0/brandSlug'
-import { isIndexingAllowed } from '@/lib/site-url'
+import { isIndexingAllowed, resolveSiteUrl } from '@/lib/site-url'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const baseUrl = getCanonicalSiteUrl()
+  const baseUrl = resolveSiteUrl()
 
   if (!isIndexingAllowed()) {
     return new Response('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>', {
-      headers: {
-        'Content-Type': 'application/xml; charset=utf-8',
-        'X-Robots-Tag': 'noindex'
-      }
+      headers: { 'Content-Type': 'application/xml; charset=utf-8' }
     })
   }
 
-  const [slugs, brands] = await Promise.all([
-    getActiveCategorySlugs(),
-    getApprovedDbrandsMatch()
-  ])
-  const locales: Array<'en' | 'tr'> = ['en', 'tr']
+  const brands = await getApprovedDbrandsMatch()
 
-  const urls: string[] = []
-  locales.forEach((locale) => {
-    urls.push(`${baseUrl}/${locale}`)
-    slugs.forEach((slug) => {
-      urls.push(`${baseUrl}/${locale}/${slug}`)
-    })
-    brands.forEach((brand) => {
-      urls.push(`${baseUrl}/${locale}${buildBrandPath(brand.slug)}`)
-    })
-  })
+  const urls = [
+    baseUrl,
+    ...brands.map((brand) => `${baseUrl}${buildBrandPath(brand.slug)}`)
+  ]
 
   const now = new Date().toISOString()
-  const body = buildSitemapXml(Array.from(new Set(urls)), now)
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((url) => `  <url><loc>${url}</loc><lastmod>${now}</lastmod></url>`).join('\n')}
+</urlset>`
 
   return new Response(body, {
     headers: {

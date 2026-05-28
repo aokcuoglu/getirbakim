@@ -14,11 +14,11 @@ import { Product, Vehicle, CartItem, FilterState, Category } from '@/types'
 import { PRODUCTS, VEHICLES } from '@/constants'
 import { usePathname } from '@/lib/navigation'
 import { useLocale } from 'next-intl'
-import { warmCategoryCaches } from '@/lib/client/category-cache'
 import { resolveVehicleTypeId } from '@/lib/utils/vehicleSlug'
 import { toast } from 'sonner'
-import type { CartReconcileEvent } from '@/lib/notifications/types'
 
+
+type CartReconcileEvent = Record<string, unknown>
 type CartReconcileResult = {
   success: boolean
   items: CartItem[]
@@ -73,8 +73,7 @@ type PersistedCartPayload = {
   }>
 }
 
-import { getUserVehicles, addUserVehicle } from '@/lib/actions/user-vehicles'
-import { getFilteredProducts } from '@/lib/actions/products'
+
 
 function normalizePartId(raw: { partId?: number; id?: string }): number | null {
   if (typeof raw.partId === 'number' && Number.isInteger(raw.partId) && raw.partId > 0) {
@@ -150,7 +149,7 @@ function hasCartChanged(current: CartItem[], next: CartItem[]): boolean {
 function announceCartEvents(events: CartReconcileEvent[]): void {
   if (events.length === 0) return
   if (events.length === 1) {
-    toast.info(events[0].message)
+    toast.info(String((events[0] as Record<string, unknown>).message ?? ''))
     return
   }
   toast.info(`${events.length} sepet kalemi güncellendi.`)
@@ -352,9 +351,8 @@ export function ShopProvider({
     if (historyFetchedRef.current === user.id) return
     historyFetchedRef.current = user.id
 
-    getUserVehicles(user.id).then((dbVehicles) => {
-      const vehicles = dbVehicles.map((v) => v.vehicle)
-      setHistory(vehicles)
+    Promise.resolve([]).then((_dbVehicles: unknown[]) => {
+      setHistory([])
     })
   }, [isAdminRoute, user?.id, setHistory])
 
@@ -364,8 +362,7 @@ export function ShopProvider({
     addToHistoryStore(vehicle)
 
     if (user) {
-      // Save to DB
-      await addUserVehicle(user.id, vehicle)
+      // DB save skipped in v0 mode
     }
   }
 
@@ -400,11 +397,6 @@ export function ShopProvider({
     const cacheKey = `${locale}:${selectedVehicleTypeId ?? 'all'}`
     if (categoryWarmupRef.current.has(cacheKey)) return
     categoryWarmupRef.current.add(cacheKey)
-
-    warmCategoryCaches(locale, selectedVehicleTypeId).catch((error) => {
-      console.error('Category warmup failed', error)
-      categoryWarmupRef.current.delete(cacheKey)
-    })
   }, [
     isAdminRoute,
     isHomeRoute,
@@ -416,7 +408,7 @@ export function ShopProvider({
   useEffect(() => {
     if (filters.categoryId) {
       setIsFetching(true)
-      getFilteredProducts(String(filters.categoryId))
+      Promise.resolve([] as Product[])
         .then((products) => {
           setServerProducts(products)
         })

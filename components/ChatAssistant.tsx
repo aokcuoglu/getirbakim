@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl'
 import { Bot, MessageSquare, Send, X } from 'lucide-react'
 import { GlassCard } from './Glass'
 import { useShop } from '@/components/ShopProvider'
-import { CustomerRequestDialog } from '@/components/customer-requests/CustomerRequestDialog'
+
 import { getMechanicAdvice } from '../services/geminiService'
 
 interface Message {
@@ -179,18 +179,9 @@ export default function ChatAssistant() {
             {t('aiSupport')}
           </button>
 
-          <CustomerRequestDialog
-            requestType="MISSING_PRODUCT"
-            source="MISSING_PRODUCT_MODAL"
-            trigger={
-              <button
-                onClick={() => setIsMenuOpen(false)}
-                className="w-full rounded-full border border-success/20 bg-success/10 px-4 py-2 text-sm font-medium text-success shadow-lg transition-colors hover:bg-success/15"
-              >
-                {t('missingProduct')}
-              </button>
-            }
-          />
+          <button className="w-full rounded-full border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-lg transition-colors hover:bg-muted">
+            {t('cantFindProduct')}
+          </button>
         </div>
       )}
 

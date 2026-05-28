@@ -22,6 +22,6 @@ export function mapSearchHitToProductCardProps(hit: SearchHit) {
     stock: hit.stockQty,
     availabilityStatus: hit.availabilityStatus,
     cta: hit.cta,
-    detailUrl: hit.detailUrl
+    detailUrl: hit.detailUrl ?? undefined
   }
 }

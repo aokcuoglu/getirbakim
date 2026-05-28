@@ -1,10 +1,16 @@
-import { toCategorySlug } from '@/lib/seo/sitemap'
+function toSlug(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9çğıöşü]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
 
 export function toBrandSlug(
   ptUrlKey: string | null | undefined,
   brandName: string
 ): string {
-  return toCategorySlug(ptUrlKey, brandName)
+  if (ptUrlKey) return toSlug(ptUrlKey)
+  return toSlug(brandName)
 }
 
 export function buildBrandPath(slug: string): string {

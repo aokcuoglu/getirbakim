@@ -15,7 +15,7 @@
 import 'dotenv/config'
 import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
-import { ensureStorageBucket } from '../lib/suppliers/parts2world/common'
+import { createAdminClient } from '../lib/supabase/storage'
 import {
   getStoragePublicUrl,
   uploadImageFromUrl
@@ -182,7 +182,8 @@ async function main() {
     return
   }
 
-  await ensureStorageBucket(BUCKET, true)
+  const adminClient = createAdminClient()
+  await adminClient.storage.createBucket(BUCKET, { public: true }).catch(() => {})
 
   const failures: Array<{ id: number; name: string; reason: string }> = []
   let cursor = 0

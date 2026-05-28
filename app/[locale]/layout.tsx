@@ -3,7 +3,6 @@ import type { Metadata } from 'next'
 import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import { notFound } from 'next/navigation'
-import { VehicleDataProvider } from '@/lib/context/VehicleDataProvider'
 import { ShopProvider } from '@/components/ShopProvider'
 import { QueryProvider } from '@/components/QueryProvider'
 import { Toaster } from '@/components/ui/sonner'
@@ -13,10 +12,6 @@ import { GlobalCartDrawer } from '@/components/GlobalCartDrawer'
 import ChatAssistant from '@/components/ChatAssistant'
 import { resolveSiteUrl, isIndexingAllowed } from '@/lib/site-url'
 import { Geist, Geist_Mono } from 'next/font/google'
-import {
-  buildOrganizationJsonLd,
-  buildWebSiteJsonLd
-} from '@/lib/seo/structured-data'
 
 export const metadata: Metadata = {
   metadataBase: new URL(resolveSiteUrl()),
@@ -83,26 +78,16 @@ export default async function RootLayout({
   // Providing all messages to the client
   // side is the easiest way to get started
   const messages = await getCachedMessages(locale)
-  const organizationJsonLd = buildOrganizationJsonLd()
-  const websiteJsonLd = buildWebSiteJsonLd(locale)
 
   return (
     <html lang={locale} className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="min-h-full flex flex-col font-sans">
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
-        />
         <CookieYesLoader />
         <ConsoleWarningSuppressor />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <QueryProvider>
             <ShopProvider>
-              <VehicleDataProvider>{children}</VehicleDataProvider>
+              {children}
               <ChatAssistant />
               <GlobalCartDrawer />
               <Toaster />

@@ -48,7 +48,7 @@ import type {
   SearchSort
 } from '@/lib/types/search'
 import { SearchSidebar } from '@/components/search/SearchSidebar'
-import { CustomerRequestDialog } from '@/components/customer-requests/CustomerRequestDialog'
+
 
 // Convert SearchHit to ProductCard props
 function mapHitToProductCardProps(hit: SearchHit) {
@@ -330,16 +330,9 @@ export default function SearchPageClient() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   Farklı arama terimleri veya filtreler deneyin
                 </p>
-                <CustomerRequestDialog
-                  requestType="MISSING_PRODUCT"
-                  source="MISSING_PRODUCT_MODAL"
-                  searchQuery={filters.query}
-                  trigger={
-                    <Button className="mt-4 bg-success text-success-foreground hover:bg-success/90">
-                      Ürünü bulamadım
-                    </Button>
-                  }
-                />
+                <Button className="mt-4 bg-success text-success-foreground hover:bg-success/90" disabled>
+                  Ürünü bulamadım
+                </Button>
               </div>
             )}
 
