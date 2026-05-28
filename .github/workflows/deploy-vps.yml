@@ -13,6 +13,8 @@ on:
 
 jobs:
   deploy:
+    # Only deploy pure semver tags (e.g. v0.3.0), skip dev tags with suffix (e.g. v0.3.0-dev-cleanup)
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
