@@ -1,5 +1,5 @@
 /**
- * Full Dinamik catalog pipeline (dbrands → dproducts per brand → dbrands_match).
+ * Full Dinamik catalog pipeline (dnbrd → dnprd per brand → dpbrd).
  *
  *   bun scripts/run-dinamik-catalog-pipeline.ts
  *   SKIP_DPRODUCTS=true bun scripts/run-dinamik-catalog-pipeline.ts
@@ -42,7 +42,7 @@ async function syncBrandDproducts(brand: string): Promise<{
   error?: string
 }> {
   const params = new URLSearchParams({ brand, apply: 'true' })
-  const url = `${BASE_URL}/api/internal/suppliers/dinamik/dproducts-sync?${params}`
+  const url = `${BASE_URL}/api/internal/suppliers/dinamik/dnprd-sync?${params}`
 
   try {
     const response = await fetch(url, {
@@ -111,21 +111,21 @@ async function main() {
   }
 
   console.log(
-    '[pipeline] 1/3 dbrands reconcile (API upsert; API dışı üretici kopyaları temizlenir)'
+    '[pipeline] 1/3 dnbrd reconcile (API upsert; API dışı üretici kopyaları temizlenir)'
   )
   const reconcile = (await cronGet(
-    '/api/internal/suppliers/dinamik/dbrands-reconcile?apply=true&syncFromApi=true'
+    '/api/internal/suppliers/dinamik/dnbrd-reconcile?apply=true&syncFromApi=true'
   )) as {
     removedManufacturerOnly?: number
     insertedFromApi?: number
-    audit?: { manufacturerOnlyInDbrands?: number; dbrandsTotal?: number }
+    audit?: { manufacturerOnlyInDbrands?: number; dnbrdTotal?: number }
   }
   console.log(
     JSON.stringify(
       {
         removedNonApiManufacturerDupes: reconcile.removedManufacturerOnly,
         apiInserted: reconcile.insertedFromApi,
-        dbrandsTotal: reconcile.audit?.dbrandsTotal,
+        dnbrdTotal: reconcile.audit?.dnbrdTotal,
         manufacturerOnly: reconcile.audit?.manufacturerOnlyInDbrands
       },
       null,
@@ -134,18 +134,18 @@ async function main() {
   )
 
   if (SKIP_DPRODUCTS) {
-    console.log('[pipeline] dproducts atlandı (SKIP_DPRODUCTS=true)')
+    console.log('[pipeline] dnprd atlandı (SKIP_DPRODUCTS=true)')
   } else {
     const brands = ONLY_BRAND
       ? [ONLY_BRAND]
       : (
-          await db.dbrands.findMany({
+          await db.dnmk_brands.findMany({
             select: { brand: true },
             orderBy: { brand: 'asc' }
           })
         ).map((row) => row.brand.trim()).filter(Boolean)
 
-    console.log(`[pipeline] 2/3 dproducts sync (${brands.length} marka, concurrency=${BRAND_CONCURRENCY})`)
+    console.log(`[pipeline] 2/3 dnprd sync (${brands.length} marka, concurrency=${BRAND_CONCURRENCY})`)
     let done = 0
     let failed = 0
     let fetchedTotal = 0
@@ -161,7 +161,7 @@ async function main() {
         passiveTotal += row.markedPassive ?? 0
         if (done % 25 === 0 || done === brands.length) {
           console.log(
-            `[pipeline] dproducts ${done}/${brands.length} — son: ${brand} (+${row.fetched ?? 0} satır)`
+            `[pipeline] dnprd ${done}/${brands.length} — son: ${brand} (+${row.fetched ?? 0} satır)`
           )
         }
       } else {
@@ -197,7 +197,7 @@ async function main() {
       failedRows = results.filter((row) => !row.ok)
     }
 
-    console.log('[pipeline] dproducts özet:', {
+    console.log('[pipeline] dnprd özet:', {
       brands: brands.length,
       ok: brands.length - failedRows.length,
       failed: failedRows.length,
@@ -210,9 +210,9 @@ async function main() {
     }
   }
 
-  console.log('[pipeline] 3/3 dbrands_match seed')
+  console.log('[pipeline] 3/3 dpbrd seed')
   const match = (await cronGet(
-    '/api/internal/suppliers/dinamik/dbrands-match?apply=true&runAutoMatch=true'
+    '/api/internal/suppliers/dinamik/dnbrd-match?apply=true&runAutoMatch=true'
   )) as { matchTotalAfter?: number; insertedAutoMatched?: number }
   console.log(JSON.stringify(match, null, 2))
 

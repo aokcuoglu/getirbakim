@@ -3,7 +3,7 @@ import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-path
 import {
   getApprovedDbrandsMatchById,
   setApprovedDbrandsMatchLogo
-} from '@/lib/admin/approved-dbrands-catalog'
+} from '@/lib/admin/approved-dnbrd-catalog'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import {
@@ -15,7 +15,7 @@ import { ensureStorageBucket } from '@/lib/suppliers/parts2world/common'
 import { uploadImageBuffer } from '@/lib/supabase/storage'
 
 const BUCKET = 'brand-logos'
-const STORAGE_PREFIX = 'dbrands-match'
+const STORAGE_PREFIX = 'dnbrd-match'
 const ALLOWED_TYPES = new Set([
   'image/jpeg',
   'image/png',

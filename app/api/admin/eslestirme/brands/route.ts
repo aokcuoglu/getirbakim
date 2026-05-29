@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
-import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dbrands-match-approve'
-import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dbrands-match-cleanup'
+import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dnbrd-match-approve'
+import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dnbrd-match-cleanup'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
@@ -10,10 +10,10 @@ const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as 
 const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
-  dbrands_id: 'd.brand',
+  dnmk_brands_id: 'd.brand',
   dinamikBrand: 'd.brand',
   mapping_status: 'a.mapping_status',
-  normalizedName: 'a.normalized',
+  normalizedName: 'a.normalized_brand',
   matchMethod: 'a.match_method',
 }
 
@@ -35,7 +35,7 @@ function buildWhereClause(input: {
   if (input.q) {
     const pattern = `%${input.q.replace(/[%_\\]/g, '\\$&')}%`
     conditions.push(
-      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized ILIKE ${pattern})`
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized_brand ILIKE ${pattern})`
     )
   }
   if (status !== 'all') {
@@ -47,14 +47,14 @@ function buildWhereClause(input: {
     )
   }
   if (input.manufacturerId) {
-    conditions.push(Prisma.sql`a.ptbrands_id = ${input.manufacturerId}`)
+    conditions.push(Prisma.sql`a.ptdrk_brands_id = ${input.manufacturerId}`)
   }
   if (input.matchSide === 'matched') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.ptbrands_id IS NOT NULL`)
+    conditions.push(Prisma.sql`a.dnmk_brands_id IS NOT NULL AND a.ptdrk_brands_id IS NOT NULL`)
   } else if (input.matchSide === 'dinamik_only') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NOT NULL AND a.ptbrands_id IS NULL`)
+    conditions.push(Prisma.sql`a.dnmk_brands_id IS NOT NULL AND a.ptdrk_brands_id IS NULL`)
   } else if (input.matchSide === 'pt_only') {
-    conditions.push(Prisma.sql`a.dbrands_id IS NULL AND a.ptbrands_id IS NOT NULL`)
+    conditions.push(Prisma.sql`a.dnmk_brands_id IS NULL AND a.ptdrk_brands_id IS NOT NULL`)
   }
 
   if (conditions.length === 0) return Prisma.sql`1=1`
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
     })
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dbrands_match a LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands a LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -120,25 +120,25 @@ export async function GET(request: NextRequest) {
 
     const rows = await db.$queryRaw<
       Array<{
-        id: number; dinamik_brand: string | null; normalized: string
-        ptbrands_id: number | null; manufacturer_name: string
+        id: number; dinamik_brand: string | null; normalized_brand: string
+        ptdrk_brands_id: number | null; manufacturer_name: string
         mapping_status: string; match_method: string | null
       }>
     >(Prisma.sql`
       SELECT a.id, d.brand AS dinamik_brand,
-             a.normalized,
-             a.ptbrands_id, m.name AS manufacturer_name,
+             a.normalized_brand,
+             a.ptdrk_brands_id, m.name AS manufacturer_name,
              a.mapping_status, a.match_method
-      FROM v0.dbrands_match a
-      LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
-      LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
+      FROM v0.dnmk_ptdrk_brands a
+      LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
+      LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
       WHERE ${whereClause}
       ORDER BY ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
     `)
 
     const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dbrands_match GROUP BY mapping_status`
+      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dnmk_ptdrk_brands GROUP BY mapping_status`
     )
 
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
@@ -147,8 +147,8 @@ export async function GET(request: NextRequest) {
       rows: rows.map(r => ({
         id: r.id,
         dinamikBrand: r.dinamik_brand ?? '',
-        normalizedName: r.normalized ?? '',
-        parcatedarikManufacturerId: r.ptbrands_id ?? null,
+        normalizedName: r.normalized_brand ?? '',
+        parcatedarikManufacturerId: r.ptdrk_brands_id ?? null,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
         return errorResponse({ status: 400, code: 'INVALID_IDS', message: '1-500 ID gerekli.', context })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
+        Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
       )
       await removeRedundantDbrandsMatchRows()
       return successResponse({ approved: result, message: `${result} eşleştirme onaylandı.` }, context)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orchestrate full ptproducts scrape: approved dbrands_match brands first, then rest."""
+"""Orchestrate full ptprd scrape: approved dpbrd brands first, then rest."""
 
 from __future__ import annotations
 
@@ -64,8 +64,8 @@ def ordered_url_keys(conn) -> list[str]:
         cur.execute(
             """
             SELECT DISTINCT pb.url_key
-            FROM v0.dbrands_match dm
-            JOIN v0.ptbrands pb ON pb.id = dm.ptbrands_id
+            FROM v0.dpbrd dm
+            JOIN v0.ptbrd pb ON pb.id = dm.ptbrands_id
             WHERE dm.mapping_status = 'APPROVED'
               AND dm.dbrands_id IS NOT NULL
               AND dm.ptbrands_id IS NOT NULL
@@ -75,7 +75,7 @@ def ordered_url_keys(conn) -> list[str]:
         )
         approved = [r[0] for r in cur.fetchall()]
         cur.execute(
-            'SELECT url_key FROM "v0"."ptbrands" WHERE url_key IS NOT NULL ORDER BY url_key'
+            'SELECT url_key FROM "v0"."ptbrd" WHERE url_key IS NOT NULL ORDER BY url_key'
         )
         all_keys = [r[0] for r in cur.fetchall()]
     approved_set = set(approved)
@@ -632,7 +632,7 @@ def run_pipeline(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Full ptproducts scrape orchestrator")
+    parser = argparse.ArgumentParser(description="Full ptprd scrape orchestrator")
     parser.add_argument(
         "--phase",
         choices=["metadata", "images", "both", "pipeline"],

@@ -15,7 +15,7 @@ import { Link } from '@/lib/navigation'
 import type {
   AdminApprovedBrandListResult,
   AdminApprovedBrandRow
-} from '@/lib/admin/approved-dbrands-catalog'
+} from '@/lib/admin/approved-dnbrd-catalog'
 import { DataTable } from '@/components/admin/data-table/data-table'
 import { createApprovedBrandColumns } from './approved-brand-columns'
 

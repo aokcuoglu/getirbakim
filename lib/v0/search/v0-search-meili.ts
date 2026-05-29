@@ -48,9 +48,9 @@ function meiliDocToBrandRow(doc: V0MeiliDocument): V0BrandMatchRow {
   const slug = doc.detailUrl.replace(/^\/b\//, '')
   return {
     matchId: doc.matchId,
-    dbrandsId: null,
-    dbrandsIds: [],
-    ptbrandsId: null,
+    dnbrdId: null,
+    dnbrdIds: [],
+    ptbrdId: null,
     brandName: doc.brandName,
     ptUrlKey: null,
     logoUrl: doc.brandLogo,
@@ -155,11 +155,11 @@ export async function searchV0CatalogMeili(options: {
     const sqlRows = productDocs.map(
       (doc): V0DpmatchProductRow => ({
         matchId: doc.matchId,
-        dproductsId: null,
-        ptproductsId: null,
+        dnprdId: null,
+        ptprdId: null,
         mappingStatus: 'APPROVED',
         matchMethod: null,
-        normalized: null,
+        normalized_name: null,
         dinamikStockCode: null,
         dinamikStockName: null,
         dinamikBrand: doc.brandName,

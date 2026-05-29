@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { getDbrandsMatchPtBrandColumn } from '@/lib/admin/v0-dbrands-match-schema'
+import { getDbrandsMatchPtBrandColumn } from '@/lib/admin/v0-dnbrd-match-schema'
 
 export type DinamikBrandMatchStats = {
   totalDinamikBrands: number
@@ -10,7 +10,7 @@ export type DinamikBrandMatchStats = {
 }
 
 /**
- * Brand coverage from canonical dbrands + dbrands_match (not dproducts scans).
+ * Brand coverage from canonical dnbrd + dpbrd (not dnprd scans).
  */
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
   const ptBrandCol = await getDbrandsMatchPtBrandColumn()
@@ -27,18 +27,18 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dbrands) AS total_dinamik_brands,
+      (SELECT COUNT(*)::int FROM v0.dnmk_brands) AS total_dinamik_brands,
       (
         SELECT COUNT(*)::int
-        FROM v0.dbrands d
+        FROM v0.dnmk_brands d
         WHERE EXISTS (
           SELECT 1
-          FROM v0.dbrands_match a
-          WHERE a.dbrands_id = d.id
+          FROM v0.dnmk_ptdrk_brands a
+          WHERE a.dnmk_brands_id = d.id
             AND ${activeMatch}
         )
       ) AS matched_brands,
-      (SELECT COUNT(*)::int FROM v0.ptbrands) AS total_pc_manufacturers
+      (SELECT COUNT(*)::int FROM v0.ptdrk_brands) AS total_pc_manufacturers
   `)
 
   const total = row?.total_dinamik_brands ?? 0

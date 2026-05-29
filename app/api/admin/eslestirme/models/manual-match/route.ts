@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
-import { approveDpmatchRows } from '@/lib/admin/dpmatch-normalized'
+import { approveDpmatchRows } from '@/lib/admin/dpprd-normalized'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { linkDpmatchPair } from '@/lib/admin/dpmatch-link'
+import { linkDpmatchPair } from '@/lib/admin/dpprd-link'
 
 export async function POST(request: NextRequest) {
   const auth = await getAdminAuth()
@@ -16,14 +16,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const matchId = body.matchId ? parseInt(String(body.matchId), 10) : null
-    const dproductsId = body.dproductsId ? BigInt(String(body.dproductsId)) : null
+    const dnprdId = body.dnprdId ? BigInt(String(body.dnprdId)) : null
     const productId = body.productId ? Number(body.productId) : null
 
     if (matchId && isNaN(matchId)) return errorResponse({ status: 400, code: 'INVALID_INPUT', message: 'Geçersiz eşleşme ID.', context })
 
     if (matchId) {
       const match = await db.$queryRaw<Array<{ id: number }>>(
-        Prisma.sql`SELECT id FROM v0.dpmatch WHERE id = ${matchId}`
+        Prisma.sql`SELECT id FROM v0.dnmk_ptdrk_products WHERE id = ${matchId}`
       )
       if (!match || match.length === 0) return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
 
@@ -31,9 +31,9 @@ export async function POST(request: NextRequest) {
       return successResponse({ message: 'Eşleştirme onaylandı.', id: matchId }, context)
     }
 
-    if (dproductsId && productId) {
+    if (dnprdId && productId) {
       const result = await linkDpmatchPair({
-        dproductsId,
+        dnprdId,
         productId,
         mappingStatus: 'APPROVED',
         matchMethod: 'MANUAL',
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       return successResponse({ message, id: result.id }, context)
     }
 
-    return errorResponse({ status: 400, code: 'MISSING_INPUT', message: 'matchId veya (dproductsId + productId) gerekli.', context })
+    return errorResponse({ status: 400, code: 'MISSING_INPUT', message: 'matchId veya (dnprdId + productId) gerekli.', context })
   } catch (error) {
     console.error('[eslestirme:models:manual-match] Error:', error)
     return errorResponse({ status: 500, code: 'INTERNAL_ERROR', message: 'Manuel eşleştirme sırasında hata oluştu.', context })

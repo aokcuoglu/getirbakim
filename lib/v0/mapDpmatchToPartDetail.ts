@@ -51,8 +51,8 @@ function buildProperties(row: V0DpmatchProductRow): { key: string; value: string
   if (row.ptModel?.trim()) {
     properties.push({ key: 'Model', value: row.ptModel.trim() })
   }
-  if (row.normalized?.trim()) {
-    properties.push({ key: 'Normalized', value: row.normalized.trim() })
+  if (row.normalized_name?.trim()) {
+    properties.push({ key: 'Normalized', value: row.normalized_name.trim() })
   }
   if (row.matchMethod?.trim()) {
     properties.push({ key: 'Match Method', value: row.matchMethod.trim() })
@@ -70,7 +70,7 @@ function buildOems(row: V0DpmatchProductRow): { brand: string; code: string }[] 
     row.dinamikBarcode3,
     row.ptRefNo,
     row.ptModel,
-    row.normalized
+    row.normalized_name
   ].filter((value): value is string => Boolean(value?.trim()))
 
   const seen = new Set<string>()
@@ -166,7 +166,9 @@ export function mapDpmatchToPartMetadata(row: V0DpmatchProductRow): PartMetadata
   }
 }
 
-export function mapDpmatchToPartTabsData(row: V0DpmatchProductRow): PartTabsData {
+export function mapDpmatchToPartTabsData(
+  row: V0DpmatchProductRow
+): PartTabsData {
   const infos: string[] = []
   if (row.dinamikStockName?.trim()) {
     infos.push(row.dinamikStockName.trim())

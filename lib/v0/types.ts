@@ -4,11 +4,11 @@ import type { TopCategoryItem } from '@/components/hero/TopCategories'
 
 export type V0DpmatchProductRow = {
   matchId: number
-  dproductsId: string | null
-  ptproductsId: number | null
+  dnprdId: string | null
+  ptprdId: number | null
   mappingStatus: string
   matchMethod: string | null
-  normalized: string | null
+  normalized_name: string | null
   dinamikStockCode: string | null
   dinamikStockName: string | null
   dinamikBrand: string | null
@@ -25,17 +25,17 @@ export type V0DpmatchProductRow = {
   ptImageUrl: string | null
   ptUrl: string | null
   ptManufacturerName: string | null
-  /** Canonical brand from v0.dbrands_match when approved. */
+  /** Canonical brand from v0.dnmk_ptdrk_brands when approved. */
   matchedBrandName?: string | null
   brandLogoUrl: string | null
 }
 
 export type V0BrandMatchRow = {
   matchId: number
-  dbrandsId: string | null
+  dnbrdId: string | null
   /** All Dinamik brand ids in this normalized group (for product queries). */
-  dbrandsIds: string[]
-  ptbrandsId: number | null
+  dnbrdIds: string[]
+  ptbrdId: number | null
   brandName: string
   ptUrlKey: string | null
   logoUrl: string | null

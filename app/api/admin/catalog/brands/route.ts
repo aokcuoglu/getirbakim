@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { listApprovedDbrandsForAdmin } from '@/lib/admin/approved-dbrands-catalog'
+import { listApprovedDbrandsForAdmin } from '@/lib/admin/approved-dnbrd-catalog'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 

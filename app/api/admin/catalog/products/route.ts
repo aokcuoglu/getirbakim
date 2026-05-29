@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { listDpmatchForAdmin } from '@/lib/admin/dpmatch-catalog'
+import { listDpmatchForAdmin } from '@/lib/admin/dpprd-catalog'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 

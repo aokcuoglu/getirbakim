@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dbrands-catalog'
+import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dnbrd-catalog'
 
 export function BrandLogoUploadCell({
   row,

@@ -1,4 +1,4 @@
-import { listApprovedDbrandsForAdmin } from '@/lib/admin/approved-dbrands-catalog'
+import { listApprovedDbrandsForAdmin } from '@/lib/admin/approved-dnbrd-catalog'
 import { ApprovedBrandsAdminClient } from './ApprovedBrandsAdminClient'
 
 export async function BrandsAdminContent({

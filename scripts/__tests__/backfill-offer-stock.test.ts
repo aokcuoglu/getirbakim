@@ -45,14 +45,14 @@ describe('backfill-approved-dinamik-parcatedarik-offer-stock dry-run validation'
     expect(result).toBe('TRY')
   })
 
-  it('price fallback prefers supplier_products.supplier_price over dproduct_details.price', () => {
+  it('price fallback prefers supplier_products.supplier_price over dnprdt.price', () => {
     const supplierPrice = '459.81'
     const offerPrice = '450.00'
     const expectedPrice = supplierPrice ?? offerPrice
     expect(expectedPrice).toBe('459.81')
   })
 
-  it('price fallback uses dproduct_details.price when supplier_products.supplier_price is null', () => {
+  it('price fallback uses dnprdt.price when supplier_products.supplier_price is null', () => {
     const supplierPrice = null
     const offerPrice = '450.00'
     const expectedPrice = supplierPrice ?? offerPrice

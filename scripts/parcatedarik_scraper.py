@@ -62,7 +62,7 @@ PAGE_SIZE = 120
 REQUEST_DELAY = 1.0
 MAX_RETRIES = 3
 # Report-only threshold for long ref_no samples. ref_no must NEVER be truncated on
-# scrape or upsert — store the full site value exactly (ptproducts.ref_no is text).
+# scrape or upsert — store the full site value exactly (ptprd.ref_no is text).
 REF_NO_WARN_LENGTH = 80
 
 
@@ -343,7 +343,7 @@ def load_manufacturers_from_db(conn):
     manufacturers = []
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT name, url_key FROM "v0"."ptbrands" ORDER BY name'
+            'SELECT name, url_key FROM "v0"."ptbrd" ORDER BY name'
         )
         for row in cur.fetchall():
             name, url_key = row
@@ -360,7 +360,7 @@ def ensure_manufacturer_in_db(conn, name, url):
     with conn.cursor() as cur:
         # Önce url_key üzerinden mevcut mu kontrol et
         cur.execute(
-            'SELECT id FROM "v0"."ptbrands" WHERE url_key = %s',
+            'SELECT id FROM "v0"."ptbrd" WHERE url_key = %s',
             (url_key,),
         )
         row = cur.fetchone()
@@ -370,7 +370,7 @@ def ensure_manufacturer_in_db(conn, name, url):
         # Yoksa ekle
         cur.execute(
             """
-            INSERT INTO "v0"."ptbrands" (name, url_key, created_at, updated_at)
+            INSERT INTO "v0"."ptbrd" (name, url_key, created_at, updated_at)
             VALUES (%s, %s, NOW(), NOW())
             ON CONFLICT (url_key) DO UPDATE SET 
                 name = EXCLUDED.name,
@@ -389,7 +389,7 @@ def fetch_existing_image_urls_by_urls(conn, urls):
         return {}
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT url, image_url FROM "v0"."ptproducts" WHERE url = ANY(%s)',
+            'SELECT url, image_url FROM "v0"."ptprd" WHERE url = ANY(%s)',
             (urls,),
         )
         return {row[0]: row[1] for row in cur.fetchall()}
@@ -429,7 +429,7 @@ def upsert_product(
 
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT id, price, image_url, ref_no, title, model, sku, price_actual FROM "v0"."ptproducts" WHERE url = %s',
+            'SELECT id, price, image_url, ref_no, title, model, sku, price_actual FROM "v0"."ptprd" WHERE url = %s',
             (url,),
         )
         existing = cur.fetchone()
@@ -497,14 +497,14 @@ def upsert_product(
             set_clause = ", ".join([u[0] for u in updates] + ["updated_at = NOW()"])
             values = [u[1] for u in updates] + [existing_id]
             cur.execute(
-                f'UPDATE "v0"."ptproducts" SET {set_clause} WHERE id = %s',
+                f'UPDATE "v0"."ptprd" SET {set_clause} WHERE id = %s',
                 values,
             )
             return ("updated", existing_id)
 
         cur.execute(
             """
-            INSERT INTO "v0"."ptproducts"
+            INSERT INTO "v0"."ptprd"
                 (ptbrands_id, product_id, title, url, image_url, ref_no, model, sku, price, price_actual, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (url) DO UPDATE
@@ -589,7 +589,7 @@ def decimal_equal(left, right):
 def get_brand_by_url_key(conn, url_key):
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT id, name, url_key FROM "v0"."ptbrands" WHERE url_key = %s',
+            'SELECT id, name, url_key FROM "v0"."ptbrd" WHERE url_key = %s',
             (url_key.strip().lower(),),
         )
         row = cur.fetchone()
@@ -603,7 +603,7 @@ def load_db_products_for_brand(conn, ptbrands_id):
         cur.execute(
             """
             SELECT url, title, ref_no, model, price, product_id, sku, price_actual
-            FROM "v0"."ptproducts"
+            FROM "v0"."ptprd"
             WHERE ptbrands_id = %s
             """,
             (ptbrands_id,),
@@ -626,7 +626,7 @@ def load_db_products_for_brand(conn, ptbrands_id):
 def build_product_record(
     *,
     ptbrands_id,
-    ptbrands_url_key,
+    ptbrd_url_key,
     product_id,
     title,
     url,
@@ -639,7 +639,7 @@ def build_product_record(
 ):
     return {
         "ptbrands_id": ptbrands_id,
-        "ptbrands_url_key": ptbrands_url_key,
+        "ptbrd_url_key": ptbrd_url_key,
         "product_id": product_id,
         "title": title,
         "url": url,
@@ -929,7 +929,7 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name, 
             products.append(
                 build_product_record(
                     ptbrands_id=ptbrands_id,
-                    ptbrands_url_key=brand_slug,
+                    ptbrd_url_key=brand_slug,
                     product_id=product_id,
                     title=title,
                     url=f"{BASE_URL}{href}",
@@ -985,7 +985,7 @@ def parse_products_from_html(html_content, manufacturer_url, manufacturer_name, 
         products.append(
             build_product_record(
                 ptbrands_id=ptbrands_id,
-                ptbrands_url_key=brand_slug,
+                ptbrd_url_key=brand_slug,
                 product_id=product_id,
                 title=title,
                 url=product_url,
@@ -1050,7 +1050,7 @@ def get_existing_product_ids(conn, manufacturer_id):
     """DB'den bu üreticinin mevcut ürün ID'lerini çek."""
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT product_id FROM "v0"."ptproducts" WHERE ptbrands_id = %s',
+            'SELECT product_id FROM "v0"."ptprd" WHERE ptbrands_id = %s',
             (manufacturer_id,),
         )
         return {row[0] for row in cur.fetchall()}
@@ -1110,7 +1110,7 @@ def get_parcatedarik_image_rows(conn, manufacturer_id):
         cur.execute(
             """
             SELECT id, product_id, image_url
-            FROM "v0"."ptproducts"
+            FROM "v0"."ptprd"
             WHERE ptbrands_id = %s
               AND image_url IS NOT NULL
               AND image_url ILIKE %s
@@ -1158,7 +1158,7 @@ def upload_brand_images_only(
         return name
 
     image_uploader = PtProductImageUploader(session=session)
-    print(f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptproducts)")
+    print(f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptprd)")
 
     batch_size = max(120, workers * 20)
     updated = 0
@@ -1182,7 +1182,7 @@ def upload_brand_images_only(
                 new_url = resolved.get(row["product_id"])
                 if new_url and new_url != row["image_url"]:
                     cur.execute(
-                        'UPDATE "v0"."ptproducts" SET image_url = %s, updated_at = NOW() WHERE id = %s',
+                        'UPDATE "v0"."ptprd" SET image_url = %s, updated_at = NOW() WHERE id = %s',
                         (new_url, row["id"]),
                     )
                     updated += 1
@@ -1224,7 +1224,7 @@ def scrape_manufacturer(
     if upload_images and not dry_run:
         image_uploader = PtProductImageUploader(session=session)
         print(
-            f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptproducts, workers={workers})"
+            f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptprd, workers={workers})"
         )
 
     # Üreticiyi DB'ye ekle/güncelle
@@ -1400,7 +1400,7 @@ def main():
     parser.add_argument(
         "--brand-url-key",
         type=str,
-        help="Tek veya virgülle ayrılmış ptbrands url_key (örn. 3rg,borgwarner)",
+        help="Tek veya virgülle ayrılmış ptbrd url_key (örn. 3rg,borgwarner)",
     )
     parser.add_argument(
         "--dry-run",

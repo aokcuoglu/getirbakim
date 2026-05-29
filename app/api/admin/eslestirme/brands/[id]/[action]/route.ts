@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
-import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dbrands-match-cleanup'
+import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dnbrd-match-cleanup'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -32,17 +32,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     switch (action) {
       case 'approve': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'APPROVED' WHERE id = ${id}`)
         await removeRedundantDbrandsMatchRows()
         revalidateAdminCatalogPaths()
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
       }
       case 'reject': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'REJECTED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'REJECTED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi reddedildi.' }, context)
       }
       case 'ignore': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET mapping_status = 'IGNORED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'IGNORED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi yoksayıldı.' }, context)
       }
       case 'update': {
@@ -55,14 +55,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz parcatedarikManufacturerId.', context })
           }
           const manufacturer = await db.$queryRaw<Array<{ id: number; name: string }>>(
-            Prisma.sql`SELECT id, name FROM v0.ptbrands WHERE id = ${mfrId}`
+            Prisma.sql`SELECT id, name FROM v0.ptdrk_brands WHERE id = ${mfrId}`
           )
           if (!manufacturer || manufacturer.length === 0) {
             return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Üretici bulunamadı.', context })
           }
           const mfrName = manufacturer[0].name
           const normalized = normalizeModel(mfrName) || ''
-          await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET ptbrands_id = ${mfrId}, normalized = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET ptdrk_brands_id = ${mfrId}, normalized_brand = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
           await removeRedundantDbrandsMatchRows()
           revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
@@ -74,12 +74,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz dinamikBrandId.', context })
           }
           const brand = await db.$queryRaw<Array<{ id: number; brand: string }>>(
-            Prisma.sql`SELECT id::int AS id, brand FROM v0.dbrands WHERE id = ${brandId}`
+            Prisma.sql`SELECT id::int AS id, brand FROM v0.dnmk_brands WHERE id = ${brandId}`
           )
           if (!brand || brand.length === 0) {
             return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Dinamik marka bulunamadı.', context })
           }
-          await db.$executeRaw(Prisma.sql`UPDATE v0.dbrands_match SET dbrands_id = ${brandId}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET dnmk_brands_id = ${brandId}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
           await removeRedundantDbrandsMatchRows()
           revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         })
       }
       case 'delete': {
-        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dbrands_match WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dnmk_ptdrk_brands WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }
       default:

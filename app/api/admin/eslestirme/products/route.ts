@@ -6,11 +6,11 @@ import { Prisma } from '@prisma/client'
 import {
   dproductDbrandJoin,
   dproductBrandNameExpr
-} from '@/lib/sql/dproduct-catalog'
+} from '@/lib/sql/dnprd-catalog'
 import {
   dproductDetailsJoin,
   dproductDetailsPriceExpr
-} from '@/lib/sql/dproduct-details'
+} from '@/lib/sql/dnprd-details'
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
   stock_code: 'd.stock_code',
@@ -53,18 +53,18 @@ export async function GET(request: NextRequest) {
 
     const [countRows, summaryRows, rows] = await Promise.all([
       db.$queryRaw<Array<{ total: bigint }>>(
-        Prisma.sql`SELECT COUNT(*)::int AS total FROM v0.dproducts d ${dproductDbrandJoin} ${dproductDetailsJoin} WHERE 1=1 ${qCondition}`
+        Prisma.sql`SELECT COUNT(*)::int AS total FROM v0.dnmk_products d ${dproductDbrandJoin} ${dproductDetailsJoin} WHERE 1=1 ${qCondition}`
       ),
       db.$queryRaw<Array<{ total: bigint; distinct_brands: bigint; priced_rows: bigint; with_barcode: bigint }>>(
         Prisma.sql`
           SELECT
             COUNT(*)::int AS total,
-            COUNT(DISTINCT d.dbrands_id)::int AS distinct_brands,
+            COUNT(DISTINCT d.dnmk_brands_id)::int AS distinct_brands,
             COUNT(*) FILTER (WHERE ${dproductDetailsPriceExpr} IS NOT NULL)::int AS priced_rows,
             COUNT(*) FILTER (
               WHERE d.barcode_1 IS NOT NULL OR d.barcode_2 IS NOT NULL OR d.barcode_3 IS NOT NULL
             )::int AS with_barcode
-          FROM v0.dproducts d
+          FROM v0.dnmk_products d
           ${dproductDbrandJoin}
           ${dproductDetailsJoin}
           WHERE 1=1 ${qCondition}
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
             d.barcode_2,
             d.barcode_3,
             ${dproductDetailsPriceExpr}::text AS price
-          FROM v0.dproducts d
+          FROM v0.dnmk_products d
           ${dproductDbrandJoin}
           ${dproductDetailsJoin}
           WHERE 1=1 ${qCondition}

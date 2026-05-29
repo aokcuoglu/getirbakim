@@ -1,10 +1,10 @@
 /**
  * Scrape manufacturer logos from parcatedarik.com/manufacturer/all
- * and update v0.ptbrands.logo_url (matched by url_key, then name).
+ * and update v0.ptdrk_brands.logo_url (matched by url_key, then name).
  *
  * Usage:
- *   bun scripts/sync-ptbrands-logos.ts              # dry run (default)
- *   APPLY=true bun scripts/sync-ptbrands-logos.ts   # write to DB
+ *   bun scripts/sync-ptbrd-logos.ts              # dry run (default)
+ *   APPLY=true bun scripts/sync-ptbrd-logos.ts   # write to DB
  *
  * Optional:
  *   SKIP_MIGRATION=true  Skip ADD COLUMN migration (column already exists)
@@ -70,24 +70,24 @@ function parseManufacturers(html: string): ScrapedBrand[] {
 
 async function applyMigration() {
   if (SKIP_MIGRATION) {
-    console.log('[sync-ptbrands-logos] Skipping migration (SKIP_MIGRATION=true)')
+    console.log('[sync-ptbrd-logos] Skipping migration (SKIP_MIGRATION=true)')
     return
   }
 
   const scriptDir = dirname(fileURLToPath(import.meta.url))
   const migrationPath = join(
     scriptDir,
-    '../prisma/migrations/20260526140000_ptbrands_logo_url/migration.sql'
+    '../prisma/migrations/20260526140000_ptbrd_logo_url/migration.sql'
   )
   const sql = readFileSync(migrationPath, 'utf8')
   await db.$executeRawUnsafe(sql)
-  console.log('[sync-ptbrands-logos] Applied migration:', migrationPath)
+  console.log('[sync-ptbrd-logos] Applied migration:', migrationPath)
 }
 
 async function fetchManufacturerPage(): Promise<string> {
   const response = await fetch(MANUFACTURERS_URL, {
     headers: {
-      'User-Agent': 'getirbakimv2-sync-ptbrands-logos/1.0',
+      'User-Agent': 'getirbakimv2-sync-ptbrd-logos/1.0',
       Accept: 'text/html'
     }
   })
@@ -100,7 +100,7 @@ async function fetchManufacturerPage(): Promise<string> {
 }
 
 async function main() {
-  console.log(`[sync-ptbrands-logos] Mode: ${DRY_RUN ? 'DRY RUN' : 'APPLY'}`)
+  console.log(`[sync-ptbrd-logos] Mode: ${DRY_RUN ? 'DRY RUN' : 'APPLY'}`)
 
   await applyMigration()
 
@@ -109,25 +109,25 @@ async function main() {
   if (URL_KEYS != null && URL_KEYS.length > 0) {
     scraped = scraped.filter((brand) => URL_KEYS.includes(brand.urlKey))
     console.log(
-      `[sync-ptbrands-logos] URL_KEYS filter active (${URL_KEYS.join(', ')}): ${scraped.length} brand(s)`
+      `[sync-ptbrd-logos] URL_KEYS filter active (${URL_KEYS.join(', ')}): ${scraped.length} brand(s)`
     )
   }
-  console.log(`[sync-ptbrands-logos] Scraped ${scraped.length} brands with logos from site`)
+  console.log(`[sync-ptbrd-logos] Scraped ${scraped.length} brands with logos from site`)
 
   if (scraped.length === 0) {
     throw new Error('No brands parsed from manufacturer page — HTML structure may have changed')
   }
 
-  const ptbrands = await db.$queryRaw<PtBrandRow[]>(Prisma.sql`
+  const ptbrd = await db.$queryRaw<PtBrandRow[]>(Prisma.sql`
     SELECT id, name, url_key, logo_url
-    FROM v0.ptbrands
+    FROM v0.ptdrk_brands
     ORDER BY id
   `)
 
   const byUrlKey = new Map<string, PtBrandRow>()
   const byName = new Map<string, PtBrandRow[]>()
 
-  for (const row of ptbrands) {
+  for (const row of ptbrd) {
     if (row.url_key) {
       byUrlKey.set(normalizeUrlKey(row.url_key), row)
     }
@@ -160,13 +160,13 @@ async function main() {
     })
   }
 
-  const ptbrandsWithoutLogo = ptbrands.filter((row) => !matchedPtBrandIds.has(row.id))
+  const ptbrdWithoutLogo = ptbrd.filter((row) => !matchedPtBrandIds.has(row.id))
 
-  console.log(`[sync-ptbrands-logos] ptbrands in DB: ${ptbrands.length}`)
-  console.log(`[sync-ptbrands-logos] Matched by url_key: ${matchedPtBrandIds.size}`)
-  console.log(`[sync-ptbrands-logos] Updates needed: ${updates.length}`)
-  console.log(`[sync-ptbrands-logos] Unmatched scraped brands: ${unmatchedScraped.length}`)
-  console.log(`[sync-ptbrands-logos] ptbrands without scraped logo: ${ptbrandsWithoutLogo.length}`)
+  console.log(`[sync-ptbrd-logos] ptbrd in DB: ${ptbrd.length}`)
+  console.log(`[sync-ptbrd-logos] Matched by url_key: ${matchedPtBrandIds.size}`)
+  console.log(`[sync-ptbrd-logos] Updates needed: ${updates.length}`)
+  console.log(`[sync-ptbrd-logos] Unmatched scraped brands: ${unmatchedScraped.length}`)
+  console.log(`[sync-ptbrd-logos] ptbrd without scraped logo: ${ptbrdWithoutLogo.length}`)
 
   if (unmatchedScraped.length > 0) {
     console.log('\nUnmatched scraped brands (first 20):')
@@ -178,21 +178,21 @@ async function main() {
     }
   }
 
-  if (ptbrandsWithoutLogo.length > 0 && ptbrandsWithoutLogo.length <= 20) {
-    console.log('\nptbrands without scraped logo:')
-    for (const row of ptbrandsWithoutLogo) {
+  if (ptbrdWithoutLogo.length > 0 && ptbrdWithoutLogo.length <= 20) {
+    console.log('\nptbrd without scraped logo:')
+    for (const row of ptbrdWithoutLogo) {
       console.log(`  - id=${row.id} name=${row.name} url_key=${row.url_key ?? 'null'}`)
     }
-  } else if (ptbrandsWithoutLogo.length > 20) {
-    console.log('\nptbrands without scraped logo (first 20):')
-    for (const row of ptbrandsWithoutLogo.slice(0, 20)) {
+  } else if (ptbrdWithoutLogo.length > 20) {
+    console.log('\nptbrd without scraped logo (first 20):')
+    for (const row of ptbrdWithoutLogo.slice(0, 20)) {
       console.log(`  - id=${row.id} name=${row.name} url_key=${row.url_key ?? 'null'}`)
     }
-    console.log(`  ... and ${ptbrandsWithoutLogo.length - 20} more`)
+    console.log(`  ... and ${ptbrdWithoutLogo.length - 20} more`)
   }
 
   if (unmatchedScraped.length > 0) {
-    console.log(`\n[sync-ptbrands-logos] Missing ptbrands to insert: ${unmatchedScraped.length}`)
+    console.log(`\n[sync-ptbrd-logos] Missing ptbrd to insert: ${unmatchedScraped.length}`)
     if (DRY_RUN) {
       for (const brand of unmatchedScraped) {
         console.log(`  - ${brand.name} (${brand.urlKey}) -> ${brand.logoUrl}`)
@@ -204,20 +204,20 @@ async function main() {
         )
       )
       const inserted = await db.$executeRaw(Prisma.sql`
-        INSERT INTO v0.ptbrands (name, url_key, logo_url, created_at, updated_at)
+        INSERT INTO v0.ptdrk_brands (name, url_key, logo_url, created_at, updated_at)
         SELECT v.name, v.url_key, v.logo_url, NOW(), NOW()
         FROM (VALUES ${insertValues}) AS v(name, url_key, logo_url)
         ON CONFLICT (url_key) DO UPDATE SET
           name = EXCLUDED.name,
-          logo_url = COALESCE(v0.ptbrands.logo_url, EXCLUDED.logo_url),
+          logo_url = COALESCE(v0.ptdrk_brands.logo_url, EXCLUDED.logo_url),
           updated_at = NOW()
       `)
-      console.log(`[sync-ptbrands-logos] Inserted/upserted ${inserted} ptbrands rows`)
+      console.log(`[sync-ptbrd-logos] Inserted/upserted ${inserted} ptbrd rows`)
     }
   }
 
   if (updates.length === 0 && unmatchedScraped.length === 0) {
-    console.log('[sync-ptbrands-logos] Nothing to update or insert.')
+    console.log('[sync-ptbrd-logos] Nothing to update or insert.')
     return
   }
 
@@ -249,7 +249,7 @@ async function main() {
     )
 
     await db.$executeRaw(Prisma.sql`
-      UPDATE v0.ptbrands AS p
+      UPDATE v0.ptdrk_brands AS p
       SET logo_url = v.logo_url, updated_at = NOW()
       FROM (VALUES ${values}) AS v(id, logo_url)
       WHERE p.id = v.id::int
@@ -258,12 +258,12 @@ async function main() {
     applied += batch.length
   }
 
-  console.log(`[sync-ptbrands-logos] Updated ${applied} ptbrands rows`)
+  console.log(`[sync-ptbrd-logos] Updated ${applied} ptbrd rows`)
 }
 
 main()
   .catch((err) => {
-    console.error('[sync-ptbrands-logos] Failed:', err)
+    console.error('[sync-ptbrd-logos] Failed:', err)
     process.exit(1)
   })
   .finally(() => db.$disconnect())

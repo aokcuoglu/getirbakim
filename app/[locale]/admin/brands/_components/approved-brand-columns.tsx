@@ -3,7 +3,7 @@
 import { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
 import { DataTableColumnHeader } from '@/components/admin/data-table/data-table-column-header'
-import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dbrands-catalog'
+import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dnbrd-catalog'
 import { BrandLogoUploadCell } from './BrandLogoUploadCell'
 
 const METHOD_LABELS: Record<string, string> = {

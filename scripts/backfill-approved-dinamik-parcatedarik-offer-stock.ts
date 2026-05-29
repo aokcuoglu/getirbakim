@@ -6,7 +6,7 @@
  * action hardcoded 0 instead of reading from supplier_products.
  *
  * This script:
- * 1. Finds APPROVED matches in dpmatch
+ * 1. Finds APPROVED matches in dpprd
  * 2. Looks up the corresponding supplier_products row for stock/price
  * 3. Updates part_supplier_offers with correct stock and price
  * 4. Optionally applies pricing policy for affected parts
@@ -221,7 +221,7 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT m.id, m.dinamik_product_id, m.parcatedarik_product_id, m.match_reason, m.confidence
-    FROM v0.dpmatch m
+    FROM v0.dnmk_ptdrk_products m
     ${whereClause}
     ORDER BY m.confidence DESC, m.created_at ASC
     ${limitClause}
@@ -236,8 +236,8 @@ async function main() {
         Array<{ id: bigint; stock_code: string; price: string | null }>
       >(Prisma.sql`
         SELECT d.id, d.stock_code, o.price::text AS price
-        FROM v0.dproducts d
-        LEFT JOIN v0.dproduct_details o ON o.dproduct_id = d.id
+        FROM v0.dnmk_products d
+        LEFT JOIN v0.dnmk_product_detail o ON o.dnmk_products_id = d.id
         WHERE d.id = ${match.dinamik_product_id}
       `)
 

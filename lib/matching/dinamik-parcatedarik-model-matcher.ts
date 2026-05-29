@@ -76,23 +76,23 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
   const aliases = await db.$queryRaw<
     Array<{
       dinamik_brand: string
-      normalized: string
-      ptbrands_id: number
+      normalized_brand: string
+      ptdrk_brands_id: number
     }>
   >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, a.normalized, a.ptbrands_id
-    FROM v0.dbrands_match a
-    INNER JOIN v0.dbrands db ON db.id = a.dbrands_id
+    SELECT db.brand AS dinamik_brand, a.normalized_brand, a.ptdrk_brands_id
+    FROM v0.dnmk_ptdrk_brands a
+    INNER JOIN v0.dnmk_brands db ON db.id = a.dnmk_brands_id
     WHERE a.mapping_status = 'APPROVED'
   `)
 
   const map: BrandAliasMap = new Map()
   for (const ba of aliases) {
-    const key = normalizeModel(ba.dinamik_brand) || ba.normalized
+    const key = normalizeModel(ba.dinamik_brand) || ba.normalized_brand
     if (!map.has(key)) {
       map.set(key, new Map())
     }
-    map.get(key)!.set(ba.ptbrands_id, 0.95)
+    map.get(key)!.set(ba.ptdrk_brands_id, 0.95)
   }
   return map
 }
@@ -134,14 +134,14 @@ export async function findDinamikParcatedarikModelCandidates(
       Array<{
         id: number
         model: string | null
-        ptbrands_id: number
+        ptdrk_brands_id: number
       }>
     >(Prisma.sql`
-      SELECT p.id, p.model, p.ptbrands_id
-      FROM v0.ptproducts p
+      SELECT p.id, p.product_model AS model, p.ptdrk_brands_id
+      FROM v0.ptdrk_products p
       WHERE ${ptproductNormalizedModelExpr} = ${normalizedValue}
-        AND p.model IS NOT NULL
-        AND BTRIM(p.model) <> ''
+        AND p.product_model IS NOT NULL
+        AND BTRIM(p.product_model) <> ''
       LIMIT 50
     `)
 
@@ -162,7 +162,7 @@ export async function findDinamikParcatedarikModelCandidates(
       let brandAliasMatch = false
       if (dinamikBrand && options?.parcatedarikManufacturerName) {
         const manufResult = await db.$queryRaw<Array<{ name: string }>>`
-          SELECT name FROM v0.ptbrands WHERE id = ${pt.ptbrands_id}
+          SELECT name FROM v0.ptdrk_brands WHERE id = ${pt.ptdrk_brands_id}
         `
         if (manufResult.length > 0) {
           const normalizedMfrName = normalizeModel(manufResult[0].name)
@@ -170,7 +170,7 @@ export async function findDinamikParcatedarikModelCandidates(
           brandMatch = normalizedMfrName === normalizedDinamikBrand
         }
       }
-      if (brandAliasManufacturers && brandAliasManufacturers.has(pt.ptbrands_id)) {
+      if (brandAliasManufacturers && brandAliasManufacturers.has(pt.ptdrk_brands_id)) {
         brandAliasMatch = true
       }
 
@@ -196,7 +196,7 @@ export async function findDinamikParcatedarikModelCandidates(
       let disambiguatedPt: typeof parcatedarikProducts[0] | null = null
       if (brandAliasManufacturers && brandAliasManufacturers.size > 0) {
         for (const pt of parcatedarikProducts) {
-          if (brandAliasManufacturers.has(pt.ptbrands_id)) {
+          if (brandAliasManufacturers.has(pt.ptdrk_brands_id)) {
             disambiguatedPt = pt
             break
           }
@@ -261,7 +261,7 @@ export async function findDinamikParcatedarikModelCandidates(
           let brandMatch = false
           if (dinamikBrand) {
             const manufResult = await db.$queryRaw<Array<{ name: string }>>`
-              SELECT name FROM v0.ptbrands WHERE id = ${pt.ptbrands_id}
+              SELECT name FROM v0.ptdrk_brands WHERE id = ${pt.ptdrk_brands_id}
             `
             if (manufResult.length > 0) {
               const normalizedMfrName = normalizeModel(manufResult[0].name)

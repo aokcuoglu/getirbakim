@@ -1,5 +1,5 @@
 /**
- * Meilisearch v0 catalog index setup (dpmatch + dbrands_match).
+ * Meilisearch v0 catalog index setup (dpprd + dpbrd).
  *
  * Usage:
  *   bun run search:v0:setup

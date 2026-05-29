@@ -132,7 +132,7 @@ Future view (not implemented yet):
 CREATE MATERIALIZED VIEW public.dinamik_product_vehicle_fitment_view AS
   SELECT ...
   FROM dinamik_parcatedarik_model_matches m
-  JOIN v0.ptproducts pt ON ...
+  JOIN v0.ptprd pt ON ...
   JOIN part_oens oen ON ...
   JOIN part_vehicle_types pvt ON ...
 ```
@@ -145,7 +145,7 @@ Table: `public.dinamik_parcatedarik_model_matches`
 |---|---|---|
 | id | bigserial PK | Auto-incrementing ID |
 | dinamik_product_id | bigint NOT NULL | References dinamik.products.id |
-| parcatedarik_product_id | bigint NOT NULL | References v0.ptproducts.id |
+| parcatedarik_product_id | bigint NOT NULL | References v0.ptprd.id |
 | dinamik_barcode_field | text NOT NULL | barcode_1, barcode_2, or barcode_3 |
 | dinamik_barcode_value | text NOT NULL | Original barcode value |
 | normalized_barcode_value | text NOT NULL | Normalized barcode |

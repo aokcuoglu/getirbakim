@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
-import { approveDpmatchRows } from '@/lib/admin/dpmatch-normalized'
+import { approveDpmatchRows } from '@/lib/admin/dpprd-normalized'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 
 export async function POST(request: NextRequest) {

@@ -11,7 +11,7 @@ import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface ModelRow {
   id: number
-  dproductsId: string | null
+  dnprdId: string | null
   productId: number | null
   normalized: string | null
   mappingStatus: string
@@ -100,7 +100,7 @@ export function createModelColumns(handlers: {
       cell: ({ row }) => {
         const r = row.original
         const isApproved = r.mappingStatus === 'APPROVED'
-        const isMatched = !!(r.dproductsId && r.productId)
+        const isMatched = !!(r.dnprdId && r.productId)
 
         if (isMatched) {
           return (
@@ -134,7 +134,7 @@ export function createModelColumns(handlers: {
           )
         }
 
-        if (r.dproductsId) {
+        if (r.dnprdId) {
           return (
             <Tooltip>
               <TooltipTrigger asChild>

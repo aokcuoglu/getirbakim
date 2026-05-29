@@ -1,9 +1,9 @@
 /**
- * Populate v0.dpmatch under approved paired dbrands_match rows.
+ * Populate v0.dnmk_ptdrk_products under approved paired dpbrd rows.
  *
  * Rules:
- * - Brand prerequisite: dbrands_match with BOTH dbrands_id AND ptbrands_id, APPROVED
- * - Auto-match: normalized(dproducts.part_no) = normalized(ptproducts.model)
+ * - Brand prerequisite: dpbrd with BOTH dnmk_brands_id AND ptdrk_brands_id, APPROVED
+ * - Auto-match: normalized(dnprd.part_no) = normalized(ptprd.product_model)
  * - Optional placeholders for unmatched products under paired brands (PLACEHOLDERS=false to skip)
  *
  * Usage:
@@ -20,24 +20,24 @@
 
 import 'dotenv/config'
 import { db } from '../lib/db'
-import { populateDpmatch } from '../lib/admin/dpmatch-populate'
+import { populateDpmatch } from '../lib/admin/dpprd-populate'
 
 const DRY_RUN = process.env.APPLY !== 'true'
 const CLEAN = process.env.CLEAN === 'true'
 const PLACEHOLDERS = process.env.PLACEHOLDERS !== 'false'
 
 async function main() {
-  console.log('[generate-dpmatch] Populate dpmatch — paired brands, part_no = model')
-  console.log(`[generate-dpmatch] MODE = ${DRY_RUN ? 'DRY_RUN' : 'APPLY'}`)
-  console.log(`[generate-dpmatch] CLEAN invalid rows = ${CLEAN}`)
-  console.log(`[generate-dpmatch] PLACEHOLDERS = ${PLACEHOLDERS}`)
+  console.log('[generate-dpprd] Populate dpprd — paired brands, part_no = model')
+  console.log(`[generate-dpprd] MODE = ${DRY_RUN ? 'DRY_RUN' : 'APPLY'}`)
+  console.log(`[generate-dpprd] CLEAN invalid rows = ${CLEAN}`)
+  console.log(`[generate-dpprd] PLACEHOLDERS = ${PLACEHOLDERS}`)
   console.log()
 
   const stats = await populateDpmatch({
     apply: !DRY_RUN,
     includePlaceholders: PLACEHOLDERS,
     cleanInvalid: CLEAN,
-    onProgress: (message) => console.log(message.replace('[dpmatch-populate]', '[generate-dpmatch]')),
+    onProgress: (message) => console.log(message.replace('[dpprd-populate]', '[generate-dpprd]')),
   })
 
   console.log()
@@ -58,11 +58,11 @@ async function main() {
     console.log(`  Would add Dinamik placeholders: ${stats.dproductPlaceholders}`)
     console.log(`  Would add PT placeholders:      ${stats.productPlaceholders}`)
   }
-  console.log('[generate-dpmatch] Done.')
+  console.log('[generate-dpprd] Done.')
   await db.$disconnect()
 }
 
 main().catch((err) => {
-  console.error('[generate-dpmatch] Fatal:', err)
+  console.error('[generate-dpprd] Fatal:', err)
   process.exit(1)
 })

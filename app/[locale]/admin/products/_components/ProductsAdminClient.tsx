@@ -35,23 +35,23 @@ import {
   SheetHeader,
   SheetTitle
 } from '@/components/ui/sheet'
-import type { AdminDpmatchFilterOptions } from '@/lib/admin/dpmatch-filter-options'
+import type { AdminDpmatchFilterOptions } from '@/lib/admin/dpprd-filter-options'
 import {
   buildDpmatchWorkbenchSearchParams,
   DEFAULT_DPMATCH_WORKBENCH_FILTERS,
   parseDpmatchWorkbenchUrlState,
   type AdminDpmatchWorkbenchFilters
-} from '@/lib/admin/dpmatch-workbench-url'
+} from '@/lib/admin/dpprd-workbench-url'
 import {
   buildDpmatchRowsMap,
   createEmptyDpmatchWorkbenchResult
-} from '@/lib/admin/dpmatch-workbench-mapper'
-import type { AdminDpmatchRow } from '@/lib/admin/dpmatch-catalog'
+} from '@/lib/admin/dpprd-workbench-mapper'
+import type { AdminDpmatchRow } from '@/lib/admin/dpprd-catalog'
 import {
   adminDpmatchWorkbenchQueryKey,
   fetchDpmatchFilterOptions,
   fetchDpmatchWorkbench
-} from '@/lib/api/admin-dpmatch-workbench'
+} from '@/lib/api/admin-dpprd-workbench'
 import { DataTable } from '@/components/admin/data-table/data-table'
 import { getProductColumns } from './product-columns'
 import { formatCurrency } from '@/lib/utils'
@@ -97,7 +97,7 @@ export function ProductsAdminClient({
   const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
   const selectedProductIdRef = useRef(selectedProductId)
-  const dpmatchRowsRef = useRef<Record<string, AdminDpmatchRow>>({})
+  const dpprdRowsRef = useRef<Record<string, AdminDpmatchRow>>({})
 
   useEffect(() => {
     filtersRef.current = filters
@@ -160,14 +160,14 @@ export function ProductsAdminClient({
         filters,
         selectedProductIdRef.current
       )
-      dpmatchRowsRef.current = buildDpmatchRowsMap(result.dpmatchRows)
+      dpprdRowsRef.current = buildDpmatchRowsMap(result.dpprdRows)
       return result
     },
     placeholderData: keepPreviousData
   })
 
   const optionsQuery = useQuery({
-    queryKey: ['admin-dpmatch-filter-options'],
+    queryKey: ['admin-dpprd-filter-options'],
     queryFn: fetchDpmatchFilterOptions,
     enabled: filtersOpen,
     staleTime: 10 * 60 * 1000
@@ -259,7 +259,7 @@ export function ProductsAdminClient({
     void workbenchQuery.refetch()
   }
 
-  const summary = workbenchData.dpmatchSummary
+  const summary = workbenchData.dpprdSummary
   const totalPages = workbenchData.pagination.pages
 
   // Memoize columns so meta reference is stable
@@ -612,7 +612,7 @@ export function ProductsAdminClient({
 
       {(() => {
         const selectedDpmatchRow = selectedProductId
-          ? dpmatchRowsRef.current[selectedProductId]
+          ? dpprdRowsRef.current[selectedProductId]
           : null
         if (!selectedProductId || !selectedDpmatchRow) return null
         const row = selectedDpmatchRow

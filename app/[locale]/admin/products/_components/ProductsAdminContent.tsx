@@ -1,6 +1,6 @@
 import {
   parseDpmatchWorkbenchUrlState
-} from '@/lib/admin/dpmatch-workbench-url'
+} from '@/lib/admin/dpprd-workbench-url'
 import { ProductsAdminClient } from './ProductsAdminClient'
 
 export function ProductsAdminContent({

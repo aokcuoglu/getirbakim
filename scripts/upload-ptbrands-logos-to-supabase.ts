@@ -1,14 +1,14 @@
 /**
- * Download ptbrands logos from external URLs and host them in Supabase Storage.
+ * Download ptbrd logos from external URLs and host them in Supabase Storage.
  *
  * Usage:
- *   bun scripts/upload-ptbrands-logos-to-supabase.ts              # dry run (default)
- *   APPLY=true bun scripts/upload-ptbrands-logos-to-supabase.ts   # upload + update DB
+ *   bun scripts/upload-ptbrd-logos-to-supabase.ts              # dry run (default)
+ *   APPLY=true bun scripts/upload-ptbrd-logos-to-supabase.ts   # upload + update DB
  *
  * Optional:
  *   LIMIT=10           Process only N rows (for testing)
  *   CONCURRENCY=5      Parallel uploads (default 5)
- *   BRAND_ID=123       Process a single ptbrands id
+ *   BRAND_ID=123       Process a single ptbrd id
  *   URL_KEYS=chery,mes Process specific url_key values (comma-separated)
  */
 
@@ -22,7 +22,7 @@ import {
 } from '../lib/supabase/storage'
 
 const BUCKET = 'brand-logos'
-const STORAGE_PREFIX = 'ptbrands'
+const STORAGE_PREFIX = 'ptbrd'
 const PARCATEDARIK_ORIGIN = 'https://parcatedarik.com'
 const DRY_RUN = process.env.APPLY !== 'true'
 const CONCURRENCY = Math.max(
@@ -115,14 +115,14 @@ async function fetchCandidates(): Promise<PtBrandRow[]> {
     BRAND_ID != null
       ? Prisma.sql`
           SELECT id, name, url_key, logo_url
-          FROM v0.ptbrands
+          FROM v0.ptdrk_brands
           WHERE id = ${BRAND_ID}
             AND logo_url IS NOT NULL
             AND BTRIM(logo_url) <> ''
         `
       : Prisma.sql`
           SELECT id, name, url_key, logo_url
-          FROM v0.ptbrands
+          FROM v0.ptdrk_brands
           WHERE logo_url IS NOT NULL
             AND BTRIM(logo_url) <> ''
           ORDER BY id
@@ -146,7 +146,7 @@ async function fetchCandidates(): Promise<PtBrandRow[]> {
 
 async function main() {
   console.log(
-    `[upload-ptbrands-logos] Mode: ${DRY_RUN ? 'DRY RUN' : 'APPLY'} | bucket=${BUCKET}/${STORAGE_PREFIX}`
+    `[upload-ptbrd-logos] Mode: ${DRY_RUN ? 'DRY RUN' : 'APPLY'} | bucket=${BUCKET}/${STORAGE_PREFIX}`
   )
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -162,10 +162,10 @@ async function main() {
     failed: 0
   }
 
-  console.log(`[upload-ptbrands-logos] External logo candidates: ${stats.candidates}`)
+  console.log(`[upload-ptbrd-logos] External logo candidates: ${stats.candidates}`)
 
   if (stats.candidates === 0) {
-    console.log('[upload-ptbrands-logos] Nothing to process.')
+    console.log('[upload-ptbrd-logos] Nothing to process.')
     return
   }
 
@@ -178,7 +178,7 @@ async function main() {
         `  id=${row.id} ${row.name} (${row.url_key ?? 'no url_key'})\n    from: ${row.logo_url}\n    to:   ${publicUrl}`
       )
     }
-    console.log('\nRe-run with APPLY=true to upload and update v0.ptbrands.logo_url')
+    console.log('\nRe-run with APPLY=true to upload and update v0.ptdrk_brands.logo_url')
     return
   }
 
@@ -222,7 +222,7 @@ async function main() {
       stats.uploaded += 1
 
       await db.$executeRaw(Prisma.sql`
-        UPDATE v0.ptbrands
+        UPDATE v0.ptdrk_brands
         SET logo_url = ${result.publicUrl}, updated_at = NOW()
         WHERE id = ${row.id}
       `)
@@ -230,7 +230,7 @@ async function main() {
 
       if ((index + 1) % 25 === 0 || index + 1 === candidates.length) {
         console.log(
-          `[upload-ptbrands-logos] Progress ${index + 1}/${candidates.length} | uploaded=${stats.uploaded} updated=${stats.updated} failed=${stats.failed}`
+          `[upload-ptbrd-logos] Progress ${index + 1}/${candidates.length} | uploaded=${stats.uploaded} updated=${stats.updated} failed=${stats.failed}`
         )
       }
     }
@@ -242,7 +242,7 @@ async function main() {
     )
   )
 
-  console.log('\n[upload-ptbrands-logos] Summary:')
+  console.log('\n[upload-ptbrd-logos] Summary:')
   console.log(`  candidates: ${stats.candidates}`)
   console.log(`  uploaded:   ${stats.uploaded}`)
   console.log(`  updated:    ${stats.updated}`)
@@ -263,7 +263,7 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error('[upload-ptbrands-logos] Failed:', err)
+    console.error('[upload-ptbrd-logos] Failed:', err)
     process.exit(1)
   })
   .finally(() => db.$disconnect())

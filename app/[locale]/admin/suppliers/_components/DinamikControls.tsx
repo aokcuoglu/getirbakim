@@ -19,17 +19,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { DinamikProxyDiagnostics } from '@/lib/types/dinamik-proxy'
-import type { DbrandsAudit, DbrandsMatchAudit } from '@/lib/types/dbrands'
+import type { DbrandsAudit, DbrandsMatchAudit } from '@/lib/types/dnbrd'
 import {
   getDinamikDbrandsAudit,
   getDinamikDbrandsMatchAudit,
   runDinamikDbrandsMatchSeed,
   runDinamikDbrandsReconcile
-} from '@/lib/actions/admin-dbrands'
+} from '@/lib/actions/admin-dnbrd'
 import {
   previewDinamikStockListForBrand,
   runDinamikDproductsStockSync
-} from '@/lib/actions/admin-dproducts'
+} from '@/lib/actions/admin-dnprd'
 import {
   testDinamikEndpoint,
   triggerDinamikSync,
@@ -141,7 +141,7 @@ function AuditStat({
 export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
   const proxyReady = proxy.configured && !proxy.setupError
   const [isPending, startTransition] = useTransition()
-  const [dbrandsAudit, setDbrandsAudit] = useState<DbrandsAudit | null>(null)
+  const [dnbrdAudit, setDbrandsAudit] = useState<DbrandsAudit | null>(null)
   const [matchAudit, setMatchAudit] = useState<DbrandsMatchAudit | null>(null)
   const [auditLoading, setAuditLoading] = useState(true)
   const [brandInput, setBrandInput] = useState('')
@@ -162,11 +162,11 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
   const refreshDbrandsAudit = () => {
     setAuditLoading(true)
     void Promise.all([getDinamikDbrandsAudit(), getDinamikDbrandsMatchAudit()]).then(
-      ([dbrandsResult, matchResult]) => {
-        if (dbrandsResult.success && dbrandsResult.data) {
-          setDbrandsAudit(dbrandsResult.data)
-        } else if (dbrandsResult.message) {
-          toast.error(dbrandsResult.message)
+      ([dnbrdResult, matchResult]) => {
+        if (dnbrdResult.success && dnbrdResult.data) {
+          setDbrandsAudit(dnbrdResult.data)
+        } else if (dnbrdResult.message) {
+          toast.error(dnbrdResult.message)
         }
         if (matchResult.success && matchResult.data) {
           setMatchAudit(matchResult.data)
@@ -194,7 +194,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         toast.error(result.message)
         return
       }
-      setResult(apply ? 'dbrands düzelt' : 'dbrands önizleme', result.data)
+      setResult(apply ? 'dnbrd düzelt' : 'dnbrd önizleme', result.data)
       toast.success(result.message)
       refreshDbrandsAudit()
     })
@@ -210,10 +210,10 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
       })
       if (!result.success) {
         toast.error(result.message)
-        setResult(apply ? 'dproducts doldur' : 'dproducts önizleme', result.data)
+        setResult(apply ? 'dnprd doldur' : 'dnprd önizleme', result.data)
         return
       }
-      setResult(apply ? 'dproducts doldur' : 'dproducts önizleme', result.data)
+      setResult(apply ? 'dnprd doldur' : 'dnprd önizleme', result.data)
       toast.success(result.message)
       refreshDbrandsAudit()
     })
@@ -226,7 +226,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         toast.error(result.message)
         return
       }
-      setResult(apply ? 'dbrands_match doldur' : 'match önizleme', result.data)
+      setResult(apply ? 'dpbrd doldur' : 'match önizleme', result.data)
       toast.success(result.message)
       refreshDbrandsAudit()
     })
@@ -240,7 +240,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
       if (endpoint === 'getStockList') {
         const brand = brandInput.trim()
         if (!brand) {
-          toast.error('getStockList için marka girin (dbrands.brand ile aynı yazım).')
+          toast.error('getStockList için marka girin (dnbrd.brand ile aynı yazım).')
           return
         }
 
@@ -255,7 +255,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         }
 
         setResult(
-          options?.persistDproducts ? 'getStockList → dproducts' : 'getStockList test',
+          options?.persistDproducts ? 'getStockList → dnprd' : 'getStockList test',
           { endpoint, ...result }
         )
         toast.success(result.message)
@@ -376,14 +376,14 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
       <InfoHint title="Önerilen akış">
         <ol className="list-decimal space-y-1 pl-4">
           <li>
-            <strong>dbrands</strong> — API&apos;den marka listesini çekin ve tabloyu güncelleyin.
+            <strong>dnbrd</strong> — API&apos;den marka listesini çekin ve tabloyu güncelleyin.
           </li>
           <li>
-            <strong>dproducts</strong> — Seçili marka(lar) için stok ve fiyat satırlarını ham
+            <strong>dnprd</strong> — Seçili marka(lar) için stok ve fiyat satırlarını ham
             katalog tablosuna yazın.
           </li>
           <li>
-            <strong>dbrands_match</strong> — Dinamik markalarını iç katalog markalarıyla
+            <strong>dpbrd</strong> — Dinamik markalarını iç katalog markalarıyla
             eşleştirin (Eşleştirmeler ekranına gider).
           </li>
         </ol>
@@ -406,7 +406,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
             <Input
               value={brandInput}
               onChange={(event) => setBrandInput(event.target.value)}
-              placeholder="Örn: BOSCH — dbrands.brand ile aynı yazım"
+              placeholder="Örn: BOSCH — dnbrd.brand ile aynı yazım"
             />
           </div>
           <div className="space-y-2">
@@ -426,7 +426,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         <TabsList className="w-full flex-wrap h-auto gap-1">
           <TabsTrigger value="catalog" className="gap-1.5">
             <Database size={14} />
-            Katalog (dbrands / dproducts)
+            Katalog (dnbrd / dnprd)
           </TabsTrigger>
           <TabsTrigger value="tests" className="gap-1.5">
             <TestTube2 size={14} />
@@ -441,22 +441,22 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
         <TabsContent value="catalog" className="mt-4 space-y-4">
           <SectionCard
             step={1}
-            title="Marka kataloğu (dbrands)"
+            title="Marka kataloğu (dnbrd)"
             description="getBrandList ile API markalarını çeker; tabloyu API ile hizalar ve tutarsız satırları düzeltir."
           >
             <InfoHint>
               Önce <strong>Önizleme</strong> ile kaç satır ekleneceğini/silineceğini görün. Sonuç
-              uygunsa <strong>dbrands düzelt</strong> ile veritabanına yazın.{' '}
+              uygunsa <strong>dnbrd düzelt</strong> ile veritabanına yazın.{' '}
               <strong>Üretici adı (ürün yok)</strong> sayısı, Dinamik API&apos;de olup henüz{' '}
-              <span className="font-mono">dproducts</span> tablosuna hiç ürün çekilmemiş ve adı
+              <span className="font-mono">dnprd</span> tablosuna hiç ürün çekilmemiş ve adı
               ParçaTedarik üretici tablosuyla birebir örtüşen markalardır; düzeltme API
               senkronundan sonra bu satırları temizler.
             </InfoHint>
             {!auditLoading &&
-            dbrandsAudit &&
-            dbrandsAudit.manufacturerOnlyInDbrands > 0 ? (
+            dnbrdAudit &&
+            dnbrdAudit.manufacturerOnlyInDbrands > 0 ? (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Örnek: {dbrandsAudit.sampleManufacturerOnly.join(', ')}
+                Örnek: {dnbrdAudit.sampleManufacturerOnly.join(', ')}
               </p>
             ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
@@ -475,7 +475,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
                 disabled={isPending || auditLoading || !proxyReady}
                 onClick={() => runDbrandsReconcile(true)}
               >
-                dbrands düzelt
+                dnbrd düzelt
               </Button>
               <Button
                 type="button"
@@ -489,21 +489,21 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
             </div>
             {auditLoading ? (
               <p className="mt-3 text-xs text-muted-foreground">Denetim yükleniyor…</p>
-            ) : dbrandsAudit ? (
+            ) : dnbrdAudit ? (
               <div className="mt-3 grid grid-cols-2 gap-3 text-xs lg:grid-cols-4">
-                <AuditStat label="dbrands (Dinamik)" value={dbrandsAudit.dbrandsTotal} />
+                <AuditStat label="dnbrd (Dinamik)" value={dnbrdAudit.dnbrdTotal} />
                 <AuditStat
-                  label="dproducts’ta marka sayısı"
-                  value={dbrandsAudit.dproductsBrandTotal}
+                  label="dnprd’ta marka sayısı"
+                  value={dnbrdAudit.dnprdBrandTotal}
                 />
                 <AuditStat
                   label="Üretici adı (ürün yok)"
-                  value={dbrandsAudit.manufacturerOnlyInDbrands}
+                  value={dnbrdAudit.manufacturerOnlyInDbrands}
                   tone="warning"
                 />
                 <AuditStat
-                  label="Eksik dbrands"
-                  value={dbrandsAudit.dproductsMissingInDbrands}
+                  label="Eksik dnbrd"
+                  value={dnbrdAudit.dnprdMissingInDbrands}
                 />
               </div>
             ) : null}
@@ -511,16 +511,16 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
 
           <SectionCard
             step={2}
-            title="Ürün kataloğu (dproducts)"
-            description="Her dbrands.marka için getStockList + fiyat çekilir; ham ürün satırları dproducts tablosuna yazılır."
+            title="Ürün kataloğu (dnprd)"
+            description="Her dnbrd.marka için getStockList + fiyat çekilir; ham ürün satırları dnprd tablosuna yazılır."
           >
             <InfoHint>
-              Master kayıt <span className="font-mono">dproducts</span>; fiyat/stok/API ham veri{' '}
-              <span className="font-mono">dproduct_details</span> tablosunda tutulur (değişimler{' '}
-              <span className="font-mono">dproduct_history</span>). Yanıtta olmayan SKU&apos;lar{' '}
+              Master kayıt <span className="font-mono">dnprd</span>; fiyat/stok/API ham veri{' '}
+              <span className="font-mono">dnprdt</span> tablosunda tutulur (değişimler{' '}
+              <span className="font-mono">dnprdh</span>). Yanıtta olmayan SKU&apos;lar{' '}
               silinmez, <span className="font-mono">is_passive=true</span> olur. Marka boşsa güvenlik
               için ilk 5 marka işlenir; tek marka veya tüm katalog için üstte marka girin veya CLI:{' '}
-              <span className="font-mono">scripts/sync-dproducts-from-dbrands.ts</span>.
+              <span className="font-mono">scripts/sync-dnprd-from-dnbrd.ts</span>.
             </InfoHint>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -538,14 +538,14 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
                 disabled={isPending || auditLoading || !proxyReady}
                 onClick={() => runDproductsSync(true)}
               >
-                dproducts doldur
+                dnprd doldur
               </Button>
             </div>
           </SectionCard>
 
           <SectionCard
             step={3}
-            title="Marka eşleştirme (dbrands_match)"
+            title="Marka eşleştirme (dpbrd)"
             description="Dinamik marka adlarını ParçaTedarik üretici kayıtlarıyla eşleştirir; ürün eşleştirme ekranının ön koşuludur."
           >
             <InfoHint>
@@ -581,7 +581,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
                 disabled={isPending || auditLoading}
                 onClick={() => runMatchSeed(true)}
               >
-                dbrands_match doldur
+                dpbrd doldur
               </Button>
             </div>
           </SectionCard>
@@ -591,7 +591,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
           <InfoHint title="Ne zaman kullanılır?">
             Geliştirici veya destek ekibi için ham API yanıtını doğrulamak içindir. Günlük katalog
             güncellemesi için <strong>Katalog</strong> sekmesindeki adımları kullanın; buradaki
-            testler veritabanına yazmaz (getStockList → dproducts hariç).
+            testler veritabanına yazmaz (getStockList → dnprd hariç).
           </InfoHint>
 
           <div className="flex flex-wrap gap-2">
@@ -622,7 +622,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
               onClick={() => runTest('getStockList', { persistDproducts: true })}
               disabled={isPending || !proxyReady}
             >
-              getStockList → dproducts (tek marka)
+              getStockList → dnprd (tek marka)
             </Button>
             <Button
               variant="outline"
@@ -647,7 +647,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
 
         <TabsContent value="store" className="mt-4 space-y-4">
           <InfoHint title="Mağaza hattı (supplier_products)">
-            Bu senkron, ham katalog tablolarından (<span className="font-mono">dproducts</span>)
+            Bu senkron, ham katalog tablolarından (<span className="font-mono">dnprd</span>)
             bağımsız olarak çalışır: API&apos;den veriyi alır,{' '}
             <span className="font-mono">supplier_products</span> ve teklifleri günceller, ardından
             fiyat politikasını mağaza fiyatlarına uygular. Sayfa üstündeki &quot;Staging
@@ -672,7 +672,7 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
           <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
             <p className="text-xs font-semibold text-foreground">Fiyat politikası (KDV hariç)</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Yalnızca mağaza senkronundan sonra site satış fiyatlarını hesaplar. dproducts ham
+              Yalnızca mağaza senkronundan sonra site satış fiyatlarını hesaplar. dnprd ham
               alış fiyatını değiştirmez.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs lg:grid-cols-5">
@@ -733,12 +733,12 @@ export function DinamikControls({ provider, proxy }: DinamikControlsProps) {
       </Tabs>
 
       <InfoHint title="Stok ve fiyat geçmişi hakkında">
-        Şu an <span className="font-mono">dproducts</span> her ürün için güncel fiyat/stok snapshot
+        Şu an <span className="font-mono">dnprd</span> her ürün için güncel fiyat/stok snapshot
         tutar; geçmiş versiyonlar ayrı tabloda değil. Mağaza hattında{' '}
         <span className="font-mono">supplier_sync_runs</span> her çalışmanın özetini,{' '}
         <span className="font-mono">supplier_products.last_seen_at</span> ise tazeliği izler. Fiyat
         değişim analitiği veya denetim ihtiyacı doğarsa{' '}
-        <span className="font-mono">dproduct_history</span> gibi append-only bir tablo
+        <span className="font-mono">dnprdh</span> gibi append-only bir tablo
         eklenebilir — şimdilik operasyonel ihtiyaç için snapshot yeterli.
       </InfoHint>
     </div>

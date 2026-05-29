@@ -4,11 +4,11 @@ import { Prisma } from '@prisma/client'
 import {
   dproductDbrandJoin,
   dproductBrandNameExpr
-} from '@/lib/sql/dproduct-catalog'
+} from '@/lib/sql/dnprd-catalog'
 import {
   dproductDetailsJoin,
   dproductDetailsPriceExpr
-} from '@/lib/sql/dproduct-details'
+} from '@/lib/sql/dnprd-details'
 import { parse } from 'csv-parse/sync'
 import { revalidatePath } from 'next/cache'
 import { unstable_cache } from 'next/cache'
@@ -1252,7 +1252,7 @@ export async function getAdminDinamikProducts(
         d.barcode_2,
         d.barcode_3,
         d.updated_at
-      FROM v0.dproducts d
+      FROM v0.dnmk_products d
       ${dproductDbrandJoin}
       ${dproductDetailsJoin}
       ${whereSql}
@@ -1262,7 +1262,7 @@ export async function getAdminDinamikProducts(
     `),
       db.$queryRaw<DinamikCountRow[]>(Prisma.sql`
       SELECT COUNT(*)::int AS total
-      FROM v0.dproducts d
+      FROM v0.dnmk_products d
       ${dproductDbrandJoin}
       ${dproductDetailsJoin}
       ${whereSql}
@@ -1270,7 +1270,7 @@ export async function getAdminDinamikProducts(
       db.$queryRaw<DinamikKpiRow[]>(Prisma.sql`
       SELECT
         COUNT(*)::int AS total_products,
-        COUNT(DISTINCT d.dbrands_id)::int AS distinct_brands,
+        COUNT(DISTINCT d.dnmk_brands_id)::int AS distinct_brands,
         COALESCE(
           SUM(
             CASE
@@ -1280,14 +1280,14 @@ export async function getAdminDinamikProducts(
           ),
           0
         )::int AS priced_rows
-      FROM v0.dproducts d
+      FROM v0.dnmk_products d
       ${dproductDbrandJoin}
       ${dproductDetailsJoin}
       ${whereSql}
     `),
       db.$queryRaw<DinamikBrandRow[]>(Prisma.sql`
       SELECT DISTINCT ${dproductBrandNameExpr} AS query_brand
-      FROM v0.dproducts d
+      FROM v0.dnmk_products d
       ${dproductDbrandJoin}
       WHERE d.is_passive = false
       ORDER BY query_brand ASC
@@ -1393,7 +1393,7 @@ export async function createAdminPartFromDinamik(input: {
       d.stock_name,
       ${dproductBrandNameExpr} AS brand,
       ${dproductDetailsPriceExpr}::text AS price
-    FROM v0.dproducts d
+    FROM v0.dnmk_products d
     ${dproductDbrandJoin}
     ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}
@@ -1624,7 +1624,7 @@ export async function createAdminPartFromTemplate(input: {
       d.stock_name,
       ${dproductBrandNameExpr} AS brand,
       ${dproductDetailsPriceExpr}::text AS price
-    FROM v0.dproducts d
+    FROM v0.dnmk_products d
     ${dproductDbrandJoin}
     ${dproductDetailsJoin}
     WHERE d.stock_code = ${stockCode}

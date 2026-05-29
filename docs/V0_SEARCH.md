@@ -2,8 +2,8 @@
 
 When `NEXT_PUBLIC_V0_ONLY_SITE` is enabled (default), search queries approved rows in:
 
-- `v0.dpmatch` — products (linked to `/part/[matchId]`)
-- `v0.dbrands_match` — brands (grouped, linked to `/marka/[matchId]`)
+- `v0.dpprd` — products (linked to `/part/[matchId]`)
+- `v0.dpbrd` — brands (grouped, linked to `/marka/[matchId]`)
 
 ## Data path
 
@@ -23,7 +23,7 @@ MEILI_INDEX_V0=v0-catalog
 
 If `MEILI_ENABLED=true` but the `v0-catalog` index is missing or empty, search automatically falls back to PostgreSQL. For production performance, always run setup + reindex after approvals.
 
-Indexed product fields (priority order in Meilisearch): `brandName` (from `v0.dbrands_match`), `name`, `ptproducts.title`, `ptproducts.model`, Dinamik `stock_code`, `ptproducts.ref_no` (cross-refs, lower priority), `dproduct_details.raw`, part numbers/barcodes in `oemCodes`.
+Indexed product fields (priority order in Meilisearch): `brandName` (from `v0.dpbrd`), `name`, `ptprd.title`, `ptprd.model`, Dinamik `stock_code`, `ptprd.ref_no` (cross-refs, lower priority), `dnprdt.raw`, part numbers/barcodes in `oemCodes`.
 
 Setup and reindex (from host — use port 7700, not the Docker service name):
 
@@ -43,8 +43,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 ## PostgreSQL fallback
 
-If Meilisearch is disabled or unreachable, search uses indexed SQL on `v0.dpmatch` / `v0.dbrands_match` (ILIKE on part numbers, titles, brands, barcodes).
+If Meilisearch is disabled or unreachable, search uses indexed SQL on `v0.dpprd` / `v0.dpbrd` (ILIKE on part numbers, titles, brands, barcodes).
 
 ## After approvals
 
-Re-run `search:v0:reindex` (or the cron endpoint) so new approved `dpmatch` / `dbrands_match` rows appear in Meilisearch.
+Re-run `search:v0:reindex` (or the cron endpoint) so new approved `dpprd` / `dpbrd` rows appear in Meilisearch.

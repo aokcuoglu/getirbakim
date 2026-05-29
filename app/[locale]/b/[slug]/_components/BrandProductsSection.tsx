@@ -17,12 +17,12 @@ export async function BrandProductsSection({
   filters
 }: BrandProductsSectionProps) {
   const tg = createTimerGroup('brandPageProducts')
-  const tProducts = tg.start('dpmatchProductsByBrand')
+  const tProducts = tg.start('dpprdProductsByBrand')
 
   const productsPage = await getDpmatchProductsByBrandPage(
     {
-      dbrandsIds: brand.dbrandsIds,
-      ptbrandsId: brand.ptbrandsId
+      dnbrdIds: brand.dnbrdIds,
+      ptbrdId: brand.ptbrdId
     },
     filters
   )

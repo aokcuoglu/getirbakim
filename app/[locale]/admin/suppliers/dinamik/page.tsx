@@ -8,13 +8,13 @@ import {
 } from '@/components/admin/admin-page-shell'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { Badge } from '@/components/ui/badge'
-import { getDinamikDbrandsAudit } from '@/lib/actions/admin-dbrands'
+import { getDinamikDbrandsAudit } from '@/lib/actions/admin-dnbrd'
 import { getAdminSupplierProviderDetail } from '@/lib/actions/admin-suppliers'
 import { getDinamikProxyDiagnostics } from '@/lib/dinamik'
 import { DinamikControls } from '../_components/DinamikControls'
 
 export default async function AdminDinamikSupplierPage() {
-  const [result, dbrandsAuditResult] = await Promise.all([
+  const [result, dnbrdAuditResult] = await Promise.all([
     getAdminSupplierProviderDetail('dinamik'),
     getDinamikDbrandsAudit()
   ])
@@ -25,7 +25,7 @@ export default async function AdminDinamikSupplierPage() {
 
   const detail = result.data
   const proxy = getDinamikProxyDiagnostics()
-  const catalogAudit = dbrandsAuditResult.success ? dbrandsAuditResult.data : null
+  const catalogAudit = dnbrdAuditResult.success ? dnbrdAuditResult.data : null
 
   return (
     <AdminPageShell>
@@ -41,28 +41,28 @@ export default async function AdminDinamikSupplierPage() {
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
-              label="dbrands"
-              value={catalogAudit?.dbrandsTotal ?? 0}
+              label="dnbrd"
+              value={catalogAudit?.dnbrdTotal ?? 0}
               hint="API marka listesi"
               icon={Tags}
             />
             <MetricCard
-              label="dproducts marka"
-              value={catalogAudit?.dproductsBrandTotal ?? 0}
+              label="dnprd marka"
+              value={catalogAudit?.dnprdBrandTotal ?? 0}
               hint="Ürünü olan marka sayısı"
               icon={Tags}
             />
             <MetricCard
               label="Üretici adı (ürün yok)"
               value={catalogAudit?.manufacturerOnlyInDbrands ?? 0}
-              hint="dproducts'ta ürünü olmayan PT üretici adları"
+              hint="dnprd'ta ürünü olmayan PT üretici adları"
               icon={AlertTriangle}
               tone="warning"
             />
             <MetricCard
-              label="Eksik dbrands"
-              value={catalogAudit?.dproductsMissingInDbrands ?? 0}
-              hint="dproducts'ta olup dbrands'ta yok"
+              label="Eksik dnbrd"
+              value={catalogAudit?.dnprdMissingInDbrands ?? 0}
+              hint="dnprd'ta olup dnbrd'ta yok"
               icon={AlertTriangle}
             />
           </div>
@@ -109,7 +109,7 @@ export default async function AdminDinamikSupplierPage() {
               <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
                 Her <strong>mağaza senkronu</strong> veya zamanlanmış görev bir satır oluşturur.
                 Başarısız satırlar API veya eşleştirme hatalarını gösterir; katalog (
-                dbrands/dproducts) adımları bu tabloya yazılmaz.
+                dnbrd/dnprd) adımları bu tabloya yazılmaz.
               </p>
             </div>
             {detail.provider.lastSyncAt ? (

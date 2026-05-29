@@ -110,15 +110,15 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       notFound()
     }
 
-    const [catalogPart, dpmatchRow] = await Promise.all([
+    const [catalogPart, dpprdRow] = await Promise.all([
       getPartHeroById(partId),
       getDpmatchById(partId)
     ])
 
-    const isDpmatch = !catalogPart && Boolean(dpmatchRow)
-    const part = catalogPart ?? (dpmatchRow ? mapDpmatchToPartHero(dpmatchRow) : null)
-    const dpmatchTabsData =
-      isDpmatch && dpmatchRow ? mapDpmatchToPartTabsData(dpmatchRow) : null
+    const isDpmatch = !catalogPart && Boolean(dpprdRow)
+    const part = catalogPart ?? (dpprdRow ? mapDpmatchToPartHero(dpprdRow) : null)
+    const dpprdTabsData =
+      isDpmatch && dpprdRow ? mapDpmatchToPartTabsData(dpprdRow) : null
 
     if (!part) {
       notFound()
@@ -181,14 +181,14 @@ export default async function PartDetailPage({ params }: PartPageProps) {
 
         {/* Product Tabs */}
         <div className="mt-4 md:mt-8">
-          {isDpmatch && dpmatchTabsData ? (
+          {isDpmatch && dpprdTabsData ? (
             <>
               <ProductTabs
-                properties={dpmatchTabsData.properties}
-                infos={dpmatchTabsData.infos}
-                oens={dpmatchTabsData.oens}
-                compatibleVehicles={dpmatchTabsData.compatibleVehicles}
-                crossReferences={dpmatchTabsData.crossReferences}
+                properties={dpprdTabsData.properties}
+                infos={dpprdTabsData.infos}
+                oens={dpprdTabsData.oens}
+                compatibleVehicles={dpprdTabsData.compatibleVehicles}
+                crossReferences={dpprdTabsData.crossReferences}
               />
               <ProductFAQ
                 partId={part.id}

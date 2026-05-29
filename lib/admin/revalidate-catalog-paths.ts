@@ -1,7 +1,7 @@
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { V0_APPROVED_BRANDS_CACHE_TAG } from '@/lib/v0/brandCache'
 
-/** Invalidate admin catalog pages after dpmatch/dbrands_match approvals. */
+/** Invalidate admin catalog pages after dpprd/dpbrd approvals. */
 export function revalidateAdminCatalogPaths() {
   revalidateTag(V0_APPROVED_BRANDS_CACHE_TAG, 'max')
 

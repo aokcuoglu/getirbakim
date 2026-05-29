@@ -77,12 +77,12 @@ function SummaryStrip({ overview }: { overview: SuppliersHubOverview }) {
     {
       label: 'Bekleyen marka',
       value: summary.pendingBrandMatches.toLocaleString('tr-TR'),
-      sub: 'dbrands_match PENDING'
+      sub: 'dpbrd PENDING'
     },
     {
       label: 'Bekleyen model',
       value: summary.pendingModelMatches.toLocaleString('tr-TR'),
-      sub: 'dpmatch PENDING'
+      sub: 'dpprd PENDING'
     },
     {
       label: 'ParçaTedarik ürün',

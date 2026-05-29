@@ -4,7 +4,7 @@ import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-
 import { db } from '@/lib/db'
 import { normalizeModel } from '@/lib/matching/code-normalization'
 import { Prisma } from '@prisma/client'
-import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
+import { dproductBrandNameExpr } from '@/lib/sql/dnprd-catalog'
 import { ptproductNormalizedModelExpr } from '@/lib/sql/ptproduct-model'
 
 function buildDproductsTextFilter(q: string, pattern: string) {
@@ -29,7 +29,7 @@ function buildProductsTextFilter(q: string, pattern: string) {
   const normalizedQ = normalizeModel(q)
   return Prisma.sql`AND (
     p.title ILIKE ${pattern}
-    OR p.model ILIKE ${pattern}
+    OR p.product_model ILIKE ${pattern}
     OR p.ref_no ILIKE ${pattern}
     OR mfr.name ILIKE ${pattern}
     ${normalizedQ ? Prisma.sql`OR ${ptproductNormalizedModelExpr} = ${normalizedQ}` : Prisma.empty}
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   const q = (url.searchParams.get('q') ?? '').trim()
   const direction = url.searchParams.get('direction') ?? 'from_product'
   const productIdStr = url.searchParams.get('productId')
-  const dproductsIdStr = url.searchParams.get('dproductsId')
+  const dnprdIdStr = url.searchParams.get('dnprdId')
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10)), 100)
 
   const escaped = q.replace(/[%_\\]/g, '\\$&')
@@ -64,16 +64,16 @@ export async function GET(request: NextRequest) {
         Prisma.sql`
           WITH matched_brands AS (
             SELECT DISTINCT BTRIM(LOWER(db.brand)) AS brand_norm
-            FROM v0.ptproducts p
-            JOIN v0.dbrands_match alias
-              ON alias.ptbrands_id = p.ptbrands_id
+            FROM v0.ptdrk_products p
+            JOIN v0.dnmk_ptdrk_brands alias
+              ON alias.ptdrk_brands_id = p.ptdrk_brands_id
              AND alias.mapping_status = 'APPROVED'
-            JOIN v0.dbrands db ON db.id = alias.dbrands_id
+            JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
             WHERE p.id = ${productId}
           )
           SELECT d.id, d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
-          FROM v0.dproducts d
-          INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
+          FROM v0.dnmk_products d
+          INNER JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
           WHERE BTRIM(LOWER(COALESCE(${dproductBrandNameExpr}, ''))) IN (SELECT brand_norm FROM matched_brands)
           ${textFilterDproducts}
           ORDER BY d.stock_code ASC
@@ -92,52 +92,52 @@ export async function GET(request: NextRequest) {
       })), context)
     }
 
-    if (direction === 'from_dproducts' && dproductsIdStr) {
-      const dproductsId = BigInt(dproductsIdStr)
+    if (direction === 'from_dnprd' && dnprdIdStr) {
+      const dnprdId = BigInt(dnprdIdStr)
 
       const barcodeHintFilter = q.length < 2
         ? Prisma.sql`AND ${ptproductNormalizedModelExpr} IN (
             SELECT DISTINCT norm FROM (
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_1, ''), '[^A-Z0-9]', '', 'gi')) AS norm
-              FROM v0.dproducts WHERE id = ${dproductsId}
+              FROM v0.dnmk_products WHERE id = ${dnprdId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_2, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM v0.dproducts WHERE id = ${dproductsId}
+              FROM v0.dnmk_products WHERE id = ${dnprdId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(barcode_3, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM v0.dproducts WHERE id = ${dproductsId}
+              FROM v0.dnmk_products WHERE id = ${dnprdId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM v0.dproducts WHERE id = ${dproductsId}
+              FROM v0.dnmk_products WHERE id = ${dnprdId}
               UNION ALL
               SELECT UPPER(REGEXP_REPLACE(COALESCE(stock_code, ''), '[^A-Z0-9]', '', 'gi'))
-              FROM v0.dproducts WHERE id = ${dproductsId}
+              FROM v0.dnmk_products WHERE id = ${dnprdId}
             ) hints
             WHERE norm <> ''
           )`
         : Prisma.empty
 
-      const results = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptbrands_id: number; manufacturer_name: string }>>(
+      const results = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptdrk_brands_id: number; manufacturer_name: string }>>(
         Prisma.sql`
           WITH dproduct AS (
             SELECT db.brand
-            FROM v0.dproducts d
-            INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
-            WHERE d.id = ${dproductsId}
+            FROM v0.dnmk_products d
+            INNER JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
+            WHERE d.id = ${dnprdId}
           ),
           matched_mfrs AS (
-            SELECT DISTINCT alias.ptbrands_id
+            SELECT DISTINCT alias.ptdrk_brands_id
             FROM dproduct d
-            JOIN v0.dbrands_match alias
+            JOIN v0.dnmk_ptdrk_brands alias
               ON alias.mapping_status = 'APPROVED'
-             AND alias.ptbrands_id IS NOT NULL
-            JOIN v0.dbrands db ON db.id = alias.dbrands_id
+             AND alias.ptdrk_brands_id IS NOT NULL
+            JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
              AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
           )
-          SELECT p.id, p.title, p.model, p.ptbrands_id, mfr.name AS manufacturer_name
-          FROM v0.ptproducts p
-          JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-          WHERE p.ptbrands_id IN (SELECT ptbrands_id FROM matched_mfrs)
+          SELECT p.id, p.title, p.product_model AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+          FROM v0.ptdrk_products p
+          JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+          WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM matched_mfrs)
           ${q.length >= 2 ? textFilterProducts : barcodeHintFilter}
           ORDER BY p.title ASC
           LIMIT ${limit}
@@ -145,27 +145,27 @@ export async function GET(request: NextRequest) {
       )
 
       if (results.length === 0 && q.length < 2) {
-        const fallback = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptbrands_id: number; manufacturer_name: string }>>(
+        const fallback = await db.$queryRaw<Array<{ id: number; title: string; model: string | null; ptdrk_brands_id: number; manufacturer_name: string }>>(
           Prisma.sql`
             WITH dproduct AS (
               SELECT db.brand
-              FROM v0.dproducts d
-              INNER JOIN v0.dbrands db ON db.id = d.dbrands_id
-              WHERE d.id = ${dproductsId}
+              FROM v0.dnmk_products d
+              INNER JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
+              WHERE d.id = ${dnprdId}
             ),
             matched_mfrs AS (
-              SELECT DISTINCT alias.ptbrands_id
+              SELECT DISTINCT alias.ptdrk_brands_id
               FROM dproduct d
-              JOIN v0.dbrands_match alias
+              JOIN v0.dnmk_ptdrk_brands alias
                 ON alias.mapping_status = 'APPROVED'
-               AND alias.ptbrands_id IS NOT NULL
-              JOIN v0.dbrands db ON db.id = alias.dbrands_id
+               AND alias.ptdrk_brands_id IS NOT NULL
+              JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
                AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
             )
-            SELECT p.id, p.title, p.model, p.ptbrands_id, mfr.name AS manufacturer_name
-            FROM v0.ptproducts p
-            JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-            WHERE p.ptbrands_id IN (SELECT ptbrands_id FROM matched_mfrs)
+            SELECT p.id, p.title, p.product_model AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+            FROM v0.ptdrk_products p
+            JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+            WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM matched_mfrs)
             ORDER BY p.title ASC
             LIMIT ${limit}
           `
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
           id: r.id,
           title: r.title,
           model: r.model,
-          manufacturerId: r.ptbrands_id,
+          manufacturerId: r.ptdrk_brands_id,
           manufacturerName: r.manufacturer_name,
         })), context)
       }
@@ -183,12 +183,12 @@ export async function GET(request: NextRequest) {
         id: r.id,
         title: r.title,
         model: r.model,
-        manufacturerId: r.ptbrands_id,
+        manufacturerId: r.ptdrk_brands_id,
         manufacturerName: r.manufacturer_name,
       })), context)
     }
 
-    return errorResponse({ status: 400, code: 'MISSING_DIRECTION', message: 'direction=from_product&productId=X OR direction=from_dproducts&dproductsId=X gerekli.', context })
+    return errorResponse({ status: 400, code: 'MISSING_DIRECTION', message: 'direction=from_product&productId=X OR direction=from_dnprd&dnprdId=X gerekli.', context })
   } catch (error) {
     console.error('[eslestirme:models:search] Error:', error)
     return errorResponse({ status: 500, code: 'INTERNAL_ERROR', message: 'Arama sırasında hata oluştu.', context })

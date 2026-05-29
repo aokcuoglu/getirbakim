@@ -1,6 +1,6 @@
 /**
- * Apply idempotent v0 column renames (manufacturer_id → ptbrands_id, etc.).
- * Run after deploy if admin suppliers / eşleştirme queries fail with missing ptbrands_id.
+ * Apply idempotent v0 column renames (manufacturer_id → ptdrk_brands_id, etc.).
+ * Run after deploy if admin suppliers / eşleştirme queries fail with missing ptdrk_brands_id.
  *
  *   bun scripts/apply-v0-column-renames.ts
  */

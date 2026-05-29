@@ -40,7 +40,7 @@ function collectOemCodes(row: V0DpmatchProductRow): string[] {
     row.dinamikBarcode2,
     row.dinamikBarcode3,
     row.ptModel,
-    row.normalized,
+    row.normalized_name,
     row.dinamikStockCode
   ].filter((value): value is string => Boolean(value?.trim()))
 }
@@ -88,7 +88,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
       row.dinamikStockCode?.trim() ||
       row.ptRefNo?.trim() ||
       hitId,
-    dedupeKey: `v0-dpmatch:${row.matchId}`,
+    dedupeKey: `v0-dpprd:${row.matchId}`,
     price: decimalToString(pricing.resolvedPriceExVat),
     stockQty,
     priceSource: pricing.priceSource,
@@ -106,7 +106,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
     vehicleTypes: [],
     vehicleIds: [],
     vehicleNames: [],
-    formattedCompatibility: row.normalized ? [row.normalized] : [],
+    formattedCompatibility: row.normalized_name ? [row.normalized_name] : [],
     searchableText: [name, brandName, row.dinamikStockCode, row.ptModel]
       .filter(Boolean)
       .join(' '),
@@ -117,7 +117,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
     sourceType: 'supplier_product',
     providerCode: 'dinamik',
     supplierSku: row.dinamikStockCode,
-    matchType: row.ptproductsId && row.dproductsId ? 'approved_oem_mapping' : undefined,
+    matchType: row.ptprdId && row.dnprdId ? 'approved_oem_mapping' : undefined,
     availabilityStatus,
     cta: resolveCTA(availabilityStatus),
     detailUrl,

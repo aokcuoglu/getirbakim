@@ -257,7 +257,7 @@ export function ProductsTab() {
   }, [rowSelection, loadModels])
 
   function getInitialLinkSearch(row: ModelRow): string {
-    if (row.dproductsId) {
+    if (row.dnprdId) {
       return row.dinamik.barcode1 || row.dinamik.partNo || row.dinamik.stockCode || ''
     }
     return row.parcatedarik.model || row.parcatedarik.refNo?.split(',')[0]?.trim() || ''
@@ -274,12 +274,12 @@ export function ProductsTab() {
     try {
       const params = new URLSearchParams({ limit: '30' })
       if (q.trim().length >= 2) params.set('q', q.trim())
-      if (target.productId && !target.dproductsId) {
+      if (target.productId && !target.dnprdId) {
         params.set('direction', 'from_product')
         params.set('productId', String(target.productId))
       } else {
-        params.set('direction', 'from_dproducts')
-        params.set('dproductsId', target.dproductsId || '0')
+        params.set('direction', 'from_dnprd')
+        params.set('dnprdId', target.dnprdId || '0')
       }
       const res = await fetch(`/api/admin/eslestirme/models/search-dinamik?${params}`, {
         signal: controller.signal,
@@ -323,8 +323,8 @@ export function ProductsTab() {
     if (!linkTarget) return
     const hasProduct = !!linkTarget.productId
     const body = hasProduct
-      ? { dproductsId: targetId, productId: linkTarget.productId }
-      : { dproductsId: linkTarget.dproductsId, productId: Number(targetId) }
+      ? { dnprdId: targetId, productId: linkTarget.productId }
+      : { dnprdId: linkTarget.dnprdId, productId: Number(targetId) }
     try {
       const res = await fetch('/api/admin/eslestirme/models/manual-match', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -357,7 +357,7 @@ export function ProductsTab() {
   const linkBrandName = linkTarget
     ? (linkTarget.dinamik.brand || linkTarget.parcatedarik.manufacturerName || '').trim()
     : ''
-  const linkSearchTarget = linkTarget && linkTarget.productId && !linkTarget.dproductsId ? 'Dinamik' : 'PT'
+  const linkSearchTarget = linkTarget && linkTarget.productId && !linkTarget.dnprdId ? 'Dinamik' : 'PT'
   const linkEmptyMessage = linkBrandName
     ? `${linkBrandName} markasına ait ${linkSearchTarget} ürün bulunamadı.`
     : `Onaylı marka eşleşmesi bulunamadı; ${linkSearchTarget} ürün listelenemedi.`
@@ -498,15 +498,15 @@ export function ProductsTab() {
           <DialogHeader>
             <DialogTitle>Eşleştir</DialogTitle>
             <DialogDescription>
-              {linkTarget && !linkTarget.dproductsId && linkTarget.productId && 'Bu PT ürüne Dinamik karşılığı ara'}
-              {linkTarget && linkTarget.dproductsId && !linkTarget.productId && 'Bu Dinamik ürüne PT karşılığı ara'}
-              {linkTarget && linkTarget.dproductsId && linkTarget.productId && 'Mevcut eşleşmeyi değiştir'}
+              {linkTarget && !linkTarget.dnprdId && linkTarget.productId && 'Bu PT ürüne Dinamik karşılığı ara'}
+              {linkTarget && linkTarget.dnprdId && !linkTarget.productId && 'Bu Dinamik ürüne PT karşılığı ara'}
+              {linkTarget && linkTarget.dnprdId && linkTarget.productId && 'Mevcut eşleşmeyi değiştir'}
             </DialogDescription>
           </DialogHeader>
           {linkTarget && (
             <div className="space-y-4 py-2">
               <div className="rounded border p-3 space-y-1 text-sm bg-muted/30">
-                {linkTarget.dproductsId && (
+                {linkTarget.dnprdId && (
                   <p className="font-medium font-mono">{linkTarget.dinamik.stockCode || '—'}</p>
                 )}
                 {linkTarget.productId && (
@@ -519,7 +519,7 @@ export function ProductsTab() {
               <Input
                 value={linkSearch}
                 onChange={e => { setLinkSearch(e.target.value); searchLink(e.target.value) }}
-                placeholder={linkTarget.productId && !linkTarget.dproductsId ? 'Dinamik ürün ara...' : 'PT ürün ara...'}
+                placeholder={linkTarget.productId && !linkTarget.dnprdId ? 'Dinamik ürün ara...' : 'PT ürün ara...'}
                 className="h-9"
                 autoFocus
               />

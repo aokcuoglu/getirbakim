@@ -1,22 +1,22 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { unstable_cache } from 'next/cache'
-import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
+import { dproductBrandNameExpr } from '@/lib/sql/dnprd-catalog'
 import {
   dproductDetailsJoin,
   dproductDetailsPriceExpr,
   dproductDetailsStockExpr
-} from '@/lib/sql/dproduct-details'
-import { dbrandsMatchLogoExpr } from '@/lib/v0/dbrandsMatchLogoSql'
+} from '@/lib/sql/dnprd-details'
+import { dnbrdMatchLogoExpr } from '@/lib/v0/dnbrdMatchLogoSql'
 import type { V0DpmatchProductRow } from '@/lib/v0/types'
 
 type DpmatchQueryRow = {
   id: number
-  dproducts_id: bigint | null
-  ptproducts_id: number | null
+  dnmk_products_id: bigint | null
+  ptdrk_products_id: number | null
   mapping_status: string
   match_method: string | null
-  normalized: string | null
+  normalized_name: string | null
   stock_code: string | null
   stock_name: string | null
   brand: string | null
@@ -39,11 +39,11 @@ type DpmatchQueryRow = {
 function mapRow(row: DpmatchQueryRow): V0DpmatchProductRow {
   return {
     matchId: row.id,
-    dproductsId: row.dproducts_id?.toString() ?? null,
-    ptproductsId: row.ptproducts_id,
+    dnprdId: row.dnmk_products_id?.toString() ?? null,
+    ptprdId: row.ptdrk_products_id,
     mappingStatus: row.mapping_status,
     matchMethod: row.match_method,
-    normalized: row.normalized,
+    normalized_name: row.normalized_name,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,
@@ -68,11 +68,11 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
   const rows = await db.$queryRaw<DpmatchQueryRow[]>(Prisma.sql`
     SELECT
       m.id,
-      m.dproducts_id,
-      m.ptproducts_id,
+      m.dnmk_products_id,
+      m.ptdrk_products_id,
       m.mapping_status,
       m.match_method,
-      m.normalized,
+      m.normalized_name,
       d.stock_code,
       d.stock_name,
       ${dproductBrandNameExpr} AS brand,
@@ -83,19 +83,19 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
       ${dproductDetailsPriceExpr}::text AS dinamik_price,
       ${dproductDetailsStockExpr} AS dinamik_stock_qty,
       p.title,
-      p.model,
+      p.product_model AS model,
       p.ref_no,
-      p.price::text AS pt_price,
-      p.image_url,
+      p.price_list::text AS pt_price,
+      COALESCE(d.image_url, o.raw->>'resimUrl') AS image_url,
       p.url,
       mfr.name AS manufacturer_name,
-      ${dbrandsMatchLogoExpr} AS brand_logo_url
-    FROM v0.dpmatch m
-    INNER JOIN v0.dproducts d ON d.id = m.dproducts_id
-    LEFT JOIN v0.dbrands db ON db.id = d.dbrands_id
+      ${dnbrdMatchLogoExpr} AS brand_logo_url
+    FROM v0.dnmk_ptdrk_products m
+    INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
+    LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}
-    LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
-    LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
+    LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+    LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
     WHERE m.id = ${matchId}
       AND m.mapping_status = 'APPROVED'
       AND d.is_passive IS DISTINCT FROM TRUE
@@ -109,7 +109,7 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
 export async function getDpmatchById(matchId: number): Promise<V0DpmatchProductRow | null> {
   return unstable_cache(
     () => fetchDpmatchById(matchId),
-    ['v0-dpmatch-by-id', String(matchId)],
+    ['v0-dpprd-by-id', String(matchId)],
     { revalidate: 300 }
   )()
 }

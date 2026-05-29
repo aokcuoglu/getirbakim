@@ -16,20 +16,20 @@ const approvedBrandsCacheOptions = {
 type DbrandsMatchQueryRow = {
   id: number
   dbrands_ids: bigint[] | null
-  ptbrands_id: number | null
+  ptdrk_brands_id: number | null
   brand_name: string
   pt_url_key: string | null
   logo_url: string | null
 }
 
 function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
-  const dbrandsIds = (row.dbrands_ids ?? []).map((id) => id.toString())
+  const dnbrdIds = (row.dbrands_ids ?? []).map((id) => id.toString())
 
   return {
     matchId: row.id,
-    dbrandsId: dbrandsIds[0] ?? null,
-    dbrandsIds,
-    ptbrandsId: row.ptbrands_id,
+    dnbrdId: dnbrdIds[0] ?? null,
+    dnbrdIds,
+    ptbrdId: row.ptdrk_brands_id,
     brandName: row.brand_name,
     ptUrlKey: row.pt_url_key,
     logoUrl: row.logo_url,
@@ -41,26 +41,26 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
   WITH approved AS (
     SELECT
       a.id,
-      a.dbrands_id,
-      a.ptbrands_id,
-      a.normalized,
-      a.logo_url,
+      a.dnmk_brands_id,
+      a.ptdrk_brands_id,
+      a.normalized_brand,
+      d.logo_url,
       d.brand AS dinamik_brand,
       m.name AS ptbrand_name,
       m.url_key AS pt_url_key
-    FROM v0.dbrands_match a
-    LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
-    LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
+    FROM v0.dnmk_ptdrk_brands a
+    LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
+    LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
     WHERE a.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(a.normalized, d.brand, m.name, '')) <> ''
+      AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
   ),
   with_key AS (
     SELECT
       *,
       COALESCE(
-        NULLIF(BTRIM(normalized), ''),
-        CASE WHEN ptbrands_id IS NOT NULL THEN 'pt:' || ptbrands_id::text END,
-        CASE WHEN dbrands_id IS NOT NULL THEN 'db:' || dbrands_id::text END,
+        NULLIF(BTRIM(normalized_brand), ''),
+        CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
+        CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
         'id:' || id::text
       ) AS group_key
     FROM approved
@@ -68,11 +68,11 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
   grouped AS (
     SELECT
       MIN(id) AS id,
-      ARRAY_AGG(DISTINCT dbrands_id) FILTER (WHERE dbrands_id IS NOT NULL) AS dbrands_ids,
-      MIN(ptbrands_id) AS ptbrands_id,
+      ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
+      MIN(ptdrk_brands_id) AS ptdrk_brands_id,
       COALESCE(
         MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-        MAX(NULLIF(BTRIM(normalized), '')),
+        MAX(NULLIF(BTRIM(normalized_brand), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
       MAX(pt_url_key) AS pt_url_key,
@@ -83,7 +83,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
   SELECT
     g.id,
     g.dbrands_ids,
-    g.ptbrands_id,
+    g.ptdrk_brands_id,
     g.brand_name,
     g.pt_url_key,
     g.logo_url
@@ -110,7 +110,7 @@ async function fetchApprovedDbrandsMatch(limit?: number): Promise<V0BrandMatchRo
 export async function getApprovedDbrandsMatch(limit?: number): Promise<V0BrandMatchRow[]> {
   return unstable_cache(
     () => fetchApprovedDbrandsMatch(limit),
-    ['v0-home-dbrands-match-grouped', limit != null ? String(limit) : 'all'],
+    ['v0-home-dnbrd-match-grouped', limit != null ? String(limit) : 'all'],
     approvedBrandsCacheOptions
   )()
 }
@@ -120,26 +120,26 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
     WITH approved AS (
       SELECT
         a.id,
-        a.dbrands_id,
-        a.ptbrands_id,
-        a.normalized,
-        a.logo_url,
+        a.dnmk_brands_id,
+        a.ptdrk_brands_id,
+        a.normalized_brand,
+        d.logo_url,
         d.brand AS dinamik_brand,
         m.name AS ptbrand_name,
         m.url_key AS pt_url_key
-      FROM v0.dbrands_match a
-      LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
-      LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
+      FROM v0.dnmk_ptdrk_brands a
+      LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
+      LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
       WHERE a.mapping_status = 'APPROVED'
-        AND BTRIM(COALESCE(a.normalized, d.brand, m.name, '')) <> ''
+        AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
     ),
     with_key AS (
       SELECT
         *,
         COALESCE(
-          NULLIF(BTRIM(normalized), ''),
-          CASE WHEN ptbrands_id IS NOT NULL THEN 'pt:' || ptbrands_id::text END,
-          CASE WHEN dbrands_id IS NOT NULL THEN 'db:' || dbrands_id::text END,
+          NULLIF(BTRIM(normalized_brand), ''),
+          CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
+          CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
           'id:' || id::text
         ) AS group_key
       FROM approved
@@ -153,11 +153,11 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
     grouped AS (
       SELECT
         MIN(id) AS id,
-        ARRAY_AGG(DISTINCT dbrands_id) FILTER (WHERE dbrands_id IS NOT NULL) AS dbrands_ids,
-        MIN(ptbrands_id) AS ptbrands_id,
+        ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
+        MIN(ptdrk_brands_id) AS ptdrk_brands_id,
         COALESCE(
           MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-          MAX(NULLIF(BTRIM(normalized), '')),
+          MAX(NULLIF(BTRIM(normalized_brand), '')),
           MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
         ) AS brand_name,
         MAX(pt_url_key) AS pt_url_key,
@@ -169,7 +169,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
     SELECT
       g.id,
       g.dbrands_ids,
-      g.ptbrands_id,
+      g.ptdrk_brands_id,
       g.brand_name,
       g.pt_url_key,
       g.logo_url
@@ -184,7 +184,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
 export async function getDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow | null> {
   return unstable_cache(
     () => fetchDbrandsMatchById(matchId),
-    ['v0-dbrands-match-by-id-grouped', String(matchId)],
+    ['v0-dnbrd-match-by-id-grouped', String(matchId)],
     approvedBrandsCacheOptions
   )()
 }
@@ -200,7 +200,7 @@ async function fetchDbrandsMatchBySlug(slug: string): Promise<V0BrandMatchRow | 
 export async function getDbrandsMatchBySlug(slug: string): Promise<V0BrandMatchRow | null> {
   return unstable_cache(
     () => fetchDbrandsMatchBySlug(slug),
-    ['v0-dbrands-match-by-slug', slug.trim().toLowerCase()],
+    ['v0-dnbrd-match-by-slug', slug.trim().toLowerCase()],
     approvedBrandsCacheOptions
   )()
 }

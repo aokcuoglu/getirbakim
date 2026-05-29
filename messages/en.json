@@ -970,7 +970,7 @@
   "AdminCatalog": {
     "products": {
       "title": "Product Management",
-      "description": "Manage v0.dpmatch product matches; all mapping statuses are listed.",
+      "description": "Manage v0.dpprd product matches; all mapping statuses are listed.",
       "addProduct": "Add Product",
       "toolsLink": "Tools",
       "openMatching": "Go to matching",
@@ -1002,7 +1002,7 @@
     },
     "brands": {
       "title": "Approved Brands",
-      "description": "Brands approved in matching (v0.dbrands_match). Upload missing logos.",
+      "description": "Brands approved in matching (v0.dpbrd). Upload missing logos.",
       "searchPlaceholder": "Search brand or manufacturer...",
       "loadError": "Failed to load approved brands",
       "upload": "Upload",

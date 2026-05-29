@@ -1,13 +1,13 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { unstable_cache } from 'next/cache'
-import { dproductBrandNameExpr } from '@/lib/sql/dproduct-catalog'
+import { dproductBrandNameExpr } from '@/lib/sql/dnprd-catalog'
 import {
   dproductDetailsJoin,
   dproductDetailsPriceExpr,
   dproductDetailsStockExpr
-} from '@/lib/sql/dproduct-details'
-import { dbrandsMatchLogoExpr } from '@/lib/v0/dbrandsMatchLogoSql'
+} from '@/lib/sql/dnprd-details'
+import { dnbrdMatchLogoExpr } from '@/lib/v0/dnbrdMatchLogoSql'
 import type {
   BrandPageFilters,
   BrandPageSort,
@@ -18,17 +18,17 @@ import type { V0DpmatchProductRow } from '@/lib/v0/types'
 export const BRAND_PRODUCTS_PAGE_SIZE = 24
 
 export type BrandProductFilter = {
-  dbrandsIds: string[]
-  ptbrandsId: number | null
+  dnbrdIds: string[]
+  ptbrdId: number | null
 }
 
 type DpmatchQueryRow = {
   id: number
-  dproducts_id: bigint | null
-  ptproducts_id: number | null
+  dnmk_products_id: bigint | null
+  ptdrk_products_id: number | null
   mapping_status: string
   match_method: string | null
-  normalized: string | null
+  normalized_name: string | null
   stock_code: string | null
   stock_name: string | null
   brand: string | null
@@ -51,11 +51,11 @@ type DpmatchQueryRow = {
 function mapRow(row: DpmatchQueryRow): V0DpmatchProductRow {
   return {
     matchId: row.id,
-    dproductsId: row.dproducts_id?.toString() ?? null,
-    ptproductsId: row.ptproducts_id,
+    dnprdId: row.dnmk_products_id?.toString() ?? null,
+    ptprdId: row.ptdrk_products_id,
     mappingStatus: row.mapping_status,
     matchMethod: row.match_method,
-    normalized: row.normalized,
+    normalized_name: row.normalized_name,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,
@@ -77,9 +77,9 @@ function mapRow(row: DpmatchQueryRow): V0DpmatchProductRow {
 }
 
 function buildBrandFilterKey(filter: BrandProductFilter): string {
-  const dbrandsKey =
-    filter.dbrandsIds.length > 0 ? filter.dbrandsIds.slice().sort().join(',') : 'none'
-  return `${dbrandsKey}:${filter.ptbrandsId ?? 'none'}`
+  const dnbrdKey =
+    filter.dnbrdIds.length > 0 ? filter.dnbrdIds.slice().sort().join(',') : 'none'
+  return `${dnbrdKey}:${filter.ptbrdId ?? 'none'}`
 }
 
 function buildFilterCacheKey(
@@ -146,11 +146,11 @@ function buildOrderBySql(sort: BrandPageSort): Prisma.Sql {
 
 const selectColumns = Prisma.sql`
   m.id,
-  m.dproducts_id,
-  m.ptproducts_id,
+  m.dnmk_products_id,
+  m.ptdrk_products_id,
   m.mapping_status,
   m.match_method,
-  m.normalized,
+  m.normalized_name,
   d.stock_code,
   d.stock_name,
   ${dproductBrandNameExpr} AS brand,
@@ -161,78 +161,78 @@ const selectColumns = Prisma.sql`
   ${dproductDetailsPriceExpr}::text AS dinamik_price,
   ${dproductDetailsStockExpr} AS dinamik_stock_qty,
   p.title,
-  p.model,
+  p.product_model AS model,
   p.ref_no,
-  p.price::text AS pt_price,
-  p.image_url,
+  p.price_list::text AS pt_price,
+  COALESCE(d.image_url, o.raw->>'resimUrl') AS image_url,
   p.url,
   mfr.name AS manufacturer_name,
-  ${dbrandsMatchLogoExpr} AS brand_logo_url
+  ${dnbrdMatchLogoExpr} AS brand_logo_url
 `
 
 function buildBrandProductsUnionSql(filter: BrandProductFilter): Prisma.Sql {
-  const dbrandsIds = filter.dbrandsIds.map((id) => BigInt(id))
-  const ptbrandsId = filter.ptbrandsId
+  const dnbrdIds = filter.dnbrdIds.map((id) => BigInt(id))
+  const ptbrdId = filter.ptbrdId
 
-  if (dbrandsIds.length === 0 && !ptbrandsId) {
-    return Prisma.sql`SELECT ${selectColumns} FROM v0.dpmatch m WHERE FALSE`
+  if (dnbrdIds.length === 0 && !ptbrdId) {
+    return Prisma.sql`SELECT ${selectColumns} FROM v0.dnmk_ptdrk_products m WHERE FALSE`
   }
 
-  if (dbrandsIds.length > 0 && ptbrandsId) {
+  if (dnbrdIds.length > 0 && ptbrdId) {
     return Prisma.sql`
       SELECT ${selectColumns}
-      FROM v0.dproducts d
-      INNER JOIN v0.dpmatch m
-        ON m.dproducts_id = d.id
+      FROM v0.dnmk_products d
+      INNER JOIN v0.dnmk_ptdrk_products m
+        ON m.dnmk_products_id = d.id
         AND m.mapping_status = 'APPROVED'
-      LEFT JOIN v0.dbrands db ON db.id = d.dbrands_id
+      LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
       ${dproductDetailsJoin}
-      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
-      LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-      WHERE d.dbrands_id IN (${Prisma.join(dbrandsIds)})
+      LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+      LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+      WHERE d.dnmk_brands_id IN (${Prisma.join(dnbrdIds)})
         AND d.is_passive IS DISTINCT FROM TRUE
       UNION
       SELECT ${selectColumns}
-      FROM v0.ptproducts p
-      INNER JOIN v0.dpmatch m
-        ON m.ptproducts_id = p.id
+      FROM v0.ptdrk_products p
+      INNER JOIN v0.dnmk_ptdrk_products m
+        ON m.ptdrk_products_id = p.id
         AND m.mapping_status = 'APPROVED'
-      LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
-      LEFT JOIN v0.dbrands db ON db.id = d.dbrands_id
+      LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
+      LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
       ${dproductDetailsJoin}
-      LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-      WHERE p.ptbrands_id = ${ptbrandsId}
+      LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+      WHERE p.ptdrk_brands_id = ${ptbrdId}
         AND (d.id IS NULL OR d.is_passive IS DISTINCT FROM TRUE)
     `
   }
 
-  if (dbrandsIds.length > 0) {
+  if (dnbrdIds.length > 0) {
     return Prisma.sql`
       SELECT ${selectColumns}
-      FROM v0.dproducts d
-      INNER JOIN v0.dpmatch m
-        ON m.dproducts_id = d.id
+      FROM v0.dnmk_products d
+      INNER JOIN v0.dnmk_ptdrk_products m
+        ON m.dnmk_products_id = d.id
         AND m.mapping_status = 'APPROVED'
-      LEFT JOIN v0.dbrands db ON db.id = d.dbrands_id
+      LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
       ${dproductDetailsJoin}
-      LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
-      LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-      WHERE d.dbrands_id IN (${Prisma.join(dbrandsIds)})
+      LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+      LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+      WHERE d.dnmk_brands_id IN (${Prisma.join(dnbrdIds)})
         AND d.is_passive IS DISTINCT FROM TRUE
     `
   }
 
   return Prisma.sql`
     SELECT ${selectColumns}
-    FROM v0.ptproducts p
-    INNER JOIN v0.dpmatch m
-      ON m.ptproducts_id = p.id
+    FROM v0.ptdrk_products p
+    INNER JOIN v0.dnmk_ptdrk_products m
+      ON m.ptdrk_products_id = p.id
       AND m.mapping_status = 'APPROVED'
-    LEFT JOIN v0.dproducts d ON d.id = m.dproducts_id
-    LEFT JOIN v0.dbrands db ON db.id = d.dbrands_id
+    LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
+    LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}
-    LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
-    WHERE p.ptbrands_id = ${ptbrandsId}
+    LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+    WHERE p.ptdrk_brands_id = ${ptbrdId}
       AND (d.id IS NULL OR d.is_passive IS DISTINCT FROM TRUE)
   `
 }
@@ -354,7 +354,7 @@ export async function getDpmatchProductsByBrandPage(
 
   return unstable_cache(
     () => fetchBrandProductsPageUncached(filter, pageFilters),
-    ['v0-brand-dpmatch-products', cacheKey],
+    ['v0-brand-dpprd-products', cacheKey],
     { revalidate: 300 }
   )()
 }

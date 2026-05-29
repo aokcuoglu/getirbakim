@@ -120,11 +120,11 @@ async function main() {
     totalManufacturers,
     sampleRefNos
   ] = await Promise.all([
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptproducts`,
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptproducts WHERE ref_no IS NOT NULL AND ref_no != ''`,
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptbrands`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_products`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_brands`,
     db.$queryRaw<{ ref_no: string | null }[]>`
-      SELECT ref_no FROM v0.ptproducts
+      SELECT ref_no FROM v0.ptdrk_products
       WHERE ref_no IS NOT NULL AND ref_no != ''
       LIMIT 20
     `
@@ -132,7 +132,7 @@ async function main() {
 
   // Compute total ref_no tokens
   const allParcaRefNos = await db.$queryRaw<{ ref_no: string }[]>`
-    SELECT ref_no FROM v0.ptproducts WHERE ref_no IS NOT NULL AND ref_no != ''
+    SELECT ref_no FROM v0.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''
   `
 
   const tokenSet = new Set<string>()
@@ -219,7 +219,7 @@ async function main() {
 
   const parcaManufacturers = await db.$queryRaw<
     { id: number; name: string }[]
-  >`SELECT id, name FROM v0.ptbrands`
+  >`SELECT id, name FROM v0.ptdrk_brands`
   const mfrNameMap = new Map<string, number>()
   for (const m of parcaManufacturers) {
     mfrNameMap.set(normalizeCode(m.name), m.id)
@@ -280,7 +280,7 @@ ${mappingStatuses.map(m => `- ${m.status}: ${Number(m.count)}`).join('\n')}
 
 | Metric | Count |
 |---|---|
-| Total v0.ptproducts rows | ${Number(totalParcaProducts[0].count)} |
+| Total v0.ptdrk_products rows | ${Number(totalParcaProducts[0].count)} |
 | Rows with ref_no | ${Number(withRefNo[0].count)} |
 | Total ref_no tokens | ${totalTokens} |
 | Distinct normalized ref_no tokens | ${distinctTokens} |

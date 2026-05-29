@@ -313,7 +313,7 @@ export function SoonFeature({
   if (variant === 'panel') {
     return (
       <div
-        className={cn('grid min-h-0 flex-1', className)}
+        className={cn('relative grid min-h-0 flex-1', className)}
         aria-label={ariaLabel ?? t('title')}
       >
         <div
@@ -342,7 +342,7 @@ export function SoonFeature({
   if (variant === 'inline') {
     return (
       <div
-        className={cn('grid min-h-[4.5rem]', className)}
+        className={cn('relative grid min-h-[4.5rem]', className)}
         aria-label={ariaLabel ?? t('title')}
       >
         <div
@@ -358,7 +358,7 @@ export function SoonFeature({
   }
 
   return (
-    <div className={cn('grid overflow-hidden', className)} aria-label={ariaLabel ?? t('title')}>
+    <div className={cn('relative grid overflow-hidden', className)} aria-label={ariaLabel ?? t('title')}>
       <div
         {...inertProps}
         className="pointer-events-none col-start-1 row-start-1 select-none opacity-[0.55] saturate-[0.85] [&_*]:pointer-events-none"

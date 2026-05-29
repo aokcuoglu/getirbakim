@@ -15,7 +15,7 @@ function baseRow(overrides: Partial<DpmatchIndexRow> = {}): DpmatchIndexRow {
     title: 'AKD piston',
     model: '44-3535-08-100',
     ref_no: 'GOETZE 8771693100, MAHLE 011 75 02',
-    normalized: null,
+    normalized_name: null,
     dinamik_price: '100',
     dinamik_stock_qty: 1,
     pt_price: null,

@@ -970,7 +970,7 @@
   "AdminCatalog": {
     "products": {
       "title": "Ürün Yönetimi",
-      "description": "v0.dpmatch ürün eşleştirmelerini yönetin; tüm eşleştirme durumları listelenir.",
+      "description": "v0.dpprd ürün eşleştirmelerini yönetin; tüm eşleştirme durumları listelenir.",
       "addProduct": "Ürün Ekle",
       "toolsLink": "Araçlar",
       "openMatching": "Eşleştirmeye git",
@@ -1002,7 +1002,7 @@
     },
     "brands": {
       "title": "Onaylı Markalar",
-      "description": "Eşleştirmede onaylanan markalar (v0.dbrands_match). Eksik logoları yükleyin.",
+      "description": "Eşleştirmede onaylanan markalar (v0.dpbrd). Eksik logoları yükleyin.",
       "searchPlaceholder": "Marka veya üretici ara...",
       "loadError": "Onaylı markalar yüklenemedi",
       "upload": "Yükle",

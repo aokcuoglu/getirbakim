@@ -1,14 +1,14 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
-import { dproductBrandNameExpr, dproductDbrandLeftJoin } from '@/lib/sql/dproduct-catalog'
+import { dproductBrandNameExpr, dproductDbrandLeftJoin } from '@/lib/sql/dnprd-catalog'
 import { compactCode, normalizeCode } from '@/lib/search/code-normalization'
 import {
   dproductDetailsJoin,
   dproductDetailsPriceExpr,
   dproductDetailsStockExpr
-} from '@/lib/sql/dproduct-details'
-import { dbrandsMatchBrandNameExpr } from '@/lib/v0/dbrandsMatchBrandNameSql'
-import { dbrandsMatchLogoExpr } from '@/lib/v0/dbrandsMatchLogoSql'
+} from '@/lib/sql/dnprd-details'
+import { dnbrdMatchBrandNameExpr } from '@/lib/v0/dnbrdMatchBrandNameSql'
+import { dnbrdMatchLogoExpr } from '@/lib/v0/dnbrdMatchLogoSql'
 import { extractDproductRawSearchText } from '@/lib/v0/search/v0-raw-search-text'
 import { stripLeadingBrandPrefix } from '@/lib/product-display-name'
 import { toBrandSlug } from '@/lib/v0/brandSlug'
@@ -48,7 +48,7 @@ export type DpmatchIndexRow = {
   title: string | null
   model: string | null
   ref_no: string | null
-  normalized: string | null
+  normalized_name: string | null
   dinamik_price: string | null
   dinamik_stock_qty: number | null
   pt_price: string | null
@@ -84,7 +84,7 @@ function collectOemCodes(row: DpmatchIndexRow): string[] {
     row.barcode_2,
     row.barcode_3,
     row.model,
-    row.normalized,
+    row.normalized_name,
     row.stock_code
   ].filter((value): value is string => Boolean(value?.trim()))
 
@@ -184,22 +184,22 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     d.barcode_2,
     d.barcode_3,
     p.title,
-    p.model,
+    p.product_model AS model,
     p.ref_no,
-    m.normalized,
+    m.normalized_name,
     ${dproductDetailsPriceExpr}::text AS dinamik_price,
     ${dproductDetailsStockExpr} AS dinamik_stock_qty,
-    p.price::text AS pt_price,
-    p.image_url,
+    p.price_list::text AS pt_price,
+    COALESCE(d.image_url, o.raw->>'resimUrl') AS image_url,
     mfr.name AS manufacturer_name,
-    ${dbrandsMatchBrandNameExpr} AS matched_brand,
+    ${dnbrdMatchBrandNameExpr} AS matched_brand,
     o.raw AS dinamik_raw,
-    ${dbrandsMatchLogoExpr} AS brand_logo_url
-  FROM v0.dpmatch m
-  INNER JOIN v0.dproducts d ON d.id = m.dproducts_id
+    ${dnbrdMatchLogoExpr} AS brand_logo_url
+  FROM v0.dnmk_ptdrk_products m
+  INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
   ${dproductDbrandLeftJoin}
-  LEFT JOIN v0.ptproducts p ON p.id = m.ptproducts_id
-  LEFT JOIN v0.ptbrands mfr ON mfr.id = p.ptbrands_id
+  LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+  LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
   ${dproductDetailsJoin}
   WHERE m.mapping_status = 'APPROVED'
     AND d.is_passive IS DISTINCT FROM TRUE
@@ -209,22 +209,22 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
   WITH approved AS (
     SELECT
       a.id,
-      a.normalized,
-      a.logo_url,
+      a.normalized_brand,
+      d.logo_url,
       d.brand AS dinamik_brand,
       m.name AS ptbrand_name,
       m.url_key AS pt_url_key
-    FROM v0.dbrands_match a
-    LEFT JOIN v0.dbrands d ON d.id = a.dbrands_id
-    LEFT JOIN v0.ptbrands m ON m.id = a.ptbrands_id
+    FROM v0.dnmk_ptdrk_brands a
+    LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
+    LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
     WHERE a.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(a.normalized, d.brand, m.name, '')) <> ''
+      AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
   ),
   with_key AS (
     SELECT
       *,
       COALESCE(
-        NULLIF(BTRIM(normalized), ''),
+        NULLIF(BTRIM(normalized_brand), ''),
         'id:' || id::text
       ) AS group_key
     FROM approved
@@ -234,7 +234,7 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
       MIN(id) AS id,
       COALESCE(
         MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-        MAX(NULLIF(BTRIM(normalized), '')),
+        MAX(NULLIF(BTRIM(normalized_brand), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
       MAX(pt_url_key) AS pt_url_key,
@@ -289,11 +289,11 @@ export async function fetchAllV0MeiliDocuments(): Promise<V0MeiliDocument[]> {
 export function mapDpmatchIndexRowToProductRow(row: DpmatchIndexRow): V0DpmatchProductRow {
   return {
     matchId: row.id,
-    dproductsId: null,
-    ptproductsId: null,
+    dnprdId: null,
+    ptprdId: null,
     mappingStatus: 'APPROVED',
     matchMethod: null,
-    normalized: row.normalized,
+    normalized_name: row.normalized_name,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,

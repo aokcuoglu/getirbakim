@@ -2,7 +2,7 @@
 Download ParcaTedarik product images and upload to Supabase Storage.
 
 Bucket/path convention (aligned with part-images usage elsewhere):
-  {SUPABASE_PART_IMAGES_BUCKET or part-images}/ptproducts/{brand_url_key}/{product_id}.{ext}
+  {SUPABASE_PART_IMAGES_BUCKET or part-images}/ptprd/{brand_url_key}/{product_id}.{ext}
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ except ImportError:
 
 PARCATEDARIK_ORIGIN = "https://parcatedarik.com"
 DEFAULT_BUCKET = "part-images"
-STORAGE_PREFIX = "ptproducts"
+STORAGE_PREFIX = "ptprd"
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg",

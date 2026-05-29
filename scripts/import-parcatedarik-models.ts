@@ -1,7 +1,7 @@
 /**
- * Import MODEL column from CSV into v0.ptproducts
+ * Import MODEL column from CSV into v0.ptdrk_products
  *
- * Matches CSV.id to v0.ptproducts.id and updates:
+ * Matches CSV.id to v0.ptdrk_products.id and updates:
  *   model = CSV.MODEL (raw)
  *
  * Usage:
@@ -153,7 +153,7 @@ async function main() {
     const batch = idsWithModel.slice(i, i + BATCH_SIZE)
     const products = await db.$queryRaw<
       Array<{ id: number; title: string; model: string | null }>
-    >`SELECT id, title, model FROM v0.ptproducts WHERE id IN (${Prisma.join(batch)})`
+    >`SELECT id, title, product_model AS model FROM v0.ptdrk_products WHERE id IN (${Prisma.join(batch)})`
 
     for (const p of products) {
       const mv = modelValues.get(p.id)
@@ -232,9 +232,9 @@ async function main() {
     })
 
     const sql = `
-      UPDATE v0.ptproducts AS p
-      SET model = v.model
-      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, model)
+      UPDATE v0.ptdrk_products AS p
+      SET product_model = v.product_model
+      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, product_model)
       WHERE p.id = v.id
     `
 
@@ -252,17 +252,17 @@ async function main() {
   console.log('=== Validation SQL ===')
 
   const totalProducts = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptproducts`
+    `SELECT COUNT(*) AS count FROM v0.ptdrk_products`
   console.log(`  Total products: ${totalProducts[0].count}`)
 
   const withModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptproducts WHERE model IS NOT NULL AND model <> ''`
+    `SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE product_model IS NOT NULL AND product_model <> ''`
   console.log(`  Products with model: ${withModel[0].count}`)
 
   const normalizedModelSubquery = `
-    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
-    FROM v0.ptproducts
-    WHERE model IS NOT NULL AND BTRIM(model) <> ''
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    FROM v0.ptdrk_products
+    WHERE product_model IS NOT NULL AND BTRIM(product_model) <> ''
   `
 
   const withNormalizedModel = await db.$queryRaw<Array<{ count: bigint }>>(
@@ -276,9 +276,9 @@ async function main() {
     Array<{ norm: string; count: bigint }>
   >(Prisma.sql`
     SELECT sub.norm, COUNT(*) AS count
-    FROM v0.ptproducts p
+    FROM v0.ptdrk_products p
     CROSS JOIN LATERAL (
-      SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+      SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
     ) sub
     WHERE sub.norm IS NOT NULL
     GROUP BY sub.norm
@@ -294,9 +294,9 @@ async function main() {
   const recentUpdates = await db.$queryRaw<
     Array<{ id: number; product_id: string; model: string | null; title: string }>
   >`
-    SELECT id, product_id, model, title
-    FROM v0.ptproducts
-    WHERE model IS NOT NULL AND model <> ''
+    SELECT id, product_id, product_model AS model, title
+    FROM v0.ptdrk_products
+    WHERE product_model IS NOT NULL AND product_model <> ''
     ORDER BY updated_at DESC NULLS LAST
     LIMIT 20
   `
@@ -318,11 +318,11 @@ async function main() {
   console.log(`  Dinamik products with any barcode: ${dinWithBarcode[0].count}`)
 
   const ptNormalizedModelsSubquery = `
-    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
-    FROM v0.ptproducts
-    WHERE model IS NOT NULL AND BTRIM(model) <> ''
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    FROM v0.ptdrk_products
+    WHERE product_model IS NOT NULL AND BTRIM(product_model) <> ''
   `
-  const ptModelNormExpr = `NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.model, ''), '[^A-Z0-9]', '', 'gi')), '')`
+  const ptModelNormExpr = `NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.product_model, ''), '[^A-Z0-9]', '', 'gi')), '')`
 
   const bar1Match = await db.$queryRaw<Array<{ count: bigint }>>(
     Prisma.raw(`
@@ -391,7 +391,7 @@ async function main() {
   const ptMatched = await db.$queryRaw<Array<{ count: bigint }>>(
     Prisma.raw(`
     SELECT COUNT(DISTINCT p.id) AS count
-    FROM v0.ptproducts p
+    FROM v0.ptdrk_products p
     WHERE ${ptModelNormExpr} IS NOT NULL
       AND (
         EXISTS (SELECT 1 FROM supplier_products sp JOIN supplier_providers spr ON sp.provider_id = spr.id
@@ -418,7 +418,7 @@ async function main() {
       SELECT sp.id AS din_id, COUNT(DISTINCT p.id) AS pt_count
       FROM supplier_products sp
       JOIN supplier_providers spr ON sp.provider_id = spr.id
-      JOIN v0.ptproducts p ON (
+      JOIN v0.ptdrk_products p ON (
         (sp.barcode_1 IS NOT NULL AND sp.barcode_1 <> ''
           AND UPPER(REGEXP_REPLACE(sp.barcode_1, '[^A-Za-z0-9]', '', 'g')) = ${ptModelNormExpr})
         OR

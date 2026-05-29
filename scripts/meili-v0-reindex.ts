@@ -1,5 +1,5 @@
 /**
- * Reindex v0 catalog (approved dpmatch products + grouped dbrands_match) into Meilisearch.
+ * Reindex v0 catalog (approved dpprd products + grouped dpbrd) into Meilisearch.
  *
  * Usage:
  *   bun run search:v0:reindex
