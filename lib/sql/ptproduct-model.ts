@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 
-/** Normalized model from v0.ptdrk_products.product_model (table alias p). */
+/** Normalized part_no from v0.ptdrk_products.part_no (table alias p). */
 export const ptproductNormalizedModelExpr = Prisma.sql`
-  NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.product_model, ''), '[^A-Z0-9]', '', 'gi')), '')
+  NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.part_no, ''), '[^A-Z0-9]', '', 'gi')), '')
 `

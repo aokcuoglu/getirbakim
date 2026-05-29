@@ -5,20 +5,38 @@ import { Badge } from '@/components/ui/badge'
 import { DataTableColumnHeader } from '@/components/admin/data-table/data-table-column-header'
 import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dnbrd-catalog'
 import { BrandLogoUploadCell } from './BrandLogoUploadCell'
-
-const METHOD_LABELS: Record<string, string> = {
-  EXACT_NORMALIZED: 'Birebir',
-  CASE_INSENSITIVE: 'Harf',
-  NORMALIZED_BRAND_NAME: 'Marka',
-  MANUAL: 'Manuel'
-}
+import { Eye } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 export function createApprovedBrandColumns(handlers: {
   onUpload: (row: AdminApprovedBrandRow, file: File) => Promise<boolean>
   onUploadFromUrl: (row: AdminApprovedBrandRow, url: string) => Promise<boolean>
   uploadingId: number | null
+  selectedIds: number[]
+  onToggleSelect: (id: number) => void
+  onViewDetail: (row: AdminApprovedBrandRow) => void
 }): ColumnDef<AdminApprovedBrandRow, unknown>[] {
   return [
+    {
+      id: 'select',
+      header: () => (
+        <span className="sr-only">Seç</span>
+      ),
+      cell: ({ row }) => {
+        const id = row.original.id
+        const isSelected = handlers.selectedIds.includes(id)
+        return (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => handlers.onToggleSelect(id)}
+            className="rounded border-gray-300"
+          />
+        )
+      },
+      enableSorting: false,
+      size: 40
+    },
     {
       id: 'logo',
       header: () => <span className="text-xs font-medium">Logo</span>,
@@ -33,34 +51,12 @@ export function createApprovedBrandColumns(handlers: {
       enableSorting: false
     },
     {
-      accessorKey: 'dinamikBrand',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Dinamik Marka" />
-      ),
-      cell: ({ getValue }) => (
-        <span className="text-sm font-medium">{getValue<string>() || '—'}</span>
-      )
-    },
-    {
-      id: 'ptManufacturer',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="PT Üretici" />
-      ),
-      cell: ({ row }) => (
-        <span className="text-sm">
-          {row.original.parcatedarikManufacturerName || '—'}
-        </span>
-      )
-    },
-    {
       accessorKey: 'normalizedName',
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Normalized" />
+        <DataTableColumnHeader column={column} title="Canonical Marka" />
       ),
       cell: ({ getValue }) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {getValue<string>() || '—'}
-        </span>
+        <span className="text-sm font-semibold">{getValue<string>() || '—'}</span>
       )
     },
     {
@@ -83,28 +79,20 @@ export function createApprovedBrandColumns(handlers: {
       }
     },
     {
-      accessorKey: 'matchMethod',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Yöntem" />
+      id: 'actions',
+      header: () => <span className="text-xs font-medium">İşlem</span>,
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => handlers.onViewDetail(row.original)}
+          className="h-8 gap-1"
+        >
+          <Eye className="h-3.5 w-3.5" />
+          <span className="text-xs">Detay</span>
+        </Button>
       ),
-      cell: ({ getValue }) => {
-        const v = getValue<string | null>()
-        if (!v) return <span className="text-xs text-muted-foreground">—</span>
-        return (
-          <Badge variant="outline" className="text-xs">
-            {METHOD_LABELS[v] || v}
-          </Badge>
-        )
-      }
-    },
-    {
-      accessorKey: 'id',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
-      cell: ({ getValue }) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {getValue<number>()}
-        </span>
-      )
+      enableSorting: false
     }
   ]
 }

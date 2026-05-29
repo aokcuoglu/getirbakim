@@ -184,7 +184,7 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     d.barcode_2,
     d.barcode_3,
     p.title,
-    p.product_model AS model,
+    p.part_no AS model,
     p.ref_no,
     m.normalized_name,
     ${dproductDetailsPriceExpr}::text AS dinamik_price,
@@ -208,17 +208,18 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
 const BRANDS_INDEX_SELECT = Prisma.sql`
   WITH approved AS (
     SELECT
-      a.id,
-      a.normalized_brand,
-      d.logo_url,
+      m.id,
+      cb.normalized_brand,
+      cb.logo_url,
       d.brand AS dinamik_brand,
-      m.name AS ptbrand_name,
-      m.url_key AS pt_url_key
-    FROM v0.dnmk_ptdrk_brands a
-    LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-    WHERE a.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
+      pt.name AS ptbrand_name,
+      pt.url_key AS pt_url_key
+    FROM v0.dnmk_ptdrk_brand_mappings m
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+    WHERE m.mapping_status = 'APPROVED'
+      AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
   ),
   with_key AS (
     SELECT

@@ -50,9 +50,10 @@ export function createEmptyDpmatchPopulateStats(): DpmatchPopulateStats {
 export async function countExactDpmatchCandidates(): Promise<number> {
   const rows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brands bm
-    INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
-    INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
+    FROM v0.dnmk_ptdrk_brand_mappings m
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = m.dnmk_brands_id
+    INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = m.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND ${dpprdExactPartNoModelFilter}
   `)
@@ -80,7 +81,8 @@ export async function deleteInvalidDpmatchRows(): Promise<number> {
         AND NOT EXISTS (
           SELECT 1
           FROM v0.dnmk_products d
-          INNER JOIN v0.dnmk_ptdrk_brands bm ON bm.dnmk_brands_id = d.dnmk_brands_id
+          INNER JOIN v0.dnmk_ptdrk_brand_mappings bm ON bm.dnmk_brands_id = d.dnmk_brands_id
+          JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
           WHERE d.id = m.dnmk_products_id
             AND ${pairedApprovedBrandMatchFilter}
         )
@@ -90,7 +92,8 @@ export async function deleteInvalidDpmatchRows(): Promise<number> {
         AND NOT EXISTS (
           SELECT 1
           FROM v0.ptdrk_products p
-          INNER JOIN v0.dnmk_ptdrk_brands bm ON bm.ptdrk_brands_id = p.ptdrk_brands_id
+          INNER JOIN v0.dnmk_ptdrk_brand_mappings bm ON bm.ptdrk_brands_id = p.ptdrk_brands_id
+          JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
           WHERE p.id = m.ptdrk_products_id
             AND ${pairedApprovedBrandMatchFilter}
         )
@@ -105,7 +108,8 @@ const EXACT_MATCH_PAIRS_CTE = Prisma.sql`
       d.id AS dnmk_products_id,
       p.id AS ptdrk_products_id,
       ${dproductNormalizedPartNoExpr} AS normalized
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
     INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
@@ -181,7 +185,8 @@ async function insertUnmatchedPlaceholders(
 ): Promise<void> {
   const dproductCount = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
@@ -192,7 +197,8 @@ async function insertUnmatchedPlaceholders(
 
   const productCount = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
@@ -210,7 +216,8 @@ async function insertUnmatchedPlaceholders(
       NULL,
       'PENDING',
       ${dproductNormalizedPartNoExpr}
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
@@ -227,7 +234,8 @@ async function insertUnmatchedPlaceholders(
       p.id,
       'PENDING',
       ${ptproductNormalizedModelExpr}
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
@@ -337,7 +345,8 @@ export async function populateDpmatch(options?: {
 
   const brandMatchRows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = bm.dnmk_ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
   `)
   stats.brandMatches = Number(brandMatchRows[0]?.count ?? 0)

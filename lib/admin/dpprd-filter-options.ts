@@ -10,17 +10,17 @@ export async function getDpmatchFilterOptions(): Promise<AdminDpmatchFilterOptio
   const [brandRows, manufacturerRows] = await Promise.all([
     db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
       SELECT DISTINCT BTRIM(d.brand) AS brand
-      FROM v0.dnmk_ptdrk_brands a
-      INNER JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
+      FROM v0.dnmk_ptdrk_brand_mappings m
+      INNER JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
       WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''
       ORDER BY brand ASC
     `),
     db.$queryRaw<Array<{ id: number; name: string }>>(Prisma.sql`
-      SELECT DISTINCT m.id, m.name
-      FROM v0.dnmk_ptdrk_brands a
-      INNER JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-      WHERE m.name IS NOT NULL AND BTRIM(m.name) <> ''
-      ORDER BY m.name ASC
+      SELECT DISTINCT pt.id, pt.name
+      FROM v0.dnmk_ptdrk_brand_mappings m
+      INNER JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      WHERE pt.name IS NOT NULL AND BTRIM(pt.name) <> ''
+      ORDER BY pt.name ASC
     `)
   ])
 

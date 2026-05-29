@@ -3,7 +3,7 @@
  *
  * Rules:
  * - Brand prerequisite: dpbrd with BOTH dnmk_brands_id AND ptdrk_brands_id, APPROVED
- * - Auto-match: normalized(dnprd.part_no) = normalized(ptprd.product_model)
+ * - Auto-match: normalized(dnprd.part_no) = normalized(ptprd.part_no)
  * - Optional placeholders for unmatched products under paired brands (PLACEHOLDERS=false to skip)
  *
  * Usage:

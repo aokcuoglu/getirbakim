@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
   if (q) {
     const p = `%${q.replace(/[%_\\]/g, '\\$&')}%`
-    whereClauses.push(Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(${dproductBrandNameExpr},'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.product_model,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`)
+    whereClauses.push(Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(${dproductBrandNameExpr},'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.part_no,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`)
   }
   const whereClause = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``
 
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
       SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.normalized_name, m.mapping_status, m.match_method,
              d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no,
              ${dproductDetailsPriceExpr}::text AS price,
-             p.title, p.product_model AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+             p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
       FROM v0.dnmk_ptdrk_products m
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id

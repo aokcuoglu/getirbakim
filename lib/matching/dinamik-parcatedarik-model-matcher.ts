@@ -80,10 +80,11 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
       ptdrk_brands_id: number
     }>
   >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, a.normalized_brand, a.ptdrk_brands_id
-    FROM v0.dnmk_ptdrk_brands a
-    INNER JOIN v0.dnmk_brands db ON db.id = a.dnmk_brands_id
-    WHERE a.mapping_status = 'APPROVED'
+    SELECT db.brand AS dinamik_brand, cb.normalized_brand, m.ptdrk_brands_id
+    FROM v0.dnmk_ptdrk_brand_mappings m
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    INNER JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
+    WHERE m.mapping_status = 'APPROVED'
   `)
 
   const map: BrandAliasMap = new Map()
@@ -137,11 +138,11 @@ export async function findDinamikParcatedarikModelCandidates(
         ptdrk_brands_id: number
       }>
     >(Prisma.sql`
-      SELECT p.id, p.product_model AS model, p.ptdrk_brands_id
+      SELECT p.id, p.part_no AS model, p.ptdrk_brands_id
       FROM v0.ptdrk_products p
       WHERE ${ptproductNormalizedModelExpr} = ${normalizedValue}
-        AND p.product_model IS NOT NULL
-        AND BTRIM(p.product_model) <> ''
+        AND p.part_no IS NOT NULL
+        AND BTRIM(p.part_no) <> ''
       LIMIT 50
     `)
 

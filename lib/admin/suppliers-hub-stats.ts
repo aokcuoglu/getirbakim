@@ -48,7 +48,7 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.dnmk_ptdrk_brand_mappings
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -87,8 +87,8 @@ async function getParcaCatalogStats(): Promise<{
             OR p.url NOT LIKE 'http%'
         )::bigint AS broken_urls,
         COUNT(*) FILTER (
-          WHERE p.product_model IS NOT NULL
-            AND BTRIM(p.product_model) <> ''
+          WHERE p.part_no IS NOT NULL
+            AND BTRIM(p.part_no) <> ''
         )::bigint AS with_model
       FROM v0.ptdrk_products p
     `),

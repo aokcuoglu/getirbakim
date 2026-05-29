@@ -39,7 +39,7 @@ export function BrandLogoUploadCell({
   const [urlDialogOpen, setUrlDialogOpen] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
   const hasLogo = Boolean(row.logoUrl?.trim())
-  const label = row.dinamikBrand || row.parcatedarikManufacturerName || 'Marka'
+  const label = row.normalizedName || 'Marka'
 
   const closeUrlDialog = () => {
     setUrlDialogOpen(false)
@@ -63,7 +63,6 @@ export function BrandLogoUploadCell({
             width={40}
             height={40}
             className="object-contain"
-            unoptimized
           />
         ) : (
           <ImageIcon className="h-4 w-4 text-muted-foreground" />

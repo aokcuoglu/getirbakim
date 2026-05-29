@@ -12,7 +12,7 @@ export const pairedApprovedBrandMatchFilter = Prisma.sql`
 export const dproductNotUnderPairedApprovedBrand = Prisma.sql`
   NOT EXISTS (
     SELECT 1
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
     WHERE bm.dnmk_brands_id = d.dnmk_brands_id
       AND ${pairedApprovedBrandMatchFilter}
   )
@@ -22,7 +22,7 @@ export const dproductNotUnderPairedApprovedBrand = Prisma.sql`
 export const ptproductNotUnderPairedApprovedBrand = Prisma.sql`
   NOT EXISTS (
     SELECT 1
-    FROM v0.dnmk_ptdrk_brands bm
+    FROM v0.dnmk_ptdrk_brand_mappings bm
     WHERE bm.ptdrk_brands_id = p.ptdrk_brands_id
       AND ${pairedApprovedBrandMatchFilter}
   )

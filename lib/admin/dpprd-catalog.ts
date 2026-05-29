@@ -175,7 +175,7 @@ function buildWhereClause(
   if (filters.q) {
     const p = `%${filters.q.replace(/[%_\\]/g, '\\$&')}%`
     clauses.push(
-      Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(${dproductBrandNameExpr},'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.product_model,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`
+      Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(${dproductBrandNameExpr},'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.part_no,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`
     )
   }
   if (filters.dinamikBrand) {
@@ -405,7 +405,7 @@ export async function listDpmatchForAdmin(
         ${dproductDetailsStockExpr} AS stock_qty,
         COALESCE(d.is_passive, false) AS is_passive,
         p.title,
-        p.product_model AS model,
+        p.part_no AS model,
         p.ref_no,
         COALESCE(d.image_url, o.raw->>'resimUrl') AS image_url,
         p.ptdrk_brands_id,

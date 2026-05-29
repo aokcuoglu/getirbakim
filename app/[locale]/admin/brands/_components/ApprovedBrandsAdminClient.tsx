@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ImageIcon, Tag } from 'lucide-react'
+import { ImageIcon, Tag, Merge, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import type { SortingState } from '@tanstack/react-table'
 import { useDebouncedCallback } from 'use-debounce'
@@ -11,21 +11,35 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
-import { Link } from '@/lib/navigation'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import type {
   AdminApprovedBrandListResult,
   AdminApprovedBrandRow
 } from '@/lib/admin/approved-dnbrd-catalog'
 import { DataTable } from '@/components/admin/data-table/data-table'
 import { createApprovedBrandColumns } from './approved-brand-columns'
+import { BrandDetailModal } from './BrandDetailModal'
 
 type LogoStatus = 'all' | 'missing' | 'has_logo'
-type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only'
 
 type BrandFilters = {
   q: string
   logoStatus: LogoStatus
-  matchSide: MatchSide
   page: number
   limit: number
   sort?: string
@@ -35,7 +49,6 @@ type BrandFilters = {
 const DEFAULT_FILTERS: BrandFilters = {
   q: '',
   logoStatus: 'all',
-  matchSide: 'all',
   page: 1,
   limit: 50
 }
@@ -44,7 +57,6 @@ function buildSearchParams(f: BrandFilters) {
   const params = new URLSearchParams()
   if (f.q) params.set('q', f.q)
   if (f.logoStatus !== 'all') params.set('logoStatus', f.logoStatus)
-  if (f.matchSide !== 'all') params.set('matchSide', f.matchSide)
   params.set('page', String(f.page))
   params.set('limit', String(f.limit))
   if (f.sort) {
@@ -73,12 +85,17 @@ export function ApprovedBrandsAdminClient({
     ...DEFAULT_FILTERS,
     q: initialData.filters.q,
     logoStatus: initialData.filters.logoStatus,
-    matchSide: initialData.filters.matchSide,
     page: initialData.filters.page,
     limit: initialData.filters.limit
   })
   const [searchValue, setSearchValue] = useState(initialData.filters.q)
   const [isSearchPending, setIsSearchPending] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [targetId, setTargetId] = useState<string>('')
+  const [isMerging, setIsMerging] = useState(false)
+  const [detailBrand, setDetailBrand] = useState<AdminApprovedBrandRow | null>(null)
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false)
   const filtersRef = useRef(filters)
   const hasLoadedRef = useRef(true)
 
@@ -103,6 +120,7 @@ export function ApprovedBrandsAdminClient({
           setRows(data.rows || [])
           setPagination(data.pagination || pagination)
           setSummary(data.summary || summary)
+          setSelectedIds([]) // Clear selection on refresh
         }
       } catch {
         toast.error(t('loadError'))
@@ -185,14 +203,73 @@ export function ApprovedBrandsAdminClient({
     [applyLogoUploadResult, t]
   )
 
+  const handleToggleSelect = useCallback((id: number) => {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id]
+    )
+  }, [])
+
+  const handleViewDetail = useCallback((row: AdminApprovedBrandRow) => {
+    setDetailBrand(row)
+    setDetailDialogOpen(true)
+  }, [])
+
+  const handleMerge = useCallback(async () => {
+    if (selectedIds.length < 2) {
+      toast.error('En az 2 marka seçmelisiniz.')
+      return
+    }
+    if (!targetId) {
+      toast.error('Hedef marka seçmelisiniz.')
+      return
+    }
+    const target = parseInt(targetId, 10)
+    if (selectedIds.includes(target)) {
+      toast.error('Hedef marka seçili markalar arasında olamaz.')
+      return
+    }
+
+    setIsMerging(true)
+    try {
+      const res = await fetch('/api/admin/brands/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceIds: selectedIds, targetId: target })
+      })
+      const data = await res.json()
+      if (data.error) {
+        toast.error(data.error?.message || 'Birleştirme başarısız.')
+      } else {
+        toast.success('Markalar başarıyla birleştirildi.')
+        setMergeDialogOpen(false)
+        setSelectedIds([])
+        setTargetId('')
+        await loadRows(filtersRef.current)
+      }
+    } catch {
+      toast.error('Birleştirme sırasında hata oluştu.')
+    } finally {
+      setIsMerging(false)
+    }
+  }, [selectedIds, targetId, loadRows])
+
+  const selectedRows = useMemo(() => {
+    return rows.filter((row) => selectedIds.includes(row.id))
+  }, [rows, selectedIds])
+
   const columns = useMemo(
     () =>
       createApprovedBrandColumns({
         onUpload: handleUpload,
         onUploadFromUrl: handleUploadFromUrl,
-        uploadingId
+        uploadingId,
+        selectedIds,
+        onToggleSelect: handleToggleSelect,
+        onViewDetail: handleViewDetail
       }),
-    [handleUpload, handleUploadFromUrl, uploadingId]
+    [handleUpload, handleUploadFromUrl, uploadingId, selectedIds, handleToggleSelect, handleViewDetail]
   )
 
   const handleSortingChange = useCallback(
@@ -233,6 +310,7 @@ export function ApprovedBrandsAdminClient({
     setSearchValue('')
     setIsSearchPending(false)
     applyFilters(DEFAULT_FILTERS)
+    setSelectedIds([])
   }, [applyFilters])
 
   if (initialLoading) {
@@ -268,66 +346,62 @@ export function ApprovedBrandsAdminClient({
       </AdminKpiGrid>
 
       <div className="rounded-md border border-border bg-card p-4">
-        <AdminTableToolbar
-          searchValue={searchValue}
-          onSearchChange={(nextValue) => {
-            setSearchValue(nextValue)
-            setIsSearchPending(true)
-            onSearch(nextValue)
-          }}
-          searchPlaceholder={t('searchPlaceholder')}
-          isSearchLoading={isSearchPending || isFetching}
-          onRefresh={() => void loadRows(filtersRef.current)}
-          isRefreshing={isFetching}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <AdminTableToolbar
+            searchValue={searchValue}
+            onSearchChange={(nextValue) => {
+              setSearchValue(nextValue)
+              setIsSearchPending(true)
+              onSearch(nextValue)
+            }}
+            searchPlaceholder={(t('searchPlaceholder') as string) || 'Ara...'}
+            isSearchLoading={isSearchPending || isFetching}
+            onRefresh={() => void loadRows(filtersRef.current)}
+            isRefreshing={isFetching}
+          />
+          {selectedIds.length >= 2 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMergeDialogOpen(true)}
+              className="shrink-0"
+            >
+              <Merge className="h-4 w-4 mr-1" />
+              Birleştir ({selectedIds.length})
+            </Button>
+          )}
+        </div>
 
         <AdminFilterBar onReset={resetFilters} className="mt-3">
           <AdminFilterChip
             active={filters.logoStatus === 'missing'}
             onClick={() =>
               applyFilters({
-                logoStatus:
-                  filters.logoStatus === 'missing' ? 'all' : 'missing',
+                logoStatus: filters.logoStatus === 'missing' ? 'all' : 'missing',
                 page: 1
               })
             }
-            label={t('filterMissingLogo')}
+            label={t('filterMissingLogo') as string}
           />
           <AdminFilterChip
             active={filters.logoStatus === 'has_logo'}
             onClick={() =>
               applyFilters({
-                logoStatus:
-                  filters.logoStatus === 'has_logo' ? 'all' : 'has_logo',
+                logoStatus: filters.logoStatus === 'has_logo' ? 'all' : 'has_logo',
                 page: 1
               })
             }
-            label={t('filterHasLogo')}
-          />
-          <AdminFilterChip
-            active={filters.matchSide === 'matched'}
-            onClick={() =>
-              applyFilters({
-                matchSide:
-                  filters.matchSide === 'matched' ? 'all' : 'matched',
-                page: 1
-              })
-            }
-            label={t('filterMatched')}
+            label={t('filterHasLogo') as string}
           />
         </AdminFilterBar>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <p>
-          {t('pagination', {
-            page: pagination.page,
-            pages: pagination.pages,
-            total: pagination.total
-          })}
+          {pagination.total} marka (sayfa {pagination.page} / {pagination.pages})
         </p>
         <Button variant="outline" size="sm" asChild>
-          <Link href="/admin/eslestirme?tab=brands">{t('goToMatching')}</Link>
+          <a href="/admin/eslestirme?tab=brands">Eşleştirmeye git</a>
         </Button>
       </div>
 
@@ -339,8 +413,75 @@ export function ApprovedBrandsAdminClient({
         isLoading={isFetching}
         pagination={pagination}
         onPaginationChange={(page) => applyFilters({ page })}
-        emptyMessage={t('empty')}
+        emptyMessage={(t('empty') as string) || 'Sonuç bulunamadı.'}
       />
+
+      {/* Brand Detail Modal */}
+      <BrandDetailModal
+        brand={detailBrand}
+        open={detailDialogOpen}
+        onOpenChange={(open) => {
+          setDetailDialogOpen(open)
+          if (!open) setDetailBrand(null)
+        }}
+      />
+
+      {/* Merge Dialog */}
+      <Dialog open={mergeDialogOpen} onOpenChange={setMergeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Markaları Birleştir</DialogTitle>
+            <DialogDescription>
+              Seçilen {selectedIds.length} markayı tek bir marka altında birleştirin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm font-medium">Birleştirilecek Markalar</Label>
+              <div className="mt-2 space-y-1 max-h-32 overflow-y-auto rounded-md border p-2">
+                {selectedRows.map((row) => (
+                  <div key={row.id} className="text-sm">
+                    ID {row.id}: <strong>{row.normalizedName}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Hedef Marka (Kalacak Olan)</Label>
+              <Select value={targetId} onValueChange={setTargetId}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Hedef marka seçin..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {selectedRows.map((row) => (
+                    <SelectItem key={row.id} value={String(row.id)}>
+                      {row.normalizedName} (ID: {row.id})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMergeDialogOpen(false)
+                setTargetId('')
+              }}
+              disabled={isMerging}
+            >
+              İptal
+            </Button>
+            <Button
+              onClick={() => void handleMerge()}
+              disabled={isMerging || !targetId}
+            >
+              {isMerging ? 'Birleştiriliyor...' : 'Birleştir'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

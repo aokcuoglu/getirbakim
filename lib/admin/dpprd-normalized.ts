@@ -201,7 +201,7 @@ export async function resolveNormalizedForLink(
 ): Promise<string | null> {
   const rows = await db.$queryRaw<Array<{ model: string | null }>>(
     Prisma.sql`
-      SELECT p.product_model AS model
+      SELECT p.part_no AS model
       FROM v0.ptdrk_products p
       WHERE p.id = ${productId}
       LIMIT 1

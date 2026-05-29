@@ -221,6 +221,7 @@ export async function runBasbugCatalogSeedJob(
               return {
                 bsbg_brands_id: bsbgBrandsId,
                 malzeme_no: m.no,
+                part_no: m.no.includes(' ') ? m.no.split(' ')[1] : null,
                 aciklama: normalizeText(m.ac),
                 aciklama2: normalizeText(m.ac2),
                 oem_no: normalizeText(m.oe),

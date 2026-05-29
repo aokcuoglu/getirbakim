@@ -5,12 +5,12 @@ import { db } from '@/lib/db'
 export async function countRedundantDinamikStubs(): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM v0.dnmk_ptdrk_brands a
+    FROM v0.dnmk_ptdrk_brand_mappings a
     WHERE a.ptdrk_brands_id IS NULL
       AND a.dnmk_brands_id IS NOT NULL
       AND EXISTS (
         SELECT 1
-        FROM v0.dnmk_ptdrk_brands b
+        FROM v0.dnmk_ptdrk_brand_mappings b
         WHERE b.dnmk_brands_id = a.dnmk_brands_id
           AND b.ptdrk_brands_id IS NOT NULL
           AND b.id <> a.id
@@ -23,12 +23,12 @@ export async function countRedundantDinamikStubs(): Promise<number> {
 export async function countRedundantPtOnlyRows(): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM v0.dnmk_ptdrk_brands a
+    FROM v0.dnmk_ptdrk_brand_mappings a
     WHERE a.dnmk_brands_id IS NULL
       AND a.ptdrk_brands_id IS NOT NULL
       AND EXISTS (
         SELECT 1
-        FROM v0.dnmk_ptdrk_brands b
+        FROM v0.dnmk_ptdrk_brand_mappings b
         WHERE b.ptdrk_brands_id = a.ptdrk_brands_id
           AND b.dnmk_brands_id IS NOT NULL
           AND b.id <> a.id
@@ -40,12 +40,12 @@ export async function countRedundantPtOnlyRows(): Promise<number> {
 export async function removeRedundantDinamikStubs(): Promise<number> {
   return Number(
     await db.$executeRaw(Prisma.sql`
-      DELETE FROM v0.dnmk_ptdrk_brands a
+      DELETE FROM v0.dnmk_ptdrk_brand_mappings a
       WHERE a.ptdrk_brands_id IS NULL
         AND a.dnmk_brands_id IS NOT NULL
         AND EXISTS (
           SELECT 1
-          FROM v0.dnmk_ptdrk_brands b
+          FROM v0.dnmk_ptdrk_brand_mappings b
           WHERE b.dnmk_brands_id = a.dnmk_brands_id
             AND b.ptdrk_brands_id IS NOT NULL
             AND b.id <> a.id
@@ -57,12 +57,12 @@ export async function removeRedundantDinamikStubs(): Promise<number> {
 export async function removeRedundantPtOnlyRows(): Promise<number> {
   return Number(
     await db.$executeRaw(Prisma.sql`
-      DELETE FROM v0.dnmk_ptdrk_brands a
+      DELETE FROM v0.dnmk_ptdrk_brand_mappings a
       WHERE a.dnmk_brands_id IS NULL
         AND a.ptdrk_brands_id IS NOT NULL
         AND EXISTS (
           SELECT 1
-          FROM v0.dnmk_ptdrk_brands b
+          FROM v0.dnmk_ptdrk_brand_mappings b
           WHERE b.ptdrk_brands_id = a.ptdrk_brands_id
             AND b.dnmk_brands_id IS NOT NULL
             AND b.id <> a.id

@@ -237,7 +237,7 @@ async function main() {
       >(Prisma.sql`
         SELECT d.id, d.stock_code, o.price::text AS price
         FROM v0.dnmk_products d
-        LEFT JOIN v0.dnmk_product_detail o ON o.dnmk_products_id = d.id
+        LEFT JOIN v0.dnmk_cost o ON o.dnmk_products_id = d.id
         WHERE d.id = ${match.dinamik_product_id}
       `)
 

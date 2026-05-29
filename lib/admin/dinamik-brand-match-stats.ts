@@ -13,10 +13,9 @@ export type DinamikBrandMatchStats = {
  * Brand coverage from canonical dnbrd + dpbrd (not dnprd scans).
  */
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
-  const ptBrandCol = await getDbrandsMatchPtBrandColumn()
   const activeMatch = Prisma.sql`
-    a.mapping_status IN ('PENDING', 'APPROVED')
-    AND a.${Prisma.raw(ptBrandCol)} IS NOT NULL
+    m.mapping_status IN ('PENDING', 'APPROVED')
+    AND m.ptdrk_brands_id IS NOT NULL
   `
 
   const [row] = await db.$queryRaw<
@@ -33,8 +32,8 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
         FROM v0.dnmk_brands d
         WHERE EXISTS (
           SELECT 1
-          FROM v0.dnmk_ptdrk_brands a
-          WHERE a.dnmk_brands_id = d.id
+          FROM v0.dnmk_ptdrk_brand_mappings m
+          WHERE m.dnmk_brands_id = d.id
             AND ${activeMatch}
         )
       ) AS matched_brands,

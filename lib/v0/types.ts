@@ -25,7 +25,7 @@ export type V0DpmatchProductRow = {
   ptImageUrl: string | null
   ptUrl: string | null
   ptManufacturerName: string | null
-  /** Canonical brand from v0.dnmk_ptdrk_brands when approved. */
+  /** Canonical brand from v0.dnmk_ptdrk_brand_mappings when approved. */
   matchedBrandName?: string | null
   brandLogoUrl: string | null
 }

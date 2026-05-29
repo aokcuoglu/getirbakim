@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 const BATCH_SIZE = 400
 
 export type DproductDetailsRow = {
-  /** Full stokKodu for joining v0.dnmk_products.stock_code. */
+  /** Full stokKodu for joining v0.dnmk_cost.dnmk_products_id. */
   fullStockCode: string
   price: number | null
   stock_qty: number | null
@@ -40,16 +40,15 @@ export async function batchUpsertDproductDetails(
   dnbrdId: bigint,
   items: DinamikStockItem[],
   dryRun: boolean
-): Promise<{ upserted: number; historyInserted: number }> {
+): Promise<{ upserted: number }> {
   const rows = items
     .map((item) => mapItemToDetailsRow(item))
     .filter((row) => row.fullStockCode.length > 0)
 
-  if (rows.length === 0) return { upserted: 0, historyInserted: 0 }
-  if (dryRun) return { upserted: rows.length, historyInserted: 0 }
+  if (rows.length === 0) return { upserted: 0 }
+  if (dryRun) return { upserted: rows.length }
 
   let upserted = 0
-  let historyInserted = 0
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
@@ -65,7 +64,7 @@ export async function batchUpsertDproductDetails(
     >(Prisma.sql`
       SELECT d.id AS dnmk_products_id, d.stock_code, o.price::text AS price, o.stock_qty
       FROM v0.dnmk_products d
-      LEFT JOIN v0.dnmk_product_detail o ON o.dnmk_products_id = d.id
+      LEFT JOIN v0.dnmk_cost o ON o.dnmk_products_id = d.id
       WHERE d.dnmk_brands_id = ${dnbrdId}
         AND d.stock_code IN (${Prisma.join(stockCodes.map((code) => Prisma.sql`${code}`))})
     `)
@@ -94,7 +93,7 @@ export async function batchUpsertDproductDetails(
     )
 
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.dnmk_product_detail (
+      INSERT INTO v0.dnmk_cost (
         dnmk_products_id,
         price,
         stock_qty,
@@ -120,7 +119,7 @@ export async function batchUpsertDproductDetails(
         ON d.dnmk_brands_id = ${dnbrdId}
        AND d.stock_code = v.full_stock_code
       ON CONFLICT (dnmk_products_id) DO UPDATE SET
-        price = COALESCE(EXCLUDED.price, v0.dnmk_product_detail.price),
+        price = COALESCE(EXCLUDED.price, v0.dnmk_cost.price),
         stock_qty = EXCLUDED.stock_qty,
         campaign_rate = EXCLUDED.campaign_rate,
         regional_stock = EXCLUDED.regional_stock,
@@ -129,39 +128,7 @@ export async function batchUpsertDproductDetails(
         updated_at = NOW()
     `)
     upserted += Number(count)
-
-    const historyValues = batch
-      .map((row) => {
-        const prev = existingByCode.get(row.fullStockCode)
-        if (!prev) return null
-        const priceChanged =
-          row.price != null &&
-          (prev.price == null || Math.abs(prev.price - row.price) > 0.0001)
-        const stockChanged =
-          row.stock_qty != null && row.stock_qty !== prev.stock_qty
-        if (!priceChanged && !stockChanged) return null
-        return Prisma.sql`(
-          ${prev.dnmk_products_id},
-          ${row.price},
-          ${row.stock_qty},
-          NOW()
-        )`
-      })
-      .filter((value): value is Prisma.Sql => value != null)
-
-    if (historyValues.length > 0) {
-      const histCount = await db.$executeRaw(Prisma.sql`
-        INSERT INTO v0.dnmk_product_history (
-          dnmk_products_id,
-          price,
-          stock_qty,
-          captured_at
-        )
-        VALUES ${Prisma.join(historyValues)}
-      `)
-      historyInserted += Number(histCount)
-    }
   }
 
-  return { upserted, historyInserted }
+  return { upserted }
 }

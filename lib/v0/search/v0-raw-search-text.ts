@@ -1,4 +1,4 @@
-/** Extract searchable plain text from v0.dnmk_product_detail.raw JSON. */
+/** Extract searchable plain text from v0.dnmk_cost.raw JSON. */
 export function extractDproductRawSearchText(raw: unknown): string {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return ''

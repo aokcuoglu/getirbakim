@@ -636,22 +636,43 @@ model dnmk_ptdrk_products {
 // for disambiguating model matches by brand
 // ==========================================
 
+// ==========================================
+// Dinamik-ParcaTedarik Canonical Brands
+// Unified brand table with unique normalized names.
+// Source brand mappings live in dnmk_ptdrk_brand_mappings.
+// ==========================================
+
 model dnmk_ptdrk_brands {
   id                Int      @id @default(autoincrement())
-  dnmk_brands_id    BigInt?
-  ptdrk_brands_id   Int?
-  normalized_brand  String?
-  mapping_status    String   @default("PENDING")
-  match_method      String?
+  normalized_brand  String   @unique
+  logo_url          String?
 
+  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
+
+  @@index([normalized_brand], name: "idx_dbrands_match_normalized_brand")
+  @@schema("v0")
+}
+
+model dnmk_ptdrk_brand_mappings {
+  id                   Int      @id @default(autoincrement())
+  dnmk_ptdrk_brands_id Int
+  dnmk_brands_id       BigInt?
+  ptdrk_brands_id      Int?
+  bsbg_brands_id       BigInt?
+  mapping_status       String   @default("PENDING")
+  match_method         String?
+
+  dnmk_ptdrk_brands dnmk_ptdrk_brands @relation(fields: [dnmk_ptdrk_brands_id], references: [id], onDelete: Cascade)
   dnmk_brands dnmk_brands? @relation(fields: [dnmk_brands_id], references: [id], onDelete: Cascade)
   ptdrk_brands ptdrk_brands? @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
+  bsbg_brands bsbg_brands? @relation(fields: [bsbg_brands_id], references: [id], onDelete: Cascade)
 
-  @@unique([dnmk_brands_id, ptdrk_brands_id], name: "uq_dbrands_match_brand_ptbrands")
-  @@index([ptdrk_brands_id], name: "idx_dbrands_match_ptbrands")
-  @@index([mapping_status], name: "idx_dbrands_match_status")
-  @@index([match_method], name: "idx_dbrands_match_method")
-  @@index([normalized_brand], name: "idx_dbrands_match_normalized_brand")
+  @@unique([dnmk_ptdrk_brands_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id], name: "uq_dpbrm_brands")
+  @@index([dnmk_ptdrk_brands_id], name: "idx_dpbrm_dpbrands")
+  @@index([dnmk_brands_id], name: "idx_dpbrm_dnmk")
+  @@index([ptdrk_brands_id], name: "idx_dpbrm_ptdrk")
+  @@index([bsbg_brands_id], name: "idx_dpbrm_bsbg")
+  @@index([mapping_status], name: "idx_dpbrm_status")
   @@schema("v0")
 }
 
@@ -989,7 +1010,7 @@ model ptdrk_brands {
   created_at      DateTime?    @default(now()) @db.Timestamp(6)
   updated_at      DateTime?    @default(now()) @db.Timestamp(6)
   ptdrk_products  ptdrk_products[]
-  dnmk_ptdrk_brands dnmk_ptdrk_brands[]
+  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
 
   @@schema("v0")
 }
@@ -998,10 +1019,10 @@ model ptdrk_products {
   id               Int           @id @default(autoincrement())
   ptdrk_brands_id  Int
   product_id       String        @unique
+  part_no          String?
   title            String
   url              String        @unique
   ref_no           String?
-  product_model    String?
   sku              String?
   price_list       Decimal?      @db.Decimal(10, 2)
   price_actual     Decimal?      @db.Decimal(10, 2)
@@ -1013,7 +1034,6 @@ model ptdrk_products {
 
   @@index([ptdrk_brands_id])
   @@index([product_id])
-  @@index([product_model])
   @@index([sku])
   @@schema("v0")
 }
@@ -1042,8 +1062,7 @@ model dnmk_products {
 
   dnmk_brands            dnmk_brands              @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
   dnmk_ptdrk_products    dnmk_ptdrk_products[]
-  dnmk_product_detail    dnmk_product_detail?
-  dnmk_product_history   dnmk_product_history[]
+  dnmk_cost    dnmk_cost?
 
   @@unique([dnmk_brands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
   @@index([dnmk_brands_id], map: "idx_dproducts_dbrands_id")
@@ -1051,7 +1070,7 @@ model dnmk_products {
   @@schema("v0")
 }
 
-model dnmk_product_detail {
+model dnmk_cost {
   id               BigInt    @id @default(autoincrement())
   dnmk_products_id BigInt    @unique
   price            Decimal?  @db.Decimal(10, 2)
@@ -1068,19 +1087,6 @@ model dnmk_product_detail {
   @@schema("v0")
 }
 
-model dnmk_product_history {
-  id                BigInt    @id @default(autoincrement())
-  dnmk_products_id  BigInt
-  price             Decimal?  @db.Decimal(10, 2)
-  stock_qty         Int?
-  captured_at       DateTime  @default(now()) @db.Timestamptz(6)
-
-  dnmk_products dnmk_products @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-
-  @@index([dnmk_products_id, captured_at(sort: Desc)])
-  @@schema("v0")
-}
-
 // ==========================================
 // Dinamik Brands (was dinamik.brands)
 // Deduplicated brand name list from Dinamik
@@ -1089,12 +1095,11 @@ model dnmk_product_history {
 model dnmk_brands {
   id               BigInt           @id @default(autoincrement())
   brand            String           @unique
-  logo_url         String?
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   updated_at       DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
-  last_seen_at     DateTime         @default(now()) @db.Timestamptz(6)
-  dnmk_ptdrk_brands dnmk_ptdrk_brands[]
+  // Canonical brand mappings moved to dnmk_ptdrk_brand_mappings
   dnmk_products    dnmk_products[]
+  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
 
   @@schema("v0")
 }
@@ -1112,6 +1117,7 @@ model bsbg_brands {
   last_seen_at DateTime @default(now()) @db.Timestamptz(6)
 
   bsbg_products bsbg_products[]
+  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
 
   @@schema("v0")
 }
@@ -1125,6 +1131,7 @@ model bsbg_products {
   id                     BigInt    @id @default(autoincrement())
   bsbg_brands_id         BigInt
   malzeme_no             String
+  part_no                String?
   aciklama               String?
   aciklama2              String?
   oem_no                 String?

@@ -123,7 +123,7 @@ export async function previewDinamikStockListForBrand(input: {
           o.price::text AS price
         FROM v0.dnmk_products d
         INNER JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
-        LEFT JOIN v0.dnmk_product_detail o ON o.dnmk_products_id = d.id
+        LEFT JOIN v0.dnmk_cost o ON o.dnmk_products_id = d.id
         WHERE db.brand = ${brand}
         ORDER BY d.updated_at DESC NULLS LAST
         LIMIT 5

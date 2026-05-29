@@ -40,19 +40,20 @@ function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
 const APPROVED_BRANDS_GROUPED = Prisma.sql`
   WITH approved AS (
     SELECT
-      a.id,
-      a.dnmk_brands_id,
-      a.ptdrk_brands_id,
-      a.normalized_brand,
-      d.logo_url,
+      m.id,
+      m.dnmk_brands_id,
+      m.ptdrk_brands_id,
+      cb.normalized_brand,
+      cb.logo_url,
       d.brand AS dinamik_brand,
-      m.name AS ptbrand_name,
-      m.url_key AS pt_url_key
-    FROM v0.dnmk_ptdrk_brands a
-    LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-    WHERE a.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
+      pt.name AS ptbrand_name,
+      pt.url_key AS pt_url_key
+    FROM v0.dnmk_ptdrk_brand_mappings m
+    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+    WHERE m.mapping_status = 'APPROVED'
+      AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
   ),
   with_key AS (
     SELECT
@@ -119,19 +120,20 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
   const rows = await db.$queryRaw<DbrandsMatchQueryRow[]>(Prisma.sql`
     WITH approved AS (
       SELECT
-        a.id,
-        a.dnmk_brands_id,
-        a.ptdrk_brands_id,
-        a.normalized_brand,
-        d.logo_url,
+        m.id,
+        m.dnmk_brands_id,
+        m.ptdrk_brands_id,
+        cb.normalized_brand,
+        cb.logo_url,
         d.brand AS dinamik_brand,
-        m.name AS ptbrand_name,
-        m.url_key AS pt_url_key
-      FROM v0.dnmk_ptdrk_brands a
-      LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-      LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-      WHERE a.mapping_status = 'APPROVED'
-        AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
+        pt.name AS ptbrand_name,
+        pt.url_key AS pt_url_key
+      FROM v0.dnmk_ptdrk_brand_mappings m
+      JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+      LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      WHERE m.mapping_status = 'APPROVED'
+        AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
     ),
     with_key AS (
       SELECT

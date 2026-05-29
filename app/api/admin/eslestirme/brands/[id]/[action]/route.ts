@@ -32,17 +32,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     switch (action) {
       case 'approve': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'APPROVED' WHERE id = ${id}`)
         await removeRedundantDbrandsMatchRows()
         revalidateAdminCatalogPaths()
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
       }
       case 'reject': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'REJECTED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'REJECTED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi reddedildi.' }, context)
       }
       case 'ignore': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET mapping_status = 'IGNORED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'IGNORED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi yoksayıldı.' }, context)
       }
       case 'update': {
@@ -62,7 +62,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           }
           const mfrName = manufacturer[0].name
           const normalized = normalizeModel(mfrName) || ''
-          await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET ptdrk_brands_id = ${mfrId}, normalized_brand = ${normalized}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          await db.$executeRaw(Prisma.sql`
+            WITH canonical AS (
+              INSERT INTO v0.dnmk_ptdrk_brands (normalized_brand)
+              VALUES (${normalized})
+              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              RETURNING id
+            )
+            UPDATE v0.dnmk_ptdrk_brand_mappings
+            SET
+              ptdrk_brands_id = ${mfrId},
+              dnmk_ptdrk_brands_id = (SELECT id FROM canonical),
+              match_method = 'MANUAL',
+              mapping_status = 'APPROVED'
+            WHERE id = ${id}
+          `)
           await removeRedundantDbrandsMatchRows()
           revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
@@ -79,7 +93,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           if (!brand || brand.length === 0) {
             return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Dinamik marka bulunamadı.', context })
           }
-          await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brands SET dnmk_brands_id = ${brandId}, match_method = 'MANUAL', mapping_status = 'APPROVED' WHERE id = ${id}`)
+          const brandName = brand[0].brand
+          const normalized = normalizeModel(brandName) || ''
+          await db.$executeRaw(Prisma.sql`
+            WITH canonical AS (
+              INSERT INTO v0.dnmk_ptdrk_brands (normalized_brand)
+              VALUES (${normalized})
+              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              RETURNING id
+            )
+            UPDATE v0.dnmk_ptdrk_brand_mappings
+            SET
+              dnmk_brands_id = ${brandId},
+              dnmk_ptdrk_brands_id = (SELECT id FROM canonical),
+              match_method = 'MANUAL',
+              mapping_status = 'APPROVED'
+            WHERE id = ${id}
+          `)
           await removeRedundantDbrandsMatchRows()
           revalidateAdminCatalogPaths()
           return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
@@ -93,7 +123,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         })
       }
       case 'delete': {
-        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dnmk_ptdrk_brands WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dnmk_ptdrk_brand_mappings WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }
       default:

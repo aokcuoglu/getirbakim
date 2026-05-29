@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 
 /** Join latest Dinamik offer row for catalog reads. */
 export const dproductDetailsJoin = Prisma.sql`
-  LEFT JOIN v0.dnmk_product_detail o ON o.dnmk_products_id = d.id
+  LEFT JOIN v0.dnmk_cost o ON o.dnmk_products_id = d.id
 `
 
 export const dproductDetailsPriceExpr = Prisma.sql`o.price`

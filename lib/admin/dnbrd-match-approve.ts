@@ -11,7 +11,7 @@ const PT_ONLY_PENDING_FILTER = Prisma.sql`
 export async function countPendingPtOnlyDbrandsMatch(): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.dnmk_ptdrk_brand_mappings
     WHERE ${PT_ONLY_PENDING_FILTER}
   `)
   return row?.count ?? 0
@@ -24,7 +24,7 @@ export async function countPendingPtOnlyDbrandsMatch(): Promise<number> {
 export async function approvePendingPtOnlyDbrandsMatch(): Promise<number> {
   return Number(
     await db.$executeRaw(Prisma.sql`
-      UPDATE v0.dnmk_ptdrk_brands
+      UPDATE v0.dnmk_ptdrk_brand_mappings
       SET
         mapping_status = 'APPROVED',
         match_method = COALESCE(match_method, 'MANUAL')

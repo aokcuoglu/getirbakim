@@ -29,7 +29,7 @@ function buildProductsTextFilter(q: string, pattern: string) {
   const normalizedQ = normalizeModel(q)
   return Prisma.sql`AND (
     p.title ILIKE ${pattern}
-    OR p.product_model ILIKE ${pattern}
+    OR p.part_no ILIKE ${pattern}
     OR p.ref_no ILIKE ${pattern}
     OR mfr.name ILIKE ${pattern}
     ${normalizedQ ? Prisma.sql`OR ${ptproductNormalizedModelExpr} = ${normalizedQ}` : Prisma.empty}
@@ -65,10 +65,10 @@ export async function GET(request: NextRequest) {
           WITH matched_brands AS (
             SELECT DISTINCT BTRIM(LOWER(db.brand)) AS brand_norm
             FROM v0.ptdrk_products p
-            JOIN v0.dnmk_ptdrk_brands alias
-              ON alias.ptdrk_brands_id = p.ptdrk_brands_id
-             AND alias.mapping_status = 'APPROVED'
-            JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
+            JOIN v0.dnmk_ptdrk_brand_mappings m
+              ON m.ptdrk_brands_id = p.ptdrk_brands_id
+             AND m.mapping_status = 'APPROVED'
+            JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
             WHERE p.id = ${productId}
           )
           SELECT d.id, d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no
@@ -126,15 +126,15 @@ export async function GET(request: NextRequest) {
             WHERE d.id = ${dnprdId}
           ),
           matched_mfrs AS (
-            SELECT DISTINCT alias.ptdrk_brands_id
+            SELECT DISTINCT m.ptdrk_brands_id
             FROM dproduct d
-            JOIN v0.dnmk_ptdrk_brands alias
-              ON alias.mapping_status = 'APPROVED'
-             AND alias.ptdrk_brands_id IS NOT NULL
-            JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
+            JOIN v0.dnmk_ptdrk_brand_mappings m
+              ON m.mapping_status = 'APPROVED'
+             AND m.ptdrk_brands_id IS NOT NULL
+            JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
              AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
           )
-          SELECT p.id, p.title, p.product_model AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+          SELECT p.id, p.title, p.part_no AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
           FROM v0.ptdrk_products p
           JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
           WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM matched_mfrs)
@@ -154,15 +154,15 @@ export async function GET(request: NextRequest) {
               WHERE d.id = ${dnprdId}
             ),
             matched_mfrs AS (
-              SELECT DISTINCT alias.ptdrk_brands_id
+              SELECT DISTINCT m.ptdrk_brands_id
               FROM dproduct d
-              JOIN v0.dnmk_ptdrk_brands alias
-                ON alias.mapping_status = 'APPROVED'
-               AND alias.ptdrk_brands_id IS NOT NULL
-              JOIN v0.dnmk_brands db ON db.id = alias.dnmk_brands_id
+              JOIN v0.dnmk_ptdrk_brand_mappings m
+                ON m.mapping_status = 'APPROVED'
+               AND m.ptdrk_brands_id IS NOT NULL
+              JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
                AND BTRIM(LOWER(db.brand)) = BTRIM(LOWER(COALESCE(d.brand, '')))
             )
-            SELECT p.id, p.title, p.product_model AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+            SELECT p.id, p.title, p.part_no AS model, p.ptdrk_brands_id, mfr.name AS manufacturer_name
             FROM v0.ptdrk_products p
             JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
             WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM matched_mfrs)

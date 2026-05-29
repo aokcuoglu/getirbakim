@@ -1,8 +1,8 @@
 /**
- * Import MODEL column from CSV into v0.ptdrk_products
+ * Import MODEL column from CSV into v0.ptdrk_products.part_no
  *
  * Matches CSV.id to v0.ptdrk_products.id and updates:
- *   model = CSV.MODEL (raw)
+ *   part_no = CSV.MODEL (raw)
  *
  * Usage:
  *   DRY_RUN=true  CSV_PATH=/path/to/parca_tedarik.csv bun scripts/import-parcatedarik-models.ts
@@ -153,7 +153,7 @@ async function main() {
     const batch = idsWithModel.slice(i, i + BATCH_SIZE)
     const products = await db.$queryRaw<
       Array<{ id: number; title: string; model: string | null }>
-    >`SELECT id, title, product_model AS model FROM v0.ptdrk_products WHERE id IN (${Prisma.join(batch)})`
+    >`SELECT id, title, part_no AS model FROM v0.ptdrk_products WHERE id IN (${Prisma.join(batch)})`
 
     for (const p of products) {
       const mv = modelValues.get(p.id)
@@ -233,8 +233,8 @@ async function main() {
 
     const sql = `
       UPDATE v0.ptdrk_products AS p
-      SET product_model = v.product_model
-      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, product_model)
+      SET part_no = v.part_no
+      FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, part_no)
       WHERE p.id = v.id
     `
 
@@ -256,13 +256,13 @@ async function main() {
   console.log(`  Total products: ${totalProducts[0].count}`)
 
   const withModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE product_model IS NOT NULL AND product_model <> ''`
+    `SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE part_no IS NOT NULL AND part_no <> ''`
   console.log(`  Products with model: ${withModel[0].count}`)
 
   const normalizedModelSubquery = `
-    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
     FROM v0.ptdrk_products
-    WHERE product_model IS NOT NULL AND BTRIM(product_model) <> ''
+    WHERE part_no IS NOT NULL AND BTRIM(part_no) <> ''
   `
 
   const withNormalizedModel = await db.$queryRaw<Array<{ count: bigint }>>(
@@ -278,7 +278,7 @@ async function main() {
     SELECT sub.norm, COUNT(*) AS count
     FROM v0.ptdrk_products p
     CROSS JOIN LATERAL (
-      SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+      SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.part_no, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
     ) sub
     WHERE sub.norm IS NOT NULL
     GROUP BY sub.norm
@@ -294,9 +294,9 @@ async function main() {
   const recentUpdates = await db.$queryRaw<
     Array<{ id: number; product_id: string; model: string | null; title: string }>
   >`
-    SELECT id, product_id, product_model AS model, title
+    SELECT id, product_id, part_no AS model, title
     FROM v0.ptdrk_products
-    WHERE product_model IS NOT NULL AND product_model <> ''
+    WHERE part_no IS NOT NULL AND part_no <> ''
     ORDER BY updated_at DESC NULLS LAST
     LIMIT 20
   `
@@ -318,11 +318,11 @@ async function main() {
   console.log(`  Dinamik products with any barcode: ${dinWithBarcode[0].count}`)
 
   const ptNormalizedModelsSubquery = `
-    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(product_model, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
+    SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
     FROM v0.ptdrk_products
-    WHERE product_model IS NOT NULL AND BTRIM(product_model) <> ''
+    WHERE part_no IS NOT NULL AND BTRIM(part_no) <> ''
   `
-  const ptModelNormExpr = `NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.product_model, ''), '[^A-Z0-9]', '', 'gi')), '')`
+  const ptModelNormExpr = `NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.part_no, ''), '[^A-Z0-9]', '', 'gi')), '')`
 
   const bar1Match = await db.$queryRaw<Array<{ count: bigint }>>(
     Prisma.raw(`

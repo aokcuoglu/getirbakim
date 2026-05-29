@@ -8,14 +8,7 @@ const FIRMA = 'BASBUG'
 const CONCURRENCY = 2
 const BATCH_SIZE = 1000
 
-async function main() {
-  const pool = new Pool({
-    connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
-    max: 8,
-    connectionTimeoutMillis: 15000
-  })
-
-  console.log('1/4 Logging in...')
+async function getToken() {
   const loginResp = await fetch(`${BASE}/auth/Login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,13 +22,44 @@ async function main() {
   })
   if (!loginResp.ok) throw new Error(`Login failed: ${loginResp.status}`)
   const { token } = await loginResp.json()
+  return token
+}
+
+async function main() {
+  const pool = new Pool({
+    connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL,
+    max: 8,
+    connectionTimeoutMillis: 15000
+  })
+
+  console.log('1/4 Logging in...')
+  let token = await getToken()
+  let tokenAt = Date.now()
   console.log('   Token OK')
 
+  async function ensureToken() {
+    if (Date.now() - tokenAt > 240_000) {
+      token = await getToken()
+      tokenAt = Date.now()
+    }
+  }
+
+  async function apiFetch(path, retry = true) {
+    await ensureToken()
+    const resp = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(120000)
+    })
+    if (resp.status === 401 && retry) {
+      token = await getToken()
+      tokenAt = Date.now()
+      return apiFetch(path, false)
+    }
+    return resp
+  }
+
   console.log('2/4 Fetching group list...')
-  const groupsResp = await fetch(`${BASE}/material/ListeGrubuGetir?FirmaAdi=${FIRMA}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000)
-  })
+  const groupsResp = await apiFetch(`/material/ListeGrubuGetir?FirmaAdi=${FIRMA}`)
   if (!groupsResp.ok) throw new Error(`ListeGrubuGetir failed: ${groupsResp.status}`)
   const { malzemeGruplariListesi: groups } = await groupsResp.json()
   console.log(`   ${groups.length} groups found`)
@@ -49,9 +73,8 @@ async function main() {
     const groupStart = Date.now()
     console.log(`\n3/4 [${gi + 1}/${groups.length}] Fetching ${group.kod} (${group.ad})...`)
 
-    const productsResp = await fetch(
-      `${BASE}/material/MalzemeleriGetir?FirmaAdi=${FIRMA}&ListeGrubu=${encodeURIComponent(group.kod)}`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000) }
+    const productsResp = await apiFetch(
+      `/material/MalzemeleriGetir?FirmaAdi=${FIRMA}&ListeGrubu=${encodeURIComponent(group.kod)}`
     )
     if (!productsResp.ok) {
       console.log(`   ✗ HTTP ${productsResp.status}, skipping.`)

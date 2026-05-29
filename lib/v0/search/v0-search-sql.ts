@@ -57,7 +57,7 @@ const DPMATCH_PRODUCT_SELECT = Prisma.sql`
     d.barcode_2,
     d.barcode_3,
     p.title,
-    p.product_model AS model,
+    p.part_no AS model,
     p.ref_no,
     m.normalized_name,
     ${dproductDetailsPriceExpr}::text AS dinamik_price,
@@ -100,7 +100,7 @@ async function lookupV0ExactPartCode(options: {
       SELECT p.id
       FROM v0.ptdrk_products p
       WHERE (
-          ${normField(Prisma.sql`p.product_model`)} = ${normalized}
+          ${normField(Prisma.sql`p.part_no`)} = ${normalized}
           OR ${normField(Prisma.sql`p.ref_no`)} = ${normalized}
         )
       LIMIT 80
@@ -160,14 +160,14 @@ function buildCodeSearchClause(query: string): Prisma.Sql {
       ? Prisma.sql`
     OR COALESCE(d.stock_code, '') ILIKE ${compactPattern}
     OR COALESCE(d.part_no, '') ILIKE ${compactPattern}
-  OR COALESCE(p.product_model, '') ILIKE ${compactPattern}
+  OR COALESCE(p.part_no, '') ILIKE ${compactPattern}
   OR COALESCE(p.ref_no, '') ILIKE ${compactPattern}`
       : Prisma.empty
 
   return Prisma.sql`(
     COALESCE(d.stock_code, '') ILIKE ${pattern}
     OR COALESCE(d.part_no, '') ILIKE ${pattern}
-    OR COALESCE(p.product_model, '') ILIKE ${pattern}
+    OR COALESCE(p.part_no, '') ILIKE ${pattern}
     OR COALESCE(p.ref_no, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_1, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_2, '') ILIKE ${pattern}
@@ -176,7 +176,7 @@ function buildCodeSearchClause(query: string): Prisma.Sql {
     ${compactIlike}
     OR ${compactFieldMatch(Prisma.sql`d.stock_code`)}
     OR ${compactFieldMatch(Prisma.sql`d.part_no`)}
-    OR ${compactFieldMatch(Prisma.sql`p.product_model`)}
+    OR ${compactFieldMatch(Prisma.sql`p.part_no`)}
     OR ${compactFieldMatch(Prisma.sql`p.ref_no`)}
   )`
 }
@@ -209,14 +209,14 @@ function buildProductSearchClause(query: string): Prisma.Sql {
       ? Prisma.sql`
     OR COALESCE(d.stock_code, '') ILIKE ${compactPattern}
     OR COALESCE(d.part_no, '') ILIKE ${compactPattern}
-    OR COALESCE(p.product_model, '') ILIKE ${compactPattern}
+    OR COALESCE(p.part_no, '') ILIKE ${compactPattern}
     OR COALESCE(p.ref_no, '') ILIKE ${compactPattern}`
       : Prisma.empty
 
   return Prisma.sql`(
     COALESCE(${dnbrdMatchBrandNameExpr}, '') ILIKE ${pattern}
     OR COALESCE(p.title, '') ILIKE ${pattern}
-    OR COALESCE(p.product_model, '') ILIKE ${pattern}
+    OR COALESCE(p.part_no, '') ILIKE ${pattern}
     OR COALESCE(d.stock_code, '') ILIKE ${pattern}
     OR COALESCE(d.stock_name, '') ILIKE ${pattern}
     OR COALESCE(d.part_no, '') ILIKE ${pattern}
@@ -229,7 +229,7 @@ function buildProductSearchClause(query: string): Prisma.Sql {
     ${compactIlike}
     OR ${compactFieldMatch(Prisma.sql`d.stock_code`)}
     OR ${compactFieldMatch(Prisma.sql`d.part_no`)}
-    OR ${compactFieldMatch(Prisma.sql`p.product_model`)}
+    OR ${compactFieldMatch(Prisma.sql`p.part_no`)}
     OR ${compactFieldMatch(Prisma.sql`p.ref_no`)}
   )`
 }
@@ -293,20 +293,21 @@ export async function searchV0CatalogSql(options: {
         const brandPattern = escapeIlikePattern(trimmed)
         const brandRows = await db.$queryRaw<BrandSearchRow[]>(Prisma.sql`
           WITH approved AS (
-            SELECT
-              a.id,
-              a.dnmk_brands_id,
-              a.ptdrk_brands_id,
-              a.normalized_brand,
-              d.logo_url,
-              d.brand AS dinamik_brand,
-              m.name AS ptbrand_name,
-              m.url_key AS pt_url_key
-            FROM v0.dnmk_ptdrk_brands a
-            LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-            LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-            WHERE a.mapping_status = 'APPROVED'
-              AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
+        SELECT
+          m.id,
+          m.dnmk_brands_id,
+          m.ptdrk_brands_id,
+          cb.normalized_brand,
+          cb.logo_url,
+          d.brand AS dinamik_brand,
+          pt.name AS ptbrand_name,
+          pt.url_key AS pt_url_key
+        FROM v0.dnmk_ptdrk_brand_mappings m
+        JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+        LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+        LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+        WHERE m.mapping_status = 'APPROVED'
+          AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
           ),
           with_key AS (
             SELECT
@@ -374,7 +375,7 @@ export async function searchV0CatalogSql(options: {
         d.barcode_2,
         d.barcode_3,
         p.title,
-        p.product_model AS model,
+        p.part_no AS model,
         p.ref_no,
         m.normalized_name,
         ${dproductDetailsPriceExpr}::text AS dinamik_price,
@@ -412,7 +413,7 @@ export async function searchV0CatalogSql(options: {
         d.barcode_2,
         d.barcode_3,
         p.title,
-        p.product_model AS model,
+        p.part_no AS model,
         p.ref_no,
         m.normalized_name,
         ${dproductDetailsPriceExpr}::text AS dinamik_price,
@@ -438,19 +439,20 @@ export async function searchV0CatalogSql(options: {
     const brandRows = await db.$queryRaw<BrandSearchRow[]>(Prisma.sql`
       WITH approved AS (
         SELECT
-          a.id,
-          a.dnmk_brands_id,
-          a.ptdrk_brands_id,
-          a.normalized_brand,
-          d.logo_url,
+          m.id,
+          m.dnmk_brands_id,
+          m.ptdrk_brands_id,
+          cb.normalized_brand,
+          cb.logo_url,
           d.brand AS dinamik_brand,
-          m.name AS ptbrand_name,
-          m.url_key AS pt_url_key
-        FROM v0.dnmk_ptdrk_brands a
-        LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-        LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
-        WHERE a.mapping_status = 'APPROVED'
-          AND BTRIM(COALESCE(a.normalized_brand, d.brand, m.name, '')) <> ''
+          pt.name AS ptbrand_name,
+          pt.url_key AS pt_url_key
+        FROM v0.dnmk_ptdrk_brand_mappings m
+        JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+        LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+        LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+        WHERE m.mapping_status = 'APPROVED'
+          AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
       ),
       with_key AS (
         SELECT

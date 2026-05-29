@@ -17,11 +17,11 @@ function buildWhereClause(q: string, status: string): Prisma.Sql {
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     conditions.push(
-      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR m.name ILIKE ${pattern} OR a.normalized_brand ILIKE ${pattern})`
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.normalized_brand ILIKE ${pattern})`
     )
   }
   if (status !== 'all') {
-    conditions.push(Prisma.sql`a.mapping_status = ${status.toUpperCase()}`)
+    conditions.push(Prisma.sql`m.mapping_status = ${status.toUpperCase()}`)
   }
 
   if (conditions.length === 0) {
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const whereClause = buildWhereClause(q, status)
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands a LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands cb LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -76,20 +76,21 @@ export async function GET(request: NextRequest) {
         id: number
         dinamik_brand: string | null
         normalized_brand: string
-        ptdrk_brands_id: number
-        manufacturer_name: string
-        mapping_status: string
+        ptdrk_brands_id: number | null
+        manufacturer_name: string | null
+        mapping_status: string | null
         match_method: string | null
       }>
     >(Prisma.sql`
-      SELECT a.id, d.brand AS dinamik_brand,
-             a.normalized_brand,
-             a.ptdrk_brands_id,
-             m.name AS manufacturer_name,
-             a.mapping_status, a.match_method
-      FROM v0.dnmk_ptdrk_brands a
-      LEFT JOIN v0.dnmk_brands d ON d.id = a.dnmk_brands_id
-      LEFT JOIN v0.ptdrk_brands m ON m.id = a.ptdrk_brands_id
+      SELECT m.id, d.brand AS dinamik_brand,
+             cb.normalized_brand,
+             m.ptdrk_brands_id,
+             pt.name AS manufacturer_name,
+             m.mapping_status, m.match_method
+      FROM v0.dnmk_ptdrk_brands cb
+      LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id
+      LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE ${whereClause}
       ORDER BY d.brand ASC NULLS LAST
       LIMIT ${limit} OFFSET ${offset}
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
 
     const statusCounts = await db.$queryRaw<
       Array<{ mapping_status: string; count: bigint }>
-    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dnmk_ptdrk_brands GROUP BY mapping_status`)
+    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dnmk_ptdrk_brand_mappings GROUP BY mapping_status`)
 
     const brandStats = await getDinamikBrandMatchStats()
 
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
         normalizedName: r.normalized_brand ?? '',
         parcatedarikManufacturerId: r.ptdrk_brands_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
-        mappingStatus: r.mapping_status,
+        mappingStatus: r.mapping_status ?? '',
         matchMethod: r.match_method,
       })),
       pagination: { page, limit, total, pages },
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
         })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE v0.dnmk_ptdrk_brands
+        Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings
           SET mapping_status = 'APPROVED'
           WHERE id IN (${Prisma.join(ids)})
             AND mapping_status = 'PENDING'`

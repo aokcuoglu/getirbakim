@@ -85,7 +85,7 @@ async function fetchApprovedDpmatchProducts(limit = DEFAULT_LIMIT): Promise<V0Dp
       ${dproductDetailsPriceExpr}::text AS dinamik_price,
       ${dproductDetailsStockExpr} AS dinamik_stock_qty,
       p.title,
-      p.product_model AS model,
+      p.part_no AS model,
       p.ref_no,
       p.price_list::text AS pt_price,
       COALESCE(d.image_url, o.raw->>'resimUrl') AS image_url,
