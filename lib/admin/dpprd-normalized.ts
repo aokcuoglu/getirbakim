@@ -77,13 +77,13 @@ export async function updateDpmatchNormalizedForIds(ids: number[]): Promise<numb
   if (ids.length === 0) return 0
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_ptdrk_products m
+    UPDATE v0.product_list m
     SET normalized_name = src.val
     FROM (
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       WHERE m.id IN (${Prisma.join(ids)})
@@ -106,7 +106,7 @@ export async function approveDpmatchRows(
     : Prisma.empty
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_ptdrk_products m
+    UPDATE v0.product_list m
     SET
       mapping_status = 'APPROVED',
       match_method = COALESCE(${matchMethod}, m.match_method),
@@ -115,7 +115,7 @@ export async function approveDpmatchRows(
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       WHERE m.id IN (${Prisma.join(ids)})
@@ -138,13 +138,13 @@ export async function backfillDpmatchNormalized(options?: {
   const limitSql = limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty
 
   return db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_ptdrk_products m
+    UPDATE v0.product_list m
     SET normalized_name = src.val
     FROM (
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       WHERE 1 = 1
@@ -162,7 +162,7 @@ export async function backfillDpmatchNormalized(options?: {
  */
 export async function approvePendingDpmatchWithoutBrandMatch(): Promise<number> {
   return db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_ptdrk_products m
+    UPDATE v0.product_list m
     SET
       mapping_status = 'APPROVED',
       match_method = COALESCE(m.match_method, ${NO_BRAND_MATCH_METHOD}),
@@ -171,7 +171,7 @@ export async function approvePendingDpmatchWithoutBrandMatch(): Promise<number> 
       SELECT
         m.id,
         ${NORMALIZED_VALUE_SQL} AS val
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
       WHERE ${UNMATCHED_BRAND_DPMATCH_FILTER}

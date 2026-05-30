@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const whereClause = buildWhereClause(q, status)
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands cb LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.brand_list cb LEFT JOIN v0.brand_mappings m ON m.brand_list_id = cb.id LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -87,8 +87,8 @@ export async function GET(request: NextRequest) {
              m.ptdrk_brands_id,
              pt.name AS manufacturer_name,
              m.mapping_status, m.match_method
-      FROM v0.dnmk_ptdrk_brands cb
-      LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id
+      FROM v0.brand_list cb
+      LEFT JOIN v0.brand_mappings m ON m.brand_list_id = cb.id
       LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE ${whereClause}
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 
     const statusCounts = await db.$queryRaw<
       Array<{ mapping_status: string; count: bigint }>
-    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dnmk_ptdrk_brand_mappings GROUP BY mapping_status`)
+    >(Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.brand_mappings GROUP BY mapping_status`)
 
     const brandStats = await getDinamikBrandMatchStats()
 
@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
         })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings
+        Prisma.sql`UPDATE v0.brand_mappings
           SET mapping_status = 'APPROVED'
           WHERE id IN (${Prisma.join(ids)})
             AND mapping_status = 'PENDING'`

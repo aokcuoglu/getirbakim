@@ -22,7 +22,7 @@ async function main() {
       mb.match_method,
       db.brand as dnmk_brand_name,
       pb.name as pt_brand_name
-    FROM v0.dnmk_ptdrk_brands mb
+    FROM v0.brand_list mb
     LEFT JOIN v0.dnmk_brands db ON db.id = mb.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pb ON pb.id = mb.ptdrk_brands_id
     WHERE mb.normalized_brand = 'AKSA'
@@ -43,7 +43,7 @@ async function main() {
   const ptCounts = await db.$queryRaw`
     SELECT p.ptdrk_brands_id, COUNT(*)::int as product_count
     FROM v0.ptdrk_products p
-    WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM v0.dnmk_ptdrk_brands WHERE normalized_brand = 'AKSA')
+    WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM v0.brand_list WHERE normalized_brand = 'AKSA')
     GROUP BY p.ptdrk_brands_id
   `
   logJson('PT products:', ptCounts)
@@ -53,7 +53,7 @@ async function main() {
     SELECT 
       dnmk_brands_id, 
       ptdrk_brands_id
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.brand_list
     WHERE normalized_brand = 'AKSA'
     ORDER BY dnmk_brands_id, ptdrk_brands_id
   `

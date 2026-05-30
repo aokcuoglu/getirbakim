@@ -48,8 +48,8 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
       d.brand AS dinamik_brand,
       pt.name AS ptbrand_name,
       pt.url_key AS pt_url_key
-    FROM v0.dnmk_ptdrk_brand_mappings m
-    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    FROM v0.brand_mappings m
+    JOIN v0.brand_list cb ON cb.id = m.brand_list_id
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     WHERE m.mapping_status = 'APPROVED'
@@ -128,8 +128,8 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
         d.brand AS dinamik_brand,
         pt.name AS ptbrand_name,
         pt.url_key AS pt_url_key
-      FROM v0.dnmk_ptdrk_brand_mappings m
-      JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+      FROM v0.brand_mappings m
+      JOIN v0.brand_list cb ON cb.id = m.brand_list_id
       LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE m.mapping_status = 'APPROVED'

@@ -5,24 +5,14 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-const DEFAULT_DATABASE_POOL_MAX = process.env.NODE_ENV === 'production' ? 8 : 3
-
-function parsePoolMax(value: string | undefined): number {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_DATABASE_POOL_MAX
-  return Math.min(parsed, 12)
-}
-
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL
 
   if (!connectionString) {
     throw new Error(
-      'DATABASE_URL is not set. Add it to your .env file (see .env.example for other vars).'
+      'DATABASE_URL is not set. Add it to .env file (see .env.example for other vars).'
     )
   }
-
-  const poolMax = parsePoolMax(process.env.DATABASE_POOL_MAX ?? process.env.PG_POOL_MAX)
 
   const parsedConnectionTimeout = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS)
   const connectionTimeoutMillis =
@@ -43,13 +33,12 @@ function createPrismaClient() {
     } as any)
   }
 
-  console.log(`Database pool max configured: ${poolMax}`)
-
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString, max: poolMax, connectionTimeoutMillis, ssl: { rejectUnauthorized: false } }),
+    adapter: new PrismaPg({ connectionString, connectionTimeoutMillis, ssl: { rejectUnauthorized: false } }),
     log
   } as any)
 }
+
 
 const existingPrisma = globalForPrisma.prisma
 export const db = !existingPrisma ? createPrismaClient() : existingPrisma

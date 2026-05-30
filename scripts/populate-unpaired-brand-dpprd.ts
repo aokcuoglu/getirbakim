@@ -23,13 +23,13 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products) AS total,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list) AS total,
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE mapping_status = 'APPROVED'
           AND match_method = 'NO_BRAND_MATCH') AS approved_single_side,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE dnmk_products_id IS NOT NULL AND ptdrk_products_id IS NULL) AS dinamik_only,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE dnmk_products_id IS NULL AND ptdrk_products_id IS NOT NULL) AS pt_only
   `)
 
@@ -58,13 +58,13 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products) AS total,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list) AS total,
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE mapping_status = 'APPROVED'
           AND match_method = 'NO_BRAND_MATCH') AS approved_single_side,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE dnmk_products_id IS NOT NULL AND ptdrk_products_id IS NULL) AS dinamik_only,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_products
+      (SELECT COUNT(*)::int FROM v0.product_list
         WHERE dnmk_products_id IS NULL AND ptdrk_products_id IS NOT NULL) AS pt_only
   `)
 

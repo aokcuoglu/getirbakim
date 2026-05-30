@@ -295,7 +295,7 @@ export async function listDpmatchForAdmin(
   const orderBy = Prisma.sql`${Prisma.raw(orderColumn)} ${Prisma.raw(filters.sortDir === 'desc' ? 'DESC' : 'ASC')}`
 
   const fromJoin = Prisma.sql`
-    FROM v0.dnmk_ptdrk_products m
+    FROM v0.product_list m
     LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}

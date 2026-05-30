@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       `),
       db.$queryRaw<Array<{ id: number; name: string }>>(Prisma.sql`
         SELECT DISTINCT pt.id, pt.name
-        FROM v0.dnmk_ptdrk_brand_mappings m
+        FROM v0.brand_mappings m
         INNER JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
         ORDER BY pt.name ASC
       `),

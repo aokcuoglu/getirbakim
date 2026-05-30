@@ -226,17 +226,19 @@ export function ApprovedBrandsAdminClient({
       return
     }
     const target = parseInt(targetId, 10)
-    if (selectedIds.includes(target)) {
-      toast.error('Hedef marka seçili markalar arasında olamaz.')
+    if (!selectedIds.includes(target)) {
+      toast.error('Hedef marka seçili markalar arasında olmalıdır.')
       return
     }
+
+    const sourceIds = selectedIds.filter(id => id !== target)
 
     setIsMerging(true)
     try {
       const res = await fetch('/api/admin/brands/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceIds: selectedIds, targetId: target })
+        body: JSON.stringify({ sourceIds, targetId: target })
       })
       const data = await res.json()
       if (data.error) {

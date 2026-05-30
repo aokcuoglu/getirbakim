@@ -15,7 +15,7 @@ import { ensureStorageBucket } from '@/lib/suppliers/parts2world/common'
 import { uploadImageBuffer } from '@/lib/supabase/storage'
 
 const BUCKET = 'brand-logos'
-const STORAGE_PREFIX = 'dnbrd-match'
+const STORAGE_PREFIX = 'ptbrands'
 const ALLOWED_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -38,7 +38,7 @@ async function persistBrandLogo(
 ) {
   await ensureStorageBucket(BUCKET, true)
   const ext = extensionForContentType(contentType)
-  const storagePath = `${STORAGE_PREFIX}/${matchId}.${ext}`
+  const storagePath = `${STORAGE_PREFIX}/${matchId}-${Date.now()}.${ext}`
   const upload = await uploadImageBuffer(buffer, storagePath, contentType, BUCKET)
 
   if (!upload.publicUrl) {
@@ -171,6 +171,48 @@ export async function POST(
       return await persistBrandLogo(matchId, buffer, file.type, context)
     }
 
+    // URL yolu
+    const supabaseBase = process.env['NEXT_PUBLIC_SUPABASE_URL']!
+    const cleanedSupabase = supabaseBase.replace(/\/$/, '')
+    const isSupabaseUrl =
+      imageUrl.startsWith(cleanedSupabase) &&
+      imageUrl.includes('/storage/v1/object/public/')
+
+    // Desteklenmeyen protokol kontrolü
+    if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+      return errorResponse({
+        status: 400,
+        code: 'INVALID_URL',
+        message: 'Geçerli bir URL giriniz.',
+        context
+      })
+    }
+
+    // Supabase'ten gelen URL → doğrudan DB'ye kaydet
+    if (isSupabaseUrl) {
+      const updated = await setApprovedDbrandsMatchLogo(matchId, imageUrl)
+      if (!updated) {
+        return errorResponse({
+          status: 404,
+          code: 'NOT_FOUND',
+          message: 'Marka eşleştirmesi güncellenemedi.',
+          context
+        })
+      }
+
+      revalidateAdminCatalogPaths()
+
+      return successResponse(
+        {
+          id: matchId,
+          logoUrl: imageUrl,
+          message: 'Logo bağlandı.'
+        },
+        context
+      )
+    }
+
+    // Harici URL → indir, kontrol et, yükle
     const remote = await fetchSafeRemoteImage(imageUrl)
     if (!remote.ok) {
       return errorResponse({

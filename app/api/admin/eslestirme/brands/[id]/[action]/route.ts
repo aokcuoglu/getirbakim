@@ -32,22 +32,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     switch (action) {
       case 'approve': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'APPROVED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.brand_mappings SET mapping_status = 'APPROVED' WHERE id = ${id}`)
         await removeRedundantDbrandsMatchRows()
         revalidateAdminCatalogPaths()
         return successResponse({ id, action, message: 'Marka eşleştirmesi onaylandı.' }, context)
       }
       case 'reject': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'REJECTED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.brand_mappings SET mapping_status = 'REJECTED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi reddedildi.' }, context)
       }
       case 'ignore': {
-        await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'IGNORED' WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`UPDATE v0.brand_mappings SET mapping_status = 'IGNORED' WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi yoksayıldı.' }, context)
       }
       case 'update': {
         const parcatedarikManufacturerId = body?.parcatedarikManufacturerId
         const dinamikBrandId = body?.dinamikBrandId
+        const bsbgBrandId = body?.bsbgBrandId
 
         if (parcatedarikManufacturerId != null) {
           const mfrId = parseInt(String(parcatedarikManufacturerId), 10)
@@ -64,15 +65,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const normalized = normalizeModel(mfrName) || ''
           await db.$executeRaw(Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.dnmk_ptdrk_brands (normalized_brand)
+              INSERT INTO v0.brand_list (normalized_brand)
               VALUES (${normalized})
               ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
               RETURNING id
             )
-            UPDATE v0.dnmk_ptdrk_brand_mappings
+            UPDATE v0.brand_mappings
             SET
               ptdrk_brands_id = ${mfrId},
-              dnmk_ptdrk_brands_id = (SELECT id FROM canonical),
+              brand_list_id = (SELECT id FROM canonical),
               match_method = 'MANUAL',
               mapping_status = 'APPROVED'
             WHERE id = ${id}
@@ -97,15 +98,48 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const normalized = normalizeModel(brandName) || ''
           await db.$executeRaw(Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.dnmk_ptdrk_brands (normalized_brand)
+              INSERT INTO v0.brand_list (normalized_brand)
               VALUES (${normalized})
               ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
               RETURNING id
             )
-            UPDATE v0.dnmk_ptdrk_brand_mappings
+            UPDATE v0.brand_mappings
             SET
               dnmk_brands_id = ${brandId},
-              dnmk_ptdrk_brands_id = (SELECT id FROM canonical),
+              brand_list_id = (SELECT id FROM canonical),
+              match_method = 'MANUAL',
+              mapping_status = 'APPROVED'
+            WHERE id = ${id}
+          `)
+          await removeRedundantDbrandsMatchRows()
+          revalidateAdminCatalogPaths()
+          return successResponse({ id, action, message: 'Marka eşleştirmesi güncellendi.' }, context)
+        }
+
+        if (bsbgBrandId != null) {
+          const brandId = parseInt(String(bsbgBrandId), 10)
+          if (isNaN(brandId) || brandId <= 0) {
+            return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz bsbgBrandId.', context })
+          }
+          const brand = await db.$queryRaw<Array<{ id: number; brand: string }>>(
+            Prisma.sql`SELECT id::int AS id, brand FROM v0.bsbg_brands WHERE id = ${brandId}`
+          )
+          if (!brand || brand.length === 0) {
+            return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Başbuğ marka bulunamadı.', context })
+          }
+          const brandName = brand[0].brand
+          const normalized = normalizeModel(brandName) || ''
+          await db.$executeRaw(Prisma.sql`
+            WITH canonical AS (
+              INSERT INTO v0.brand_list (normalized_brand)
+              VALUES (${normalized})
+              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              RETURNING id
+            )
+            UPDATE v0.brand_mappings
+            SET
+              bsbg_brands_id = ${brandId},
+              brand_list_id = (SELECT id FROM canonical),
               match_method = 'MANUAL',
               mapping_status = 'APPROVED'
             WHERE id = ${id}
@@ -118,12 +152,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return errorResponse({
           status: 400,
           code: 'VALIDATION_ERROR',
-          message: 'parcatedarikManufacturerId veya dinamikBrandId gerekli.',
+          message: 'parcatedarikManufacturerId, dinamikBrandId veya bsbgBrandId gerekli.',
           context,
         })
       }
       case 'delete': {
-        await db.$executeRaw(Prisma.sql`DELETE FROM v0.dnmk_ptdrk_brand_mappings WHERE id = ${id}`)
+        await db.$executeRaw(Prisma.sql`DELETE FROM v0.brand_mappings WHERE id = ${id}`)
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }
       default:

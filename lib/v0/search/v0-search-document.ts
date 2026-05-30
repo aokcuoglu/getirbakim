@@ -195,7 +195,7 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     ${dnbrdMatchBrandNameExpr} AS matched_brand,
     o.raw AS dinamik_raw,
     ${dnbrdMatchLogoExpr} AS brand_logo_url
-  FROM v0.dnmk_ptdrk_products m
+  FROM v0.product_list m
   INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
   ${dproductDbrandLeftJoin}
   LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
@@ -214,8 +214,8 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
       d.brand AS dinamik_brand,
       pt.name AS ptbrand_name,
       pt.url_key AS pt_url_key
-    FROM v0.dnmk_ptdrk_brand_mappings m
-    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    FROM v0.brand_mappings m
+    JOIN v0.brand_list cb ON cb.id = m.brand_list_id
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     WHERE m.mapping_status = 'APPROVED'

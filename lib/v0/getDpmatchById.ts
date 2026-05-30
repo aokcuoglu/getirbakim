@@ -90,7 +90,7 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
       p.url,
       mfr.name AS manufacturer_name,
       ${dnbrdMatchLogoExpr} AS brand_logo_url
-    FROM v0.dnmk_ptdrk_products m
+    FROM v0.product_list m
     INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}

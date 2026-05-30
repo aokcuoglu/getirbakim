@@ -32,6 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip'
+import { AnimatePresence, motion } from 'framer-motion'
 
 interface NavChild {
   label: string
@@ -197,15 +198,22 @@ const SidebarItem = ({
             strokeWidth={1.75}
           />
           <span className="flex-1 truncate">{label}</span>
-          <ChevronDown
-            className={cn(
-              'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-              isExpanded && 'rotate-180'
-            )}
-          />
+          <motion.span
+            animate={{ rotate: isExpanded ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex shrink-0 items-center text-muted-foreground"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </motion.span>
         </button>
-        {isExpanded && (
-          <ul className="mx-3.5 mt-0.5 flex min-w-0 translate-x-px flex-col gap-0.5 border-l border-sidebar-border px-2.5 py-0.5">
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.ul
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+              className="mx-3.5 mt-0.5 flex min-w-0 translate-x-px flex-col gap-0.5 overflow-hidden border-l border-sidebar-border px-2.5 py-0.5">
             {children.map((child) => (
               <li key={child.href}>
                 <Link
@@ -222,8 +230,9 @@ const SidebarItem = ({
                 </Link>
               </li>
             ))}
-          </ul>
-        )}
+          </motion.ul>
+          )}
+        </AnimatePresence>
       </div>
     )
   }

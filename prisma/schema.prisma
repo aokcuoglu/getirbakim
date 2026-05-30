@@ -611,7 +611,7 @@ model supplier_sync_runs {
   @@schema("public")
 }
 
-model dnmk_ptdrk_products {
+model product_list {
   id                Int         @id @default(autoincrement())
   dnmk_products_id  BigInt?
   ptdrk_products_id Int?
@@ -639,36 +639,36 @@ model dnmk_ptdrk_products {
 // ==========================================
 // Dinamik-ParcaTedarik Canonical Brands
 // Unified brand table with unique normalized names.
-// Source brand mappings live in dnmk_ptdrk_brand_mappings.
+// Source brand mappings live in brand_mappings.
 // ==========================================
 
-model dnmk_ptdrk_brands {
+model brand_list {
   id                Int      @id @default(autoincrement())
   normalized_brand  String   @unique
   logo_url          String?
 
-  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
+  brand_mappings brand_mappings[]
 
   @@index([normalized_brand], name: "idx_dbrands_match_normalized_brand")
   @@schema("v0")
 }
 
-model dnmk_ptdrk_brand_mappings {
+model brand_mappings {
   id                   Int      @id @default(autoincrement())
-  dnmk_ptdrk_brands_id Int
+  brand_list_id        Int
   dnmk_brands_id       BigInt?
   ptdrk_brands_id      Int?
   bsbg_brands_id       BigInt?
   mapping_status       String   @default("PENDING")
   match_method         String?
 
-  dnmk_ptdrk_brands dnmk_ptdrk_brands @relation(fields: [dnmk_ptdrk_brands_id], references: [id], onDelete: Cascade)
+  brand_list brand_list @relation(fields: [brand_list_id], references: [id], onDelete: Cascade)
   dnmk_brands dnmk_brands? @relation(fields: [dnmk_brands_id], references: [id], onDelete: Cascade)
   ptdrk_brands ptdrk_brands? @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
   bsbg_brands bsbg_brands? @relation(fields: [bsbg_brands_id], references: [id], onDelete: Cascade)
 
-  @@unique([dnmk_ptdrk_brands_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id], name: "uq_dpbrm_brands")
-  @@index([dnmk_ptdrk_brands_id], name: "idx_dpbrm_dpbrands")
+  @@unique([brand_list_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id], name: "uq_dpbrm_brands")
+  @@index([brand_list_id], name: "idx_dpbrm_dpbrands")
   @@index([dnmk_brands_id], name: "idx_dpbrm_dnmk")
   @@index([ptdrk_brands_id], name: "idx_dpbrm_ptdrk")
   @@index([bsbg_brands_id], name: "idx_dpbrm_bsbg")
@@ -1010,7 +1010,7 @@ model ptdrk_brands {
   created_at      DateTime?    @default(now()) @db.Timestamp(6)
   updated_at      DateTime?    @default(now()) @db.Timestamp(6)
   ptdrk_products  ptdrk_products[]
-  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
+  brand_mappings brand_mappings[]
 
   @@schema("v0")
 }
@@ -1030,7 +1030,7 @@ model ptdrk_products {
   updated_at       DateTime?     @default(now()) @db.Timestamp(6)
 
   ptdrk_brands     ptdrk_brands @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  dnmk_ptdrk_products dnmk_ptdrk_products[]
+  product_list product_list[]
 
   @@index([ptdrk_brands_id])
   @@index([product_id])
@@ -1061,7 +1061,7 @@ model dnmk_products {
   passive_at         DateTime? @db.Timestamptz(6)
 
   dnmk_brands            dnmk_brands              @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
-  dnmk_ptdrk_products    dnmk_ptdrk_products[]
+  product_list    product_list[]
   dnmk_cost    dnmk_cost?
 
   @@unique([dnmk_brands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
@@ -1097,9 +1097,9 @@ model dnmk_brands {
   brand            String           @unique
   created_at       DateTime         @default(now()) @db.Timestamptz(6)
   updated_at       DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
-  // Canonical brand mappings moved to dnmk_ptdrk_brand_mappings
+  // Canonical brand mappings moved to brand_mappings
   dnmk_products    dnmk_products[]
-  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
+  brand_mappings brand_mappings[]
 
   @@schema("v0")
 }
@@ -1117,7 +1117,7 @@ model bsbg_brands {
   last_seen_at DateTime @default(now()) @db.Timestamptz(6)
 
   bsbg_products bsbg_products[]
-  dnmk_ptdrk_brand_mappings dnmk_ptdrk_brand_mappings[]
+  brand_mappings brand_mappings[]
 
   @@schema("v0")
 }

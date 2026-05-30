@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useTransition, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { Check, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SortingState } from '@tanstack/react-table'
@@ -18,31 +18,27 @@ import {
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
-import { AdminFormDialog } from '@/components/admin/admin-form-dialog'
-import { cn } from '@/lib/utils'
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DataTable } from './data-table'
 import {
   BrandRow,
   createBrandsColumns,
-  getBrandMatchSide,
 } from './columns/brands-columns'
 
-type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only'
+type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only' | 'bsbg_only'
 
 interface BrandFilters {
   q: string
   status: string
-  dinamikBrand: string | null
-  manufacturerId: number | null
   matchSide: MatchSide
   page: number
   limit: number
@@ -58,70 +54,9 @@ interface BrandSummary {
   ignored: number
 }
 
-interface BrandFilterOptions {
-  dinamikBrands: string[]
-  manufacturers: Array<{ id: number; name: string }>
-}
-
-interface Manufacturer {
-  id: number
-  name: string
-}
-
-type BrandUpdateTarget = 'pt' | 'dinamik'
-
-const PT_MANUFACTURER_SEARCH_PATH = '/api/admin/eslestirme/brands/manufacturers'
-const DINAMIK_BRAND_SEARCH_PATH = '/api/admin/eslestirme/brands/dinamik-brands'
-
-/** Which catalog side the update modal assigns (missing side, or PT when paired). */
-function getBrandUpdateTarget(row: BrandRow): BrandUpdateTarget | null {
-  const side = getBrandMatchSide(row)
-  if (side === 'empty') return null
-  if (side === 'pt_only') return 'dinamik'
-  return 'pt'
-}
-
-function getUpdateModalDescription(row: BrandRow): ReactNode {
-  const side = getBrandMatchSide(row)
-  if (side === 'dinamik_only') {
-    return (
-      <>
-        &quot;{row.dinamikBrand}&quot; Dinamik markası için ParçaTedarik üreticisi seçin
-      </>
-    )
-  }
-  if (side === 'pt_only') {
-    return (
-      <>
-        &quot;{row.parcatedarikManufacturerName}&quot; ParçaTedarik üreticisi için Dinamik marka
-        seçin (Dinamik marka henüz bağlı değil)
-      </>
-    )
-  }
-  if (side === 'paired') {
-    return (
-      <>
-        &quot;{row.dinamikBrand}&quot; ↔ &quot;{row.parcatedarikManufacturerName}&quot; eşleşmesinde
-        ParçaTedarik üreticisini seçin
-      </>
-    )
-  }
-  return <>Eşleştirme tarafı seçin</>
-}
-
-function getUpdateSearchLabel(target: BrandUpdateTarget): string {
-  return target === 'dinamik' ? 'Dinamik Marka' : 'ParçaTedarik Üretici'
-}
-
-function getUpdateSearchPlaceholder(target: BrandUpdateTarget): string {
-  return target === 'dinamik' ? 'Dinamik marka adı ara...' : 'Üretici adı ara...'
-}
-
 const DEFAULT_BRAND_FILTERS: BrandFilters = {
   q: '',
   status: 'all',
-  dinamikBrand: null,
-  manufacturerId: null,
   matchSide: 'all',
   page: 1,
   limit: 50,
@@ -131,8 +66,6 @@ function buildBrandSearchParams(f: BrandFilters) {
   const params = new URLSearchParams()
   if (f.q) params.set('q', f.q)
   if (f.status !== 'all') params.set('status', f.status)
-  if (f.dinamikBrand) params.set('dinamikBrand', f.dinamikBrand)
-  if (f.manufacturerId) params.set('manufacturerId', String(f.manufacturerId))
   if (f.matchSide !== 'all') params.set('matchSide', f.matchSide)
   params.set('page', String(f.page))
   params.set('limit', String(f.limit))
@@ -141,6 +74,32 @@ function buildBrandSearchParams(f: BrandFilters) {
     params.set('sort_dir', f.sort_dir || 'asc')
   }
   return params
+}
+
+const STATUS_MAP: Record<string, { label: string; className: string }> = {
+  APPROVED: { label: 'APPROVED', className: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800' },
+  PENDING: { label: 'PENDING', className: 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800' },
+  REJECTED: { label: 'REJECTED', className: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-800' },
+  IGNORED: { label: 'IGNORED', className: 'bg-muted text-muted-foreground border-border' },
+}
+
+interface MatchItem {
+  id: number
+  name: string
+}
+
+type MatchTarget = 'pt' | 'dinamik' | 'bsbg'
+
+const SEARCH_PATHS: Record<MatchTarget, string> = {
+  pt: '/api/admin/eslestirme/brands/manufacturers',
+  dinamik: '/api/admin/eslestirme/brands/dinamik-brands',
+  bsbg: '/api/admin/eslestirme/brands/bsbg-brands',
+}
+
+const SEARCH_LABELS: Record<MatchTarget, { name: string; placeholder: string }> = {
+  pt: { name: 'ParçaTedarik Üretici', placeholder: 'Üretici adı ara...' },
+  dinamik: { name: 'Dinamik Marka', placeholder: 'Marka adı ara...' },
+  bsbg: { name: 'Başbuğ Marka', placeholder: 'Marka adı ara...' },
 }
 
 export function BrandsTab() {
@@ -156,11 +115,6 @@ export function BrandsTab() {
   const [filters, setFilters] = useState<BrandFilters>(DEFAULT_BRAND_FILTERS)
   const [searchValue, setSearchValue] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [filterOptions, setFilterOptions] = useState<BrandFilterOptions>({
-    dinamikBrands: [],
-    manufacturers: [],
-  })
-  const [optionsLoading, setOptionsLoading] = useState(false)
   const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
   const hasLoadedRef = useRef(false)
@@ -169,15 +123,18 @@ export function BrandsTab() {
     filtersRef.current = filters
   }, [filters])
 
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
-  const [updateTarget, setUpdateTarget] = useState<BrandRow | null>(null)
-  const updateTargetRef = useRef<BrandRow | null>(null)
-  const [updateSearchTarget, setUpdateSearchTarget] = useState<BrandUpdateTarget>('pt')
-  const [selectedMatchItem, setSelectedMatchItem] = useState<Manufacturer | null>(null)
-  const [matchItemQuery, setMatchItemQuery] = useState('')
-  const [matchItemResults, setMatchItemResults] = useState<Manufacturer[]>([])
-  const [isSearchingMatchItems, setIsSearchingMatchItems] = useState(false)
+  const [detailBrand, setDetailBrand] = useState<BrandRow | null>(null)
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false)
+
+  const [matchTarget, setMatchTarget] = useState<MatchTarget>('pt')
+  const [matchQuery, setMatchQuery] = useState('')
+  const [matchResults, setMatchResults] = useState<MatchItem[]>([])
+  const [isSearchingMatch, setIsSearchingMatch] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [matchDialogOpen, setMatchDialogOpen] = useState(false)
+  const [selectedMatch, setSelectedMatch] = useState<MatchItem | null>(null)
+  const [selectedMappingId, setSelectedMappingId] = useState<number | null>(null)
+  const [selectedBrandListId, setSelectedBrandListId] = useState<number | null>(null)
 
   const loadBrands = useCallback(async (f: BrandFilters) => {
     const isInitial = !hasLoadedRef.current
@@ -207,33 +164,9 @@ export function BrandsTab() {
     }
   }, [])
 
-  const loadFilterOptions = useCallback(async () => {
-    setOptionsLoading(true)
-    try {
-      const res = await fetch('/api/admin/eslestirme/brands/options')
-      if (res.ok) {
-        const data = await res.json()
-        if (!data.error) {
-          setFilterOptions({
-            dinamikBrands: data.dinamikBrands || [],
-            manufacturers: data.manufacturers || [],
-          })
-        }
-      }
-    } catch {
-      toast.error('Filtre seçenekleri yüklenemedi')
-    } finally {
-      setOptionsLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
     void loadBrands(filters)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    void loadFilterOptions()
-  }, [loadFilterOptions])
 
   useEffect(() => {
     setSearchValue(filters.q)
@@ -275,16 +208,12 @@ export function BrandsTab() {
 
   const setFilterParam = useCallback(
     (
-      name: keyof Pick<BrandFilters, 'status' | 'dinamikBrand' | 'manufacturerId' | 'matchSide'>,
+      name: keyof Pick<BrandFilters, 'status' | 'matchSide'>,
       value?: string | null
     ) => {
       const patch: Partial<BrandFilters> = { page: 1 }
       if (name === 'status') {
         patch.status = value && value !== 'all' ? value : 'all'
-      } else if (name === 'dinamikBrand') {
-        patch.dinamikBrand = value && value !== 'all' ? value : null
-      } else if (name === 'manufacturerId') {
-        patch.manufacturerId = value && value !== 'all' ? Number(value) : null
       } else if (name === 'matchSide') {
         patch.matchSide = (value as MatchSide) || 'all'
       }
@@ -305,52 +234,6 @@ export function BrandsTab() {
     },
     [setFilterParam]
   )
-
-  const handleAction = useCallback(
-    async (id: number, action: string) => {
-      try {
-        const res = await fetch(`/api/admin/eslestirme/brands/${id}/${action}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const data = await res.json()
-        if (!data.error) {
-          toast.success(data.message || 'İşlem başarılı')
-          void loadBrands(filtersRef.current)
-        } else toast.error(data.error?.message || 'İşlem başarısız')
-      } catch {
-        toast.error('İşlem başarısız')
-      }
-    },
-    [loadBrands]
-  )
-
-  const handleUpdate = useCallback(async () => {
-    if (!updateTarget || !selectedMatchItem) return
-    setIsUpdating(true)
-    try {
-      const body =
-        updateSearchTarget === 'dinamik'
-          ? { dinamikBrandId: selectedMatchItem.id }
-          : { parcatedarikManufacturerId: selectedMatchItem.id }
-      const res = await fetch(`/api/admin/eslestirme/brands/${updateTarget.id}/update`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json()
-      if (!data.error) {
-        toast.success('Eşleştirme güncellendi')
-        setUpdateDialogOpen(false)
-        void loadBrands(filtersRef.current)
-      } else toast.error(data.error?.message || 'Güncelleme başarısız')
-    } catch {
-      toast.error('Güncelleme başarısız')
-    } finally {
-      setIsUpdating(false)
-    }
-  }, [updateTarget, selectedMatchItem, updateSearchTarget, loadBrands])
 
   const handleGenerate = useCallback(() => {
     setGenerating(true)
@@ -400,91 +283,123 @@ export function BrandsTab() {
     })
   }, [rowSelection, loadBrands])
 
-  const searchMatchItems = useCallback(async (q: string) => {
+  const handleAction = useCallback(
+    async (id: number, action: string) => {
+      try {
+        const res = await fetch(`/api/admin/eslestirme/brands/${id}/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'İşlem başarılı')
+          void loadBrands(filtersRef.current)
+        } else toast.error(data.error?.message || 'İşlem başarısız')
+      } catch {
+        toast.error('İşlem başarısız')
+      }
+    },
+    [loadBrands]
+  )
+
+  const searchMatchItems = useCallback(async (q: string, target: MatchTarget) => {
     const trimmed = q.trim()
     if (!trimmed || trimmed.length < 2) {
-      setMatchItemResults([])
-      setIsSearchingMatchItems(false)
+      setMatchResults([])
+      setIsSearchingMatch(false)
       return
     }
-
-    const row = updateTargetRef.current
-    const target = row ? getBrandUpdateTarget(row) : null
-    if (!target) {
-      setMatchItemResults([])
-      setIsSearchingMatchItems(false)
-      return
-    }
-
-    const searchPath =
-      target === 'dinamik' ? DINAMIK_BRAND_SEARCH_PATH : PT_MANUFACTURER_SEARCH_PATH
-
-    setIsSearchingMatchItems(true)
+    const searchPath = SEARCH_PATHS[target]
+    setIsSearchingMatch(true)
     try {
-      const res = await fetch(
-        `${searchPath}?q=${encodeURIComponent(trimmed)}&limit=20`
-      )
+      const res = await fetch(`${searchPath}?q=${encodeURIComponent(trimmed)}&limit=20`)
       if (res.ok) {
         const data = await res.json()
-        setMatchItemResults(Array.isArray(data) ? data : [])
+        setMatchResults(Array.isArray(data) ? data : [])
       } else {
-        setMatchItemResults([])
+        setMatchResults([])
       }
     } catch {
-      setMatchItemResults([])
+      setMatchResults([])
     } finally {
-      setIsSearchingMatchItems(false)
+      setIsSearchingMatch(false)
     }
   }, [])
 
   const debouncedSearchMatchItems = useDebouncedCallback((q: string) => {
-    void searchMatchItems(q)
+    void searchMatchItems(q, matchTarget)
   }, 250)
 
-  const resetUpdateDialog = useCallback(() => {
-    setUpdateTarget(null)
-    updateTargetRef.current = null
-    setUpdateSearchTarget('pt')
-    setSelectedMatchItem(null)
-    setMatchItemQuery('')
-    setMatchItemResults([])
-    setIsSearchingMatchItems(false)
+  const openMatchDialog = useCallback((target: MatchTarget, mappingId: number | null, brandListId: number) => {
+    setMatchTarget(target)
+    setSelectedMappingId(mappingId)
+    setSelectedBrandListId(brandListId)
+    setSelectedMatch(null)
+    setMatchQuery('')
+    setMatchResults([])
+    setMatchDialogOpen(true)
   }, [])
 
-  const handleUpdateDialogOpenChange = useCallback(
-    (open: boolean) => {
-      setUpdateDialogOpen(open)
-      if (!open) resetUpdateDialog()
-    },
-    [resetUpdateDialog]
-  )
+  const handleMatchSave = useCallback(async () => {
+    if (!selectedMatch) return
+    setIsUpdating(true)
+    try {
+      if (selectedMappingId) {
+        const body: Record<string, unknown> = {}
+        if (matchTarget === 'pt') body.parcatedarikManufacturerId = selectedMatch.id
+        else if (matchTarget === 'dinamik') body.dinamikBrandId = selectedMatch.id
+        else if (matchTarget === 'bsbg') body.bsbgBrandId = selectedMatch.id
+
+        const res = await fetch(`/api/admin/eslestirme/brands/${selectedMappingId}/update`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success('Eşleştirme güncellendi')
+        } else {
+          toast.error(data.error?.message || 'Güncelleme başarısız')
+        }
+      } else if (selectedBrandListId) {
+        const body: Record<string, unknown> = { action: 'add-mapping', brandListId: selectedBrandListId }
+        if (matchTarget === 'pt') body.parcatedarikManufacturerId = selectedMatch.id
+        else if (matchTarget === 'dinamik') body.dinamikBrandId = selectedMatch.id
+        else if (matchTarget === 'bsbg') body.bsbgBrandId = selectedMatch.id
+
+        const res = await fetch('/api/admin/eslestirme/brands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success('Eşleştirme oluşturuldu')
+        } else {
+          toast.error(data.error?.message || 'Oluşturma başarısız')
+        }
+      }
+      setMatchDialogOpen(false)
+      void loadBrands(filtersRef.current)
+    } catch {
+      toast.error('Güncelleme başarısız')
+    } finally {
+      setIsUpdating(false)
+    }
+  }, [selectedMatch, selectedMappingId, selectedBrandListId, matchTarget, loadBrands])
 
   const columns = createBrandsColumns({
     onAction: handleAction,
-    onUpdate: (row) => {
-      const target = getBrandUpdateTarget(row) ?? 'pt'
-      updateTargetRef.current = row
-      setUpdateTarget(row)
-      setUpdateSearchTarget(target)
-      setSelectedMatchItem(
-        target === 'pt' && row.parcatedarikManufacturerId
-          ? {
-              id: row.parcatedarikManufacturerId,
-              name:
-                row.parcatedarikManufacturerName ||
-                `Üretici #${row.parcatedarikManufacturerId}`,
-            }
-          : null
-      )
-      setMatchItemQuery('')
-      setMatchItemResults([])
-      setUpdateDialogOpen(true)
+    onViewDetail: (row) => {
+      setDetailBrand(row)
+      setDetailDialogOpen(true)
     },
   })
 
   const summaryCards = summary
     ? [
-        { label: 'Toplam', value: summary.total, color: 'bg-muted-foreground' },
+        { label: 'Toplam Marka', value: summary.total, color: 'bg-muted-foreground' },
         { label: 'Onaylandı', value: summary.approved, color: 'bg-success' },
         { label: 'Beklemede', value: summary.pending, color: 'bg-warning' },
         { label: 'Reddedildi', value: summary.rejected, color: 'bg-destructive' },
@@ -498,8 +413,6 @@ export function BrandsTab() {
   const hasActiveFilters =
     filters.q !== '' ||
     filters.status !== 'all' ||
-    filters.dinamikBrand != null ||
-    filters.manufacturerId != null ||
     filters.matchSide !== 'all'
 
   return (
@@ -549,7 +462,7 @@ export function BrandsTab() {
               setIsSearchPending(true)
               onSearch(nextValue)
             }}
-            searchPlaceholder="Marka / üretici ara..."
+            searchPlaceholder="Marka / sağlayıcı ara..."
             isSearchLoading={isSearchPending}
             onRefresh={() => void loadBrands(filtersRef.current)}
             isRefreshing={isFetching}
@@ -563,14 +476,9 @@ export function BrandsTab() {
               onClick={() => toggleChipFilter('status', 'PENDING', filters.status)}
             />
             <AdminFilterChip
-              label="PT Bekliyor"
-              active={filters.matchSide === 'dinamik_only'}
-              onClick={() => toggleChipFilter('matchSide', 'dinamik_only', filters.matchSide)}
-            />
-            <AdminFilterChip
-              label="Dinamik Bekliyor"
-              active={filters.matchSide === 'pt_only'}
-              onClick={() => toggleChipFilter('matchSide', 'pt_only', filters.matchSide)}
+              label="Onaylandı"
+              active={filters.status === 'APPROVED'}
+              onClick={() => toggleChipFilter('status', 'APPROVED', filters.status)}
             />
             <AdminFilterChip
               label="Tam Eşleşme"
@@ -578,31 +486,21 @@ export function BrandsTab() {
               onClick={() => toggleChipFilter('matchSide', 'matched', filters.matchSide)}
             />
             <AdminFilterChip
-              label="Onaylandı"
-              active={filters.status === 'APPROVED'}
-              onClick={() => toggleChipFilter('status', 'APPROVED', filters.status)}
+              label="Sadece Dinamik"
+              active={filters.matchSide === 'dinamik_only'}
+              onClick={() => toggleChipFilter('matchSide', 'dinamik_only', filters.matchSide)}
+            />
+            <AdminFilterChip
+              label="Sadece PT"
+              active={filters.matchSide === 'pt_only'}
+              onClick={() => toggleChipFilter('matchSide', 'pt_only', filters.matchSide)}
+            />
+            <AdminFilterChip
+              label="Sadece Başbuğ"
+              active={filters.matchSide === 'bsbg_only'}
+              onClick={() => toggleChipFilter('matchSide', 'bsbg_only', filters.matchSide)}
             />
           </AdminFilterBar>
-
-          {(filters.dinamikBrand || filters.manufacturerId) && (
-            <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              {filters.dinamikBrand && (
-                <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
-                  Dinamik Marka:{' '}
-                  <strong className="text-foreground">{filters.dinamikBrand}</strong>
-                </span>
-              )}
-              {filters.manufacturerId && (
-                <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
-                  PT Üretici:{' '}
-                  <strong className="text-foreground">
-                    {filterOptions.manufacturers.find((m) => m.id === filters.manufacturerId)
-                      ?.name || filters.manufacturerId}
-                  </strong>
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
         <DataTable
@@ -619,159 +517,182 @@ export function BrandsTab() {
           emptyMessage="Eşleştirme bulunamadı"
         />
 
-        <AdminFormDialog
-          open={updateDialogOpen}
-          onOpenChange={handleUpdateDialogOpenChange}
-          title="Eşleştirmeyi Değiştir"
-          description={updateTarget ? getUpdateModalDescription(updateTarget) : undefined}
-          onSave={handleUpdate}
-          isSaving={isUpdating}
-          saveDisabled={!selectedMatchItem}
-          saveLabel="Kaydet"
-          showClose
-          footerLayout="row"
-          size="md"
-        >
-          <div className="space-y-4">
-            {selectedMatchItem ? (
-              <div
-                key={selectedMatchItem.id}
-                className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm animate-in fade-in slide-in-from-top-1 duration-200"
-              >
-                <Check className="size-4 shrink-0 text-primary transition-transform duration-200" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{selectedMatchItem.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    ID #{selectedMatchItem.id}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 shrink-0 px-2 text-xs transition-colors"
-                  onClick={() => {
-                    setSelectedMatchItem(null)
-                    setMatchItemQuery('')
-                    setMatchItemResults([])
-                  }}
-                >
-                  Değiştir
-                </Button>
-              </div>
-            ) : null}
+        {detailBrand && (
+          <Dialog open={detailDialogOpen} onOpenChange={(open) => { setDetailDialogOpen(open); if (!open) setDetailBrand(null) }}>
+            <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-lg">{detailBrand.normalizedName}</DialogTitle>
+                <DialogDescription>
+                  Mapping ID: {detailBrand.id} &middot; Brand List ID: {detailBrand.brandListId}
+                </DialogDescription>
+              </DialogHeader>
 
-            <div>
-              <label
-                htmlFor="match-item-search"
-                className="mb-1.5 block text-sm font-medium"
-              >
-                {getUpdateSearchLabel(updateSearchTarget)}
-              </label>
-              <Command
-                shouldFilter={false}
-                className="overflow-hidden rounded-md border border-border/60 bg-background"
-              >
-                <CommandInput
-                  id="match-item-search"
-                  value={matchItemQuery}
-                  onValueChange={(value) => {
-                    setMatchItemQuery(value)
-                    debouncedSearchMatchItems(value)
-                  }}
-                  placeholder={getUpdateSearchPlaceholder(updateSearchTarget)}
-                  className="h-9"
-                />
-                {(matchItemQuery.trim().length >= 2 ||
-                  isSearchingMatchItems ||
-                  matchItemResults.length > 0) && (
-                  <CommandList
-                    className={cn(
-                      'max-h-48 border-t border-border/60 transition-all duration-200',
-                      matchItemResults.length > 0 || isSearchingMatchItems
-                        ? 'animate-in fade-in slide-in-from-top-1'
-                        : ''
-                    )}
-                  >
-                    {isSearchingMatchItems ? (
-                      <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                        <Loader2 className="size-4 animate-spin" />
-                        Aranıyor...
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sağlayıcılar</p>
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-sm">
+                    {detailBrand.dinamikBrand && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Dinamik</Badge>
+                        <span className="font-medium">{detailBrand.dinamikBrand}</span>
                       </div>
-                    ) : matchItemResults.length > 0 ? (
-                      <CommandGroup>
-                        {matchItemResults.map((item) => (
-                          <CommandItem
-                            key={item.id}
-                            value={String(item.id)}
-                            onSelect={() => {
-                              setSelectedMatchItem(item)
-                              setMatchItemQuery('')
-                              setMatchItemResults([])
-                            }}
-                            className="cursor-pointer transition-colors duration-150"
-                          >
-                            <span className="font-medium">{item.name}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">
-                              #{item.id}
-                            </span>
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    ) : (
-                      <CommandEmpty className="py-6 text-sm">
-                        {updateSearchTarget === 'dinamik'
-                          ? 'Eşleşen Dinamik marka bulunamadı'
-                          : 'Eşleşen üretici bulunamadı'}
-                      </CommandEmpty>
                     )}
-                  </CommandList>
-                )}
-              </Command>
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                En az 2 karakter yazarak {updateSearchTarget === 'dinamik' ? 'marka' : 'üretici'}{' '}
-                adına göre arayın.
-              </p>
-            </div>
-          </div>
-        </AdminFormDialog>
+                    {detailBrand.ptName && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">P-Tedarik</Badge>
+                        <span className="font-medium">{detailBrand.ptName}</span>
+                      </div>
+                    )}
+                    {detailBrand.bsbgBrand && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Başbuğ</Badge>
+                        <span className="font-medium">{detailBrand.bsbgBrand}</span>
+                      </div>
+                    )}
+                    {!detailBrand.dinamikBrand && !detailBrand.ptName && !detailBrand.bsbgBrand && (
+                      <span className="text-xs text-muted-foreground">Sağlayıcı bağlantısı yok</span>
+                    )}
+                  </div>
+                </div>
 
-        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[420px]">
-            <SheetHeader>
-              <SheetTitle>Gelişmiş Filtreler</SheetTitle>
-              <SheetDescription>Marka ve eşleşme durumuna göre listeyi daraltın.</SheetDescription>
-            </SheetHeader>
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Durum & Yöntem</p>
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const st = STATUS_MAP[detailBrand.mappingStatus] ?? { label: detailBrand.mappingStatus, className: 'bg-muted text-muted-foreground border-border' }
+                      return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${st.className}`}>{st.label}</span>
+                    })()}
+                    {detailBrand.matchMethod && (
+                      <Badge variant="outline" className="border-success/20 bg-success/10 text-xs text-success">
+                        {detailBrand.matchMethod}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Eşleştir</p>
+                  <div className="flex flex-wrap gap-2">
+                    {!detailBrand.dinamikBrand && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setDetailDialogOpen(false); openMatchDialog('dinamik', detailBrand.id, detailBrand.brandListId) }}>
+                        + Dinamik
+                      </Button>
+                    )}
+                    {!detailBrand.ptName && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setDetailDialogOpen(false); openMatchDialog('pt', detailBrand.id, detailBrand.brandListId) }}>
+                        + P-Tedarik
+                      </Button>
+                    )}
+                    {!detailBrand.bsbgBrand && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { setDetailDialogOpen(false); openMatchDialog('bsbg', detailBrand.id, detailBrand.brandListId) }}>
+                        + Başbuğ
+                      </Button>
+                    )}
+                    {detailBrand.dinamikBrand && detailBrand.ptName && detailBrand.bsbgBrand && (
+                      <span className="text-xs text-muted-foreground">Tüm sağlayıcılar bağlı</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        <Dialog open={matchDialogOpen} onOpenChange={(open) => { setMatchDialogOpen(open); if (!open) { setSelectedMatch(null); setMatchQuery(''); setMatchResults([]) } }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Eşleştir: {SEARCH_LABELS[matchTarget].name}</DialogTitle>
+              <DialogDescription>
+                Eşleştirmek istediğiniz {SEARCH_LABELS[matchTarget].name.toLowerCase()} seçin.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {selectedMatch ? (
+                <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm animate-in fade-in slide-in-from-top-1 duration-200">
+                  <Check className="size-4 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{selectedMatch.name}</p>
+                    <p className="text-xs text-muted-foreground">ID #{selectedMatch.id}</p>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={() => { setSelectedMatch(null); setMatchQuery(''); setMatchResults([]) }}>
+                    Değiştir
+                  </Button>
+                </div>
+              ) : null}
+
+              <div>
+                <label htmlFor="match-search" className="mb-1.5 block text-sm font-medium">
+                  {SEARCH_LABELS[matchTarget].name}
+                </label>
+                <Command
+                  shouldFilter={false}
+                  className="overflow-hidden rounded-md border border-border/60 bg-background"
+                >
+                  <CommandInput
+                    id="match-search"
+                    value={matchQuery}
+                    onValueChange={(value) => {
+                      setMatchQuery(value)
+                      debouncedSearchMatchItems(value)
+                    }}
+                    placeholder={SEARCH_LABELS[matchTarget].placeholder}
+                    className="h-9"
+                  />
+                  {(matchQuery.trim().length >= 2 || isSearchingMatch || matchResults.length > 0) && (
+                    <CommandList className="max-h-48 border-t border-border/60">
+                      {isSearchingMatch ? (
+                        <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                          <Loader2 className="size-4 animate-spin" />
+                          Aranıyor...
+                        </div>
+                      ) : matchResults.length > 0 ? (
+                        <CommandGroup>
+                          {matchResults.map((item) => (
+                            <CommandItem
+                              key={item.id}
+                              value={String(item.id)}
+                              onSelect={() => {
+                                setSelectedMatch(item)
+                                setMatchQuery('')
+                                setMatchResults([])
+                              }}
+                              className="cursor-pointer"
+                            >
+                              <span className="font-medium">{item.name}</span>
+                              <span className="ml-auto text-xs text-muted-foreground">#{item.id}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ) : (
+                        <CommandEmpty className="py-6 text-sm">Sonuç bulunamadı</CommandEmpty>
+                      )}
+                    </CommandList>
+                  )}
+                </Command>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  En az 2 karakter yazarak arayın.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setMatchDialogOpen(false)} disabled={isUpdating}>
+                İptal
+              </Button>
+              <Button onClick={() => void handleMatchSave()} disabled={!selectedMatch || isUpdating}>
+                {isUpdating ? 'Kaydediliyor...' : 'Kaydet'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle>Gelişmiş Filtreler</DialogTitle>
+              <DialogDescription>Marka ve eşleşme durumuna göre listeyi daraltın.</DialogDescription>
+            </DialogHeader>
 
             <div className="space-y-3">
-              <AdminFilterSelect
-                label="Dinamik Marka"
-                value={filters.dinamikBrand ?? 'all'}
-                options={[
-                  { value: 'all', label: 'Tümü' },
-                  ...filterOptions.dinamikBrands.map((brand) => ({
-                    value: brand,
-                    label: brand,
-                  })),
-                ]}
-                disabled={optionsLoading}
-                placeholder={optionsLoading ? 'Markalar yükleniyor...' : 'Seçiniz'}
-                onChange={(value) => setFilterParam('dinamikBrand', value)}
-              />
-              <AdminFilterSelect
-                label="PT Üretici"
-                value={filters.manufacturerId != null ? String(filters.manufacturerId) : 'all'}
-                options={[
-                  { value: 'all', label: 'Tümü' },
-                  ...filterOptions.manufacturers.map((manufacturer) => ({
-                    value: String(manufacturer.id),
-                    label: manufacturer.name,
-                  })),
-                ]}
-                disabled={optionsLoading}
-                placeholder={optionsLoading ? 'Üreticiler yükleniyor...' : 'Seçiniz'}
-                onChange={(value) => setFilterParam('manufacturerId', value)}
-              />
               <AdminFilterSelect
                 label="Durum"
                 value={filters.status}
@@ -790,32 +711,24 @@ export function BrandsTab() {
                 options={[
                   { value: 'all', label: 'Tümü' },
                   { value: 'matched', label: 'Tam Eşleşme' },
-                  { value: 'dinamik_only', label: 'PT Bekliyor (sadece Dinamik)' },
-                  { value: 'pt_only', label: 'Dinamik Bekliyor (sadece PT)' },
+                  { value: 'dinamik_only', label: 'Sadece Dinamik (PT yok)' },
+                  { value: 'pt_only', label: 'Sadece PT (Dinamik yok)' },
+                  { value: 'bsbg_only', label: 'Sadece Başbuğ' },
                 ]}
                 onChange={(value) => setFilterParam('matchSide', value)}
               />
             </div>
 
-            <SheetFooter>
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1 sm:flex-none"
-                onClick={resetFilters}
-              >
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={resetFilters}>
                 Filtreleri Sıfırla
               </Button>
-              <Button
-                type="button"
-                className="flex-1 sm:flex-none"
-                onClick={() => setFiltersOpen(false)}
-              >
+              <Button onClick={() => setFiltersOpen(false)}>
                 Kapat
               </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   )

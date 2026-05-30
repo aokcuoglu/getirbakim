@@ -14,6 +14,7 @@ import {
   getFacetedUniqueValues,
   useReactTable,
 } from '@tanstack/react-table'
+import { motion } from 'framer-motion'
 import {
   Table,
   TableBody,
@@ -54,6 +55,7 @@ interface DataTableProps<TData, TValue> {
   showViewOptions?: boolean
   rowSelection?: Record<string, boolean>
   onRowSelectionChange?: (rowSelection: Record<string, boolean>) => void
+  animateRows?: boolean
 }
 
 export function DataTable<TData, TValue>({
@@ -72,6 +74,7 @@ export function DataTable<TData, TValue>({
   showViewOptions = true,
   rowSelection: externalRowSelection,
   onRowSelectionChange: onExternalRowSelectionChange,
+  animateRows = true,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = useState<SortingState>(externalSorting ?? [])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -164,19 +167,42 @@ export function DataTable<TData, TValue>({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows?.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    data-state={row.getIsSelected() && 'selected'}
-                    className={getRowClassName?.(row.original)}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
+                animateRows ? (
+                  table.getRowModel().rows.map((row, idx) => (
+                    <motion.tr
+                      key={row.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.04, duration: 0.25, ease: [0.25, 0.1, 0.25, 1] as const }}
+                      data-slot="table-row"
+                      data-state={row.getIsSelected() ? 'selected' : undefined}
+                      className={[
+                        'border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted',
+                        getRowClassName?.(row.original)
+                      ].filter(Boolean).join(' ')}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </motion.tr>
+                  ))
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      data-state={row.getIsSelected() && 'selected'}
+                      className={getRowClassName?.(row.original)}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )
               ) : (
                 <TableRow>
                   <TableCell colSpan={colCount} className="h-24 p-0">

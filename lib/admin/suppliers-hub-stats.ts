@@ -48,7 +48,7 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_brand_mappings
+    FROM v0.brand_mappings
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -59,7 +59,7 @@ async function getDpmatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.dnmk_ptdrk_products
+    FROM v0.product_list
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)

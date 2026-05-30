@@ -1,20 +1,18 @@
 'use client'
 
 import { ColumnDef } from '@tanstack/react-table'
-import { ArrowRight, Ban, Check, Link2, Unlink, X } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { AdminRowActions, type AdminRowAction } from '@/components/admin/data-table/admin-row-actions'
+import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
 import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface BrandRow {
   id: number
-  dinamikBrand: string
+  brandListId: number
   normalizedName: string
-  parcatedarikManufacturerId: number | null
-  parcatedarikManufacturerName: string
+  dinamikBrand: string
+  ptName: string
+  bsbgBrand: string
   mappingStatus: string
   matchMethod: string | null
 }
@@ -26,6 +24,13 @@ const STATUS_LABELS: Record<string, string> = {
   IGNORED: 'Yoksayıldı',
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  PENDING: 'bg-warning/15 text-warning border-warning/20',
+  APPROVED: 'bg-success/15 text-success border-success/20',
+  REJECTED: 'bg-destructive/15 text-destructive border-destructive/20',
+  IGNORED: 'bg-muted text-muted-foreground border-border',
+}
+
 const METHOD_LABELS: Record<string, string> = {
   EXACT_NORMALIZED: 'Birebir',
   CASE_INSENSITIVE: 'Harf',
@@ -33,31 +38,9 @@ const METHOD_LABELS: Record<string, string> = {
   MANUAL: 'Manuel',
 }
 
-export type BrandMatchSide = 'paired' | 'dinamik_only' | 'pt_only' | 'empty'
-
-/** Which catalog side exists on the row (filter matchSide uses the missing side name). */
-export function getBrandMatchSide(row: BrandRow): BrandMatchSide {
-  const hasDinamik = Boolean(row.dinamikBrand?.trim())
-  const hasPt =
-    row.parcatedarikManufacturerId != null &&
-    Boolean(row.parcatedarikManufacturerName?.trim())
-  if (hasDinamik && hasPt) return 'paired'
-  if (hasDinamik) return 'dinamik_only'
-  if (hasPt) return 'pt_only'
-  return 'empty'
-}
-
-function isPaired(row: BrandRow): boolean {
-  return getBrandMatchSide(row) === 'paired'
-}
-
-function isApprovedSingleSide(row: BrandRow): boolean {
-  return row.mappingStatus === 'APPROVED'
-}
-
 export function createBrandsColumns(handlers: {
   onAction: (id: number, action: string) => void
-  onUpdate: (row: BrandRow) => void
+  onViewDetail: (row: BrandRow) => void
 }): ColumnDef<BrandRow, unknown>[] {
   return [
     {
@@ -84,134 +67,65 @@ export function createBrandsColumns(handlers: {
       enableHiding: false,
     },
     {
-      accessorKey: 'mappingStatus',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Durum" />,
-      cell: ({ getValue }) => {
+      accessorKey: 'normalizedName',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Marka" />,
+      cell: ({ getValue, row }) => {
         const v = getValue<string>()
-        const colors: Record<string, string> = {
-          PENDING: 'bg-warning/15 text-warning border-warning/20',
-          APPROVED: 'bg-success/15 text-success border-success/20',
-          REJECTED: 'bg-destructive/15 text-destructive border-destructive/20',
-          IGNORED: 'bg-muted text-muted-foreground border-border',
-        }
+        if (!v) return <span className="text-xs text-muted-foreground">—</span>
         return (
-          <Badge variant="outline" className={`text-xs font-medium ${colors[v] || ''}`}>
-            {STATUS_LABELS[v] || v}
-          </Badge>
+          <button
+            onClick={() => handlers.onViewDetail(row.original)}
+            className="max-w-[140px] truncate font-mono text-sm text-primary hover:underline text-left"
+            title={v}
+          >
+            {v}
+          </button>
         )
       },
     },
     {
-      id: 'brandMatch',
-      header: () => <AdminTableHead>Marka Eşleşmesi</AdminTableHead>,
+      id: 'providers',
+      header: () => <span className="text-xs font-medium">Sağlayıcılar</span>,
       cell: ({ row }) => {
         const r = row.original
-        const side = getBrandMatchSide(r)
-        const approvedSingleSide = isApprovedSingleSide(r)
-
-        if (side === 'paired') {
-          return (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex min-w-0 cursor-default items-center gap-1.5">
-                  <span className="max-w-[140px] truncate text-sm font-medium">
-                    {r.dinamikBrand}
-                  </span>
-                  <ArrowRight className="h-3 w-3 shrink-0 text-success" />
-                  <span className="max-w-[180px] truncate text-sm text-primary">
-                    {r.parcatedarikManufacturerName || '—'}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm space-y-1.5 p-3 text-xs">
-                <div>
-                  <p className="font-semibold text-primary">Dinamik Marka</p>
-                  <p>{r.dinamikBrand}</p>
-                </div>
-                <div className="border-t pt-1.5">
-                  <p className="font-semibold text-primary">ParçaTedarik Üretici</p>
-                  <p>{r.parcatedarikManufacturerName}</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          )
+        const providers = []
+        if (r.dinamikBrand) providers.push({ label: 'Dinamik', name: r.dinamikBrand })
+        if (r.ptName) providers.push({ label: 'PT', name: r.ptName })
+        if (r.bsbgBrand) providers.push({ label: 'Başbuğ', name: r.bsbgBrand })
+        if (providers.length === 0) {
+          return <span className="text-xs text-muted-foreground">Yok</span>
         }
-
-        if (side === 'dinamik_only') {
-          if (approvedSingleSide) {
-            return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="min-w-0 cursor-default">
-                    <p className="truncate text-sm font-medium">{r.dinamikBrand}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Onaylı · yalnızca Dinamik (PT eşleşmesi yok)
-                    </p>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-xs">
-                  Bu marka onaylandı; ParçaTedarik üreticisi bağlı değil.
-                </TooltipContent>
-              </Tooltip>
-            )
-          }
-          return (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className="max-w-[200px] truncate text-sm font-medium">{r.dinamikBrand}</span>
-              <Badge
-                variant="outline"
-                className="shrink-0 border-warning/20 bg-warning/10 text-xs text-warning"
-              >
-                PT bekliyor
-              </Badge>
-            </div>
-          )
-        }
-
-        if (side === 'pt_only') {
-          if (approvedSingleSide) {
-            return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="min-w-0 cursor-default">
-                    <p className="truncate text-sm font-medium">{r.parcatedarikManufacturerName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Onaylı · yalnızca PT (Dinamik katalogda yoktu)
-                    </p>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-xs">
-                  Üretici onaylandı; kayıt sonradan Dinamik marka olarak eklendi veya tek taraflı onaylı.
-                </TooltipContent>
-              </Tooltip>
-            )
-          }
-          return (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <Badge
-                variant="outline"
-                className="shrink-0 border-warning/20 bg-warning/10 text-xs text-warning"
-              >
-                Dinamik bekliyor
-              </Badge>
-              <span className="max-w-[220px] truncate text-sm">{r.parcatedarikManufacturerName}</span>
-            </div>
-          )
-        }
-
-        return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <div className="space-y-0.5">
+            {providers.map((p) => (
+              <div key={p.label} className="flex items-center gap-1.5 text-xs">
+                <Badge variant="outline" className="shrink-0 text-[9px] px-1 py-0 border-primary/20 bg-primary/5 text-primary">
+                  {p.label}
+                </Badge>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate max-w-[140px] text-foreground">{p.name}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {p.label}: {p.name}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )
       },
+      enableSorting: false,
     },
     {
-      accessorKey: 'normalizedName',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Normalized" />,
+      accessorKey: 'mappingStatus',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Durum" />,
       cell: ({ getValue }) => {
         const v = getValue<string>()
-        if (!v) return <span className="text-xs text-muted-foreground">—</span>
         return (
-          <span className="max-w-[140px] truncate font-mono text-sm text-foreground" title={v}>
-            {v}
-          </span>
+          <Badge variant="outline" className={`text-xs font-medium ${STATUS_COLORS[v] || ''}`}>
+            {STATUS_LABELS[v] || v}
+          </Badge>
         )
       },
     },
@@ -231,47 +145,32 @@ export function createBrandsColumns(handlers: {
     {
       id: 'actions',
       cell: ({ row }) => {
-        const alias = row.original
-        const actions: AdminRowAction[] = []
+        const r = row.original
+        const actions = []
 
-        if (alias.mappingStatus === 'PENDING') {
+        if (r.mappingStatus === 'PENDING') {
           actions.push(
-            {
-              label: 'Onayla',
-              icon: <Check className="h-4 w-4" />,
-              onClick: () => handlers.onAction(alias.id, 'approve')
-            },
-            {
-              label: 'Reddet',
-              icon: <X className="h-4 w-4" />,
-              destructive: true,
-              onClick: () => handlers.onAction(alias.id, 'reject')
-            },
-            {
-              label: 'Yoksay',
-              icon: <Ban className="h-4 w-4" />,
-              onClick: () => handlers.onAction(alias.id, 'ignore')
-            }
+            { label: 'Onayla', icon: '✓', onClick: () => handlers.onAction(r.id, 'approve') },
+            { label: 'Reddet', icon: '✕', destructive: true, onClick: () => handlers.onAction(r.id, 'reject') },
+            { label: 'Yoksay', icon: '⊘', onClick: () => handlers.onAction(r.id, 'ignore') }
           )
         }
 
-        actions.push(
-          {
-            label: 'Eşleştirmeyi Değiştir',
-            icon: <Link2 className="h-4 w-4" />,
-            onClick: () => handlers.onUpdate(alias),
-            separatorBefore: alias.mappingStatus === 'PENDING'
-          },
-          {
-            label: 'Sil',
-            icon: <Unlink className="h-4 w-4" />,
-            destructive: true,
-            onClick: () => handlers.onAction(alias.id, 'delete'),
-            separatorBefore: true
-          }
-        )
+        actions.push({ label: 'Sil', icon: '✕', destructive: true, onClick: () => handlers.onAction(r.id, 'delete') })
 
-        return <AdminRowActions actions={actions} />
+        return (
+          <div className="flex items-center gap-1">
+            {actions.map((a, i) => (
+              <button
+                key={i}
+                onClick={a.onClick}
+                className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${a.destructive ? 'text-destructive hover:bg-destructive/10' : 'text-muted-foreground hover:bg-muted'}`}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )
       },
       enableSorting: false,
       enableHiding: false,

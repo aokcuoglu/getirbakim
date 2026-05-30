@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.dnmk_ptdrk_products m LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id ${whereClause}`
+      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.product_list m LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
              d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no,
              ${dproductDetailsPriceExpr}::text AS price,
              p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
       ${dproductDetailsJoin}
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     `)
 
     const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*)::bigint AS count FROM v0.dnmk_ptdrk_products GROUP BY mapping_status`
+      Prisma.sql`SELECT mapping_status, COUNT(*)::bigint AS count FROM v0.product_list GROUP BY mapping_status`
     )
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
 

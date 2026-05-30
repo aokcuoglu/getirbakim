@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
           WITH matched_brands AS (
             SELECT DISTINCT BTRIM(LOWER(db.brand)) AS brand_norm
             FROM v0.ptdrk_products p
-            JOIN v0.dnmk_ptdrk_brand_mappings m
+            JOIN v0.brand_mappings m
               ON m.ptdrk_brands_id = p.ptdrk_brands_id
              AND m.mapping_status = 'APPROVED'
             JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
           matched_mfrs AS (
             SELECT DISTINCT m.ptdrk_brands_id
             FROM dproduct d
-            JOIN v0.dnmk_ptdrk_brand_mappings m
+            JOIN v0.brand_mappings m
               ON m.mapping_status = 'APPROVED'
              AND m.ptdrk_brands_id IS NOT NULL
             JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
             matched_mfrs AS (
               SELECT DISTINCT m.ptdrk_brands_id
               FROM dproduct d
-              JOIN v0.dnmk_ptdrk_brand_mappings m
+              JOIN v0.brand_mappings m
                 ON m.mapping_status = 'APPROVED'
                AND m.ptdrk_brands_id IS NOT NULL
               JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id

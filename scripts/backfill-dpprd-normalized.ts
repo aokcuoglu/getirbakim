@@ -1,5 +1,5 @@
 /**
- * Backfill v0.dnmk_ptdrk_products.normalized from linked product/dproduct data.
+ * Backfill v0.product_list.normalized from linked product/dproduct data.
  *
  * Rules:
  * - product_id present (matched or PT-only): normalize(model)
@@ -31,7 +31,7 @@ async function main() {
   const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
     Prisma.sql`
       SELECT COUNT(*)::bigint AS count
-      FROM v0.dnmk_ptdrk_products m
+      FROM v0.product_list m
       WHERE ${REFRESH ? Prisma.sql`TRUE` : Prisma.sql`(m.normalized_name IS NULL OR BTRIM(m.normalized_name) = '')`}
     `
   )

@@ -16,7 +16,7 @@ function isServerActionRequest(request: NextRequest): boolean {
   )
 }
 
-export default async function middleware(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isLocalHost =
     request.nextUrl.hostname === 'localhost' ||

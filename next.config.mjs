@@ -12,15 +12,6 @@ const nextConfig = {
     output: 'standalone',
     reactStrictMode: true,
     serverExternalPackages: ['pg', '@prisma/adapter-pg', 'undici'],
-    serverActions: {
-        // Allow both apex and www hostnames when nginx/proxy forwards a different Host header.
-        allowedOrigins: [
-            'getirbakim.com',
-            'www.getirbakim.com',
-            'localhost:3000',
-            'localhost:3001',
-        ],
-    },
     typescript: {
         ignoreBuildErrors: true, // For smoother migration
     },
@@ -59,7 +50,15 @@ const nextConfig = {
         imageSizes: [16, 32, 48, 64, 96, 128, 256],
     },
     experimental: {
-        optimizeCss: false, // Reduces CSS bundle size
+        optimizeCss: false,
+        serverActions: {
+            allowedOrigins: [
+                'getirbakim.com',
+                'www.getirbakim.com',
+                'localhost:3000',
+                'localhost:3001',
+            ],
+        },
     },
     onDemandEntries: {
         maxInactiveAge: 120 * 1000,

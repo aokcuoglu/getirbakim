@@ -221,7 +221,7 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT m.id, m.dinamik_product_id, m.parcatedarik_product_id, m.match_reason, m.confidence
-    FROM v0.dnmk_ptdrk_products m
+    FROM v0.product_list m
     ${whereClause}
     ORDER BY m.confidence DESC, m.created_at ASC
     ${limitClause}

@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const match = await db.$queryRaw<Array<{ id: number; mapping_status: string }>>(
-      Prisma.sql`SELECT id, mapping_status FROM v0.dnmk_ptdrk_products WHERE id = ${matchId}`
+      Prisma.sql`SELECT id, mapping_status FROM v0.product_list WHERE id = ${matchId}`
     )
     if (!match || match.length === 0) return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
 
@@ -38,15 +38,15 @@ export async function POST(request: NextRequest) {
       return successResponse({ id: matchId, action: 'approved', message: 'Eşleştirme onaylandı.' }, context)
     }
     if (action === 'reject') {
-      await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_products SET mapping_status = 'REJECTED' WHERE id = ${matchId}`)
+      await db.$executeRaw(Prisma.sql`UPDATE v0.product_list SET mapping_status = 'REJECTED' WHERE id = ${matchId}`)
       return successResponse({ id: matchId, action: 'rejected', message: 'Eşleştirme reddedildi.' }, context)
     }
     if (action === 'ignore') {
-      await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_products SET mapping_status = 'IGNORED' WHERE id = ${matchId}`)
+      await db.$executeRaw(Prisma.sql`UPDATE v0.product_list SET mapping_status = 'IGNORED' WHERE id = ${matchId}`)
       return successResponse({ id: matchId, action: 'ignored', message: 'Eşleştirme yoksayıldı.' }, context)
     }
     if (action === 'unmatch') {
-      await db.$executeRaw(Prisma.sql`UPDATE v0.dnmk_ptdrk_products SET mapping_status = 'PENDING', match_method = NULL, normalized_name = NULL WHERE id = ${matchId}`)
+      await db.$executeRaw(Prisma.sql`UPDATE v0.product_list SET mapping_status = 'PENDING', match_method = NULL, normalized_name = NULL WHERE id = ${matchId}`)
       return successResponse({ id: matchId, action: 'unmatched', message: 'Eşleştirme sıfırlandı.' }, context)
     }
 

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     if (matchId) {
       const match = await db.$queryRaw<Array<{ id: number }>>(
-        Prisma.sql`SELECT id FROM v0.dnmk_ptdrk_products WHERE id = ${matchId}`
+        Prisma.sql`SELECT id FROM v0.product_list WHERE id = ${matchId}`
       )
       if (!match || match.length === 0) return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
 

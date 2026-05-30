@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 
 interface GlassProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
@@ -7,7 +8,6 @@ interface GlassProps extends React.HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
 }
 
-// Renamed internally to reflect visual change, but exported as GlassCard to maintain compatibility
 export const GlassCard: React.FC<GlassProps> = ({ 
   children, 
   className = '', 
@@ -15,17 +15,26 @@ export const GlassCard: React.FC<GlassProps> = ({
   interactive = false,
   ...props 
 }) => {
-  // Linear/Attio style: White background, subtle grey border, minimal shadow
   const baseClasses = 'bg-background border border-border shadow-sm';
-  const interactiveClasses = interactive 
-    ? 'cursor-pointer transition-all duration-200 hover:border-input hover:shadow-md' 
-    : '';
+  const interactiveClasses = interactive ? 'cursor-pointer' : '';
+  const combinedClass = `rounded-lg ${baseClasses} ${interactiveClasses} ${className}`;
+
+  if (interactive) {
+    return (
+      <motion.div
+        className={combinedClass}
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.99 }}
+        transition={{ type: 'spring' as const, stiffness: 400, damping: 25 }}
+        {...(props as Record<string, unknown>)}
+      >
+        {children}
+      </motion.div>
+    );
+  }
 
   return (
-    <div 
-      className={`rounded-lg ${baseClasses} ${interactiveClasses} ${className}`}
-      {...props}
-    >
+    <div className={combinedClass} {...props}>
       {children}
     </div>
   );
@@ -44,16 +53,18 @@ export const GlassButton: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>
   };
 
   return (
-    <button
+    <motion.button
       className={`
         px-4 py-2 rounded-md font-medium text-sm transition-all duration-200
-        active:scale-[0.98]
         ${variants[variant]}
         ${className}
       `}
-      {...props}
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+      {...(props as Record<string, unknown>)}
     >
       {children}
-    </button>
+    </motion.button>
   );
 };

@@ -3,62 +3,25 @@ import { getAdminAuth } from '@/lib/admin-auth'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dnbrd-match-approve'
 import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dnbrd-match-cleanup'
+import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
 const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const
-const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
+const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only', 'bsbg_only'] as const
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
-  dnmk_brands_id: 'd.brand',
-  dinamikBrand: 'd.brand',
-  mapping_status: 'm.mapping_status',
   normalizedName: 'cb.normalized_brand',
+  mappingStatus: 'm.mapping_status',
   matchMethod: 'm.match_method',
+  dinamikBrand: 'd.brand',
+  ptName: 'pt.name',
+  bsbgBrand: 'bs.brand',
 }
 
 function normalizeStatus(status: string): string {
   if (status === 'all') return 'all'
   return status.toUpperCase()
-}
-
-function buildWhereClause(input: {
-  q: string
-  status: string
-  dinamikBrand: string
-  manufacturerId: number | null
-  matchSide: string
-}): Prisma.Sql {
-  const conditions: Prisma.Sql[] = []
-  const status = normalizeStatus(input.status)
-
-  if (input.q) {
-    const pattern = `%${input.q.replace(/[%_\\]/g, '\\$&')}%`
-    conditions.push(
-      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.normalized_brand ILIKE ${pattern})`
-    )
-  }
-  if (status !== 'all') {
-    conditions.push(Prisma.sql`m.mapping_status = ${status}`)
-  }
-  if (input.dinamikBrand) {
-    conditions.push(
-      Prisma.sql`BTRIM(LOWER(COALESCE(d.brand, ''))) = BTRIM(LOWER(${input.dinamikBrand}))`
-    )
-  }
-  if (input.manufacturerId) {
-    conditions.push(Prisma.sql`m.ptdrk_brands_id = ${input.manufacturerId}`)
-  }
-  if (input.matchSide === 'matched') {
-    conditions.push(Prisma.sql`m.dnmk_brands_id IS NOT NULL AND m.ptdrk_brands_id IS NOT NULL`)
-  } else if (input.matchSide === 'dinamik_only') {
-    conditions.push(Prisma.sql`m.dnmk_brands_id IS NOT NULL AND m.ptdrk_brands_id IS NULL`)
-  } else if (input.matchSide === 'pt_only') {
-    conditions.push(Prisma.sql`m.dnmk_brands_id IS NULL AND m.ptdrk_brands_id IS NOT NULL`)
-  }
-
-  if (conditions.length === 0) return Prisma.sql`1=1`
-  return Prisma.sql`(${Prisma.join(conditions, ' AND ')})`
 }
 
 export async function GET(request: NextRequest) {
@@ -77,8 +40,6 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10)), 200)
   const q = (url.searchParams.get('q') ?? '').trim()
   const status = normalizeStatus(url.searchParams.get('status') ?? 'all')
-  const dinamikBrand = (url.searchParams.get('dinamikBrand') ?? '').trim()
-  const manufacturerIdStr = url.searchParams.get('manufacturerId')
   const matchSide = url.searchParams.get('matchSide') ?? 'all'
   const sortCol = url.searchParams.get('sort')
   const sortDir = url.searchParams.get('sort_dir')?.toLowerCase() === 'desc' ? 'DESC' : 'ASC'
@@ -90,29 +51,36 @@ export async function GET(request: NextRequest) {
     return errorResponse({ status: 400, code: 'INVALID_MATCH_SIDE', message: `Invalid matchSide: ${matchSide}`, context })
   }
 
-  const manufacturerId = manufacturerIdStr ? parseInt(manufacturerIdStr, 10) : null
-  if (manufacturerIdStr && (manufacturerId == null || isNaN(manufacturerId) || manufacturerId <= 0)) {
-    return errorResponse({ status: 400, code: 'INVALID_MANUFACTURER_ID', message: 'Geçersiz üretici ID.', context })
-  }
-
-  const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'd.brand'
-  const orderDir = sortCol && sortDir === 'ASC' ? 'ASC' : (sortCol ? 'DESC' : 'ASC')
-  const orderBy =
-    orderColumn === 'd.brand'
-      ? Prisma.sql`d.brand ${Prisma.raw(orderDir)} NULLS LAST, m.id ASC`
-      : Prisma.sql`${Prisma.raw(orderColumn)} ${Prisma.raw(orderDir)}, m.id ASC`
+  const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'cb.normalized_brand'
+  const orderDir = sortDir === 'DESC' ? 'DESC' : 'ASC'
 
   try {
-    const whereClause = buildWhereClause({
-      q,
-      status,
-      dinamikBrand,
-      manufacturerId,
-      matchSide,
-    })
+    const pattern = q ? `%${q.replace(/[%_\\]/g, '\\$&')}%` : null
+
+    const whereClauses: Prisma.Sql[] = []
+    if (pattern) {
+      whereClauses.push(Prisma.sql`(cb.normalized_brand ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR bs.brand ILIKE ${pattern})`)
+    }
+    if (status !== 'all') {
+      if (status === 'APPROVED') {
+        whereClauses.push(Prisma.sql`m.mapping_status = 'APPROVED'`)
+      } else {
+        whereClauses.push(Prisma.sql`m.mapping_status = ${status}`)
+      }
+    }
+    if (matchSide === 'matched') {
+      whereClauses.push(Prisma.sql`m.dnmk_brands_id IS NOT NULL AND m.ptdrk_brands_id IS NOT NULL`)
+    } else if (matchSide === 'dinamik_only') {
+      whereClauses.push(Prisma.sql`m.dnmk_brands_id IS NOT NULL AND m.ptdrk_brands_id IS NULL AND m.bsbg_brands_id IS NULL`)
+    } else if (matchSide === 'pt_only') {
+      whereClauses.push(Prisma.sql`m.dnmk_brands_id IS NULL AND m.ptdrk_brands_id IS NOT NULL AND m.bsbg_brands_id IS NULL`)
+    } else if (matchSide === 'bsbg_only') {
+      whereClauses.push(Prisma.sql`m.dnmk_brands_id IS NULL AND m.ptdrk_brands_id IS NULL AND m.bsbg_brands_id IS NOT NULL`)
+    }
+    const whereClause = whereClauses.length > 0 ? Prisma.sql`(${Prisma.join(whereClauses, ' AND ')})` : Prisma.sql`1=1`
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands cb LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.brand_mappings m LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id LEFT JOIN v0.bsbg_brands bs ON bs.id = m.bsbg_brands_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -120,50 +88,67 @@ export async function GET(request: NextRequest) {
 
     const rows = await db.$queryRaw<
       Array<{
-        id: number; dinamik_brand: string | null
+        id: number
+        brand_list_id: number
         normalized_brand: string | null
-        ptdrk_brands_id: number | null; manufacturer_name: string | null
-        mapping_status: string | null; match_method: string | null
+        dinamik_brand: string | null
+        pt_name: string | null
+        bsbg_brand: string | null
+        mapping_status: string | null
+        match_method: string | null
       }>
     >(Prisma.sql`
-      SELECT m.id, d.brand AS dinamik_brand,
+      SELECT m.id,
+             m.brand_list_id,
              cb.normalized_brand,
-             m.ptdrk_brands_id, pt.name AS manufacturer_name,
-             m.mapping_status, m.match_method
-      FROM v0.dnmk_ptdrk_brands cb
-      LEFT JOIN v0.dnmk_ptdrk_brand_mappings m ON m.dnmk_ptdrk_brands_id = cb.id
+             d.brand AS dinamik_brand,
+             pt.name AS pt_name,
+             bs.brand AS bsbg_brand,
+             m.mapping_status,
+             m.match_method
+      FROM v0.brand_mappings m
+      LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id
       LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      LEFT JOIN v0.bsbg_brands bs ON bs.id = m.bsbg_brands_id
       WHERE ${whereClause}
-      ORDER BY ${orderBy}
+      ORDER BY ${Prisma.raw(orderColumn)} ${Prisma.raw(orderDir)} NULLS LAST, m.id ASC
       LIMIT ${limit} OFFSET ${offset}
     `)
 
-    const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*) AS count FROM v0.dnmk_ptdrk_brand_mappings GROUP BY mapping_status`
-    )
+    const brandStatusCounts = await db.$queryRaw<
+      Array<{ brand_status: string; count: bigint }>
+    >(Prisma.sql`
+      SELECT mapping_status AS brand_status, COUNT(DISTINCT brand_list_id) AS count
+      FROM v0.brand_mappings
+      GROUP BY mapping_status
+    `)
+    const brandStatusMap = Object.fromEntries(brandStatusCounts.map(r => [r.brand_status, Number(r.count)]))
 
-    const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
+    const totalBrandList = await db.$queryRaw<Array<{ count: bigint }>>(
+      Prisma.sql`SELECT COUNT(*) AS count FROM v0.brand_list`
+    )
 
     return successResponse({
       rows: rows.map(r => ({
         id: r.id,
-        dinamikBrand: r.dinamik_brand ?? '',
+        brandListId: r.brand_list_id,
         normalizedName: r.normalized_brand ?? '',
-        parcatedarikManufacturerId: r.ptdrk_brands_id,
-        parcatedarikManufacturerName: r.manufacturer_name ?? '',
+        dinamikBrand: r.dinamik_brand ?? '',
+        ptName: r.pt_name ?? '',
+        bsbgBrand: r.bsbg_brand ?? '',
         mappingStatus: r.mapping_status ?? '',
         matchMethod: r.match_method,
       })),
       pagination: { page, limit, total, pages },
       summary: {
-        total,
-        approved: statusMap['APPROVED'] ?? 0,
-        pending: statusMap['PENDING'] ?? 0,
-        rejected: statusMap['REJECTED'] ?? 0,
-        ignored: statusMap['IGNORED'] ?? 0,
+        total: Number(totalBrandList[0]?.count ?? 0),
+        approved: brandStatusMap['APPROVED'] ?? 0,
+        pending: brandStatusMap['PENDING'] ?? 0,
+        rejected: brandStatusMap['REJECTED'] ?? 0,
+        ignored: brandStatusMap['IGNORED'] ?? 0,
       },
-      filters: { q, status, dinamikBrand: dinamikBrand || null, manufacturerId, matchSide },
+      filters: { q, status, matchSide },
     }, context)
   } catch (error) {
     console.error('[eslestirme:brands:list] Error:', error)
@@ -200,7 +185,7 @@ export async function POST(request: NextRequest) {
         return errorResponse({ status: 400, code: 'INVALID_IDS', message: '1-500 ID gerekli.', context })
       }
       const result = await db.$executeRaw(
-        Prisma.sql`UPDATE v0.dnmk_ptdrk_brand_mappings SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
+        Prisma.sql`UPDATE v0.brand_mappings SET mapping_status = 'APPROVED' WHERE id IN (${Prisma.join(ids)}) AND mapping_status = 'PENDING'`
       )
       await removeRedundantDbrandsMatchRows()
       return successResponse({ approved: result, message: `${result} eşleştirme onaylandı.` }, context)
@@ -218,6 +203,80 @@ export async function POST(request: NextRequest) {
         },
         context
       )
+    }
+
+    if (action === 'add-mapping') {
+      const brandListId = body?.brandListId
+      const ptdrkBrandsId = body?.parcatedarikManufacturerId
+      const dnmkBrandsId = body?.dinamikBrandId
+      const bsbgBrandsId = body?.bsbgBrandId
+
+      if (!brandListId) {
+        return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'brandListId gerekli.', context })
+      }
+
+      const canonical = await db.$queryRaw<Array<{ id: number }>>(
+        Prisma.sql`SELECT id FROM v0.brand_list WHERE id = ${brandListId}`
+      )
+      if (!canonical || canonical.length === 0) {
+        return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Marka bulunamadı.', context })
+      }
+
+      if (ptdrkBrandsId) {
+        const mfrId = parseInt(String(ptdrkBrandsId), 10)
+        if (isNaN(mfrId) || mfrId <= 0) {
+          return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz parcatedarikManufacturerId.', context })
+        }
+        const manufacturer = await db.$queryRaw<Array<{ id: number; name: string }>>(
+          Prisma.sql`SELECT id, name FROM v0.ptdrk_brands WHERE id = ${mfrId}`
+        )
+        if (!manufacturer || manufacturer.length === 0) {
+          return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Üretici bulunamadı.', context })
+        }
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO v0.brand_mappings (brand_list_id, ptdrk_brands_id, mapping_status, match_method)
+          VALUES (${brandListId}, ${mfrId}, 'APPROVED', 'MANUAL')
+          ON CONFLICT (brand_list_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id) DO NOTHING
+        `)
+      } else if (dnmkBrandsId) {
+        const brandId = parseInt(String(dnmkBrandsId), 10)
+        if (isNaN(brandId) || brandId <= 0) {
+          return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz dinamikBrandId.', context })
+        }
+        const brand = await db.$queryRaw<Array<{ id: number; brand: string }>>(
+          Prisma.sql`SELECT id::int AS id, brand FROM v0.dnmk_brands WHERE id = ${brandId}`
+        )
+        if (!brand || brand.length === 0) {
+          return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Dinamik marka bulunamadı.', context })
+        }
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO v0.brand_mappings (brand_list_id, dnmk_brands_id, mapping_status, match_method)
+          VALUES (${brandListId}, ${brandId}, 'APPROVED', 'MANUAL')
+          ON CONFLICT (brand_list_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id) DO NOTHING
+        `)
+      } else if (bsbgBrandsId) {
+        const brandId = parseInt(String(bsbgBrandsId), 10)
+        if (isNaN(brandId) || brandId <= 0) {
+          return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Geçersiz bsbgBrandId.', context })
+        }
+        const brand = await db.$queryRaw<Array<{ id: number; brand: string }>>(
+          Prisma.sql`SELECT id::int AS id, brand FROM v0.bsbg_brands WHERE id = ${brandId}`
+        )
+        if (!brand || brand.length === 0) {
+          return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Başbuğ marka bulunamadı.', context })
+        }
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO v0.brand_mappings (brand_list_id, bsbg_brands_id, mapping_status, match_method)
+          VALUES (${brandListId}, ${brandId}, 'APPROVED', 'MANUAL')
+          ON CONFLICT (brand_list_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id) DO NOTHING
+        `)
+      } else {
+        return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'parcatedarikManufacturerId, dinamikBrandId veya bsbgBrandId gerekli.', context })
+      }
+
+      await removeRedundantDbrandsMatchRows()
+      revalidateAdminCatalogPaths()
+      return successResponse({ brandListId, action: 'add-mapping', message: 'Eşleştirme oluşturuldu.' }, context)
     }
 
     return errorResponse({ status: 400, code: 'INVALID_ACTION', message: `Invalid action: ${action}`, context })

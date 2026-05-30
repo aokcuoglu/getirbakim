@@ -1,5 +1,5 @@
 /**
- * Backfill v0.dnmk_ptdrk_brands.logo_url from ptbrd.logo_url (via ptdrk_brands_id join)
+ * Backfill v0.brand_list.logo_url from ptbrd.logo_url (via ptdrk_brands_id join)
  * with fallback to public.part_brands.logo_url (matched by brand name).
  *
  * Usage:
@@ -66,7 +66,7 @@ async function fetchStats(): Promise<BackfillStats> {
         pt.logo_url AS pt_logo_url,
         pb.logo_url AS pb_logo_url,
         COALESCE(pt.logo_url, pb.logo_url) AS resolved_logo_url
-      FROM v0.dnmk_ptdrk_brands dm
+      FROM v0.brand_list dm
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm.ptdrk_brands_id
       LEFT JOIN v0.dnmk_brands d ON d.id = dm.dnmk_brands_id
       LEFT JOIN LATERAL (
@@ -137,13 +137,13 @@ async function fetchStats(): Promise<BackfillStats> {
 
 async function runBackfill(): Promise<number> {
   const result = await db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_ptdrk_brands dm
+    UPDATE v0.brand_list dm
     SET logo_url = sub.resolved_logo_url
     FROM (
       SELECT
         dm2.id,
         COALESCE(pt.logo_url, pb.logo_url) AS resolved_logo_url
-      FROM v0.dnmk_ptdrk_brands dm2
+      FROM v0.brand_list dm2
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm2.ptdrk_brands_id
       LEFT JOIN v0.dnmk_brands d ON d.id = dm2.dnmk_brands_id
       LEFT JOIN LATERAL (

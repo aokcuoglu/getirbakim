@@ -4,14 +4,14 @@ import { Prisma } from '@prisma/client'
 
 const MATCH_METHOD_BSBG = 'BSBG_AUTO'
 const MAPPING_STATUS_APPROVED = 'APPROVED'
-const MAPPING_STATUS_WAITING = 'WAITING'
+const MAPPING_STATUS_PENDING = 'PENDING'
 
 /**
- * Seed bsbg_brands into dnmk_ptdrk_brand_mappings.
+ * Seed bsbg_brands into brand_mappings.
  *
  * For matched brands: updates the existing mapping row (e.g. EXACT_NORMALIZED)
  * by setting bsbg_brands_id, instead of creating a separate row.
- * For unmatched brands: creates new canonical + WAITING mapping.
+ * For unmatched brands: creates new canonical + PENDING mapping.
  *
  *   DRY_RUN=true  bun scripts/seed-bsbg-brand-mapping.ts   (default)
  *   APPLY=true    bun scripts/seed-bsbg-brand-mapping.ts
@@ -21,28 +21,28 @@ async function main() {
   const APPLY = process.env.APPLY === 'true'
 
   // ------------------------------------------------------------------
-  //  Cleanup: remove BSBG_AUTO + WAITING rows from previous run
+  //  Cleanup: remove BSBG_AUTO + PENDING-only stub rows from previous run
   // ------------------------------------------------------------------
   if (APPLY) {
     // Reset all bsbg_brands_id references and drop stub rows from
     // a previous run so the script is idempotent.
     await db.$executeRaw(Prisma.sql`
-      UPDATE v0.dnmk_ptdrk_brand_mappings SET bsbg_brands_id = NULL
+      UPDATE v0.brand_mappings SET bsbg_brands_id = NULL
       WHERE bsbg_brands_id IS NOT NULL
     `)
     const deleted = await db.$executeRaw(Prisma.sql`
-      DELETE FROM v0.dnmk_ptdrk_brand_mappings
+      DELETE FROM v0.brand_mappings
       WHERE match_method = ${MATCH_METHOD_BSBG}
-         OR mapping_status = ${MAPPING_STATUS_WAITING}
+         OR mapping_status = ${MAPPING_STATUS_PENDING}
     `)
     console.log(`[bsbg-brand-mapping] Reset bsbg_brands_id, deleted ${deleted} stub rows`)
 
     // Remove orphan canonical brands created for previous unmatched bsbg brands
     await db.$executeRaw(Prisma.sql`
-      DELETE FROM v0.dnmk_ptdrk_brands dpb
+      DELETE FROM v0.brand_list dpb
       WHERE NOT EXISTS (
-        SELECT 1 FROM v0.dnmk_ptdrk_brand_mappings m
-        WHERE m.dnmk_ptdrk_brands_id = dpb.id
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = dpb.id
       )
       AND dpb.normalized_brand IN (
         SELECT brand FROM v0.bsbg_brands
@@ -51,7 +51,7 @@ async function main() {
   }
 
   // ------------------------------------------------------------------
-  //  1. Match bsbg_brands.brand -> dnmk_ptdrk_brands.normalized_brand
+  //  1. Match bsbg_brands.brand -> brand_list.normalized_brand
   // ------------------------------------------------------------------
   const candidates = await db.$queryRaw<
     Array<{
@@ -67,7 +67,7 @@ async function main() {
       dpb.id               AS canonical_id,
       dpb.normalized_brand AS canonical_brand
     FROM v0.bsbg_brands bb
-    JOIN v0.dnmk_ptdrk_brands dpb
+    JOIN v0.brand_list dpb
       ON REGEXP_REPLACE(UPPER(bb.brand), '[^A-Z0-9]', '', 'g')
        = REGEXP_REPLACE(UPPER(dpb.normalized_brand), '[^A-Z0-9]', '', 'g')
     ORDER BY bb.brand,
@@ -112,10 +112,10 @@ async function main() {
           b.bsbg_id,
           m.id AS target_mapping_id
         FROM bsbg_ordered b
-        JOIN v0.dnmk_ptdrk_brand_mappings m
-          ON m.dnmk_ptdrk_brands_id = b.canonical_id
+        JOIN v0.brand_mappings m
+          ON m.brand_list_id = b.canonical_id
          AND m.id NOT IN (
-           SELECT id FROM v0.dnmk_ptdrk_brand_mappings
+           SELECT id FROM v0.brand_mappings
            WHERE match_method = ${MATCH_METHOD_BSBG}
          )
          AND (m.dnmk_brands_id IS NOT NULL OR m.ptdrk_brands_id IS NOT NULL)
@@ -131,7 +131,7 @@ async function main() {
     if (targetRows.length > 0) {
       mergedCount = Number(
         await db.$executeRaw(Prisma.sql`
-          UPDATE v0.dnmk_ptdrk_brand_mappings m
+          UPDATE v0.brand_mappings m
           SET bsbg_brands_id = v.bsbg_id
           FROM (VALUES ${Prisma.join(
             targetRows.map(
@@ -154,15 +154,15 @@ async function main() {
     if (needNewRow.length > 0) {
       newRowCount = Number(
         await db.$executeRaw(Prisma.sql`
-          INSERT INTO v0.dnmk_ptdrk_brand_mappings
-            (dnmk_ptdrk_brands_id, bsbg_brands_id, mapping_status, match_method)
+          INSERT INTO v0.brand_mappings
+            (brand_list_id, bsbg_brands_id, mapping_status, match_method)
           SELECT v.canonical_id, v.bsbg_id, ${MAPPING_STATUS_APPROVED}, ${MATCH_METHOD_BSBG}
           FROM (VALUES ${Prisma.join(
             needNewRow.map(
               (r) => Prisma.sql`(${r.canonical_id}::int, ${r.bsbg_id}::bigint)`
             )
           )}) AS v(canonical_id, bsbg_id)
-          ON CONFLICT (dnmk_ptdrk_brands_id, bsbg_brands_id)
+          ON CONFLICT (brand_list_id, bsbg_brands_id)
             WHERE dnmk_brands_id IS NULL AND ptdrk_brands_id IS NULL AND bsbg_brands_id IS NOT NULL
             DO NOTHING
         `)
@@ -189,14 +189,14 @@ async function main() {
   if (unmatchedBrands.length > 0 && APPLY) {
     // 3a. Insert unmatched brand names as new canonical brands
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.dnmk_ptdrk_brands (normalized_brand)
-      SELECT v.brand
+      INSERT INTO v0.brand_list (normalized_brand)
+      SELECT UPPER(BTRIM(v.brand))
       FROM (VALUES ${Prisma.join(
         unmatchedBrands.map((r) => Prisma.sql`(${r.brand})`)
       )}) AS v(brand)
       WHERE NOT EXISTS (
-        SELECT 1 FROM v0.dnmk_ptdrk_brands dpb
-        WHERE dpb.normalized_brand = v.brand
+        SELECT 1 FROM v0.brand_list dpb
+        WHERE dpb.normalized_brand = UPPER(BTRIM(v.brand))
       )
     `)
 
@@ -206,25 +206,25 @@ async function main() {
     >(Prisma.sql`
       SELECT bb.id AS bsbg_id, dpb.id AS canonical_id
       FROM v0.bsbg_brands bb
-      JOIN v0.dnmk_ptdrk_brands dpb
+      JOIN v0.brand_list dpb
         ON REGEXP_REPLACE(UPPER(bb.brand), '[^A-Z0-9]', '', 'g')
          = REGEXP_REPLACE(UPPER(dpb.normalized_brand), '[^A-Z0-9]', '', 'g')
       WHERE bb.id IN (${Prisma.join(unmatchedBrands.map((r) => r.id))})
     `)
 
-    // 3c. Insert WAITING mappings
+    // 3c. Insert PENDING mappings
     if (inserted.length > 0) {
       waitingInserted = Number(
         await db.$executeRaw(Prisma.sql`
-          INSERT INTO v0.dnmk_ptdrk_brand_mappings
-            (dnmk_ptdrk_brands_id, bsbg_brands_id, mapping_status)
-          SELECT v.canonical_id, v.bsbg_id, ${MAPPING_STATUS_WAITING}
+          INSERT INTO v0.brand_mappings
+            (brand_list_id, bsbg_brands_id, mapping_status)
+          SELECT v.canonical_id, v.bsbg_id, ${MAPPING_STATUS_PENDING}
           FROM (VALUES ${Prisma.join(
             inserted.map(
               (r) => Prisma.sql`(${r.canonical_id}::int, ${r.bsbg_id}::bigint)`
             )
           )}) AS v(canonical_id, bsbg_id)
-          ON CONFLICT (dnmk_ptdrk_brands_id, bsbg_brands_id)
+          ON CONFLICT (brand_list_id, bsbg_brands_id)
             WHERE dnmk_brands_id IS NULL AND ptdrk_brands_id IS NULL AND bsbg_brands_id IS NOT NULL
             DO NOTHING
         `)
@@ -241,7 +241,7 @@ async function main() {
   console.log(`Matched:                     ${candidates.length}`)
   console.log(`  - Merged into existing:    ${mergedCount}`)
   console.log(`  - New rows (fallback):     ${newRowCount}`)
-  console.log(`Unmatched (WAITING):         ${unmatchedBrands.length}`)
+  console.log(`Unmatched (PENDING):         ${unmatchedBrands.length}`)
   console.log(`  - Inserted:                ${waitingInserted}`)
   console.log('')
   console.log(APPLY ? 'APPLY completed.' : 'DRY RUN — use APPLY=true to apply.')
@@ -253,7 +253,7 @@ async function main() {
       console.log(`  ${r.bsbg_brand} (bsbg_id=${r.bsbg_id}) -> ${r.canonical_brand} (id=${r.canonical_id})`)
     }
     console.log('')
-    console.log('--- Unmatched brands (will be WAITING) ---')
+    console.log('--- Unmatched brands (will be PENDING) ---')
     for (const r of unmatchedBrands) {
       console.log(`  ${r.brand} (bsbg_id=${r.id})`)
     }

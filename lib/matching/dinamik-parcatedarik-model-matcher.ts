@@ -81,8 +81,8 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
     }>
   >(Prisma.sql`
     SELECT db.brand AS dinamik_brand, cb.normalized_brand, m.ptdrk_brands_id
-    FROM v0.dnmk_ptdrk_brand_mappings m
-    JOIN v0.dnmk_ptdrk_brands cb ON cb.id = m.dnmk_ptdrk_brands_id
+    FROM v0.brand_mappings m
+    JOIN v0.brand_list cb ON cb.id = m.brand_list_id
     INNER JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
     WHERE m.mapping_status = 'APPROVED'
   `)

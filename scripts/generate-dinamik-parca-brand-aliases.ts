@@ -91,7 +91,7 @@ async function main() {
     Array<{ dnmk_brands_id: bigint; ptdrk_brands_id: number }>
   >(Prisma.sql`
     SELECT dnmk_brands_id, ptdrk_brands_id
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.brand_list
     WHERE dnmk_brands_id IS NOT NULL
   `)
 
@@ -239,7 +239,7 @@ async function main() {
     (
       await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
         SELECT db.brand
-        FROM v0.dnmk_ptdrk_brands a
+        FROM v0.brand_list a
         INNER JOIN v0.dnmk_brands db ON db.id = a.dnmk_brands_id
       `)
     ).map((row) => row.brand.trim().toLowerCase())
@@ -278,7 +278,7 @@ async function main() {
     const batch = aliasesToInsert.slice(i, i + BATCH_SIZE)
     try {
       const result = await db.$executeRaw(Prisma.sql`
-        INSERT INTO v0.dnmk_ptdrk_brands (
+        INSERT INTO v0.brand_list (
           dnmk_brands_id, normalized_brand, ptdrk_brands_id,
           mapping_status, match_method
         )
@@ -306,14 +306,14 @@ async function main() {
 
   const totalAliases = await db.$queryRaw<
     Array<{ count: bigint }>
-  >(Prisma.sql`SELECT COUNT(*) AS count FROM v0.dnmk_ptdrk_brands`)
+  >(Prisma.sql`SELECT COUNT(*) AS count FROM v0.brand_list`)
   console.log(`  Total brand aliases in table: ${totalAliases[0].count}`)
 
   const byStatus = await db.$queryRaw<
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*) AS count
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.brand_list
     GROUP BY mapping_status
     ORDER BY count DESC
   `)
@@ -325,7 +325,7 @@ async function main() {
     Array<{ match_method: string; count: bigint }>
   >(Prisma.sql`
     SELECT match_method, COUNT(*) AS count
-    FROM v0.dnmk_ptdrk_brands
+    FROM v0.brand_list
     GROUP BY match_method
     ORDER BY count DESC
   `)

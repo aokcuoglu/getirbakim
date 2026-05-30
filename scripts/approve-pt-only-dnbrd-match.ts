@@ -34,11 +34,11 @@ async function main() {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_brands
+      (SELECT COUNT(*)::int FROM v0.brand_list
         WHERE dnmk_brands_id IS NULL AND ptdrk_brands_id IS NOT NULL AND mapping_status = 'PENDING') AS pending_pt_only,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_brands
+      (SELECT COUNT(*)::int FROM v0.brand_list
         WHERE dnmk_brands_id IS NULL AND ptdrk_brands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_pt_only,
-      (SELECT COUNT(*)::int FROM v0.dnmk_ptdrk_brands
+      (SELECT COUNT(*)::int FROM v0.brand_list
         WHERE dnmk_brands_id IS NOT NULL AND ptdrk_brands_id IS NOT NULL AND mapping_status = 'APPROVED') AS approved_paired
   `)
 

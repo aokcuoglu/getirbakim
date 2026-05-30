@@ -32,7 +32,7 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
         FROM v0.dnmk_brands d
         WHERE EXISTS (
           SELECT 1
-          FROM v0.dnmk_ptdrk_brand_mappings m
+          FROM v0.brand_mappings m
           WHERE m.dnmk_brands_id = d.id
             AND ${activeMatch}
         )

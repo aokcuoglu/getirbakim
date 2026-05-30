@@ -5,6 +5,7 @@ import { ChevronDown, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { ExpandCollapse, RotatingChevron } from '@/components/ui/animations'
 
 export function SidebarContainer({
   children,
@@ -101,14 +102,14 @@ export function SidebarSection({
         className="flex h-auto w-full items-center justify-between px-0 py-0 text-left hover:bg-transparent"
       >
         <span className="text-sm font-medium text-foreground">{title}</span>
-        <ChevronDown
-          className={cn(
-            'size-4 text-muted-foreground transition-transform duration-200',
-            isOpen && 'rotate-180'
-          )}
+        <RotatingChevron
+          isExpanded={isOpen}
+          className="size-4 shrink-0 text-muted-foreground"
         />
       </Button>
-      {isOpen ? <div className="mt-3 space-y-0.5">{children}</div> : null}
+      <ExpandCollapse isOpen={isOpen}>
+        <div className="mt-3 space-y-0.5">{children}</div>
+      </ExpandCollapse>
     </div>
   )
 }
