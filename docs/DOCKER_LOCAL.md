@@ -1,6 +1,10 @@
 # Docker Local Runtime
 
-GetirBakim V2 runs locally via Docker using `docker-compose.local.yml`.
+> **For the recommended local development workflow (app outside Docker, only Meilisearch in Docker), see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).**
+>
+> This document covers the **full Docker local mode** for production parity testing.
+
+GetirBakim V2 can run locally via Docker using `docker-compose.local.yml`.
 
 ## Prerequisites
 

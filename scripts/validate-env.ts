@@ -135,12 +135,14 @@ if (target !== 'local') {
 }
 
 if (getEnv('MEILI_ENABLED') === 'true') {
-  requireAll([
-    'NEXT_PUBLIC_MEILI_HOST',
-    'NEXT_PUBLIC_MEILI_SEARCH_KEY',
-    'MEILI_HOST',
-    'MEILI_MASTER_KEY'
-  ])
+  requireAll(['MEILI_HOST', 'MEILI_MASTER_KEY'])
+  if (target !== 'local') {
+    requireAll(['NEXT_PUBLIC_MEILI_HOST', 'NEXT_PUBLIC_MEILI_SEARCH_KEY'])
+  } else {
+    if (!getEnv('NEXT_PUBLIC_MEILI_HOST')) {
+      warnings.push('NEXT_PUBLIC_MEILI_HOST is not set. Client-side search will not work. Server-side search via /api/search will still work.')
+    }
+  }
 }
 
 validateUrl('NEXT_PUBLIC_SITE_URL', target === 'local' ? 'absolute' : 'https')
