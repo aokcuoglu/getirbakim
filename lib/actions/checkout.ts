@@ -12,8 +12,14 @@ import {
   CHECKOUT_PAYMENT_METHOD_VALUES,
   CHECKOUT_SHIPPING_METHOD_VALUES
 } from '@/lib/orders/types'
-import { buildCodResultUrl, initializeTamiPaymentForOrder } from '@/lib/payments/service'
-import { getRequestOrigin } from '@/lib/site-url'
+import { getRequestOrigin, resolveSiteUrl } from '@/lib/site-url'
+
+function buildCodResultUrl(locale: string, orderId: number, baseUrl?: string): string {
+  const url = new URL(`/${locale}/checkout/result`, baseUrl || resolveSiteUrl())
+  url.searchParams.set('orderId', String(orderId))
+  url.searchParams.set('state', 'cod')
+  return url.toString()
+}
 
 const checkoutItemSchema = z.object({
   partId: z.number().int().positive(),
@@ -63,7 +69,6 @@ type CheckoutInput = z.infer<typeof checkoutInputSchema>
 export type CreateCheckoutOrderResult =
   | {
       success: true
-      mode: 'cod'
       orderId: number
       orderNumber: string
       totalAmount: string
@@ -74,28 +79,11 @@ export type CreateCheckoutOrderResult =
       paymentStatus: string
     }
   | {
-      success: true
-      mode: 'tami'
-      orderId: number
-      orderNumber: string
-      totalAmount: string
-      currency: 'TRY'
-      redirectUrl: string
-      paymentMethod: 'TAMI'
-      status: string
-      paymentStatus: string
-      providerOrderId: string
-      paymentId: number
-      state: 'success' | 'failure' | 'pending_verification'
-      message?: string
-    }
-  | {
       success: false
       code:
         | 'VALIDATION_ERROR'
         | 'CHECKOUT_FAILED'
         | 'ITEM_VALIDATION_FAILED'
-        | 'PAYMENT_INIT_FAILED'
       message: string
       issues?: CheckoutIssue[]
       fieldErrors?: Record<string, string[] | undefined>
@@ -161,7 +149,6 @@ export async function createCheckoutOrder(
     if (data.paymentMethod === 'CASH_ON_DELIVERY') {
       return {
         success: true,
-        mode: 'cod',
         orderId: draft.orderId,
         orderNumber: draft.orderNumber,
         totalAmount: draft.totalAmount,
@@ -173,48 +160,10 @@ export async function createCheckoutOrder(
       }
     }
 
-    try {
-      const forwardedFor = requestHeaders.get('x-forwarded-for') || ''
-      const clientIp =
-        forwardedFor.split(',')[0]?.trim() ||
-        requestHeaders.get('x-real-ip') ||
-        requestHeaders.get('cf-connecting-ip') ||
-        null
-
-      const payment = await initializeTamiPaymentForOrder({
-        orderId: draft.orderId,
-        locale: data.locale,
-        card: data.paymentCard!,
-        clientIp,
-        baseUrl: requestOrigin || undefined
-      })
-
-      return {
-        success: true,
-        mode: 'tami',
-        orderId: draft.orderId,
-        orderNumber: draft.orderNumber,
-        totalAmount: draft.totalAmount,
-        currency: draft.currency,
-        redirectUrl: payment.redirectUrl,
-        paymentMethod: 'TAMI',
-        status: draft.status,
-        paymentStatus: draft.paymentStatus,
-        providerOrderId: payment.providerOrderId,
-        paymentId: payment.paymentId,
-        state: payment.state,
-        message: payment.message
-      }
-    } catch (error) {
-      console.error('Tami init failed:', error)
-      return {
-        success: false,
-        code: 'PAYMENT_INIT_FAILED',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Payment session could not be initialized.'
-      }
+    return {
+      success: false,
+      code: 'CHECKOUT_FAILED',
+      message: 'Online payment is currently unavailable. Please use cash on delivery.'
     }
   } catch (error) {
     console.error('createCheckoutOrder failed:', error)

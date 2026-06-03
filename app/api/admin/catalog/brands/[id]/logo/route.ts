@@ -11,8 +11,7 @@ import {
   fetchSafeRemoteImage,
   REMOTE_IMAGE_MAX_BYTES
 } from '@/lib/http/safe-remote-image'
-import { ensureStorageBucket } from '@/lib/suppliers/parts2world/common'
-import { uploadImageBuffer } from '@/lib/supabase/storage'
+import { createAdminClient, uploadImageBuffer } from '@/lib/supabase/storage'
 
 const BUCKET = 'brand-logos'
 const STORAGE_PREFIX = 'ptbrands'
@@ -36,7 +35,13 @@ async function persistBrandLogo(
   contentType: string,
   context: LogoRouteContext
 ) {
-  await ensureStorageBucket(BUCKET, true)
+  {
+    const supabase = createAdminClient()
+    const { data: buckets } = await supabase.storage.listBuckets()
+    if (!buckets?.some((b) => b.name === BUCKET)) {
+      await supabase.storage.createBucket(BUCKET, { public: true })
+    }
+  }
   const ext = extensionForContentType(contentType)
   const storagePath = `${STORAGE_PREFIX}/${matchId}-${Date.now()}.${ext}`
   const upload = await uploadImageBuffer(buffer, storagePath, contentType, BUCKET)

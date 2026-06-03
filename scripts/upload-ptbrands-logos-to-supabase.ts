@@ -15,10 +15,10 @@
 import 'dotenv/config'
 import { db } from '../lib/db'
 import { Prisma } from '@prisma/client'
-import { ensureStorageBucket } from '../lib/suppliers/parts2world/common'
 import {
   getStoragePublicUrl,
-  uploadImageFromUrl
+  uploadImageFromUrl,
+  createAdminClient
 } from '../lib/supabase/storage'
 
 const BUCKET = 'brand-logos'
@@ -182,7 +182,13 @@ async function main() {
     return
   }
 
-  await ensureStorageBucket(BUCKET, true)
+  {
+    const supabase = createAdminClient()
+    const { data: buckets } = await supabase.storage.listBuckets()
+    if (!buckets?.some((b) => b.name === BUCKET)) {
+      await supabase.storage.createBucket(BUCKET, { public: true })
+    }
+  }
 
   const failures: Array<{ id: number; name: string; reason: string }> = []
   let cursor = 0
