@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import { notFound } from 'next/navigation'
+import { ThemeProvider } from 'next-themes'
 import { VehicleDataProvider } from '@/lib/context/VehicleDataProvider'
 import { ShopProvider } from '@/components/ShopProvider'
 import { QueryProvider } from '@/components/QueryProvider'
@@ -77,7 +78,7 @@ export default async function RootLayout({
   const websiteJsonLd = buildWebSiteJsonLd(locale)
 
   return (
-    <html lang={locale} className="h-full">
+    <html lang={locale} className="h-full" suppressHydrationWarning>
       <head>
         <link rel="stylesheet" href="https://use.typekit.net/ufe1kab.css" />
       </head>
@@ -90,18 +91,20 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
         />
-        <CookieYesLoader />
-        <ConsoleWarningSuppressor />
-        <NextIntlClientProvider locale={locale} messages={messages}>
-          <QueryProvider>
-            <ShopProvider>
-              <VehicleDataProvider>{children}</VehicleDataProvider>
-              <ChatAssistant />
-              <GlobalCartDrawer />
-              <Toaster />
-            </ShopProvider>
-          </QueryProvider>
-        </NextIntlClientProvider>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <CookieYesLoader />
+          <ConsoleWarningSuppressor />
+          <NextIntlClientProvider locale={locale} messages={messages}>
+            <QueryProvider>
+              <ShopProvider>
+                <VehicleDataProvider>{children}</VehicleDataProvider>
+                <ChatAssistant />
+                <GlobalCartDrawer />
+                <Toaster />
+              </ShopProvider>
+            </QueryProvider>
+          </NextIntlClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

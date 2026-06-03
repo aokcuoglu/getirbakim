@@ -35,6 +35,7 @@ const dinamikBrand = parseArg('dinamik-brand')
 const action = parseArg('action') || 'full'
 const dryRun = hasFlag('dry-run')
 const allPending = hasFlag('all-pending')
+const onlyMatched = hasFlag('only-matched')
 
 type DbId = { id: number }
 
@@ -56,6 +57,10 @@ async function findMappingIds(): Promise<{ ids: number[]; total: number; pending
   } else {
     console.error('En az bir filtre belirtin: --brand-list-id, --canonical-brand, --dinamik-brand, veya --all-pending')
     process.exit(1)
+  }
+
+  if (onlyMatched) {
+    where.push('m.dnmk_products_id IS NOT NULL AND m.ptdrk_products_id IS NOT NULL')
   }
 
   const joinClauses = `

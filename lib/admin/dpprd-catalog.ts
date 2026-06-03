@@ -99,10 +99,12 @@ export type AdminApprovedDpmatchListResult = AdminDpmatchListResult
 /** @deprecated Use AdminDpmatchFilters */
 export type AdminApprovedDpmatchFilters = AdminDpmatchFilters
 
+const partNoSortExpr = `CASE WHEN m.dnmk_products_id IS NOT NULL THEN d.part_no WHEN m.bsbg_products_id IS NOT NULL THEN bs.part_no ELSE p.part_no END`
+
 const VALID_SORT_COLUMNS: Record<string, string> = {
   dnmk_products_id: 'm.dnmk_products_id',
   product_id: 'm.ptdrk_products_id',
-  part_no: 'm.part_no',
+  part_no: partNoSortExpr,
   stock_code: 'd.stock_code',
   mapping_status: 'm.mapping_status'
 }
@@ -237,6 +239,7 @@ function mapRow(r: {
   barcode_2: string | null
   barcode_3: string | null
   dinamik_part_no: string | null
+  bsbg_part_no: string | null
   price: string | null
   stock_qty: number | null
   is_passive: boolean
@@ -298,6 +301,7 @@ export async function listDpmatchForAdmin(
     FROM v0.product_mapping m
     LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
+    LEFT JOIN v0.bsbg_products bs ON bs.id = m.bsbg_products_id
     ${dproductDetailsJoin}
     LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
     LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
@@ -374,6 +378,7 @@ export async function listDpmatchForAdmin(
         barcode_2: string | null
         barcode_3: string | null
         dinamik_part_no: string | null
+        bsbg_part_no: string | null
         price: string | null
         stock_qty: number | null
         is_passive: boolean
@@ -391,7 +396,7 @@ export async function listDpmatchForAdmin(
         m.id,
         m.dnmk_products_id,
         m.ptdrk_products_id,
-        m.part_no,
+        CASE WHEN m.dnmk_products_id IS NOT NULL THEN d.part_no WHEN m.bsbg_products_id IS NOT NULL THEN bs.part_no ELSE p.part_no END AS part_no,
         m.mapping_status,
         m.match_method,
         d.stock_code,
@@ -401,6 +406,7 @@ export async function listDpmatchForAdmin(
         d.barcode_2,
         d.barcode_3,
         d.part_no AS dinamik_part_no,
+        bs.part_no AS bsbg_part_no,
         ${dproductDetailsPriceExpr}::text AS price,
         ${dproductDetailsStockExpr} AS stock_qty,
         COALESCE(d.is_passive, false) AS is_passive,

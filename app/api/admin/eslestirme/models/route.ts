@@ -17,11 +17,13 @@ const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as 
 const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
 const VALID_MATCH_METHODS = ['all', 'EXACT_MATCH', 'MANUAL', 'NONE'] as const
 
+const partNoSortExpr = `CASE WHEN m.dnmk_products_id IS NOT NULL THEN d.part_no WHEN m.bsbg_products_id IS NOT NULL THEN bs.part_no ELSE p.part_no END`
+
 const VALID_SORT_COLUMNS: Record<string, string> = {
   dnmk_products_id: 'm.dnmk_products_id',
   product_id: 'm.ptdrk_products_id',
   mapping_status: 'm.mapping_status',
-  part_no: 'm.part_no',
+  part_no: partNoSortExpr,
 }
 
 export async function GET(request: NextRequest) {
@@ -100,10 +102,10 @@ export async function GET(request: NextRequest) {
   const whereClause = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``
 
   const brandJoin = canonicalBrand ? Prisma.sql` LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id` : Prisma.sql``
-  const bsbgJoin = bsbgBrand ? Prisma.sql` LEFT JOIN v0.bsbg_products b ON b.id = m.bsbg_products_id LEFT JOIN v0.bsbg_brands bb ON bb.id = b.bsbg_brands_id` : Prisma.sql``
+  const bsbgJoin = bsbgBrand ? Prisma.sql` LEFT JOIN v0.bsbg_brands bb ON bb.id = bs.bsbg_brands_id` : Prisma.sql``
 
   const tableAlias = Prisma.sql`v0.product_mapping m`
-  const joinClauses = Prisma.sql`LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id${brandJoin}${bsbgJoin}`
+  const joinClauses = Prisma.sql`LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.bsbg_products bs ON bs.id = m.bsbg_products_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id${brandJoin}${bsbgJoin}`
 
   try {
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
@@ -119,14 +121,18 @@ export async function GET(request: NextRequest) {
         stock_code: string | null; stock_name: string | null; brand: string | null
         barcode_1: string | null; barcode_2: string | null; barcode_3: string | null
         dinamik_part_no: string | null; price: string | null
+        bsbg_part_no: string | null; bsbg_malzeme_no: string | null
         title: string | null; model: string | null; ref_no: string | null
         ptdrk_brands_id: number | null; manufacturer_name: string | null
       }>
     >(Prisma.sql`
-       SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.bsbg_products_id, m.part_no, m.mapping_status, m.match_method,
-              d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no AS dinamik_part_no,
-              ${dproductDetailsPriceExpr}::text AS price,
-              p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+       SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.bsbg_products_id,
+              CASE WHEN m.dnmk_products_id IS NOT NULL THEN d.part_no WHEN m.bsbg_products_id IS NOT NULL THEN bs.part_no ELSE p.part_no END AS part_no,
+              m.mapping_status, m.match_method,
+               d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no AS dinamik_part_no,
+               ${dproductDetailsPriceExpr}::text AS price,
+               bs.part_no AS bsbg_part_no, bs.malzeme_no AS bsbg_malzeme_no,
+               p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
        FROM ${tableAlias} ${joinClauses} ${dproductDetailsJoin}
       ${whereClause}
       ORDER BY ${orderBy}
@@ -157,6 +163,10 @@ export async function GET(request: NextRequest) {
           barcode3: r.barcode_3 || null,
           partNo: r.dinamik_part_no || null,
           price: r.price ? String(r.price) : null,
+        },
+        bsbg: {
+          partNo: r.bsbg_part_no || null,
+          malzemeNo: r.bsbg_malzeme_no || null,
         },
         parcatedarik: {
           title: r.title || '',

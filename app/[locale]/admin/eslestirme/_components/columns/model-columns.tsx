@@ -26,6 +26,10 @@ export interface ModelRow {
     partNo: string | null
     price: string | null
   }
+  bsbg: {
+    partNo: string | null
+    malzemeNo: string | null
+  }
   parcatedarik: {
     title: string
     model: string | null
@@ -82,15 +86,23 @@ export function createModelColumns(handlers: {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Ürün" />,
       cell: ({ row }) => {
         const r = row.original
-        const label = r.dinamik.stockCode || r.parcatedarik.title?.slice(0, 40) || r.part_no || '—'
+        const label = r.part_no || '—'
+        const source = r.dnprdId ? 'Dinamik' : r.bsbgProductsId ? 'Başbuğ' : r.productId ? 'P-Tedarik' : null
         return (
-          <button
-            onClick={() => handlers.onViewDetail(r)}
-            className="max-w-[180px] truncate font-mono text-sm text-primary hover:underline text-left"
-            title={label}
-          >
-            {label}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => handlers.onViewDetail(r)}
+              className="max-w-[160px] truncate font-mono text-sm text-primary hover:underline text-left"
+              title={label}
+            >
+              {label}
+            </button>
+            {source && (
+              <Badge variant="outline" className="shrink-0 text-[9px] px-1 py-0 border-primary/20 bg-primary/5 text-primary">
+                {source}
+              </Badge>
+            )}
+          </div>
         )
       },
     },

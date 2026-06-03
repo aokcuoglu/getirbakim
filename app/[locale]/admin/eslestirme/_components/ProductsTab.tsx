@@ -7,6 +7,7 @@ import { SortingState } from '@tanstack/react-table'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AdminFilterBar } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
@@ -116,6 +117,14 @@ export function ProductsTab() {
   const [oemResults, setOemResults] = useState<any[]>([])
   const [oemLoading, setOemLoading] = useState(false)
   const [oemSaving, setOemSaving] = useState<Record<string, boolean>>({})
+  const [savedOems, setSavedOems] = useState<any[]>([])
+  const [savedOemDeleting, setSavedOemDeleting] = useState<Record<number, boolean>>({})
+
+  const [manualOemInput, setManualOemInput] = useState('')
+  const [manualOemPreviews, setManualOemPreviews] = useState<any[]>([])
+  const [manualOemPreviewLoading, setManualOemPreviewLoading] = useState(false)
+  const [manualOemSaving, setManualOemSaving] = useState(false)
+  const [mappingBrandListId, setMappingBrandListId] = useState<number | null>(null)
 
   const loadModels = useCallback(async (f: ModelFilters) => {
     const isInitial = !hasLoadedRef.current
@@ -350,11 +359,12 @@ export function ProductsTab() {
     setDetailRow(row)
     setDetailOpen(true)
     setOemResults([])
+    setSavedOems([])
     setOemSaving({})
-    const refNo = row.parcatedarik.refNo
-    if (refNo) {
-      fetchOemResults(row, refNo)
-    }
+    setManualOemInput('')
+    setManualOemPreviews([])
+    setMappingBrandListId(null)
+    fetchOemResults(row, row.parcatedarik.refNo || '')
   }, [])
 
   const fetchOemResults = useCallback(async (row: ModelRow, refNo: string) => {
@@ -362,11 +372,14 @@ export function ProductsTab() {
     try {
       const params = new URLSearchParams({ refNo, limit: '25' })
       if (row.dnprdId) params.set('dnmkProductsId', row.dnprdId)
+      if (row.productId) params.set('ptdrkProductsId', String(row.productId))
       if (row.id) params.set('mappingId', String(row.id))
       const res = await fetch(`/api/admin/eslestirme/models/oems?${params}`)
       if (res.ok) {
         const data = await res.json()
         setOemResults(data.results || [])
+        setSavedOems(data.saved || [])
+        setMappingBrandListId(data.mappingBrandListId ?? null)
       }
     } catch {
       toast.error('OEM araması başarısız')
@@ -434,6 +447,105 @@ export function ProductsTab() {
       setOemSaving(prev => ({ ...prev, [result.bsbgProductId]: false }))
     }
   }, [detailRow, fetchOemResults])
+
+  const fetchManualOemPreview = useCallback(async (oemNos: string[]) => {
+    if (!detailRow || oemNos.length === 0) {
+      setManualOemPreviews([])
+      return
+    }
+    setManualOemPreviewLoading(true)
+    try {
+      const res = await fetch('/api/admin/eslestirme/models/oems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'preview',
+          oemNos,
+          dnmkProductsId: detailRow.dnprdId || null,
+          ptdrkProductsId: detailRow.productId || null,
+          mappingId: detailRow.id || null,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setManualOemPreviews(data.previews || [])
+        if (data.mappingBrandListId != null) {
+          setMappingBrandListId(data.mappingBrandListId)
+        }
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err?.error?.message || 'Ön izleme alınamadı')
+      }
+    } catch {
+      toast.error('Ön izleme isteği başarısız')
+    } finally {
+      setManualOemPreviewLoading(false)
+    }
+  }, [detailRow])
+
+  const debouncedFetchPreview = useDebouncedCallback((oemNos: string[]) => {
+    fetchManualOemPreview(oemNos)
+  }, 400)
+
+  const handleManualOemChange = useCallback((value: string) => {
+    setManualOemInput(value)
+    const nos = value.split(/[,;|/]+/).map((s) => s.trim()).filter((s) => s.length >= 2)
+    if (nos.length > 0) {
+      debouncedFetchPreview(nos)
+    } else {
+      setManualOemPreviews([])
+    }
+  }, [debouncedFetchPreview])
+
+  const handleSaveManualOems = useCallback(async () => {
+    if (!detailRow || manualOemPreviews.length === 0) return
+
+    const toSave = manualOemPreviews.filter((p) => !p.alreadySaved && p.status !== 'invalid')
+    if (toSave.length === 0) {
+      toast.info('Eklenecek yeni OEM bulunamadı')
+      return
+    }
+
+    setManualOemSaving(true)
+    let successCount = 0
+    let failCount = 0
+
+    for (const p of toSave) {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models/oems', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save_manual',
+              dnmkProductsId: detailRow.dnprdId || null,
+              ptdrkProductsId: detailRow.productId || null,
+              oemNo: p.oemNo,
+              bsbgProductsId: p.bsbgProductId || null,
+              createBsbgIfMissing: p.status === 'create_needed' && !!p.bsbgBrandId,
+              bsbgBrandId: p.bsbgBrandId || null,
+              brandListId: p.brandListId != null ? p.brandListId : null,
+              relationType: p.relationType || 'CROSS_REFERENCE',
+              refNo: detailRow.parcatedarik.refNo || null,
+            }),
+        })
+        const data = await res.json()
+        if (!data.error) successCount++
+        else failCount++
+      } catch {
+        failCount++
+      }
+    }
+
+    setManualOemSaving(false)
+    if (successCount > 0) {
+      toast.success(`${successCount} OEM eklendi${failCount > 0 ? `, ${failCount} başarısız` : ''}`)
+      setManualOemInput('')
+      setManualOemPreviews([])
+      fetchOemResults(detailRow, detailRow.parcatedarik.refNo || '')
+    } else {
+      toast.error('Hiçbir OEM eklenemedi')
+    }
+  }, [detailRow, manualOemPreviews, fetchOemResults])
 
   const columns = createModelColumns({
     onAction: handleAction,
@@ -655,13 +767,14 @@ export function ProductsTab() {
       </Dialog>
 
       {detailRow && (
-        <Dialog open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) { setDetailRow(null); setOemResults([]) } }}>
+        <Dialog open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) { setDetailRow(null); setOemResults([]); setManualOemInput(''); setManualOemPreviews([]); setMappingBrandListId(null) } }}>
           <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-lg font-mono">{detailRow.part_no || detailRow.dinamik.stockCode || detailRow.parcatedarik.title?.slice(0, 40) || 'Ürün Detayı'}</DialogTitle>
               <DialogDescription>
                 Mapping ID: {detailRow.id}
                 {detailRow.dnprdId && <> &middot; Dinamik ID: {detailRow.dnprdId}</>}
+                {detailRow.bsbgProductsId && <> &middot; Başbuğ ID: {detailRow.bsbgProductsId}</>}
                 {detailRow.productId && <> &middot; PT ID: {detailRow.productId}</>}
               </DialogDescription>
             </DialogHeader>
@@ -700,11 +813,185 @@ export function ProductsTab() {
                       </div>
                     </div>
                   )}
-                  {!detailRow.dnprdId && !detailRow.productId && (
+                  {detailRow.bsbgProductsId && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Başbuğ</Badge>
+                        <span className="font-medium">{detailRow.bsbg.partNo || detailRow.bsbg.malzemeNo || '—'}</span>
+                      </div>
+                      <div className="ml-8 space-y-0.5 text-xs text-muted-foreground">
+                        {detailRow.bsbg.malzemeNo && <p className="font-mono">Malzeme No: {detailRow.bsbg.malzemeNo}</p>}
+                        {detailRow.bsbg.partNo && <p className="font-mono">Part No: {detailRow.bsbg.partNo}</p>}
+                      </div>
+                    </div>
+                  )}
+                  {!detailRow.dnprdId && !detailRow.productId && !detailRow.bsbgProductsId && (
                     <span className="text-xs text-muted-foreground">Ürün bağlantısı yok</span>
                   )}
                 </div>
               </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Manuel OEM Ekle</p>
+                <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                  <Label htmlFor="manual-oem-input" className="text-xs font-normal leading-relaxed text-muted-foreground">
+                    Virgül (,), noktalı virgül (;), pipe (|) veya slash (/) ile ayırarak OEM numaraları girin.
+                    Mevcut Başbuğ ürünlerinde aranır; bulunamazsa doğrudan kaydedilir.
+                  </Label>
+                  <Input
+                    id="manual-oem-input"
+                    placeholder="örn: 1K0615301AA; 5Q0615301H"
+                    value={manualOemInput}
+                    onChange={(e) => handleManualOemChange(e.target.value)}
+                    className="font-mono text-xs h-9"
+                  />
+                  {manualOemPreviewLoading && (
+                    <div className="flex justify-center py-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  {!manualOemPreviewLoading && manualOemPreviews.length > 0 && (
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {manualOemPreviews.map((p) => (
+                        <div key={p.oemNo} className="rounded border bg-background p-2 text-xs flex items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono font-medium">{p.oemNo}</span>
+                              {p.status === 'found' && (
+                                <Badge variant="outline" className="text-[10px] border-success/20 bg-success/10 text-success whitespace-nowrap">
+                                  Bulundu
+                                </Badge>
+                              )}
+                              {p.status === 'create_needed' && (
+                                <Badge variant="outline" className="text-[10px] border-warning/20 bg-warning/10 text-warning whitespace-nowrap">
+                                  Yeni kayıt
+                                </Badge>
+                              )}
+                              {p.status === 'invalid' && (
+                                <Badge variant="outline" className="text-[10px] border-destructive/20 bg-destructive/10 text-destructive whitespace-nowrap">
+                                  Geçersiz
+                                </Badge>
+                              )}
+                              {p.alreadySaved && (
+                                <Badge variant="outline" className="text-[10px] border-muted-foreground/20 bg-muted text-muted-foreground whitespace-nowrap">
+                                  Zaten ekli
+                                </Badge>
+                              )}
+                            </div>
+                            {p.status === 'found' && (
+                              <p className="text-muted-foreground">
+                                <span className="font-mono">{p.malzemeNo}</span>
+                                {p.bsbgBrand && <> &middot; {p.bsbgBrand}</>}
+                              </p>
+                            )}
+                            {p.status === 'create_needed' && (
+                              <p className="text-muted-foreground">
+                                {p.bsbgBrandId ? 'Yeni bsbg kaydı oluşturulacak' : 'Bsbg bağlantısı olmadan kaydedilecek'}
+                                {p.relationType === 'SAME_BRAND' && <> &middot; Aynı marka</>}
+                              </p>
+                            )}
+                          </div>
+                          {p.relationType === 'SAME_BRAND' && p.status === 'found' && (
+                            <Badge variant="outline" className="text-[10px] border-success/20 bg-success/10 text-success shrink-0">Aynı Marka</Badge>
+                          )}
+                          {p.relationType === 'CROSS_REFERENCE' && p.status === 'found' && (
+                            <Badge variant="outline" className="text-[10px] border-warning/20 bg-warning/10 text-warning shrink-0">Çapraz</Badge>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!manualOemPreviewLoading && manualOemInput && manualOemPreviews.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Geçerli OEM numarası bulunamadı (en az 2 karakter).</p>
+                  )}
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setManualOemInput(''); setManualOemPreviews([]) }}
+                      disabled={!manualOemInput || manualOemSaving}
+                    >
+                      Temizle
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleSaveManualOems}
+                      disabled={
+                        manualOemSaving ||
+                        manualOemPreviews.length === 0 ||
+                        manualOemPreviews.every((p) => p.status === 'invalid' || p.alreadySaved)
+                      }
+                    >
+                      {manualOemSaving ? 'Kaydediliyor…' : 'OEM\'leri Ekle'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {savedOems.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bu Ürüne Kaydedilmiş OEM'ler</p>
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-sm max-h-48 overflow-y-auto">
+                    {savedOems.map((oem) => (
+                      <div key={oem.id} className="rounded border bg-background p-2 text-xs flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono font-medium">{oem.oemNo}</span>
+                            {oem.bsbgProductId && (
+                              <Badge variant="outline" className="text-[10px] border-success/20 bg-success/10 text-success whitespace-nowrap">
+                                Başbuğ bağlantılı
+                              </Badge>
+                            )}
+                            {!oem.bsbgProductId && (
+                              <Badge variant="outline" className="text-[10px] border-warning/20 bg-warning/10 text-warning whitespace-nowrap">
+                                Başbuğ'suz
+                              </Badge>
+                            )}
+                          </div>
+                          {oem.malzemeNo && <p className="text-muted-foreground"><span className="font-mono">{oem.malzemeNo}</span>{oem.bsbgBrand && <> &middot; {oem.bsbgBrand}</>}</p>}
+                          <p className="text-muted-foreground">
+                            {oem.createdAt && new Date(oem.createdAt).toLocaleString('tr-TR', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {oem.relationType === 'SAME_BRAND' && ' · Aynı marka'}
+                            {oem.relationType === 'CROSS_REFERENCE' && ' · Çapraz'}
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs text-destructive shrink-0"
+                          disabled={savedOemDeleting[oem.id]}
+                          onClick={async () => {
+                            setSavedOemDeleting(prev => ({ ...prev, [oem.id]: true }))
+                            try {
+                              const res = await fetch('/api/admin/eslestirme/models/oems', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  action: 'delete',
+                                  id: oem.id,
+                                }),
+                              })
+                              const data = await res.json()
+                              if (!data.error) {
+                                toast.success('OEM silindi')
+                                setSavedOems(prev => prev.filter(s => s.id !== oem.id))
+                              } else {
+                                toast.error(data.error?.message || 'Silme başarısız')
+                              }
+                            } catch {
+                              toast.error('Silme başarısız')
+                            } finally {
+                              setSavedOemDeleting(prev => ({ ...prev, [oem.id]: false }))
+                            }
+                          }}
+                        >
+                          {savedOemDeleting[oem.id] ? '...' : 'Sil'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {detailRow.parcatedarik.refNo && (
                 <div className="space-y-1">
@@ -789,6 +1076,26 @@ export function ProductsTab() {
                       {detailRow.matchMethod.charAt(0).toUpperCase() + detailRow.matchMethod.slice(1).toLowerCase()}
                     </Badge>
                   )}
+                  <div className="ml-auto flex items-center gap-1">
+                    {detailRow.mappingStatus === 'PENDING' && (
+                      <>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { handleAction(detailRow.id, 'approve'); setDetailRow(prev => prev ? { ...prev, mappingStatus: 'APPROVED', matchMethod: 'MANUAL' } : null) }}>
+                          <Check className="h-3 w-3 mr-1" /> Onayla
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => { handleAction(detailRow.id, 'reject'); setDetailRow(prev => prev ? { ...prev, mappingStatus: 'REJECTED' } : null) }}>
+                          Reddet
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs text-muted-foreground" onClick={() => { handleAction(detailRow.id, 'ignore'); setDetailRow(prev => prev ? { ...prev, mappingStatus: 'IGNORED' } : null) }}>
+                          Yoksay
+                        </Button>
+                      </>
+                    )}
+                    {(detailRow.mappingStatus === 'APPROVED' || detailRow.mappingStatus === 'REJECTED') && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs text-destructive hover:text-destructive" onClick={() => { handleAction(detailRow.id, 'unmatch'); setDetailRow(prev => prev ? { ...prev, mappingStatus: 'PENDING', matchMethod: null } : null) }}>
+                        Eşleştirmeyi Kaldır
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

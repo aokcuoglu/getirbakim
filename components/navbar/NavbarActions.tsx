@@ -20,6 +20,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { SoonFeature } from '@/components/ui/SoonFeature'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 interface NavbarActionsProps {
   onGarageOpenChange?: (open: boolean) => void
@@ -145,6 +146,8 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
 
   return (
     <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+      <ThemeToggle />
+
       <div className="hidden md:block">
         <LanguageSwitcher
           isOpen={isLanguageOpen}
