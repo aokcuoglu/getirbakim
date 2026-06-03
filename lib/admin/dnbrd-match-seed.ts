@@ -85,7 +85,7 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
       )
       SELECT cb.id, d.id, NULL, 'PENDING', NULL
       FROM v0.dnmk_brands d
-      JOIN v0.brand_list cb ON cb.normalized_brand = UPPER(BTRIM(d.brand))
+      JOIN v0.brand_list cb ON cb.brand = UPPER(BTRIM(d.brand))
       WHERE NOT EXISTS (
         SELECT 1
         FROM v0.brand_mappings m
@@ -96,16 +96,16 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
 
   // For brands without a canonical entry, create one then insert mapping
   const remaining = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.brand_list (normalized_brand, logo_url)
+    INSERT INTO v0.brand_list (brand, logo_url)
     SELECT UPPER(BTRIM(d.brand)), d.logo_url
     FROM v0.dnmk_brands d
     WHERE NOT EXISTS (
       SELECT 1 FROM v0.brand_mappings m WHERE m.dnmk_brands_id = d.id
     )
     AND NOT EXISTS (
-      SELECT 1 FROM v0.brand_list cb WHERE cb.normalized_brand = UPPER(BTRIM(d.brand))
+      SELECT 1 FROM v0.brand_list cb WHERE cb.brand = UPPER(BTRIM(d.brand))
     )
-    ON CONFLICT (normalized_brand) DO NOTHING
+    ON CONFLICT (brand) DO NOTHING
   `)
 
   // Insert mappings for those remaining rows
@@ -116,7 +116,7 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
       )
       SELECT cb.id, d.id, NULL, 'PENDING', NULL
       FROM v0.dnmk_brands d
-      JOIN v0.brand_list cb ON cb.normalized_brand = UPPER(BTRIM(d.brand))
+      JOIN v0.brand_list cb ON cb.brand = UPPER(BTRIM(d.brand))
       WHERE NOT EXISTS (
         SELECT 1
         FROM v0.brand_mappings m
@@ -146,7 +146,7 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
       )
       SELECT cb.id, NULL, pt.id, 'PENDING', NULL
       FROM v0.ptdrk_brands pt
-      JOIN v0.brand_list cb ON cb.normalized_brand = UPPER(BTRIM(pt.name))
+      JOIN v0.brand_list cb ON cb.brand = UPPER(BTRIM(pt.name))
       WHERE NOT EXISTS (
         SELECT 1 FROM v0.brand_mappings m WHERE m.ptdrk_brands_id = pt.id
       )
@@ -155,16 +155,16 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
 
   // For manufacturers without a canonical entry, create one then insert mapping
   const remaining = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.brand_list (normalized_brand)
+    INSERT INTO v0.brand_list (brand)
     SELECT UPPER(BTRIM(pt.name))
     FROM v0.ptdrk_brands pt
     WHERE NOT EXISTS (
       SELECT 1 FROM v0.brand_mappings m WHERE m.ptdrk_brands_id = pt.id
     )
     AND NOT EXISTS (
-      SELECT 1 FROM v0.brand_list cb WHERE cb.normalized_brand = UPPER(BTRIM(pt.name))
+      SELECT 1 FROM v0.brand_list cb WHERE cb.brand = UPPER(BTRIM(pt.name))
     )
-    ON CONFLICT (normalized_brand) DO NOTHING
+    ON CONFLICT (brand) DO NOTHING
   `)
 
   if (Number(remaining) > 0) {
@@ -174,7 +174,7 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
       )
       SELECT cb.id, NULL, pt.id, 'PENDING', NULL
       FROM v0.ptdrk_brands pt
-      JOIN v0.brand_list cb ON cb.normalized_brand = UPPER(BTRIM(pt.name))
+      JOIN v0.brand_list cb ON cb.brand = UPPER(BTRIM(pt.name))
       WHERE NOT EXISTS (
         SELECT 1 FROM v0.brand_mappings m WHERE m.ptdrk_brands_id = pt.id
       )
@@ -293,10 +293,10 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
 
   if (normalizedNames.length > 0) {
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.brand_list (normalized_brand, logo_url)
+      INSERT INTO v0.brand_list (brand, logo_url)
       SELECT v.name, NULL
       FROM (VALUES ${Prisma.join(normalizedNames.map(n => Prisma.sql`(${n})`))}) AS v(name)
-      ON CONFLICT (normalized_brand) DO NOTHING
+      ON CONFLICT (brand) DO NOTHING
     `)
   }
 
@@ -310,7 +310,7 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
       )
     )}) AS v(dnmk_brands_id, ptdrk_brands_id, match_method)
     JOIN v0.ptdrk_brands pt ON pt.id = v.ptdrk_brands_id
-    JOIN v0.brand_list cb ON cb.normalized_brand = UPPER(BTRIM(COALESCE(NULLIF(BTRIM(pt.name), ''), ''), ''))
+    JOIN v0.brand_list cb ON cb.brand = UPPER(BTRIM(COALESCE(NULLIF(BTRIM(pt.name), ''), ''), ''))
     ON CONFLICT (dnmk_brands_id, ptdrk_brands_id) DO NOTHING
   `)
 

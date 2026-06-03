@@ -2,7 +2,7 @@ import {
   DINAMIK_REGIONAL_STOCK_LABELS,
   DINAMIK_REGIONAL_STOCK_ORDER
 } from '@/lib/suppliers/dinamik-stock'
-import type { RegionalStock } from '@/lib/types/admin-products'
+import type { DinamikRegionalStock as RegionalStock } from '@/lib/suppliers/dinamik-stock'
 
 interface RegionalStockSummaryProps {
   regionalStock: RegionalStock | null | undefined

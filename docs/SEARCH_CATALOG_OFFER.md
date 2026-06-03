@@ -49,7 +49,7 @@ Key principles:
 When a query is detected as a code (OEM/EAN/SKU/reference), the search API performs an exact PostgreSQL lookup before Meilisearch:
 
 1. `isExactCodeQuery()` checks if query looks like a code (5+ chars, 70%+ alphanumeric)
-2. `lookupExactCode()` queries part_oens, part_eans, part_cross_references, supplier_product_oems, supplier_products (SKU/barcode)
+2. `lookupExactCode()` queries part_oens, part_eans, part_cross_references
 3. Results merged with Meili results, deduplicated, exact matches first
 4. Response includes `exactCodeMatchUsed: true` and `source: "meilisearch_with_exact_code_boost"`
 5. Works in both GET and POST search paths, including multi-search mode
@@ -73,8 +73,8 @@ The Meilisearch integration code remains intact and can be re-enabled with `MEIL
 
 When `MEILI_ENABLED` is not `true`, the `/api/search` route uses `runCatalogOfferSearch()`:
 
-1. **Supplier-backed path**: Queries `supplier_products` with `supplier_part_mappings` using tiered CTE ranking
-2. **Catalog-only path**: Queries `parts` table for products without approved supplier mappings (max 30 results)
+1. **Supplier-backed path**: Queries parts with supplier pricing/stock data using tiered CTE ranking
+2. **Catalog-only path**: Queries `parts` table for products without supplier data (max 30 results)
 
 ### Ranking Priority
 

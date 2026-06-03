@@ -66,7 +66,7 @@ export async function countExactDpmatchCandidates(): Promise<number> {
  */
 export async function deleteInvalidDpmatchRows(): Promise<number> {
   return db.$executeRaw(Prisma.sql`
-    DELETE FROM v0.product_list m
+    DELETE FROM v0.product_mapping m
     WHERE NOT (
       m.mapping_status = 'APPROVED'
       AND m.match_method = ${SINGLE_SIDE_APPROVED_MATCH_METHOD}
@@ -120,7 +120,7 @@ const EXACT_MATCH_PAIRS_CTE = Prisma.sql`
 async function applyBulkExactMatches(stats: DpmatchPopulateStats): Promise<void> {
   const orphanDelete = await db.$executeRaw(Prisma.sql`
     ${EXACT_MATCH_PAIRS_CTE}
-    DELETE FROM v0.product_list m
+    DELETE FROM v0.product_mapping m
     USING pairs p
     WHERE m.dnmk_products_id IS NULL
       AND m.ptdrk_products_id = p.ptdrk_products_id
@@ -129,11 +129,11 @@ async function applyBulkExactMatches(stats: DpmatchPopulateStats): Promise<void>
 
   const updatedRows = await db.$executeRaw(Prisma.sql`
     ${EXACT_MATCH_PAIRS_CTE}
-    UPDATE v0.product_list m
+    UPDATE v0.product_mapping m
     SET
       mapping_status = 'APPROVED',
       match_method = 'EXACT_MATCH',
-      normalized_name = p.normalized
+      part_no = p.normalized
     FROM pairs p
     WHERE m.dnmk_products_id = p.dnmk_products_id
       AND m.ptdrk_products_id = p.ptdrk_products_id
@@ -142,8 +142,8 @@ async function applyBulkExactMatches(stats: DpmatchPopulateStats): Promise<void>
 
   const insertedRows = await db.$executeRaw(Prisma.sql`
     ${EXACT_MATCH_PAIRS_CTE}
-    INSERT INTO v0.product_list (
-      dnmk_products_id, ptdrk_products_id, mapping_status, match_method, normalized_name
+    INSERT INTO v0.product_mapping (
+      dnmk_products_id, ptdrk_products_id, mapping_status, match_method, part_no
     )
     SELECT
       p.dnmk_products_id,
@@ -154,7 +154,7 @@ async function applyBulkExactMatches(stats: DpmatchPopulateStats): Promise<void>
     FROM pairs p
     WHERE NOT EXISTS (
       SELECT 1
-      FROM v0.product_list m
+      FROM v0.product_mapping m
       WHERE m.dnmk_products_id = p.dnmk_products_id
         AND m.ptdrk_products_id = p.ptdrk_products_id
     )
@@ -165,12 +165,12 @@ async function applyBulkExactMatches(stats: DpmatchPopulateStats): Promise<void>
   stats.exactMatchesInserted += insertedRows
 
   const placeholderCleanup = await db.$executeRaw(Prisma.sql`
-    DELETE FROM v0.product_list m
+    DELETE FROM v0.product_mapping m
     WHERE m.dnmk_products_id IS NOT NULL
       AND m.ptdrk_products_id IS NULL
       AND EXISTS (
         SELECT 1
-        FROM v0.product_list paired
+        FROM v0.product_mapping paired
         WHERE paired.dnmk_products_id = m.dnmk_products_id
           AND paired.ptdrk_products_id IS NOT NULL
           AND paired.id <> m.id
@@ -190,7 +190,7 @@ async function insertUnmatchedPlaceholders(
     INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.dnmk_products_id = d.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.dnmk_products_id = d.id
       )
   `)
   stats.dproductPlaceholders = Number(dproductCount[0]?.count ?? 0)
@@ -202,7 +202,7 @@ async function insertUnmatchedPlaceholders(
     INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.ptdrk_products_id = p.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.ptdrk_products_id = p.id
       )
   `)
   stats.productPlaceholders = Number(productCount[0]?.count ?? 0)
@@ -210,7 +210,7 @@ async function insertUnmatchedPlaceholders(
   if (!apply) return
 
   const dproductInserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.product_list (dnmk_products_id, ptdrk_products_id, mapping_status, normalized_name)
+    INSERT INTO v0.product_mapping (dnmk_products_id, ptdrk_products_id, mapping_status, part_no)
     SELECT
       d.id,
       NULL,
@@ -221,14 +221,14 @@ async function insertUnmatchedPlaceholders(
     INNER JOIN v0.dnmk_products d ON d.dnmk_brands_id = bm.dnmk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.dnmk_products_id = d.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.dnmk_products_id = d.id
       )
     ON CONFLICT (dnmk_products_id) WHERE dnmk_products_id IS NOT NULL AND ptdrk_products_id IS NULL DO NOTHING
   `)
   stats.inserted += dproductInserted
 
   const productInserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.product_list (dnmk_products_id, ptdrk_products_id, mapping_status, normalized_name)
+    INSERT INTO v0.product_mapping (dnmk_products_id, ptdrk_products_id, mapping_status, part_no)
     SELECT
       NULL,
       p.id,
@@ -239,7 +239,7 @@ async function insertUnmatchedPlaceholders(
     INNER JOIN v0.ptdrk_products p ON p.ptdrk_brands_id = bm.ptdrk_brands_id
     WHERE ${pairedApprovedBrandMatchFilter}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.ptdrk_products_id = p.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.ptdrk_products_id = p.id
       )
     ON CONFLICT (ptdrk_products_id) WHERE dnmk_products_id IS NULL AND ptdrk_products_id IS NOT NULL DO NOTHING
   `)
@@ -254,7 +254,7 @@ export async function countUnpairedBrandDproductCandidates(): Promise<number> {
     WHERE d.dnmk_brands_id IS NOT NULL
       AND ${dproductNotUnderPairedApprovedBrand}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.dnmk_products_id = d.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.dnmk_products_id = d.id
       )
   `)
   return Number(rows[0]?.count ?? 0)
@@ -268,7 +268,7 @@ export async function countUnpairedBrandProductCandidates(): Promise<number> {
     WHERE p.ptdrk_brands_id IS NOT NULL
       AND ${ptproductNotUnderPairedApprovedBrand}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.ptdrk_products_id = p.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.ptdrk_products_id = p.id
       )
   `)
   return Number(rows[0]?.count ?? 0)
@@ -295,7 +295,7 @@ export async function insertApprovedDpmatchForUnpairedBrands(options?: {
   if (!apply) return stats
 
   stats.unpairedDproductInserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.product_list (dnmk_products_id, ptdrk_products_id, mapping_status, match_method, normalized_name)
+    INSERT INTO v0.product_mapping (dnmk_products_id, ptdrk_products_id, mapping_status, match_method, part_no)
     SELECT
       d.id,
       NULL,
@@ -306,13 +306,13 @@ export async function insertApprovedDpmatchForUnpairedBrands(options?: {
     WHERE d.dnmk_brands_id IS NOT NULL
       AND ${dproductNotUnderPairedApprovedBrand}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.dnmk_products_id = d.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.dnmk_products_id = d.id
       )
     ON CONFLICT (dnmk_products_id) WHERE dnmk_products_id IS NOT NULL AND ptdrk_products_id IS NULL DO NOTHING
   `)
 
   stats.unpairedProductInserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO v0.product_list (dnmk_products_id, ptdrk_products_id, mapping_status, match_method, normalized_name)
+    INSERT INTO v0.product_mapping (dnmk_products_id, ptdrk_products_id, mapping_status, match_method, part_no)
     SELECT
       NULL,
       p.id,
@@ -323,7 +323,7 @@ export async function insertApprovedDpmatchForUnpairedBrands(options?: {
     WHERE p.ptdrk_brands_id IS NOT NULL
       AND ${ptproductNotUnderPairedApprovedBrand}
       AND NOT EXISTS (
-        SELECT 1 FROM v0.product_list m WHERE m.ptdrk_products_id = p.id
+        SELECT 1 FROM v0.product_mapping m WHERE m.ptdrk_products_id = p.id
       )
     ON CONFLICT (ptdrk_products_id) WHERE dnmk_products_id IS NULL AND ptdrk_products_id IS NOT NULL DO NOTHING
   `)

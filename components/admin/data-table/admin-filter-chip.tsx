@@ -31,7 +31,7 @@ export function AdminFilterChip({ label, active, onClick }: AdminFilterChipProps
 }
 
 interface AdminFilterBarProps {
-  children: React.ReactNode
+  children?: React.ReactNode
   onReset?: () => void
   resetLabel?: string
   className?: string

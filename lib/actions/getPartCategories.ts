@@ -3,159 +3,6 @@
 import { db } from '@/lib/db'
 import { getFromCache, setCache } from '@/lib/redis'
 import { cache } from 'react'
-import { unstable_cache } from 'next/cache'
-import { createTimerGroup } from '@/lib/performance/timing'
-
-const PERFORMANCE_LOGGING =
-  process.env.PERFORMANCE_LOGGING === 'true'
-const SLOW_CATEGORY_RESOLVE_THRESHOLD = parseInt(
-  process.env.SLOW_CATEGORY_RESOLVE_THRESHOLD || '1000',
-  10
-)
-const SLOW_CATEGORY_NAV_THRESHOLD = parseInt(
-  process.env.SLOW_CATEGORY_NAV_THRESHOLD || '1000',
-  10
-)
-
-function warnSlow(label: string, durationMs: number, extra?: string): void {
-  if (durationMs > SLOW_CATEGORY_RESOLVE_THRESHOLD) {
-    console.warn(
-      `[CATEGORY_RESOLVE_SLOW] ${label} ${durationMs}ms${extra ? ` ${extra}` : ''}`
-    )
-  }
-}
-
-function warnSlowNav(label: string, durationMs: number): void {
-  if (durationMs > SLOW_CATEGORY_NAV_THRESHOLD) {
-    console.warn(
-      `[CATEGORY_NAV_SLOW] ${label} ${durationMs}ms`
-    )
-  }
-}
-
-let categorySnapshotMemoryCache: CategorySnapshot | null = null
-let categorySnapshotMemoryCacheExpiry = 0
-const CATEGORY_SNAPSHOT_MEMORY_TTL_MS = 5 * 60 * 1000
-
-interface CategorySnapshotRow {
-  id: number
-  name: string
-  name_tr: string | null
-  is_active: boolean
-  has_childs: boolean
-  parent_id: number | null
-  url_key: string | null
-  image: string | null
-  is_main_nav: boolean
-}
-
-class CategorySnapshot {
-  readonly rows: CategorySnapshotRow[]
-  readonly byId: Map<number, CategorySnapshotRow>
-  readonly byUrlKey: Map<string, CategorySnapshotRow[]>
-  readonly byNameSlug: Map<string, CategorySnapshotRow[]>
-  readonly childrenByParentId: Map<number | null, CategorySnapshotRow[]>
-
-  constructor(rows: CategorySnapshotRow[]) {
-    this.rows = rows
-    this.byId = new Map()
-    this.byUrlKey = new Map()
-    this.byNameSlug = new Map()
-    this.childrenByParentId = new Map()
-
-    for (const row of rows) {
-      this.byId.set(row.id, row)
-
-      if (row.url_key) {
-        const normalizedKey = row.url_key.trim().toLowerCase()
-        const arr = this.byUrlKey.get(normalizedKey)
-        if (arr) {
-          arr.push(row)
-        } else {
-          this.byUrlKey.set(normalizedKey, [row])
-        }
-      }
-
-      const nameSlug = generateSlug(row.name)
-      const nameArr = this.byNameSlug.get(nameSlug)
-      if (nameArr) {
-        nameArr.push(row)
-      } else {
-        this.byNameSlug.set(nameSlug, [row])
-      }
-
-      const parentId = row.parent_id
-      const children = this.childrenByParentId.get(parentId)
-      if (children) {
-        children.push(row)
-      } else {
-        this.childrenByParentId.set(parentId, [row])
-      }
-    }
-  }
-}
-
-async function getCategorySnapshot(): Promise<CategorySnapshot> {
-  if (
-    categorySnapshotMemoryCache &&
-    Date.now() < categorySnapshotMemoryCacheExpiry
-  ) {
-    if (PERFORMANCE_LOGGING) {
-      console.info('[CATEGORY_CACHE_HIT] categorySnapshot memory')
-    }
-    return categorySnapshotMemoryCache
-  }
-
-  const tg = createTimerGroup('categorySnapshot')
-  const tRedis = tg.start('redisLookup')
-  const cacheKey = 'category-snapshot-v1'
-  const cached = await getFromCache<CategorySnapshotRow[]>(cacheKey)
-  if (cached) {
-    tg.end(tRedis, { hit: true })
-    if (PERFORMANCE_LOGGING) {
-      console.info('[CATEGORY_CACHE_HIT] categorySnapshot redis')
-    }
-    const snapshot = new CategorySnapshot(cached)
-    categorySnapshotMemoryCache = snapshot
-    categorySnapshotMemoryCacheExpiry =
-      Date.now() + CATEGORY_SNAPSHOT_MEMORY_TTL_MS
-    tg.logSummary()
-    return snapshot
-  }
-  tg.end(tRedis, { hit: false })
-  if (PERFORMANCE_LOGGING) {
-    console.info('[CATEGORY_CACHE_MISS] categorySnapshot')
-  }
-
-  const tDb = tg.start('dbQuery')
-  const rows = await db.part_categories.findMany({
-    where: { is_active: true },
-    select: {
-      id: true,
-      name: true,
-      name_tr: true,
-      is_active: true,
-      has_childs: true,
-      parent_id: true,
-      url_key: true,
-      image: true,
-      is_main_nav: true
-    }
-  })
-  tg.end(tDb, { count: rows.length })
-
-  const tRedisSet = tg.start('redisSet')
-  await setCache(cacheKey, rows, 3600)
-  tg.end(tRedisSet)
-
-  const snapshot = new CategorySnapshot(rows)
-  categorySnapshotMemoryCache = snapshot
-  categorySnapshotMemoryCacheExpiry =
-    Date.now() + CATEGORY_SNAPSHOT_MEMORY_TTL_MS
-
-  tg.logSummary()
-  return snapshot
-}
 
 export interface PartCategory {
   id: number
@@ -318,21 +165,25 @@ async function fetchPartCategoriesForVehicle(
   vehicleTypeId: number,
   locale: string = 'en'
 ): Promise<PartCategory[]> {
-  // Use precomputed vehicle_type->category mapping (parts2world spare-groups style)
-  const variantCategoryRows = await db.vehicle_types_categories.findMany({
+  // Derive vehicle->category mapping dynamically through part_vehicle_types->parts
+  const variantCategoryRows = await db.part_vehicle_types.findMany({
     where: {
-      vehicle_types_id: vehicleTypeId
+      vehicle_type_id: vehicleTypeId
     },
     select: {
-      category_id: true
+      parts: {
+        select: {
+          category_id: true
+        }
+      }
     }
   })
 
   // Extract unique category IDs
   const categoryIdSet = new Set<number>()
   variantCategoryRows.forEach((row) => {
-    if (row.category_id) {
-      categoryIdSet.add(row.category_id)
+    if (row.parts?.category_id) {
+      categoryIdSet.add(row.parts.category_id)
     }
   })
 
@@ -427,27 +278,15 @@ async function fetchPartCategoriesForVehicle(
 export const getPartCategories = async (
   locale: string = 'en'
 ): Promise<PartCategory[]> => {
-  const tg = createTimerGroup('partCategories')
-  const tCache = tg.start('cacheLookup')
   const cacheKey = `part-categories-tree-${locale}-v2`
 
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) {
-    tg.end(tCache, { hit: true })
-    tg.logSummary()
     return cached
   }
-  tg.end(tCache, { hit: false })
 
-  const tDb = tg.start('dbQuery')
   const categories = await fetchPartCategories(locale)
-  tg.end(tDb)
-
-  const tCacheSet = tg.start('cacheSet')
   await setCache(cacheKey, categories, 3600)
-  tg.end(tCacheSet)
-
-  tg.logSummary()
   return categories
 }
 
@@ -456,27 +295,15 @@ export const getPartCategoriesForVehicle = async (
   vehicleTypeId: number,
   locale: string = 'en'
 ): Promise<PartCategory[]> => {
-  const tg = createTimerGroup('partCategoriesForVehicle')
-  const tCache = tg.start('cacheLookup')
   const cacheKey = `part-categories-vehicle-${vehicleTypeId}-${locale}-v2`
 
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) {
-    tg.end(tCache, { hit: true })
-    tg.logSummary()
     return cached
   }
-  tg.end(tCache, { hit: false })
 
-  const tDb = tg.start('dbQuery')
   const categories = await fetchPartCategoriesForVehicle(vehicleTypeId, locale)
-  tg.end(tDb)
-
-  const tCacheSet = tg.start('cacheSet')
-  await setCache(cacheKey, categories, 1800)
-  tg.end(tCacheSet)
-
-  tg.logSummary()
+  await setCache(cacheKey, categories, 1800) // 30 minutes cache for vehicle-specific
   return categories
 }
 
@@ -492,273 +319,206 @@ export interface PartCategoryWithHierarchy extends PartCategory {
 export type TrodoCategory = PartCategory
 export type TrodoCategoryWithHierarchy = PartCategoryWithHierarchy
 
-const CATEGORY_SELECT = {
-  id: true,
-  name: true,
-  name_tr: true,
-  is_active: true,
-  has_childs: true,
-  parent_id: true,
-  url_key: true,
-  image: true
-} as const
-
-function rowToCategory(row: {
-  id: number
-  name: string
-  name_tr: string | null
-  is_active: boolean
-  has_childs: boolean
-  parent_id: number | null
-  url_key: string | null
-  image: string | null
-}): PartCategory {
-  return {
-    id: row.id,
-    name: row.name,
-    nameTr: row.name_tr,
-    isActive: row.is_active,
-    hasChildren: row.has_childs,
-    parentId: row.parent_id,
-    urlKey: normalizeUrlKey(row.url_key, row.name),
-    image: row.image,
-    children: []
-  }
-}
-
-type CategorySelectRow = {
-  id: number
-  name: string
-  name_tr: string | null
-  is_active: boolean
-  has_childs: boolean
-  parent_id: number | null
-  url_key: string | null
-  image: string | null
-}
-
-function pickBestCandidate(
-  candidates: { cat: CategorySelectRow; childCount: number }[]
-): CategorySelectRow | null {
-  if (candidates.length === 0) return null
-  const sorted = [...candidates].sort((a, b) => {
-    const childDiff = b.childCount - a.childCount
-    if (childDiff !== 0) return childDiff
-    if (a.cat.has_childs !== b.cat.has_childs) return a.cat.has_childs ? -1 : 1
-    if ((a.cat.parent_id == null) !== (b.cat.parent_id == null)) return a.cat.parent_id == null ? -1 : 1
-    return a.cat.id - b.cat.id
-  })
-  return sorted[0].cat
-}
-
-async function findCategoryByUrlKey(
-  urlKey: string
-): Promise<(CategorySelectRow & { children: PartCategory[] }) | null> {
-  const snapshot = await getCategorySnapshot()
-
-  const legacyCategoryId = parseIdFromUrlKey(urlKey)
-  const normalizedInput = normalizeUrlKey(urlKey, urlKey)
-
-  const candidates: CategorySelectRow[] = []
-
-  if (legacyCategoryId) {
-    const direct = snapshot.byId.get(legacyCategoryId)
-    if (direct && direct.is_active) {
-      candidates.push(direct)
-    }
-  }
-
-  const exactMatches = snapshot.byUrlKey.get(urlKey)
-  if (exactMatches) {
-    for (const m of exactMatches) {
-      if (!candidates.includes(m)) {
-        candidates.push(m)
-      }
-    }
-  }
-
-  if (candidates.length === 0) {
-    for (const [key, rows] of snapshot.byUrlKey) {
-      if (key.startsWith(urlKey + '-')) {
-        for (const row of rows) {
-          if (normalizeUrlKey(row.url_key, row.name) === urlKey) {
-            if (!candidates.includes(row)) {
-              candidates.push(row)
-            }
-          }
-        }
-      }
-    }
-
-    if (candidates.length === 0) {
-      const nameSlug = generateSlug(urlKey.replace(/-/g, ' '))
-      for (const row of snapshot.rows) {
-        if (
-          row.url_key === null &&
-          row.is_active &&
-          (generateSlug(row.name) === urlKey ||
-            (row.name_tr !== null && generateSlug(row.name_tr) === urlKey))
-        ) {
-          if (!candidates.includes(row)) {
-            candidates.push(row)
-          }
-        }
-      }
-    }
-  }
-
-  if (candidates.length === 0) {
-    return null
-  }
-
-  const candidatesWithChildren = candidates.map((cat) => {
-    const childRows = snapshot.childrenByParentId.get(cat.id) || []
-    return {
-      cat,
-      childCount: childRows.filter((c) => c.is_active).length
-    }
-  })
-
-  const best = pickBestCandidate(candidatesWithChildren)
-  if (!best) return null
-
-  const childRows = snapshot.childrenByParentId.get(best.id) || []
-  const children: PartCategory[] = childRows
-    .filter((c) => c.is_active)
-    .map((row) => rowToCategory(row))
-
-  return { ...best, children }
-}
-
-async function resolveCategoryByUrlKeyInner(
-  urlKey: string
-): Promise<PartCategoryWithHierarchy | null> {
-  const tg = createTimerGroup('categoryByUrlKey')
-
-  const tCache = tg.start('cacheLookup')
-  const cacheKey = `part-category-v2-${urlKey}`
-  const cached = await getFromCache<PartCategoryWithHierarchy>(cacheKey)
-  if (cached) {
-    const normalizedKey = normalizeUrlKey(cached.urlKey, cached.name)
-    if (normalizedKey !== cached.urlKey) {
-      const next = { ...cached, urlKey: normalizedKey }
-      await setCache(cacheKey, next, 3600)
-      tg.end(tCache, { hit: true })
-      tg.logSummary()
-      return next
-    }
-    tg.end(tCache, { hit: true })
-    tg.logSummary()
-    return cached
-  }
-  tg.end(tCache, { hit: false })
-
-  const tFind = tg.start('findTarget')
-  const targetRow = await findCategoryByUrlKey(urlKey)
-  if (!targetRow) {
-    tg.end(tFind)
-    tg.logSummary()
-    return null
-  }
-
-  const targetCategory: PartCategory & { children: PartCategory[] } = {
-    id: targetRow.id,
-    name: targetRow.name,
-    nameTr: targetRow.name_tr,
-    isActive: targetRow.is_active,
-    hasChildren: targetRow.has_childs,
-    parentId: targetRow.parent_id,
-    urlKey: normalizeUrlKey(targetRow.url_key, targetRow.name),
-    image: targetRow.image,
-    children: targetRow.children
-  }
-  tg.end(tFind)
-
-  const tResolve = tg.start('ancestry+siblings')
-  const snapshot = await getCategorySnapshot()
-
-  const tAncestry = tg.start('ancestry')
-  const breadcrumbs: { name: string; nameTr: string | null; urlKey: string }[] = []
-  let ancestorId: number | null = targetCategory.parentId
-  const visitedAncestorIds = new Set<number>()
-  while (ancestorId) {
-    if (visitedAncestorIds.has(ancestorId)) break
-    visitedAncestorIds.add(ancestorId)
-    const row = snapshot.byId.get(ancestorId)
-    if (!row || !row.is_active) break
-    breadcrumbs.unshift({
-      name: row.name,
-      nameTr: row.name_tr,
-      urlKey: normalizeUrlKey(row.url_key, row.name)
-    })
-    ancestorId = row.parent_id
-  }
-  tg.end(tAncestry)
-
-  const tBuild = tg.start('buildResult')
-
-  const siblingParentId = targetCategory.parentId
-  const siblingSnapshotRows = snapshot.childrenByParentId.get(siblingParentId) || []
-  const siblings: PartCategory[] = siblingSnapshotRows
-    .filter((row) => row.is_active)
-    .map(rowToCategory)
-  siblings.sort((a, b) => {
-    const nameA = a.name
-    const nameB = b.name
-    return nameA.localeCompare(nameB, 'en')
-  })
-
-  const searchIds = [targetCategory.id]
-
-  const result: PartCategoryWithHierarchy = {
-    id: targetCategory.id,
-    name: targetCategory.name,
-    nameTr: targetCategory.nameTr,
-    hasChildren: targetCategory.hasChildren,
-    parentId: targetCategory.parentId,
-    urlKey: targetCategory.urlKey,
-    image: targetCategory.image,
-    children: targetCategory.children,
-    breadcrumbs,
-    isLeaf:
-      !targetCategory.hasChildren && targetCategory.children.length === 0,
-    searchIds,
-    siblings
-  }
-  tg.end(tBuild)
-  tg.end(tResolve)
-
-  const tCacheSet = tg.start('cacheSet')
-  await setCache(cacheKey, result, 3600)
-  tg.end(tCacheSet)
-
-  tg.logSummary()
-  warnSlow('categoryByUrlKey', tg.getTotalMs(), `urlKey=${urlKey}`)
-  return result
-}
-
+// Get category by url_key with hierarchy
+// Canonical URL format: "air-filter"
+// Legacy URL format is still supported: "air-filter-100384"
 export const getPartCategoryByUrlKey = cache(
-  unstable_cache(
-    (urlKey: string) => resolveCategoryByUrlKeyInner(urlKey),
-    ['part-category-by-urlkey-v3'],
-    { revalidate: 3600 }
-  )
+  async (urlKey: string): Promise<PartCategoryWithHierarchy | null> => {
+    const cacheKey = `part-category-v2-${urlKey}`
+    const cached = await getFromCache<PartCategoryWithHierarchy>(cacheKey)
+    if (cached) {
+      const normalizedKey = normalizeUrlKey(cached.urlKey, cached.name)
+      if (normalizedKey !== cached.urlKey) {
+        const next = { ...cached, urlKey: normalizedKey }
+        await setCache(cacheKey, next, 3600)
+        return next
+      }
+      return cached
+    }
+
+    const legacyCategoryId = parseIdFromUrlKey(urlKey)
+
+    // Fetch all categories to build the tree (needed for children and breadcrumbs)
+    const allCategories = await db.part_categories.findMany({
+      where: {
+        is_active: true
+      },
+      select: {
+        id: true,
+        name: true,
+        name_tr: true,
+        is_active: true,
+        has_childs: true,
+        parent_id: true,
+        url_key: true,
+        image: true
+      }
+    })
+
+    // Build category map
+    const categoryMap = new Map<
+      number,
+      PartCategory & { children: PartCategory[] }
+    >()
+    allCategories.forEach((cat) => {
+      const catUrlKey = normalizeUrlKey(cat.url_key, cat.name)
+      categoryMap.set(cat.id, {
+        id: cat.id,
+        name: cat.name,
+        nameTr: cat.name_tr,
+        isActive: cat.is_active,
+        hasChildren: cat.has_childs,
+        parentId: cat.parent_id,
+        urlKey: catUrlKey,
+        image: cat.image,
+        children: []
+      })
+    })
+
+    // Link children to parents
+    categoryMap.forEach((cat) => {
+      if (cat.parentId) {
+        const parent = categoryMap.get(cat.parentId)
+        if (parent) {
+          parent.children.push(cat)
+        }
+      }
+    })
+
+    const normalizedInput = normalizeUrlKey(urlKey, urlKey)
+
+    let targetCategory = legacyCategoryId
+      ? categoryMap.get(legacyCategoryId)
+      : null
+
+    if (!targetCategory) {
+      const slugMatches = Array.from(categoryMap.values()).filter(
+        (cat) => cat.urlKey === normalizedInput
+      )
+
+      if (slugMatches.length === 0) {
+        return null
+      }
+
+      slugMatches.sort((a, b) => {
+        const childDiff = (b.children?.length ?? 0) - (a.children?.length ?? 0)
+        if (childDiff !== 0) return childDiff
+
+        if (a.hasChildren !== b.hasChildren) {
+          return a.hasChildren ? -1 : 1
+        }
+
+        if ((a.parentId == null) !== (b.parentId == null)) {
+          return a.parentId == null ? -1 : 1
+        }
+
+        return a.id - b.id
+      })
+
+      targetCategory = slugMatches[0]
+    }
+
+    const parentMap = new Map(
+      allCategories.map((category) => [category.id, category.parent_id])
+    )
+
+    if (!hasAccessibleAncestry(targetCategory.id, parentMap)) {
+      return null
+    }
+
+    // Build breadcrumbs
+    const breadcrumbs: {
+      name: string
+      nameTr: string | null
+      urlKey: string
+    }[] = []
+    let currentId: number | null = targetCategory.parentId
+    while (currentId) {
+      const parent = categoryMap.get(currentId)
+      if (parent) {
+        breadcrumbs.unshift({
+          name: parent.name,
+          nameTr: parent.nameTr,
+          urlKey: parent.urlKey!
+        })
+        currentId = parent.parentId
+      } else {
+        break
+      }
+    }
+
+    // Get siblings if it has a parent
+    let siblings: PartCategory[] = []
+    if (targetCategory.parentId) {
+      const parent = categoryMap.get(targetCategory.parentId)
+      if (parent) {
+        siblings = parent.children
+      }
+    } else {
+      // Top-level categories are siblings of each other
+      categoryMap.forEach((cat) => {
+        if (!cat.parentId) {
+          siblings.push(cat)
+        }
+      })
+    }
+
+    // Sort siblings by name
+    siblings = sortCategoriesByName(siblings, 'en') // Default to en, but could be passed in
+
+    // Category ids for this category (for Meilisearch)
+    const searchIds = [targetCategory.id]
+
+    const result: PartCategoryWithHierarchy = {
+      id: targetCategory.id,
+      name: targetCategory.name,
+      nameTr: targetCategory.nameTr,
+      hasChildren: targetCategory.hasChildren,
+      parentId: targetCategory.parentId,
+      urlKey: targetCategory.urlKey,
+      image: targetCategory.image,
+      children: targetCategory.children,
+      breadcrumbs,
+      isLeaf:
+        !targetCategory.hasChildren && targetCategory.children.length === 0,
+      searchIds,
+      siblings
+    }
+
+    await setCache(cacheKey, result, 3600)
+    return result
+  }
 )
 
 // Alias for backward compatibility
 export const getCategoryByUrlKey = getPartCategoryByUrlKey
 
-async function fetchMainNavCategoriesFromDB(locale: string = 'en'): Promise<PartCategory[]> {
-  const tg = createTimerGroup('mainNavCategories')
-  const tSnapshot = tg.start('snapshotLookup')
-  const snapshot = await getCategorySnapshot()
-  tg.end(tSnapshot)
+// Main nav categories from DB: is_main_nav=true (can have parent_id or be root)
+// Expected: Car parts (1000000), Lubrication (100245), Filters (100005), Window Cleaning (100018), Accessories (100733).
+// After migration or schema changes, run: bun run clear-category-cache
+export const getMainNavCategories = async (
+  locale: string = 'en'
+): Promise<PartCategory[]> => {
+  const cacheKey = `main-nav-categories-${locale}-v2`
+  const cached = await getFromCache<PartCategory[]>(cacheKey)
+  if (cached) return cached
 
-  const tFilter = tg.start('filter')
-  const mainNavRows = snapshot.rows.filter(
-    (row) => row.is_main_nav && row.is_active
-  )
-  const categories: PartCategory[] = mainNavRows.map((cat) => ({
+  const rows = await db.part_categories.findMany({
+    where: { is_main_nav: true, is_active: true },
+    select: {
+      id: true,
+      name: true,
+      name_tr: true,
+      is_active: true,
+      has_childs: true,
+      parent_id: true,
+      url_key: true,
+      image: true
+    },
+    orderBy: { id: 'asc' }
+  })
+
+  const categories: PartCategory[] = rows.map((cat) => ({
     id: cat.id,
     name: locale === 'tr' && cat.name_tr ? cat.name_tr : cat.name,
     nameTr: cat.name_tr,
@@ -768,38 +528,10 @@ async function fetchMainNavCategoriesFromDB(locale: string = 'en'): Promise<Part
     urlKey: normalizeUrlKey(cat.url_key, cat.name),
     image: cat.image
   }))
-  tg.end(tFilter, { count: categories.length })
-  tg.logSummary()
-  warnSlowNav('mainNavCategories', tg.getTotalMs())
+
+  await setCache(cacheKey, categories, 3600)
   return categories
 }
-
-export const getMainNavCategories = cache(
-  unstable_cache(
-    async (locale: string = 'en'): Promise<PartCategory[]> => {
-      const cacheKey = `main-nav-categories-${locale}-v2`
-      const tg = createTimerGroup('mainNavCategories')
-      const tCache = tg.start('redisLookup')
-      const cached = await getFromCache<PartCategory[]>(cacheKey)
-      if (cached) {
-        tg.end(tCache, { hit: true })
-        tg.logSummary()
-        return cached
-      }
-      tg.end(tCache, { hit: false })
-
-      const categories = await fetchMainNavCategoriesFromDB(locale)
-
-      const tCacheSet = tg.start('redisSet')
-      await setCache(cacheKey, categories, 3600)
-      tg.end(tCacheSet)
-      tg.logSummary()
-      return categories
-    },
-    ['main-nav-categories-v3'],
-    { revalidate: 3600 }
-  )
-)
 
 // Get top-level categories for navigation
 export const getTopCategories = async (
@@ -809,21 +541,33 @@ export const getTopCategories = async (
   const cached = await getFromCache<PartCategory[]>(cacheKey)
   if (cached) return cached
 
-  const snapshot = await getCategorySnapshot()
-  const rootRows = snapshot.childrenByParentId.get(null) || []
-  const categories: PartCategory[] = rootRows
-    .filter((row) => row.is_active)
-    .map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      nameTr: cat.name_tr,
-      isActive: cat.is_active,
-      hasChildren: cat.has_childs,
-      parentId: cat.parent_id,
-      urlKey: normalizeUrlKey(cat.url_key, cat.name),
-      image: cat.image
-    }))
+  // Fetch root categories (those without parent)
+  const rootCategories = await db.part_categories.findMany({
+    where: { parent_id: null, is_active: true },
+    select: {
+      id: true,
+      name: true,
+      name_tr: true,
+      is_active: true,
+      has_childs: true,
+      parent_id: true,
+      url_key: true,
+      image: true
+    }
+  })
 
+  const categories: PartCategory[] = rootCategories.map((cat) => ({
+    id: cat.id,
+    name: cat.name,
+    nameTr: cat.name_tr,
+    isActive: cat.is_active,
+    hasChildren: cat.has_childs,
+    parentId: cat.parent_id,
+    urlKey: normalizeUrlKey(cat.url_key, cat.name),
+    image: cat.image
+  }))
+
+  // Sort by localized name
   const sorted = sortCategoriesByName(categories, locale)
   await setCache(cacheKey, sorted, 3600)
   return sorted
@@ -833,61 +577,46 @@ export const getTopCategories = async (
 export const getCategorySearchIdFromUrlKey = async (
   urlKey: string
 ): Promise<number | null> => {
-  const snapshot = await getCategorySnapshot()
-
-  const legacyCategoryId = parseIdFromUrlKey(urlKey)
-
-  let matchingRow: CategorySnapshotRow | null = null
-
-  if (legacyCategoryId) {
-    const direct = snapshot.byId.get(legacyCategoryId)
-    if (direct && direct.is_active) {
-      matchingRow = direct
-    }
-  }
-
-  if (!matchingRow) {
-    const exactMatches = snapshot.byUrlKey.get(urlKey)
-    if (exactMatches && exactMatches.length > 0) {
-      matchingRow = exactMatches.find((r) => r.is_active) || null
-    }
-  }
-
-  if (!matchingRow) {
-    for (const [key, rows] of snapshot.byUrlKey) {
-      if (key.startsWith(urlKey + '-')) {
-        const found = rows.find((r) => r.is_active && normalizeUrlKey(r.url_key, r.name) === urlKey)
-        if (found) {
-          matchingRow = found
-          break
-        }
-      }
-    }
-  }
-
-  if (!matchingRow) {
-    for (const row of snapshot.rows) {
-      if (row.url_key === null && row.is_active) {
-        if (generateSlug(row.name) === urlKey || (row.name_tr && generateSlug(row.name_tr) === urlKey)) {
-          matchingRow = row
-          break
-        }
-      }
-    }
-  }
-
-  if (!matchingRow || !matchingRow.is_active) {
-    return null
-  }
-
-  let currentId: number | null = matchingRow.parent_id
-  while (currentId !== null) {
-    const parent = snapshot.byId.get(currentId)
-    if (!parent || !parent.is_active) {
+  // First try to parse id from urlKey format: "air-filter-100384"
+  const id = parseIdFromUrlKey(urlKey)
+  if (id) {
+    // Verify it exists
+    const exists = await db.part_categories.findUnique({
+      where: { id },
+      select: { id: true, is_active: true, parent_id: true }
+    })
+    if (!exists?.is_active) {
       return null
     }
-    currentId = parent.parent_id
+
+    const activeCategories = await db.part_categories.findMany({
+      where: { is_active: true },
+      select: { id: true, parent_id: true }
+    })
+    const parentMap = new Map(
+      activeCategories.map((category) => [category.id, category.parent_id])
+    )
+
+    return hasAccessibleAncestry(id, parentMap) ? exists.id : null
   }
 
-  return matchingRow.id
+  // Fallback: search by canonical slug
+  const allCategories = await db.part_categories.findMany({
+    where: { is_active: true },
+    select: { id: true, name: true, url_key: true, parent_id: true }
+  })
+
+  const parentMap = new Map(
+    allCategories.map((category) => [category.id, category.parent_id])
+  )
+
+  // Find category whose canonical slug matches
+  for (const cat of allCategories) {
+    const slug = normalizeUrlKey(cat.url_key, cat.name)
+    if (slug === urlKey && hasAccessibleAncestry(cat.id, parentMap)) {
+      return cat.id
+    }
+  }
+
+  return null
 }

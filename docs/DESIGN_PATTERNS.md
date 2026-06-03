@@ -89,16 +89,15 @@ border-border/50
 
 ### 3.1 Font stack
 
-Geist Sans is the sole UI font — configured in `app/[locale]/layout.tsx`:
+Exo 2 is the sole UI font — configured in `app/[locale]/layout.tsx`:
 
 ```tsx
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Exo_2 } from 'next/font/google'
 
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin', 'latin-ext'] })
-const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin', 'latin-ext'] })
+const exo2 = Exo_2({ variable: '--font-exo-2', subsets: ['latin', 'latin-ext'] })
 ```
 
-`globals.css` maps `--font-sans: var(--font-geist-sans)`. All text inherits via `html { @apply font-sans antialiased; }`.
+`globals.css` maps `--font-sans: var(--font-exo-2)`. All text inherits via `html { @apply font-sans antialiased; }`.
 
 Do **not** introduce secondary heading fonts or inline `fontFamily` overrides.
 

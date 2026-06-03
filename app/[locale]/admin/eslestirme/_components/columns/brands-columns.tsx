@@ -85,7 +85,7 @@ export function createBrandsColumns(handlers: {
     },
     {
       id: 'providers',
-      header: () => <span className="text-xs font-medium">Sağlayıcılar</span>,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Sağlayıcılar" />,
       cell: ({ row }) => {
         const r = row.original
         const providers = []

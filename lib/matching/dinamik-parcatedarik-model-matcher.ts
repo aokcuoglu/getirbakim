@@ -76,11 +76,11 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
   const aliases = await db.$queryRaw<
     Array<{
       dinamik_brand: string
-      normalized_brand: string
+      brand: string
       ptdrk_brands_id: number
     }>
   >(Prisma.sql`
-    SELECT db.brand AS dinamik_brand, cb.normalized_brand, m.ptdrk_brands_id
+    SELECT db.brand AS dinamik_brand, cb.brand, m.ptdrk_brands_id
     FROM v0.brand_mappings m
     JOIN v0.brand_list cb ON cb.id = m.brand_list_id
     INNER JOIN v0.dnmk_brands db ON db.id = m.dnmk_brands_id
@@ -89,7 +89,7 @@ async function loadBrandAliasMap(): Promise<BrandAliasMap> {
 
   const map: BrandAliasMap = new Map()
   for (const ba of aliases) {
-    const key = normalizeModel(ba.dinamik_brand) || ba.normalized_brand
+    const key = normalizeModel(ba.dinamik_brand) || ba.brand
     if (!map.has(key)) {
       map.set(key, new Map())
     }

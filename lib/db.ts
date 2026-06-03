@@ -34,13 +34,20 @@ function createPrismaClient() {
   }
 
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString, connectionTimeoutMillis, ssl: { rejectUnauthorized: false } }),
+    adapter: new PrismaPg({
+      connectionString,
+      max: 50,
+      connectionTimeoutMillis,
+      ssl: { rejectUnauthorized: false }
+    }),
     log
   } as any)
 }
 
 
-const existingPrisma = globalForPrisma.prisma
-export const db = !existingPrisma ? createPrismaClient() : existingPrisma
+const prisma = globalForPrisma.prisma ?? createPrismaClient()
+export const db = prisma
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+if (!globalForPrisma.prisma) {
+  globalForPrisma.prisma = prisma
+}

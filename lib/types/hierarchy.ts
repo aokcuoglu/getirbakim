@@ -25,6 +25,7 @@ export interface VariantItem extends HierarchyItem {
   urlKey?: string | null
   vehicleTypeId?: number | null
   tecdocId?: number | null
+  fuelType?: string | null
 }
 
 /**
@@ -90,17 +91,17 @@ export const HIERARCHY_CONFIG: Record<HierarchyLevel, HierarchyLevelConfig> = {
     redisKeyPrefix: 'ref:variants'
   },
   vehicle_brands: {
-    table: 'vehicle_brands',
+    table: 'vbrands',
     parentColumn: null,
     redisKeyPrefix: 'ref:v_brands'
   },
   vehicle_models: {
-    table: 'vehicle_models',
+    table: 'vmodels',
     parentColumn: 'brand_id',
     redisKeyPrefix: 'ref:v_models'
   },
   vehicle_types: {
-    table: 'vehicle_types',
+    table: 'vtypes',
     parentColumn: 'model_id',
     redisKeyPrefix: 'ref:v_types'
   }

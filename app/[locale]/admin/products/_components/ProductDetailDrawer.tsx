@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { RegionalStockSummary } from '@/components/admin/regional-stock-summary'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { AdminFormDialog } from '@/components/admin/admin-form-dialog'
@@ -16,7 +15,6 @@ import {
   fetchAdminProductDetail
 } from '@/lib/api/admin-products-workbench'
 import { updateAdminProductDetail } from '@/lib/actions/admin-products'
-import { refreshDinamikStockBySku } from '@/lib/actions/admin-suppliers'
 import type { AdminProductDetail } from '@/lib/types/admin-products'
 
 interface ProductDetailDrawerProps {
@@ -35,7 +33,6 @@ export function ProductDetailDrawer({
   const t = useTranslations('AdminCatalog.products')
   const queryClient = useQueryClient()
   const [isSaving, setIsSaving] = useState(false)
-  const [isCheckingStock, setIsCheckingStock] = useState<string | null>(null)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -56,16 +53,6 @@ export function ProductDetailDrawer({
   })
 
   const detail = detailQuery.data ?? null
-  const activeRegionalOffer = useMemo(() => {
-    const summary = detail?.supplierSummary
-    if (!summary?.sourceSupplierProductId) return null
-
-    return (
-      summary.offers.find(
-        (offer) => offer.supplierProductId === summary.sourceSupplierProductId
-      ) || null
-    )
-  }, [detail])
 
   const syncFormFromDetail = (value: AdminProductDetail) => {
     setName(value.name)
@@ -170,35 +157,6 @@ export function ProductDetailDrawer({
     onSaved(refreshedDetail)
   }
 
-  const handleCheckSupplierStock = async (sku: string) => {
-    setIsCheckingStock(sku)
-    const result = await refreshDinamikStockBySku(sku)
-    setIsCheckingStock(null)
-
-    if (!result.success || !result.data) {
-      toast.error(result.message || 'Anlık stok doğrulaması başarısız.')
-      return
-    }
-
-    const { data } = result
-    const dbLabel = data.dbUpdated
-      ? ` (DB güncellendi, ${data.affectedParts} parça)`
-      : ' (salt okunur)'
-
-    toast.success(
-      `${data.sku} anlık stok: ${data.stockQty} | fiyat: ${
-        data.price ?? '-'
-      } TRY${dbLabel}`
-    )
-
-    // Refresh detail data from DB if it was updated
-    if (data.dbUpdated && partId) {
-      void queryClient.invalidateQueries({
-        queryKey: adminProductDetailQueryKey(partId)
-      })
-    }
-  }
-
   return (
     <AdminFormDialog
       open={open}
@@ -261,7 +219,6 @@ export function ProductDetailDrawer({
                 <TabsTrigger value="genel">Genel</TabsTrigger>
                 <TabsTrigger value="fiyat">Fiyat/Stok</TabsTrigger>
                 <TabsTrigger value="gorunurluk">Görünürlük</TabsTrigger>
-                <TabsTrigger value="tedarik">Tedarik</TabsTrigger>
                 <TabsTrigger value="varyantlar">Varyantlar</TabsTrigger>
                 <TabsTrigger value="teknik">Teknik Referans</TabsTrigger>
                 <TabsTrigger value="senkron">Senkron Özeti</TabsTrigger>
@@ -369,72 +326,6 @@ export function ProductDetailDrawer({
                   />
                 </div>
 
-                {activeRegionalOffer ? (
-                  <div className="mt-4 rounded-lg border border-border bg-accent/50 p-4">
-                    <h4 className="mb-3 text-sm font-semibold text-foreground">
-                      Fiyat Hesaplama Detayı ({activeRegionalOffer.providerName}
-                      )
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                      <div>
-                        <p className="text-xs text-primary">
-                          Tedarikçi Fiyatı
-                        </p>
-                        <p className="text-sm font-medium text-foreground">
-                          {activeRegionalOffer.supplierPrice != null
-                            ? `${activeRegionalOffer.supplierPrice} ${activeRegionalOffer.currency}`
-                            : '-'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-primary">Marka İndirimi</p>
-                        <p className="text-sm font-medium text-foreground">
-                          %
-                          {(
-                            activeRegionalOffer.standardDiscountRate * 100
-                          ).toFixed(2)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-primary">
-                          Kampanya İndirimi
-                        </p>
-                        <p className="text-sm font-medium text-foreground">
-                          %{(activeRegionalOffer.campaignRate * 100).toFixed(2)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-primary">
-                          Satın Alma Fiyatı (Net)
-                        </p>
-                        <p className="text-sm font-bold text-foreground">
-                          {activeRegionalOffer.computedNetCost != null
-                            ? `${activeRegionalOffer.computedNetCost} TRY`
-                            : '-'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-primary">
-                          Kâr Oranı (Margin)
-                        </p>
-                        <p className="text-sm font-medium text-foreground">
-                          %{(activeRegionalOffer.marginRate * 100).toFixed(2)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-primary">
-                          Sistem Satış Fiyatı
-                        </p>
-                        <p className="text-sm font-bold text-success">
-                          {activeRegionalOffer.computedSellingPrice != null
-                            ? `${activeRegionalOffer.computedSellingPrice} TRY`
-                            : '-'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
                 <label className="flex items-center gap-2 text-sm text-foreground mt-4">
                   <input
                     type="checkbox"
@@ -476,107 +367,6 @@ export function ProductDetailDrawer({
                   rows={4}
                   placeholder="Operasyon notu"
                 />
-              </TabsContent>
-
-              <TabsContent
-                value="tedarik"
-                className="space-y-3 rounded-md border p-4"
-              >
-                <InfoRow
-                  label="Aktif Seçim Nedeni"
-                  value={detail.supplierSummary?.selectionReason || 'Kayıt yok'}
-                />
-                <InfoRow
-                  label="Aktif Sağlayıcı"
-                  value={
-                    detail.supplierSummary?.sourceProvider
-                      ? `${detail.supplierSummary.sourceProvider.name} (${detail.supplierSummary.sourceProvider.code})`
-                      : 'Yok'
-                  }
-                />
-                <InfoRow
-                  label="Politika Zamanı"
-                  value={
-                    detail.supplierSummary?.policyAppliedAt
-                      ? new Date(
-                          detail.supplierSummary.policyAppliedAt
-                        ).toLocaleString('tr-TR')
-                      : 'Kayıt yok'
-                  }
-                />
-                <RegionalStockSummary
-                  title={
-                    activeRegionalOffer
-                      ? `Bolgesel Stok (${activeRegionalOffer.providerName} / ${activeRegionalOffer.supplierSku})`
-                      : 'Bolgesel Stok'
-                  }
-                  regionalStock={detail.supplierSummary?.selectedRegionalStock}
-                />
-
-                <div className="rounded-md border border-border">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-border bg-muted">
-                        <th className="px-3 py-2">Sağlayıcı</th>
-                        <th className="px-3 py-2">SKU</th>
-                        <th className="px-3 py-2">Fiyat</th>
-                        <th className="px-3 py-2">Stok</th>
-                        <th className="px-3 py-2">Durum</th>
-                        <th className="px-3 py-2 text-right">Aksiyon</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(detail.supplierSummary?.offers || []).map((offer) => (
-                        <tr
-                          key={`${offer.providerId}-${offer.supplierProductId}`}
-                        >
-                          <td className="px-3 py-2">{offer.providerName}</td>
-                          <td className="px-3 py-2">{offer.supplierSku}</td>
-                          <td className="px-3 py-2">
-                            {offer.supplierPrice != null
-                              ? `${offer.supplierPrice} ${offer.currency}`
-                              : '-'}
-                          </td>
-                          <td className="px-3 py-2">
-                            {offer.supplierStockQty}
-                          </td>
-                          <td className="px-3 py-2">
-                            {offer.isActive ? 'Aktif' : 'Pasif'}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {offer.providerCode === 'dinamik' ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isCheckingStock === offer.supplierSku}
-                                onClick={() =>
-                                  handleCheckSupplierStock(offer.supplierSku)
-                                }
-                              >
-                                {isCheckingStock === offer.supplierSku ? (
-                                  <Loader2
-                                    size={13}
-                                    className="mr-1 animate-spin"
-                                  />
-                                ) : null}
-                                Anlık Kontrol
-                              </Button>
-                            ) : (
-                              '-'
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                      {(detail.supplierSummary?.offers || []).length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="px-3 py-3 text-muted-foreground">
-                            Tedarik teklifi bulunamadı.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
               </TabsContent>
 
               <TabsContent

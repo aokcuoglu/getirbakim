@@ -1,25 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { Check, RefreshCw } from 'lucide-react'
+import { Check, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { SortingState } from '@tanstack/react-table'
 import { useDebouncedCallback } from 'use-debounce'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
+import { AdminFilterBar } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
+import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
+
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DataTable } from './data-table'
 import { ModelRow, createModelColumns } from './columns/model-columns'
@@ -30,8 +24,11 @@ interface ModelFilters {
   q: string
   status: string
   dinamikBrand: string | null
+  canonicalBrand: string | null
+  bsbgBrand: string | null
   manufacturerId: number | null
   matchSide: MatchSide
+  matchMethod: string
   page: number
   limit: number
   sort?: string
@@ -49,14 +46,19 @@ interface ModelSummary {
 interface ModelFilterOptions {
   dinamikBrands: string[]
   manufacturers: Array<{ id: number; name: string }>
+  canonicalBrands: string[]
+  bsbgBrands: string[]
 }
 
 const DEFAULT_MODEL_FILTERS: ModelFilters = {
   q: '',
   status: 'all',
   dinamikBrand: null,
+  canonicalBrand: null,
+  bsbgBrand: null,
   manufacturerId: null,
   matchSide: 'all',
+  matchMethod: 'all',
   page: 1,
   limit: 50,
 }
@@ -66,8 +68,11 @@ function buildModelSearchParams(f: ModelFilters) {
   if (f.q) params.set('q', f.q)
   if (f.status !== 'all') params.set('status', f.status)
   if (f.dinamikBrand) params.set('dinamikBrand', f.dinamikBrand)
+  if (f.canonicalBrand) params.set('canonicalBrand', f.canonicalBrand)
+  if (f.bsbgBrand) params.set('bsbgBrand', f.bsbgBrand)
   if (f.manufacturerId) params.set('manufacturerId', String(f.manufacturerId))
   if (f.matchSide !== 'all') params.set('matchSide', f.matchSide)
+  if (f.matchMethod !== 'all') params.set('matchMethod', f.matchMethod)
   params.set('page', String(f.page))
   params.set('limit', String(f.limit))
   if (f.sort) {
@@ -90,7 +95,7 @@ export function ProductsTab() {
   const [filters, setFilters] = useState<ModelFilters>(DEFAULT_MODEL_FILTERS)
   const [searchValue, setSearchValue] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [filterOptions, setFilterOptions] = useState<ModelFilterOptions>({ dinamikBrands: [], manufacturers: [] })
+  const [filterOptions, setFilterOptions] = useState<ModelFilterOptions>({ dinamikBrands: [], manufacturers: [], canonicalBrands: [], bsbgBrands: [] })
   const [optionsLoading, setOptionsLoading] = useState(false)
   const [isSearchPending, setIsSearchPending] = useState(false)
   const filtersRef = useRef(filters)
@@ -105,6 +110,12 @@ export function ProductsTab() {
   const [linkLoading, setLinkLoading] = useState(false)
   const [linkLoaded, setLinkLoaded] = useState(false)
   const linkAbortRef = useRef<AbortController | null>(null)
+
+  const [detailRow, setDetailRow] = useState<ModelRow | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [oemResults, setOemResults] = useState<any[]>([])
+  const [oemLoading, setOemLoading] = useState(false)
+  const [oemSaving, setOemSaving] = useState<Record<string, boolean>>({})
 
   const loadModels = useCallback(async (f: ModelFilters) => {
     const isInitial = !hasLoadedRef.current
@@ -142,6 +153,8 @@ export function ProductsTab() {
           setFilterOptions({
             dinamikBrands: data.dinamikBrands || [],
             manufacturers: data.manufacturers || [],
+            canonicalBrands: data.canonicalBrands || [],
+            bsbgBrands: data.bsbgBrands || [],
           })
         }
       }
@@ -182,7 +195,7 @@ export function ProductsTab() {
   }, 250)
 
   const setFilterParam = useCallback((
-    name: keyof Pick<ModelFilters, 'status' | 'dinamikBrand' | 'manufacturerId' | 'matchSide'>,
+    name: keyof Pick<ModelFilters, 'status' | 'dinamikBrand' | 'canonicalBrand' | 'bsbgBrand' | 'manufacturerId' | 'matchSide' | 'matchMethod'>,
     value?: string | null
   ) => {
     const patch: Partial<ModelFilters> = { page: 1 }
@@ -190,10 +203,16 @@ export function ProductsTab() {
       patch.status = value && value !== 'all' ? value : 'all'
     } else if (name === 'dinamikBrand') {
       patch.dinamikBrand = value && value !== 'all' ? value : null
+    } else if (name === 'canonicalBrand') {
+      patch.canonicalBrand = value && value !== 'all' ? value : null
+    } else if (name === 'bsbgBrand') {
+      patch.bsbgBrand = value && value !== 'all' ? value : null
     } else if (name === 'manufacturerId') {
       patch.manufacturerId = value && value !== 'all' ? Number(value) : null
     } else if (name === 'matchSide') {
       patch.matchSide = (value as MatchSide) || 'all'
+    } else if (name === 'matchMethod') {
+      patch.matchMethod = value && value !== 'all' ? value : 'all'
     }
     applyFilters(patch)
   }, [applyFilters])
@@ -203,14 +222,6 @@ export function ProductsTab() {
     setIsSearchPending(false)
     applyFilters(DEFAULT_MODEL_FILTERS)
   }, [applyFilters])
-
-  const toggleChipFilter = useCallback((
-    name: 'status' | 'matchSide',
-    value: string,
-    currentValue: string
-  ) => {
-    setFilterParam(name, currentValue === value ? 'all' : value)
-  }, [setFilterParam])
 
   const handleAction = useCallback(async (id: number, action: string) => {
     try {
@@ -335,11 +346,101 @@ export function ProductsTab() {
     } catch { toast.error('Başarısız') }
   }, [linkTarget, loadModels])
 
+  const handleViewDetail = useCallback((row: ModelRow) => {
+    setDetailRow(row)
+    setDetailOpen(true)
+    setOemResults([])
+    setOemSaving({})
+    const refNo = row.parcatedarik.refNo
+    if (refNo) {
+      fetchOemResults(row, refNo)
+    }
+  }, [])
+
+  const fetchOemResults = useCallback(async (row: ModelRow, refNo: string) => {
+    setOemLoading(true)
+    try {
+      const params = new URLSearchParams({ refNo, limit: '25' })
+      if (row.dnprdId) params.set('dnmkProductsId', row.dnprdId)
+      if (row.id) params.set('mappingId', String(row.id))
+      const res = await fetch(`/api/admin/eslestirme/models/oems?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        setOemResults(data.results || [])
+      }
+    } catch {
+      toast.error('OEM araması başarısız')
+    } finally {
+      setOemLoading(false)
+    }
+  }, [])
+
+  const handleSaveOem = useCallback(async (result: any) => {
+    if (!detailRow) return
+    setOemSaving(prev => ({ ...prev, [result.bsbgProductId]: true }))
+    try {
+      const res = await fetch('/api/admin/eslestirme/models/oems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dnmkProductsId: detailRow.dnprdId || null,
+          ptdrkProductsId: detailRow.productId || null,
+          bsbgProductsId: result.bsbgProductId,
+          oemNo: result.oemNo || null,
+          refNo: detailRow.parcatedarik.refNo || null,
+          relationType: result.relationType,
+        }),
+      })
+      const data = await res.json()
+      if (!data.error) {
+        toast.success('OEM eşleştirmesi kaydedildi')
+        const refNo = detailRow.parcatedarik.refNo
+        if (refNo) fetchOemResults(detailRow, refNo)
+      } else {
+        toast.error(data.error?.message || 'Kaydetme başarısız')
+      }
+    } catch {
+      toast.error('Kaydetme başarısız')
+    } finally {
+      setOemSaving(prev => ({ ...prev, [result.bsbgProductId]: false }))
+    }
+  }, [detailRow, fetchOemResults])
+
+  const handleDeleteOem = useCallback(async (result: any) => {
+    if (!detailRow) return
+    setOemSaving(prev => ({ ...prev, [result.bsbgProductId]: true }))
+    try {
+      const res = await fetch('/api/admin/eslestirme/models/oems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dnmkProductsId: detailRow.dnprdId || null,
+          bsbgProductsId: result.bsbgProductId,
+          oemNo: result.oemNo || null,
+          action: 'delete',
+        }),
+      })
+      const data = await res.json()
+      if (!data.error) {
+        toast.success('OEM eşleştirmesi silindi')
+        const refNo = detailRow.parcatedarik.refNo
+        if (refNo) fetchOemResults(detailRow, refNo)
+      } else {
+        toast.error(data.error?.message || 'Silme başarısız')
+      }
+    } catch {
+      toast.error('Silme başarısız')
+    } finally {
+      setOemSaving(prev => ({ ...prev, [result.bsbgProductId]: false }))
+    }
+  }, [detailRow, fetchOemResults])
+
   const columns = createModelColumns({
     onAction: handleAction,
     onLinkProduct: handleLink,
     onLinkDproducts: handleLink,
     onBulkApproveRows: () => {},
+    onViewDetail: handleViewDetail,
   })
 
   const isEmptyCatalog = !initialLoading && summary?.total === 0
@@ -429,39 +530,23 @@ export function ProductsTab() {
           onAdvancedFilter={() => setFiltersOpen(true)}
         />
 
-        <AdminFilterBar onReset={hasActiveFilters ? resetFilters : undefined} className="mt-3">
-          <AdminFilterChip
-            label="Beklemede"
-            active={filters.status === 'PENDING'}
-            onClick={() => toggleChipFilter('status', 'PENDING', filters.status)}
-          />
-          <AdminFilterChip
-            label="PT Bekliyor"
-            active={filters.matchSide === 'dinamik_only'}
-            onClick={() => toggleChipFilter('matchSide', 'dinamik_only', filters.matchSide)}
-          />
-          <AdminFilterChip
-            label="Dinamik Bekliyor"
-            active={filters.matchSide === 'pt_only'}
-            onClick={() => toggleChipFilter('matchSide', 'pt_only', filters.matchSide)}
-          />
-          <AdminFilterChip
-            label="Tam Eşleşme"
-            active={filters.matchSide === 'matched'}
-            onClick={() => toggleChipFilter('matchSide', 'matched', filters.matchSide)}
-          />
-          <AdminFilterChip
-            label="Onaylandı"
-            active={filters.status === 'APPROVED'}
-            onClick={() => toggleChipFilter('status', 'APPROVED', filters.status)}
-          />
-        </AdminFilterBar>
+        <AdminFilterBar onReset={hasActiveFilters ? resetFilters : undefined} className="mt-3" />
 
-        {(filters.dinamikBrand || filters.manufacturerId) && (
+        {(filters.dinamikBrand || filters.canonicalBrand || filters.bsbgBrand || filters.manufacturerId) && (
           <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
             {filters.dinamikBrand && (
               <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
                 Dinamik Marka: <strong className="text-foreground">{filters.dinamikBrand}</strong>
+              </span>
+            )}
+            {filters.canonicalBrand && (
+              <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
+                Marka: <strong className="text-foreground">{filters.canonicalBrand}</strong>
+              </span>
+            )}
+            {filters.bsbgBrand && (
+              <span className="rounded-sm border bg-muted/40 px-2.5 py-1">
+                Başbuğ Marka: <strong className="text-foreground">{filters.bsbgBrand}</strong>
               </span>
             )}
             {filters.manufacturerId && (
@@ -569,14 +654,156 @@ export function ProductsTab() {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-[420px]">
-          <SheetHeader>
-            <SheetTitle>Gelişmiş Filtreler</SheetTitle>
-            <SheetDescription>
+      {detailRow && (
+        <Dialog open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) { setDetailRow(null); setOemResults([]) } }}>
+          <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-lg font-mono">{detailRow.part_no || detailRow.dinamik.stockCode || detailRow.parcatedarik.title?.slice(0, 40) || 'Ürün Detayı'}</DialogTitle>
+              <DialogDescription>
+                Mapping ID: {detailRow.id}
+                {detailRow.dnprdId && <> &middot; Dinamik ID: {detailRow.dnprdId}</>}
+                {detailRow.productId && <> &middot; PT ID: {detailRow.productId}</>}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sağlayıcı Ürünleri</p>
+                <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                  {detailRow.dnprdId && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Dinamik</Badge>
+                        <span className="font-mono font-medium">{detailRow.dinamik.stockCode || '—'}</span>
+                      </div>
+                      <div className="ml-8 space-y-0.5 text-xs text-muted-foreground">
+                        {detailRow.dinamik.stockName && <p>{detailRow.dinamik.stockName}</p>}
+                        {detailRow.dinamik.brand && <p>Marka: {detailRow.dinamik.brand}</p>}
+                        {detailRow.dinamik.partNo && <p className="font-mono">Part No: {detailRow.dinamik.partNo}</p>}
+                        {detailRow.dinamik.barcode1 && <p className="font-mono">Barkod: {detailRow.dinamik.barcode1}</p>}
+                        {detailRow.dinamik.price && <p>Fiyat: {detailRow.dinamik.price} TL</p>}
+                      </div>
+                    </div>
+                  )}
+                  {detailRow.productId && (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">P-Tedarik</Badge>
+                        <span className="font-medium">{detailRow.parcatedarik.title?.slice(0, 60) || '—'}</span>
+                      </div>
+                      <div className="ml-8 space-y-0.5 text-xs text-muted-foreground">
+                        <p>{detailRow.parcatedarik.manufacturerName || '—'}</p>
+                        {detailRow.parcatedarik.model && <p className="font-mono">Model: {detailRow.parcatedarik.model}</p>}
+                        {detailRow.parcatedarik.refNo && (
+                          <p className="font-mono font-medium text-foreground">ref_no: {detailRow.parcatedarik.refNo}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!detailRow.dnprdId && !detailRow.productId && (
+                    <span className="text-xs text-muted-foreground">Ürün bağlantısı yok</span>
+                  )}
+                </div>
+              </div>
+
+              {detailRow.parcatedarik.refNo && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">OEM Eşleşmesi (ref_no &rarr; oem_no)</p>
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                    <p className="text-xs text-muted-foreground">
+                      ref_no: <span className="font-mono font-medium text-foreground">{detailRow.parcatedarik.refNo}</span>
+                    </p>
+                    {oemLoading && (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {!oemLoading && oemResults.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Bu ref_no ile eşleşen Başbuğ ürünü bulunamadı.</p>
+                    )}
+                    {!oemLoading && oemResults.length > 0 && (
+                      <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        {oemResults.map((r) => (
+                          <div key={r.bsbgProductId} className="rounded border bg-background p-2 text-xs space-y-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Başbuğ</Badge>
+                                  <span className="font-mono font-medium">{r.malzemeNo}</span>
+                                  <span className="text-muted-foreground">— {r.bsbgBrand}</span>
+                                </div>
+                                {r.aciklama && <p className="text-muted-foreground">{r.aciklama.slice(0, 80)}</p>}
+                                <p className="font-mono text-muted-foreground">oem_no: {r.oemNo || '—'}</p>
+                                <div className="flex items-center gap-2">
+                                  {r.relationType === 'SAME_BRAND' && (
+                                    <Badge variant="outline" className="text-[10px] border-success/20 bg-success/10 text-success">Aynı Marka</Badge>
+                                  )}
+                                  {r.relationType === 'CROSS_REFERENCE' && (
+                                    <Badge variant="outline" className="text-[10px] border-warning/20 bg-warning/10 text-warning">Çapraz Referans</Badge>
+                                  )}
+                                  {r.relationType === 'UNKNOWN' && (
+                                    <Badge variant="outline" className="text-[10px] border-border bg-muted text-muted-foreground">Marka Bilinmiyor</Badge>
+                                  )}
+                                  {r.canonicalBrand && (
+                                    <span className="text-muted-foreground">Marka: {r.canonicalBrand}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                variant={r.alreadySaved ? 'outline' : 'default'}
+                                size="sm"
+                                className="h-7 text-xs shrink-0"
+                                disabled={oemSaving[r.bsbgProductId]}
+                                onClick={() => r.alreadySaved ? handleDeleteOem(r) : handleSaveOem(r)}
+                              >
+                                {oemSaving[r.bsbgProductId] ? '...' : r.alreadySaved ? 'Kaldır' : 'Eşleştir'}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Durum & Yöntem</p>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const colors: Record<string, string> = {
+                      PENDING: 'bg-warning/15 text-warning border-warning/20',
+                      APPROVED: 'bg-success/15 text-success border-success/20',
+                      REJECTED: 'bg-destructive/15 text-destructive border-destructive/20',
+                      IGNORED: 'bg-muted text-muted-foreground border-border',
+                    }
+                    const labels: Record<string, string> = { PENDING: 'Beklemede', APPROVED: 'Onaylandı', REJECTED: 'Reddedildi', IGNORED: 'Yoksayıldı' }
+                    return (
+                      <Badge variant="outline" className={`text-xs font-medium ${colors[detailRow.mappingStatus] || ''}`}>
+                        {labels[detailRow.mappingStatus] || detailRow.mappingStatus}
+                      </Badge>
+                    )
+                  })()}
+                  {detailRow.matchMethod && (
+                    <Badge variant="outline" className="border-success/20 bg-success/10 text-xs text-success">
+                      {detailRow.matchMethod.charAt(0).toUpperCase() + detailRow.matchMethod.slice(1).toLowerCase()}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Gelişmiş Filtreler</DialogTitle>
+            <DialogDescription>
               Marka ve eşleşme durumuna göre listeyi daraltın.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
 
           <div className="space-y-3">
             <AdminFilterSelect
@@ -592,6 +819,34 @@ export function ProductsTab() {
               disabled={optionsLoading}
               placeholder={optionsLoading ? 'Markalar yükleniyor...' : 'Seçiniz'}
               onChange={(value) => setFilterParam('dinamikBrand', value)}
+            />
+            <AdminFilterSelect
+              label="Marka (brand_list)"
+              value={filters.canonicalBrand ?? 'all'}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                ...filterOptions.canonicalBrands.map((brand) => ({
+                  value: brand,
+                  label: brand,
+                })),
+              ]}
+              disabled={optionsLoading}
+              placeholder={optionsLoading ? 'Markalar yükleniyor...' : 'Seçiniz'}
+              onChange={(value) => setFilterParam('canonicalBrand', value)}
+            />
+            <AdminFilterSelect
+              label="Başbuğ Marka"
+              value={filters.bsbgBrand ?? 'all'}
+              options={[
+                { value: 'all', label: 'Tümü' },
+                ...filterOptions.bsbgBrands.map((brand) => ({
+                  value: brand,
+                  label: brand,
+                })),
+              ]}
+              disabled={optionsLoading}
+              placeholder={optionsLoading ? 'Markalar yükleniyor...' : 'Seçiniz'}
+              onChange={(value) => setFilterParam('bsbgBrand', value)}
             />
             <AdminFilterSelect
               label="PT Üretici"
@@ -621,27 +876,27 @@ export function ProductsTab() {
             />
             <AdminFilterSelect
               label="Eşleşme Durumu"
-              value={filters.matchSide}
+              value={filters.matchMethod}
               options={[
                 { value: 'all', label: 'Tümü' },
-                { value: 'matched', label: 'Tam Eşleşme' },
-                { value: 'dinamik_only', label: 'PT Bekliyor (sadece Dinamik)' },
-                { value: 'pt_only', label: 'Dinamik Bekliyor (sadece PT)' },
+                { value: 'EXACT_MATCH', label: 'Tam Eşleşme' },
+                { value: 'MANUAL', label: 'Manuel' },
+                { value: 'NONE', label: 'Boş' },
               ]}
-              onChange={(value) => setFilterParam('matchSide', value)}
+              onChange={(value) => setFilterParam('matchMethod', value)}
             />
           </div>
 
-          <SheetFooter>
-            <Button type="button" variant="outline" className="flex-1 sm:flex-none" onClick={resetFilters}>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={resetFilters}>
               Filtreleri Sıfırla
             </Button>
-            <Button type="button" className="flex-1 sm:flex-none" onClick={() => setFiltersOpen(false)}>
+            <Button onClick={() => setFiltersOpen(false)}>
               Kapat
             </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
     </TooltipProvider>
   )

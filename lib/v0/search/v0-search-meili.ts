@@ -159,7 +159,7 @@ export async function searchV0CatalogMeili(options: {
         ptprdId: null,
         mappingStatus: 'APPROVED',
         matchMethod: null,
-        normalized_name: null,
+        part_no: null,
         dinamikStockCode: null,
         dinamikStockName: null,
         dinamikBrand: doc.brandName,

@@ -4,14 +4,6 @@ import { Prisma } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
-import {
-  dproductDbrandJoin,
-  dproductBrandNameExpr
-} from '@/lib/sql/dnprd-catalog'
-import {
-  dproductDetailsJoin,
-  dproductDetailsPriceExpr
-} from '@/lib/sql/dnprd-details'
 import { deleteCachePattern } from '@/lib/redis'
 import { createAdminClient } from '@/lib/supabase/storage'
 import {
@@ -535,19 +527,21 @@ function revalidateSupplierPaths() {
   invalidateSupplierProvidersDashboardCache()
   dinamikProviderCache = null
   setaProviderCache = null
-  basbugProviderCache = null
   void deleteCachePattern('catalog:articles:v*')
   void deleteCachePattern('meilisearch:search:v*')
   void deleteCachePattern('meilisearch:fallback:v*')
   revalidatePath('/admin/suppliers')
   revalidatePath('/admin/suppliers/dinamik')
-  revalidatePath('/admin/suppliers/basbug')
+  revalidatePath('/admin/suppliers/seta')
+  revalidatePath('/admin/suppliers/mappings')
   revalidatePath('/tr/admin/suppliers')
   revalidatePath('/tr/admin/suppliers/dinamik')
-  revalidatePath('/tr/admin/suppliers/basbug')
+  revalidatePath('/tr/admin/suppliers/seta')
+  revalidatePath('/tr/admin/suppliers/mappings')
   revalidatePath('/en/admin/suppliers')
   revalidatePath('/en/admin/suppliers/dinamik')
-  revalidatePath('/en/admin/suppliers/basbug')
+  revalidatePath('/en/admin/suppliers/seta')
+  revalidatePath('/en/admin/suppliers/mappings')
   revalidatePath('/admin/products')
   revalidatePath('/tr/admin/products')
   revalidatePath('/en/admin/products')
@@ -567,16 +561,6 @@ const DEFAULT_DINAMIK_PROVIDER_CONFIG = {
 const DEFAULT_SETA_PROVIDER_CONFIG = {
   productsPath: '/seta/products',
   supportsDelta: true
-}
-const DEFAULT_BASBUG_PROVIDER_CONFIG = {
-  loginPath: '/auth/Login',
-  listGroupsPath: '/material/ListeGrubuGetir',
-  productsPath: '/material/MalzemeleriGetir',
-  productSearchPath: '/material/MalzemeAra',
-  priceListPath: '/material/FiyatGetir',
-  dovizBilgisiPath: '/material/DovizBilgisiGetir',
-  firmaAdi: 'BASBUG',
-  supportsRealtimeStock: false
 }
 
 type SupplierMappingCreationOptions = SupplierProductMappingDetail['options']
@@ -616,10 +600,6 @@ let dinamikProviderCache: {
   provider: Awaited<ReturnType<typeof db.supplier_providers.findUnique>>
 } | null = null
 let setaProviderCache: {
-  expiresAt: number
-  provider: Awaited<ReturnType<typeof db.supplier_providers.findUnique>>
-} | null = null
-let basbugProviderCache: {
   expiresAt: number
   provider: Awaited<ReturnType<typeof db.supplier_providers.findUnique>>
 } | null = null
@@ -667,12 +647,11 @@ async function getSupplierMappingCreationOptions(provider: {
     }),
     provider.code === 'dinamik'
       ? db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
-          SELECT DISTINCT ${dproductBrandNameExpr} AS brand
-          FROM v0.dnmk_products d
-          ${dproductDbrandJoin}
-          WHERE ${dproductBrandNameExpr} IS NOT NULL
-            AND BTRIM(${dproductBrandNameExpr}) <> ''
-          ORDER BY brand ASC
+          SELECT DISTINCT d.brand
+          FROM dinamik.products d
+          WHERE d.brand IS NOT NULL
+            AND BTRIM(d.brand) <> ''
+          ORDER BY d.brand ASC
           LIMIT 1000
         `)
       : db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
@@ -858,45 +837,8 @@ async function ensureSetaProvider() {
   return created
 }
 
-async function ensureBasbugProvider() {
-  const now = Date.now()
-  if (basbugProviderCache && basbugProviderCache.expiresAt > now && basbugProviderCache.provider) {
-    return basbugProviderCache.provider
-  }
-
-  const existing = await db.supplier_providers.findUnique({
-    where: { code: 'basbug' }
-  })
-  if (existing) {
-    basbugProviderCache = {
-      expiresAt: now + SETA_PROVIDER_CACHE_TTL_MS,
-      provider: existing
-    }
-    return existing
-  }
-
-  const created = await db.supplier_providers.create({
-    data: {
-      code: 'basbug',
-      name: 'Başbuğ',
-      status: 'ACTIVE',
-      priority: 30,
-      schedule: 'DAILY',
-      base_url: 'https://api.basbug.com.tr',
-      config: DEFAULT_BASBUG_PROVIDER_CONFIG
-    }
-  })
-
-  basbugProviderCache = {
-    expiresAt: now + SETA_PROVIDER_CACHE_TTL_MS,
-    provider: created
-  }
-
-  return created
-}
-
 async function ensureDefaultProviders() {
-  await Promise.all([ensureDinamikProvider(), ensureSetaProvider(), ensureBasbugProvider()])
+  await Promise.all([ensureDinamikProvider(), ensureSetaProvider()])
 }
 
 type ProviderStatsRow = {
@@ -905,10 +847,9 @@ type ProviderStatsRow = {
   failed_rate_30d: string
 }
 
-/** DB-only provider dashboard rows (safe inside unstable_cache — no cookies/auth). */
-export async function loadAdminSupplierProvidersDashboard(): Promise<
-  SupplierProvider[]
-> {
+export async function getAdminSupplierProviders(): Promise<SupplierProvider[]> {
+  await requireAdminAuth()
+
   const now = Date.now()
   if (
     supplierProvidersDashboardCache &&
@@ -1026,11 +967,6 @@ export async function loadAdminSupplierProvidersDashboard(): Promise<
   }
 
   return data
-}
-
-export async function getAdminSupplierProviders(): Promise<SupplierProvider[]> {
-  await requireAdminAuth()
-  return loadAdminSupplierProvidersDashboard()
 }
 
 export async function getAdminSupplierProviderDetail(providerCode: string) {
@@ -1320,7 +1256,7 @@ export async function getDinamikBrandMappings(input?: {
     const [countRows, summaryRows, rows] = await Promise.all([
       db.$queryRaw<DinamikBrandCountRow[]>(Prisma.sql`
         SELECT COUNT(*)::int AS total
-        FROM v0.dnmk_brands d
+        FROM dinamik.brands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1340,7 +1276,7 @@ export async function getDinamikBrandMappings(input?: {
           SUM(CASE WHEN sba.part_brand_id IS NOT NULL AND sba.mapping_status = 'APPROVED' THEN 1 ELSE 0 END)::int AS mapped_total,
           SUM(CASE WHEN sba.mapping_status = 'PENDING' THEN 1 ELSE 0 END)::int AS pending_total,
           SUM(CASE WHEN sba.id IS NULL OR sba.part_brand_id IS NULL OR sba.mapping_status <> 'APPROVED' THEN 1 ELSE 0 END)::int AS unmapped_total
-        FROM v0.dnmk_brands d
+        FROM dinamik.brands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1364,7 +1300,7 @@ export async function getDinamikBrandMappings(input?: {
           sba.updated_at,
           exact_pb.id AS exact_part_brand_id,
           exact_pb.name AS exact_part_brand_name
-        FROM v0.dnmk_brands d
+        FROM dinamik.brands d
         LEFT JOIN LATERAL (
           SELECT a.*
           FROM supplier_brand_aliases a
@@ -1535,7 +1471,7 @@ export async function saveDinamikBrandMapping(input: {
         where: { id: existingAlias.id },
         data: {
           supplier_brand: supplierBrand,
-          normalized_brand: supplierBrand.toLocaleUpperCase('tr'),
+          brand: supplierBrand.toLocaleUpperCase('tr'),
           part_brand_id: null,
           mapping_status: 'PENDING',
           confidence: null
@@ -1546,7 +1482,7 @@ export async function saveDinamikBrandMapping(input: {
         data: {
           provider_id: provider.id,
           supplier_brand: supplierBrand,
-          normalized_brand: supplierBrand.toLocaleUpperCase('tr'),
+          brand: supplierBrand.toLocaleUpperCase('tr'),
           part_brand_id: null,
           mapping_status: 'PENDING',
           confidence: null
@@ -1575,7 +1511,7 @@ export async function saveDinamikBrandMapping(input: {
       where: { id: existingAlias.id },
       data: {
         supplier_brand: supplierBrand,
-        normalized_brand: supplierBrand.toLocaleUpperCase('tr'),
+        brand: supplierBrand.toLocaleUpperCase('tr'),
         part_brand_id: partBrand.id,
         mapping_status: 'APPROVED',
         confidence: new Prisma.Decimal(1)
@@ -1586,7 +1522,7 @@ export async function saveDinamikBrandMapping(input: {
       data: {
         provider_id: provider.id,
         supplier_brand: supplierBrand,
-        normalized_brand: supplierBrand.toLocaleUpperCase('tr'),
+        brand: supplierBrand.toLocaleUpperCase('tr'),
         part_brand_id: partBrand.id,
         mapping_status: 'APPROVED',
         confidence: new Prisma.Decimal(1)
@@ -1619,7 +1555,7 @@ export async function autoMapDinamikBrandsByName(input?: {
     SELECT
       d.brand AS supplier_brand,
       pb.id AS part_brand_id
-    FROM v0.dnmk_brands d
+    FROM dinamik.brands d
     JOIN part_brands pb ON LOWER(TRIM(pb.name)) = LOWER(TRIM(d.brand))
     WHERE d.brand IS NOT NULL
       AND d.brand <> ''
@@ -1658,7 +1594,7 @@ export async function autoMapDinamikBrandsByName(input?: {
         where: { id: existingAlias.id },
         data: {
           supplier_brand: row.supplier_brand,
-          normalized_brand: row.supplier_brand.toLocaleUpperCase('tr'),
+          brand: row.supplier_brand.toLocaleUpperCase('tr'),
           part_brand_id: row.part_brand_id,
           mapping_status: 'APPROVED',
           confidence: new Prisma.Decimal(1)
@@ -1669,7 +1605,7 @@ export async function autoMapDinamikBrandsByName(input?: {
         data: {
           provider_id: provider.id,
           supplier_brand: row.supplier_brand,
-          normalized_brand: row.supplier_brand.toLocaleUpperCase('tr'),
+          brand: row.supplier_brand.toLocaleUpperCase('tr'),
           part_brand_id: row.part_brand_id,
           mapping_status: 'APPROVED',
           confidence: new Prisma.Decimal(1)
@@ -1913,7 +1849,7 @@ async function ensureSupplierProductFromDinamikStockCode(
 
   const queryBrand = normalizeText(input.queryBrand)
   const brandCondition = queryBrand
-    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
     : Prisma.sql``
 
   const rows = await db.$queryRaw<
@@ -1931,19 +1867,17 @@ async function ensureSupplierProductFromDinamikStockCode(
     }>
   >(Prisma.sql`
     SELECT
-      ${dproductBrandNameExpr} AS query_brand,
+      d.query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      ${dproductBrandNameExpr} AS brand,
-      ${dproductDetailsPriceExpr}::text AS price,
+      d.brand,
+      d.price::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM v0.dnmk_products d
-    ${dproductDbrandJoin}
-    ${dproductDetailsJoin}
+    FROM dinamik.products d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -2446,7 +2380,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
     if (providerNonNull.code === 'dinamik') {
       const like = `%${q}%`
       const brandCondition = queryBrand
-        ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+        ? Prisma.sql`AND d.query_brand = ${queryBrand}`
         : Prisma.sql``
 
       const qCondition = q
@@ -2458,7 +2392,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
               || ' '
               || COALESCE(d.stock_name, '')
               || ' '
-              || COALESCE(${dproductBrandNameExpr}, '')
+              || COALESCE(d.brand, '')
               || ' '
               || COALESCE(d.barcode_1, '')
             ) ILIKE ${like}
@@ -2485,8 +2419,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
         const countRows = await db.$queryRaw<Array<{ total: number | string }>>(
           Prisma.sql`
             SELECT COUNT(*)::int AS total
-            FROM v0.dnmk_products d
-            ${dproductDbrandJoin}
+            FROM dinamik.products d
             LEFT JOIN supplier_part_mappings spm
               ON spm.provider_id = ${providerNonNull.id}
              AND spm.supplier_sku = d.stock_code
@@ -2519,12 +2452,12 @@ export async function exportSupplierProductMappingsCsv(input?: {
       >(Prisma.sql`
         SELECT
           COALESCE(sp.id, 0)::int AS supplier_product_id,
-          ${dproductBrandNameExpr} AS query_brand,
+          d.query_brand,
           d.part_no,
           d.stock_code,
           d.stock_name,
-          ${dproductBrandNameExpr} AS brand,
-          ${dproductDetailsPriceExpr}::text AS price,
+          d.brand,
+          d.price::text AS price,
           COALESCE(sp.currency, 'TRY') AS currency,
           COALESCE(sp.updated_at, d.updated_at) AS updated_at,
           spm.status::text AS mapping_status,
@@ -2534,9 +2467,7 @@ export async function exportSupplierProductMappingsCsv(input?: {
             fallback.article_link_id::text
           ) AS matched_part_article_link_id,
           COALESCE(mapped.name, fallback.name) AS matched_part_name
-        FROM v0.dnmk_products d
-        ${dproductDbrandJoin}
-        ${dproductDetailsJoin}
+        FROM dinamik.products d
         LEFT JOIN supplier_products sp
           ON sp.provider_id = ${providerNonNull.id}
          AND sp.supplier_sku = d.stock_code
@@ -3736,7 +3667,7 @@ export async function manualMapSupplierProductToPart(input: {
           data: {
             provider_id: provider.id,
             supplier_brand: supplierProduct.supplier_brand,
-            normalized_brand:
+            brand:
               supplierProduct.supplier_brand.toLocaleUpperCase('tr'),
             part_brand_id: partBrand?.id ?? null,
             mapping_status: partBrand ? 'APPROVED' : 'PENDING',
@@ -5865,7 +5796,7 @@ export async function getDinamikBrandsForManualMapping(input?: {
     input?.limit && input.limit > 0 ? Math.min(input.limit, 10000) : null
   const like = `%${q}%`
   const qCondition = q
-    ? Prisma.sql`AND ${dproductBrandNameExpr} ILIKE ${like}`
+    ? Prisma.sql`AND d.query_brand ILIKE ${like}`
     : Prisma.sql``
   const limitCondition =
     typeof limit === 'number' ? Prisma.sql`LIMIT ${limit}` : Prisma.sql``
@@ -5873,14 +5804,14 @@ export async function getDinamikBrandsForManualMapping(input?: {
   try {
     const rows = await db.$queryRaw<DinamikManualBrandRow[]>(Prisma.sql`
       SELECT
-        ${dproductBrandNameExpr} AS query_brand,
+        d.query_brand,
         COUNT(*)::int AS product_count
-      FROM v0.dnmk_products d
-      ${dproductDbrandJoin}
-      WHERE d.is_passive = false
+      FROM dinamik.products d
+      WHERE d.query_brand IS NOT NULL
+        AND d.query_brand <> ''
         ${qCondition}
-      GROUP BY ${dproductBrandNameExpr}
-      ORDER BY query_brand ASC
+      GROUP BY d.query_brand
+      ORDER BY d.query_brand ASC
       ${limitCondition}
     `)
 
@@ -6008,7 +5939,7 @@ export async function autoMapDinamikProductsByPartNo(input?: {
   const like = `%${q}%`
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
     : Prisma.sql``
   const qCondition = q
     ? Prisma.sql`
@@ -6016,33 +5947,38 @@ export async function autoMapDinamikProductsByPartNo(input?: {
         COALESCE(d.part_no, '') ILIKE ${like}
         OR d.stock_code ILIKE ${like}
         OR COALESCE(d.stock_name, '') ILIKE ${like}
-        OR COALESCE(${dproductBrandNameExpr}, '') ILIKE ${like}
+        OR COALESCE(d.brand, '') ILIKE ${like}
       )
     `
     : Prisma.sql``
 
   const rows = await db.$queryRaw<DinamikAutoMatchSourceRow[]>(Prisma.sql`
     SELECT DISTINCT ON (d.stock_code)
-      ${dproductBrandNameExpr} AS query_brand,
+      d.query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      ${dproductBrandNameExpr} AS brand,
-      ${dproductDetailsPriceExpr}::text AS price,
+      d.brand,
+      d.price::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       p.id::text AS matched_part_id
-    FROM v0.dnmk_products d
-    ${dproductDbrandJoin}
-    ${dproductDetailsJoin}
+    FROM dinamik.products d
     JOIN LATERAL (
       SELECT a.part_brand_id
       FROM supplier_brand_aliases a
       WHERE a.provider_id = ${provider.id}
         AND a.mapping_status = 'APPROVED'
         AND a.part_brand_id IS NOT NULL
-        AND LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(${dproductBrandNameExpr}))
+        AND (
+          LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(d.query_brand))
+          OR (
+            d.brand IS NOT NULL
+            AND d.brand <> ''
+            AND LOWER(TRIM(a.supplier_brand)) = LOWER(TRIM(d.brand))
+          )
+        )
       ORDER BY a.updated_at DESC
       LIMIT 1
     ) mapped_brand ON TRUE
@@ -6290,24 +6226,22 @@ export async function manualMapDinamikProductToPart(input: {
 
   const queryBrand = input.queryBrand?.trim() || null
   const brandCondition = queryBrand
-    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
     : Prisma.sql``
 
   const rows = await db.$queryRaw<DinamikManualProductRow[]>(Prisma.sql`
     SELECT
-      ${dproductBrandNameExpr} AS query_brand,
+      d.query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      ${dproductBrandNameExpr} AS brand,
-      ${dproductDetailsPriceExpr}::text AS price,
+      d.brand,
+      d.price::text AS price,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
       d.updated_at
-    FROM v0.dnmk_products d
-    ${dproductDbrandJoin}
-    ${dproductDetailsJoin}
+    FROM dinamik.products d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -6764,13 +6698,10 @@ export async function testDinamikEndpoint(input: {
   try {
     if (input.endpoint === 'getBrandList') {
       const data = await getBrandList()
-      const { ensureDbrandsRows } = await import('@/lib/admin/dnbrd-reconcile')
-      const inserted = await ensureDbrandsRows(data.map((row) => row.brand))
       return {
         success: true,
-        message: `${data.length} marka döndü. dnbrd: ${inserted} yeni kayıt.`,
-        sample: data.slice(0, 5),
-        dnbrdInserted: inserted
+        message: `${data.length} marka döndü.`,
+        sample: data.slice(0, 5)
       }
     }
 

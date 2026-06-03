@@ -1,17 +1,8 @@
 'use server'
 
 import { Prisma } from '@prisma/client'
-import {
-  dproductDbrandJoin,
-  dproductBrandNameExpr
-} from '@/lib/sql/dnprd-catalog'
-import {
-  dproductDetailsJoin,
-  dproductDetailsPriceExpr
-} from '@/lib/sql/dnprd-details'
 import { parse } from 'csv-parse/sync'
 import { revalidatePath } from 'next/cache'
-import { unstable_cache } from 'next/cache'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import {
@@ -413,7 +404,7 @@ function mapDinamikProductRow(
 }
 
 function buildDinamikWhereSql(filters: Required<AdminDinamikProductFilters>) {
-  const conditions: Prisma.Sql[] = [Prisma.sql`1=1`, Prisma.sql`d.is_passive = false`]
+  const conditions: Prisma.Sql[] = [Prisma.sql`1=1`]
 
   if (filters.q) {
     const like = `%${filters.q}%`
@@ -422,13 +413,14 @@ function buildDinamikWhereSql(filters: Required<AdminDinamikProductFilters>) {
         d.stock_code ILIKE ${like}
         OR COALESCE(d.part_no, '') ILIKE ${like}
         OR COALESCE(d.stock_name, '') ILIKE ${like}
-        OR COALESCE(${dproductBrandNameExpr}, '') ILIKE ${like}
+        OR COALESCE(d.brand, '') ILIKE ${like}
+        OR COALESCE(d.query_brand, '') ILIKE ${like}
       )`
     )
   }
 
   if (filters.queryBrand) {
-    conditions.push(Prisma.sql`${dproductBrandNameExpr} = ${filters.queryBrand}`)
+    conditions.push(Prisma.sql`d.query_brand = ${filters.queryBrand}`)
   }
 
   return Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
@@ -1242,19 +1234,17 @@ export async function getAdminDinamikProducts(
     await Promise.all([
       db.$queryRaw<DinamikProductRawRow[]>(Prisma.sql`
       SELECT
-        ${dproductBrandNameExpr} AS query_brand,
+        d.query_brand,
         d.part_no,
         d.stock_code,
         d.stock_name,
-        ${dproductBrandNameExpr} AS brand,
-        ${dproductDetailsPriceExpr}::text AS price,
+        d.brand,
+        d.price::text AS price,
         d.barcode_1,
         d.barcode_2,
         d.barcode_3,
         d.updated_at
-      FROM v0.dnmk_products d
-      ${dproductDbrandJoin}
-      ${dproductDetailsJoin}
+      FROM dinamik.products d
       ${whereSql}
       ORDER BY d.updated_at DESC NULLS LAST, d.stock_code ASC
       LIMIT ${filters.limit}
@@ -1262,35 +1252,33 @@ export async function getAdminDinamikProducts(
     `),
       db.$queryRaw<DinamikCountRow[]>(Prisma.sql`
       SELECT COUNT(*)::int AS total
-      FROM v0.dnmk_products d
-      ${dproductDbrandJoin}
-      ${dproductDetailsJoin}
+      FROM dinamik.products d
       ${whereSql}
     `),
       db.$queryRaw<DinamikKpiRow[]>(Prisma.sql`
       SELECT
         COUNT(*)::int AS total_products,
-        COUNT(DISTINCT d.dnmk_brands_id)::int AS distinct_brands,
+        COUNT(
+          DISTINCT NULLIF(TRIM(COALESCE(d.query_brand, '')), '')
+        )::int AS distinct_brands,
         COALESCE(
           SUM(
             CASE
-              WHEN NULLIF(TRIM(COALESCE(${dproductDetailsPriceExpr}::text, '')), '') IS NOT NULL THEN 1
+              WHEN NULLIF(TRIM(COALESCE(d.price::text, '')), '') IS NOT NULL THEN 1
               ELSE 0
             END
           ),
           0
         )::int AS priced_rows
-      FROM v0.dnmk_products d
-      ${dproductDbrandJoin}
-      ${dproductDetailsJoin}
+      FROM dinamik.products d
       ${whereSql}
     `),
       db.$queryRaw<DinamikBrandRow[]>(Prisma.sql`
-      SELECT DISTINCT ${dproductBrandNameExpr} AS query_brand
-      FROM v0.dnmk_products d
-      ${dproductDbrandJoin}
-      WHERE d.is_passive = false
-      ORDER BY query_brand ASC
+      SELECT DISTINCT d.query_brand
+      FROM dinamik.products d
+      WHERE d.query_brand IS NOT NULL
+        AND d.query_brand <> ''
+      ORDER BY d.query_brand ASC
       LIMIT 500
     `),
       db.part_brands.findMany({
@@ -1383,19 +1371,17 @@ export async function createAdminPartFromDinamik(input: {
   }
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
     : Prisma.sql``
   const sourceRows = await db.$queryRaw<DinamikSourceRow[]>(Prisma.sql`
     SELECT
-      ${dproductBrandNameExpr} AS query_brand,
+      d.query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      ${dproductBrandNameExpr} AS brand,
-      ${dproductDetailsPriceExpr}::text AS price
-    FROM v0.dnmk_products d
-    ${dproductDbrandJoin}
-    ${dproductDetailsJoin}
+      d.brand,
+      d.price::text AS price
+    FROM dinamik.products d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -1614,19 +1600,17 @@ export async function createAdminPartFromTemplate(input: {
   }
 
   const brandCondition = queryBrand
-    ? Prisma.sql`AND ${dproductBrandNameExpr} = ${queryBrand}`
+    ? Prisma.sql`AND d.query_brand = ${queryBrand}`
     : Prisma.sql``
   const sourceRows = await db.$queryRaw<DinamikSourceRow[]>(Prisma.sql`
     SELECT
-      ${dproductBrandNameExpr} AS query_brand,
+      d.query_brand,
       d.part_no,
       d.stock_code,
       d.stock_name,
-      ${dproductBrandNameExpr} AS brand,
-      ${dproductDetailsPriceExpr}::text AS price
-    FROM v0.dnmk_products d
-    ${dproductDbrandJoin}
-    ${dproductDetailsJoin}
+      d.brand,
+      d.price::text AS price
+    FROM dinamik.products d
     WHERE d.stock_code = ${stockCode}
       ${brandCondition}
     ORDER BY d.updated_at DESC
@@ -2189,7 +2173,6 @@ export async function getAdminProductDetail(
         },
         take: 50
       },
-      part_infos: { select: { content: true }, orderBy: { id: 'asc' }, take: 20 },
       part_images: { select: { image: true }, take: 20 }
     }
   })
@@ -2199,25 +2182,27 @@ export async function getAdminProductDetail(
   }
 
   const [recentSyncRuns, variants] = await Promise.all([
-    db.supplier_sync_runs.findMany({
-      orderBy: { started_at: 'desc' },
-      take: 5,
-      select: {
-        id: true,
-        status: true,
-        started_at: true,
-        ended_at: true,
-        total_count: true,
-        success_count: true,
-        failed_count: true,
-        error_summary: true,
-        supplier_providers: {
+    (db as any).supplier_sync_runs
+      ? (db as any).supplier_sync_runs.findMany({
+          orderBy: { started_at: 'desc' },
+          take: 5,
           select: {
-            code: true
+            id: true,
+            status: true,
+            started_at: true,
+            ended_at: true,
+            total_count: true,
+            success_count: true,
+            failed_count: true,
+            error_summary: true,
+            supplier_providers: {
+              select: {
+                code: true
+              }
+            }
           }
-        }
-      }
-    }),
+        })
+      : Promise.resolve([]),
     db.$queryRaw<VariantRow[]>(Prisma.sql`
       WITH target AS (
         SELECT
@@ -2326,11 +2311,6 @@ export async function getAdminProductDetail(
     brandId: product.brand_id ?? null,
     categoryId: product.category_id ?? null,
     inBasket: product.in_basket,
-    description:
-      product.part_infos
-        .map((item) => item.content.trim())
-        .filter(Boolean)
-        .join('\n\n') || null,
     computedCostExVat: toNullableNumber(
       product.part_pricing_inventory?.computed_cost_ex_vat?.toString()
     ),
@@ -2479,9 +2459,6 @@ export async function updateAdminProductInline(input: {
 
 export async function updateAdminProductDetail(input: {
   partId: string
-  name?: string
-  description?: string | null
-  imageUrls?: string[]
   sellingPriceOverride?: number | null
   isVisible?: boolean
   lockPrice?: boolean
@@ -2499,53 +2476,7 @@ export async function updateAdminProductDetail(input: {
     return { success: false, message: 'Geçersiz ürün kimliği.' }
   }
 
-  const normalizedName = normalizeTextValue(input.name)
-  if (input.name !== undefined && !normalizedName) {
-    return { success: false, message: 'Ürün adı boş olamaz.' }
-  }
-
-  const normalizedImages =
-    input.imageUrls !== undefined
-      ? normalizeUniqueTexts(input.imageUrls)
-      : undefined
-
   await db.$transaction(async (tx) => {
-    if (normalizedName) {
-      await tx.parts.update({
-        where: { id: parsedPartId },
-        data: {
-          name: normalizedName,
-          updated_at: new Date()
-        }
-      })
-    }
-
-    if (input.description !== undefined) {
-      await tx.part_infos.deleteMany({ where: { part_id: parsedPartId } })
-      const description = normalizeTextValue(input.description)
-      if (description) {
-        await tx.part_infos.create({
-          data: {
-            part_id: parsedPartId,
-            content: description
-          }
-        })
-      }
-    }
-
-    if (normalizedImages !== undefined) {
-      await tx.part_images.deleteMany({ where: { part_id: parsedPartId } })
-      if (normalizedImages.length > 0) {
-        await tx.part_images.createMany({
-          data: normalizedImages.map((image) => ({
-            part_id: parsedPartId,
-            image,
-            thumb: image
-          }))
-        })
-      }
-    }
-
     const overridesUpdate: Prisma.part_admin_overridesUncheckedUpdateInput = {
       updated_by: userId
     }
@@ -4489,15 +4420,14 @@ export async function importAdminProductsCsv(
   }
 }
 
-async function queryAdminDashboardData(): Promise<AdminDashboardData> {
+export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   await requireAdminAuth()
 
   const [
     metricsRows,
     syncRateRows,
     monthlySalesRows,
-    recentOrders,
-    latestSync
+    recentOrders
   ] = await Promise.all([
     db.$queryRaw<DashboardMetricsRow[]>(Prisma.sql`
         SELECT
@@ -4515,7 +4445,12 @@ async function queryAdminDashboardData(): Promise<AdminDashboardData> {
         FROM parts p
         LEFT JOIN part_pricing_inventory i ON i.part_id = p.id
         LEFT JOIN part_admin_overrides o ON o.part_id = p.id
-      `),
+      `).catch(() => [{
+        total_products: 0,
+        low_stock_count: 0,
+        zero_price_count: 0,
+        sync_error_count: 0
+      }]),
     db.$queryRaw<Array<{ failed_rate: string }>>(Prisma.sql`
         SELECT
           CASE
@@ -4524,7 +4459,7 @@ async function queryAdminDashboardData(): Promise<AdminDashboardData> {
           END::text AS failed_rate
         FROM supplier_sync_runs
         WHERE started_at >= NOW() - INTERVAL '30 days'
-      `),
+      `).catch(() => [{ failed_rate: '0' }]),
     db.$queryRaw<
       Array<{ month_label: string; revenue: string; orders_count: number }>
     >(
@@ -4550,16 +4485,19 @@ async function queryAdminDashboardData(): Promise<AdminDashboardData> {
           }
         }
       }
-    }),
-    db.supplier_sync_runs.findFirst({
-      orderBy: { started_at: 'desc' },
-      select: {
-        status: true,
-        failed_count: true,
-        total_count: true
-      }
     })
   ])
+
+  const latestSync = (db as any).supplier_sync_runs
+    ? await (db as any).supplier_sync_runs.findFirst({
+        orderBy: { started_at: 'desc' },
+        select: {
+          status: true,
+          failed_count: true,
+          total_count: true
+        }
+      })
+    : null
 
   const metrics = metricsRows[0] ?? {
     total_products: 0,
@@ -4625,9 +4563,4 @@ async function queryAdminDashboardData(): Promise<AdminDashboardData> {
     })),
     alerts
   }
-}
-
-export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  await requireAdminAuth()
-  return queryAdminDashboardData()
 }

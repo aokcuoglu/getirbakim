@@ -207,7 +207,7 @@ export function DpmatchDetailModal({
             Genel Bilgiler
           </h4>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <DetailField label="Part No (normalized)" value={row.normalized_name || '—'} editable onChange={() => {}} />
+            <DetailField label="Part No (normalized)" value={row.part_no || '—'} editable onChange={() => {}} />
             <DetailField label="Part Name" value={row.dinamik.stockName || row.parcatedarik.title || '—'} editable onChange={() => {}} />
             <DetailField label="Marka" value={row.dinamik.brand || row.parcatedarik.manufacturerName || '—'} disabled />
             <DetailBadge label="Eslesme Durumu" value={row.mappingStatus} />

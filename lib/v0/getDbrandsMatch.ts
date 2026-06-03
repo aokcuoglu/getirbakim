@@ -43,7 +43,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
       m.id,
       m.dnmk_brands_id,
       m.ptdrk_brands_id,
-      cb.normalized_brand,
+      cb.brand,
       cb.logo_url,
       d.brand AS dinamik_brand,
       pt.name AS ptbrand_name,
@@ -53,13 +53,13 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     WHERE m.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
+      AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
   ),
   with_key AS (
     SELECT
       *,
       COALESCE(
-        NULLIF(BTRIM(normalized_brand), ''),
+        NULLIF(BTRIM(brand), ''),
         CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
         CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
         'id:' || id::text
@@ -73,7 +73,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
       MIN(ptdrk_brands_id) AS ptdrk_brands_id,
       COALESCE(
         MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-        MAX(NULLIF(BTRIM(normalized_brand), '')),
+        MAX(NULLIF(BTRIM(brand), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
       MAX(pt_url_key) AS pt_url_key,
@@ -123,7 +123,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
         m.id,
         m.dnmk_brands_id,
         m.ptdrk_brands_id,
-        cb.normalized_brand,
+        cb.brand,
         cb.logo_url,
         d.brand AS dinamik_brand,
         pt.name AS ptbrand_name,
@@ -133,13 +133,13 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
       LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE m.mapping_status = 'APPROVED'
-        AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
+        AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
     ),
     with_key AS (
       SELECT
         *,
         COALESCE(
-          NULLIF(BTRIM(normalized_brand), ''),
+          NULLIF(BTRIM(brand), ''),
           CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
           CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
           'id:' || id::text
@@ -159,7 +159,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
         MIN(ptdrk_brands_id) AS ptdrk_brands_id,
         COALESCE(
           MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-          MAX(NULLIF(BTRIM(normalized_brand), '')),
+          MAX(NULLIF(BTRIM(brand), '')),
           MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
         ) AS brand_name,
         MAX(pt_url_key) AS pt_url_key,

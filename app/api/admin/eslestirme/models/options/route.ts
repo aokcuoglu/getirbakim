@@ -16,12 +16,11 @@ export async function GET(request: NextRequest) {
   if (auth.user.role !== 'ADMIN') return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
 
   try {
-    const [brandRows, manufacturerRows] = await Promise.all([
+    const [brandRows, manufacturerRows, canonicalBrandRows, bsbgBrandRows] = await Promise.all([
       db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
-        SELECT DISTINCT BTRIM(d.brand) AS brand
-        FROM v0.brand_mappings m
-        INNER JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-        WHERE d.brand IS NOT NULL AND BTRIM(d.brand) <> ''
+        SELECT DISTINCT BTRIM(brand) AS brand
+        FROM v0.dnmk_brands
+        WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
         ORDER BY brand ASC
       `),
       db.$queryRaw<Array<{ id: number; name: string }>>(Prisma.sql`
@@ -30,11 +29,25 @@ export async function GET(request: NextRequest) {
         INNER JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
         ORDER BY pt.name ASC
       `),
+      db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
+        SELECT DISTINCT brand AS brand
+        FROM v0.brand_list
+        WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
+        ORDER BY brand ASC
+      `),
+      db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
+        SELECT DISTINCT brand AS brand
+        FROM v0.bsbg_brands
+        WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
+        ORDER BY brand ASC
+      `),
     ])
 
     return successResponse({
       dinamikBrands: brandRows.map((row) => row.brand),
       manufacturers: manufacturerRows,
+      canonicalBrands: canonicalBrandRows.map((row) => row.brand),
+      bsbgBrands: bsbgBrandRows.map((row) => row.brand),
     }, context)
   } catch (error) {
     console.error('[eslestirme:models:options] Error:', error)

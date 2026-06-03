@@ -189,7 +189,7 @@ async function ensureBrandAlias(providerId: number, supplierBrand: string | null
       }
     },
     update: {
-      normalized_brand: brandName.toLocaleUpperCase('tr'),
+      brand: brandName.toLocaleUpperCase('tr'),
       part_brand_id: partBrand?.id ?? null,
       mapping_status: partBrand ? 'APPROVED' : 'PENDING',
       confidence: partBrand ? new Prisma.Decimal(1) : null
@@ -197,7 +197,7 @@ async function ensureBrandAlias(providerId: number, supplierBrand: string | null
     create: {
       provider_id: providerId,
       supplier_brand: brandName,
-      normalized_brand: brandName.toLocaleUpperCase('tr'),
+      brand: brandName.toLocaleUpperCase('tr'),
       part_brand_id: partBrand?.id ?? null,
       mapping_status: partBrand ? 'APPROVED' : 'PENDING',
       confidence: partBrand ? new Prisma.Decimal(1) : null

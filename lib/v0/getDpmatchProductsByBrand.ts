@@ -28,11 +28,11 @@ type DpmatchQueryRow = {
   ptdrk_products_id: number | null
   mapping_status: string
   match_method: string | null
-  normalized_name: string | null
   stock_code: string | null
   stock_name: string | null
   brand: string | null
   part_no: string | null
+  dinamik_part_no: string | null
   barcode_1: string | null
   barcode_2: string | null
   barcode_3: string | null
@@ -55,11 +55,11 @@ function mapRow(row: DpmatchQueryRow): V0DpmatchProductRow {
     ptprdId: row.ptdrk_products_id,
     mappingStatus: row.mapping_status,
     matchMethod: row.match_method,
-    normalized_name: row.normalized_name,
+    part_no: row.part_no,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,
-    dinamikPartNo: row.part_no,
+    dinamikPartNo: row.dinamik_part_no,
     dinamikBarcode1: row.barcode_1,
     dinamikBarcode2: row.barcode_2,
     dinamikBarcode3: row.barcode_3,
@@ -150,11 +150,11 @@ const selectColumns = Prisma.sql`
   m.ptdrk_products_id,
   m.mapping_status,
   m.match_method,
-  m.normalized_name,
+  m.part_no,
   d.stock_code,
   d.stock_name,
   ${dproductBrandNameExpr} AS brand,
-  d.part_no,
+  d.part_no AS dinamik_part_no,
   d.barcode_1,
   d.barcode_2,
   d.barcode_3,
@@ -175,14 +175,14 @@ function buildBrandProductsUnionSql(filter: BrandProductFilter): Prisma.Sql {
   const ptbrdId = filter.ptbrdId
 
   if (dnbrdIds.length === 0 && !ptbrdId) {
-    return Prisma.sql`SELECT ${selectColumns} FROM v0.product_list m WHERE FALSE`
+    return Prisma.sql`SELECT ${selectColumns} FROM v0.product_mapping m WHERE FALSE`
   }
 
   if (dnbrdIds.length > 0 && ptbrdId) {
     return Prisma.sql`
       SELECT ${selectColumns}
       FROM v0.dnmk_products d
-      INNER JOIN v0.product_list m
+      INNER JOIN v0.product_mapping m
         ON m.dnmk_products_id = d.id
         AND m.mapping_status = 'APPROVED'
       LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
@@ -194,7 +194,7 @@ function buildBrandProductsUnionSql(filter: BrandProductFilter): Prisma.Sql {
       UNION
       SELECT ${selectColumns}
       FROM v0.ptdrk_products p
-      INNER JOIN v0.product_list m
+      INNER JOIN v0.product_mapping m
         ON m.ptdrk_products_id = p.id
         AND m.mapping_status = 'APPROVED'
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
@@ -210,7 +210,7 @@ function buildBrandProductsUnionSql(filter: BrandProductFilter): Prisma.Sql {
     return Prisma.sql`
       SELECT ${selectColumns}
       FROM v0.dnmk_products d
-      INNER JOIN v0.product_list m
+      INNER JOIN v0.product_mapping m
         ON m.dnmk_products_id = d.id
         AND m.mapping_status = 'APPROVED'
       LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
@@ -225,7 +225,7 @@ function buildBrandProductsUnionSql(filter: BrandProductFilter): Prisma.Sql {
   return Prisma.sql`
     SELECT ${selectColumns}
     FROM v0.ptdrk_products p
-    INNER JOIN v0.product_list m
+    INNER JOIN v0.product_mapping m
       ON m.ptdrk_products_id = p.id
       AND m.mapping_status = 'APPROVED'
     LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id

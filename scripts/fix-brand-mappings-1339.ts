@@ -33,24 +33,24 @@ async function main() {
   for (const m of mappings) {
     console.log(`\n--- Processing mapping ${m.mappingId}: ${m.normalizedBrand} ---`)
 
-    const insertResult = await db.$queryRaw<Array<{ id: bigint; normalized_brand: string }>>`
-      INSERT INTO v0.brand_list (normalized_brand)
+    const insertResult = await db.$queryRaw<Array<{ id: bigint; brand: string }>>`
+      INSERT INTO v0.brand_list (brand)
       VALUES (UPPER(BTRIM(${m.normalizedBrand})))
-      ON CONFLICT (normalized_brand) DO NOTHING
-      RETURNING id, normalized_brand
+      ON CONFLICT (brand) DO NOTHING
+      RETURNING id, brand
     `
 
     let newBrandListId: number
 
     if (insertResult.length > 0) {
       newBrandListId = Number(insertResult[0].id)
-      console.log(`  Created new brand_list: id=${newBrandListId}, normalized_brand=${insertResult[0].normalized_brand}`)
+      console.log(`  Created new brand_list: id=${newBrandListId}, brand=${insertResult[0].brand}`)
     } else {
-      const existing = await db.$queryRaw<Array<{ id: bigint; normalized_brand: string }>>`
-        SELECT id, normalized_brand FROM v0.brand_list WHERE normalized_brand = UPPER(BTRIM(${m.normalizedBrand}))
+      const existing = await db.$queryRaw<Array<{ id: bigint; brand: string }>>`
+        SELECT id, brand FROM v0.brand_list WHERE brand = UPPER(BTRIM(${m.normalizedBrand}))
       `
       newBrandListId = Number(existing[0].id)
-      console.log(`  brand_list already exists: id=${newBrandListId}, normalized_brand=${existing[0].normalized_brand}`)
+      console.log(`  brand_list already exists: id=${newBrandListId}, brand=${existing[0].brand}`)
     }
 
     await db.$executeRaw`
@@ -80,7 +80,7 @@ async function main() {
   console.log(JSON.stringify(remaining, stringifyReplacer, 2))
 
   if ((remaining as any[]).length === 0) {
-    console.log('\nNo remaining mappings. brand_list id=1339 is now orphaned (normalized_brand=NULL). You can delete it from admin panel or I can delete it now.')
+    console.log('\nNo remaining mappings. brand_list id=1339 is now orphaned (brand=NULL). You can delete it from admin panel or I can delete it now.')
   }
 }
 

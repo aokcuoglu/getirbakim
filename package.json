@@ -32,7 +32,8 @@
     "search:reindex": "bun scripts/meili-reindex.ts",
     "search:debug-category": "bun scripts/debug-meili-category.ts",
     "search:v0:setup": "bun scripts/meili-v0-setup.ts",
-    "search:v0:reindex": "bun scripts/meili-v0-reindex.ts"
+    "search:v0:reindex": "bun scripts/meili-v0-reindex.ts",
+    "v0:backfill-products": "bun scripts/backfill-v0-products-enrichment.ts"
   },
   "dependencies": {
     "@google/genai": "^1.32.0",

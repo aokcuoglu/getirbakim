@@ -47,11 +47,7 @@ Server actions in `lib/actions/` are the primary data-fetching layer — they qu
 
 ### Product data model
 
-Products exist in two parallel systems:
-1. **Internal catalog** (`parts` table) — the source of truth for display
-2. **Supplier products** (`supplier_products`) — synced from external APIs (Dinamik, SETA, Parts2World)
-
-These are reconciled via `supplier_part_mappings` using OEM code cross-references (`part_oens` ↔ `supplier_product_oems`). Pricing is computed from supplier cost + markup policy, stored in `part_pricing_inventory`, with manual overrides in `part_admin_overrides`.
+Products exist in the **internal catalog** (`parts` table), which is the source of truth for display. These are reconciled via OEM code cross-references (`part_oens`). Pricing is computed from supplier cost + markup policy, stored in `part_pricing_inventory`.
 
 ### Vehicle compatibility
 
@@ -63,7 +59,7 @@ Vehicle hierarchy: Make → Model → Engine/Variant. Part-to-vehicle relationsh
 
 ### Supplier sync
 
-Triggered by cron endpoints (`app/api/internal/suppliers/`) or manually via admin UI. Sync flow: fetch catalog → normalize → OEM-match → update `part_pricing_inventory` and `supplier_products`. Concurrency is tunable via env vars (`DINAMIK_BRAND_CONCURRENCY`, etc.). History tracked in `supplier_sync_runs`.
+Triggered by cron endpoints (`app/api/internal/suppliers/`) or manually via admin UI. Sync flow: fetch catalog → normalize → OEM-match → update `part_pricing_inventory`. Concurrency is tunable via env vars (`DINAMIK_BRAND_CONCURRENCY`, etc.).
 
 ### Key directories
 

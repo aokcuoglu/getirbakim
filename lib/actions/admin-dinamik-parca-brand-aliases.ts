@@ -34,7 +34,7 @@ function buildWhereClause(q: string, status: BrandAliasStatusFilter): Prisma.Sql
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     conditions.push(
-      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.normalized_brand ILIKE ${pattern})`
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.brand ILIKE ${pattern})`
     )
   }
   if (status === 'approved') {
@@ -90,7 +90,7 @@ export async function getDinamikParcaBrandAliases(input?: {
       Array<{
         id: number
         dinamik_brand: string | null
-        normalized_brand: string
+        brand: string
         ptdrk_brands_id: number
         manufacturer_name: string
         mapping_status: string
@@ -98,7 +98,7 @@ export async function getDinamikParcaBrandAliases(input?: {
       }>
     >(Prisma.sql`
       SELECT m.id, d.brand AS dinamik_brand,
-             cb.normalized_brand,
+             cb.brand,
              m.ptdrk_brands_id,
              pt.name AS manufacturer_name,
              m.mapping_status, m.match_method
@@ -131,7 +131,7 @@ export async function getDinamikParcaBrandAliases(input?: {
       rows: rows.map(r => ({
         id: r.id,
         dinamikBrand: r.dinamik_brand ?? '',
-        normalizedName: r.normalized_brand ?? '',
+        normalizedName: r.brand ?? '',
         parcatedarikManufacturerId: r.ptdrk_brands_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
         mappingStatus: r.mapping_status,
@@ -227,9 +227,9 @@ export async function updateDinamikParcaBrandAlias(input: {
     await db.$executeRaw(
       Prisma.sql`
         WITH canonical AS (
-          INSERT INTO v0.brand_list (normalized_brand)
+          INSERT INTO v0.brand_list (brand)
           VALUES (${normalized})
-          ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+          ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
           RETURNING id
         )
         UPDATE v0.brand_mappings m
@@ -277,9 +277,9 @@ export async function createDinamikParcaBrandAlias(input: {
     await db.$executeRaw(
       Prisma.sql`
         WITH canonical AS (
-          INSERT INTO v0.brand_list (normalized_brand)
+          INSERT INTO v0.brand_list (brand)
           VALUES (${normalized})
-          ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+          ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
           RETURNING id
         )
         INSERT INTO v0.brand_mappings (
@@ -291,7 +291,7 @@ export async function createDinamikParcaBrandAlias(input: {
         DO UPDATE SET
           mapping_status = 'APPROVED',
           match_method = 'MANUAL',
-          brand_list_id = (SELECT id FROM v0.brand_list WHERE normalized_brand = ${normalized})`
+          brand_list_id = (SELECT id FROM v0.brand_list WHERE brand = ${normalized})`
     )
     return { success: true, message: 'Marka eşleştirmesi oluşturuldu.' }
   } catch (error) {

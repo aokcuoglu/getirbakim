@@ -357,7 +357,7 @@ async function ensureBrandAlias(providerId: number, supplierBrand: string | null
     const updated = await db.supplier_brand_aliases.update({
       where: { id: existing.id },
       data: {
-        normalized_brand: normalizedBrand,
+        brand: normalizedBrand,
         part_brand_id: matchedPartBrandId,
         mapping_status: matchedPartBrandId ? 'APPROVED' : existing.mapping_status,
         confidence: matchedPartBrandId ? new Prisma.Decimal(1) : existing.confidence
@@ -371,7 +371,7 @@ async function ensureBrandAlias(providerId: number, supplierBrand: string | null
     data: {
       provider_id: providerId,
       supplier_brand: brandName,
-      normalized_brand: normalizedBrand,
+      brand: normalizedBrand,
       part_brand_id: matchedPartBrandId,
       mapping_status: matchedPartBrandId ? 'APPROVED' : 'PENDING',
       confidence: matchedPartBrandId ? new Prisma.Decimal(1) : null
@@ -707,12 +707,12 @@ async function upsertBrandAliasForCatalogSeed(providerId: number, supplierBrand:
       }
     },
     update: {
-      normalized_brand: brandName.toLocaleUpperCase('tr')
+      brand: brandName.toLocaleUpperCase('tr')
     },
     create: {
       provider_id: providerId,
       supplier_brand: brandName,
-      normalized_brand: brandName.toLocaleUpperCase('tr'),
+      brand: brandName.toLocaleUpperCase('tr'),
       mapping_status: 'PENDING',
       confidence: null
     }

@@ -12,7 +12,7 @@ import { CookieYesLoader } from '@/components/CookieYesLoader'
 import { GlobalCartDrawer } from '@/components/GlobalCartDrawer'
 import ChatAssistant from '@/components/ChatAssistant'
 import { resolveSiteUrl, isIndexingAllowed } from '@/lib/site-url'
-import { Geist, Geist_Mono } from 'next/font/google'
+
 import {
   buildOrganizationJsonLd,
   buildWebSiteJsonLd
@@ -36,16 +36,6 @@ export const metadata: Metadata = {
     }
   })
 }
-
-const geistSans = Geist({
-  subsets: ['latin', 'latin-ext'],
-  variable: '--font-geist-sans'
-})
-
-const geistMono = Geist_Mono({
-  subsets: ['latin', 'latin-ext'],
-  variable: '--font-geist-mono'
-})
 
 const MESSAGES_CACHE_TTL_MS = 5 * 60 * 1000
 type IntlMessages = Awaited<ReturnType<typeof getMessages>>
@@ -87,7 +77,10 @@ export default async function RootLayout({
   const websiteJsonLd = buildWebSiteJsonLd(locale)
 
   return (
-    <html lang={locale} className={`${geistSans.variable} ${geistMono.variable} h-full`}>
+    <html lang={locale} className="h-full">
+      <head>
+        <link rel="stylesheet" href="https://use.typekit.net/ufe1kab.css" />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <script
           type="application/ld+json"

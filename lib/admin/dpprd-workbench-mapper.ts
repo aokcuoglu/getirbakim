@@ -55,7 +55,7 @@ export function mapDpmatchRowToProductListItem(
   return {
     id: String(row.id),
     articleLinkId:
-      row.normalized_name ||
+      row.part_no ||
       row.dnprdId ||
       (row.productId != null ? String(row.productId) : String(row.id)),
     name: getProductName(row),
@@ -177,7 +177,7 @@ export function buildMatchingHref(row: AdminDpmatchRow): string {
   const query =
     row.dinamik.stockCode ||
     row.parcatedarik.model ||
-    row.normalized_name ||
+    row.part_no ||
     row.parcatedarik.title ||
     ''
   return query

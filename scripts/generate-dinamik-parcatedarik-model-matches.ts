@@ -1,5 +1,5 @@
 /**
- * Populate v0.product_list under approved paired dpbrd rows.
+ * Populate v0.product_mapping under approved paired dpbrd rows.
  *
  * Rules:
  * - Brand prerequisite: dpbrd with BOTH dnmk_brands_id AND ptdrk_brands_id, APPROVED

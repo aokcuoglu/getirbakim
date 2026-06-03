@@ -16,11 +16,11 @@ type DpmatchQueryRow = {
   ptdrk_products_id: number | null
   mapping_status: string
   match_method: string | null
-  normalized_name: string | null
   stock_code: string | null
   stock_name: string | null
   brand: string | null
   part_no: string | null
+  dinamik_part_no: string | null
   barcode_1: string | null
   barcode_2: string | null
   barcode_3: string | null
@@ -43,11 +43,11 @@ function mapRow(row: DpmatchQueryRow): V0DpmatchProductRow {
     ptprdId: row.ptdrk_products_id,
     mappingStatus: row.mapping_status,
     matchMethod: row.match_method,
-    normalized_name: row.normalized_name,
+    part_no: row.part_no,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,
-    dinamikPartNo: row.part_no,
+    dinamikPartNo: row.dinamik_part_no,
     dinamikBarcode1: row.barcode_1,
     dinamikBarcode2: row.barcode_2,
     dinamikBarcode3: row.barcode_3,
@@ -72,11 +72,11 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
       m.ptdrk_products_id,
       m.mapping_status,
       m.match_method,
-      m.normalized_name,
+      m.part_no,
       d.stock_code,
       d.stock_name,
       ${dproductBrandNameExpr} AS brand,
-      d.part_no,
+      d.part_no AS dinamik_part_no,
       d.barcode_1,
       d.barcode_2,
       d.barcode_3,
@@ -90,7 +90,7 @@ async function fetchDpmatchById(matchId: number): Promise<V0DpmatchProductRow | 
       p.url,
       mfr.name AS manufacturer_name,
       ${dnbrdMatchLogoExpr} AS brand_logo_url
-    FROM v0.product_list m
+    FROM v0.product_mapping m
     INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}

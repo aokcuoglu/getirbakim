@@ -15,9 +15,8 @@ const BATCH_SIZE = parseInt(process.env.BATCH_SIZE ?? '500', 10)
 type MatchMethod = 'EXACT_NORMALIZED' | 'CASE_INSENSITIVE' | 'NORMALIZED_BRAND_NAME'
 
 interface AliasRow {
-  brand: string
   dnmk_brands_id: bigint
-  normalized_brand: string
+  brand: string
   ptdrk_brands_id: number
   mapping_status: string
   confidence: number
@@ -189,12 +188,11 @@ async function main() {
         continue
       }
 
-      const normalized_brand = mm.name
+      const brand = mm.name
 
       aliasesToInsert.push({
-        brand: trimmedBrand,
         dnmk_brands_id: dnbrdId,
-        normalized_brand,
+        brand,
         ptdrk_brands_id: mm.id,
         mapping_status: 'PENDING',
         confidence: mm.confidence,
@@ -226,7 +224,7 @@ async function main() {
   console.log('=== Sample Aliases (first 30) ===')
   for (const alias of aliasesToInsert.slice(0, 30)) {
     console.log(
-      `  "${alias.brand}" (norm:${alias.normalized_brand}) → ` +
+      `  "${alias.brand}" (norm:${alias.brand}) → ` +
       `mfr_id=${alias.ptdrk_brands_id} ` +
       `method=${alias.match_method}`
     )
@@ -279,16 +277,16 @@ async function main() {
     try {
       const result = await db.$executeRaw(Prisma.sql`
         INSERT INTO v0.brand_list (
-          dnmk_brands_id, normalized_brand, ptdrk_brands_id,
+          dnmk_brands_id, brand, ptdrk_brands_id,
           mapping_status, match_method
         )
-        SELECT v.dnmk_brands_id, v.normalized_brand, v.ptdrk_brands_id, v.mapping_status, v.match_method
+        SELECT v.dnmk_brands_id, v.brand, v.ptdrk_brands_id, v.mapping_status, v.match_method
         FROM (VALUES ${Prisma.join(
           batch.map(
             (a) =>
-              Prisma.sql`(${a.dnmk_brands_id}, ${a.normalized_brand}, ${a.ptdrk_brands_id}, ${a.mapping_status}, ${a.match_method})`
+              Prisma.sql`(${a.dnmk_brands_id}, ${a.brand}, ${a.ptdrk_brands_id}, ${a.mapping_status}, ${a.match_method})`
           )
-        )}) AS v(dnmk_brands_id, normalized_brand, ptdrk_brands_id, mapping_status, match_method)
+        )}) AS v(dnmk_brands_id, brand, ptdrk_brands_id, mapping_status, match_method)
         ON CONFLICT (dnmk_brands_id, ptdrk_brands_id) DO NOTHING
       `)
       totalInserted += Number(result)

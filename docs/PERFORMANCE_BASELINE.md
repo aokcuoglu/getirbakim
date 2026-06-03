@@ -243,7 +243,7 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 | `lib/actions/getPopularManufacturers.ts` | `cacheLookup`, `dbQuery`, `cacheSet` + Redis caching added |
 | `lib/actions/getPartCategories.ts` | `partCategories`, `categoriesForVehicle`, `mainNav`, `categoryByUrlKey` — all with cache hit/miss tracking |
 | `lib/actions/getCatalogCategories.ts` | `mainNav`, `allCategories` |
-| `lib/hierarchy-service.ts` | `cacheLookup` hit/miss + removed `vehicle_brands.count()` debug query |
+| `lib/hierarchy-service.ts` | `cacheLookup` hit/miss + removed `v0.vbrands.count()` debug query |
 | `app/api/health/route.ts` | DB timing, Redis status check |
 
 ### 3. Cache Improvements
@@ -251,7 +251,7 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 | Change | Before | After |
 |--------|--------|-------|
 | `getPopularManufacturers` | No Redis cache | Redis cache with 1h TTL (`popular-manufacturers-v1`) |
-| `vehicle_brands.count()` | Ran on every `getDropdownData('vehicle_brands')` call | Removed (debug-only, unnecessary in production) |
+| `v0.vbrands.count()` | Ran on every `getDropdownData('vehicle_brands')` call | Removed (debug-only, unnecessary in production) |
 | `getPartCategoryByUrlKey` | Loaded ALL categories from DB on every Redis miss | Targeted queries by ID, parent_id, siblings |
 | `getCategorySearchIdFromUrlKey` | Loaded ALL categories for ancestry check | Iterative parent lookup (O(depth) queries vs O(N) full scan) |
 
@@ -405,5 +405,4 @@ CREATE INDEX IF NOT EXISTS part_oens_code_normalized_idx ON part_oens(upper(rege
 CREATE INDEX IF NOT EXISTS part_cross_refs_article_normalized_idx ON part_cross_references(upper(regexp_replace(article_number, '[^A-Z0-9]+', '', 'g')));
 CREATE INDEX IF NOT EXISTS part_brands_name_normalized_idx ON part_brands(upper(regexp_replace(name, '[^A-Z0-9]+', '', 'g')));
 CREATE INDEX IF NOT EXISTS part_categories_name_tr_active_idx ON part_categories(name_tr, is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS supplier_product_oems_oem_code_idx ON supplier_product_oems(oem_code) WHERE is_active = true;
 ```

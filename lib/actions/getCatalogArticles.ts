@@ -41,14 +41,12 @@ export interface CatalogArticlesResult {
   stockFacetDistribution: Record<string, number>
   page: number
   limit: number
-  hasMore: boolean
   cached: boolean
   source: string
   debugTimingsMs?: Record<string, number>
 }
 
 const DEFAULT_LIMIT = 24
-const MAX_CATEGORY_LIMIT = 48
 const MAX_OEM_CODES = 4
 const MAX_PROPERTIES = 4
 const MAX_IMAGES = 1
@@ -88,7 +86,7 @@ function normalizeBody(body: ArticlesRequestBody) {
         : 1,
     limit:
       typeof body.limit === 'number' && body.limit > 0
-        ? Math.min(MAX_CATEGORY_LIMIT, Math.floor(body.limit))
+        ? Math.min(96, Math.floor(body.limit))
         : DEFAULT_LIMIT,
     sort: body.sort ?? 'popularity',
     minPrice: typeof body.minPrice === 'number' ? body.minPrice : undefined,
@@ -1074,22 +1072,6 @@ export async function getCatalogArticles(
     timingsMs.supplierMerge = 0
   }
 
-  const hasMore = totalHits != null
-    ? payload.page * payload.limit < totalHits
-    : hits.length > payload.limit
-
-  if (hits.length > MAX_CATEGORY_LIMIT && process.env.PERFORMANCE_LOGGING === 'true') {
-    console.warn(
-      `[CATEGORY_PAYLOAD_TOO_LARGE] getCatalogArticles returned ${hits.length} hits (page=${payload.page}, limit=${payload.limit}, totalHits=${totalHits}, source=${useQueryLevelDedupe ? 'deduped' : 'fallback'})`
-    )
-  }
-
-  if (hits.length > 48) {
-    console.warn(
-      `[LEAF_PRODUCT_COUNT_TOO_LARGE] getCatalogArticles returned ${hits.length} hits (page=${payload.page}, limit=${payload.limit}, totalHits=${totalHits})`
-    )
-  }
-
   const result: CatalogArticlesResult = {
     hits,
     totalHits,
@@ -1102,7 +1084,6 @@ export async function getCatalogArticles(
       : {},
     page: payload.page,
     limit: payload.limit,
-    hasMore,
     cached: false,
     source: useQueryLevelDedupe
       ? 'prisma-fallback-deduped+resolved-supplier'
@@ -1111,7 +1092,7 @@ export async function getCatalogArticles(
 
   if (shouldUseRedisCache) {
     const cacheSetStart = performance.now()
-    await setCache(cacheKey, result, 300)
+    await setCache(cacheKey, result, 60)
     mark('cacheSet', cacheSetStart)
   } else {
     timingsMs.cacheSet = 0

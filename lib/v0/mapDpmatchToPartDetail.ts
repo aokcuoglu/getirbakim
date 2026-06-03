@@ -51,8 +51,8 @@ function buildProperties(row: V0DpmatchProductRow): { key: string; value: string
   if (row.ptModel?.trim()) {
     properties.push({ key: 'Model', value: row.ptModel.trim() })
   }
-  if (row.normalized_name?.trim()) {
-    properties.push({ key: 'Normalized', value: row.normalized_name.trim() })
+  if (row.part_no?.trim()) {
+    properties.push({ key: 'Normalized', value: row.part_no.trim() })
   }
   if (row.matchMethod?.trim()) {
     properties.push({ key: 'Match Method', value: row.matchMethod.trim() })
@@ -70,7 +70,7 @@ function buildOems(row: V0DpmatchProductRow): { brand: string; code: string }[] 
     row.dinamikBarcode3,
     row.ptRefNo,
     row.ptModel,
-    row.normalized_name
+    row.part_no
   ].filter((value): value is string => Boolean(value?.trim()))
 
   const seen = new Set<string>()

@@ -2,7 +2,6 @@
 
 import { db } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/storage'
-import { resolveSiteUrl } from '@/lib/site-url'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
@@ -176,7 +175,7 @@ export async function uploadCategoryImageFromUrl(imageUrl: string): Promise<{ su
     const supabase = createAdminClient()
     
     // Get site URL for Referer header
-    const siteUrl = resolveSiteUrl()
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.getirbakim.com'
     
     // Extract domain from image URL for better Referer handling
     const imageDomain = new URL(imageUrl).origin

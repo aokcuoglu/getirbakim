@@ -59,7 +59,7 @@ const DPMATCH_PRODUCT_SELECT = Prisma.sql`
     p.title,
     p.part_no AS model,
     p.ref_no,
-    m.normalized_name,
+    m.part_no,
     ${dproductDetailsPriceExpr}::text AS dinamik_price,
     ${dproductDetailsStockExpr} AS dinamik_stock_qty,
     p.price_list::text AS pt_price,
@@ -172,7 +172,7 @@ function buildCodeSearchClause(query: string): Prisma.Sql {
     OR COALESCE(d.barcode_1, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_2, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_3, '') ILIKE ${pattern}
-    OR COALESCE(m.normalized_name, '') ILIKE ${pattern}
+    OR COALESCE(m.part_no, '') ILIKE ${pattern}
     ${compactIlike}
     OR ${compactFieldMatch(Prisma.sql`d.stock_code`)}
     OR ${compactFieldMatch(Prisma.sql`d.part_no`)}
@@ -223,7 +223,7 @@ function buildProductSearchClause(query: string): Prisma.Sql {
     OR COALESCE(d.barcode_1, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_2, '') ILIKE ${pattern}
     OR COALESCE(d.barcode_3, '') ILIKE ${pattern}
-    OR COALESCE(m.normalized_name, '') ILIKE ${pattern}
+    OR COALESCE(m.part_no, '') ILIKE ${pattern}
     OR COALESCE(o.raw::text, '') ILIKE ${pattern}
     OR COALESCE(p.ref_no, '') ILIKE ${pattern}
     ${compactIlike}
@@ -235,7 +235,7 @@ function buildProductSearchClause(query: string): Prisma.Sql {
 }
 
 const DPMATCH_SEARCH_FROM = Prisma.sql`
-  FROM v0.product_list m
+  FROM v0.product_mapping m
   INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
   ${dproductDbrandLeftJoin}
   LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
@@ -297,7 +297,7 @@ export async function searchV0CatalogSql(options: {
           m.id,
           m.dnmk_brands_id,
           m.ptdrk_brands_id,
-          cb.normalized_brand,
+          cb.brand,
           cb.logo_url,
           d.brand AS dinamik_brand,
           pt.name AS ptbrand_name,
@@ -307,12 +307,12 @@ export async function searchV0CatalogSql(options: {
         LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
         LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
         WHERE m.mapping_status = 'APPROVED'
-          AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
+          AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
           ),
           with_key AS (
             SELECT
               *,
-              COALESCE(NULLIF(BTRIM(normalized_brand), ''), 'id:' || id::text) AS group_key
+              COALESCE(NULLIF(BTRIM(brand), ''), 'id:' || id::text) AS group_key
             FROM approved
           ),
           grouped AS (
@@ -322,7 +322,7 @@ export async function searchV0CatalogSql(options: {
               MIN(ptdrk_brands_id) AS ptdrk_brands_id,
               COALESCE(
                 MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-                MAX(NULLIF(BTRIM(normalized_brand), '')),
+                MAX(NULLIF(BTRIM(brand), '')),
                 MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
               ) AS brand_name,
               MAX(pt_url_key) AS pt_url_key,
@@ -377,7 +377,7 @@ export async function searchV0CatalogSql(options: {
         p.title,
         p.part_no AS model,
         p.ref_no,
-        m.normalized_name,
+        m.part_no,
         ${dproductDetailsPriceExpr}::text AS dinamik_price,
         ${dproductDetailsStockExpr} AS dinamik_stock_qty,
         p.price_list::text AS pt_price,
@@ -415,7 +415,7 @@ export async function searchV0CatalogSql(options: {
         p.title,
         p.part_no AS model,
         p.ref_no,
-        m.normalized_name,
+        m.part_no,
         ${dproductDetailsPriceExpr}::text AS dinamik_price,
         ${dproductDetailsStockExpr} AS dinamik_stock_qty,
         p.price_list::text AS pt_price,
@@ -442,7 +442,7 @@ export async function searchV0CatalogSql(options: {
           m.id,
           m.dnmk_brands_id,
           m.ptdrk_brands_id,
-          cb.normalized_brand,
+          cb.brand,
           cb.logo_url,
           d.brand AS dinamik_brand,
           pt.name AS ptbrand_name,
@@ -452,12 +452,12 @@ export async function searchV0CatalogSql(options: {
         LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
         LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
         WHERE m.mapping_status = 'APPROVED'
-          AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
+          AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
       ),
       with_key AS (
         SELECT
           *,
-          COALESCE(NULLIF(BTRIM(normalized_brand), ''), 'id:' || id::text) AS group_key
+          COALESCE(NULLIF(BTRIM(brand), ''), 'id:' || id::text) AS group_key
         FROM approved
       ),
       grouped AS (
@@ -467,7 +467,7 @@ export async function searchV0CatalogSql(options: {
           MIN(ptdrk_brands_id) AS ptdrk_brands_id,
           COALESCE(
             MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-            MAX(NULLIF(BTRIM(normalized_brand), '')),
+            MAX(NULLIF(BTRIM(brand), '')),
             MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
           ) AS brand_name,
           MAX(pt_url_key) AS pt_url_key,

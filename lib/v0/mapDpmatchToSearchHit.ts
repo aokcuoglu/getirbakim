@@ -40,7 +40,7 @@ function collectOemCodes(row: V0DpmatchProductRow): string[] {
     row.dinamikBarcode2,
     row.dinamikBarcode3,
     row.ptModel,
-    row.normalized_name,
+    row.part_no,
     row.dinamikStockCode
   ].filter((value): value is string => Boolean(value?.trim()))
 }
@@ -106,7 +106,7 @@ export function mapDpmatchRowToSearchHit(row: V0DpmatchProductRow): SearchHit {
     vehicleTypes: [],
     vehicleIds: [],
     vehicleNames: [],
-    formattedCompatibility: row.normalized_name ? [row.normalized_name] : [],
+    formattedCompatibility: row.part_no ? [row.part_no] : [],
     searchableText: [name, brandName, row.dinamikStockCode, row.ptModel]
       .filter(Boolean)
       .join(' '),

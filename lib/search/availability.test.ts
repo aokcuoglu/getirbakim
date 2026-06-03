@@ -12,7 +12,6 @@ describe('resolveAvailabilityStatus', () => {
     const input: AvailabilityInput = {
       hasRealPrice: true,
       availableStock: 5,
-      hasSupplierOffer: true,
       hasPartId: true
     }
     expect(resolveAvailabilityStatus(input)).toBe('PURCHASABLE')
@@ -22,27 +21,24 @@ describe('resolveAvailabilityStatus', () => {
     const input: AvailabilityInput = {
       hasRealPrice: true,
       availableStock: 0,
-      hasSupplierOffer: true,
       hasPartId: true
     }
     expect(resolveAvailabilityStatus(input)).toBe('OUT_OF_STOCK')
   })
 
-  it('returns REQUEST_PRICE when no price with supplier offer', () => {
+  it('returns REQUEST_PRICE when no price', () => {
     const input: AvailabilityInput = {
       hasRealPrice: false,
       availableStock: 0,
-      hasSupplierOffer: true,
       hasPartId: false
     }
     expect(resolveAvailabilityStatus(input)).toBe('REQUEST_PRICE')
   })
 
-  it('returns REQUEST_PRICE for catalog-only part without supplier offer', () => {
+  it('returns REQUEST_PRICE for catalog-only part', () => {
     const input: AvailabilityInput = {
       hasRealPrice: false,
       availableStock: 0,
-      hasSupplierOffer: false,
       hasPartId: true
     }
     expect(resolveAvailabilityStatus(input)).toBe('REQUEST_PRICE')
@@ -52,7 +48,6 @@ describe('resolveAvailabilityStatus', () => {
     const input: AvailabilityInput = {
       hasRealPrice: false,
       availableStock: 0,
-      hasSupplierOffer: false,
       hasPartId: false
     }
     expect(resolveAvailabilityStatus(input)).toBe('REQUEST_PRICE')
@@ -100,15 +95,7 @@ describe('resolveDetailUrl', () => {
     expect(resolveDetailUrl({ partId: '123' })).toBe('/part/123')
   })
 
-  it('returns /supplier-product/[id] when only supplierProductId exists', () => {
-    expect(resolveDetailUrl({ supplierProductId: 456 })).toBe('/supplier-product/456')
-  })
-
-  it('prefers partId over supplierProductId', () => {
-    expect(resolveDetailUrl({ partId: '123', supplierProductId: 456 })).toBe('/part/123')
-  })
-
-  it('returns null when neither exists', () => {
+  it('returns null when no partId', () => {
     expect(resolveDetailUrl({})).toBeNull()
   })
 })

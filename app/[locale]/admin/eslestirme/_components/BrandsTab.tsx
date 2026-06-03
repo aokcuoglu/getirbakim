@@ -15,7 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
+import { AdminFilterBar } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-select'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import {
@@ -227,13 +227,6 @@ export function BrandsTab() {
     setIsSearchPending(false)
     applyFilters(DEFAULT_BRAND_FILTERS)
   }, [applyFilters])
-
-  const toggleChipFilter = useCallback(
-    (name: 'status' | 'matchSide', value: string, currentValue: string) => {
-      setFilterParam(name, currentValue === value ? 'all' : value)
-    },
-    [setFilterParam]
-  )
 
   const handleGenerate = useCallback(() => {
     setGenerating(true)
@@ -469,38 +462,7 @@ export function BrandsTab() {
             onAdvancedFilter={() => setFiltersOpen(true)}
           />
 
-          <AdminFilterBar onReset={hasActiveFilters ? resetFilters : undefined} className="mt-3">
-            <AdminFilterChip
-              label="Beklemede"
-              active={filters.status === 'PENDING'}
-              onClick={() => toggleChipFilter('status', 'PENDING', filters.status)}
-            />
-            <AdminFilterChip
-              label="Onaylandı"
-              active={filters.status === 'APPROVED'}
-              onClick={() => toggleChipFilter('status', 'APPROVED', filters.status)}
-            />
-            <AdminFilterChip
-              label="Tam Eşleşme"
-              active={filters.matchSide === 'matched'}
-              onClick={() => toggleChipFilter('matchSide', 'matched', filters.matchSide)}
-            />
-            <AdminFilterChip
-              label="Sadece Dinamik"
-              active={filters.matchSide === 'dinamik_only'}
-              onClick={() => toggleChipFilter('matchSide', 'dinamik_only', filters.matchSide)}
-            />
-            <AdminFilterChip
-              label="Sadece PT"
-              active={filters.matchSide === 'pt_only'}
-              onClick={() => toggleChipFilter('matchSide', 'pt_only', filters.matchSide)}
-            />
-            <AdminFilterChip
-              label="Sadece Başbuğ"
-              active={filters.matchSide === 'bsbg_only'}
-              onClick={() => toggleChipFilter('matchSide', 'bsbg_only', filters.matchSide)}
-            />
-          </AdminFilterBar>
+          <AdminFilterBar onReset={hasActiveFilters ? resetFilters : undefined} className="mt-3" />
         </div>
 
         <DataTable
@@ -564,7 +526,7 @@ export function BrandsTab() {
                     })()}
                     {detailBrand.matchMethod && (
                       <Badge variant="outline" className="border-success/20 bg-success/10 text-xs text-success">
-                        {detailBrand.matchMethod}
+                        {detailBrand.matchMethod.charAt(0).toUpperCase() + detailBrand.matchMethod.slice(1).toLowerCase()}
                       </Badge>
                     )}
                   </div>

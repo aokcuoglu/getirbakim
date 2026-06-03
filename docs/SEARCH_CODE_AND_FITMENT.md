@@ -29,12 +29,9 @@ The exact code lookup searches these tables in order of priority:
 
 | Priority | Source Table | Score | Match Type |
 |----------|-------------|-------|------------|
-| 1 | `supplier_products` (SKU/barcode) | 125 | Supplier SKU / barcode exact |
-| 2 | `part_oens` | 120 | Part OEM code exact |
-| 3 | `part_eans` | 120 | Part EAN exact |
-| 4 | `supplier_product_oems` (mapped) | 115 | Supplier product OEM exact |
-| 5 | `part_cross_references` | 110 | Cross-reference exact |
-| 6 | `supplier_product_oems` (orphan) | 100 | Orphan supplier OEM exact |
+| 1 | `part_oens` | 120 | Part OEM code exact |
+| 2 | `part_eans` | 120 | Part EAN exact |
+| 3 | `part_cross_references` | 110 | Cross-reference exact |
 
 ### Code Normalization Rules (`lib/search/code-normalization.ts`)
 
@@ -55,7 +52,7 @@ A query is treated as a code query if:
 
 ### Problem
 
-The previous v0.2.4 reindex used `buildCatalogDocumentsWithFitment` which performed heavy vehicle fitment joins (across `part_vehicle_types`, `vehicle_types`, `vehicle_models`, `vehicle_brands`, and `vehicle_type_modifications`) inline in the main catalog query. This caused `statement_timeout` errors (57014) on large datasets.
+The previous v0.2.4 reindex used `buildCatalogDocumentsWithFitment` which performed heavy vehicle fitment joins (across `part_vehicle_types`, `v0.vtypes`, `v0.vmodels`, `v0.vbrands`, and `v0.vtype_details`) inline in the main catalog query. This caused `statement_timeout` errors (57014) on large datasets.
 
 ### Solution: Batched Fitment Enrichment
 
@@ -97,10 +94,10 @@ SELECT
   ARRAY_AGG(DISTINCT vtm.motor_type) FILTER (WHERE vtm.motor_type IS NOT NULL) AS engine_codes,
   COUNT(*) AS fitment_count
 FROM part_vehicle_types pvt
-JOIN vehicle_types vt ON vt.id = pvt.vehicle_type_id
-JOIN vehicle_models vm ON vm.id = vt.model_id
-JOIN vehicle_brands vb ON vb.id = vm.brand_id
-LEFT JOIN vehicle_type_modifications vtm ON vtm.vehicle_type_id = vt.id
+JOIN v0.vtypes vt ON vt.id = pvt.vehicle_type_id
+JOIN v0.vmodels vm ON vm.id = vt.model_id
+JOIN v0.vbrands vb ON vb.id = vm.brand_id
+LEFT JOIN v0.vtype_details vtm ON vtm.vehicle_type_id = vt.id
 GROUP BY pvt.part_id;
 ```
 
@@ -112,7 +109,7 @@ This can be refreshed incrementally or on a schedule.
 
 Products with OEM codes, EAN/barcodes, or cross-reference numbers are now prioritized when building search documents:
 
-1. **Orphan supplier products**: Those with active OEM codes (`supplier_product_oems`) are indexed first, followed by those with barcodes, then those with price/stock, then the rest. This ensures code-bearing products are not excluded by the orphan cap.
+1. **Orphan supplier products**: Those with active OEM codes are indexed first, followed by those with barcodes, then those with price/stock, then the rest. This ensures code-bearing products are not excluded by the orphan cap.
 
 2. **Catalog-only parts**: Those with OEM codes (`part_oens`) are indexed first, followed by those with EAN codes (`part_eans`), then cross-references, then by pricing availability. This ensures catalogs with codes are included within the 30,000 limit.
 

@@ -1,8 +1,6 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { isV0OnlySite } from '@/lib/v0/siteMode'
-import { searchV0Global } from '@/lib/v0/search/v0-search-global'
 
 type ProductRow = {
   id: bigint
@@ -24,39 +22,21 @@ export type SearchResultProduct = {
   id: number
   name: string
   brandName: string
-  categoryName: string | null
+  categoryName: string
   price: string | null
   image: string | null
   urlKey: string
   type: 'product'
 }
 
-export type SearchResultBrand = {
-  matchId: number
-  brandName: string
-  logoUrl: string | null
-  slug: string
-  type: 'brand'
-}
-
 export type SearchResults = {
   categories: SearchResultCategory[]
   products: SearchResultProduct[]
-  brands?: SearchResultBrand[]
 }
 
 export async function searchGlobal(query: string): Promise<SearchResults> {
   if (!query || query.length < 2) {
-    return { categories: [], products: [], brands: [] }
-  }
-
-  if (isV0OnlySite()) {
-    const v0 = await searchV0Global(query)
-    return {
-      categories: [],
-      products: v0.products,
-      brands: v0.brands
-    }
+    return { categories: [], products: [] }
   }
 
   const normalizedQuery = query.trim()
@@ -309,7 +289,6 @@ export async function searchGlobal(query: string): Promise<SearchResults> {
 
   return {
     categories: mappedCategories,
-    products: mappedProducts,
-    brands: []
+    products: mappedProducts
   }
 }

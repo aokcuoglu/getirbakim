@@ -8,7 +8,7 @@ export type V0DpmatchProductRow = {
   ptprdId: number | null
   mappingStatus: string
   matchMethod: string | null
-  normalized_name: string | null
+  part_no: string | null
   dinamikStockCode: string | null
   dinamikStockName: string | null
   dinamikBrand: string | null

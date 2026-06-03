@@ -23,12 +23,11 @@ GetirBakim V2 integrates with multiple supplier APIs to provide real-time pricin
 ### Sync Flow
 
 1. Fetch brand/product data from supplier API
-2. Upsert `supplier_products`, `supplier_product_oems`, `supplier_brand_aliases`
+2. Normalize and upsert product data
 3. Run `findBestCandidate()` to match supplier SKUs to catalog parts
 4. Auto-approve mappings above confidence threshold
-5. Create `part_supplier_offers` for approved mappings
-6. Run `applyPolicyForPart()` → upsert `part_pricing_inventory`
-7. Invalidate caches and search index
+5. Run `applyPolicyForPart()` → upsert `part_pricing_inventory`
+6. Invalidate caches and search index
 
 ### Failure and Retry
 
@@ -36,11 +35,11 @@ GetirBakim V2 integrates with multiple supplier APIs to provide real-time pricin
 - Auth failures: do not retry, alert admin
 - Rate limiting: respect Retry-After, queue for next cycle
 - Partial failures: continue, log summary
-- Job failures: mark `supplier_sync_runs` as FAILED, admin intervention required
+- Job failures: mark sync run as FAILED, admin intervention required
 
 ### Stale Data Handling
 
-- `supplier_products.last_seen_at` tracks freshness
+- Product data freshness is tracked per supplier
 - Older than 24h: consider stock potentially stale, show "Uygunluk Sor" CTA
 - Older than 7 days: mark `part_pricing_inventory.sync_status = 'STALE'`
 

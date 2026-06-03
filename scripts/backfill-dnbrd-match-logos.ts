@@ -1,6 +1,5 @@
 /**
- * Backfill v0.brand_list.logo_url from ptbrd.logo_url (via ptdrk_brands_id join)
- * with fallback to public.part_brands.logo_url (matched by brand name).
+ * Backfill v0.brand_list.logo_url from ptbrd.logo_url (via ptdrk_brands_id join).
  *
  * Usage:
  *   bun scripts/backfill-dnbrd-match-logos.ts              # dry run (default)
@@ -27,7 +26,6 @@ type BackfillStats = {
   alreadySet: number
   candidates: number
   fromPtbrands: number
-  fromPartBrands: number
   updated: number
   stillMissing: number
 }
@@ -55,7 +53,6 @@ async function fetchStats(): Promise<BackfillStats> {
       already_set: bigint
       candidates: bigint
       from_ptbrd: bigint
-      from_part_brands: bigint
       still_missing: bigint
     }>
   >(Prisma.sql`
@@ -64,24 +61,10 @@ async function fetchStats(): Promise<BackfillStats> {
         dm.id,
         dm.logo_url AS current_logo_url,
         pt.logo_url AS pt_logo_url,
-        pb.logo_url AS pb_logo_url,
-        COALESCE(pt.logo_url, pb.logo_url) AS resolved_logo_url
+        pt.logo_url AS resolved_logo_url
       FROM v0.brand_list dm
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm.ptdrk_brands_id
       LEFT JOIN v0.dnmk_brands d ON d.id = dm.dnmk_brands_id
-      LEFT JOIN LATERAL (
-        SELECT logo_url
-        FROM public.part_brands pb
-        WHERE LOWER(pb.name) = LOWER(
-          COALESCE(
-            NULLIF(BTRIM(dm.normalized_brand), ''),
-            pt.name,
-            d.brand
-          )
-        )
-          AND pb.logo_url IS NOT NULL
-        LIMIT 1
-      ) pb ON TRUE
     )
     SELECT
       COUNT(*)::bigint AS total_rows,
@@ -106,16 +89,6 @@ async function fetchStats(): Promise<BackfillStats> {
           )
       )::bigint AS from_ptbrd,
       COUNT(*) FILTER (
-        WHERE resolved_logo_url IS NOT NULL
-          AND pt_logo_url IS NULL
-          AND pb_logo_url IS NOT NULL
-          AND (
-            ${FORCE}
-            OR current_logo_url IS NULL
-            OR BTRIM(current_logo_url) = ''
-          )
-      )::bigint AS from_part_brands,
-      COUNT(*) FILTER (
         WHERE resolved_logo_url IS NULL
       )::bigint AS still_missing
     FROM resolved
@@ -129,7 +102,6 @@ async function fetchStats(): Promise<BackfillStats> {
     alreadySet: Number(row?.already_set ?? 0),
     candidates,
     fromPtbrands: Number(row?.from_ptbrd ?? 0),
-    fromPartBrands: Number(row?.from_part_brands ?? 0),
     updated: DRY_RUN ? 0 : candidates,
     stillMissing: Number(row?.still_missing ?? 0)
   }
@@ -142,24 +114,11 @@ async function runBackfill(): Promise<number> {
     FROM (
       SELECT
         dm2.id,
-        COALESCE(pt.logo_url, pb.logo_url) AS resolved_logo_url
+        pt.logo_url AS resolved_logo_url
       FROM v0.brand_list dm2
       LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm2.ptdrk_brands_id
       LEFT JOIN v0.dnmk_brands d ON d.id = dm2.dnmk_brands_id
-      LEFT JOIN LATERAL (
-        SELECT logo_url
-        FROM public.part_brands pb
-        WHERE LOWER(pb.name) = LOWER(
-          COALESCE(
-            NULLIF(BTRIM(dm2.normalized_brand), ''),
-            pt.name,
-            d.brand
-          )
-        )
-          AND pb.logo_url IS NOT NULL
-        LIMIT 1
-      ) pb ON TRUE
-      WHERE COALESCE(pt.logo_url, pb.logo_url) IS NOT NULL
+      WHERE pt.logo_url IS NOT NULL
         AND (
           ${FORCE}
           OR dm2.logo_url IS NULL

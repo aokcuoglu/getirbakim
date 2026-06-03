@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     if (ids.length === 0) return errorResponse({ status: 400, code: 'INVALID_INPUT', message: 'ids array is required.', context })
     if (ids.length > 500) return errorResponse({ status: 400, code: 'TOO_MANY', message: 'Maximum 500 IDs.', context })
 
-    const approved = await approveDpmatchRows(ids, { onlyPending: true })
+    const approved = await approveDpmatchRows(ids, { onlyPending: true, matchMethod: 'MANUAL' })
     return successResponse({ approved, message: `${approved} eşleştirme onaylandı.` }, context)
   } catch (error) {
     console.error('[eslestirme:models:bulk-approve] Error:', error)

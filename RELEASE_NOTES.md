@@ -1,49 +1,6 @@
 # Release Notes
 
-## Unreleased - Fix Dinamik-ParcaTedarik Approved Match Stock Propagation
-
-### Bug: Approved matches created `part_supplier_offers` with `supplier_stock_qty = 0`
-
-When approving a Dinamik-ParcaTedarik model match, the approve action hardcoded `supplier_stock_qty: 0` in the newly created `part_supplier_offers` record. This meant approved matches always showed as "out of stock" in product listings, cart, and checkout — even when the Dinamik sync job had accurate stock data in `supplier_products`.
-
-**Root cause**: The approve action at `app/api/admin/supplier-matching/dinamik-parcatedarik/[id]/[action]/route.ts` line 172 had `supplier_stock_qty: 0` instead of reading the actual stock from the matched `supplier_products` record. Additionally, the update path (lines 175-180) omitted `supplier_stock_qty` entirely, so re-approving would never fix it.
-
-**Fix**:
-- `supplier_stock_qty` is now read from `supplier_products.supplier_stock_qty` (which is populated by the Dinamik sync job)
-- `supplier_price` is now taken from `supplier_products.supplier_price` (with fallback to `dinamik.products.price`)
-- `currency` is now taken from `supplier_products.currency` (with fallback to `TRY`)
-- The update path now includes `supplier_stock_qty` and `currency`
-- `applyPolicyForPart()` is called after creating/updating offers so `part_pricing_inventory` reflects the change
-- If no `supplier_products` row exists for the Dinamik product, the approve action returns a warning and skips mapping/offer creation (instead of creating with `supplier_product_id = 0`)
-
-### Bug: BigInt precision loss in `parcatedarikProductId`
-
-The list API serialized `parcatedarikProductId` as `Number(row.parcatedarik_product_id)`, which can lose precision for large BigInt IDs. The client component typed it as `number`. Both are now changed to use `string` serialization.
-
-### Backfill Script
-
-Existing APPROVED matches may still have `part_supplier_offers.supplier_stock_qty = 0`. The backfill script `scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts` can fix this:
-
-```bash
-# Dry run (default, no writes):
-DRY_RUN=true bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
-
-# Apply to limited number:
-APPLY=true LIMIT=5 bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
-
-# Apply to specific match:
-APPLY=true MATCH_ID=123 bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
-```
-
-After backfill, a Meilisearch reindex may be needed to reflect stock changes in search results.
-
-### Important Notes
-
-- Full APPLY and bulk approve remain disabled.
-- Bulk approve does not create mappings/offers by design.
-- Do not enable production indexing.
-- Do not revert Docker build back to Bun.
-
+## Unreleased
 ## v0.3.7 - Fix Dockerfile for Prisma Config + Align Build Metadata Policy
 
 ### Fix: Dockerfile DATABASE_URL for prisma.config.ts
@@ -430,14 +387,14 @@ Category and filter pages were very slow on first load. Root cause analysis reve
 ## v0.2.5 - Fitment Index Optimization and Exact Code Search Coverage
 
 ### Exact Code Search Diagnostics
-- Added `scripts/search-debug-code.ts` — diagnostic script that searches all code tables (part_oens, part_eans, part_cross_references, part_no, supplier_products.sku/barcode, supplier_product_oems, supplier_part_mappings, part_supplier_offers) for a given code
+- Added `scripts/search-debug-code.ts` — diagnostic script that searches all code tables (part_oens, part_eans, part_cross_references, part_no) for a given code
 - Reports: where the code exists, matched part/supplier IDs, mapping status, whether records are included in current index, why they might be missing
 - Usage: `CODE=0445110376 bun scripts/search-debug-code.ts`
 
 ### Exact Code Lookup Before Meilisearch
 - Added `lib/search/exact-code-lookup.ts` — PostgreSQL exact code lookup that runs alongside Meilisearch for code-like queries
 - Queries that look like codes (length >= 5, mostly alphanumeric, few separators) trigger exact DB lookup
-- Searched tables: part_oens, part_eans, part_cross_references, supplier_product_oems, supplier_products (SKU/barcode)
+- Searched tables: part_oens, part_eans, part_cross_references
 - Exact results merged at top of Meili results, deduplicated by partId/supplierProductId
 - Response includes `exactCodeMatchUsed: true` and `source: "meilisearch_with_exact_code_boost"` when exact matches are found
 - If Meili returns 0 but exact DB lookup finds results, those results are still returned
@@ -466,7 +423,7 @@ Category and filter pages were very slow on first load. Root cause analysis reve
 
 ### Diagnostic Script
 - `scripts/search-debug-code.ts` — diagnose why a code returns 0 results in search
-- Searches: part_oens, part_eans, part_cross_references, parts.article_link_id, supplier_products (sku, normalized_sku, barcodes), supplier_product_oems, supplier_part_mappings, part_supplier_offers
+- Searches: part_oens, part_eans, part_cross_references, parts.article_link_id
 - Reports mapping status and index coverage for each match
 
 ### Documentation
@@ -736,7 +693,7 @@ Category and filter pages were very slow on first load. Root cause analysis reve
 
 ### Index Recommendations
 - Added `scripts/search-indexes.sql` with pg_trgm indexes for normalized fields
-- Recommended indexes for: supplier_products, supplier_product_oems, supplier_part_mappings, parts, part_brands, part_eans, part_oens, part_cross_references
+- Recommended indexes for: parts, part_brands, part_eans, part_oens, part_cross_references
 
 ### Meilisearch
 - Meilisearch remains disabled. Integration code preserved for future re-enablement.
@@ -767,7 +724,7 @@ Category and filter pages were very slow on first load. Root cause analysis reve
 
 ### Cache Improvements
 - Added Redis caching to `getPopularManufacturers` (was uncached, now 1h TTL with key `popular-manufacturers-v1`)
-- Removed `vehicle_brands.count()` debug query from `getDropdownData('vehicle_brands')` — unnecessary DB call on every invocation
+- Removed `v0.vbrands.count()` debug query from `getDropdownData('vehicle_brands')` — unnecessary DB call on every invocation
 - Optimized `getPartCategoryByUrlKey` to use targeted queries instead of loading ALL categories (reduces cold-cache DB load from O(N) full-table scan to O(depth) targeted lookups)
 - Optimized `getCategorySearchIdFromUrlKey` to trace ancestry via iterative parent lookups instead of loading all categories
 - Documented all cache keys and TTLs in `docs/PERFORMANCE_BASELINE.md`

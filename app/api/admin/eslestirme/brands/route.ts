@@ -11,7 +11,7 @@ const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as 
 const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only', 'bsbg_only'] as const
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
-  normalizedName: 'cb.normalized_brand',
+  normalizedName: 'cb.brand',
   mappingStatus: 'm.mapping_status',
   matchMethod: 'm.match_method',
   dinamikBrand: 'd.brand',
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     return errorResponse({ status: 400, code: 'INVALID_MATCH_SIDE', message: `Invalid matchSide: ${matchSide}`, context })
   }
 
-  const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'cb.normalized_brand'
+  const orderColumn = sortCol && VALID_SORT_COLUMNS[sortCol] ? VALID_SORT_COLUMNS[sortCol] : 'cb.brand'
   const orderDir = sortDir === 'DESC' ? 'DESC' : 'ASC'
 
   try {
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
 
     const whereClauses: Prisma.Sql[] = []
     if (pattern) {
-      whereClauses.push(Prisma.sql`(cb.normalized_brand ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR bs.brand ILIKE ${pattern})`)
+      whereClauses.push(Prisma.sql`(cb.brand ILIKE ${pattern} OR d.brand ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR bs.brand ILIKE ${pattern})`)
     }
     if (status !== 'all') {
       if (status === 'APPROVED') {
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
       Array<{
         id: number
         brand_list_id: number
-        normalized_brand: string | null
+        brand: string | null
         dinamik_brand: string | null
         pt_name: string | null
         bsbg_brand: string | null
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
     >(Prisma.sql`
       SELECT m.id,
              m.brand_list_id,
-             cb.normalized_brand,
+             cb.brand,
              d.brand AS dinamik_brand,
              pt.name AS pt_name,
              bs.brand AS bsbg_brand,
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
       rows: rows.map(r => ({
         id: r.id,
         brandListId: r.brand_list_id,
-        normalizedName: r.normalized_brand ?? '',
+        normalizedName: r.brand ?? '',
         dinamikBrand: r.dinamik_brand ?? '',
         ptName: r.pt_name ?? '',
         bsbgBrand: r.bsbg_brand ?? '',

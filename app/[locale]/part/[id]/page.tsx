@@ -1,22 +1,16 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import {
-  getPartHeroById,
-  getPartMetadataById
-} from '@/lib/actions/getPartById'
 import { getDpmatchById } from '@/lib/v0/getDpmatchById'
 import {
   mapDpmatchToPartHero,
   mapDpmatchToPartMetadata,
   mapDpmatchToPartTabsData
 } from '@/lib/v0/mapDpmatchToPartDetail'
-import { getCategoryByUrlKey } from '@/lib/actions/getPartCategories'
+import { getV0ProductDetailBundle } from '@/lib/v0/getV0ProductDetail'
 import { ProductImageGallery } from './_components/ProductImageGallery'
 import { ProductInfo } from './_components/ProductInfo'
-import { PartDetailLazySections } from './_components/PartDetailLazySections'
 import { ProductTabs } from './_components/ProductTabs'
 import { ProductFAQ } from './_components/ProductFAQ'
-import { BreadcrumbSection } from '../../[...slug]/_components/BreadcrumbSection'
 import { FallbackBreadcrumb } from './_components/FallbackBreadcrumb'
 import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
 
@@ -51,18 +45,16 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
       return { title: 'Part Not Found' }
     }
 
-    const part =
-      (await getPartMetadataById(partId)) ??
-      (await getDpmatchById(partId).then((row) =>
-        row ? mapDpmatchToPartMetadata(row) : null
-      ))
+    const v0Product = await getV0ProductDetailBundle(partId)
+    const dpprdRow = v0Product ? null : await getDpmatchById(partId)
+    const part = v0Product?.metadata ?? (dpprdRow ? mapDpmatchToPartMetadata(dpprdRow) : null)
 
     if (!part) {
       return { title: 'Part Not Found' }
     }
 
-    const title = `${part.name} ${part.brandName} | Auto Parts Store`
-    const description = `Buy ${part.name} from ${part.brandName}. ${part.categoryName} for your vehicle. Fast shipping and competitive prices.`
+    const title = `${part.name} ${part.brandName} | Getir Bakım`
+    const description = `${part.brandName} ${part.name} için fiyat, stok, OEM ve uyumlu araç bilgilerini inceleyin. ${part.categoryName} kategorisinde hızlı sipariş.`
     const imageUrl = part.imageUrl || '/og-default.jpg'
 
     return {
@@ -110,115 +102,117 @@ export default async function PartDetailPage({ params }: PartPageProps) {
       notFound()
     }
 
-    const [catalogPart, dpprdRow] = await Promise.all([
-      getPartHeroById(partId),
-      getDpmatchById(partId)
-    ])
-
-    const isDpmatch = !catalogPart && Boolean(dpprdRow)
-    const part = catalogPart ?? (dpprdRow ? mapDpmatchToPartHero(dpprdRow) : null)
-    const dpprdTabsData =
-      isDpmatch && dpprdRow ? mapDpmatchToPartTabsData(dpprdRow) : null
+    const dpprdRow = await getDpmatchById(partId)
+    const v0Product = await getV0ProductDetailBundle(partId)
+    const part = v0Product?.hero ?? (dpprdRow ? mapDpmatchToPartHero(dpprdRow) : null)
 
     if (!part) {
       notFound()
     }
 
-    // Fetch category hierarchy for breadcrumbs (related parts are lazy-loaded on client)
-    const partCategory =
-      !isDpmatch && part.category.urlKey
-        ? await getCategoryByUrlKey(part.category.urlKey).catch((error) => {
-            console.error('Error fetching category:', error)
-            return null
-          })
-        : null
+    const tabsData = v0Product?.tabs ?? (dpprdRow ? mapDpmatchToPartTabsData(dpprdRow) : null)
+    const structuredData = {
+      '@context': 'https://schema.org',
+      '@type': 'Product',
+      name: `${part.brand.name} ${part.name}`,
+      sku: part.articleNumber ?? String(part.id),
+      brand: {
+        '@type': 'Brand',
+        name: part.brand.name
+      },
+      category: part.category.name,
+      image: part.images.map((image) => image.image).filter(Boolean),
+      gtin: part.eans[0],
+      offers:
+        part.price && !part.isPlaceholderPrice
+          ? {
+              '@type': 'Offer',
+              priceCurrency: 'TRY',
+              price: part.price,
+              availability:
+                part.stockQty > 0
+                  ? 'https://schema.org/InStock'
+                  : 'https://schema.org/OutOfStock',
+              url: `/${locale}/part/${part.id}`
+            }
+          : undefined
+    }
 
-  return (
-    <>
-      {/* Breadcrumb */}
-      {partCategory ? (
-        <div className="bg-background border-b border-border">
-          <BreadcrumbSection
-            category={partCategory}
-            extraCrumb={part.name}
-          />
-        </div>
-      ) : (
+    return (
+      <>
+        <script
+          type="application/ld+json"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData)
+          }}
+        />
+        {/* Breadcrumb */}
         <FallbackBreadcrumb
           categoryName={part.category.name}
-          categoryUrlKey={partCategory ? part.category.urlKey : null}
+          categoryUrlKey={null}
           partName={part.name}
         />
-      )}
 
-      {/* Main Product Section */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
-        <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
-            {/* Left - Image Gallery */}
-            <ProductImageGallery
-              images={part.images}
-              productName={`${part.name} ${part.brand.name}`}
-            />
+        {/* Main Product Section */}
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8">
+          <div className="bg-background rounded-xl shadow-sm border border-border p-4 md:p-6 lg:p-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+              {/* Left - Image Gallery */}
+              <ProductImageGallery
+                images={part.images}
+                productName={`${part.name} ${part.brand.name}`}
+              />
 
-            {/* Right - Product Info */}
-            <ProductInfo
-              id={part.id}
-              name={part.name}
-              articleNumber={part.articleNumber}
-              brand={part.brand}
-              categoryName={part.category.name}
-              price={part.price}
-              stockQty={part.stockQty}
-              priceSource={part.priceSource}
-              isPlaceholderPrice={part.isPlaceholderPrice}
-              isPurchasable={part.isPurchasable}
-              eans={part.eans}
-              properties={part.properties}
-            />
+              {/* Right - Product Info */}
+              <ProductInfo
+                id={part.id}
+                name={part.name}
+                articleNumber={part.articleNumber}
+                brand={part.brand}
+                categoryName={part.category.name}
+                price={part.price}
+                stockQty={part.stockQty}
+                priceSource={part.priceSource}
+                isPlaceholderPrice={part.isPlaceholderPrice}
+                isPurchasable={part.isPurchasable}
+                eans={part.eans}
+                properties={part.properties}
+              />
+            </div>
+          </div>
+
+          {/* Product Tabs */}
+          <div className="mt-4 md:mt-8">
+            {tabsData ? (
+              <>
+                <ProductTabs
+                  properties={tabsData.properties}
+                  infos={tabsData.infos}
+                  oens={tabsData.oens}
+                  compatibleVehicles={tabsData.compatibleVehicles}
+                  crossReferences={tabsData.crossReferences}
+                />
+                <div className="mt-4 md:mt-8">
+                  <ProductFAQ
+                    partId={part.id}
+                    productName={`${part.category.name} ${part.brand.name} ${part.name}`}
+                    brandName={part.brand.name}
+                    categoryName={part.category.name}
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
-
-        {/* Product Tabs */}
-        <div className="mt-4 md:mt-8">
-          {isDpmatch && dpprdTabsData ? (
-            <>
-              <ProductTabs
-                properties={dpprdTabsData.properties}
-                infos={dpprdTabsData.infos}
-                oens={dpprdTabsData.oens}
-                compatibleVehicles={dpprdTabsData.compatibleVehicles}
-                crossReferences={dpprdTabsData.crossReferences}
-              />
-              <ProductFAQ
-                partId={part.id}
-                productName={`${part.category.name} ${part.brand.name} ${part.name}`}
-                brandName={part.brand.name}
-                categoryName={part.category.name}
-              />
-            </>
-          ) : (
-            <PartDetailLazySections
-              partId={part.id}
-              categoryId={part.category.id}
-              categoryName={part.category.name}
-              excludePartId={part.id}
-              productName={`${part.category.name} ${part.brand.name} ${part.name}`}
-              brandName={part.brand.name}
-            />
-          )}
-        </div>
-      </div>
-    </>
-  )
+      </>
+    )
   } catch (error) {
     console.error('Error rendering part detail page:', error)
-    // Log the error details for debugging
     if (error instanceof Error) {
       console.error('Error message:', error.message)
       console.error('Error stack:', error.stack)
     }
-    // Re-throw to trigger Next.js error boundary
     throw error
   }
 }

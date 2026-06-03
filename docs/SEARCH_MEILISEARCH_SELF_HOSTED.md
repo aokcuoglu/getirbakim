@@ -160,10 +160,10 @@ Options:
 
 ### Reindex Phases
 
-1. **Phase 1 - Supplier-backed**: Builds documents from `supplier_products` with approved `supplier_part_mappings` (enriched with canonical part data)
+1. **Phase 1 - Supplier-backed**: Builds documents from parts with supplier pricing/stock data (enriched with canonical part data)
 2. **Phase 2 - Catalog-only**: Builds documents from `parts` without approved mappings. Parts with OEM codes are prioritized over those without, ensuring code-bearing parts are indexed within the 30k limit.
 3. **Phase 2b - Fitment enrichment** (optional): Enriches **both supplier-backed and catalog-only documents** with vehicle fitment data in configurable batches. Disabled by default (`MEILI_REINDEX_INCLUDE_FITMENT=false`).
-4. **Phase 3 - Orphan suppliers**: Builds documents from `supplier_products` with no mapping and no offer. Products with OEM codes or barcodes are prioritized, ensuring code-bearing orphan products are indexed within the 10k limit.
+4. **Phase 3 - Orphan products**: Builds documents from products with no supplier data. Products with OEM codes or barcodes are prioritized, ensuring code-bearing orphan products are indexed within the 10k limit.
 
 ### Reindex Output
 

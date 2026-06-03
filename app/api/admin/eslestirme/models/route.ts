@@ -15,12 +15,13 @@ import {
 
 const VALID_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'IGNORED'] as const
 const VALID_MATCH_SIDES = ['all', 'matched', 'dinamik_only', 'pt_only'] as const
+const VALID_MATCH_METHODS = ['all', 'EXACT_MATCH', 'MANUAL', 'NONE'] as const
 
 const VALID_SORT_COLUMNS: Record<string, string> = {
   dnmk_products_id: 'm.dnmk_products_id',
   product_id: 'm.ptdrk_products_id',
   mapping_status: 'm.mapping_status',
-  normalized_name: 'm.normalized_name',
+  part_no: 'm.part_no',
 }
 
 export async function GET(request: NextRequest) {
@@ -34,8 +35,11 @@ export async function GET(request: NextRequest) {
   const q = (url.searchParams.get('q') ?? '').trim()
   const status = url.searchParams.get('status') ?? 'all'
   const dinamikBrand = (url.searchParams.get('dinamikBrand') ?? '').trim()
+  const canonicalBrand = (url.searchParams.get('canonicalBrand') ?? '').trim()
+  const bsbgBrand = (url.searchParams.get('bsbgBrand') ?? '').trim()
   const manufacturerIdStr = url.searchParams.get('manufacturerId')
   const matchSide = url.searchParams.get('matchSide') ?? 'all'
+  const matchMethod = url.searchParams.get('matchMethod') ?? 'all'
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10))
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10)), 200)
   const offset = (page - 1) * limit
@@ -48,6 +52,9 @@ export async function GET(request: NextRequest) {
   }
   if (!VALID_MATCH_SIDES.includes(matchSide as typeof VALID_MATCH_SIDES[number])) {
     return errorResponse({ status: 400, code: 'INVALID_MATCH_SIDE', message: `Invalid matchSide: ${matchSide}`, context })
+  }
+  if (!VALID_MATCH_METHODS.includes(matchMethod as typeof VALID_MATCH_METHODS[number])) {
+    return errorResponse({ status: 400, code: 'INVALID_MATCH_METHOD', message: `Invalid matchMethod: ${matchMethod}`, context })
   }
 
   const manufacturerId = manufacturerIdStr ? parseInt(manufacturerIdStr, 10) : null
@@ -73,56 +80,72 @@ export async function GET(request: NextRequest) {
   } else if (matchSide === 'pt_only') {
     whereClauses.push(Prisma.sql`m.dnmk_products_id IS NULL AND m.ptdrk_products_id IS NOT NULL`)
   }
+  if (canonicalBrand) {
+    whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(cb.brand, ''))) = BTRIM(LOWER(${canonicalBrand}))`)
+  }
+  if (bsbgBrand) {
+    whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(bb.brand, ''))) = BTRIM(LOWER(${bsbgBrand}))`)
+  }
+  if (matchMethod === 'EXACT_MATCH') {
+    whereClauses.push(Prisma.sql`m.match_method = 'EXACT_MATCH'`)
+  } else if (matchMethod === 'MANUAL' || matchMethod === 'MANUEL') {
+    whereClauses.push(Prisma.sql`m.match_method = 'MANUAL'`)
+  } else if (matchMethod === 'NONE') {
+    whereClauses.push(Prisma.sql`m.match_method IS NULL`)
+  }
   if (q) {
     const p = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     whereClauses.push(Prisma.sql`(COALESCE(d.stock_code,'') ILIKE ${p} OR COALESCE(d.stock_name,'') ILIKE ${p} OR COALESCE(${dproductBrandNameExpr},'') ILIKE ${p} OR COALESCE(p.title,'') ILIKE ${p} OR COALESCE(p.part_no,'') ILIKE ${p} OR COALESCE(mfr.name,'') ILIKE ${p})`)
   }
   const whereClause = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``
 
+  const brandJoin = canonicalBrand ? Prisma.sql` LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id` : Prisma.sql``
+  const bsbgJoin = bsbgBrand ? Prisma.sql` LEFT JOIN v0.bsbg_products b ON b.id = m.bsbg_products_id LEFT JOIN v0.bsbg_brands bb ON bb.id = b.bsbg_brands_id` : Prisma.sql``
+
+  const tableAlias = Prisma.sql`v0.product_mapping m`
+  const joinClauses = Prisma.sql`LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id${brandJoin}${bsbgJoin}`
+
   try {
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.product_list m LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id ${whereClause}`
+      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM ${tableAlias} ${joinClauses} ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
 
     const rows = await db.$queryRaw<
       Array<{
-        id: number; dnmk_products_id: bigint | null; ptdrk_products_id: number | null
-        normalized_name: string | null; mapping_status: string; match_method: string | null
+        id: number; dnmk_products_id: bigint | null; ptdrk_products_id: number | null; bsbg_products_id: bigint | null
+        part_no: string | null; mapping_status: string; match_method: string | null
         stock_code: string | null; stock_name: string | null; brand: string | null
         barcode_1: string | null; barcode_2: string | null; barcode_3: string | null
-        part_no: string | null; price: string | null
+        dinamik_part_no: string | null; price: string | null
         title: string | null; model: string | null; ref_no: string | null
         ptdrk_brands_id: number | null; manufacturer_name: string | null
       }>
     >(Prisma.sql`
-      SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.normalized_name, m.mapping_status, m.match_method,
-             d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no,
-             ${dproductDetailsPriceExpr}::text AS price,
-             p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
-      FROM v0.product_list m
-      LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
-      LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
-      ${dproductDetailsJoin}
-      LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
-      LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+       SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.bsbg_products_id, m.part_no, m.mapping_status, m.match_method,
+              d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no AS dinamik_part_no,
+              ${dproductDetailsPriceExpr}::text AS price,
+              p.title, p.part_no AS model, p.ref_no, p.ptdrk_brands_id, mfr.name AS manufacturer_name
+       FROM ${tableAlias} ${joinClauses} ${dproductDetailsJoin}
       ${whereClause}
       ORDER BY ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
     `)
 
     const statusCounts = await db.$queryRaw<Array<{ mapping_status: string; count: bigint }>>(
-      Prisma.sql`SELECT mapping_status, COUNT(*)::bigint AS count FROM v0.product_list GROUP BY mapping_status`
+      Prisma.sql`SELECT m.mapping_status, COUNT(*)::bigint AS count FROM ${tableAlias} ${joinClauses} ${whereClause} GROUP BY m.mapping_status`
     )
     const statusMap = Object.fromEntries(statusCounts.map(r => [r.mapping_status, Number(r.count)]))
+    const filteredTotal = Number(statusMap['PENDING'] ?? 0) + Number(statusMap['APPROVED'] ?? 0) + Number(statusMap['REJECTED'] ?? 0) + Number(statusMap['IGNORED'] ?? 0)
 
     return successResponse({
       rows: rows.map(r => ({
         id: r.id,
         dnprdId: r.dnmk_products_id?.toString() || null,
         productId: r.ptdrk_products_id,
-        normalized_name: r.normalized_name,
+        bsbgProductsId: r.bsbg_products_id?.toString() || null,
+        part_no: r.part_no,
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
         dinamik: {
@@ -132,7 +155,7 @@ export async function GET(request: NextRequest) {
           barcode1: r.barcode_1 || null,
           barcode2: r.barcode_2 || null,
           barcode3: r.barcode_3 || null,
-          partNo: r.part_no || null,
+          partNo: r.dinamik_part_no || null,
           price: r.price ? String(r.price) : null,
         },
         parcatedarik: {
@@ -145,7 +168,7 @@ export async function GET(request: NextRequest) {
       })),
       pagination: { page, limit, total, pages },
       summary: {
-        total: Number(statusMap['PENDING'] ?? 0) + Number(statusMap['APPROVED'] ?? 0) + Number(statusMap['REJECTED'] ?? 0) + Number(statusMap['IGNORED'] ?? 0),
+        total: filteredTotal,
         approved: statusMap['APPROVED'] ?? 0,
         pending: statusMap['PENDING'] ?? 0,
         rejected: statusMap['REJECTED'] ?? 0,
@@ -175,7 +198,7 @@ export async function POST(request: NextRequest) {
       if (ids.length === 0 || ids.length > 500) {
         return errorResponse({ status: 400, code: 'INVALID_IDS', message: '1-500 ID gerekli.', context })
       }
-      const approved = await approveDpmatchRows(ids, { onlyPending: true })
+      const approved = await approveDpmatchRows(ids, { onlyPending: true, matchMethod: 'MANUAL' })
       return successResponse({ approved, message: `${approved} eşleştirme onaylandı.` }, context)
     }
 

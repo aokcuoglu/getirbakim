@@ -255,41 +255,54 @@ export async function getAdminCustomerRequests(
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)
 
-  const [rows, total, typeStatusCounts, todayCount] = await Promise.all([
-    db.customer_requests.findMany({
-      where,
-      take: filters.limit,
-      skip: offset,
-      orderBy: { created_at: 'desc' }
-    }),
-    db.customer_requests.count({ where }),
-    db.customer_requests.groupBy({
-      by: ['request_type', 'status'],
-      _count: { _all: true }
-    }),
-    db.customer_requests.count({
-      where: {
-        created_at: {
-          gte: startOfToday
+  const [rows, total, openTotal, newToday, priceRequestsOpen, productQuestionsOpen, missingProductsOpen] =
+    await Promise.all([
+      db.customer_requests.findMany({
+        where,
+        take: filters.limit,
+        skip: offset,
+        orderBy: { created_at: 'desc' }
+      }),
+      db.customer_requests.count({ where }),
+      db.customer_requests.count({
+        where: {
+          status: {
+            in: ['NEW', 'IN_REVIEW']
+          }
         }
-      }
-    })
-  ])
-
-  let openTotal = 0
-  let priceRequestsOpen = 0
-  let productQuestionsOpen = 0
-  let missingProductsOpen = 0
-
-  for (const row of typeStatusCounts) {
-    if (row.status === 'NEW' || row.status === 'IN_REVIEW') {
-      const count = row._count._all
-      openTotal += count
-      if (row.request_type === 'PRICE_REQUEST') priceRequestsOpen += count
-      if (row.request_type === 'PRODUCT_QUESTION') productQuestionsOpen += count
-      if (row.request_type === 'MISSING_PRODUCT') missingProductsOpen += count
-    }
-  }
+      }),
+      db.customer_requests.count({
+        where: {
+          created_at: {
+            gte: startOfToday
+          }
+        }
+      }),
+      db.customer_requests.count({
+        where: {
+          request_type: 'PRICE_REQUEST',
+          status: {
+            in: ['NEW', 'IN_REVIEW']
+          }
+        }
+      }),
+      db.customer_requests.count({
+        where: {
+          request_type: 'PRODUCT_QUESTION',
+          status: {
+            in: ['NEW', 'IN_REVIEW']
+          }
+        }
+      }),
+      db.customer_requests.count({
+        where: {
+          request_type: 'MISSING_PRODUCT',
+          status: {
+            in: ['NEW', 'IN_REVIEW']
+          }
+        }
+      })
+    ])
 
   return {
     filters,
@@ -302,7 +315,7 @@ export async function getAdminCustomerRequests(
     },
     kpis: {
       openTotal,
-      newToday: todayCount,
+      newToday,
       priceRequestsOpen,
       productQuestionsOpen,
       missingProductsOpen

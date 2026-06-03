@@ -2,8 +2,8 @@ import { Prisma } from '@prisma/client'
 import { dproductBrandNameExpr } from '@/lib/sql/dnprd-catalog'
 
 /**
- * Canonical display/search brand for a v0.product_list row.
- * Prefers approved v0.brand_mappings (normalized_brand → pt name → dinamik brand),
+ * Canonical display/search brand for a v0.product_mapping row.
+ * Prefers approved v0.brand_mappings (brand → pt name → dinamik brand),
  * then falls back to dnbrd.brand and ptbrd.name.
  *
  * Requires aliases: d (dnprd), p (ptprd), mfr (ptbrd).
@@ -13,7 +13,7 @@ export const dnbrdMatchBrandNameExpr = Prisma.sql`
     (
       SELECT COALESCE(
         MAX(pt.name) FILTER (WHERE BTRIM(COALESCE(pt.name, '')) <> ''),
-        MAX(NULLIF(BTRIM(cb.normalized_brand), '')),
+        MAX(NULLIF(BTRIM(cb.brand), '')),
         MIN(db2.brand) FILTER (WHERE BTRIM(COALESCE(db2.brand, '')) <> '')
       )
       FROM v0.brand_mappings m

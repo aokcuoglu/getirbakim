@@ -1,19 +1,19 @@
 'use client'
 
 import { ColumnDef } from '@tanstack/react-table'
-import { Check, X, Ban, Link2, ArrowRight } from 'lucide-react'
+import { Check, X, Ban, Link2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { AdminRowActions, type AdminRowAction } from '@/components/admin/data-table/admin-row-actions'
-import { AdminTableHead } from '@/components/admin/data-table/admin-table-head'
 import { DataTableColumnHeader } from '../data-table-column-header'
 
 export interface ModelRow {
   id: number
   dnprdId: string | null
   productId: number | null
-  normalized: string | null
+  bsbgProductsId: string | null
+  part_no: string | null
   mappingStatus: string
   matchMethod: string | null
   dinamik: {
@@ -53,6 +53,7 @@ export function createModelColumns(handlers: {
   onLinkProduct: (row: ModelRow) => void
   onLinkDproducts: (row: ModelRow) => void
   onBulkApproveRows: (rows: ModelRow[]) => void
+  onViewDetail: (row: ModelRow) => void
 }): ColumnDef<ModelRow, unknown>[] {
   return [
     {
@@ -77,6 +78,63 @@ export function createModelColumns(handlers: {
       enableHiding: false,
     },
     {
+      id: 'product',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Ürün" />,
+      cell: ({ row }) => {
+        const r = row.original
+        const label = r.dinamik.stockCode || r.parcatedarik.title?.slice(0, 40) || r.part_no || '—'
+        return (
+          <button
+            onClick={() => handlers.onViewDetail(r)}
+            className="max-w-[180px] truncate font-mono text-sm text-primary hover:underline text-left"
+            title={label}
+          >
+            {label}
+          </button>
+        )
+      },
+    },
+    {
+      id: 'providers',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Tedarikçiler" />,
+      cell: ({ row }) => {
+        const r = row.original
+        const providers: { label: string; name: string }[] = []
+        if (r.dnprdId) {
+          providers.push({ label: 'Dinamik', name: r.dinamik.stockCode || r.dinamik.stockName || '—' })
+        }
+        if (r.productId) {
+          providers.push({ label: 'PT', name: r.parcatedarik.title?.slice(0, 40) || '—' })
+        }
+        if (r.bsbgProductsId) {
+          providers.push({ label: 'Başbuğ', name: 'Ürün mevcut' })
+        }
+        if (providers.length === 0) {
+          return <span className="text-xs text-muted-foreground">Yok</span>
+        }
+        return (
+          <div className="space-y-0.5">
+            {providers.map((p) => (
+              <div key={p.label} className="flex items-center gap-1.5 text-xs">
+                <Badge variant="outline" className="shrink-0 text-[9px] px-1 py-0 border-primary/20 bg-primary/5 text-primary">
+                  {p.label}
+                </Badge>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="truncate max-w-[140px] text-foreground">{p.name}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {p.label}: {p.name}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )
+      },
+      enableSorting: false,
+    },
+    {
       accessorKey: 'mappingStatus',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Durum" />,
       cell: ({ getValue }) => {
@@ -91,114 +149,6 @@ export function createModelColumns(handlers: {
           <Badge variant="outline" className={`text-xs font-medium ${colors[v] || ''}`}>
             {STATUS_LABELS[v] || v}
           </Badge>
-        )
-      },
-    },
-    {
-      id: 'productInfo',
-      header: () => <AdminTableHead>Ürün Eşleşmesi</AdminTableHead>,
-      cell: ({ row }) => {
-        const r = row.original
-        const isApproved = r.mappingStatus === 'APPROVED'
-        const isMatched = !!(r.dnprdId && r.productId)
-
-        if (isMatched) {
-          return (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 min-w-0 cursor-default">
-                  <span className="text-sm font-mono font-medium text-primary truncate max-w-[120px]">
-                    {r.dinamik.stockCode || '—'}
-                  </span>
-                  <ArrowRight className="h-3 w-3 text-success shrink-0" />
-                  <span className="text-sm text-primary truncate max-w-[200px]">
-                    {r.parcatedarik.title?.slice(0, 40) || '—'}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1.5 text-xs">
-                <div>
-                  <p className="font-semibold text-primary">Dinamik</p>
-                  <p className="font-mono">{r.dinamik.stockCode}</p>
-                  <p className="text-muted-foreground">{r.dinamik.stockName || '—'}</p>
-                  <p className="text-muted-foreground">Marka: {r.dinamik.brand || '—'}</p>
-                </div>
-                <div className="border-t pt-1.5">
-                  <p className="font-semibold text-primary">ParçaTedarik</p>
-                  <p>{r.parcatedarik.title}</p>
-                  <p className="text-muted-foreground">{r.parcatedarik.manufacturerName}</p>
-                  <p className="text-muted-foreground font-mono">model: {r.parcatedarik.model || '—'}</p>
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          )
-        }
-
-        if (r.dnprdId) {
-          return (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 min-w-0 cursor-default">
-                  <span className="text-sm font-mono font-medium truncate max-w-[250px]">
-                    {r.dinamik.stockCode || '—'}
-                  </span>
-                  {!isApproved && (
-                    <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/20 shrink-0">
-                      PT bekliyor
-                    </Badge>
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1 text-xs">
-                <p className="font-semibold">{isApproved ? 'Dinamik Ürün' : 'Dinamik Ürün (eşleşme bekliyor)'}</p>
-                <p className="font-mono">{r.dinamik.stockCode}</p>
-                <p className="text-muted-foreground">{r.dinamik.stockName || '—'}</p>
-                <p className="text-muted-foreground">Marka: {r.dinamik.brand || '—'}</p>
-                {r.dinamik.partNo && <p className="text-muted-foreground">Parça No: {r.dinamik.partNo}</p>}
-              </TooltipContent>
-            </Tooltip>
-          )
-        }
-
-        if (r.productId) {
-          return (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 min-w-0 cursor-default">
-                  {!isApproved && (
-                    <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/20 shrink-0">
-                      Dinamik bekliyor
-                    </Badge>
-                  )}
-                  <span className="text-sm truncate max-w-[250px]">
-                    {r.parcatedarik.title?.slice(0, 50) || '—'}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-sm p-3 space-y-1 text-xs">
-                <p className="font-semibold">{isApproved ? 'PT Ürün' : 'PT Ürün (eşleşme bekliyor)'}</p>
-                <p>{r.parcatedarik.title}</p>
-                <p className="text-muted-foreground">{r.parcatedarik.manufacturerName}</p>
-                <p className="text-muted-foreground font-mono">model: {r.parcatedarik.model || '—'}</p>
-                {r.parcatedarik.refNo && <p className="text-muted-foreground font-mono">ref: {r.parcatedarik.refNo}</p>}
-              </TooltipContent>
-            </Tooltip>
-          )
-        }
-
-        return <span className="text-xs text-muted-foreground">—</span>
-      },
-    },
-    {
-      accessorKey: 'normalized',
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Normalized" />,
-      cell: ({ getValue }) => {
-        const v = getValue<string | null>()
-        if (!v) return <span className="text-xs text-muted-foreground">—</span>
-        return (
-          <span className="text-sm font-mono text-foreground truncate max-w-[140px]" title={v}>
-            {v}
-          </span>
         )
       },
     },

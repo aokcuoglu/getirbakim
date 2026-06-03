@@ -44,14 +44,14 @@ async function main() {
         SELECT 1 FROM v0.brand_mappings m
         WHERE m.brand_list_id = dpb.id
       )
-      AND dpb.normalized_brand IN (
+      AND dpb.brand IN (
         SELECT brand FROM v0.bsbg_brands
       )
     `)
   }
 
   // ------------------------------------------------------------------
-  //  1. Match bsbg_brands.brand -> brand_list.normalized_brand
+  //  1. Match bsbg_brands.brand -> brand_list.brand
   // ------------------------------------------------------------------
   const candidates = await db.$queryRaw<
     Array<{
@@ -65,13 +65,13 @@ async function main() {
       bb.brand             AS bsbg_brand,
       bb.id                AS bsbg_id,
       dpb.id               AS canonical_id,
-      dpb.normalized_brand AS canonical_brand
+      dpb.brand AS canonical_brand
     FROM v0.bsbg_brands bb
     JOIN v0.brand_list dpb
       ON REGEXP_REPLACE(UPPER(bb.brand), '[^A-Z0-9]', '', 'g')
-       = REGEXP_REPLACE(UPPER(dpb.normalized_brand), '[^A-Z0-9]', '', 'g')
+       = REGEXP_REPLACE(UPPER(dpb.brand), '[^A-Z0-9]', '', 'g')
     ORDER BY bb.brand,
-      CASE WHEN bb.brand = dpb.normalized_brand THEN 0 ELSE 1 END
+      CASE WHEN bb.brand = dpb.brand THEN 0 ELSE 1 END
   `)
 
   const matchedSet = new Set(candidates.map((r) => r.bsbg_brand))
@@ -189,14 +189,14 @@ async function main() {
   if (unmatchedBrands.length > 0 && APPLY) {
     // 3a. Insert unmatched brand names as new canonical brands
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.brand_list (normalized_brand)
+      INSERT INTO v0.brand_list (brand)
       SELECT UPPER(BTRIM(v.brand))
       FROM (VALUES ${Prisma.join(
         unmatchedBrands.map((r) => Prisma.sql`(${r.brand})`)
       )}) AS v(brand)
       WHERE NOT EXISTS (
         SELECT 1 FROM v0.brand_list dpb
-        WHERE dpb.normalized_brand = UPPER(BTRIM(v.brand))
+        WHERE dpb.brand = UPPER(BTRIM(v.brand))
       )
     `)
 
@@ -208,7 +208,7 @@ async function main() {
       FROM v0.bsbg_brands bb
       JOIN v0.brand_list dpb
         ON REGEXP_REPLACE(UPPER(bb.brand), '[^A-Z0-9]', '', 'g')
-         = REGEXP_REPLACE(UPPER(dpb.normalized_brand), '[^A-Z0-9]', '', 'g')
+         = REGEXP_REPLACE(UPPER(dpb.brand), '[^A-Z0-9]', '', 'g')
       WHERE bb.id IN (${Prisma.join(unmatchedBrands.map((r) => r.id))})
     `)
 

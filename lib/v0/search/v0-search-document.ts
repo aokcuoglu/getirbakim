@@ -41,14 +41,14 @@ export type DpmatchIndexRow = {
   stock_code: string | null
   stock_name: string | null
   brand: string | null
-  part_no: string | null
+  dinamik_part_no: string | null
   barcode_1: string | null
   barcode_2: string | null
   barcode_3: string | null
   title: string | null
   model: string | null
   ref_no: string | null
-  normalized_name: string | null
+  part_no: string | null
   dinamik_price: string | null
   dinamik_stock_qty: number | null
   pt_price: string | null
@@ -84,7 +84,7 @@ function collectOemCodes(row: DpmatchIndexRow): string[] {
     row.barcode_2,
     row.barcode_3,
     row.model,
-    row.normalized_name,
+    row.part_no,
     row.stock_code
   ].filter((value): value is string => Boolean(value?.trim()))
 
@@ -179,14 +179,14 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     d.stock_code,
     d.stock_name,
     ${dproductBrandNameExpr} AS brand,
-    d.part_no,
+    d.part_no AS dinamik_part_no,
     d.barcode_1,
     d.barcode_2,
     d.barcode_3,
     p.title,
     p.part_no AS model,
     p.ref_no,
-    m.normalized_name,
+    m.part_no,
     ${dproductDetailsPriceExpr}::text AS dinamik_price,
     ${dproductDetailsStockExpr} AS dinamik_stock_qty,
     p.price_list::text AS pt_price,
@@ -195,7 +195,7 @@ export const DPMATCH_INDEX_SELECT = Prisma.sql`
     ${dnbrdMatchBrandNameExpr} AS matched_brand,
     o.raw AS dinamik_raw,
     ${dnbrdMatchLogoExpr} AS brand_logo_url
-  FROM v0.product_list m
+  FROM v0.product_mapping m
   INNER JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
   ${dproductDbrandLeftJoin}
   LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
@@ -209,7 +209,7 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
   WITH approved AS (
     SELECT
       m.id,
-      cb.normalized_brand,
+      cb.brand,
       cb.logo_url,
       d.brand AS dinamik_brand,
       pt.name AS ptbrand_name,
@@ -219,13 +219,13 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     WHERE m.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(cb.normalized_brand, d.brand, pt.name, '')) <> ''
+      AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
   ),
   with_key AS (
     SELECT
       *,
       COALESCE(
-        NULLIF(BTRIM(normalized_brand), ''),
+        NULLIF(BTRIM(brand), ''),
         'id:' || id::text
       ) AS group_key
     FROM approved
@@ -235,7 +235,7 @@ const BRANDS_INDEX_SELECT = Prisma.sql`
       MIN(id) AS id,
       COALESCE(
         MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
-        MAX(NULLIF(BTRIM(normalized_brand), '')),
+        MAX(NULLIF(BTRIM(brand), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
       MAX(pt_url_key) AS pt_url_key,
@@ -294,11 +294,11 @@ export function mapDpmatchIndexRowToProductRow(row: DpmatchIndexRow): V0DpmatchP
     ptprdId: null,
     mappingStatus: 'APPROVED',
     matchMethod: null,
-    normalized_name: row.normalized_name,
+    part_no: row.part_no,
     dinamikStockCode: row.stock_code,
     dinamikStockName: row.stock_name,
     dinamikBrand: row.brand,
-    dinamikPartNo: row.part_no,
+    dinamikPartNo: row.dinamik_part_no,
     dinamikBarcode1: row.barcode_1,
     dinamikBarcode2: row.barcode_2,
     dinamikBarcode3: row.barcode_3,

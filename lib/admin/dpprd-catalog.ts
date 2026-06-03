@@ -33,7 +33,7 @@ export type AdminDpmatchRow = {
   id: number
   dnprdId: string | null
   productId: number | null
-  normalized_name: string | null
+  part_no: string | null
   mappingStatus: string
   matchMethod: string | null
   matchSide: AdminDpmatchMatchSide
@@ -102,7 +102,7 @@ export type AdminApprovedDpmatchFilters = AdminDpmatchFilters
 const VALID_SORT_COLUMNS: Record<string, string> = {
   dnmk_products_id: 'm.dnmk_products_id',
   product_id: 'm.ptdrk_products_id',
-  normalized_name: 'm.normalized_name',
+  part_no: 'm.part_no',
   stock_code: 'd.stock_code',
   mapping_status: 'm.mapping_status'
 }
@@ -227,7 +227,7 @@ function mapRow(r: {
   id: number
   dnmk_products_id: bigint | null
   ptdrk_products_id: number | null
-  normalized_name: string | null
+  part_no: string | null
   mapping_status: string
   match_method: string | null
   stock_code: string | null
@@ -236,7 +236,7 @@ function mapRow(r: {
   barcode_1: string | null
   barcode_2: string | null
   barcode_3: string | null
-  part_no: string | null
+  dinamik_part_no: string | null
   price: string | null
   stock_qty: number | null
   is_passive: boolean
@@ -253,7 +253,7 @@ function mapRow(r: {
     id: r.id,
     dnprdId: r.dnmk_products_id?.toString() ?? null,
     productId: r.ptdrk_products_id,
-    normalized_name: r.normalized_name,
+    part_no: r.part_no,
     mappingStatus: r.mapping_status,
     matchMethod: r.match_method,
     matchSide: resolveMatchSide(r.dnmk_products_id, r.ptdrk_products_id),
@@ -264,7 +264,7 @@ function mapRow(r: {
       barcode1: r.barcode_1,
       barcode2: r.barcode_2,
       barcode3: r.barcode_3,
-      partNo: r.part_no,
+      partNo: r.dinamik_part_no,
       price: r.price ? String(r.price) : null,
       stockQty: r.stock_qty,
       isPassive: r.is_passive ?? false
@@ -295,7 +295,7 @@ export async function listDpmatchForAdmin(
   const orderBy = Prisma.sql`${Prisma.raw(orderColumn)} ${Prisma.raw(filters.sortDir === 'desc' ? 'DESC' : 'ASC')}`
 
   const fromJoin = Prisma.sql`
-    FROM v0.product_list m
+    FROM v0.product_mapping m
     LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     ${dproductDetailsJoin}
@@ -361,19 +361,19 @@ export async function listDpmatchForAdmin(
 
     db.$queryRaw<
       Array<{
-        id: number
-        dnmk_products_id: bigint | null
-        ptdrk_products_id: number | null
-        normalized_name: string | null
-        mapping_status: string
-        match_method: string | null
-        stock_code: string | null
+         id: number
+         dnmk_products_id: bigint | null
+         ptdrk_products_id: number | null
+         part_no: string | null
+         mapping_status: string
+         match_method: string | null
+         stock_code: string | null
         stock_name: string | null
         brand: string | null
         barcode_1: string | null
         barcode_2: string | null
         barcode_3: string | null
-        part_no: string | null
+        dinamik_part_no: string | null
         price: string | null
         stock_qty: number | null
         is_passive: boolean
@@ -391,7 +391,7 @@ export async function listDpmatchForAdmin(
         m.id,
         m.dnmk_products_id,
         m.ptdrk_products_id,
-        m.normalized_name,
+        m.part_no,
         m.mapping_status,
         m.match_method,
         d.stock_code,
@@ -400,7 +400,7 @@ export async function listDpmatchForAdmin(
         d.barcode_1,
         d.barcode_2,
         d.barcode_3,
-        d.part_no,
+        d.part_no AS dinamik_part_no,
         ${dproductDetailsPriceExpr}::text AS price,
         ${dproductDetailsStockExpr} AS stock_qty,
         COALESCE(d.is_passive, false) AS is_passive,

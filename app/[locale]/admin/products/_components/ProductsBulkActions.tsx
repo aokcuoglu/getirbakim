@@ -312,8 +312,7 @@ export function ProductsBulkActions({
         </h4>
         <p className="mt-1 text-xs text-muted-foreground">
           Desteklenen kolonlar: `part_id`, `article_link_id`,
-          `selling_price_override`, `is_visible`, `min_stock_level`,
-          `lock_price`, `lock_visibility`.
+          `is_visible`, `min_stock_level`.
         </p>
 
         <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">

@@ -17,7 +17,7 @@ function buildWhereClause(q: string, status: string): Prisma.Sql {
   if (q) {
     const pattern = `%${q.replace(/[%_\\]/g, '\\$&')}%`
     conditions.push(
-      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.normalized_brand ILIKE ${pattern})`
+      Prisma.sql`(COALESCE(d.brand, '') ILIKE ${pattern} OR pt.name ILIKE ${pattern} OR cb.brand ILIKE ${pattern})`
     )
   }
   if (status !== 'all') {
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       Array<{
         id: number
         dinamik_brand: string | null
-        normalized_brand: string
+        brand: string
         ptdrk_brands_id: number | null
         manufacturer_name: string | null
         mapping_status: string | null
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       }>
     >(Prisma.sql`
       SELECT m.id, d.brand AS dinamik_brand,
-             cb.normalized_brand,
+             cb.brand,
              m.ptdrk_brands_id,
              pt.name AS manufacturer_name,
              m.mapping_status, m.match_method
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
       rows: rows.map(r => ({
         id: r.id,
         dinamikBrand: r.dinamik_brand ?? '',
-        normalizedName: r.normalized_brand ?? '',
+        normalizedName: r.brand ?? '',
         parcatedarikManufacturerId: r.ptdrk_brands_id,
         parcatedarikManufacturerName: r.manufacturer_name ?? '',
         mappingStatus: r.mapping_status ?? '',

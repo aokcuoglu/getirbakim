@@ -94,10 +94,10 @@ async function batchUpsertBrandAliases(
     )
     const count = await db.$executeRaw`
       INSERT INTO supplier_brand_aliases
-        (provider_id, supplier_brand, normalized_brand, mapping_status, created_at, updated_at)
+        (provider_id, supplier_brand, brand, mapping_status, created_at, updated_at)
       VALUES ${Prisma.join(values)}
       ON CONFLICT (provider_id, supplier_brand) DO UPDATE SET
-        normalized_brand = EXCLUDED.normalized_brand,
+        brand = EXCLUDED.brand,
         updated_at = NOW()
     `
     total += Number(count)

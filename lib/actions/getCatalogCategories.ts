@@ -1,7 +1,6 @@
 import { db } from '@/lib/db'
 import { unstable_cache } from 'next/cache'
 import { getMainNavCategories } from '@/lib/actions/getPartCategories'
-import { createTimerGroup } from '@/lib/performance/timing'
 
 export interface CatalogCategory {
   id: number
@@ -40,12 +39,9 @@ export interface CatalogData {
 }
 
 async function fetchCatalogData(locale: string): Promise<CatalogData> {
-  const tg = createTimerGroup('catalogData')
-  const tNav = tg.start('mainNav')
   const mainNav = await getMainNavCategories(locale)
-  tg.end(tNav, { count: mainNav.length })
 
-  const tDb = tg.start('allCategories')
+  // Get all categories in one query
   const allCategories = await db.part_categories.findMany({
     where: {
       is_active: true
@@ -59,7 +55,6 @@ async function fetchCatalogData(locale: string): Promise<CatalogData> {
     },
     orderBy: { name: 'asc' }
   })
-  tg.end(tDb, { count: allCategories.length })
 
   // Helper to get localized name
   const getLocalizedName = (cat: {
@@ -110,7 +105,6 @@ async function fetchCatalogData(locale: string): Promise<CatalogData> {
     filteredChildrenByParent[m.id] = childrenByParent[m.id] || []
   }
 
-  tg.logSummary()
   return { tabs, childrenByParent: filteredChildrenByParent }
 }
 

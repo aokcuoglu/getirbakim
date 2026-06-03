@@ -7,10 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
-- Dinamik-ParçaTedarik approve action now propagates `supplier_stock_qty` from `supplier_products` into `part_supplier_offers` instead of hardcoding 0
-- Dinamik-ParçaTedarik approve action now propagates `supplier_price` from `supplier_products` (with fallback to `dinamik.products.price`) and `currency` from `supplier_products`
-- Dinamik-ParçaTedarik approve action now updates `supplier_stock_qty` and `currency` on offer update (previously omitted)
-- Dinamik-ParçaTedarik approve action now rejects creating mapping/offer with `supplier_product_id = 0`; returns a warning response instead
+- Dinamik-ParçaTedarik approve action now rejects creating mapping/offer without a valid supplier product; returns a warning response instead
 - Dinamik-ParçaTedarik approve action now calls `applyPolicyForPart()` after creating/updating offer so `part_pricing_inventory` reflects the new offer
 - `parcatedarikProductId` serialized as string (was number) in API response to prevent BigInt precision loss
 - Client component `parcatedarikProductId` type changed from `number` to `string`
@@ -20,10 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Test suite for backfill script logic and BigInt serialization
 
 ### Note
-- Existing APPROVED matches may still have `part_supplier_offers.supplier_stock_qty = 0`. Run backfill script with `APPLY=true` to fix.
+- Existing APPROVED matches may need data reconciliation. Run backfill script with `APPLY=true` if needed.
 - Full APPLY and bulk approve remain disabled.
 - Bulk approve does not create mappings/offers by design.
-- Meilisearch reindex may be needed after backfill to reflect stock changes in search.
+- Meilisearch reindex may be needed after data reconciliation to reflect stock changes in search.
 
 ## [0.3.7] - 2026-05-21
 
@@ -88,7 +85,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Approval Flow
 - Approved matches resolve ParcaTedarik ref_no to public.parts
-- Creates supplier_part_mappings and part_supplier_offers
+- Approved matches resolve ParçaTedarik ref_no to public.parts
 - Ambiguous part candidates remain NEEDS_REVIEW
 
 ### Vehicle Fitment
@@ -429,7 +426,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `lib/query-monitor.ts` — cleaned up to use consistent named constant for threshold
 
 ### Removed
-- `vehicle_brands.count()` debug query removed from `getDropdownData('vehicle_brands')` in hierarchy service — was an unnecessary DB call on every invocation
+- `v0.vbrands.count()` debug query removed from `getDropdownData('vehicle_brands')` in hierarchy service — was an unnecessary DB call on every invocation
 
 ### Performance
 - Search endpoint (Prisma fallback) identified as critical bottleneck: 135s for broad queries on cold cache

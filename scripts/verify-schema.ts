@@ -29,14 +29,14 @@ async function main() {
 
   // 3. AKSA sample
   const aksa = await client.query(`
-    SELECT cb.id, cb.normalized_brand, cb.logo_url,
+    SELECT cb.id, cb.brand, cb.logo_url,
       m.id as map_id, m.dnmk_brands_id, m.ptdrk_brands_id, m.mapping_status, m.match_method,
       d.brand as dnmk_brand, pt.name as pt_name
     FROM v0.brand_list cb
     LEFT JOIN v0.brand_mappings m ON m.brand_list_id = cb.id
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
     LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
-    WHERE cb.normalized_brand = 'AKSA'
+    WHERE cb.brand = 'AKSA'
   `)
   console.log('\nAKSA Sample:', JSON.stringify(aksa.rows, null, 2))
 
@@ -50,9 +50,9 @@ async function main() {
 
   // 5. Verify no duplicates in canonical
   const dupCheck = await client.query(`
-    SELECT normalized_brand, COUNT(*)::int
+    SELECT brand, COUNT(*)::int
     FROM v0.brand_list
-    GROUP BY normalized_brand
+    GROUP BY brand
     HAVING COUNT(*) > 1
   `)
   console.log('Duplicate canonical brands:', dupCheck.rows.length === 0 ? 'NONE ✓' : dupCheck.rows)

@@ -149,21 +149,12 @@ messages/
 | `part_cross_references` | Çapraz referans | N:1 → `parts` |
 | `part_images` | Ürün görseli | N:1 → `parts` |
 | `part_properties` | Teknik özellikler | N:1 → `parts` |
-| `part_vehicle_types` | Araç uyumluluğu | N:N (parts ↔ vehicle_types) |
-| `part_pricing_inventory` | Fiyat + stok | 1:1 → `parts`, kaynak: `supplier_products` |
-| `part_admin_overrides` | Admin fiyat/görünürlük override | 1:1 → `parts` |
-| `part_supplier_offers` | Tedarikçi alternatif teklifleri | N:1 → `parts` + `supplier_products` |
-| `part_reference_links` | Tedarikçi referans klon ilişkisi | source → derived part |
-| `supplier_providers` | Tedarikçi sağlayıcı | Dinamik, SETA, Parts2World |
-| `supplier_products` | Tedarikçi ürün verisi | N:1 → `supplier_providers` |
-| `supplier_product_oems` | Tedarikçi OEM kodları | N:1 → `supplier_products` |
-| `supplier_part_mappings` | Eşleştirme (internal ↔ tedarikçi) | 1:1 (unique) |
-| `supplier_brand_aliases` | Marka adı alias | N:1 → `part_brands` |
-| `supplier_sync_runs` | Sync operasyon logları | N:1 → `supplier_providers` |
+| `part_vehicle_types` | Araç uyumluluğu | N:N (parts ↔ v0.vtypes) |
+| `part_pricing_inventory` | Fiyat + stok | 1:1 → `parts` |
 | `makes` / `models` / `vehicles` | Eski araç hiyerarşisi (trodo'dan önce) | make → model → vehicle |
-| `vehicle_brands` / `vehicle_models` / `vehicle_types` | Aktif araç hiyerarşisi | brand → model → type |
-| `vehicle_type_modifications` | Araç detay özellikleri | 1:1 → `vehicle_types` |
-| `oil_capacities` | Yağ kapasitesi | 1:1 → `vehicle_types` |
+| `v0.vbrands` / `v0.vmodels` / `v0.vtypes` | Aktif araç hiyerarşisi | brand → model → type |
+| `v0.vtype_details` | Araç detay özellikleri | 1:1 → `v0.vtypes` |
+| `oil_capacities` | Yağ kapasitesi | 1:1 → `v0.vtypes` |
 | `users` | Kullanıcı | Supabase auth ID |
 | `orders` / `order_items` / `order_payments` | Sipariş ve ödeme | order → items → parts |
 | `customer_requests` | Müşteri talep/bildirim | N:1 → `parts` (opsiyonel) |
@@ -185,13 +176,8 @@ messages/
 parts → part_brands (marka)
 parts → part_categories (kategori)
 parts → part_oens (OEM kodları)
-parts → part_vehicle_types → vehicle_types (uyumluluk)
+parts → part_vehicle_types → v0.vtypes (uyumluluk)
 parts → part_pricing_inventory (fiyat/stok)
-parts → part_admin_overrides (admin override)
-parts ← supplier_part_mappings → supplier_products (eşleştirme)
-supplier_products → supplier_product_oems (tedarikçi OEM)
-parts → part_supplier_offers (alternatif teklif)
-parts → part_reference_links (referans klon)
 ```
 
 ---
@@ -244,9 +230,6 @@ computed_selling_price_ex_vat (satış fiyatı KDV hariç)
 fiyat gösterimi (KDV dahil)
 ```
 
-- `part_admin_overrides.selling_price_override` → manuel fiyat
-- `part_admin_overrides.lock_price` → fiyat kilidi
-- `part_admin_overrides.is_visible` → görünürlük kilidi
 - Stok: `supplier_stock_qty - reserved_stock_qty`
 - Satın alınabilirlik: fiyat var VE stok > 0
 
@@ -260,12 +243,10 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 1. Tedarikçi API'den katalog çek
 2. Marka alias çözümlemesi
 3. OEM eşleşme + candidate matching
-4. supplier_products upsert
-5. supplier_part_mappings güncelle (98%+ güven auto-approve)
-6. part_pricing_inventory güncelle
-7. cross-reference mirror
-8. Meilisearch index güncelle
-9. Redis önbellek invalidasyon
+4. part_pricing_inventory güncelle
+5. cross-reference mirror
+6. Meilisearch index güncelle
+7. Redis önbellek invalidasyon
 ```
 
 ### 5.5 Ödeme Akışı (Tami)
@@ -554,8 +535,8 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 ## 16. Dikkat Edilmesi Gereken Noktalar
 
 ### Yüksek Riskli Alanlar
-1. **Araç uyumluluğu** — `part_vehicle_types` ve `vehicle_types` arasındaki eşleşme hataları müşteriye yanlış parça satabilir
-2. **OEM kod eşleşmesi** — `part_oens` ↔ `supplier_product_oems` normalize edilmiş karşılaştırma, Türkçe karakter hassasiyeti
+1. **Araç uyumluluğu** — `part_vehicle_types` ve `v0.vtypes` arasındaki eşleşme hataları müşteriye yanlış parça satabilir
+2. **OEM kod eşleşmesi** — `part_oens` normalize edilmiş karşılaştırma, Türkçe karakter hassasiyeti
 3. **Fiyat hesaplama** — KDV, indirim, kampanya marin sıralaması ve yuvarlama hataları
 4. **Stok mutabakat** — `reserved_stock_qty` ve `supplier_stock_qty` tutarsızlığı sipariş reddine yol açabilir
 5. **Tedarikçi sync** — Dinamik sync ~1764 satır, kompleks job; partial failure durumları
@@ -603,7 +584,6 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 1. `lib/suppliers/yeni-ssatici-client.ts` — HTTP client
 2. `lib/suppliers/sync-yeni-ssatici.ts` — Sync orchestration
 3. `app/api/internal/suppliers/yeni-ssatici/sync/route.ts` — Cron trigger
-4. Prisma şemasında `supplier_providers` tablosuna yeni `code` eklenebilir
 
 ### Yeni bir veritabanı modeli eklemek
 1. `prisma/schema.prisma`'ya model ekle

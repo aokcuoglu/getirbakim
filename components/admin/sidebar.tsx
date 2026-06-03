@@ -394,6 +394,11 @@ export function Sidebar({
               label: 'Dinamik',
               href: '/admin/suppliers/dinamik',
               active: pathname.startsWith('/admin/suppliers/dinamik')
+            },
+            {
+              label: 'V0 Ürün Zenginleştirme',
+              href: '/admin/v0-products',
+              active: pathname.startsWith('/admin/v0-products')
             }
           ]
         },

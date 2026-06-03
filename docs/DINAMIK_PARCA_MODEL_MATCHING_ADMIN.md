@@ -12,8 +12,6 @@ Dinamik products (price/stock)
     → ParçaTedarik normalized_model match
       → ParçaTedarik ref_no tokens
         → public.parts (OEM/EAN/cross-reference/part_no)
-          → public.supplier_part_mappings
-          → public.part_supplier_offers
 ```
 
 ## Matching Logic
@@ -41,7 +39,7 @@ When a match is approved, the ParçaTedarik `ref_no` tokens are resolved against
 | `PART_NO_MATCH` | `parts` | `part_no` | 0.90 |
 | `CROSS_REFERENCE_MATCH` | `part_cross_references` | `article_number` | 0.88 |
 
-- Exactly one confident candidate → auto-creates `supplier_part_mappings` and `part_supplier_offers`
+- Exactly one confident candidate → resolves to canonical part
 - Ambiguous candidates → stays `NEEDS_REVIEW`
 
 ## Confidence Rules
@@ -95,18 +93,11 @@ APPLY=true LIMIT=500 bun scripts/generate-dinamik-parcatedarik-model-matches.ts
 When a match is APPROVED:
 1. Resolve ParçaTedarik `ref_no` tokens to `public.parts`
 2. If exactly one confident part candidate:
-   - Look up the Dinamik `supplier_products` row by `stock_code`
-   - If `supplier_products` row exists:
-     - Create/update `supplier_part_mappings` with `match_reason = DINAMIK_BARCODE_PARCA_MODEL_TO_PART`
-     - Create/update `part_supplier_offers` with:
-       - `supplier_price` from `supplier_products.supplier_price` (fallback to `dinamik.products.price`)
-       - `supplier_stock_qty` from `supplier_products.supplier_stock_qty`
-       - `currency` from `supplier_products.currency` (fallback to `TRY`)
-     - Call `applyPolicyForPart()` to update `part_pricing_inventory`
-   - If no `supplier_products` row exists: return warning, skip mapping/offer creation
+   - The canonical part receives the supplier pricing and stock data
+   - `applyPolicyForPart()` is called to update `part_pricing_inventory`
 3. If ambiguous → set status to `NEEDS_REVIEW`
 
-**Important**: The approve action propagates stock and price from `supplier_products` (which is synced by the Dinamik sync job). If the Dinamik sync has not run, `supplier_products.supplier_stock_qty` may be 0 or stale.
+**Important**: The approve action ensures `part_pricing_inventory` reflects the resolved part's pricing after approval.
 
 ## Match Status Values
 
@@ -188,7 +179,7 @@ Canonical `public.parts` should gain Dinamik supplier offers when mapped. Search
 
 ## Backfill Approved Match Offer Stock
 
-Existing APPROVED matches created before the stock propagation fix may have `part_supplier_offers.supplier_stock_qty = 0`. To fix:
+Existing APPROVED matches created before data model changes may need reconciliation. To verify and fix:
 
 ```bash
 # Dry run (default, no writes):
@@ -205,10 +196,8 @@ APPLY=true bun scripts/backfill-approved-dinamik-parcatedarik-offer-stock.ts
 ```
 
 The backfill script:
-1. Finds APPROVED matches with `part_supplier_offers.supplier_stock_qty = 0`
-2. Reads `supplier_products.supplier_stock_qty` and `supplier_price` for the matching Dinamik product
-3. Updates `part_supplier_offers` with correct stock/price/currency
-4. Calls `applyPolicyForPart()` to refresh `part_pricing_inventory`
-5. Reports statistics on scanned/found/updated/missing records
+1. Finds APPROVED matches needing data reconciliation
+2. Updates `part_pricing_inventory` with correct pricing/stock via `applyPolicyForPart()`
+3. Reports statistics on scanned/found/updated/missing records
 
 After backfill, run Meilisearch reindex if needed.

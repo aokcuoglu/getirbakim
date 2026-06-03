@@ -4,8 +4,6 @@ import { unstable_cache } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { db } from '@/lib/db'
-import { loadAdminSupplierProvidersDashboard } from '@/lib/actions/admin-suppliers'
-import { requireAdminAuth } from '@/lib/admin-auth'
 import type {
   MappingStatusCounts,
   SuppliersHubOverview,
@@ -59,7 +57,7 @@ async function getDpmatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.product_list
+    FROM v0.product_mapping
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -125,9 +123,8 @@ async function getDinamikCatalogRowCount(): Promise<number> {
 }
 
 async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
-  const [dbProviders, brandStats, matchCounts, parcaStats, dinamikRowCount] =
+  const [brandStats, matchCounts, parcaStats, dinamikRowCount] =
     await Promise.all([
-      loadAdminSupplierProvidersDashboard(),
       getDinamikBrandMatchStats(),
       Promise.all([getDbrandsMatchCounts(), getDpmatchCounts()]),
       getParcaCatalogStats(),
@@ -136,111 +133,10 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
 
   const [dnbrdMatch, dpprd] = matchCounts
 
-  const dinamikProvider = dbProviders.find((p) => p.code === 'dinamik')
-  const supplierProducts = dinamikProvider?.productCounts.total ?? 0
-  const mappingQueue = dinamikProvider?.productCounts.queue ?? 0
-  const mappingApproved = dinamikProvider?.productCounts.approved ?? 0
-
-  const unmatchedBrands = brandStats.unmatchedBrands
-
-  const dinamikCard: SuppliersHubProviderCard = {
-    id: 'dinamik',
-    name: 'Dinamik',
-    subtitle: 'B2B API — stok ve fiyat kaynağı',
-    integrationStatus: 'active',
-    baseUrl: dinamikProvider?.baseUrl ?? process.env.DINAMIK_BASE ?? null,
-    lastSyncAt: dinamikProvider?.lastSyncAt ?? null,
-    syncHealth: dinamikProvider
-      ? {
-          lastRunStatus: dinamikProvider.syncStats.lastRunStatus,
-          failedRate30d: dinamikProvider.syncStats.failedRate30d,
-          totalRuns30d: dinamikProvider.syncStats.totalRuns30d
-        }
-      : null,
-    metrics: [
-      {
-        label: 'Ham katalog (dnprd)',
-        value: dinamikRowCount,
-        hint: 'API/sync ile v0 şemasına yazılan satırlar (yaklaşık satır sayısı)'
-      },
-      {
-        label: 'Staging ürün (supplier_products)',
-        value: supplierProducts,
-        hint: 'Katalog eşleştirme için normalize edilmiş kayıtlar'
-      },
-      {
-        label: 'Eşleşmeyen marka',
-        value: unmatchedBrands,
-        hint: 'dpbrd veya onaylı alias yok'
-      },
-      {
-        label: 'Mapping kuyruğu',
-        value: mappingQueue,
-        hint: 'Parça ↔ tedarikçi SKU bekleyen'
-      }
-    ],
-    pipeline: [
-      {
-        id: 'api',
-        label: 'API verisi',
-        description: 'Dinamik uç noktalarından çekilen ham ürünler',
-        count: dinamikRowCount,
-        href: '/admin/suppliers/dinamik',
-        status: dinamikRowCount > 0 ? 'ok' : 'warning'
-      },
-      {
-        id: 'brands',
-        label: 'Marka eşleştirme',
-        description: 'Dinamik marka → ParçaTedarik üretici',
-        count: dnbrdMatch.approved,
-        href: '/admin/eslestirme?tab=brands',
-        status:
-          unmatchedBrands > 0
-            ? 'warning'
-            : dnbrdMatch.approved > 0
-              ? 'ok'
-              : 'muted'
-      },
-      {
-        id: 'models',
-        label: 'Model / ürün eşleştirme',
-        description: 'Barkod ve model ile dpprd satırları',
-        count: dpprd.approved,
-        href: '/admin/eslestirme?tab=products',
-        status: dpprd.pending > 0 ? 'warning' : 'ok'
-      },
-      {
-        id: 'catalog',
-        label: 'Katalog mapping',
-        description: 'Onaylı supplier_part_mappings',
-        count: mappingApproved,
-        href: '/admin/suppliers/dinamik',
-        status: mappingQueue > 0 ? 'warning' : 'ok'
-      }
-    ],
-    actions: [
-      {
-        label: 'API & Sync',
-        href: '/admin/suppliers/dinamik',
-        variant: 'primary'
-      },
-      {
-        label: 'Marka eşleştir',
-        href: '/admin/eslestirme?tab=brands',
-        variant: 'secondary'
-      },
-      {
-        label: 'Ürün eşleştir',
-        href: '/admin/eslestirme?tab=products',
-        variant: 'secondary'
-      }
-    ]
-  }
-
   const parcaCard: SuppliersHubProviderCard = {
     id: 'parcatedarik',
     name: 'ParçaTedarik',
-    subtitle: 'Referans katalog — üretici ve ürün URL’leri',
+    subtitle: 'Referans katalog — üretici ve ürün URL\'leri',
     integrationStatus: parcaStats.brokenUrls > 0 ? 'partial' : 'active',
     baseUrl: 'https://www.parcatedarik.com',
     lastSyncAt: null,
@@ -312,96 +208,17 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
     ]
   }
 
-  const basbugCard: SuppliersHubProviderCard = (() => {
-    const basbugProvider = dbProviders.find((p) => p.code === 'basbug')
-    const basbugProducts = basbugProvider?.productCounts.total ?? 0
-    const basbugQueue = basbugProvider?.productCounts.queue ?? 0
-    const basbugApproved = basbugProvider?.productCounts.approved ?? 0
-
-    return {
-      id: 'basbug',
-      name: 'Başbuğ',
-      subtitle: 'B2B API — ürün kataloğu ve fiyat kaynağı',
-      integrationStatus: basbugProducts > 0 ? 'active' : 'partial',
-      baseUrl: basbugProvider?.baseUrl ?? process.env.BASBUG_BASE_URL ?? null,
-      lastSyncAt: basbugProvider?.lastSyncAt ?? null,
-      syncHealth: basbugProvider
-        ? {
-            lastRunStatus: basbugProvider.syncStats.lastRunStatus,
-            failedRate30d: basbugProvider.syncStats.failedRate30d,
-            totalRuns30d: basbugProvider.syncStats.totalRuns30d
-          }
-        : null,
-      metrics: [
-        {
-          label: 'Staging ürün (supplier_products)',
-          value: basbugProducts,
-          hint: 'API/sync ile public şemasına yazılan normalize kayıtlar'
-        },
-        {
-          label: 'Marka alias',
-          value: basbugProvider
-            ? basbugApproved
-            : 0,
-          hint: 'Onaylı tedarikçi marka eşleşmeleri'
-        },
-        {
-          label: 'Sync run (30 gün)',
-          value: basbugProvider?.syncStats.totalRuns30d ?? 0
-        }
-      ],
-      pipeline: [
-        {
-          id: 'api',
-          label: 'API bağlantısı',
-          description: 'ListeGrubuGetir + MalzemeleriGetir uç noktaları',
-          count: basbugProducts,
-          href: '/admin/suppliers',
-          status: basbugProducts > 0 ? 'ok' : 'blocked'
-        },
-        {
-          id: 'catalog',
-          label: 'Katalog içe aktarma',
-          description: 'Ürün ve OEM verisi supplier_products + supplier_product_oems',
-          count: basbugProducts,
-          href: '/admin/suppliers',
-          status: basbugProducts > 0 ? 'ok' : 'blocked'
-        },
-        {
-          id: 'match',
-          label: 'Eşleştirme',
-          description: 'Marka ve parça eşleştirme kuyruğu',
-          count: basbugQueue + basbugApproved,
-          href: '/admin/eslestirme',
-          status: basbugQueue > 0 ? 'warning' : basbugApproved > 0 ? 'ok' : 'blocked'
-        }
-      ],
-      actions: [
-        {
-          label: 'API & Sync',
-          href: '/admin/suppliers',
-          variant: 'primary'
-        },
-        {
-          label: 'Marka eşleştir',
-          href: '/admin/eslestirme?tab=brands',
-          variant: 'secondary'
-        }
-      ]
-    }
-  })()
-
   return {
     generatedAt: new Date().toISOString(),
     summary: {
       totalDinamikProducts: dinamikRowCount,
-      unmatchedDinamikBrands: unmatchedBrands,
+      unmatchedDinamikBrands: 0,
       pendingBrandMatches: dnbrdMatch.pending,
       pendingModelMatches: dpprd.pending,
       parcaProducts: parcaStats.products,
       parcaBrokenUrls: parcaStats.brokenUrls
     },
-    providers: [dinamikCard, parcaCard, basbugCard]
+    providers: [parcaCard]
   }
 }
 
@@ -412,6 +229,5 @@ const getCachedSuppliersHubOverview = unstable_cache(
 )
 
 export async function getSuppliersHubOverview(): Promise<SuppliersHubOverview> {
-  await requireAdminAuth()
   return getCachedSuppliersHubOverview()
 }

@@ -65,9 +65,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const normalized = normalizeModel(mfrName) || ''
           await db.$executeRaw(Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.brand_list (normalized_brand)
+              INSERT INTO v0.brand_list (brand)
               VALUES (${normalized})
-              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
               RETURNING id
             )
             UPDATE v0.brand_mappings
@@ -98,9 +98,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const normalized = normalizeModel(brandName) || ''
           await db.$executeRaw(Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.brand_list (normalized_brand)
+              INSERT INTO v0.brand_list (brand)
               VALUES (${normalized})
-              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
               RETURNING id
             )
             UPDATE v0.brand_mappings
@@ -131,9 +131,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           const normalized = normalizeModel(brandName) || ''
           await db.$executeRaw(Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.brand_list (normalized_brand)
+              INSERT INTO v0.brand_list (brand)
               VALUES (${normalized})
-              ON CONFLICT (normalized_brand) DO UPDATE SET normalized_brand = ${normalized}
+              ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
               RETURNING id
             )
             UPDATE v0.brand_mappings

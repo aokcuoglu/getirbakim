@@ -15,7 +15,7 @@ export type AdminApprovedBrandMapping = {
 
 export type AdminApprovedBrandRow = {
   id: number // canonical id
-  normalizedName: string // brand_list.normalized_brand
+  normalizedName: string // brand_list.brand
   logoUrl: string | null // brand_list.logo_url
   mappings: AdminApprovedBrandMapping[]
 }
@@ -72,7 +72,7 @@ function buildWhereClause(
   if (filters.q) {
     const pattern = `%${filters.q.replace(/[%_\\]/g, '\\$&')}%`
     clauses.push(
-      Prisma.sql`cb.normalized_brand ILIKE ${pattern}`
+      Prisma.sql`cb.brand ILIKE ${pattern}`
     )
   }
   if (filters.logoStatus === 'missing') {
@@ -94,7 +94,7 @@ export async function listApprovedDbrandsForAdmin(
   const offset = (filters.page - 1) * filters.limit
   const whereClause = buildWhereClause(filters)
   const orderDir = filters.sortDir === 'desc' ? 'DESC' : 'ASC'
-  const orderBy = Prisma.sql`cb.normalized_brand ${Prisma.raw(orderDir)}`
+  const orderBy = Prisma.sql`cb.brand ${Prisma.raw(orderDir)}`
 
   // Count and summary
   const [countRows, summaryRows] = await Promise.all([
@@ -120,11 +120,11 @@ export async function listApprovedDbrandsForAdmin(
   const canonicalRows = await db.$queryRaw<
     Array<{
       id: number
-      normalized_brand: string
+      brand: string
       logo_url: string | null
     }>
   >(Prisma.sql`
-    SELECT id, normalized_brand, logo_url
+    SELECT id, brand, logo_url
     FROM v0.brand_list cb
     WHERE ${whereClause}
     ORDER BY ${orderBy}
@@ -188,7 +188,7 @@ export async function listApprovedDbrandsForAdmin(
 
   const rows: AdminApprovedBrandRow[] = canonicalRows.map((r) => ({
     id: r.id,
-    normalizedName: r.normalized_brand,
+    normalizedName: r.brand,
     logoUrl: r.logo_url,
     mappings: mappingsByBrandId.get(r.id) ?? []
   }))
@@ -221,11 +221,11 @@ export async function getApprovedDbrandsMatchById(
   const rows = await db.$queryRaw<
     Array<{
       id: number
-      normalized_brand: string
+      brand: string
       logo_url: string | null
     }>
   >(Prisma.sql`
-    SELECT id, normalized_brand, logo_url
+    SELECT id, brand, logo_url
     FROM v0.brand_list cb
     WHERE cb.id = ${matchId}
     LIMIT 1
@@ -267,7 +267,7 @@ export async function getApprovedDbrandsMatchById(
 
   return {
     id: r.id,
-    normalizedName: r.normalized_brand,
+    normalizedName: r.brand,
     logoUrl: r.logo_url,
     mappings: mappings.map((m) => ({
       mappingId: m.mapping_id,

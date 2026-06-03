@@ -13,7 +13,6 @@ export type SearchCTA =
 export type AvailabilityInput = {
   hasRealPrice: boolean
   availableStock: number
-  hasSupplierOffer: boolean
   hasPartId: boolean
 }
 
@@ -56,9 +55,7 @@ export const AVAILABILITY_CTA_LABELS: Record<
 
 export function resolveDetailUrl(input: {
   partId?: string | null
-  supplierProductId?: number | null
 }): string | null {
   if (input.partId) return `/part/${input.partId}`
-  if (input.supplierProductId) return `/supplier-product/${input.supplierProductId}`
   return null
 }

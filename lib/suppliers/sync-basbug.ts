@@ -10,8 +10,6 @@ import {
   type BasbugMalzeme
 } from '@/lib/suppliers/basbug-client'
 
-const BASBUG_PROVIDER_CODE = 'basbug'
-const DEFAULT_GROUP_CONCURRENCY = 1
 const BATCH_SIZE = 500
 
 const DEFAULT_PROVIDER_CONFIG = {
@@ -25,8 +23,6 @@ const DEFAULT_PROVIDER_CONFIG = {
   supportsRealtimeStock: false
 } satisfies Record<string, unknown>
 
-type TriggerType = 'MANUAL' | 'SCHEDULED'
-
 type BasbugCatalogSeedBrandSummary = {
   listeGrubu: string
   fetched: number
@@ -35,14 +31,11 @@ type BasbugCatalogSeedBrandSummary = {
 }
 
 export interface BasbugCatalogSeedOptions {
-  triggerType?: TriggerType
   listeGruplari?: string[]
   limitGroups?: number
 }
 
 export interface BasbugCatalogSeedResult {
-  runId: number
-  providerId: number
   status: 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED'
   groupCount: number
   totalCount: number
@@ -53,7 +46,6 @@ export interface BasbugCatalogSeedResult {
 }
 
 export interface BasbugRateSyncResult {
-  runId: number
   status: 'SUCCESS' | 'PARTIAL_SUCCESS' | 'FAILED'
   fetched: number
   upserted: number
@@ -93,50 +85,6 @@ async function chunk<T, R>(
   }
 }
 
-async function ensureBasbugProvider() {
-  return db.supplier_providers.upsert({
-    where: { code: BASBUG_PROVIDER_CODE },
-    update: {
-      name: 'Başbuğ',
-      status: 'ACTIVE',
-      priority: 30,
-      schedule: 'DAILY',
-      base_url: 'https://api.basbug.com.tr'
-    },
-    create: {
-      code: BASBUG_PROVIDER_CODE,
-      name: 'Başbuğ',
-      status: 'ACTIVE',
-      priority: 30,
-      schedule: 'DAILY',
-      base_url: 'https://api.basbug.com.tr',
-      config: DEFAULT_PROVIDER_CONFIG
-    }
-  })
-}
-
-async function getLatestRate(currency: string): Promise<{
-  kurDegeri: number | null
-  fiyatTl: number | null
-} | null> {
-  if (currency === 'TRY' || currency === 'TL') {
-    return { kurDegeri: null, fiyatTl: null }
-  }
-
-  const rate = await db.bsbg_rate.findFirst({
-    where: { doviz_cinsi: currency },
-    orderBy: { tarih: 'desc' },
-    select: { satis: true }
-  })
-
-  if (!rate) return null
-
-  return {
-    kurDegeri: Number(rate.satis),
-    fiyatTl: null
-  }
-}
-
 export async function runBasbugCatalogSeedJob(
   options: BasbugCatalogSeedOptions = {}
 ): Promise<BasbugCatalogSeedResult> {
@@ -145,21 +93,6 @@ export async function runBasbugCatalogSeedJob(
   let totalCount = 0
   let successCount = 0
   let failedCount = 0
-
-  const provider = await ensureBasbugProvider()
-  const providerId = provider.id
-
-  const syncRun = await db.supplier_sync_runs.create({
-    data: {
-      provider_id: providerId,
-      trigger_type: options.triggerType || 'MANUAL',
-      endpoint: '/material/MalzemeleriGetir',
-      status: 'RUNNING',
-      total_count: 0,
-      success_count: 0,
-      failed_count: 0
-    }
-  })
 
   try {
     const groups = await getListeGruplari()
@@ -212,8 +145,6 @@ export async function runBasbugCatalogSeedJob(
         }
 
         await chunk(malzemeler, BATCH_SIZE, async (batch) => {
-          const now = new Date()
-
           await db.bsbg_products.createMany({
             data: batch.map((m) => {
               const currency = mapCurrency(m.dc)
@@ -221,7 +152,7 @@ export async function runBasbugCatalogSeedJob(
               return {
                 bsbg_brands_id: bsbgBrandsId,
                 malzeme_no: m.no,
-                part_no: m.no.includes(' ') ? m.no.split(' ')[1] : null,
+                part_no: (m.uk?.toUpperCase() === 'OE-FD' || m.uk?.toUpperCase() === 'VIEW MAX' || m.uk?.toUpperCase() === 'CONTITECH' || m.uk?.toUpperCase() === 'R' || m.uk?.toUpperCase() === 'FMY' || m.uk?.toUpperCase() === 'ARI IS') ? m.no : (() => { const i = m.no.indexOf(' '); return i > 0 ? m.no.slice(i + 1).trim() || null : null })(),
                 aciklama: normalizeText(m.ac),
                 aciklama2: normalizeText(m.ac2),
                 oem_no: normalizeText(m.oe),
@@ -233,7 +164,7 @@ export async function runBasbugCatalogSeedJob(
                 para_birimi: currency,
                 liste_fiyati: toDecimal(m.lf),
                 raw: m as unknown as Prisma.InputJsonValue,
-                last_seen_at: now
+                last_seen_at: new Date()
               }
             }),
             skipDuplicates: true
@@ -241,24 +172,6 @@ export async function runBasbugCatalogSeedJob(
 
           staged += batch.length
           successCount += batch.length
-
-          await db.supplier_sync_runs
-            .update({
-              where: { id: syncRun.id },
-              data: {
-                total_count: totalCount,
-                success_count: successCount
-              }
-            })
-            .catch(() => {})
-        })
-
-        await db.supplier_sync_runs.update({
-          where: { id: syncRun.id },
-          data: {
-            total_count: totalCount,
-            success_count: successCount
-          }
         })
 
         brandSummaries.push({ listeGrubu: group.kod, fetched, staged, failed })
@@ -277,25 +190,7 @@ export async function runBasbugCatalogSeedJob(
           ? 'PARTIAL_SUCCESS'
           : 'FAILED'
 
-    await db.supplier_sync_runs.update({
-      where: { id: syncRun.id },
-      data: {
-        status,
-        total_count: totalCount,
-        success_count: successCount,
-        failed_count: failedCount,
-        error_summary: errors.length > 0 ? errors.slice(0, 10).join('; ') : null,
-        meta: {
-          groupCount: filteredGroups.length,
-          brands: brandSummaries
-        } as Prisma.InputJsonValue,
-        ended_at: new Date()
-      }
-    })
-
     return {
-      runId: syncRun.id,
-      providerId,
       status,
       groupCount: filteredGroups.length,
       totalCount,
@@ -308,23 +203,7 @@ export async function runBasbugCatalogSeedJob(
     const message = error instanceof Error ? error.message : String(error)
     errors.unshift(`Genel hata: ${message}`)
 
-    await db.supplier_sync_runs
-      .update({
-        where: { id: syncRun.id },
-        data: {
-          status: 'FAILED',
-          total_count: totalCount,
-          success_count: successCount,
-          failed_count: failedCount + 1,
-          error_summary: errors.slice(0, 10).join('; '),
-          ended_at: new Date()
-        }
-      })
-      .catch(() => {})
-
     return {
-      runId: syncRun.id,
-      providerId,
       status: 'FAILED',
       groupCount: 0,
       totalCount,
@@ -344,24 +223,32 @@ function toDecimalFromString(value: string): Prisma.Decimal {
   return new Prisma.Decimal(sanitized)
 }
 
+async function getLatestRate(currency: string): Promise<{
+  kurDegeri: number | null
+  fiyatTl: number | null
+} | null> {
+  if (currency === 'TRY' || currency === 'TL') {
+    return { kurDegeri: null, fiyatTl: null }
+  }
+
+  const rate = await db.bsbg_rate.findFirst({
+    where: { doviz_cinsi: currency },
+    orderBy: { tarih: 'desc' },
+    select: { satis: true }
+  })
+
+  if (!rate) return null
+
+  return {
+    kurDegeri: Number(rate.satis),
+    fiyatTl: null
+  }
+}
+
 export async function runBasbugRateSyncJob(): Promise<BasbugRateSyncResult> {
   const errors: string[] = []
   let fetched = 0
   let upserted = 0
-
-  const provider = await ensureBasbugProvider()
-
-  const syncRun = await db.supplier_sync_runs.create({
-    data: {
-      provider_id: provider.id,
-      trigger_type: 'SCHEDULED',
-      endpoint: '/material/DovizBilgisiGetir',
-      status: 'RUNNING',
-      total_count: 0,
-      success_count: 0,
-      failed_count: 0
-    }
-  })
 
   try {
     const today = new Date()
@@ -406,21 +293,7 @@ export async function runBasbugRateSyncJob(): Promise<BasbugRateSyncResult> {
           ? 'PARTIAL_SUCCESS'
           : 'FAILED'
 
-    await db.supplier_sync_runs.update({
-      where: { id: syncRun.id },
-      data: {
-        status,
-        total_count: fetched,
-        success_count: upserted,
-        failed_count: fetched - upserted,
-        error_summary: errors.length > 0 ? errors.slice(0, 5).join('; ') : null,
-        meta: { fetched, upserted } as Prisma.InputJsonValue,
-        ended_at: new Date()
-      }
-    })
-
     return {
-      runId: syncRun.id,
       status,
       fetched,
       upserted,
@@ -430,22 +303,7 @@ export async function runBasbugRateSyncJob(): Promise<BasbugRateSyncResult> {
     const message = error instanceof Error ? error.message : String(error)
     errors.unshift(`Genel hata: ${message}`)
 
-    await db.supplier_sync_runs
-      .update({
-        where: { id: syncRun.id },
-        data: {
-          status: 'FAILED',
-          total_count: fetched,
-          success_count: upserted,
-          failed_count: fetched - upserted + 1,
-          error_summary: errors.slice(0, 5).join('; '),
-          ended_at: new Date()
-        }
-      })
-      .catch(() => {})
-
     return {
-      runId: syncRun.id,
       status: 'FAILED',
       fetched,
       upserted,

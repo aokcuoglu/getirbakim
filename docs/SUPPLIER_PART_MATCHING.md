@@ -20,14 +20,13 @@ GetirBakim V2 uses a **canonical-parts-first** strategy for search and product d
 ### Mapping Flow
 
 ```
-Supplier Product → supplier_part_mappings → canonical part (parts table)
+Supplier Product → OEM/EAN/cross-reference matching → canonical part (parts table)
 ```
 
 When a supplier product is matched to a canonical part:
-1. A `supplier_part_mapping` record is created with a status, confidence score, and match reason
-2. A `part_supplier_offer` links the supplier product to the canonical part with pricing/stock data
-3. `part_pricing_inventory` is updated with the best offer for the canonical part
-4. `part_cross_references` may be created for the supplier SKU/brand pair
+1. The canonical part receives supplier pricing and stock data
+2. `part_pricing_inventory` is updated with the best offer for the canonical part
+3. `part_cross_references` may be created for the supplier SKU/brand pair
 
 ### Match Reasons and Confidence
 
@@ -36,7 +35,7 @@ When a supplier product is matched to a canonical part:
 | `OEM_EXACT` | 0.95–0.99 | Yes (≥0.95) | Supplier product OEM matches canonical part OEM exactly |
 | `EAN_EXACT` | 0.95–0.99 | Yes (≥0.95) | Supplier barcode/EAN matches canonical part EAN exactly |
 | `CROSS_REFERENCE_EXACT` | 0.85–0.95 | No (usually) | Supplier SKU/reference matches a cross-reference article number; brand match boosts confidence |
-| `BRAND_ALIAS_REFERENCE` | 0.75–0.90 | No | Supplier brand maps to a canonical brand via `supplier_brand_aliases` |
+| `BRAND_ALIAS_REFERENCE` | 0.75–0.90 | No | Supplier brand maps to a canonical brand via brand alias lookup |
 | `NAME_SIMILARITY` | 0.40–0.70 | Never | Name similarity match; candidate only, requires manual review |
 
 ### Match Statuses
@@ -58,13 +57,10 @@ When a supplier product is matched to a canonical part:
 - **Brand alias reference**: Never auto-approve
 - **Name similarity**: Never auto-approve (always `NEEDS_REVIEW`)
 
-Existing manual mappings and approved mappings must be respected. Duplicate `supplier_part_mappings` must not be created.
-
 ## Orphan Supplier Products
 
 If a supplier product has:
-- No approved `supplier_part_mapping`, AND
-- No active `part_supplier_offer`
+- No approved mapping to a canonical part
 
 ...then it is an **orphan supplier product**.
 
@@ -75,22 +71,14 @@ Orphan products are:
 - Routable to `/supplier-product/<supplierProductId>` detail page
 - Tagged with `matchStatus: UNMAPPED`
 
-The matching module (`lib/search/supplier-part-matching.ts`) identifies candidate canonical parts for orphans but does not auto-approve low-confidence matches. Candidate matches are stored as `supplier_part_mappings` with `status: CANDIDATE` or `status: QUEUE`.
-
-## part_reference_links Usage
-
-After a supplier product mapping is approved:
-1. `part_reference_links` may be created to track the source relationship
-2. The `derived_part_id` references the canonical part populated from supplier data
-3. `relation_type` indicates how the link was derived (e.g., `SUPPLIER_REFERENCE_CLONE`)
-4. `copy_mode` controls data inheritance (e.g., `FULL_COPY_EDITABLE`)
+The matching module (`lib/search/supplier-part-matching.ts`) identifies candidate canonical parts for orphans but does not auto-approve low-confidence matches.
 
 ## Supplier Data Connections
 
 ### Dinamik
 - Periodic catalog sync via `lib/suppliers/sync-dinamik.ts`
 - OEM matching with `findBestCandidate()` (article_link_id → part lookup)
-- Brand verification via `supplier_brand_aliases`
+- Brand verification via brand alias mapping
 - Auto-approve threshold: 0.98 confidence
 
 ### SETA
@@ -100,7 +88,7 @@ After a supplier product mapping is approved:
 - OEM-only matches never auto-approved
 
 ### Başbuğ (Planned)
-- Future supplier; matching framework supports new providers via `supplier_providers` table
+- Future supplier; matching framework supports adding new providers
 
 ## Future: Admin Mapping Workbench
 
