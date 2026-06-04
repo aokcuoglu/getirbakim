@@ -72,6 +72,23 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 echo ""
+echo ">>> Checking SSL certificates..."
+CERT_PATH="/etc/letsencrypt/live/getirbakim.com/fullchain.pem"
+if [[ -f "${CERT_PATH}" ]]; then
+  echo "  SSL certificate found at ${CERT_PATH}"
+  if openssl x509 -checkend 86400 -noout -in "${CERT_PATH}" 2>/dev/null; then
+    echo "  SSL certificate valid for at least 24 hours"
+  else
+    echo "  WARNING: SSL certificate expires within 24 hours or is invalid"
+    echo "  Certificate info:"
+    openssl x509 -subject -issuer -dates -noout -in "${CERT_PATH}" 2>/dev/null || true
+  fi
+else
+  echo "  WARNING: SSL certificate not found at ${CERT_PATH}"
+  echo "  nginx will fail to bind port 443 — run certbot before deploying"
+fi
+
+echo ""
 echo ">>> Stopping host nginx (if running) to free ports 80/443..."
 systemctl stop nginx 2>/dev/null || true
 
@@ -117,7 +134,15 @@ wait_for_healthy() {
 
 wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
 wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
-wait_for_healthy "getirbakim-nginx" 30 || echo "WARN: nginx not healthy"
+wait_for_healthy "getirbakim-nginx" 60 || {
+  echo "FATAL: nginx not healthy within 60s — dumping logs..."
+  docker logs getirbakim-nginx --tail=60 2>/dev/null || true
+  echo "  Checking if nginx config is valid..."
+  docker compose --env-file "${ENV_FILE}" exec -T nginx nginx -t 2>&1 || true
+  echo "  Checking port binding on host..."
+  ss -tlnp 'sport = :80 or sport = :443' 2>/dev/null || netstat -tlnp 2>/dev/null | grep -E '(:80|:443)\s' || true
+  exit 1
+}
 
 echo ""
 echo ">>> Container status:"
@@ -148,19 +173,35 @@ else
   exit 1
 fi
 
-# Verify nginx is proxying correctly
-if docker compose --env-file "${ENV_FILE}" exec -T nginx curl -sf http://localhost/api/health 2>/dev/null | grep -q '"status":"ok"'; then
-  echo "OK: Nginx proxy health check passed"
-else
-  echo "WARN: Nginx proxy health check failed"
+# Verify nginx is proxying correctly (check from app container which has curl)
+echo ">>> Verifying nginx reverse proxy..."
+NGINX_PROXY_OK=false
+for i in 1 2 3; do
+  if docker compose --env-file "${ENV_FILE}" exec -T app curl -sf http://nginx/api/health 2>/dev/null | grep -q '"status":"ok"'; then
+    echo "OK: Nginx proxy health check passed (attempt ${i}/3)"
+    NGINX_PROXY_OK=true
+    break
+  fi
+  echo "  Nginx proxy check attempt ${i}/3 failed, waiting 5s..."
+  sleep 5
+done
+
+if [ "${NGINX_PROXY_OK}" = "false" ]; then
+  echo "WARN: Nginx proxy health check failed after 3 attempts"
+  docker compose --env-file "${ENV_FILE}" logs nginx --tail=30 2>/dev/null || true
 fi
 
 if [[ -n "${DOMAIN}" ]]; then
   echo ""
   echo ">>> Public health check (${DOMAIN})..."
-  curl -fsS "${DOMAIN}/api/health" > /dev/null && echo "OK: ${DOMAIN}/api/health" || echo "WARN: ${DOMAIN}/api/health failed"
-  curl -fsSI "${DOMAIN}/tr" > /dev/null && echo "OK: ${DOMAIN}/tr" || echo "WARN: ${DOMAIN}/tr failed"
-  curl -fsSI "${DOMAIN}/en" > /dev/null && echo "OK: ${DOMAIN}/en" || echo "WARN: ${DOMAIN}/en failed"
+  for url in "${DOMAIN}/api/health" "${DOMAIN}/tr" "${DOMAIN}/en"; do
+    http_code=$(curl -so /dev/null -w '%{http_code}' --max-time 15 "${url}" 2>/dev/null || echo "000")
+    if [ "${http_code}" = "200" ]; then
+      echo "  OK: ${url} (200)"
+    else
+      echo "  WARN: ${url} (HTTP ${http_code})"
+    fi
+  done
 fi
 
 echo ""
