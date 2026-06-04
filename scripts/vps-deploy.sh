@@ -72,6 +72,17 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 echo ""
+echo ">>> Testing nginx image with config..."
+docker pull nginx:stable-alpine 2>/dev/null || true
+NGINX_TEST=$(docker run --rm \
+  -v "$PWD/infra/nginx/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro" \
+  -v /etc/letsencrypt:/etc/letsencrypt:ro \
+  -v /var/www/certbot:/var/www/certbot:ro \
+  nginx:stable-alpine nginx -t 2>&1) || true
+echo "  nginx -t exit code: $?"
+echo "  Output: ${NGINX_TEST:-(none)}"
+
+echo ""
 echo ">>> Checking SSL certificates..."
 CERT_PATH="/etc/letsencrypt/live/getirbakim.com/fullchain.pem"
 if [[ -f "${CERT_PATH}" ]]; then
@@ -137,8 +148,11 @@ wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting
 wait_for_healthy "getirbakim-nginx" 60 || {
   echo "FATAL: nginx not healthy within 60s — dumping diagnostics..."
   echo ""
-  echo "--- nginx container logs (tail 60) ---"
-  docker logs getirbakim-nginx --tail=60 2>/dev/null || echo "(no logs)"
+  echo "--- nginx container logs (tail 80) ---"
+  docker logs getirbakim-nginx --tail=80 2>/dev/null || echo "(no logs)"
+  echo ""
+  echo "--- nginx full logs (details) ---"
+  docker logs getirbakim-nginx --details 2>&1 | tail -20 || echo "(no details)"
   echo ""
   echo "--- nginx container inspect (exit code, error) ---"
   docker inspect getirbakim-nginx --format 'ExitCode={{.State.ExitCode}} Error={{.State.Error}} Status={{.State.Status}}' 2>/dev/null || echo "(inspect failed)"

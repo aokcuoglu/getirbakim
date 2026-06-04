@@ -16,6 +16,8 @@ export interface ModelRow {
   part_no: string | null
   mappingStatus: string
   matchMethod: string | null
+  brandListId: number | null
+  canonicalBrand: string | null
   dinamik: {
     stockCode: string | null
     stockName: string | null
@@ -58,6 +60,7 @@ export function createModelColumns(handlers: {
   onLinkDproducts: (row: ModelRow) => void
   onBulkApproveRows: (rows: ModelRow[]) => void
   onViewDetail: (row: ModelRow) => void
+  onViewBrand: (brandListId: number) => void
 }): ColumnDef<ModelRow, unknown>[] {
   return [
     {
@@ -119,7 +122,7 @@ export function createModelColumns(handlers: {
           providers.push({ label: 'PT', name: r.parcatedarik.title?.slice(0, 40) || '—' })
         }
         if (r.bsbgProductsId) {
-          providers.push({ label: 'Başbuğ', name: 'Ürün mevcut' })
+          providers.push({ label: 'Başbuğ', name: r.bsbg.malzemeNo || 'Ürün mevcut' })
         }
         if (providers.length === 0) {
           return <span className="text-xs text-muted-foreground">Yok</span>
@@ -176,6 +179,25 @@ export function createModelColumns(handlers: {
           </Badge>
         )
       },
+    },
+    {
+      id: 'canonicalBrand',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Kanonik Marka" />,
+      cell: ({ row }) => {
+        const blId = row.original.brandListId
+        const name = row.original.canonicalBrand
+        if (!blId || !name) return <span className="text-xs text-muted-foreground">—</span>
+        return (
+          <button
+            onClick={() => handlers.onViewBrand(blId)}
+            className="max-w-[160px] truncate text-sm text-primary hover:underline text-left"
+            title={name}
+          >
+            {name}
+          </button>
+        )
+      },
+      enableSorting: false,
     },
     {
       id: 'actions',

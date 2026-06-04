@@ -340,7 +340,6 @@ model product_mapping {
   mapping_status    String  @default("PENDING")
   match_method      String?
   brand_list_id     Int?
-  brand             String?
 
   dnmk_products             dnmk_products?              @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
   ptdrk_products            ptdrk_products?             @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
@@ -356,7 +355,6 @@ model product_mapping {
   @@index([match_method], name: "idx_dpmatch_method")
   @@index([part_no], name: "idx_dpmatch_part_no")
   @@index([brand_list_id], name: "idx_dpmatch_brand_list")
-  @@index([brand], name: "idx_dpmatch_brand")
   @@schema("v0")
 }
 

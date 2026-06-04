@@ -14,6 +14,7 @@ import { AdminFilterSelect } from '@/components/admin/data-table/admin-filter-se
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ExternalLink } from 'lucide-react'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DataTable } from './data-table'
@@ -125,6 +126,10 @@ export function ProductsTab() {
   const [manualOemPreviewLoading, setManualOemPreviewLoading] = useState(false)
   const [manualOemSaving, setManualOemSaving] = useState(false)
   const [mappingBrandListId, setMappingBrandListId] = useState<number | null>(null)
+
+  const [brandDialogOpen, setBrandDialogOpen] = useState(false)
+  const [brandDetail, setBrandDetail] = useState<{ id: number; brand: string; logo_url: string | null; mappings: any[] } | null>(null)
+  const [brandDetailLoading, setBrandDetailLoading] = useState(false)
 
   const loadModels = useCallback(async (f: ModelFilters) => {
     const isInitial = !hasLoadedRef.current
@@ -355,6 +360,26 @@ export function ProductsTab() {
     } catch { toast.error('Başarısız') }
   }, [linkTarget, loadModels])
 
+  const handleViewBrand = useCallback(async (brandListId: number) => {
+    setBrandDetailLoading(true)
+    setBrandDialogOpen(true)
+    try {
+      const res = await fetch(`/api/admin/eslestirme/brands/${brandListId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setBrandDetail(data)
+      } else {
+        setBrandDetail(null)
+        toast.error('Marka bilgisi yüklenemedi')
+      }
+    } catch {
+      setBrandDetail(null)
+      toast.error('Marka bilgisi yüklenemedi')
+    } finally {
+      setBrandDetailLoading(false)
+    }
+  }, [])
+
   const handleViewDetail = useCallback((row: ModelRow) => {
     setDetailRow(row)
     setDetailOpen(true)
@@ -553,6 +578,7 @@ export function ProductsTab() {
     onLinkDproducts: handleLink,
     onBulkApproveRows: () => {},
     onViewDetail: handleViewDetail,
+    onViewBrand: handleViewBrand,
   })
 
   const isEmptyCatalog = !initialLoading && summary?.total === 0
@@ -581,8 +607,11 @@ export function ProductsTab() {
     filters.q !== '' ||
     filters.status !== 'all' ||
     filters.dinamikBrand != null ||
+    filters.canonicalBrand != null ||
+    filters.bsbgBrand != null ||
     filters.manufacturerId != null ||
-    filters.matchSide !== 'all'
+    filters.matchSide !== 'all' ||
+    filters.matchMethod !== 'all'
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -852,8 +881,8 @@ export function ProductsTab() {
                   )}
                   {!manualOemPreviewLoading && manualOemPreviews.length > 0 && (
                     <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {manualOemPreviews.map((p) => (
-                        <div key={p.oemNo} className="rounded border bg-background p-2 text-xs flex items-center justify-between gap-2">
+                      {manualOemPreviews.map((p, idx) => (
+                        <div key={`${p.oemNo}_${idx}`} className="rounded border bg-background p-2 text-xs flex items-center justify-between gap-2">
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-mono font-medium">{p.oemNo}</span>
@@ -1202,6 +1231,62 @@ export function ProductsTab() {
               Kapat
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={brandDialogOpen} onOpenChange={(open) => { setBrandDialogOpen(open); if (!open) setBrandDetail(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Marka Detayı</DialogTitle>
+            <DialogDescription>
+              {brandDetail ? `Brand List ID: ${brandDetail.id}` : 'Yükleniyor...'}
+            </DialogDescription>
+          </DialogHeader>
+          {brandDetailLoading && (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!brandDetailLoading && brandDetail && (
+            <div className="space-y-3">
+              <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{brandDetail.brand}</span>
+                  {brandDetail.logo_url && (
+                    <img src={brandDetail.logo_url} alt={brandDetail.brand} className="h-6 w-auto ml-auto" />
+                  )}
+                </div>
+              </div>
+              {brandDetail.mappings && brandDetail.mappings.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bağlı Tedarikçi Markaları</p>
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-xs max-h-60 overflow-y-auto">
+                    {brandDetail.mappings.map((m: any) => (
+                      <div key={m.id} className="rounded border bg-background p-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0 space-y-0.5">
+                          {m.dnmkBrand && <p>Dinamik: <span className="font-medium">{m.dnmkBrand}</span></p>}
+                          {m.ptName && <p>PT: <span className="font-medium">{m.ptName}</span></p>}
+                          {m.bsbgBrand && <p>Başbuğ: <span className="font-medium">{m.bsbgBrand}</span></p>}
+                        </div>
+                        <Badge variant="outline" className="shrink-0 text-[10px]">{m.mappingStatus}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(!brandDetail.mappings || brandDetail.mappings.length === 0) && (
+                <p className="text-xs text-muted-foreground">Bu markaya bağlı tedarikçi markası bulunamadı.</p>
+              )}
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={() => { setBrandDialogOpen(false); setBrandDetail(null) }}>
+                  Kapat
+                </Button>
+              </div>
+            </div>
+          )}
+          {!brandDetailLoading && !brandDetail && (
+            <p className="text-sm text-muted-foreground py-4 text-center">Marka bilgisi bulunamadı.</p>
+          )}
         </DialogContent>
       </Dialog>
     </div>

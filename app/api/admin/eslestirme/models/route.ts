@@ -85,6 +85,8 @@ export async function GET(request: NextRequest) {
   if (canonicalBrand) {
     whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(cb.brand, ''))) = BTRIM(LOWER(${canonicalBrand}))`)
   }
+  // brand_list always joined so UI can show canonical brand name
+  const brandListJoin = Prisma.sql`LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id`
   if (bsbgBrand) {
     whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(bb.brand, ''))) = BTRIM(LOWER(${bsbgBrand}))`)
   }
@@ -101,11 +103,10 @@ export async function GET(request: NextRequest) {
   }
   const whereClause = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``
 
-  const brandJoin = canonicalBrand ? Prisma.sql` LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id` : Prisma.sql``
   const bsbgJoin = bsbgBrand ? Prisma.sql` LEFT JOIN v0.bsbg_brands bb ON bb.id = bs.bsbg_brands_id` : Prisma.sql``
 
   const tableAlias = Prisma.sql`v0.product_mapping m`
-  const joinClauses = Prisma.sql`LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.bsbg_products bs ON bs.id = m.bsbg_products_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id${brandJoin}${bsbgJoin}`
+  const joinClauses = Prisma.sql`LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id LEFT JOIN v0.bsbg_products bs ON bs.id = m.bsbg_products_id LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id${brandListJoin}${bsbgJoin}`
 
   try {
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
@@ -118,6 +119,7 @@ export async function GET(request: NextRequest) {
       Array<{
         id: number; dnmk_products_id: bigint | null; ptdrk_products_id: number | null; bsbg_products_id: bigint | null
         part_no: string | null; mapping_status: string; match_method: string | null
+        brand_list_id: number | null; canonical_brand: string | null
         stock_code: string | null; stock_name: string | null; brand: string | null
         barcode_1: string | null; barcode_2: string | null; barcode_3: string | null
         dinamik_part_no: string | null; price: string | null
@@ -129,6 +131,7 @@ export async function GET(request: NextRequest) {
        SELECT m.id, m.dnmk_products_id, m.ptdrk_products_id, m.bsbg_products_id,
               CASE WHEN m.dnmk_products_id IS NOT NULL THEN d.part_no WHEN m.bsbg_products_id IS NOT NULL THEN bs.part_no ELSE p.part_no END AS part_no,
               m.mapping_status, m.match_method,
+              m.brand_list_id, cb.brand AS canonical_brand,
                d.stock_code, d.stock_name, ${dproductBrandNameExpr} AS brand, d.barcode_1, d.barcode_2, d.barcode_3, d.part_no AS dinamik_part_no,
                ${dproductDetailsPriceExpr}::text AS price,
                bs.part_no AS bsbg_part_no, bs.malzeme_no AS bsbg_malzeme_no,
@@ -154,6 +157,8 @@ export async function GET(request: NextRequest) {
         part_no: r.part_no,
         mappingStatus: r.mapping_status,
         matchMethod: r.match_method,
+        brandListId: r.brand_list_id,
+        canonicalBrand: r.canonical_brand,
         dinamik: {
           stockCode: r.stock_code || null,
           stockName: r.stock_name || null,
