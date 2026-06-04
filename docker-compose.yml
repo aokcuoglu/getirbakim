@@ -44,8 +44,9 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       # Certbot ACME challenge webroot
       - /var/www/certbot:/var/www/certbot:ro
-      # Nginx logs (persisted for analysis)
-      - nginx_logs:/var/log/nginx
+      # Nginx logs — NOT mounted as volume; image's built-in symlinks
+      # (/dev/stdout, /dev/stderr) ensure logs appear in docker logs.
+      # Use `docker logs getirbakim-nginx` for debugging.
     depends_on:
       app:
         condition: service_healthy
@@ -163,4 +164,3 @@ networks:
 
 volumes:
   meili_data:
-  nginx_logs:

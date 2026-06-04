@@ -135,12 +135,19 @@ wait_for_healthy() {
 wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
 wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
 wait_for_healthy "getirbakim-nginx" 60 || {
-  echo "FATAL: nginx not healthy within 60s — dumping logs..."
-  docker logs getirbakim-nginx --tail=60 2>/dev/null || true
-  echo "  Checking if nginx config is valid..."
-  docker compose --env-file "${ENV_FILE}" exec -T nginx nginx -t 2>&1 || true
-  echo "  Checking port binding on host..."
-  ss -tlnp 'sport = :80 or sport = :443' 2>/dev/null || netstat -tlnp 2>/dev/null | grep -E '(:80|:443)\s' || true
+  echo "FATAL: nginx not healthy within 60s — dumping diagnostics..."
+  echo ""
+  echo "--- nginx container logs (tail 60) ---"
+  docker logs getirbakim-nginx --tail=60 2>/dev/null || echo "(no logs)"
+  echo ""
+  echo "--- nginx container inspect (exit code, error) ---"
+  docker inspect getirbakim-nginx --format 'ExitCode={{.State.ExitCode}} Error={{.State.Error}} Status={{.State.Status}}' 2>/dev/null || echo "(inspect failed)"
+  echo ""
+  echo "--- nginx config validation ---"
+  docker compose --env-file "${ENV_FILE}" exec -T nginx nginx -t 2>&1 || echo "(exec failed — container may be restarting)"
+  echo ""
+  echo "--- port binding on host (80/443) ---"
+  ss -tlnp 'sport = :80 or sport = :443' 2>/dev/null || netstat -tlnp 2>/dev/null | grep -E '(:80|:443)\s' || echo "(no listeners on 80/443)"
   exit 1
 }
 
