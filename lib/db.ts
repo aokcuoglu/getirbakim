@@ -33,12 +33,24 @@ function createPrismaClient() {
     } as any)
   }
 
+  const poolMax = (() => {
+    const parsed = Number(process.env.DATABASE_POOL_MAX)
+    return Number.isFinite(parsed) && parsed >= 1 && parsed <= 50 ? parsed : 15
+  })()
+
+  const databaseHost = new URL(connectionString).hostname
+  const isLocalDatabase =
+    databaseHost === 'localhost' ||
+    databaseHost === '127.0.0.1' ||
+    databaseHost === '::1' ||
+    databaseHost === 'postgres'
+
   return new PrismaClient({
     adapter: new PrismaPg({
       connectionString,
-      max: 50,
+      max: poolMax,
       connectionTimeoutMillis,
-      ssl: { rejectUnauthorized: false }
+      ...(isLocalDatabase ? {} : { ssl: { rejectUnauthorized: false } })
     }),
     log
   } as any)

@@ -99,6 +99,28 @@ function toSafeNumber(value: bigint): number {
   return Number.isSafeInteger(num) ? num : Number(value.toString())
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const prismaError = error as {
+    code?: unknown
+    message?: unknown
+    meta?: Record<string, unknown>
+  }
+
+  if (prismaError.code !== 'P2010') return false
+
+  const message =
+    [
+      typeof prismaError.message === 'string' ? prismaError.message : '',
+      typeof prismaError.meta?.['message'] === 'string'
+        ? prismaError.meta['message']
+        : ''
+    ].join(' ')
+
+  return message.includes('Code: `42P01`') || message.includes('does not exist')
+}
+
 async function fetchV0ProductBase(v0ProductId: number): Promise<V0ProductBaseRow | null> {
   const rows = await db.$queryRaw<V0ProductBaseRow[]>(Prisma.sql`
     SELECT id, display_name, brand_name, primary_image_url
@@ -254,106 +276,113 @@ async function fetchPublicPartEnrichment(partId: bigint) {
 export async function fetchV0ProductDetailBundle(
   v0ProductId: number
 ): Promise<V0ProductDetailBundle | null> {
-  const product = await fetchV0ProductBase(v0ProductId)
-  if (!product) return null
+  try {
+    const product = await fetchV0ProductBase(v0ProductId)
+    if (!product) return null
 
-  const [offer, publicPart] = await Promise.all([
-    fetchBestOffer(v0ProductId),
-    fetchApprovedPublicPart(v0ProductId)
-  ])
+    const [offer, publicPart] = await Promise.all([
+      fetchBestOffer(v0ProductId),
+      fetchApprovedPublicPart(v0ProductId)
+    ])
 
-  const enrichment = publicPart
-    ? await fetchPublicPartEnrichment(publicPart.id)
-    : {
-        images: [] as ImageRow[],
-        properties: [] as PropertyRow[],
-        infos: [] as InfoRow[],
-        oens: [] as OenRow[],
-        eans: [] as EanRow[],
-        crossReferences: [] as CrossReferenceRow[],
-        vehicles: [] as VehicleRow[]
-      }
+    const enrichment = publicPart
+      ? await fetchPublicPartEnrichment(publicPart.id)
+      : {
+          images: [] as ImageRow[],
+          properties: [] as PropertyRow[],
+          infos: [] as InfoRow[],
+          oens: [] as OenRow[],
+          eans: [] as EanRow[],
+          crossReferences: [] as CrossReferenceRow[],
+          vehicles: [] as VehicleRow[]
+        }
 
-  const pricing = resolvePublicPriceAndPurchasability({
-    realPriceExVat: parsePrice(offer?.price),
-    stockQty: offer?.stock_qty ?? 0
-  })
+    const pricing = resolvePublicPriceAndPurchasability({
+      realPriceExVat: parsePrice(offer?.price),
+      stockQty: offer?.stock_qty ?? 0
+    })
 
-  const id = toSafeNumber(product.id)
-  const brandName = publicPart?.brand_name || product.brand_name || 'Unknown'
-  const categoryName = publicPart?.category_name || 'Auto Parts'
-  const images =
-    product.primary_image_url && product.primary_image_url.trim()
-      ? [
-          {
-            image: product.primary_image_url,
-            thumb: product.primary_image_url
-          },
-          ...enrichment.images
-        ]
-      : enrichment.images
+    const id = toSafeNumber(product.id)
+    const brandName = publicPart?.brand_name || product.brand_name || 'Unknown'
+    const categoryName = publicPart?.category_name || 'Auto Parts'
+    const images =
+      product.primary_image_url && product.primary_image_url.trim()
+        ? [
+            {
+              image: product.primary_image_url,
+              thumb: product.primary_image_url
+            },
+            ...enrichment.images
+          ]
+        : enrichment.images
 
-  const hero: PartHero = {
-    id,
-    name: offer?.supplier_name?.trim() || product.display_name,
-    articleNumber: offer?.supplier_sku ?? null,
-    price: decimalToString(pricing.resolvedPriceExVat),
-    stockQty: pricing.stockQty,
-    priceSource: pricing.priceSource,
-    isPlaceholderPrice: pricing.isPlaceholderPrice,
-    isPurchasable: pricing.isPurchasable,
-    brand: {
-      id: publicPart?.brand_id ?? 0,
-      name: brandName,
-      logoUrl: publicPart?.brand_logo_url ?? null
-    },
-    category: {
-      id: publicPart?.category_id ?? 0,
-      name: categoryName,
-      urlKey: publicPart?.category_url_key ?? ''
-    },
-    images,
-    properties: enrichment.properties,
-    eans: enrichment.eans.map((ean) => ean.code)
-  }
+    const hero: PartHero = {
+      id,
+      name: offer?.supplier_name?.trim() || product.display_name,
+      articleNumber: offer?.supplier_sku ?? null,
+      price: decimalToString(pricing.resolvedPriceExVat),
+      stockQty: pricing.stockQty,
+      priceSource: pricing.priceSource,
+      isPlaceholderPrice: pricing.isPlaceholderPrice,
+      isPurchasable: pricing.isPurchasable,
+      brand: {
+        id: publicPart?.brand_id ?? 0,
+        name: brandName,
+        logoUrl: publicPart?.brand_logo_url ?? null
+      },
+      category: {
+        id: publicPart?.category_id ?? 0,
+        name: categoryName,
+        urlKey: publicPart?.category_url_key ?? ''
+      },
+      images,
+      properties: enrichment.properties,
+      eans: enrichment.eans.map((ean) => ean.code)
+    }
 
-  const metadata: PartMetadata = {
-    id,
-    name: hero.name,
-    brandName,
-    categoryName,
-    imageUrl: hero.images[0]?.image ?? null,
-    eans: hero.eans
-  }
+    const metadata: PartMetadata = {
+      id,
+      name: hero.name,
+      brandName,
+      categoryName,
+      imageUrl: hero.images[0]?.image ?? null,
+      eans: hero.eans
+    }
 
-  const tabs: PartTabsData = {
-    properties: enrichment.properties,
-    infos: enrichment.infos.map((info) => info.content),
-    oens: enrichment.oens.map((oen) => ({
-      brand: oen.brand,
-      code: oen.code
-    })),
-    crossReferences: enrichment.crossReferences.map((ref) => ({
-      brandName: ref.brand_name,
-      articleNumber: ref.article_number
-    })),
-    compatibleVehicles: enrichment.vehicles.map((vehicle) => ({
-      id: vehicle.id,
-      brandName: vehicle.brand_name,
-      modelName: vehicle.model_name,
-      vehicleName: vehicle.vehicle_name,
-      typeName: vehicle.type_name,
-      yearFrom: vehicle.year_from,
-      yearTo: vehicle.year_to
-    }))
-  }
+    const tabs: PartTabsData = {
+      properties: enrichment.properties,
+      infos: enrichment.infos.map((info) => info.content),
+      oens: enrichment.oens.map((oen) => ({
+        brand: oen.brand,
+        code: oen.code
+      })),
+      crossReferences: enrichment.crossReferences.map((ref) => ({
+        brandName: ref.brand_name,
+        articleNumber: ref.article_number
+      })),
+      compatibleVehicles: enrichment.vehicles.map((vehicle) => ({
+        id: vehicle.id,
+        brandName: vehicle.brand_name,
+        modelName: vehicle.model_name,
+        vehicleName: vehicle.vehicle_name,
+        typeName: vehicle.type_name,
+        yearFrom: vehicle.year_from,
+        yearTo: vehicle.year_to
+      }))
+    }
 
-  return {
-    hero,
-    metadata,
-    tabs,
-    publicPartId: publicPart?.id.toString() ?? null,
-    providerCode: offer?.provider_code ?? null
+    return {
+      hero,
+      metadata,
+      tabs,
+      publicPartId: publicPart?.id.toString() ?? null,
+      providerCode: offer?.provider_code ?? null
+    }
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      return null
+    }
+    throw error
   }
 }
 

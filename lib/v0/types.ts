@@ -1,7 +1,3 @@
-import type { CatalogData } from '@/lib/actions/getCatalogCategories'
-import type { MainNavCategoryItem } from '@/lib/mainNavCategories'
-import type { TopCategoryItem } from '@/components/hero/TopCategories'
-
 export type V0DpmatchProductRow = {
   matchId: number
   dnprdId: string | null
@@ -49,8 +45,5 @@ export type V0HomeBrandItem = Pick<
 >
 
 export type V0HomePageData = {
-  topCategories: TopCategoryItem[]
-  navbarCategories: MainNavCategoryItem[]
-  catalogData: CatalogData
   brands: V0HomeBrandItem[]
 }

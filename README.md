@@ -23,15 +23,11 @@ cp .env.example .env.local
 
 This project uses Prisma 7 with the `PrismaPg` driver adapter. The DATABASE_URL must use **Supabase session pooler** settings:
 
-- Use **port 5432** (session mode) — supports prepared statements required by PrismaPg
-- **Do NOT use** port 6543 with `?pgbouncer=true` — transaction mode is incompatible with PrismaPg
+- Use a local PostgreSQL instance (docker-compose.local.yml includes one)
 
 ```
-# Correct:
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres"
-
-# Incorrect (will cause P1000 or prepared statement errors):
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true"
+DATABASE_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
+DIRECT_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
 ```
 
 See `.env.example` for the full list of required variables.

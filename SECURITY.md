@@ -17,11 +17,6 @@ This repository must not contain real credentials, API keys, or secrets in track
 - Unit tests use deterministic fake fixtures (see `lib/payments/__fixtures__/tami-test-fixtures.ts`).
 - Tests must not depend on real Tami credentials or the `.env` file.
 
-### Supabase service role key
-
-- `SUPABASE_SERVICE_ROLE_KEY` bypasses Row-Level Security and must never be sent to the client.
-- It is used only in server-side code (API routes, server actions, storage helpers).
-
 ### Upstash Redis token
 
 - `UPSTASH_REDIS_REST_TOKEN` is a REST API token. Keep it server-side only.
@@ -29,7 +24,7 @@ This repository must not contain real credentials, API keys, or secrets in track
 ### Database URL
 
 - `DATABASE_URL` and `DIRECT_URL` contain database credentials.
-- Use session-pooler (port 5432) for Prisma — not the transaction pooler (port 6543).
+- Keep them server-side only; never expose to the browser.
 
 ### Supplier API keys (Dinamik, SETA, Parts2World)
 

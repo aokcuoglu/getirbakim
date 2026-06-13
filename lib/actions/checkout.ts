@@ -2,7 +2,7 @@
 
 import { headers } from 'next/headers'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { getServerSession } from '@/lib/auth/server'
 import {
   createOrderDraft,
   prepareCheckoutLines,
@@ -102,10 +102,8 @@ export async function createCheckoutOrder(
     }
   }
 
-  const supabase = await createClient()
-  const {
-    data: { user }
-  } = await supabase.auth.getUser()
+  const session = await getServerSession()
+  const user = session?.user
 
   const data = parsed.data
   const normalizedContactEmail = data.contactEmail?.trim() || ''

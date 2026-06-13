@@ -4,7 +4,7 @@ import Footer from '@/components/Footer'
 import { OrderDetailView } from '@/components/orders/OrderDetailView'
 import { getMainNavCategories } from '@/lib/mainNavCategories'
 import { getOrderForUser } from '@/lib/orders/service'
-import { createClient } from '@/lib/supabase/server'
+import { getServerSession } from '@/lib/auth/server'
 import { getTranslations } from 'next-intl/server'
 
 export default async function AccountOrderDetailPage(props: {
@@ -17,10 +17,8 @@ export default async function AccountOrderDetailPage(props: {
   }
 
   const navbarCategories = await getMainNavCategories(locale)
-  const supabase = await createClient()
-  const {
-    data: { user }
-  } = await supabase.auth.getUser()
+  const session = await getServerSession()
+  const user = session?.user
 
   if (!user?.id) {
     notFound()

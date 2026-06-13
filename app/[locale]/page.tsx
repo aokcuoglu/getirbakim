@@ -36,12 +36,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 }
 
-export default async function Page({ params }: PageProps) {
-  const { locale } = await params
+export default async function Page() {
   const tg = createTimerGroup('homepage-v0')
   const tData = tg.start('v0HomePageData')
 
-  const homePageData = await getV0HomePageData(locale).then((data) => {
+  const homePageData = await getV0HomePageData().then((data) => {
     tg.end(tData, { brandCount: data.brands.length })
     return data
   })

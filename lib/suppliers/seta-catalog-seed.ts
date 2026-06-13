@@ -2,7 +2,7 @@ import 'server-only'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getSetaProducts, type SetaProductItem } from '@/lib/suppliers/seta-client'
-import { uploadImageFromUrl } from '@/lib/supabase/storage'
+import { uploadImageFromUrl } from '@/lib/storage'
 
 const SETA_PROVIDER_CODE = 'seta'
 const SETA_BRAND_NAME = 'SETA'
@@ -581,7 +581,7 @@ async function batchUpsertPricing(
 }
 
 // ---------------------------------------------------------------------------
-// Step 7: Images — download from SETA, upload to Supabase Storage
+// Step 7: Images — download from SETA, upload to storage Storage
 // ---------------------------------------------------------------------------
 
 async function uploadImages(
@@ -897,10 +897,10 @@ export async function runSetaCatalogSeed(
       message: `${mappingsWritten} mapping yazildi (${elapsed(startTime)})`
     })
 
-    // 13. Images — download and upload to Supabase
+    // 13. Images — download and upload to storage
     emit({
       phase: 'images',
-      message: 'Gorseller indiriliyor ve Supabase a yukleniyor...'
+      message: 'Gorseller indiriliyor ve storage...'
     })
     const imageResult = await uploadImages(items, skuToPartId, emit, startTime)
     if (imageResult.errors.length > 0) {

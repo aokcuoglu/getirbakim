@@ -1,9 +1,13 @@
 import { Client } from 'pg'
 
 async function main() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required')
+  }
+
   const client = new Client({
-    connectionString: 'postgresql://postgres.fbhvayopjuixbyddftbk:cXnKHpGlPNkuc6oT@aws-1-ap-south-1.pooler.supabase.com:5432/postgres',
-    ssl: { rejectUnauthorized: false }
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
   })
   await client.connect()
 

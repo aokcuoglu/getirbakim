@@ -10,9 +10,6 @@ import type { V0HomePageData } from '@/lib/v0/types'
 import { buildCatalogUrl } from '@/lib/catalog-url'
 
 export default function V0HomePageClient({
-  topCategories,
-  navbarCategories,
-  catalogData,
   brands
 }: V0HomePageData) {
   const router = useRouter()
@@ -29,15 +26,10 @@ export default function V0HomePageClient({
 
   return (
     <div className="min-h-screen text-foreground selection:bg-accent/20 flex flex-col">
-      <Navbar
-        navbarCategories={navbarCategories}
-        onHomeClick={() => router.push('/')}
-      />
+      <Navbar onHomeClick={() => router.push('/')} />
 
       <main className="flex-1 pb-16">
         <Hero
-          topCategories={topCategories}
-          catalogData={catalogData}
           brands={brands}
           onMakeSelect={onMakeSelect}
         />

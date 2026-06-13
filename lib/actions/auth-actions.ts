@@ -1,12 +1,12 @@
 'use server'
 
-import { headers } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
-import { resolveSiteUrl } from '@/lib/site-url'
 import { loginSchema, registerSchema } from '@/lib/validations/auth'
+import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from '@/lib/auth/config'
+import { hash } from 'bcryptjs'
+import { v4 as uuidv4 } from 'uuid'
 
 export async function signIn(formData: FormData) {
   try {
@@ -21,25 +21,40 @@ export async function signIn(formData: FormData) {
     }
 
     const { email, password } = validatedFields.data
-    const supabase = await createClient()
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
+    const user = await db.users.findUnique({
+      where: { email },
+      select: { id: true, name: true, email: true, role: true, image: true, password_hash: true },
     })
 
-    if (error) {
-      console.error('Supabase sign-in error:', error)
-      const message =
-        error.message && error.message !== '{}'
-          ? error.message
-          : 'Service currently unavailable. Please try again later (503).'
-      return { error: message }
+    if (!user || !user.password_hash) {
+      return { error: 'Invalid email or password' }
     }
+
+    const { compare } = await import('bcryptjs')
+    const isValid = await compare(password, user.password_hash)
+    if (!isValid) {
+      return { error: 'Invalid email or password' }
+    }
+
+    await nextAuthSignIn('credentials', {
+      email,
+      password,
+      redirect: false,
+    })
 
     console.log('User signed in successfully:', email)
     revalidatePath('/', 'layout')
-    return { success: true, user: data.user }
+    return {
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        image: user.image,
+      },
+    }
   } catch (e: any) {
     console.error('Sign-in exception:', e)
     return { error: e.message || 'An unexpected error occurred during sign-in' }
@@ -59,66 +74,43 @@ export async function signUp(formData: FormData) {
     }
 
     const { email, password, name } = validatedFields.data
-    const supabase = await createClient()
+    const passwordHash = await hash(password, 12)
 
-    // Site URL for email redirection
-    const requestHeaders = await headers()
-    const siteUrl = resolveSiteUrl({
-      headers: requestHeaders,
-      preferRequestOrigin: true
+    const existingUser = await db.users.findUnique({
+      where: { email },
+      select: { id: true },
     })
 
-    const { data, error } = await supabase.auth.signUp({
+    if (existingUser) {
+      return { error: 'An account with this email already exists' }
+    }
+
+    const id = uuidv4()
+    const now = new Date()
+
+    await db.users.create({
+      data: {
+        id,
+        email,
+        name,
+        password_hash: passwordHash,
+        email_verified: true,
+        role: 'CUSTOMER',
+        created_at: now,
+        updated_at: now,
+      },
+    })
+
+    console.log('User created successfully:', id)
+
+    await nextAuthSignIn('credentials', {
       email,
       password,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
-        data: {
-          full_name: name
-        }
-      }
+      redirect: false,
     })
 
-    if (error) {
-      console.error('Supabase sign-up error:', error)
-      const message =
-        error.message && error.message !== '{}'
-          ? error.message
-          : 'Service currently unavailable. Please try again later (503).'
-      return { error: message }
-    }
-
-    if (data.user) {
-      try {
-        await db.users.upsert({
-          where: { id: data.user.id },
-          update: {},
-          create: {
-            id: data.user.id,
-            email: email,
-            name: name,
-            role: 'CUSTOMER',
-            created_at: new Date(),
-            updated_at: new Date()
-          }
-        })
-        console.log('User synced to DB successfully:', data.user.id)
-      } catch (e) {
-        console.error('Failed to sync user to DB:', e)
-      }
-    }
-
-    if (data.session) {
-      console.log('Session created immediately for user:', data.user?.id)
-      revalidatePath('/', 'layout')
-      return {
-        success: 'Registration successful. You are now logged in.',
-        user: data.user
-      }
-    }
-
-    console.log('Confirmation email sent to:', email)
-    return { success: 'Check your email for the confirmation link.' }
+    revalidatePath('/', 'layout')
+    return { success: 'Registration successful. You are now logged in.' }
   } catch (e: any) {
     console.error('Sign-up exception:', e)
     return { error: e.message || 'An unexpected error occurred during sign-up' }
@@ -126,8 +118,7 @@ export async function signUp(formData: FormData) {
 }
 
 export async function signOut() {
-  const supabase = await createClient()
-  await supabase.auth.signOut()
+  await nextAuthSignOut()
   revalidatePath('/', 'layout')
   redirect('/')
 }

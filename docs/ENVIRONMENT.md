@@ -19,21 +19,13 @@ These are all excluded in `.gitignore`.
 - Production Docker: `env_file: .env.production` in `docker-compose.yml`
 - `NEXT_PUBLIC_*` build args are passed separately during `docker compose build`
 
-## Supabase Session Pooler Requirement
+## Database Connection
 
-This project uses Prisma 7 with the `PrismaPg` driver adapter. The `DATABASE_URL` must use **Supabase session pooler** settings:
+This project uses Prisma 7 with the `PrismaPg` driver adapter. The `DATABASE_URL` must point to a local PostgreSQL instance (docker-compose.local.yml provides one).
 
-- **Use port 5432** (session mode) — supports prepared statements required by PrismaPg
-- **Do NOT use port 6543** with `?pgbouncer=true` — transaction mode disables prepared statements
-
-Correct:
 ```
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres"
-```
-
-Incorrect (will cause P1000 or prepared statement errors):
-```
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true"
+DATABASE_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
+DIRECT_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
 ```
 
 ## Variable Reference
@@ -42,32 +34,18 @@ DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supab
 
 | Variable | Scope | Required | Description |
 |----------|-------|----------|-------------|
-| `DATABASE_URL` | Server | Yes | Supabase session pooler connection (port 5432) |
+| `DATABASE_URL` | Server | Yes | PostgreSQL connection string |
 | `DIRECT_URL` | Server | Yes | For Prisma migrations and direct queries |
-| `DATABASE_POOL_MAX` | Server | No | Max DB pool connections. Local: 2, VPS: 4. Upper clamp: 10. |
+| `DATABASE_POOL_MAX` | Server | No | Max DB pool connections. Local: 15, Production: 4. |
 
 #### `DATABASE_POOL_MAX`
 
 Controls the maximum number of concurrent database connections the PrismaPg adapter opens.
 
-- **Local Docker default:** 2 — Local Docker shares the Supabase session pool with VPS production.
-- **VPS production default:** 4 — Sufficient for production traffic without exhausting the pool.
-- **Upper clamp:** 10 — The Supabase free-tier session pool limit is 15. Do not exceed it across all runtimes.
-
-If both local Docker and VPS are connected to the same Supabase project simultaneously, their pool sizes must sum to less than 15. Otherwise, you will see `EMAXCONNSESSION max clients reached in session mode`.
+- **Local Docker default:** 15 — Local PostgreSQL has no connection limit concerns.
+- **VPS production default:** 4 — Tune based on available resources.
 
 The `PG_POOL_MAX` env var is also accepted as a fallback alias.
-
-### Supabase
-
-| Variable | Scope | Required | Description |
-|----------|-------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Public | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Yes | Supabase anonymous key (safe for browser) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server | Yes | Bypasses RLS — never expose to browser |
-| `SUPABASE_PART_IMAGES_BUCKET` | Server | No | Storage bucket name for part images |
-| `SUPABASE_PART_DOCUMENTS_BUCKET` | Server | No | Storage bucket name for part documents |
-| `SUPABASE_DEV_WARNINGS` | Server | No | Enable dev warnings (`true`/`false`) |
 
 ### Meilisearch
 
@@ -172,7 +150,6 @@ The `PG_POOL_MAX` env var is also accepted as a fallback alias.
 These must NEVER be exposed to the browser:
 
 - `DATABASE_URL`, `DIRECT_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
 - `MEILI_MASTER_KEY`
 - `UPSTASH_REDIS_REST_TOKEN`
 - `TAMI_SECRET_KEY`, `TAMI_JWK_KID`, `TAMI_JWK_K`
@@ -185,8 +162,6 @@ These must NEVER be exposed to the browser:
 
 These are embedded at build time and visible in the browser:
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_MEILI_HOST`

@@ -1,7 +1,7 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { createAdminClient } from '@/lib/supabase/storage'
+import { uploadFile, uploadImageFromUrl } from '@/lib/storage'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
@@ -136,33 +136,17 @@ export async function getCategoryById(id: number) {
 
 export async function uploadCategoryImage(file: File): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
-    const supabase = createAdminClient()
-    
-    // Generate unique filename
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
-    // Upload directly to bucket root, no subfolder
     const filePath = fileName
 
-    // Convert File to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = new Uint8Array(arrayBuffer)
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const result = await uploadFile(buffer, filePath, file.type, 'category-images')
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('category-images')
-      .upload(filePath, buffer, {
-        contentType: file.type,
-        upsert: false
-      })
-
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return { success: false, error: uploadError.message }
+    if (!result.publicUrl) {
+      return { success: false, error: result.error || 'Upload failed' }
     }
 
-    // Return only the file path (not full URL) to avoid index size issues
-    // The full URL will be generated when needed using getCategoryImagePath
     return { success: true, url: filePath }
   } catch (error: any) {
     console.error('Error uploading image:', error)
@@ -172,115 +156,16 @@ export async function uploadCategoryImage(file: File): Promise<{ success: boolea
 
 export async function uploadCategoryImageFromUrl(imageUrl: string): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
-    const supabase = createAdminClient()
-    
-    // Get site URL for Referer header
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.getirbakim.com'
-    
-    // Extract domain from image URL for better Referer handling
-    const imageDomain = new URL(imageUrl).origin
-    
-    // More realistic browser headers to avoid 403 errors
-    const headers: HeadersInit = {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9,tr;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Referer': imageDomain + '/',
-      'Origin': imageDomain,
-      'Sec-Fetch-Dest': 'image',
-      'Sec-Fetch-Mode': 'no-cors',
-      'Sec-Fetch-Site': 'cross-site',
-      'Cache-Control': 'no-cache',
-      'DNT': '1',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1'
-    }
-    
-    // Retry mechanism for 403 errors
-    let response: Response | null = null
-    let lastError: string | null = null
-    const maxRetries = 3
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        response = await fetch(imageUrl, {
-          headers,
-          // Add redirect handling
-          redirect: 'follow',
-          // Add timeout
-          signal: AbortSignal.timeout(30000) // 30 seconds
-        })
-
-        if (response.ok) {
-          break // Success, exit retry loop
-        }
-        
-        // If 403, try with different headers on retry
-        if (response.status === 403 && attempt < maxRetries) {
-          // Wait a bit before retry (exponential backoff)
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
-          
-          // Try with simpler headers on retry
-          if (attempt === 2) {
-            headers['Referer'] = siteUrl
-            headers['Origin'] = siteUrl
-            delete headers['Sec-Fetch-Dest']
-            delete headers['Sec-Fetch-Mode']
-            delete headers['Sec-Fetch-Site']
-          }
-          
-          lastError = `Failed to fetch image: ${imageUrl} - ${response.status} (attempt ${attempt}/${maxRetries})`
-          continue
-        }
-        
-        // For other errors or last attempt, break
-        if (response.status !== 403 || attempt === maxRetries) {
-          lastError = `Failed to fetch image: ${imageUrl} - ${response.status}`
-          break
-        }
-      } catch (fetchError: any) {
-        if (attempt === maxRetries) {
-          lastError = fetchError.message || 'Network error while fetching image'
-        } else {
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
-        }
-      }
-    }
-
-    if (!response || !response.ok) {
-      console.error(lastError || `Failed to fetch image: ${imageUrl}`)
-      return { success: false, error: lastError || `Failed to fetch image: ${imageUrl} - ${response?.status || 'unknown'}` }
-    }
-
-    const contentType = response.headers.get('content-type') || 'image/jpeg'
-    const arrayBuffer = await response.arrayBuffer()
-    const buffer = new Uint8Array(arrayBuffer)
-
-    // Extract file extension from URL or content type
     const urlPath = new URL(imageUrl).pathname
-    const fileExt = urlPath.split('.').pop() || (contentType.includes('png') ? 'png' : 'jpg')
+    const fileExt = urlPath.split('.').pop() || 'jpg'
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
-    // Upload directly to bucket root, no subfolder
-    const filePath = fileName
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('category-images')
-      .upload(filePath, buffer, {
-        contentType,
-        upsert: false
-      })
-
-    if (uploadError) {
-      console.error('Upload error:', uploadError)
-      return { success: false, error: uploadError.message }
+    const result = await uploadImageFromUrl(imageUrl, fileName, { bucket: 'category-images' })
+    if (!result.publicUrl) {
+      return { success: false, error: result.error || 'Failed to upload image' }
     }
 
-    // Return only the file path (not full URL) to avoid index size issues
-    // The full URL will be generated when needed using getCategoryImagePath
-    return { success: true, url: filePath }
+    return { success: true, url: fileName }
   } catch (error: any) {
     console.error('Error uploading image from URL:', error)
     return { success: false, error: error.message }
@@ -307,10 +192,10 @@ export async function createCategory(formData: FormData) {
 
     // Priority: uploaded URL > file upload
     if (imageUrlUploaded && imageUrlUploaded.trim()) {
-      // Image was uploaded from URL, already in Supabase
+      // Image was uploaded from URL, already in storage
       imageUrl = imageUrlUploaded.trim()
     } else if (imageFile && imageFile.size > 0) {
-      // Upload file to Supabase
+      // Upload file to storage
       const uploadResult = await uploadCategoryImage(imageFile)
       if (uploadResult.success && uploadResult.url) {
         imageUrl = uploadResult.url
@@ -379,10 +264,10 @@ export async function updateCategory(id: number, formData: FormData) {
 
     // Priority: uploaded URL > file upload
     if (imageUrlUploaded && imageUrlUploaded.trim()) {
-      // Image was uploaded from URL, already in Supabase
+      // Image was uploaded from URL, already in storage
       imageUrl = imageUrlUploaded.trim()
     } else if (imageFile && imageFile.size > 0) {
-      // Upload file to Supabase
+      // Upload file to storage
       const uploadResult = await uploadCategoryImage(imageFile)
       if (uploadResult.success && uploadResult.url) {
         imageUrl = uploadResult.url

@@ -45,7 +45,7 @@ const Navbar: React.FC<NavbarProps> = ({
   const activeCategoryUrlKey =
     firstSlug === 'catalog' ? searchParams.get('cat') : firstSlug ?? null
 
-  const { setUser, selectedVehicle } = useShop()
+  const { setUser, refetchUser, selectedVehicle } = useShop()
 
   // Dropdown States
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -305,8 +305,8 @@ const Navbar: React.FC<NavbarProps> = ({
       <LoginModal
         open={isLoginOpen}
         onOpenChange={setIsLoginOpen}
-        onLoginSuccess={(user) => {
-          setUser(user)
+        onLoginSuccess={async () => {
+          await refetchUser()
           setIsLoginOpen(false)
         }}
       />

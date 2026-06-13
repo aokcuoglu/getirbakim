@@ -11,9 +11,9 @@ import {
   fetchSafeRemoteImage,
   REMOTE_IMAGE_MAX_BYTES
 } from '@/lib/http/safe-remote-image'
-import { createAdminClient, uploadImageBuffer } from '@/lib/supabase/storage'
+import { uploadFile, getStoragePublicUrl, fileExistsInStorage, STORAGE_BUCKETS } from '@/lib/storage'
 
-const BUCKET = 'brand-logos'
+const BUCKET = STORAGE_BUCKETS.BRAND_LOGOS
 const STORAGE_PREFIX = 'ptbrands'
 const ALLOWED_TYPES = new Set([
   'image/jpeg',
@@ -35,16 +35,9 @@ async function persistBrandLogo(
   contentType: string,
   context: LogoRouteContext
 ) {
-  {
-    const supabase = createAdminClient()
-    const { data: buckets } = await supabase.storage.listBuckets()
-    if (!buckets?.some((b) => b.name === BUCKET)) {
-      await supabase.storage.createBucket(BUCKET, { public: true })
-    }
-  }
   const ext = extensionForContentType(contentType)
   const storagePath = `${STORAGE_PREFIX}/${matchId}-${Date.now()}.${ext}`
-  const upload = await uploadImageBuffer(buffer, storagePath, contentType, BUCKET)
+  const upload = await uploadFile(buffer, storagePath, contentType, BUCKET)
 
   if (!upload.publicUrl) {
     return errorResponse({
@@ -177,11 +170,10 @@ export async function POST(
     }
 
     // URL yolu
-    const supabaseBase = process.env['NEXT_PUBLIC_SUPABASE_URL']!
-    const cleanedSupabase = supabaseBase.replace(/\/$/, '')
-    const isSupabaseUrl =
-      imageUrl.startsWith(cleanedSupabase) &&
-      imageUrl.includes('/storage/v1/object/public/')
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const isLocalUrl =
+      imageUrl.startsWith(appUrl) &&
+      imageUrl.includes('/api/storage/')
 
     // Desteklenmeyen protokol kontrolü
     if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
@@ -193,8 +185,8 @@ export async function POST(
       })
     }
 
-    // Supabase'ten gelen URL → doğrudan DB'ye kaydet
-    if (isSupabaseUrl) {
+    // Local storage'ten gelen URL → doğrudan DB'ye kaydet
+    if (isLocalUrl) {
       const updated = await setApprovedDbrandsMatchLogo(matchId, imageUrl)
       if (!updated) {
         return errorResponse({

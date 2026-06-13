@@ -63,8 +63,7 @@ export function LoginModal({
     handleOpenChange(false)
   }
 
-  const { setUser } = useShop() // Import setUser from shop provider to update state immediately if needed, though onAuthStateChange handles it.
-  // Actually we rely on router.refresh() and shop provider effect.
+  const { setUser, refetchUser } = useShop()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -140,8 +139,9 @@ export function LoginModal({
         } else if (result?.success) {
           handleCloseModal()
           toast.success(t('loginSuccess'))
+          if (onLoginSuccess) onLoginSuccess()
+          await refetchUser()
           router.refresh()
-          if (onLoginSuccess) onLoginSuccess(result.user)
         }
       }
     } catch (err: any) {

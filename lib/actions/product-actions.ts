@@ -2,8 +2,8 @@
 
 import { db } from '@/lib/db'
 import { createPartSchema } from '@/lib/validations/parts'
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { uploadFile, getPublicUrl } from '@/lib/storage'
 
 export async function createProduct(formData: FormData) {
   try {
@@ -22,24 +22,18 @@ export async function createProduct(formData: FormData) {
     let imageUrl = ''
 
     if (imageFile && imageFile.size > 0) {
-      const supabase = await createClient()
       const fileExt = imageFile.name.split('.').pop()
       const fileName = `${Math.random()}.${fileExt}`
       const filePath = `products/${fileName}`
 
-      const { data, error } = await supabase.storage
-        .from('products')
-        .upload(filePath, imageFile)
+      const buffer = Buffer.from(await imageFile.arrayBuffer())
+      const result = await uploadFile(buffer, filePath, imageFile.type, 'products')
 
-      if (error) {
-        throw new Error(`Image upload failed: ${error.message}`)
+      if (!result.publicUrl) {
+        throw new Error('Image upload failed')
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from('products')
-        .getPublicUrl(filePath)
-
-      imageUrl = publicUrlData.publicUrl
+      imageUrl = result.publicUrl
     }
 
     // Use Prisma transaction

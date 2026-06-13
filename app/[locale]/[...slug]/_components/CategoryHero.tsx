@@ -4,6 +4,12 @@ import React from 'react'
 import { Star } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { VehicleSelector } from '@/components/selector/VehicleSelector'
+import { getPublicUrl } from '@/lib/storage/url'
+
+const partFinderBackground = getPublicUrl(
+  'partfinder-bg.webp',
+  'category-images'
+)
 
 interface VehicleInfo {
   make: string
@@ -29,7 +35,10 @@ export function CategoryHero({ categoryName, vehicleInfo }: CategoryHeroProps) {
     : null
 
   return (
-    <div className="relative bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center pt-8 pb-16 isolate">
+    <div
+      className="relative bg-cover bg-center pt-8 pb-16 isolate"
+      style={{ backgroundImage: `url("${partFinderBackground}")` }}
+    >
       {/* Dark overlay */}
       <div className="absolute inset-0 bg-primary/60 -z-10" />
 

@@ -2,10 +2,7 @@ import createMiddleware from 'next-intl/middleware'
 import { routing } from './lib/navigation'
 import { type NextRequest, NextResponse } from 'next/server'
 import { loginPathWithRedirect } from '@/lib/auth/safe-redirect'
-import { updateSession } from '@/lib/supabase/middleware'
-import { logSupabaseError } from '@/lib/supabase/error-utils'
-
-import { createServerClient } from '@supabase/ssr'
+import { auth } from '@/lib/auth/config'
 
 const intlMiddleware = createMiddleware(routing)
 
@@ -28,24 +25,13 @@ export default async function proxy(request: NextRequest) {
   const sessionRelevantPath = /^\/(en|tr)\/(account|checkout|orders)(?:\/|$)/.test(
     pathname
   )
-  const hasSupabaseAuthCookie = request.cookies
-    .getAll()
-    .some((cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('auth-token'))
 
   // Server Actions POST back to the page URL with `next-action`. Running i18n
   // redirects or other middleware rewrites on those requests returns HTML
   // instead of the RSC payload, which surfaces as "An unexpected response was
   // received from the server." in the login modal and other client callers.
   if (isServerActionRequest(request)) {
-    let response = NextResponse.next({ request })
-    if (hasSupabaseAuthCookie) {
-      try {
-        response = await updateSession(request, response)
-      } catch (error) {
-        logSupabaseError('proxy:updateSession', error)
-      }
-    }
-    return response
+    return NextResponse.next({ request })
   }
 
   // Skip middleware for API routes (they don't need locale prefix)
@@ -68,46 +54,16 @@ export default async function proxy(request: NextRequest) {
   // 1. Run Intl Middleware
   const response = intlMiddleware(request)
 
-  // 2. Refresh session
-  // updateSession returns a response with updated cookies
-  let supabaseResponse: NextResponse = response
-  const shouldRefreshSession =
-    hasSupabaseAuthCookie || sessionRelevantPath || pathname.startsWith('/admin')
-  if (shouldRefreshSession) {
-    try {
-      supabaseResponse = await updateSession(request, response)
-    } catch (error) {
-      logSupabaseError('proxy:updateSession', error)
-    }
-  }
-
-  // 3. Admin Check
+  // 2. Admin Check
   // Check if it's an admin path
   const isAdminPath =
     pathname.match(/^\/(en|tr)\/admin/) || pathname.startsWith('/admin')
 
   if (isAdminPath) {
     try {
-      const supabase = createServerClient(
-        process.env['NEXT_PUBLIC_SUPABASE_URL']!,
-        process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY']!,
-        {
-          cookies: {
-            getAll() {
-              return request.cookies.getAll()
-            },
-            setAll(_cookiesToSet) {
-              // Already handled in updateSession
-            }
-          }
-        }
-      )
+      const session = await auth()
 
-      const {
-        data: { user }
-      } = await supabase.auth.getUser()
-
-      if (!user) {
+      if (!session?.user?.id) {
         const url = request.nextUrl.clone()
         url.pathname = loginPathWithRedirect(
           localeMatch?.[1] ?? 'tr',
@@ -117,11 +73,9 @@ export default async function proxy(request: NextRequest) {
       }
 
       // Edge middleware cannot use Prisma safely.
-      // Use token metadata only for early deny when present.
+      // Use token role only for early deny when present.
       // Server-side admin routes still perform authoritative DB checks.
-      const roleFromToken =
-        (user.user_metadata?.role as string | undefined) ||
-        (user.app_metadata?.role as string | undefined)
+      const roleFromToken = session.user.role
       const normalizedRole = roleFromToken?.toUpperCase()
       const isKnownAppRole =
         normalizedRole === 'ADMIN' || normalizedRole === 'CUSTOMER'
@@ -132,7 +86,7 @@ export default async function proxy(request: NextRequest) {
         return NextResponse.redirect(url)
       }
     } catch (error) {
-      logSupabaseError('proxy:admin-auth-check', error)
+      console.error('proxy:admin-auth-check', error)
       if (!isLocalHost) {
         const url = request.nextUrl.clone()
         url.pathname = localeAwareHome
@@ -142,31 +96,31 @@ export default async function proxy(request: NextRequest) {
   }
 
   if (!isLocalHost) {
-    supabaseResponse.headers.set(
+    response.headers.set(
       'Strict-Transport-Security',
       'max-age=31536000; includeSubDomains; preload'
     )
   }
-  supabaseResponse.headers.set('X-Content-Type-Options', 'nosniff')
-  supabaseResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
-  supabaseResponse.headers.set('X-Frame-Options', 'SAMEORIGIN')
-  supabaseResponse.headers.set(
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  response.headers.set('X-Frame-Options', 'SAMEORIGIN')
+  response.headers.set(
     'Permissions-Policy',
     'camera=(), microphone=(), geolocation=(), browsing-topics=()'
   )
-  supabaseResponse.headers.set(
+  response.headers.set(
     'Content-Security-Policy',
     "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob: https:; font-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https: wss:; frame-src 'self' https:; upgrade-insecure-requests"
   )
 
-  if ((isGetRequest || isHeadRequest) && !hasSupabaseAuthCookie && !isAdminPath) {
-    supabaseResponse.headers.set(
+  if (isGetRequest || isHeadRequest) {
+    response.headers.set(
       'Cache-Control',
       'public, s-maxage=300, stale-while-revalidate=900'
     )
   }
 
-  return supabaseResponse
+  return response
 }
 
 export const config = {
@@ -177,7 +131,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - api routes are handled separately in middleware
-     * Feel free to modify this pattern to include more paths.
      */
     '/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
   ]

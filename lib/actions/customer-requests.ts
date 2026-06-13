@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { Prisma, type customer_requests } from '@prisma/client'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
-import { createClient } from '@/lib/supabase/server'
+import { getServerSession } from '@/lib/auth/server'
 import {
   CUSTOMER_REQUEST_SOURCES,
   CUSTOMER_REQUEST_STATUSES,
@@ -158,11 +158,8 @@ export async function createCustomerRequest(
   let userId: string | null = null
 
   try {
-    const supabase = await createClient()
-    const {
-      data: { user }
-    } = await supabase.auth.getUser()
-    userId = user?.id ?? null
+    const session = await getServerSession()
+    userId = session?.user?.id ?? null
   } catch {
     userId = null
   }

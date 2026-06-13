@@ -59,8 +59,6 @@ services:
         # Always 3001 for this compose file — do not inherit :3000 from .env (bun dev).
         NEXT_PUBLIC_SITE_URL: http://localhost:3001
         NEXT_PUBLIC_APP_URL: http://localhost:3001
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST:-http://localhost:7700}
         NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY:-}
         NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
@@ -83,10 +81,16 @@ services:
       MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-dev-master-key}
       MEILI_INDEX_PRODUCTS: products
-      # Keep local Docker off the shared Supabase session budget (see docs/DOCKER_LOCAL.md).
-      DATABASE_POOL_MAX: "2"
+      DATABASE_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
+      DIRECT_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
+      DATABASE_POOL_MAX: "15"
+      AUTH_TRUST_HOST: "true"
+    volumes:
+      - ./data/storage:/app/data/storage:delegated
     depends_on:
       meilisearch:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - app-network
@@ -142,6 +146,42 @@ services:
         reservations:
           memory: 128M
 
+  postgres:
+    image: postgres:17-alpine
+    container_name: getirbakim-postgres-local
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LOCAL_POSTGRES_DB:-getirbakim}
+      POSTGRES_USER: ${LOCAL_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data
+    networks:
+      - app-network
+    ports:
+      - "127.0.0.1:54322:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${LOCAL_POSTGRES_USER:-postgres} -d ${LOCAL_POSTGRES_DB:-getirbakim}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "2"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 256M
+
 networks:
   app-network:
     driver: bridge
@@ -150,3 +190,5 @@ volumes:
   meili_data_local:
     external: true
     name: getirbakim-meili-data
+  postgres_data_local:
+    name: getirbakim-postgres-data

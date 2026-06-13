@@ -289,7 +289,7 @@ export function CategoryForm({ category, categories }: CategoryFormProps) {
               {imagePreview ? 'Change Image (File)' : 'Upload Image (File)'}
             </Button>
             <p className="text-xs text-muted-foreground mt-2">
-              Upload images from URL or file. Images will be saved directly to Supabase Storage (category-images bucket)
+              Upload images from URL or file. Images will be saved directly to storage (category-images bucket)
             </p>
           </div>
         </div>

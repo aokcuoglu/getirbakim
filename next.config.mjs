@@ -40,8 +40,10 @@ const nextConfig = {
                 hostname: 'mwpvcakzuo0x1ytc.public.blob.vercel-storage.com',
             },
             {
-                protocol: 'https',
-                hostname: 'fbhvayopjuixbyddftbk.supabase.co',
+                protocol: 'http',
+                hostname: 'localhost',
+                port: '3001',
+                pathname: '/api/storage/**',
             },
         ],
         // Performance optimizations
@@ -87,6 +89,9 @@ const nextConfig = {
                 permanent: true,
             },
         ];
+    },
+    async rewrites() {
+        return [];
     },
 };
 

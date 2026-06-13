@@ -3,7 +3,6 @@ import React from 'react'
 import { ArrowRight } from 'lucide-react'
 import { POPULAR_MAKES } from './data'
 import { useTranslations } from 'next-intl'
-import { SafeImage } from '@/components/ui/SafeImage'
 
 interface PopularMakesProps {
   onMakeSelect?: (make: string) => void
@@ -26,13 +25,12 @@ export function PopularMakes({ onMakeSelect }: PopularMakesProps) {
               className="group h-[70px] border border-border bg-background px-2 transition-colors hover:border-input hover:bg-muted"
               aria-label={make.label}
             >
-              <SafeImage
+              <img
                 src={make.logo}
                 alt={make.alt}
                 width={96}
                 height={40}
                 className="mx-auto h-10 w-auto object-contain opacity-90 transition-opacity group-hover:opacity-100"
-                unoptimized
               />
             </button>
           ))}

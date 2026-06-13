@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { deleteCachePattern } from '@/lib/redis'
-import { createAdminClient } from '@/lib/supabase/storage'
+import { uploadFile, getPublicUrl } from '@/lib/storage'
 import {
   getBrandList,
   getPriceList,
@@ -225,12 +225,8 @@ function buildNewPartId(): bigint {
   )
 }
 
-const REFERENCE_CLONE_IMAGE_BUCKET =
-  process.env.SUPABASE_PART_IMAGES_BUCKET || 'part-images'
-const REFERENCE_CLONE_DOCUMENT_BUCKET =
-  process.env.SUPABASE_PART_DOCUMENTS_BUCKET ||
-  process.env.SUPABASE_PART_IMAGES_BUCKET ||
-  'part-images'
+const REFERENCE_CLONE_IMAGE_BUCKET = 'part-images'
+const REFERENCE_CLONE_DOCUMENT_BUCKET = 'part-documents'
 const REFERENCE_CLONE_DOCUMENT_TYPE_ID = 1
 const REFERENCE_CLONE_DOCUMENT_TYPE_NAME = 'DOKUMAN'
 
@@ -5046,27 +5042,18 @@ async function uploadReferenceCloneBinaryFile(input: {
     extension
   })
 
-  const bytes = new Uint8Array(await input.file.arrayBuffer())
-  const supabase = createAdminClient()
+  const bytes = Buffer.from(await input.file.arrayBuffer())
+  const contentType =
+    normalizeText(input.file.type) ||
+    (input.folder === 'images'
+      ? `image/${extension === 'jpg' ? 'jpeg' : extension}`
+      : undefined)
 
-  const { error } = await supabase.storage
-    .from(input.bucket)
-    .upload(path, bytes, {
-      contentType:
-        normalizeText(input.file.type) ||
-        (input.folder === 'images'
-          ? `image/${extension === 'jpg' ? 'jpeg' : extension}`
-          : undefined),
-      upsert: false
-    })
+  const { publicUrl } = await uploadFile(bytes, path, contentType, input.bucket)
 
-  if (error) {
-    return { success: false, message: error.message } as const
+  if (!publicUrl) {
+    return { success: false, message: 'File upload failed' } as const
   }
-
-  const {
-    data: { publicUrl }
-  } = supabase.storage.from(input.bucket).getPublicUrl(path)
 
   return {
     success: true,
@@ -5126,7 +5113,7 @@ export async function uploadSupplierReferenceCloneImage(
   if (!uploaded.success) {
     return {
       success: false,
-      message: uploaded.message || "Görsel Supabase Storage'a yüklenemedi."
+      message: uploaded.message || "Görsel yüklenemedi."
     }
   }
 
@@ -5191,7 +5178,7 @@ export async function uploadSupplierReferenceCloneDocument(
   if (!uploaded.success) {
     return {
       success: false,
-      message: uploaded.message || "Döküman Supabase Storage'a yüklenemedi."
+      message: uploaded.message || "Döküman yüklenemedi."
     }
   }
 

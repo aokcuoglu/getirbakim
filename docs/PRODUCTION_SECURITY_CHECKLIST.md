@@ -18,7 +18,6 @@
 - [ ] Backup env files (`.env.bak-*`, `*.env.backup`) must not live in the repository root
 - [ ] `.env.example` contains only placeholder values, no real secrets
 - [ ] No `NEXT_PUBLIC_` variable contains secret values (they are embedded in client bundles)
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` is only used server-side (in `lib/supabase/storage.ts`)
 - [ ] No secrets appear in client-side JavaScript bundles (verify with browser DevTools Network tab)
 - [ ] `TAMI_SECRET_KEY`, `TAMI_JWK_K`, `TAMI_JWK_KID` are only used server-side
 - [ ] `DATABASE_URL` and `DIRECT_URL` are only used server-side (Prisma)

@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Sidebar } from './sidebar'
 import { AdminHeader } from './admin-header'
 import { usePathname, useRouter } from '@/lib/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { signOut } from 'next-auth/react'
 import { useShop } from '@/components/ShopProvider'
 import {
   Sheet,
@@ -75,11 +75,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   const handleSignOut = React.useCallback(async () => {
     setUser(null)
-    const supabase = createClient()
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Failed to sign out:', error)
-    }
+    await signOut({ redirect: false })
     router.push('/')
     router.refresh()
   }, [router, setUser])

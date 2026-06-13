@@ -19,8 +19,8 @@ import { SoonFeature } from '@/components/ui/SoonFeature'
 import { isV0OnlySite } from '@/lib/v0/siteMode'
 
 interface HeroProps {
-  topCategories: TopCategoryItem[]
-  catalogData: CatalogData
+  topCategories?: TopCategoryItem[]
+  catalogData?: CatalogData
   manufacturers?: PopularManufacturer[]
   brands?: V0HomeBrandItem[]
   onMakeSelect?: (make: string) => void
@@ -55,12 +55,14 @@ const Hero: React.FC<HeroProps> = ({
       <PartFinder />
 
       {/* 2. Top Category Images - from DB where is_top_category=true */}
-      <SoonFeature enabled={v0OnlySite} className="min-h-[7.5rem]">
-        <TopCategories
-          categories={topCategories}
-          onCategoryClick={handleCategoryClick}
-        />
-      </SoonFeature>
+      {topCategories && (
+        <SoonFeature enabled={v0OnlySite} className="min-h-[7.5rem]">
+          <TopCategories
+            categories={topCategories}
+            onCategoryClick={handleCategoryClick}
+          />
+        </SoonFeature>
+      )}
 
       {/* 3. Campaign Carousel */}
       <SoonFeature enabled={v0OnlySite}>
@@ -68,9 +70,11 @@ const Hero: React.FC<HeroProps> = ({
       </SoonFeature>
 
       {/* 4. Subcategory Catalog Grid */}
-      <SoonFeature enabled={v0OnlySite} className="min-h-[min(60vh,28rem)]">
-        <CatalogSection catalogData={catalogData} />
-      </SoonFeature>
+      {catalogData && (
+        <SoonFeature enabled={v0OnlySite} className="min-h-[min(60vh,28rem)]">
+          <CatalogSection catalogData={catalogData} />
+        </SoonFeature>
+      )}
 
       {/* 5. Popular Vehicle Makes */}
       <SoonFeature enabled={v0OnlySite}>

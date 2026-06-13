@@ -64,8 +64,10 @@ MEILI_MASTER_KEY=local-dev-master-key
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# Lower pool size if VPS is also connected to same Supabase
-DATABASE_POOL_MAX=2
+# Local PostgreSQL published by docker-compose.local.yml
+DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+DATABASE_POOL_MAX=15
 ```
 
 Next.js loads env files in this order (later files override earlier):

@@ -48,6 +48,7 @@ export interface ShopContextType {
   // New Props for MyGarage
   user: any | null
   setUser: (user: any | null) => void
+  refetchUser: () => Promise<void>
   vehicleHistory: Vehicle[]
   addToHistory: (vehicle: Vehicle) => void
   selectFromHistory: (vehicle: Vehicle) => void
@@ -198,6 +199,16 @@ export function ShopProvider({
   // MyGarage User State - initialize with server-provided user to avoid hydration mismatch
   const [user, setUser] = useState<any>(initialUser ?? null)
 
+  const refetchUser = async () => {
+    try {
+      const res = await fetch('/api/me', { cache: 'no-store' })
+      const json = (await res.json().catch(() => null)) as { user: any | null } | null
+      setUser(json?.user ?? null)
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     cartRef.current = cart
   }, [cart])
@@ -254,23 +265,15 @@ export function ShopProvider({
     }
   }, [cart, isAdminRoute])
 
-  // Auth State Management - Single unified effect
-  // Uses onAuthStateChange which fires INITIAL_SESSION on mount, eliminating need for getSession()
+  // Auth State Management
+  // Fetches user session on mount via /api/me
   useEffect(() => {
-    // Skip if already initialized (Strict Mode protection)
     if (authInitializedRef.current) return
-
-    let mounted = true
-    let unsubscribe: (() => void) | null = null
-
     authInitializedRef.current = true
 
-    void (async () => {
-      const { createClient } = await import('@/lib/supabase/client')
-      if (!mounted) return
-      const supabase = createClient()
+    let mounted = true
 
-      // Hydrate initial session to enriched user shape (DB role/name)
+    void (async () => {
       try {
         const res = await fetch('/api/me', { cache: 'no-store' })
         const json = (await res.json().catch(() => null)) as
@@ -287,57 +290,10 @@ export function ShopProvider({
       } catch {
         // ignore
       }
-
-      const {
-        data: { subscription }
-      } = supabase.auth.onAuthStateChange((event: string, session: any) => {
-        if (!session?.user) {
-          setUser(null)
-          return
-        }
-
-        const shouldEnrichUser =
-          event === 'SIGNED_IN' || event === 'USER_UPDATED'
-
-        if (!shouldEnrichUser) {
-          setUser((prevUser: any) => {
-            const next = session.user ?? null
-            if (prevUser?.id === next?.id) return prevUser
-            return next
-          })
-          return
-        }
-
-        // Enrich client session user with DB role/name via server endpoint
-        fetch('/api/me', { cache: 'no-store' })
-          .then((r) => r.json())
-          .then((json: { user: any | null }) => {
-            setUser((prevUser: any) => {
-              const next = json?.user ?? null
-              if (prevUser?.id && next?.id && prevUser.id === next.id) return prevUser
-              return next
-            })
-          })
-          .catch(() => {
-            // Fallback to raw session user if enrichment fails
-            setUser((prevUser: any) => {
-              const next = session.user ?? null
-              if (prevUser?.id === next?.id) return prevUser
-              return next
-            })
-          })
-      })
-
-      unsubscribe = () => subscription.unsubscribe()
-    })().catch(() => {
-      if (!mounted) return
-      authInitializedRef.current = false
-    })
+    })()
 
     return () => {
       mounted = false
-      if (unsubscribe) unsubscribe()
-      // Reset ref on cleanup for hot reload scenarios
       authInitializedRef.current = false
     }
   }, [])
@@ -632,6 +588,7 @@ export function ShopProvider({
         cartItemCount,
         user: user || null,
         setUser,
+        refetchUser,
         vehicleHistory,
         addToHistory,
         selectFromHistory,

@@ -36,7 +36,7 @@ The app runs at **http://localhost:3001**.
 
 `docker-compose.local.yml` **hardcodes** `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` at image build time so a `.env` still pointing at `:3000` does not break auth or redirects in Docker.
 
-For Docker, also set in `.env` (runtime metadata, health checks, Supabase redirects):
+For Docker, also set in `.env` (runtime metadata, health checks):
 
 ```env
 NEXT_PUBLIC_SITE_URL=http://localhost:3001
@@ -45,12 +45,11 @@ NEXT_PUBLIC_APP_URL=http://localhost:3001
 
 ### Admin panel (`/tr/admin`)
 
-Admin routes require a Supabase session with `users.role = ADMIN` in the database.
+Admin routes require an admin session (Stack Auth) with `users.role = ADMIN` in the database.
 
 - **Log in on port 3001**, not 3000: `bun run dev` uses `:3000`; Docker uses `:3001`. Cookies are not shared between ports.
 - If you open `/tr/admin` without a session, you are redirected to `/tr/login?redirect=...` (not the storefront home).
 - Set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` in `.env` (see table above).
-- Supabase Auth redirect URLs must include `http://localhost:3001/**` if you use OAuth/magic links.
 
 ## Commands
 
@@ -95,8 +94,6 @@ The local compose passes these `NEXT_PUBLIC_*` build args from your `.env`:
 
 - `NEXT_PUBLIC_SITE_URL` (default: `http://localhost:3001`)
 - `NEXT_PUBLIC_APP_URL` (default: `http://localhost:3001`)
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_MEILI_HOST` (default: `http://localhost:7700`)
 - `NEXT_PUBLIC_MEILI_SEARCH_KEY`
 - `NEXT_PUBLIC_BUILD_VERSION` (default: `dev-local`)
@@ -104,7 +101,16 @@ The local compose passes these `NEXT_PUBLIC_*` build args from your `.env`:
 - `NEXT_PUBLIC_COOKIEYES_CLIENT_ID`
 - `NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS`
 
-Server-side env vars (DATABASE_URL, secrets, etc.) are injected at runtime via `env_file: .env`.
+Server-side secrets are injected at runtime via `env_file: .env`. For database access,
+`docker-compose.local.yml` overrides `DATABASE_URL` and `DIRECT_URL` so the app always
+uses the local `getirbakim` PostgreSQL service at `postgres:5432`.
+
+The same compose file provides a local PostgreSQL database. For `bun run dev` and Prisma commands running on the host, use `.env.local`:
+
+```env
+DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+```
 
 ### Dinamik API (proxy zorunlu)
 
@@ -129,29 +135,6 @@ docker compose -f docker-compose.local.yml up -d --build
 Admin panelde `/admin/suppliers/dinamik` üzerinde **Proxy 173.249.36.2:8888** rozeti görünmeli. Squid `acl` satırında Mac’inizin güncel public IP’si (`curl -4 ifconfig.me`) tanımlı olmalı.
 
 ## Common Issues
-
-### EMAXCONNSESSION / Supabase pool exhaustion
-
-Symptom: Browser shows "Something went wrong". Docker logs show:
-```
-(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15
-```
-
-This means the Supabase session pool (limit 15) is exhausted. Common causes:
-
-- Local Docker and VPS production are both connected to the same Supabase project.
-- `DATABASE_POOL_MAX` is set too high.
-- Multiple local Docker/Bun dev instances running simultaneously.
-
-**Fix:**
-
-1. Set `DATABASE_POOL_MAX=2` in your local `.env`.
-2. Ensure VPS `.env.production` has `DATABASE_POOL_MAX=4` (2 + 4 = 6 < 15).
-3. Stop unused local Docker or dev processes:
-   ```bash
-   docker compose -f docker-compose.local.yml down --remove-orphans
-   ```
-4. Do NOT switch to transaction pooler port 6543 — PrismaPg requires prepared statements.
 
 ### OrbStack / Docker Desktop not running
 
@@ -187,18 +170,6 @@ Copy from `.env.example` and fill in values:
 ```bash
 cp .env.example .env
 ```
-
-### Supabase pooler mode errors (P1000 / prepared statement errors)
-
-This project uses Prisma 7 with PrismaPg adapter, which requires **prepared statements**.
-
-Use **session pooler port 5432**:
-
-```
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-1-<region>.pooler.supabase.com:5432/postgres"
-```
-
-Do **NOT** use transaction pooler port 6543 with `pgbouncer=true` — this disables prepared statements and causes PrismaPg errors.
 
 ### PrismaPg prepared statement errors
 

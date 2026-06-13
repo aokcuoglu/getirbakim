@@ -7,6 +7,12 @@ import { Star } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { SoonFeature } from '@/components/ui/SoonFeature'
 import { isV0OnlySite } from '@/lib/v0/siteMode'
+import { getPublicUrl } from '@/lib/storage/url'
+
+const partFinderBackground = getPublicUrl(
+  'partfinder-bg.webp',
+  'category-images'
+)
 
 export const PartFinder: React.FC = () => {
   const { selectedVehicle } = useShop()
@@ -24,7 +30,10 @@ export const PartFinder: React.FC = () => {
   }
 
   return (
-    <div className="relative bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center pt-7 pb-6 sm:pt-8 sm:pb-7 isolate z-10">
+    <div
+      className="relative bg-cover bg-center pt-7 pb-6 sm:pt-8 sm:pb-7 isolate z-10"
+      style={{ backgroundImage: `url("${partFinderBackground}")` }}
+    >
       <div className="absolute inset-0 bg-primary/70 -z-10" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center relative z-10">

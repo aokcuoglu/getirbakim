@@ -26,7 +26,6 @@ import { useShop } from '@/components/ShopProvider'
 import { useTranslations, useLocale } from 'next-intl'
 import { buildCatalogPath } from '@/lib/catalog-url'
 import { resolveVehicleTypeId } from '@/lib/utils/vehicleSlug'
-import { createClient } from '@/lib/supabase/client'
 import { Input } from '@/components/ui/input'
 import { SoonFeature } from '@/components/ui/SoonFeature'
 
@@ -206,11 +205,8 @@ export const CatalogSheet: React.FC<CatalogSheetProps> = ({
   const handleLogout = async () => {
     setUser(null)
     onOpenChange(false)
-    const supabase = createClient()
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Failed to sign out:', error)
-    }
+    const { signOut } = await import('next-auth/react')
+    await signOut({ redirect: false })
     router.refresh()
   }
 

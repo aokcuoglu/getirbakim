@@ -5,7 +5,7 @@ import { getUserVehicles } from '@/lib/actions/user-vehicles'
 import { getMainNavCategories } from '@/lib/mainNavCategories'
 import { getOrdersForUser } from '@/lib/orders/service'
 import { Link } from '@/lib/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getServerSession } from '@/lib/auth/server'
 import { AccountWorkspace } from '@/components/account/AccountWorkspace'
 import type { Vehicle } from '@/types'
 import { getTranslations } from 'next-intl/server'
@@ -34,10 +34,8 @@ export default async function AccountPage(props: {
   const { locale } = await props.params
   const searchParams = await props.searchParams
   const navbarCategories = await getMainNavCategories(locale)
-  const supabase = await createClient()
-  const {
-    data: { user }
-  } = await supabase.auth.getUser()
+  const session = await getServerSession()
+  const user = session?.user
   const initialSection: AccountSection =
     typeof searchParams.section === 'string' &&
     ACCOUNT_SECTION_SET.has(searchParams.section)
@@ -103,11 +101,7 @@ export default async function AccountPage(props: {
           initialSection={initialSection}
           user={{
             id: user.id,
-            name:
-              (user.user_metadata?.full_name as string | undefined) ||
-              (user.user_metadata?.name as string | undefined) ||
-              user.email ||
-              'User',
+            name: user.name || user.email || 'User',
             email: user.email || ''
           }}
           orders={serializedOrders}

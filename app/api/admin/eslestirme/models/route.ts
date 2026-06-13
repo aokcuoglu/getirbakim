@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(cb.brand, ''))) = BTRIM(LOWER(${canonicalBrand}))`)
   }
   // brand_list always joined so UI can show canonical brand name
-  const brandListJoin = Prisma.sql`LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id`
+  const brandListJoin = Prisma.sql` LEFT JOIN v0.brand_list cb ON cb.id = m.brand_list_id`
   if (bsbgBrand) {
     whereClauses.push(Prisma.sql`BTRIM(LOWER(COALESCE(bb.brand, ''))) = BTRIM(LOWER(${bsbgBrand}))`)
   }

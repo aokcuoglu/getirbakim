@@ -18,7 +18,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { buildCatalogPath } from '@/lib/catalog-url'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { Button } from '@/components/ui/button'
-import { createClient } from '@/lib/supabase/client'
+import { signOut } from 'next-auth/react'
 import { SoonFeature } from '@/components/ui/SoonFeature'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
@@ -106,11 +106,7 @@ export const NavbarActions: React.FC<NavbarActionsProps> = ({
   const handleLogout = async () => {
     setUser(null)
     closeAllDropdowns()
-    const supabase = createClient()
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Failed to sign out:', error)
-    }
+    await signOut({ redirect: false })
     router.refresh()
   }
 

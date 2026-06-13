@@ -571,6 +571,7 @@ model users {
   name              String
   email             String              @unique(map: "users_email_unique")
   email_verified    Boolean             @default(false)
+  password_hash     String?
   image             String?
   created_at        DateTime            @db.Timestamp(6)
   updated_at        DateTime            @db.Timestamp(6)

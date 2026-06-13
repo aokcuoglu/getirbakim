@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { db } from '@/lib/db'
 import {
   errorResponse,
   successResponse,
   withApiContext
 } from '@/lib/api/route-utils'
+import { getServerSession } from '@/lib/auth/server'
 
 export async function GET(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
@@ -17,12 +17,9 @@ export async function GET(request: NextRequest) {
 
   try {
     const start = performance.now()
-    const supabase = await createClient()
-    const {
-      data: { user }
-    } = await supabase.auth.getUser()
+    const session = await getServerSession()
 
-    if (!user) {
+    if (!session?.user?.id) {
       const res = successResponse({ user: null }, context)
       res.headers.set(
         'Server-Timing',
@@ -32,7 +29,7 @@ export async function GET(request: NextRequest) {
     }
 
     const dbUser = await db.users.findUnique({
-      where: { id: user.id },
+      where: { id: session.user.id },
       select: {
         id: true,
         email: true,
@@ -42,17 +39,13 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // If DB row doesn't exist yet (edge-case), still return Supabase identity.
     if (!dbUser) {
       const res = successResponse({
         user: {
-          id: user.id,
-          email: user.email,
-          name:
-            (user.user_metadata as any)?.full_name ||
-            (user.user_metadata as any)?.name ||
-            null,
-          role: null,
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.name || null,
+          role: session.user.role || null,
           image: null
         }
       }, context)

@@ -14,6 +14,12 @@ import { useShop } from '@/components/ShopProvider'
 import { Vehicle } from '@/types'
 import { useTranslations } from 'next-intl'
 import { buildCatalogPath } from '@/lib/catalog-url'
+import { getPublicUrl } from '@/lib/storage/url'
+
+const partFinderBackground = getPublicUrl(
+  'partfinder-bg.webp',
+  'category-images'
+)
 
 interface MobileVehicleSelectorModalProps {
   isOpen: boolean
@@ -222,7 +228,10 @@ export const MobileVehicleSelectorModal: React.FC<
   const modalContent = (
     <div className="fixed inset-0 z-9999 bg-background md:hidden animate-in fade-in duration-200 flex flex-col">
       {/* Header with background image */}
-      <div className="relative bg-primary bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center">
+      <div
+        className="relative bg-primary bg-cover bg-center"
+        style={{ backgroundImage: `url("${partFinderBackground}")` }}
+      >
         <div className="absolute inset-0 bg-primary/60" />
         <div className="relative z-10 flex items-center justify-between px-4 py-4">
           {step !== 'MAKE' ? (

@@ -1,7 +1,7 @@
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import { Button } from '@/components/ui/button'
-import { createClient } from '@/lib/supabase/server'
+import { getServerSession } from '@/lib/auth/server'
 import { getMainNavCategories } from '@/lib/mainNavCategories'
 import { formatOrderNumber } from '@/lib/orders/types'
 import { Link } from '@/lib/navigation'
@@ -19,10 +19,8 @@ export default async function CheckoutResultPage(props: {
   const searchParams = await props.searchParams
   const navbarCategories = await getMainNavCategories(locale)
 
-  const supabase = await createClient()
-  const {
-    data: { user }
-  } = await supabase.auth.getUser()
+  const session = await getServerSession()
+  const user = session?.user
 
   const orderId = Number(searchParams.orderId || '0')
   const orderNumber =

@@ -5,6 +5,12 @@ import { Star, Search } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { VehicleSelector } from '@/components/selector/VehicleSelector'
 import { useSearchParams } from 'next/navigation'
+import { getPublicUrl } from '@/lib/storage/url'
+
+const partFinderBackground = getPublicUrl(
+  'partfinder-bg.webp',
+  'category-images'
+)
 
 export function SearchHero() {
   const t = useTranslations('CategoryPage')
@@ -12,7 +18,10 @@ export function SearchHero() {
   const query = searchParams.get('q') || ''
 
   return (
-    <div className="relative bg-[url('https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/category-images/partfinder-bg.webp')] bg-cover bg-center pt-8 pb-16 isolate">
+    <div
+      className="relative bg-cover bg-center pt-8 pb-16 isolate"
+      style={{ backgroundImage: `url("${partFinderBackground}")` }}
+    >
       {/* Dark overlay */}
       <div className="absolute inset-0 bg-primary/60 -z-10" />
 

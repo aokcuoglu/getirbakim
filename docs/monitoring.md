@@ -171,10 +171,9 @@ Add to `/api/health`:
 checks: {
   database: "ok" | "error",
   redis: "ok" | "unavailable",
-  meilisearch: "ok" | "unavailable" | "error",  // NEW
-  supabaseAuth: "ok" | "error",                  // NEW
-  uptime: process.uptime(),                       // NEW
-  memory: process.memoryUsage(),                  // NEW
+  meilisearch: "ok" | "unavailable" | "error",
+  uptime: process.uptime(),
+  memory: process.memoryUsage(),
 }
 ```
 
@@ -433,7 +432,7 @@ echo "=== Check Complete ==="
 1. Check Sentry for error grouping
 2. Check nginx logs for 5xx: `docker compose logs nginx | grep " 50[0-9] "`
 3. Check app logs: `docker compose logs app --since 10m | grep -i error`
-4. Check Supabase status: https://status.supabase.com/
+4. Check PostgreSQL: `docker compose exec postgres pg_isready`
 
 ---
 

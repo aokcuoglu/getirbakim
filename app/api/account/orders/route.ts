@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import {
   errorResponse,
   successResponse,
   withApiContext
 } from '@/lib/api/route-utils'
 import { getOrdersForUser } from '@/lib/orders/service'
+import { getServerSession } from '@/lib/auth/server'
 
 export async function GET(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
@@ -16,12 +16,9 @@ export async function GET(request: NextRequest) {
   if (limitedResponse) return limitedResponse
 
   try {
-    const supabase = await createClient()
-    const {
-      data: { user }
-    } = await supabase.auth.getUser()
+    const session = await getServerSession()
 
-    if (!user?.id) {
+    if (!session?.user?.id) {
       return errorResponse({
         status: 401,
         code: 'UNAUTHORIZED',
@@ -30,7 +27,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const orders = await getOrdersForUser(user.id)
+    const orders = await getOrdersForUser(session.user.id)
     return successResponse({ orders }, context)
   } catch (error) {
     return errorResponse({

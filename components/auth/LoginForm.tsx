@@ -1,6 +1,6 @@
 'use client'
 
-import { signIn } from '@/lib/actions/auth-actions'
+import { signIn } from 'next-auth/react'
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -21,10 +21,18 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     setIsLoading(true)
     setError(null)
     try {
-      const result = await signIn(formData)
+      const email = formData.get('email') as string
+      const password = formData.get('password') as string
+
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
       if (result?.error) {
-        setError(result.error)
-      } else if (result?.success) {
+        setError('Invalid email or password')
+      } else {
         toast.success(t('loginSuccess'))
         router.refresh()
         router.push(safeRedirectPath(redirectTo, '/'))

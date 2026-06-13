@@ -1,3 +1,5 @@
+import { getPublicUrl } from '@/lib/storage/url'
+
 export const TOP_CATEGORIES = [
   {
     id: 'car-parts',
@@ -54,49 +56,52 @@ export const POPULAR_MAKES = [
   {
     key: 'VW',
     label: 'Volkswagen',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/volkswagen-logo.png',
+    logo: getPublicUrl('vehicle-makes/volkswagen-logo.svg', 'brand-logos'),
     alt: 'Volkswagen logo'
   },
   {
     key: 'Audi',
     label: 'Audi',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/audi-logo.png',
+    logo: getPublicUrl('vehicle-makes/audi-logo.svg', 'brand-logos'),
     alt: 'Audi logo'
   },
   {
     key: 'BMW',
     label: 'BMW',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/bmw-logo.png',
+    logo: getPublicUrl('vehicle-makes/bmw-logo.svg', 'brand-logos'),
     alt: 'BMW logo'
   },
   {
     key: 'Mercedes-Benz',
     label: 'Mercedes-Benz',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/mercedes-benz-logo.png',
+    logo: getPublicUrl(
+      'vehicle-makes/mercedes-benz-logo.svg',
+      'brand-logos'
+    ),
     alt: 'Mercedes-Benz logo'
   },
   {
     key: 'Toyota',
     label: 'Toyota',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/toyota-logo.png',
+    logo: getPublicUrl('vehicle-makes/toyota-logo.svg', 'brand-logos'),
     alt: 'Toyota logo'
   },
   {
     key: 'Ford',
     label: 'Ford',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/ford-logo.png',
+    logo: getPublicUrl('vehicle-makes/ford-logo.svg', 'brand-logos'),
     alt: 'Ford logo'
   },
   {
     key: 'Volvo',
     label: 'Volvo',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/volvo-logo.png',
+    logo: getPublicUrl('vehicle-makes/volvo-logo.svg', 'brand-logos'),
     alt: 'Volvo logo'
   },
   {
     key: 'Honda',
     label: 'Honda',
-    logo: 'https://fbhvayopjuixbyddftbk.supabase.co/storage/v1/object/public/brand-logos/vehicle-makes/honda-logo.png',
+    logo: getPublicUrl('vehicle-makes/honda-logo.svg', 'brand-logos'),
     alt: 'Honda logo'
   }
 ]
