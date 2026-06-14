@@ -2,11 +2,13 @@
 #
 # Architecture (Phase 2 Hardened):
 #   Cloudflare → Nginx (Docker, :80/:443 only) → App (:3000 internal) + Meilisearch (:7700 internal)
+#   PostgreSQL runs inside Docker on the same VPS (no external DB host).
 #
 # Key changes from legacy setup:
 #   - Nginx is now INSIDE Docker Compose (was host-level service)
 #   - App has NO port binding → internal Docker network only
 #   - Meilisearch has NO port binding → internal Docker network only
+#   - PostgreSQL has NO port binding → internal Docker network only
 #   - All services have healthchecks
 #   - Resource limits prevent OOM kills
 #   - Rate limiting handled by nginx (infra/nginx/nginx.production.conf)
@@ -98,8 +100,13 @@ services:
       MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
       MEILI_INDEX_PRODUCTS: ${MEILI_INDEX_PRODUCTS:-products}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}
+      DATABASE_POOL_MAX: "10"
     depends_on:
       meilisearch:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - app-network
@@ -156,9 +163,43 @@ services:
         reservations:
           memory: 128M
 
+  # ── PostgreSQL (self-hosted, internal network only) ─────────────────────
+  postgres:
+    image: postgres:17-alpine
+    container_name: getirbakim-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-getirbakim}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    # NO port binding — internal Docker network only.
+    # App communicates via postgres:5432 on the Docker network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-getirbakim}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 256M
+
 networks:
   app-network:
     driver: bridge
 
 volumes:
   meili_data:
+  postgres_data:
