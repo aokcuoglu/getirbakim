@@ -57,14 +57,14 @@ async function fetchStats(): Promise<BackfillStats> {
     }>
   >(Prisma.sql`
     WITH resolved AS (
-      SELECT
-        dm.id,
-        dm.logo_url AS current_logo_url,
+      SELECT DISTINCT ON (cb.id)
+        cb.id,
+        cb.logo_url AS current_logo_url,
         pt.logo_url AS pt_logo_url,
         pt.logo_url AS resolved_logo_url
-      FROM v0.brand_list dm
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm.ptdrk_brands_id
-      LEFT JOIN v0.dnmk_brands d ON d.id = dm.dnmk_brands_id
+      FROM v0.brand_list cb
+      JOIN v0.brand_mappings m ON m.brand_list_id = cb.id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     )
     SELECT
       COUNT(*)::bigint AS total_rows,
@@ -109,23 +109,23 @@ async function fetchStats(): Promise<BackfillStats> {
 
 async function runBackfill(): Promise<number> {
   const result = await db.$executeRaw(Prisma.sql`
-    UPDATE v0.brand_list dm
+    UPDATE v0.brand_list cb
     SET logo_url = sub.resolved_logo_url
     FROM (
-      SELECT
-        dm2.id,
+      SELECT DISTINCT ON (cb2.id)
+        cb2.id,
         pt.logo_url AS resolved_logo_url
-      FROM v0.brand_list dm2
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = dm2.ptdrk_brands_id
-      LEFT JOIN v0.dnmk_brands d ON d.id = dm2.dnmk_brands_id
+      FROM v0.brand_list cb2
+      JOIN v0.brand_mappings m ON m.brand_list_id = cb2.id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE pt.logo_url IS NOT NULL
         AND (
           ${FORCE}
-          OR dm2.logo_url IS NULL
-          OR BTRIM(dm2.logo_url) = ''
+          OR cb2.logo_url IS NULL
+          OR BTRIM(cb2.logo_url) = ''
         )
     ) sub
-    WHERE dm.id = sub.id
+    WHERE cb.id = sub.id
   `)
 
   return Number(result)

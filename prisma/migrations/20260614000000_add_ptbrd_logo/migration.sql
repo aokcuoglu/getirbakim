@@ -1,0 +1,1 @@
+ALTER TABLE v0.ptdrk_brands ADD COLUMN IF NOT EXISTS logo_url TEXT;
