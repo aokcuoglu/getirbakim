@@ -146,12 +146,22 @@ wait_for_healthy() {
 wait_for_healthy "getirbakim-postgres" 60 || { echo "FATAL: postgres not healthy, aborting"; exit 1; }
 
 echo ">>> Running Prisma migrations..."
-MIGRATE_OUTPUT=$(docker compose exec -T app npx prisma migrate deploy 2>&1) || true
-echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
-if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
-  echo "WARN: Prisma migrate deploy reported an error — check above"
+DATABASE_URL=$(grep -oP '^DATABASE_URL=\K.*' "${ENV_FILE}" 2>/dev/null || grep '^DATABASE_URL=' "${ENV_FILE}" | cut -d= -f2-)
+if [[ -z "${DATABASE_URL}" ]]; then
+  echo "WARN: Could not extract DATABASE_URL from ${ENV_FILE}, skipping Prisma migrations"
 else
-  echo "  Prisma migrations OK"
+  MIGRATE_OUTPUT=$(docker run --rm \
+    --network getirbakim_default \
+    -v "$PWD/prisma:/app/prisma" \
+    -e DATABASE_URL="${DATABASE_URL}" \
+    node:22-slim \
+    npx --yes prisma migrate deploy 2>&1) || true
+  echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
+  if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
+    echo "WARN: Prisma migrate deploy reported an error — check above"
+  else
+    echo "  Prisma migrations OK"
+  fi
 fi
 
 echo ">>> Ensuring v0 schema tables..."
