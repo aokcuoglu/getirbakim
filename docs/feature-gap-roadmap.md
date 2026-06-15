@@ -9,7 +9,7 @@
 - Arama sayfasi: faceted search UX, siralama, liste/grid gorunum.
 - Urun detay sayfasi: galeri, ozellikler, EAN/OEN verileri, iliskili urunler.
 - Arac secici: marka/model/variant hiyerarsisi ve “garage” benzeri client state.
-- Kimlik dogrulama: Supabase sign-in/sign-up/callback.
+- Kimlik dogrulama: NextAuth.js (Credentials provider, email+password, bcryptjs hashing).
 
 ### Admin
 - Admin guard (`requireAdminAuth`) ve locale admin route’lari.

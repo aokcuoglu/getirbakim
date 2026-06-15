@@ -638,7 +638,7 @@ def main() -> int:
         choices=["metadata", "images", "both", "pipeline"],
         default="both",
         help=(
-            "metadata=sku/price only; images=Supabase upload pass; "
+            "metadata=sku/price only; images=upload pass; "
             "both=sequential metadata then images; pipeline=metadata then bg images per brand"
         ),
     )

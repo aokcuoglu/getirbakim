@@ -23,7 +23,7 @@ Do not store staging or production secrets in repo-tracked files.
 - Recommended domain: `https://staging.getirbakim.com`
 - Tami endpoint: `https://sandbox-paymentapi.tami.com.tr`
 - Tami portal: `https://sandbox-portal.tami.com.tr`
-- Separate Supabase project, DB, cron secret, and supplier credentials
+- Separate DB, cron secret, and supplier credentials
 
 ### Production
 
@@ -31,7 +31,7 @@ Do not store staging or production secrets in repo-tracked files.
 - Canonical domain: `https://www.getirbakim.com`
 - Tami endpoint: `https://paymentapi.tami.com.tr`
 - Tami portal: `https://portal.tami.com.tr`
-- Separate Supabase project, DB, cron secret, and supplier credentials
+- Separate DB, cron secret, and supplier credentials
 
 ## Required environment variables
 
@@ -41,8 +41,6 @@ These are safe to expose to the client bundle.
 
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_ENABLE_COOKIEYES`
 - `NEXT_PUBLIC_COOKIEYES_CLIENT_ID`
 - `NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS`
@@ -55,7 +53,8 @@ These must exist only in Vercel server runtime or local `.env.local`.
 
 - `DATABASE_URL`
 - `DIRECT_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+- `POSTGRES_PASSWORD`
+- `NEXTAUTH_SECRET`
 - `TAMI_MERCHANT_NUMBER`
 - `TAMI_TERMINAL_NUMBER`
 - `TAMI_SECRET_KEY`
@@ -74,7 +73,7 @@ These must exist only in Vercel server runtime or local `.env.local`.
 Rule:
 
 - Never create `NEXT_PUBLIC_` variants of server-only secrets.
-- `SUPABASE_SERVICE_ROLE_KEY`, Tami secrets, DB URLs, and cron secrets must remain server-only.
+- `POSTGRES_PASSWORD`, `NEXTAUTH_SECRET`, Tami secrets, DB URLs, and cron secrets must remain server-only.
 
 ## Vercel setup
 
@@ -100,7 +99,8 @@ Example flow:
 vercel link
 vercel env add DATABASE_URL
 vercel env add DIRECT_URL
-vercel env add SUPABASE_SERVICE_ROLE_KEY
+vercel env add POSTGRES_PASSWORD
+vercel env add NEXTAUTH_SECRET
 vercel env add TAMI_SECRET_KEY
 vercel env add CRON_SECRET
 ```
@@ -125,7 +125,7 @@ bun run env:check:production
 
 What the validator checks:
 
-- core DB, Supabase, Tami, and cron envs exist
+- core DB, NextAuth, Tami, and cron envs exist
 - `NEXT_PUBLIC_*` values are valid URLs
 - staging points to Tami sandbox
 - production points to Tami live
@@ -135,16 +135,16 @@ What the validator checks:
 
 ### Database
 
-- `DATABASE_URL` should use the pooled runtime connection
-- `DIRECT_URL` should use the direct migration connection
-- rotate both together
-- run production migrations only against the production DB
+- `DATABASE_URL` and `DIRECT_URL` both point to local Docker PostgreSQL (`postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}`)
+- No external connection pooler needed — direct PrismaPg connections to the `postgres` service within the Docker network
+- `POSTGRES_PASSWORD` secures the local PostgreSQL instance
+- Rotate `POSTGRES_PASSWORD` and redeploy both the postgres and app containers
 
-### Supabase/Auth
+### Auth (NextAuth.js)
 
-- use separate Supabase projects for staging and production
-- configure auth callback URLs per environment
-- keep `SUPABASE_SERVICE_ROLE_KEY` server-only
+- `NEXTAUTH_SECRET` signs and encrypts JWT session tokens — must be server-only
+- `NEXTAUTH_URL` must match the production domain
+- User credentials are stored in the `users` table with bcryptjs-hashed passwords
 
 ### Tami
 
@@ -169,7 +169,6 @@ What the validator checks:
 
 - `bun run env:check:staging`
 - staging domain is configured
-- staging Supabase callback URLs are configured
 - staging Tami is sandbox
 - staging DB and cron secret are isolated
 
@@ -177,20 +176,20 @@ What the validator checks:
 
 - `bun run env:check:production`
 - production domain is configured
-- production Supabase callback URLs are configured
 - production Tami uses live credentials and live endpoints
 - production DB URLs are correct
+- `NEXTAUTH_URL` and `NEXTAUTH_SECRET` are set for production
 
 ### After staging deploy
 
-- confirm login callback works
+- confirm NextAuth login works
 - confirm checkout success and failure flows against Tami sandbox
 - confirm internal cron rejects invalid secret and accepts the correct one
 
 ### After production deploy
 
 - confirm site URLs render correctly
-- confirm auth callback works
+- confirm auth works
 - confirm DB connectivity
 - confirm Tami points to live endpoints
 - run a small real payment smoke test and verify `/payment/auth` and `/payment/query`

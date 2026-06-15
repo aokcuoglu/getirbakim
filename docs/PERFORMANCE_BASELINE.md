@@ -201,7 +201,7 @@ All slow operations are DB-bound (no Redis cache locally):
 
 ## Baseline Timings (Before Changes)
 
-Measured via local Docker (docker-compose.local.yml) against Supabase session pooler.
+Measured via local Docker (docker-compose.local.yml) against local PostgreSQL (Docker network).
 
 | Endpoint | Run | TTFB (s) | Total (s) | Notes |
 |----------|-----|----------|------------|-------|
@@ -379,7 +379,7 @@ The `/api/search` POST endpoint with query "Bosch" took **135 seconds** on cold 
 4. **Cache category page data** — `buildCategoryPagePayload` makes parallel but un-cached DB calls
 
 ### v0.3.0 Suggestions
-5. **Database connection pooling** — consider PgBouncer or Supabase transaction pooler (port 6543) for short-lived queries
+5. **Database connection pooling** — consider PgBouncer for short-lived queries if connection count becomes a concern under high load (local PostgreSQL has no built-in connection limit like Supabase's pooler)
 6. **CDN headers for API** — add `Cache-Control` for `api/health` and cached search responses in middleware
 7. **Vehicle hierarchy first-level prefetch** — pre-resolve and cache makes + popular models on startup
 8. **PostgreSQL query plan analysis** — run EXPLAIN ANALYZE on the Prisma fallback WHERE clauses

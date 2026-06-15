@@ -45,6 +45,22 @@ const nextConfig = {
                 port: '3001',
                 pathname: '/api/storage/**',
             },
+            {
+                protocol: 'http',
+                hostname: 'localhost',
+                port: '3000',
+                pathname: '/api/storage/**',
+            },
+            {
+                protocol: 'https',
+                hostname: 'getirbakim.com',
+                pathname: '/api/storage/**',
+            },
+            {
+                protocol: 'https',
+                hostname: 'www.getirbakim.com',
+                pathname: '/api/storage/**',
+            },
         ],
         // Performance optimizations
         formats: ['image/avif', 'image/webp'],

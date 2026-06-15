@@ -1,5 +1,5 @@
 -- Migration: deduplicate part_properties and add unique constraint on (part_id, key)
--- Split into steps to avoid Supabase statement timeout.
+-- Split into steps to avoid PostgreSQL statement timeout.
 
 -- Step 0: Disable statement timeout for this session
 SET statement_timeout = 0;

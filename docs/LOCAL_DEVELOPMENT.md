@@ -11,9 +11,10 @@ The preferred local development workflow runs the Next.js app **outside Docker**
 │  Your Mac                                           │
 │                                                     │
 │  ┌─────────────────┐    ┌────────────────────────┐  │
-│  │  Next.js Dev     │    │  Supabase Cloud        │  │
-│  │  (bun run dev)   │───▶│  (remote, not local)   │  │
-│  │  localhost:3000   │    └────────────────────────┘  │
+│  │  Next.js Dev     │    │  Docker: PostgreSQL     │  │
+│  │  (bun run dev)   │───▶│  postgres:17-alpine     │  │
+│  │  localhost:3000   │    │  127.0.0.1:5432        │  │
+│  │                  │    └────────────────────────┘  │
 │  │                  │                                │
 │  │                  │    ┌────────────────────────┐  │
 │  │                  │───▶│  Docker: Meilisearch     │  │
@@ -65,8 +66,8 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 # Local PostgreSQL published by docker-compose.local.yml
-DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
-DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:5432/getirbakim
+DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:5432/getirbakim
 DATABASE_POOL_MAX=15
 ```
 
@@ -141,12 +142,12 @@ See [DOCKER_LOCAL.md](./DOCKER_LOCAL.md) for full Docker local documentation.
 
 ## Admin Panel (`/tr/admin`)
 
-Admin routes require a Supabase session with `users.role = ADMIN`.
+Admin routes require a NextAuth session with `users.role = ADMIN`.
 
 - Local dev: use **http://localhost:3000**
 - Docker local: use **http://localhost:3001**
 - Cookies are NOT shared between ports. Log in on the port you'll use.
-- Supabase Auth redirect URLs must include the correct localhost port.
+- NextAuth `NEXTAUTH_URL` must match the localhost port you're using.
 
 ---
 
@@ -187,9 +188,9 @@ lsof -i :3000
 bun run dev -- -p 3002
 ```
 
-### Supabase pool exhaustion (EMAXCONNSESSION)
+### Database connection pool exhaustion
 
-Local dev + VPS production both connecting to same Supabase? Lower your pool:
+Local dev + VPS production both connecting to same PostgreSQL instance? Lower your pool:
 
 ```env
 # In .env.local

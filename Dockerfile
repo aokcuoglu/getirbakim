@@ -83,7 +83,14 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Prisma CLI for deploy-time migrations
+COPY --from=builder /app/node_modules/prisma/ /app/node_modules/prisma/
+
+# Migration files for prisma migrate deploy
+COPY --from=builder /app/prisma/migrations/ /app/prisma/migrations/
+
 RUN chown -R nextjs:nodejs /app/node_modules/@prisma || true
+RUN chown -R nextjs:nodejs /app/node_modules/prisma || true
 
 # Meilisearch operational scripts need source files and dependencies
 COPY --from=builder /app/tsconfig.json /app/tsconfig.json

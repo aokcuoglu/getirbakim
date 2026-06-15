@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="${PROJECT_PATH:-/opt/getirbakim-v2}"
+REPO_DIR="${PROJECT_PATH:-/opt/getirbakim}"
 ENV_FILE=".env.production"
 
 TARGET_REF="${1:-${ROLLBACK_REF:-}}"

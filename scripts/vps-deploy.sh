@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_PATH="${PROJECT_PATH:-/opt/getirbakim-v2}"
+PROJECT_PATH="${PROJECT_PATH:-/opt/getirbakim}"
 BRANCH="${BRANCH:-main}"
 DOMAIN="${DOMAIN:-}"
 ENV_FILE=".env.production"
@@ -107,8 +107,8 @@ echo ">>> Removing any stale containers..."
 docker rm -f getirbakim-app 2>/dev/null || true
 docker rm -f getirbakim-meilisearch 2>/dev/null || true
 docker rm -f getirbakim-nginx 2>/dev/null || true
-docker rm -f getirbakim-v2-app 2>/dev/null || true
-docker rm -f getirbakim-v2-meilisearch 2>/dev/null || true
+docker rm -f getirbakim-postgres 2>/dev/null || true
+
 
 echo ">>> Shutting down existing containers..."
 docker compose --env-file "${ENV_FILE}" down --remove-orphans
@@ -143,6 +143,26 @@ wait_for_healthy() {
   return 1
 }
 
+wait_for_healthy "getirbakim-postgres" 60 || { echo "FATAL: postgres not healthy, aborting"; exit 1; }
+
+echo ">>> Running Prisma migrations..."
+MIGRATE_OUTPUT=$(docker compose exec -T app npx prisma migrate deploy 2>&1) || true
+echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
+if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
+  echo "WARN: Prisma migrate deploy reported an error — check above"
+else
+  echo "  Prisma migrations OK"
+fi
+
+echo ">>> Ensuring v0 schema tables..."
+V0_SQL_OUTPUT=$(docker exec -i "${PG_CONTAINER}" psql -U postgres -d getirbakim < scripts/v0-init.sql 2>&1) || true
+echo "  ${V0_SQL_OUTPUT//$'\n'/$'\n'  }"
+if echo "${V0_SQL_OUTPUT}" | grep -qi "error"; then
+  echo "WARN: v0 schema init reported an error — check above"
+else
+  echo "  v0 schema tables OK"
+fi
+
 wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
 wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
 wait_for_healthy "getirbakim-nginx" 60 || {
@@ -174,9 +194,11 @@ echo ">>> Container health checks..."
 APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-app 2>/dev/null || echo "unknown")
 NGINX_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-nginx 2>/dev/null || echo "unknown")
 MEILI_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-meilisearch 2>/dev/null || echo "unknown")
+PG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-postgres 2>/dev/null || echo "unknown")
 echo "  app:        ${APP_HEALTH}"
 echo "  nginx:      ${NGINX_HEALTH}"
 echo "  meilisearch: ${MEILI_HEALTH}"
+echo "  postgres:   ${PG_HEALTH}"
 
 # Verify app health endpoint via Docker internal network
 if HEALTH=$(docker compose --env-file "${ENV_FILE}" exec -T app curl -sf http://localhost:3000/api/health 2>/dev/null); then
@@ -192,6 +214,17 @@ else
   echo "FAILED: App health check did not respond"
   docker compose --env-file "${ENV_FILE}" logs app --tail=50
   exit 1
+fi
+
+echo ""
+echo ">>> Ensuring pg_trgm extension and search indexes..."
+PG_CONTAINER="getirbakim-postgres"
+if docker exec "${PG_CONTAINER}" pg_isready -U postgres -d getirbakim >/dev/null 2>&1; then
+  docker exec "${PG_CONTAINER}" psql -U postgres -d getirbakim -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || echo "WARN: pg_trgm extension creation failed"
+  docker exec "${PG_CONTAINER}" psql -U postgres -d getirbakim -f /dev/stdin < scripts/search-indexes.sql 2>/dev/null || echo "WARN: Search indexes could not be created (may already exist)"
+  echo "  pg_trgm extension and search indexes OK"
+else
+  echo "WARN: PostgreSQL not ready, skipping pg_trgm and search indexes"
 fi
 
 # Verify nginx is proxying correctly (check from app container which has curl)

@@ -94,7 +94,7 @@ docker compose logs meilisearch --tail=50 -f
 ### Rebuild Meilisearch (delete data volume)
 ```bash
 docker compose down
-docker volume rm getirbakim-v2_meili_data
+docker volume rm getirbakim_meili_data
 docker compose --env-file .env.production up -d --build
 # Then reindex:
 docker compose exec app bun run search:setup
@@ -127,7 +127,7 @@ sudo systemctl status nginx
 ### Disk Usage
 ```bash
 df -h
-du -sh /opt/getirbakim-v2
+du -sh /opt/getirbakim
 docker system df
 ```
 
@@ -143,7 +143,7 @@ docker image prune -f
 docker builder prune -f
 ```
 
-Do NOT run `docker volume prune` — database is external but Redis/data volumes should be preserved.
+Do NOT run `docker volume prune` — PostgreSQL data, Redis/data volumes should be preserved.
 
 ## Deploy Commands
 
@@ -155,20 +155,20 @@ See [docs/GITHUB_ACTIONS_DEPLOY.md](GITHUB_ACTIONS_DEPLOY.md) for setup and deta
 
 ### Standard Deploy via Script
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 bash scripts/vps-deploy.sh
 ```
 
 With explicit options:
 ```bash
-PROJECT_PATH=/opt/getirbakim-v2 BRANCH=main DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
+PROJECT_PATH=/opt/getirbakim BRANCH=main DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
 ```
 
 The deploy script automatically determines the version from git tags, `NEXT_PUBLIC_BUILD_VERSION` env var, or falls back to the short SHA.
 
 ### Manual Deploy
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 git pull origin main
 NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production down --remove-orphans
 NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
@@ -182,7 +182,7 @@ curl -sf https://getirbakim.com/api/health
 
 ### Automatic Rollback via Script
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 NEXT_PUBLIC_BUILD_VERSION=v0.1.3 bash scripts/vps-rollback.sh v0.1.3
 ```
 
@@ -193,7 +193,7 @@ ROLLBACK_REF=v0.1.3 NEXT_PUBLIC_BUILD_VERSION=v0.1.3 bash scripts/vps-rollback.s
 
 ### Manual Rollback
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 git tag -l
 git checkout v0.1.3
 NEXT_PUBLIC_BUILD_VERSION=v0.1.3 docker compose --env-file .env.production down --remove-orphans
@@ -210,17 +210,16 @@ Note: After rollback, the repo will be in detached HEAD state. Run `git checkout
 ### DB Auth Failed
 - **Symptom**: `/api/health` returns `checks.database: "error"` or Prisma P1000
 - **Check**: `DATABASE_URL` in `.env.production` is correct
-- **Check**: Supabase project is not paused
-- **Check**: IP allowlist if using Supabase direct connection
-- **Fix**: Update `DATABASE_URL`, restart container
+- **Check**: PostgreSQL container is running (`docker compose ps postgres`)
+- **Check**: `POSTGRES_PASSWORD` matches between app and postgres containers
+- **Fix**: Update `DATABASE_URL` or `POSTGRES_PASSWORD`, restart container
 
-### EMAXCONNSESSION / Supabase Pool Exhaustion
-- **Symptom**: Browser shows "Something went wrong". Logs show `(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15`
+### Database Connection Pool Exhaustion
+- **Symptom**: Browser shows "Something went wrong". Logs show connection timeout or `too many connections`
 - **Check**: `DATABASE_POOL_MAX` in `.env.production` is not too high (recommended: 4)
-- **Check**: Is local Docker also connected to the same Supabase project? Combined pools must stay under 15.
-- **Check**: Multiple dev instances running simultaneously?
-- **Fix**: Set `DATABASE_POOL_MAX=4` on VPS, `DATABASE_POOL_MAX=2` locally. Stop unused local containers.
-- **Do NOT**: Switch to transaction pooler port 6543 — PrismaPg requires prepared statements.
+- **Check**: Are there multiple app instances connecting to the same PostgreSQL container?
+- **Check**: PostgreSQL `max_connections` setting (`docker compose exec postgres psql -U postgres -c "SHOW max_connections"`)
+- **Fix**: Set `DATABASE_POOL_MAX=4` on VPS, `DATABASE_POOL_MAX=2` locally. Increase PostgreSQL `max_connections` if needed.
 
 ### Env Var Missing
 - **Symptom**: App fails to start, container exits immediately

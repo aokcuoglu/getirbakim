@@ -33,38 +33,38 @@
                     │  │ network: app-network   │  │
                     │  │   bridge driver        │  │
                     │  │                        │  │
-                    │  │ ┌──────────────────┐   │  │
-                    │  │ │ app (Next.js)    │   │  │
-                    │  │ │ container_name:  │   │  │
-                    │  │ │ getirbakim-app   │   │  │
-                    │  │ │ 127.0.0.1:3000   │   │  │
-                    │  │ │ healthcheck: ✓   │   │  │
-                    │  │ └──────────────────┘   │  │
-                    │  │                        │  │
-                    │  │ ┌──────────────────┐   │  │
-                    │  │ │ meilisearch      │   │  │
-                    │  │ │ v1.12            │   │  │
-                    │  │ │ 127.0.0.1:7700   │   │  │
-                    │  │ │ no healthcheck   │   │  │
-                    │  │ └──────────────────┘   │  │
-                    │  │                        │  │
-                    │  │ ❌ No nginx in compose │  │
-                    │  │ ❌ No Redis in compose │  │
-                    │  └────────────────────────┘  │
-                    │                 │             │
-                    └─────────────────┼─────────────┘
-                                      │
-                            ┌─────────┴──────────┐
-                            │ Supabase (SaaS)    │
-                            │ - PostgreSQL       │
-                            │ - Auth             │
-                            │ - Storage          │
-                            └────────────────────┘
-
-                            ┌────────────────────┐
-                            │ Upstash Redis      │
-                            │ (SaaS, REST API)   │
-                            └────────────────────┘
+                     │  │ ┌──────────────────┐   │  │
+                     │  │ │ app (Next.js)    │   │  │
+                     │  │ │ container_name:  │   │  │
+                     │  │ │ getirbakim-app   │   │  │
+                     │  │ │ 127.0.0.1:3000   │   │  │
+                     │  │ │ healthcheck: ✓   │   │  │
+                     │  │ └──────────────────┘   │  │
+                     │  │                        │  │
+                     │  │ ┌──────────────────┐   │  │
+                     │  │ │ meilisearch      │   │  │
+                     │  │ │ v1.12            │   │  │
+                     │  │ │ 127.0.0.1:7700   │   │  │
+                     │  │ │ no healthcheck   │   │  │
+                     │  │ └──────────────────┘   │  │
+                     │  │                        │  │
+                     │  │ ┌──────────────────┐   │  │
+                     │  │ │ postgres         │   │  │
+                     │  │ │ postgres:17-alpine│   │  │
+                     │  │ │ internal only    │   │  │
+                     │  │ │ no external port │   │  │
+                     │  │ └──────────────────┘   │  │
+                     │  │                        │  │
+                     │  │ ❌ No nginx in compose │  │
+                     │  │ ❌ No Redis in compose │  │
+                     │  └────────────────────────┘  │
+                     │                 │             │
+                     └─────────────────┼─────────────┘
+                                       │
+                             ┌────────────────────┐
+                             │ Upstash Redis      │
+                             │ (SaaS, REST API)   │
+                             └────────────────────┘
 ```
 
 ### Key Architecture Decisions (Current)
@@ -74,8 +74,9 @@
 | Nginx | Host (systemd or manual) | :80, :443 public | Not in Docker Compose — separate lifecycle |
 | Next.js App | Docker container | `127.0.0.1:3000` only | Good — not publicly exposed |
 | Meilisearch | Docker container | `127.0.0.1:7700` only | Good — localhost only |
+| PostgreSQL | Docker container | Internal network only | Good — no external port binding |
 | Redis | Upstash SaaS | REST API over HTTPS | No local Redis container — no exposure risk |
-| Supabase | SaaS | External | DB/Auth/Storage — managed service |
+| Auth | NextAuth.js (in-app) | JWT-based | Self-hosted, no external auth dependency |
 | Cloudflare | DNS-only? | Unknown | No CF config in repo indicating Proxy/WAF setup |
 
 ---
@@ -129,13 +130,9 @@
 
 ### 3.2 Security Headers
 
-**Active nginx config** (`nginx/conf.d/default.conf`):
-- MISSING: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP
-- These ARE set in Next.js middleware but double-layering is recommended
-
-**Example nginx config** (`docs/nginx/getirbakim.conf.example`):
-- HAS: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
-- MISSING: CSP (only in middleware)
+**Active nginx config** (`infra/nginx/nginx.production.conf`):
+- HAS: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP
+- These are also set in Next.js middleware (defense in depth)
 
 **Recommendation:** Set all security headers in BOTH nginx AND middleware (defense in depth).
 
@@ -151,7 +148,7 @@
 
 ### 3.4 Admin Route Protection
 
-- Middleware: Checks user role from Supabase token metadata
+- Middleware: Checks user role from NextAuth JWT session token
 - Server-side: `requireAdminAuth()` checks DB role
 - **Assessment:** Adequate but nginx-level protection for `/admin/*` would add defense in depth
 
@@ -200,7 +197,7 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 | Secrets management | 8/10 | Good: .env.production on VPS only, secret-scan script |
 | Health checks | 5/10 | App has healthcheck, Meilisearch doesn't |
 | Observability | 3/10 | Basic: health endpoint + query monitor only |
-| Backup/DR | 6/10 | Supabase backups + git tags for rollback |
+| Backup/DR | 4/10 | Self-managed pg_dump required; no automated backups |
 | CDN/WAF | 1/10 | Cloudflare DNS may exist but no confirmed proxy |
 | CI/CD | 7/10 | GitHub Actions deploy + manual deploy script |
 | Resource limits | 0/10 | No CPU/memory limits on containers |
@@ -217,7 +214,7 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 | **Single Next.js instance** | No replica/load balancing | No HA, no zero-downtime deploy |
 | **Meilisearch single instance** | No replica | Search unavailable if Meilisearch fails |
 | **Nginx on host not containerized** | Separate restart/update lifecycle | Operational complexity |
-| **No DB read replicas** | Supabase single instance | All queries hit primary |
+| **No DB read replicas** | Single PostgreSQL instance (self-hosted) | All queries hit primary |
 
 ---
 
@@ -230,16 +227,18 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 | `docker-compose.local.yml` | Local dev | Same as above + different port (3001) |
 | `Dockerfile` | Multi-stage | Good: standalone output, healthcheck curl installed |
 | `nginx/conf.d/default.conf` | Docker nginx config | **Upstream name mismatch** (`nextjs` vs `app`) |
-| `docs/nginx/getirbakim.conf.example` | Reference config | Better than active config (has security headers) |
+| `infra/nginx/nginx.production.conf` | Production nginx config (security headers, gzip, caching) |
 
 ### Scripts
 | File | Purpose |
 |------|---------|
+| `infra/scripts/vps-setup.sh` | VPS provisioning (fresh setup) |
+| `infra/scripts/cf-ufw-lockdown.sh` | Cloudflare UFW lockdown |
 | `scripts/vps-deploy.sh` | Production deploy |
 | `scripts/vps-rollback.sh` | Rollback |
 | `scripts/vps-smoke.sh` | Smoke tests |
 | `scripts/secret-scan.sh` | Secret hygiene |
-| `scripts/validate-env.ts` | Environment validation |
+| `scripts/pg-backup.sh` | PostgreSQL backup |
 | `scripts/live-smoke.ts` | Production smoke + SEO testing |
 
 ### Documentation
@@ -267,7 +266,7 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 ## 10. Key Assumptions That Need Verification
 
 1. **Is Cloudflare Proxy (orange-cloud) active** on getirbakim.com?
-2. **Which nginx config is active on VPS?** `nginx/conf.d/default.conf` or `docs/nginx/getirbakim.conf.example`?
+2. **Which nginx config is active on VPS?** `infra/nginx/nginx.production.conf` (Docker-mounted, managed in repo)
 3. **Is `MEILI_SEARCH_KEY` configured?** Only master key visible in env. Search-only keys for frontend are best practice.
 4. **Is UFW/iptables configured** to restrict port 443 to Cloudflare IPs only?
 5. **Are Cron jobs configured** on the VPS for supplier sync?

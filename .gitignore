@@ -69,6 +69,8 @@ tecdoc-data/*
 # Local Data & Dumps
 data.ms
 dumps
+data/supabase-storage/
+data/storage/
 package-lock.json
 
 # DB Scripts
@@ -106,3 +108,6 @@ scripts/output/*.pid
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Meilisearch local config (contains keys)
+.env.local.meili

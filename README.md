@@ -21,13 +21,13 @@ cp .env.example .env.local
 
 **Important — Database connection:**
 
-This project uses Prisma 7 with the `PrismaPg` driver adapter. The DATABASE_URL must use **Supabase session pooler** settings:
+This project uses Prisma 7 with the `PrismaPg` driver adapter connecting to a self-hosted PostgreSQL instance in Docker:
 
 - Use a local PostgreSQL instance (docker-compose.local.yml includes one)
 
 ```
-DATABASE_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
-DIRECT_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim"
+DATABASE_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:5432/getirbakim"
+DIRECT_URL="postgresql://postgres:local-dev-postgres-password@127.0.0.1:5432/getirbakim"
 ```
 
 See `.env.example` for the full list of required variables.
@@ -77,7 +77,7 @@ See [**docs/DEPLOYMENT_CONTABO.md**](docs/DEPLOYMENT_CONTABO.md) for VPS setup, 
 
 ### Environment Variables
 
-See [**docs/ENVIRONMENT.md**](docs/ENVIRONMENT.md) for the full variable reference, Supabase pooler requirements, and secret rotation guidance.
+See [**docs/ENVIRONMENT.md**](docs/ENVIRONMENT.md) for the full variable reference and secret rotation guidance.
 
 ## Automated VPS Deployment
 
@@ -122,7 +122,7 @@ Before going live, ensure:
 3. **SEO Indexing**: `NEXT_PUBLIC_ALLOW_INDEXING=true` in `.env.production`
 4. **SSL**: Certbot installed and `certbot renew --dry-run` passes
 5. **Tami**: Production API URLs (`https://paymentapi.tami.com.tr`) set in `.env.production`
-6. **Auth**: Supabase Site URL and Redirect URLs configured for `https://getirbakim.com`
+6. **Auth**: NextAuth configured with `NEXTAUTH_URL=https://getirbakim.com` and `NEXTAUTH_SECRET` set
 7. **Security**: All secrets server-only, security headers verified
 8. **Smoke**: `bash scripts/vps-smoke.sh` passes all checks
 9. **Rollback**: Previous git tag documented, rollback tested
@@ -130,6 +130,6 @@ Before going live, ensure:
 ## Database Architecture
 
 - Prisma 7 with `@prisma/adapter-pg` (pg driver adapter)
-- PostgreSQL via Supabase with multi-schema support: `public`, `trodo`, `parcatedarik`
-- Connection mode: Supabase IPv4 session pooler (port 5432)
+- PostgreSQL (self-hosted, `postgres:17-alpine` in Docker) with multi-schema support: `public`, `trodo`, `parcatedarik`
+- Connection mode: Direct PrismaPg connections to `postgres:5432` within Docker network (no external pooler)
 - Pool size: configurable via `DATABASE_POOL_MAX` / `PG_POOL_MAX`; recommended local Docker value is 2, VPS production value is 4, with an upper clamp of 10

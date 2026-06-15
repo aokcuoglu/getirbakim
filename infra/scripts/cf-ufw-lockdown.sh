@@ -16,7 +16,7 @@
 #     https://www.cloudflare.com/ips-v6/
 #
 # Cron (monthly, 1st day at 3 AM):
-#   0 3 1 * * bash /opt/getirbakim-v2/infra/scripts/cf-ufw-lockdown.sh >> /var/log/cf-ufw.log 2>&1
+#   0 3 1 * * bash /opt/getirbakim/infra/scripts/cf-ufw-lockdown.sh >> /var/log/cf-ufw.log 2>&1
 
 set -euo pipefail
 

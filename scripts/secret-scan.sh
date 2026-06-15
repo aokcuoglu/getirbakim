@@ -14,7 +14,7 @@ secret_patterns=(
   '-----BEGIN DSA PRIVATE KEY'
   '-----BEGIN OPENSSH PRIVATE KEY'
   'PRIVATE KEY-----'
-  ' SUPABASE_SERVICE_ROLE_KEY=eyJ'
+  ' POSTGRES_PASSWORD=.'
   ' TAMI_SECRET_KEY=.'
   ' TAMI_JWK_K=.'
   'DATABASE_URL="*postgres://[^"<]*@' 

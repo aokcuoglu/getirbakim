@@ -141,7 +141,7 @@ ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
 | Search API errors | Errors in `/api/search` | Check Meilisearch connectivity |
 | Payment failures | Errors in `/api/payments/*` | Check Tami API, callback handling |
 | Supplier sync failures | Errors in `/api/internal/suppliers/*` | Check Dinamik/SETA API |
-| Auth failures | Spike in auth errors (rate limit) | Check Supabase Auth |
+| Auth failures | Spike in auth errors (rate limit) | Check NextAuth / application auth |
 | High error rate | > 50 errors/min | Incident response |
 | Server errors | 500-level errors | Check logs |
 
@@ -336,13 +336,13 @@ export async function GET(request: Request) {
 # /etc/cron.d/getirbakim-smoke
 
 # Quick smoke every 15 minutes
-*/15 * * * * root cd /opt/getirbakim-v2 && bash scripts/vps-smoke.sh >> /var/log/getirbakim/smoke.log 2>&1
+*/15 * * * * root cd /opt/getirbakim && bash scripts/vps-smoke.sh >> /var/log/getirbakim/smoke.log 2>&1
 
 # Full smoke test daily at 2 AM
-0 2 * * * root cd /opt/getirbakim-v2 && bun run scripts/live-smoke.ts --base https://getirbakim.com --concurrency 3 --rounds 2 --max-urls 50 >> /var/log/getirbakim/live-smoke.log 2>&1
+0 2 * * * root cd /opt/getirbakim && bun run scripts/live-smoke.ts --base https://getirbakim.com --concurrency 3 --rounds 2 --max-urls 50 >> /var/log/getirbakim/live-smoke.log 2>&1
 
 # Performance audit weekly Monday at 4 AM
-0 4 * * 1 root cd /opt/getirbakim-v2 && bash scripts/audit-production-performance.sh >> /var/log/getirbakim/perf-audit.log 2>&1
+0 4 * * 1 root cd /opt/getirbakim && bash scripts/audit-production-performance.sh >> /var/log/getirbakim/perf-audit.log 2>&1
 ```
 
 ---

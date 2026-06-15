@@ -20,7 +20,7 @@ Otomotiv yedek parça e-ticaret platformu. Türkçe/İngilizce çoklu dil deste�
 | Paket yöneticisi | Bun |
 | Veritabanı | PostgreSQL (3 schema: `public`, `trodo`, `parcatedarik`) |
 | ORM | Prisma 7 (`@prisma/adapter-pg`, connection pool 20) |
-| Auth | Supabase SSR (cookie-based session) |
+| Auth | NextAuth.js v5 (Credentials provider, bcryptjs hashing, JWT sessions) |
 | Arama | Meilisearch (feature-flag `MEILI_ENABLED`, fallback: Prisma SQL) |
 | Önbellek | Upstash Redis (serverless REST) + in-memory cache |
 | Ödeme | Tami (Türk ödeme sağlayıcı, HMAC-SHA512 güvenlik) |
@@ -34,7 +34,7 @@ Otomotiv yedek parça e-ticaret platformu. Türkçe/İngilizce çoklu dil deste�
 ### Çevre Değişkenleri (önemli olanlar)
 
 - `DATABASE_URL` — Prisma Accelerate (`prisma://`) veya standart PostgreSQL
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Supabase auth
+- `NEXTAUTH_URL`, `NEXTAUTH_SECRET` — NextAuth.js session signing
 - `MEILI_ENABLED` — Meilisearch aktif/pasif
 - `NEXT_PUBLIC_MEILI_HOST`, `NEXT_PUBLIC_MEILI_SEARCH_KEY` — Meilisearch bağlantı
 - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` — Redis önbellek
@@ -101,7 +101,7 @@ lib/
   pricing/               # Fiyat hesaplama motoru
   search/                # Meilisearch indexing + hybrid search scoring
   seo/                   # Sitemap, structured data, URL yardımcıları
-  supabase/              # Auth client/server/middleware
+  auth/                  # Login/Signup formları
   suppliers/             # Tedarikçi sync (Dinamik, SETA, Parts2World)
   types/                 # Paylaşılan domain tip tanımları
   utils/                 # Yardımcı fonksiyonlar (formatter, vehicleSlug vb.)
@@ -155,7 +155,7 @@ messages/
 | `v0.vbrands` / `v0.vmodels` / `v0.vtypes` | Aktif araç hiyerarşisi | brand → model → type |
 | `v0.vtype_details` | Araç detay özellikleri | 1:1 → `v0.vtypes` |
 | `oil_capacities` | Yağ kapasitesi | 1:1 → `v0.vtypes` |
-| `users` | Kullanıcı | Supabase auth ID |
+| `users` | Kullanıcı | NextAuth credentials (email+password, bcryptjs) |
 | `orders` / `order_items` / `order_payments` | Sipariş ve ödeme | order → items → parts |
 | `customer_requests` | Müşteri talep/bildirim | N:1 → `parts` (opsiyonel) |
 | `notifications` | Kullanıcı bildirimleri | N:1 → `users` |
@@ -267,17 +267,17 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 ### 5.6 Auth Akışı
 
 ```
-[Supabase SSR Auth]
-  - Server: lib/supabase/server.ts
-  - Client: lib/supabase/client.ts
-  - Middleware: lib/supabase/middleware.ts
-       ↓
+[NextAuth.js]
+   - Credentials provider (email + password)
+   - bcryptjs password hashing
+   - JWT session tokens
+        ↓
 [middleware.ts] —
-  1. next-intl locale yönlendirme
-  2. Supabase session refresh (auth cookie'leri varsa)
-  3. Admin route koruması (role = ADMIN kontrolü)
-  4. CSP + güvenlik header'ları
-  5. CDN önbellekleme header'ları (anonim GET için s-maxage=300)
+   1. next-intl locale yönlendirme
+   2. NextAuth session validation (auth cookie varsa)
+   3. Admin route koruması (role = ADMIN kontrolü)
+   4. CSP + güvenlik header'ları
+   5. CDN önbellekleme header'ları (anonim GET için s-maxage=300)
 ```
 
 ### 5.7 Araç Seçici (Garaj)
@@ -478,7 +478,7 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 **middleware.ts** kritik güvenlik katmanı:
 1. next-intl locale yönlendirme
 2. Yinelenen locale prefix canonicalization (`/tr/tr/...` → `/tr/...`)
-3. Supabase oturum yenileme (auth cookie varsa veya protected path'lerde)
+3. NextAuth oturum doğrulama (auth cookie varsa veya protected path'lerde)
 4. Admin route koruması — `ADMIN` rolü kontrolü, değilse anasayfaya yönlendirme
 5. API route'ları auth'dan muaf (`/api/` prefix → passthrough)
 6. Güvenlik header'ları: HSTS, X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, Permissions-Policy
@@ -493,7 +493,7 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 - **Standalone output**: `next.config.mjs` → `output: 'standalone'`
 - **Prisma Accelerate** desteği (prisma:// URL tespiti)
 - **nginx**: Reverse proxy (docker-compose.yml)
-- **Supabase**: Hosted auth servisi
+- **NextAuth.js**: Self-hosted auth (JWT sessions, bcryptjs)
 - **Upstash Redis**: Serverless REST Redis
 - **Meilisearch**: Opsiyonel arama motoru (`MEILI_ENABLED` flag)
 
@@ -599,10 +599,9 @@ handleDinamikScheduledSyncRequest / handleSetaSyncRequest
 # Veritabanı
 DATABASE_URL=
 
-# Supabase Auth
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+# NextAuth.js
+NEXTAUTH_URL=
+NEXTAUTH_SECRET=
 
 # Meilisearch
 MEILI_ENABLED=

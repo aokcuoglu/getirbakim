@@ -3,7 +3,7 @@
 ## Admin Access
 
 - [ ] Admin routes (`/admin`, `/{locale}/admin`) are protected by both middleware and server-side checks
-- [ ] Middleware checks `user.user_metadata.role` and `user.app_metadata.role` — early deny for known non-ADMIN roles
+- [ ] Middleware checks user role from NextAuth JWT session token — early deny for known non-ADMIN roles
 - [ ] Server-side `requireAdminAuth()` in `lib/admin-auth.ts` checks `db.users.role === 'ADMIN'` — authoritative check
 - [ ] No admin API routes (`/api/admin/*`) are accessible without admin auth
 - [ ] Admin layout (`app/[locale]/admin/layout.tsx`) calls `requireAdminAuth()`
@@ -103,7 +103,8 @@ Current CSP includes `'unsafe-inline' 'unsafe-eval'` in `script-src` and `https:
 
 ## Backup and Rollback
 
-- [ ] Database: Supabase manages automated backups — verify backup schedule
+- [ ] Database: Backups must be self-managed — set up `pg_dump` cron + offsite storage
+- [ ] PostgreSQL container is not exposed to the internet (no external port binding)
 - [ ] `.env.production`: Keep a secure backup off the VPS (e.g., encrypted password manager)
 - [ ] Git tags: Each release is tagged (`v0.1.2`, `v0.1.3`, etc.) for rollback
 - [ ] Docker images: Previous build images remain until manually pruned
@@ -123,7 +124,7 @@ Current CSP includes `'unsafe-inline' 'unsafe-eval'` in `script-src` and `https:
 - [ ] nginx rate limiting should be considered for:
   - `/api/payments/tami/callback` — payment callbacks
   - `/api/internal/suppliers/*` — already protected by `CRON_SECRET`
-  - `/auth/callback` — prevent auth abuse
+  - `/api/auth/*` — prevent auth abuse
 - [ ] Consider adding `limit_req` zones in nginx config for sensitive endpoints
 
 ## Recommended nginx Rate Limiting
@@ -139,7 +140,7 @@ location /api/payments/ {
     proxy_pass http://nextjs_app;
 }
 
-location /auth/callback {
+location /api/auth/ {
     limit_req zone=auth burst=5 nodelay;
     proxy_pass http://nextjs_app;
 }

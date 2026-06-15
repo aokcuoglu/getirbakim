@@ -91,7 +91,7 @@ Trodo blocks curl/bot requests with 403, so direct comparison is limited. Key ob
 
 | # | Fix | Files Changed |
 |---|-----|---------------|
-| 1 | Nginx: www-to-apex 301 redirect | `nginx/conf.d/default.conf`, `docs/nginx/getirbakim.conf.example` |
+| 1 | Nginx: www-to-apex 301 redirect | `infra/nginx/nginx.production.conf` |
 | 2 | x-default locale → /tr | `lib/seo/url.ts` |
 | 3 | DEFAULT_LOCALE → 'tr' | `lib/seo/url.ts` |
 | 4 | Search API Meili timeout + fallback | `app/api/search/route.ts` |

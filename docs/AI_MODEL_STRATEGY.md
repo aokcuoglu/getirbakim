@@ -195,7 +195,7 @@ For non-trivial tasks, use multiple agents in sequence. The orchestrator (DeepSe
 Phase 1 — Research (DeepSeek V4 Pro):
   - Explore existing VehicleDataProvider and use-garage.ts
   - Find API endpoints for vehicle data
-  - Identify where vehicle preferences are stored (Zustand, Supabase)
+  - Identify where vehicle preferences are stored (Zustand, PostgreSQL via Prisma)
   - Report: relevant files, current flow, implementation plan
 
 Phase 2 — Design (GLM 5.1):

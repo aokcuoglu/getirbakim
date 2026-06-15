@@ -2,8 +2,7 @@ export function getPublicUrl(
   storagePath: string,
   bucket = 'part-images'
 ): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  return `${appUrl}/api/storage/${bucket}/${storagePath.replace(/^\//, '')}`
+  return `/api/storage/${bucket}/${storagePath.replace(/^\//, '')}`
 }
 
 export function getStoragePublicUrl(storagePath: string, bucket = 'part-images'): string {

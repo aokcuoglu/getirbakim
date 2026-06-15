@@ -50,8 +50,8 @@ sudo apt install -y certbot python3-certbot-nginx
 ### Clone the repository
 
 ```bash
-git clone https://github.com/aokcuoglu/getirbakim-v2.git
-cd getirbakim-v2
+git clone https://github.com/aokcuoglu/getirbakim.git
+cd getirbakim
 ```
 
 ### Create production environment
@@ -68,7 +68,7 @@ nano .env.production
 
 **Critical settings:**
 
-- `DATABASE_URL` — Supabase session pooler (port 5432, NOT 6543)
+- `DATABASE_URL` — Local Docker PostgreSQL (`postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}`)
 - `DATABASE_POOL_MAX` — `4` (VPS production recommended; local Docker should use `2`)
 - `NEXT_PUBLIC_SITE_URL` — `https://getirbakim.com`
 - `NEXT_PUBLIC_APP_URL` — `https://getirbakim.com`
@@ -114,10 +114,6 @@ curl -s http://127.0.0.1:3000/api/health | jq '.checks.meilisearch'
 ```
 
 See `docs/SEARCH_MEILISEARCH_SELF_HOSTED.md` for full setup guide.
-
-If local Docker is also running against the same Supabase project, ensure
-`DATABASE_POOL_MAX` across both runtimes sums to less than 15 (the Supabase
-session pool limit). Recommended: VPS `4` + local `2` = 6 < 15.
 
 ### Choose deployment strategy
 
@@ -298,7 +294,7 @@ docker inspect --format='{{.State.Health.Status}}' getirbakim-app
 ### Via deploy script (recommended)
 
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 DOMAIN=https://getirbakim.com bash scripts/vps-deploy.sh
 ```
 
@@ -311,7 +307,7 @@ Go to **GitHub → Actions → Deploy VPS → Run workflow**. Optionally specify
 ### Manual deploy
 
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 git pull origin main
 NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production down --remove-orphans
 NEXT_PUBLIC_BUILD_VERSION=v0.1.5 docker compose --env-file .env.production up -d --build
@@ -322,7 +318,7 @@ Zero-downtime is not guaranteed with a single container. For zero-downtime, add 
 ## 9. Rollback
 
 ```bash
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 git tag -l
 git checkout v0.1.0
 NEXT_PUBLIC_BUILD_VERSION=v0.1.0 docker compose --env-file .env.production down --remove-orphans
@@ -336,7 +332,46 @@ NEXT_PUBLIC_BUILD_VERSION=v0.1.0 docker compose --env-file .env.production up -d
 - Keep a backup of `.env.production` in a secure location (not in the repo).
 - Document all env var changes in `docs/ENVIRONMENT.md`.
 - Use git tags for release tracking: `git tag v0.1.5`.
-- Database backups are managed by Supabase — verify their backup schedule.
+
+### Database Backups
+
+PostgreSQL runs inside Docker and is self-managed (no external backup service). Set up automated backups:
+
+```bash
+# One-time setup
+sudo mkdir -p /var/backups/postgresql
+
+# Test the backup script manually
+bash scripts/pg-backup.sh
+
+# Set up daily cron (03:00 AM)
+sudo crontab -e
+# Add:
+0 3 * * * /opt/getirbakim/scripts/pg-backup.sh >> /var/log/pg-backup.log 2>&1
+```
+
+Backups are stored as compressed SQL dumps in `/var/backups/postgresql/`. Default retention is 14 days.
+
+To restore from a backup:
+
+```bash
+# List backups
+ls -lh /var/backups/postgresql/
+
+# Restore (stop app first to avoid conflicts)
+docker compose --env-file .env.production stop app
+gunzip -c /var/backups/postgresql/getirbakim_YYYYMMDD_HHMMSS.sql.gz | \
+  docker exec -i getirbakim-postgres psql -U postgres -d getirbakim
+docker compose --env-file .env.production start app
+```
+
+For offsite backup, consider syncing to S3-compatible storage:
+
+```bash
+# Example: sync to S3 daily after backup
+aws s3 sync /var/backups/postgresql/ s3://your-bucket/postgresql-backups/
+```
+- Database backups must be self-managed — set up `pg_dump` cron + offsite storage (see `docs/OPERATIONS_RUNBOOK.md` for backup procedures)
 
 ### Build Version Policy
 
@@ -378,7 +413,7 @@ sudo ufw allow 443   # HTTPS
 sudo ufw enable
 ```
 
-Do NOT expose port 3000 externally. The app binds to `127.0.0.1:3000` in production compose.
+Do NOT expose port 3000 (app) or 5432 (PostgreSQL) externally. Both run inside Docker's internal network with no host port binding.
 
 ## 12. HTTPS / SSL Verification
 
@@ -443,6 +478,8 @@ sudo systemctl reload nginx
 - Application health: `curl -sf http://127.0.0.1:3000/api/health`
 - Container status: `docker compose ps`
 - Container health: `docker inspect --format='{{.State.Health.Status}}' getirbakim-app`
+- PostgreSQL health: `docker inspect --format='{{.State.Health.Status}}' getirbakim-postgres`
+- PostgreSQL connection: `docker exec getirbakim-postgres pg_isready -U postgres -d getirbakim`
 - Nginx error log: `sudo tail -50 /var/log/nginx/getirbakim.com.error.log`
 - App log: `docker compose logs app --tail=100`
 - See **docs/OPERATIONS_RUNBOOK.md** for full operational procedures

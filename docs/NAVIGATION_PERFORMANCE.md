@@ -123,6 +123,6 @@ Reviewed all `cache: 'no-store'`, `unstable_noStore`, and `dynamic = 'force-dyna
 
 2. **Client-side category navigation (`/api/category-page`)** — Already optimized via the `CategoryPageShell` client-side cache. Navigation between categories uses client-side fetch + pushState, avoiding full page reloads.
 
-3. **Middleware session refresh** — The middleware calls `updateSession` for pages with Supabase auth cookies. This adds ~50-100ms for authenticated users but is unavoidable for auth consistency.
+3. **Middleware session refresh** — The middleware validates the NextAuth JWT session for authenticated users. This adds ~50-100ms for authenticated users but is unavoidable for auth consistency.
 
 4. **Vehicle selector (`VehicleDataProvider`)** — Loads vehicle brands on every page for non-admin users. Already cached at 7 days in Redis. No change needed.

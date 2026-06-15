@@ -17,7 +17,7 @@ Configure these in **Settings → Secrets and variables → Actions → Reposito
 | `VPS_HOST` | `173.249.36.2` | Contabo VPS IP address |
 | `VPS_USER` | `root` | Current; create dedicated deploy user as next hardening step |
 | `VPS_SSH_KEY` | *(private key content)* | Private key for SSH deploy; see key setup below |
-| `VPS_PROJECT_PATH` | `/opt/getirbakim-v2` | Absolute path on VPS |
+| `VPS_PROJECT_PATH` | `/opt/getirbakim` | Absolute path on VPS |
 | `VPS_DOMAIN` | `https://getirbakim.com` | Public domain for smoke tests |
 
 ## SSH Key Setup for GitHub Actions Deploy
@@ -65,7 +65,7 @@ These are **two separate keys** with different purposes. Do not confuse them.
 
 ## Why .env.production Stays Only on VPS
 
-- `.env.production` contains production secrets (Supabase service role key, Tami keys, database URLs, etc.)
+- `.env.production` contains production secrets (Tami keys, database URLs, `NEXTAUTH_SECRET`, `POSTGRES_PASSWORD`, etc.)
 - It is gitignored and never committed to the repository
 - The GitHub Actions workflow never needs `.env.production` — it only runs `git pull` and `docker compose` on the VPS, where `.env.production` already exists
 - This prevents secrets from being exposed in GitHub Actions logs, artifacts, or caches
@@ -127,7 +127,7 @@ If a deploy fails or introduces a problem:
 
 ```bash
 ssh root@173.249.36.2
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 bash scripts/vps-rollback.sh v0.1.3
 ```
 
@@ -139,7 +139,7 @@ Currently there is no automated rollback workflow. Rollback is manual via SSH.
 
 ```bash
 ssh root@173.249.36.2
-cd /opt/getirbakim-v2
+cd /opt/getirbakim
 git tag -l                              # list available tags
 git checkout v0.1.3                     # checkout target version
 docker compose --env-file .env.production down --remove-orphans

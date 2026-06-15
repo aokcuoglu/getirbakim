@@ -163,9 +163,8 @@ def get_db_url():
         print("Hata: DATABASE_URL .env.local dosyasında bulunamadı!")
         exit(1)
 
-    # Supabase pooler URL'sinden pgbouncer parametresini çıkar
-    # ve doğrudan bağlantı portu kullan (5432 yerine 6543 pooler portu)
-    # psycopg2 transaction mode pooler ile çalışabilir
+    # Veritabanı bağlantı URL'sinden pgbouncer parametresini çıkar
+    # ve doğrudan bağlantı portu kullan
     return db_url.replace("?pgbouncer=true", "")
 
 
@@ -1158,7 +1157,7 @@ def upload_brand_images_only(
         return name
 
     image_uploader = PtProductImageUploader(session=session)
-    print(f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptprd)")
+    print(f"  Image upload: enabled (bucket={image_uploader.bucket}/ptprd)")
 
     batch_size = max(120, workers * 20)
     updated = 0
@@ -1224,7 +1223,7 @@ def scrape_manufacturer(
     if upload_images and not dry_run:
         image_uploader = PtProductImageUploader(session=session)
         print(
-            f"  Supabase image upload: enabled (bucket={image_uploader.bucket}/ptprd, workers={workers})"
+            f"  Image upload: enabled (bucket={image_uploader.bucket}/ptprd, workers={workers})"
         )
 
     # Üreticiyi DB'ye ekle/güncelle
@@ -1411,7 +1410,7 @@ def main():
         "--upload-images",
         action="store_true",
         default=None,
-        help="ParcaTedarik görsellerini Supabase Storage'a yükle (varsayılan: dry-run/validate dışında açık)",
+        help="ParcaTedarik görsellerini storage bucket'a yükle (varsayılan: dry-run/validate dışında açık)",
     )
     parser.add_argument(
         "--no-upload-images",

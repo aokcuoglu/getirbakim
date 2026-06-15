@@ -30,7 +30,7 @@ No Jest/Vitest config — tests use Bun's built-in test runner (`bun test`).
 
 - **Framework**: Next.js (App Router), React 19, TypeScript — package manager is **Bun**
 - **Database**: PostgreSQL via Prisma 7 with `adapter-pg`; multi-schema (`public` + `trodo`)
-- **Auth**: Supabase SSR
+- **Auth**: NextAuth.js v5 (Credentials provider, bcryptjs, JWT sessions)
 - **Search**: Meilisearch (optional, feature-flagged via `MEILI_ENABLED`); falls back to Prisma SQL
 - **Cache**: Upstash Redis + Next.js `unstable_cache`
 - **Payments**: Tami (Turkish payment processor)
