@@ -45,9 +45,9 @@ export async function generateMetadata({ params }: PartPageProps): Promise<Metad
       return { title: 'Part Not Found' }
     }
 
-    const v0Product = await getV0ProductDetailBundle(partId)
-    const dpprdRow = v0Product ? null : await getDpmatchById(partId)
-    const part = v0Product?.metadata ?? (dpprdRow ? mapDpmatchToPartMetadata(dpprdRow) : null)
+    const dpprdRow = await getDpmatchById(partId)
+    const v0Product = dpprdRow ? null : await getV0ProductDetailBundle(partId)
+    const part = dpprdRow ? mapDpmatchToPartMetadata(dpprdRow) : (v0Product?.metadata ?? null)
 
     if (!part) {
       return { title: 'Part Not Found' }
@@ -103,14 +103,19 @@ export default async function PartDetailPage({ params }: PartPageProps) {
     }
 
     const dpprdRow = await getDpmatchById(partId)
-    const v0Product = await getV0ProductDetailBundle(partId)
-    const part = v0Product?.hero ?? (dpprdRow ? mapDpmatchToPartHero(dpprdRow) : null)
+
+    // dpmatch first — v0.products and v0.product_mapping use independent
+    // ID sequences; the same number can refer to two different products.
+    // Only try v0 if dpmatch didn't find anything to avoid cross-ID collision.
+    const v0Product = dpprdRow ? null : await getV0ProductDetailBundle(partId)
+
+    const part = dpprdRow ? mapDpmatchToPartHero(dpprdRow) : (v0Product?.hero ?? null)
 
     if (!part) {
       notFound()
     }
 
-    const tabsData = v0Product?.tabs ?? (dpprdRow ? mapDpmatchToPartTabsData(dpprdRow) : null)
+    const tabsData = dpprdRow ? mapDpmatchToPartTabsData(dpprdRow) : (v0Product?.tabs ?? null)
     const structuredData = {
       '@context': 'https://schema.org',
       '@type': 'Product',
