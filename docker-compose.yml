@@ -110,6 +110,8 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    volumes:
+      - ./data/storage:/app/data/storage:delegated
     # NO port binding — internal Docker network only.
     # Nginx proxies to app:3000 via the app-network bridge.
     healthcheck:
