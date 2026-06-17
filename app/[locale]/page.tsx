@@ -10,6 +10,10 @@ import { createTimerGroup } from '@/lib/performance/timing'
 /** Aligned with v0 approved brands data cache (see lib/v0/brandCache.ts). */
 export const revalidate = 300
 
+export function generateStaticParams() {
+  return [{ locale: 'tr' }, { locale: 'en' }]
+}
+
 interface PageProps {
   params: Promise<{ locale: string }>
 }
