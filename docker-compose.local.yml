@@ -65,6 +65,7 @@ services:
         NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
         NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
         NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev-local}
+        NEXT_PUBLIC_V0_ONLY_SITE: ${NEXT_PUBLIC_V0_ONLY_SITE:-false}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
         SENTRY_ORG: ${SENTRY_ORG:-}
@@ -81,6 +82,7 @@ services:
       MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-dev-master-key}
       MEILI_INDEX_PRODUCTS: products
+      NEXT_PUBLIC_V0_ONLY_SITE: "false"
       DATABASE_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
       DIRECT_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
       DATABASE_POOL_MAX: "15"

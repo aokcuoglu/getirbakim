@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getAdminAuth } from '@/lib/admin-auth'
 
 type RateLimitOptions = {
   keyPrefix: string
@@ -179,4 +180,114 @@ export async function parseJsonBody<T>(
   }
 
   return { success: true, data: result.data }
+}
+
+/**
+ * Combined admin auth + rate-limit + ADMIN role check.
+ *
+ * Replaces the 4-6 line boilerplate repeated across 30+ admin API routes:
+ *   const auth = await getAdminAuth()
+ *   const { context, limitedResponse } = withApiContext(request, {...})
+ *   if (limitedResponse) return limitedResponse
+ *   if (!auth?.user) return errorResponse({ status: 401, code: 'UNAUTHENTICATED', ... })
+ *   if (auth.user.role !== 'ADMIN') return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', ... })
+ *
+ * Usage:
+ *   const guard = await requireAdmin(request, { keyPrefix: 'admin:products', limit: 60, windowMs: 60_000 })
+ *   if (guard.response) return guard.response
+ *   // guard.context and guard.auth are now guaranteed non-null
+ */
+export async function requireAdmin(
+  request: NextRequest,
+  rateLimit: RateLimitOptions
+): Promise<
+  | { response: NextResponse; context: null; auth: null }
+  | { response: null; context: ApiContext; auth: NonNullable<Awaited<ReturnType<typeof getAdminAuth>>> }
+> {
+  const { context, limitedResponse } = withApiContext(request, rateLimit)
+  if (limitedResponse) return { response: limitedResponse, context: null, auth: null }
+
+  const auth = await getAdminAuth()
+  if (!auth?.user) {
+    return {
+      response: errorResponse({
+        status: 401,
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required.',
+        context
+      }),
+      context: null,
+      auth: null
+    }
+  }
+
+  if (auth.user.role !== 'ADMIN') {
+    return {
+      response: errorResponse({
+        status: 403,
+        code: 'ADMIN_REQUIRED',
+        message: 'Admin access required.',
+        context
+      }),
+      context: null,
+      auth: null
+    }
+  }
+
+  return { response: null, context, auth }
+}
+
+/**
+ * Validates the CRON_SECRET Bearer auth for internal/supplier endpoints.
+ * Returns null on success, or a 401 NextResponse on failure.
+ *
+ * Replaces the inconsistent unauthorizedResponse definitions repeated across
+ * 8+ internal/suppliers handler.ts files (some used success/message shape, others
+ * error shape, some Response some NextResponse).
+ */
+export function requireCronAuth(request: NextRequest): NextResponse | null {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) {
+    return NextResponse.json(
+      { success: false, message: 'Server misconfiguration: CRON_SECRET not set.' },
+      { status: 500 }
+    )
+  }
+
+  const authHeader = request.headers.get('authorization') || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+  if (!token || token !== cronSecret) {
+    return NextResponse.json(
+      { success: false, message: 'Unauthorized.' },
+      { status: 401 }
+    )
+  }
+
+  return null
+}
+
+/**
+ * Parses pagination query params (page, limit) with sane clamping.
+ *
+ * Replaces the repeated block across admin API routes:
+ *   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10))
+ *   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10)), 200)
+ *   const offset = (page - 1) * limit
+ */
+export function parsePagination(
+  request: NextRequest,
+  options: { defaultLimit?: number; maxLimit?: number } = {}
+): { page: number; limit: number; offset: number } {
+  const defaultLimit = options.defaultLimit ?? 50
+  const maxLimit = options.maxLimit ?? 200
+
+  const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10) || 1)
+  const limit = Math.min(
+    Math.max(1, parseInt(request.nextUrl.searchParams.get('limit') ?? String(defaultLimit), 10) || defaultLimit),
+    maxLimit
+  )
+  const offset = (page - 1) * limit
+
+  return { page, limit, offset }
 }

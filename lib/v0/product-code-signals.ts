@@ -244,8 +244,9 @@ export function buildBasbugCodeSignals(
 
 type DpmatchHydrationRow = {
   match_id: number
-  dnmk_products_id: bigint
+  dnmk_products_id: bigint | null
   ptdrk_products_id: number | null
+  bsbg_products_id: bigint | null
   stock_code: string | null
   stock_name: string | null
   dinamik_brand: string | null
@@ -259,20 +260,40 @@ type DpmatchHydrationRow = {
   ptdrk_ref_no: string | null
   ptdrk_sku: string | null
   ptdrk_brand: string | null
+  bsbg_malzeme_no: string | null
+  bsbg_part_no: string | null
+  bsbg_oem_no: string | null
+  bsbg_aciklama: string | null
+  bsbg_image_present: boolean | null
+  bsbg_brand: string | null
+  dnmk_oems: string[] | null
+  bsbg_extra_oems: string[] | null
 }
 
 function resolveDisplayName(row: DpmatchHydrationRow): string {
   return (
     row.ptdrk_title?.trim() ||
     row.stock_name?.trim() ||
+    row.bsbg_aciklama?.trim() ||
     row.stock_code?.trim() ||
+    row.bsbg_malzeme_no?.trim() ||
     row.ptdrk_part_no?.trim() ||
+    row.bsbg_part_no?.trim() ||
     `Product ${row.match_id}`
   )
 }
 
 function resolveBrandName(row: DpmatchHydrationRow): string | null {
-  return row.dinamik_brand?.trim() || row.ptdrk_brand?.trim() || null
+  return (
+    row.dinamik_brand?.trim() ||
+    row.ptdrk_brand?.trim() ||
+    row.bsbg_brand?.trim() ||
+    null
+  )
+}
+
+function resolvePrimaryImage(row: DpmatchHydrationRow): string | null {
+  return row.image_url?.trim() || null
 }
 
 export async function ensureV0ProductFromProductMapping(
@@ -283,6 +304,7 @@ export async function ensureV0ProductFromProductMapping(
       m.id AS match_id,
       m.dnmk_products_id,
       m.ptdrk_products_id,
+      m.bsbg_products_id,
       d.stock_code,
       d.stock_name,
       db.brand AS dinamik_brand,
@@ -295,30 +317,84 @@ export async function ensureV0ProductFromProductMapping(
       p.part_no AS ptdrk_part_no,
       p.ref_no AS ptdrk_ref_no,
       p.sku AS ptdrk_sku,
-      pb.name AS ptdrk_brand
+      pb.name AS ptdrk_brand,
+      b.malzeme_no AS bsbg_malzeme_no,
+      b.part_no AS bsbg_part_no,
+      b.oem_no AS bsbg_oem_no,
+      b.aciklama AS bsbg_aciklama,
+      (b.raw ? 'image' IS NOT NULL) AS bsbg_image_present,
+      bb.brand AS bsbg_brand
     FROM v0.product_mapping m
-    JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
+    LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
     LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
     LEFT JOIN v0.ptdrk_brands pb ON pb.id = p.ptdrk_brands_id
+    LEFT JOIN v0.bsbg_products b ON b.id = m.bsbg_products_id
+    LEFT JOIN v0.bsbg_brands bb ON bb.id = b.bsbg_brands_id
     WHERE m.id = ${productMappingId}
       AND m.mapping_status = 'APPROVED'
-      AND d.is_passive IS DISTINCT FROM TRUE
+      AND (
+        (d.id IS NOT NULL AND d.is_passive IS DISTINCT FROM TRUE)
+        OR (b.id IS NOT NULL AND b.is_passive IS DISTINCT FROM TRUE)
+        OR p.id IS NOT NULL
+      )
     LIMIT 1
   `)
 
   const row = rows[0]
   if (!row) return null
+  if (!row.dnmk_products_id && !row.ptdrk_products_id && !row.bsbg_products_id) return null
 
-  const existing = await db.$queryRaw<Array<{ v0_product_id: bigint }>>(Prisma.sql`
-    SELECT v0_product_id
-    FROM v0.product_sources
-    WHERE source_type = 'DNMK'
-      AND source_record_id = ${row.dnmk_products_id.toString()}
-    LIMIT 1
-  `)
+  // Fetch OEM tokens from child tables
+  let dnmkOems: string[] = []
+  if (row.dnmk_products_id) {
+    const oemRows = await db.$queryRaw<Array<{ oem_no: string }>>(Prisma.sql`
+      SELECT oem_no FROM v0.dnmk_product_oems WHERE dnmk_products_id = ${row.dnmk_products_id}
+    `)
+    dnmkOems = oemRows.map((r) => r.oem_no)
+  }
 
-  let v0ProductId = existing[0]?.v0_product_id ?? null
+  let bsbgExtraOems: string[] = []
+  if (row.bsbg_products_id) {
+    const oemRows = await db.$queryRaw<Array<{ oem_no: string }>>(Prisma.sql`
+      SELECT oem_no FROM v0.bsbg_products_oem_no WHERE bsbg_products_id = ${row.bsbg_products_id}
+    `)
+    bsbgExtraOems = oemRows.map((r) => r.oem_no)
+  }
+  row.dnmk_oems = dnmkOems.length > 0 ? dnmkOems : null
+  row.bsbg_extra_oems = bsbgExtraOems.length > 0 ? bsbgExtraOems : null
+
+  // Find existing v0 product via any source link
+  const existingSources: Array<{ v0_product_id: bigint; source_type: string }> = []
+  if (row.dnmk_products_id) {
+    const r = await db.$queryRaw<Array<{ v0_product_id: bigint; source_type: string }>>(Prisma.sql`
+      SELECT v0_product_id, 'DNMK'::text AS source_type
+      FROM v0.product_sources
+      WHERE source_type = 'DNMK' AND source_record_id = ${row.dnmk_products_id.toString()}
+      LIMIT 1
+    `)
+    existingSources.push(...r)
+  }
+  if (row.bsbg_products_id && existingSources.length === 0) {
+    const r = await db.$queryRaw<Array<{ v0_product_id: bigint; source_type: string }>>(Prisma.sql`
+      SELECT v0_product_id, 'BSBG'::text AS source_type
+      FROM v0.product_sources
+      WHERE source_type = 'BSBG' AND source_record_id = ${row.bsbg_products_id.toString()}
+      LIMIT 1
+    `)
+    existingSources.push(...r)
+  }
+  if (row.ptdrk_products_id && existingSources.length === 0) {
+    const r = await db.$queryRaw<Array<{ v0_product_id: bigint; source_type: string }>>(Prisma.sql`
+      SELECT v0_product_id, 'PTDRK'::text AS source_type
+      FROM v0.product_sources
+      WHERE source_type = 'PTDRK' AND source_record_id = ${String(row.ptdrk_products_id)}
+      LIMIT 1
+    `)
+    existingSources.push(...r)
+  }
+
+  let v0ProductId = existingSources[0]?.v0_product_id ?? null
 
   if (!v0ProductId) {
     const inserted = await db.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
@@ -332,7 +408,7 @@ export async function ensureV0ProductFromProductMapping(
         ${resolveDisplayName(row)},
         ${normalizeCode(resolveDisplayName(row)) || null},
         ${resolveBrandName(row)},
-        ${row.image_url}
+        ${resolvePrimaryImage(row)}
       )
       RETURNING id
     `)
@@ -341,39 +417,46 @@ export async function ensureV0ProductFromProductMapping(
 
   if (!v0ProductId) return null
 
-  const sourceRows = await db.$queryRaw<Array<{ id: bigint; source_type: string }>>(Prisma.sql`
-    INSERT INTO v0.product_sources (
-      v0_product_id,
-      source_type,
-      source_record_id,
-      dnmk_products_id,
-      product_mapping_id,
-      source_sku,
-      source_brand,
-      source_name,
-      is_primary
-    )
-    VALUES (
-      ${v0ProductId},
-      'DNMK',
-      ${row.dnmk_products_id.toString()},
-      ${row.dnmk_products_id},
-      ${row.match_id},
-      ${row.stock_code},
-      ${row.dinamik_brand},
-      ${row.stock_name},
-      TRUE
-    )
-    ON CONFLICT (source_type, source_record_id) DO UPDATE SET
-      v0_product_id = EXCLUDED.v0_product_id,
-      product_mapping_id = EXCLUDED.product_mapping_id,
-      source_sku = EXCLUDED.source_sku,
-      source_brand = EXCLUDED.source_brand,
-      source_name = EXCLUDED.source_name,
-      updated_at = NOW()
-    RETURNING id, source_type
-  `)
+  const sourceRows: Array<{ id: bigint; source_type: string }> = []
 
+  // Upsert DNMK source (is_primary = TRUE since Dinamik is primary supplier)
+  if (row.dnmk_products_id) {
+    const dnmkRows = await db.$queryRaw<Array<{ id: bigint; source_type: string }>>(Prisma.sql`
+      INSERT INTO v0.product_sources (
+        v0_product_id,
+        source_type,
+        source_record_id,
+        dnmk_products_id,
+        product_mapping_id,
+        source_sku,
+        source_brand,
+        source_name,
+        is_primary
+      )
+      VALUES (
+        ${v0ProductId},
+        'DNMK',
+        ${row.dnmk_products_id.toString()},
+        ${row.dnmk_products_id},
+        ${row.match_id},
+        ${row.stock_code},
+        ${row.dinamik_brand},
+        ${row.stock_name},
+        TRUE
+      )
+      ON CONFLICT (source_type, source_record_id) DO UPDATE SET
+        v0_product_id = EXCLUDED.v0_product_id,
+        product_mapping_id = EXCLUDED.product_mapping_id,
+        source_sku = EXCLUDED.source_sku,
+        source_brand = EXCLUDED.source_brand,
+        source_name = EXCLUDED.source_name,
+        updated_at = NOW()
+      RETURNING id, source_type
+    `)
+    sourceRows.push(...dnmkRows)
+  }
+
+  // Upsert PTDRK source (is_primary = FALSE)
   if (row.ptdrk_products_id) {
     const ptRows = await db.$queryRaw<Array<{ id: bigint; source_type: string }>>(Prisma.sql`
       INSERT INTO v0.product_sources (
@@ -410,7 +493,46 @@ export async function ensureV0ProductFromProductMapping(
     sourceRows.push(...ptRows)
   }
 
+  // Upsert BSBG source (is_primary = FALSE, unless dnmk is missing)
+  if (row.bsbg_products_id) {
+    const bsbgRows = await db.$queryRaw<Array<{ id: bigint; source_type: string }>>(Prisma.sql`
+      INSERT INTO v0.product_sources (
+        v0_product_id,
+        source_type,
+        source_record_id,
+        bsbg_products_id,
+        product_mapping_id,
+        source_sku,
+        source_brand,
+        source_name,
+        is_primary
+      )
+      VALUES (
+        ${v0ProductId},
+        'BSBG',
+        ${row.bsbg_products_id.toString()},
+        ${row.bsbg_products_id},
+        ${row.match_id},
+        ${row.bsbg_malzeme_no},
+        ${row.bsbg_brand},
+        ${row.bsbg_aciklama},
+        ${row.dnmk_products_id ? false : true}
+      )
+      ON CONFLICT (source_type, source_record_id) DO UPDATE SET
+        v0_product_id = EXCLUDED.v0_product_id,
+        product_mapping_id = EXCLUDED.product_mapping_id,
+        source_sku = EXCLUDED.source_sku,
+        source_brand = EXCLUDED.source_brand,
+        source_name = EXCLUDED.source_name,
+        updated_at = NOW()
+      RETURNING id, source_type
+    `)
+    sourceRows.push(...bsbgRows)
+  }
+
   const sourceIdByType = new Map(sourceRows.map((item) => [item.source_type, item.id]))
+
+  // Build code signals including bsbg and dnmk child OEMs
   const signals = buildDpmatchCodeSignals({
     matchId: row.match_id,
     dnmkProductId: row.dnmk_products_id,
@@ -422,10 +544,49 @@ export async function ensureV0ProductFromProductMapping(
     dinamikStockCode: row.stock_code,
     ptRefNo: row.ptdrk_ref_no,
     ptPartNo: row.ptdrk_part_no,
-    ptSku: row.ptdrk_sku
+    ptSku: row.ptdrk_sku,
   })
 
-  await upsertProductCodeSignals(v0ProductId, sourceIdByType, signals)
+  // Append bsbg signals
+  if (row.bsbg_products_id) {
+    const bsbgSignals = buildBasbugCodeSignals({
+      bsbgProductId: row.bsbg_products_id,
+      oemNo: row.bsbg_oem_no,
+      partNo: row.bsbg_part_no,
+      malzemeNo: row.bsbg_malzeme_no,
+    })
+    signals.push(...bsbgSignals)
+  }
+
+  // Append dnmk child OEM signals
+  if (row.dnmk_oems) {
+    for (const oem of row.dnmk_oems) {
+      pushSignal(signals, {
+        sourceType: 'DNMK',
+        sourceRecordId: row.dnmk_products_id!.toString(),
+        rawCode: oem,
+        origin: 'dnmk.product_oems',
+        codeKind: 'OEM',
+        evidence: { productMappingId: row.match_id, source: 'child_table' },
+      })
+    }
+  }
+
+  // Append bsbg extra OEM signals (from child table)
+  if (row.bsbg_extra_oems && row.bsbg_products_id) {
+    for (const oem of row.bsbg_extra_oems) {
+      pushSignal(signals, {
+        sourceType: 'BSBG',
+        sourceRecordId: row.bsbg_products_id.toString(),
+        rawCode: oem,
+        origin: 'bsbg.products_oem_no',
+        codeKind: 'OEM',
+        evidence: { productMappingId: row.match_id, source: 'child_table' },
+      })
+    }
+  }
+
+  await upsertProductCodeSignals(v0ProductId, sourceIdByType, dedupeSignals(signals))
   await upsertPublicPartLinkCandidates(v0ProductId, row.match_id)
 
   return v0ProductId

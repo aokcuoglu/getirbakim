@@ -5,8 +5,6 @@ import { VehicleSelector } from './selector/VehicleSelector'
 import { useShop } from './ShopProvider'
 import { Star } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { SoonFeature } from '@/components/ui/SoonFeature'
-import { isV0OnlySite } from '@/lib/v0/siteMode'
 import { getPublicUrl } from '@/lib/storage/url'
 
 const partFinderBackground = getPublicUrl(
@@ -17,7 +15,6 @@ const partFinderBackground = getPublicUrl(
 export const PartFinder: React.FC = () => {
   const { selectedVehicle } = useShop()
   const t = useTranslations('PartFinder')
-  const v0OnlySite = isV0OnlySite()
 
   // Format vehicle display string: "MAKE MODEL (CODE) Fuel Engine Power"
   const formatVehicleInfo = () => {
@@ -111,16 +108,12 @@ export const PartFinder: React.FC = () => {
               {t('selectVehicle')}
             </p>
 
-            <SoonFeature
-              enabled={v0OnlySite}
-              variant="inline"
-              tone="dark"
+            <div
+              id="vehicle-selector"
               className="animate-in fade-in slide-in-from-bottom-10 duration-700 delay-300 mt-3"
             >
-              <div id="vehicle-selector">
-                <VehicleSelector />
-              </div>
-            </SoonFeature>
+              <VehicleSelector />
+            </div>
           </>
         )}
       </div>

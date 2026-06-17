@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { approveDpmatchRows } from '@/lib/admin/dpprd-normalized'
+import { ensureV0ProductFromProductMapping } from '@/lib/v0/product-code-signals'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -28,6 +29,11 @@ export async function POST(request: NextRequest) {
       if (!match || match.length === 0) return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
 
       await approveDpmatchRows([matchId], { matchMethod: 'MANUAL' })
+      try {
+        await ensureV0ProductFromProductMapping(matchId)
+      } catch (e) {
+        console.error(`[eslestirme:models:manual-match] ensureV0Product failed for mapping ${matchId}:`, e)
+      }
       return successResponse({ message: 'Eşleştirme onaylandı.', id: matchId }, context)
     }
 
@@ -38,6 +44,12 @@ export async function POST(request: NextRequest) {
         mappingStatus: 'APPROVED',
         matchMethod: 'MANUAL',
       })
+
+      try {
+        await ensureV0ProductFromProductMapping(result.id)
+      } catch (e) {
+        console.error(`[eslestirme:models:manual-match] ensureV0Product failed for new mapping ${result.id}:`, e)
+      }
 
       const message = result.action === 'updated'
         ? 'Eşleştirme güncellendi.'

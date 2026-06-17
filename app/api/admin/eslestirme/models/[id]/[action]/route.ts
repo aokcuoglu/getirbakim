@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
 import { approveDpmatchRows } from '@/lib/admin/dpprd-normalized'
+import { ensureV0ProductFromProductMapping } from '@/lib/v0/product-code-signals'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -34,6 +35,12 @@ export async function POST(request: NextRequest) {
 
     if (action === 'approve') {
       await approveDpmatchRows([matchId], { matchMethod: 'MANUAL' })
+      // Produce v0.products + product_sources + code_signals + public_part_links
+      try {
+        await ensureV0ProductFromProductMapping(matchId)
+      } catch (e) {
+        console.error(`[eslestirme:models:approve] ensureV0Product failed for mapping ${matchId}:`, e)
+      }
       revalidateAdminCatalogPaths()
       return successResponse({ id: matchId, action: 'approved', message: 'Eşleştirme onaylandı.' }, context)
     }

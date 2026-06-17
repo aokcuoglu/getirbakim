@@ -55,8 +55,9 @@ next-env.d.ts
 *.sw?
 
 # Project Specific
-public/*
-!public/logo.png
+# NOTE: Do NOT ignore `public/*` — slider images and other static assets must be tracked.
+# Only ignore the scratch/temp directory under public.
+public/temp/
 tecdoc-data/*
 # lib/db/scripts/*
 
@@ -66,11 +67,15 @@ tecdoc-data/*
 
 /generated/prisma
 
-# Local Data & Dumps
+# Local Data & Dumps (storage assets, scrape dumps, archive artifacts — NOT versioned)
 data.ms
 dumps
 data/supabase-storage/
 data/storage/
+data/archive/
+data/manufacturer_products/
+data/imports/
+data/parcatedarik_ureticiler.csv
 package-lock.json
 
 # DB Scripts
@@ -90,13 +95,16 @@ lib/db/scripts
 *.pfx
 id_rsa
 id_ed25519
+# Secret material files (never commit credentials, tokens, or supplier login dumps)
+docs/MS1403.txt
+docs/*.secret.txt
+docs/*.secrets.txt
 .parts2world-checkpoints/*
 .codex/*
 .claude/
 proxies.txt
 nohup.out
 aux*
-data/imports/
 
 # Scrape run artifacts (active logs kept locally during runs)
 scripts/output/*.log

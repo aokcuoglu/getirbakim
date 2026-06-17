@@ -145,27 +145,42 @@ wait_for_healthy() {
 
 wait_for_healthy "getirbakim-postgres" 60 || { echo "FATAL: postgres not healthy, aborting"; exit 1; }
 
+PG_CONTAINER="getirbakim-postgres"
+
+# Build DATABASE_URL from POSTGRES_* compose env vars (the .env.production
+# does NOT carry DATABASE_URL — it is synthesized in docker-compose.yml from
+# POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB). Mirror that logic here so the
+# migrate container can reach postgres over the project network.
+PG_USER=$(grep -E '^POSTGRES_USER=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
+PG_USER="${PG_USER:-postgres}"
+PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
+PG_DB=$(grep -E '^POSTGRES_DB=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
+PG_DB="${PG_DB:-getirbakim}"
+if [[ -z "${PG_PASS}" ]]; then
+  echo "FATAL: POSTGRES_PASSWORD missing in ${ENV_FILE}, cannot build DATABASE_URL"
+  exit 1
+fi
+DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB}"
+
 echo ">>> Running Prisma migrations..."
-DATABASE_URL=$(grep -oP '^DATABASE_URL=\K.*' "${ENV_FILE}" 2>/dev/null || grep '^DATABASE_URL=' "${ENV_FILE}" | cut -d= -f2-)
-if [[ -z "${DATABASE_URL}" ]]; then
-  echo "WARN: Could not extract DATABASE_URL from ${ENV_FILE}, skipping Prisma migrations"
+# Docker Compose names networks as <project>_<network-name>; with project
+# "getirbakim" and network "app-network", the actual name is
+# getirbakim_app-network (NOT getirbakim_default).
+MIGRATE_OUTPUT=$(docker run --rm \
+  --network getirbakim_app-network \
+  -v "$PWD/prisma:/app/prisma" \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  node:22-slim \
+  npx --yes prisma migrate deploy 2>&1) || true
+echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
+if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
+  echo "WARN: Prisma migrate deploy reported an error — check above"
 else
-  MIGRATE_OUTPUT=$(docker run --rm \
-    --network getirbakim_default \
-    -v "$PWD/prisma:/app/prisma" \
-    -e DATABASE_URL="${DATABASE_URL}" \
-    node:22-slim \
-    npx --yes prisma migrate deploy 2>&1) || true
-  echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
-  if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
-    echo "WARN: Prisma migrate deploy reported an error — check above"
-  else
-    echo "  Prisma migrations OK"
-  fi
+  echo "  Prisma migrations OK"
 fi
 
 echo ">>> Ensuring v0 schema tables..."
-V0_SQL_OUTPUT=$(docker exec -i "${PG_CONTAINER}" psql -U postgres -d getirbakim < scripts/v0-init.sql 2>&1) || true
+V0_SQL_OUTPUT=$(docker exec -i "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" < scripts/v0-init.sql 2>&1) || true
 echo "  ${V0_SQL_OUTPUT//$'\n'/$'\n'  }"
 if echo "${V0_SQL_OUTPUT}" | grep -qi "error"; then
   echo "WARN: v0 schema init reported an error — check above"
@@ -228,10 +243,9 @@ fi
 
 echo ""
 echo ">>> Ensuring pg_trgm extension and search indexes..."
-PG_CONTAINER="getirbakim-postgres"
-if docker exec "${PG_CONTAINER}" pg_isready -U postgres -d getirbakim >/dev/null 2>&1; then
-  docker exec "${PG_CONTAINER}" psql -U postgres -d getirbakim -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || echo "WARN: pg_trgm extension creation failed"
-  docker exec "${PG_CONTAINER}" psql -U postgres -d getirbakim -f /dev/stdin < scripts/search-indexes.sql 2>/dev/null || echo "WARN: Search indexes could not be created (may already exist)"
+if docker exec "${PG_CONTAINER}" pg_isready -U "${PG_USER}" -d "${PG_DB}" >/dev/null 2>&1; then
+  docker exec "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;" 2>/dev/null || echo "WARN: pg_trgm extension creation failed"
+  docker exec "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" -f /dev/stdin < scripts/search-indexes.sql 2>/dev/null || echo "WARN: Search indexes could not be created (may already exist)"
   echo "  pg_trgm extension and search indexes OK"
 else
   echo "WARN: PostgreSQL not ready, skipping pg_trgm and search indexes"

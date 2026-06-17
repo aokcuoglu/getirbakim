@@ -4,6 +4,8 @@ import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { resolveBrandListId, generateBsbgMalzemeNo } from '@/lib/admin/bsbg-oem-link'
+import { ensureV0ProductFromProductMapping } from '@/lib/v0/product-code-signals'
+import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
 
 export async function GET(request: NextRequest) {
   const auth = await getAdminAuth()
@@ -17,6 +19,7 @@ export async function GET(request: NextRequest) {
   const mappingIdStr = url.searchParams.get('mappingId')
   const dnmkIdStr = url.searchParams.get('dnmkProductsId')
   const ptdrkIdStr = url.searchParams.get('ptdrkProductsId')
+  const bsbgProductsIdStr = url.searchParams.get('bsbgProductsId') ?? null
   const limit = Math.min(Math.max(1, parseInt(url.searchParams.get('limit') ?? '25', 10)), 100)
 
   const mappingId = mappingIdStr ? parseInt(mappingIdStr, 10) : null
@@ -25,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // ---------------------------------------------------------------
-    // Saved OEMs (products_oems) — always fetched when product is known
+    // Saved OEMs (products_oems cross-references) — always fetched when product is known
     // ---------------------------------------------------------------
     const savedOems = (dnmkId || ptdrkId)
       ? await db.$queryRaw<Array<{ id: number; bsbg_products_id: bigint | null; oem_no: string; ref_no: string | null; brand_list_id: number | null; relation_type: string; created_at: Date; malzeme_no: string | null; bsbg_brand: string | null }>>(
@@ -40,6 +43,81 @@ export async function GET(request: NextRequest) {
           `
         )
       : []
+
+    // ---------------------------------------------------------------
+    // Product OEMs (child tables: dnmk_product_oems, bsbg_products_oem_no)
+    // These are the OEM numbers stored directly on each supplier product
+    // (from ptdrk bridge or manual entry)
+    // ---------------------------------------------------------------
+    const productOems: Array<{
+      oem_no: string
+      source: string
+      supplier: 'DNMK' | 'BSBG'
+      bsbg_products_id: bigint | null
+      malzeme_no: string | null
+      bsbg_brand: string | null
+    }> = []
+
+    if (dnmkId) {
+      const dnmkOemRows = await db.$queryRaw<Array<{ oem_no: string; source: string }>>(Prisma.sql`
+        SELECT oem_no, source FROM v0.dnmk_product_oems
+        WHERE dnmk_products_id = ${dnmkId}
+        ORDER BY oem_no ASC
+      `)
+      for (const r of dnmkOemRows) {
+        productOems.push({ oem_no: r.oem_no, source: r.source, supplier: 'DNMK', bsbg_products_id: null, malzeme_no: null, bsbg_brand: null })
+      }
+    }
+
+    // bsbg child OEMs: fetch via the linked bsbg_products_id in product_mapping
+    if (bsbgProductsIdStr) {
+      const bsbgIdForOems = BigInt(bsbgProductsIdStr)
+      const bsbgOemRows = await db.$queryRaw<
+        Array<{ oem_no: string; source: string; malzeme_no: string; bsbg_brand: string | null }>
+      >(Prisma.sql`
+        SELECT boem.oem_no, boem.source, b.malzeme_no, bb.brand AS bsbg_brand
+        FROM v0.bsbg_products_oem_no boem
+        JOIN v0.bsbg_products b ON b.id = boem.bsbg_products_id
+        JOIN v0.bsbg_brands bb ON bb.id = b.bsbg_brands_id
+        WHERE boem.bsbg_products_id = ${bsbgIdForOems}
+        ORDER BY boem.oem_no ASC
+      `)
+      for (const r of bsbgOemRows) {
+        productOems.push({
+          oem_no: r.oem_no,
+          source: r.source,
+          supplier: 'BSBG',
+          bsbg_products_id: bsbgIdForOems,
+          malzeme_no: r.malzeme_no,
+          bsbg_brand: r.bsbg_brand,
+        })
+      }
+
+      // Also include bsbg_products.oem_no (primary sync OEM) if not already in child table
+      const primaryOem = await db.$queryRaw<Array<{ oem_no: string | null; malzeme_no: string; bsbg_brand: string | null }>>(Prisma.sql`
+        SELECT b.oem_no, b.malzeme_no, bb.brand AS bsbg_brand
+        FROM v0.bsbg_products b
+        JOIN v0.bsbg_brands bb ON bb.id = b.bsbg_brands_id
+        WHERE b.id = ${bsbgIdForOems} AND b.oem_no IS NOT NULL AND BTRIM(b.oem_no) <> ''
+        LIMIT 1
+      `)
+      if (primaryOem.length > 0 && primaryOem[0].oem_no) {
+        const upperOem = primaryOem[0].oem_no.trim().toUpperCase()
+        const alreadyInChild = productOems.some(
+          (p) => p.supplier === 'BSBG' && p.oem_no.trim().toUpperCase() === upperOem
+        )
+        if (!alreadyInChild) {
+          productOems.push({
+            oem_no: primaryOem[0].oem_no,
+            source: 'SYNC_PRIMARY',
+            supplier: 'BSBG',
+            bsbg_products_id: bsbgIdForOems,
+            malzeme_no: primaryOem[0].malzeme_no,
+            bsbg_brand: primaryOem[0].bsbg_brand,
+          })
+        }
+      }
+    }
 
     // ---------------------------------------------------------------
     // Bsbg search by refNo — only when refNo is provided
@@ -113,6 +191,14 @@ export async function GET(request: NextRequest) {
       refNos: refNo ? refNo.split(/[,;|/]+/).map(r => r.trim()).filter(Boolean) : [],
       mappingBrandListId,
       results,
+      productOems: productOems.map(p => ({
+        oemNo: p.oem_no,
+        source: p.source,
+        supplier: p.supplier,
+        bsbgProductId: p.bsbg_products_id?.toString() ?? null,
+        malzemeNo: p.malzeme_no,
+        bsbgBrand: p.bsbg_brand,
+      })),
       saved: savedOems.map(s => ({
         id: s.id,
         oemNo: s.oem_no,
@@ -281,75 +367,127 @@ export async function POST(request: NextRequest) {
 
     // ---------------------------------------------------------------
     // Save manual — optionally create bsbg_products row then upsert
+    // Multi-OEM support: oemNos array (comma-separated) or single oemNo
     // ---------------------------------------------------------------
     if (action === 'save_manual') {
       const createBsbgIfMissing = body?.createBsbgIfMissing === true
       const bsbgBrandIdRaw = body?.bsbgBrandId ? BigInt(body.bsbgBrandId) : null
 
+      // Parse OEM list: either explicit array, or single oemNo, or split by separators
+      let oemList: string[] = []
+      if (Array.isArray(body?.oemNos)) {
+        oemList = body.oemNos.map((s: string) => String(s).trim().toUpperCase()).filter((s: string) => s.length >= 2)
+      } else if (oemNo) {
+        oemList = [oemNo.trim().toUpperCase()]
+      }
+      if (oemList.length === 0) {
+        return errorResponse({ status: 400, code: 'MISSING_OEM', message: 'En az bir OEM numarası gerekli.', context })
+      }
+
+      // Optional: create bsbg_products row when bsbgBrandId provided and createBsbgIfMissing
       let finalBsbgId = bsbgProductsId
 
-      if (!finalBsbgId && createBsbgIfMissing) {
-        if (!bsbgBrandIdRaw) {
-          return errorResponse({
-            status: 400,
-            code: 'MISSING_BSBG_BRAND_ID',
-            message: 'Yeni bsbg ürünü oluşturmak için bsbgBrandId gerekli.',
-            context,
-          })
-        }
-        const malzemeNo = generateBsbgMalzemeNo(oemNo ?? '')
+      if (!finalBsbgId && createBsbgIfMissing && bsbgBrandIdRaw) {
+        // Use first OEM as primary oem_no on bsbg_products
+        const primaryOem = oemList[0]
+        const malzemeNo = generateBsbgMalzemeNo(primaryOem)
         const inserted = await db.$queryRaw<Array<{ id: bigint }>>(
           Prisma.sql`
             INSERT INTO v0.bsbg_products
               (bsbg_brands_id, malzeme_no, oem_no, liste_grubu_kodu, raw, is_passive)
-            VALUES (${bsbgBrandIdRaw}, ${malzemeNo}, ${oemNo}, 'MANUAL_OEM', '{}'::jsonb, false)
+            VALUES (${bsbgBrandIdRaw}, ${malzemeNo}, ${primaryOem}, 'MANUAL_OEM', '{}'::jsonb, false)
             RETURNING id
           `,
         )
         finalBsbgId = inserted[0]?.id ?? null
       }
 
-      if (finalBsbgId) {
-        await db.$executeRawUnsafe(
-          `INSERT INTO v0.products_oems (dnmk_products_id, ptdrk_products_id, bsbg_products_id, oem_no, ref_no, brand_list_id, relation_type, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (dnmk_products_id, bsbg_products_id, oem_no) DO UPDATE
-           SET ptdrk_products_id = $2, ref_no = $5, brand_list_id = $6, relation_type = $7`,
-          dnmkProductsId,
-          ptdrkProductsId,
-          finalBsbgId,
-          oemNo,
-          refNo,
-          brandListId,
-          relationType,
-          auth.user.email || null,
-        )
-      } else {
-        const existing = await db.$queryRaw<Array<{ id: number }>>(
-          Prisma.sql`
-            SELECT id FROM v0.products_oems
-            WHERE dnmk_products_id = ${dnmkProductsId}
-              AND bsbg_products_id IS NULL
-              AND oem_no = ${oemNo}
-            LIMIT 1
-          `,
-        )
-        if (existing.length > 0) {
-          await db.$executeRawUnsafe(
-            `UPDATE v0.products_oems SET ptdrk_products_id = $1, ref_no = $2, brand_list_id = $3, relation_type = $4, created_by = $5
-             WHERE id = $6`,
-            ptdrkProductsId, refNo, brandListId, relationType, auth.user.email || null, existing[0].id,
-          )
-        } else {
+      // Insert each OEM into child tables + products_oems cross-reference
+      let savedCount = 0
+      for (const oem of oemList) {
+        // 1. dnmk_product_oems (Dinamik product OEM'leri)
+        if (dnmkProductsId) {
+          await db.$executeRaw(Prisma.sql`
+            INSERT INTO v0.dnmk_product_oems (dnmk_products_id, oem_no, source)
+            VALUES (${dnmkProductsId}, ${oem}, 'MANUAL')
+            ON CONFLICT (dnmk_products_id, oem_no) DO NOTHING
+          `)
+        }
+
+        // 2. bsbg_products_oem_no (Başbuğ product ek OEM'leri)
+        if (finalBsbgId) {
+          await db.$executeRaw(Prisma.sql`
+            INSERT INTO v0.bsbg_products_oem_no (bsbg_products_id, oem_no, source)
+            VALUES (${finalBsbgId}, ${oem}, 'MANUAL')
+            ON CONFLICT (bsbg_products_id, oem_no) DO NOTHING
+          `)
+        }
+
+        // 3. products_oems cross-reference (mapping between dnmk ↔ bsbg via OEM)
+        if (finalBsbgId && dnmkProductsId) {
           await db.$executeRawUnsafe(
             `INSERT INTO v0.products_oems (dnmk_products_id, ptdrk_products_id, bsbg_products_id, oem_no, ref_no, brand_list_id, relation_type, created_by)
-             VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)`,
-            dnmkProductsId, ptdrkProductsId, oemNo, refNo, brandListId, relationType, auth.user.email || null,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT (dnmk_products_id, bsbg_products_id, oem_no) DO UPDATE
+             SET ptdrk_products_id = $2, ref_no = $5, brand_list_id = $6, relation_type = $7`,
+            dnmkProductsId,
+            ptdrkProductsId,
+            finalBsbgId,
+            oem,
+            refNo,
+            brandListId,
+            relationType,
+            auth.user.email || null,
           )
+        } else if (dnmkProductsId && !finalBsbgId) {
+          // No bsbg link — store OEM without bsbg binding
+          const existing = await db.$queryRaw<Array<{ id: number }>>(
+            Prisma.sql`
+              SELECT id FROM v0.products_oems
+              WHERE dnmk_products_id = ${dnmkProductsId}
+                AND bsbg_products_id IS NULL
+                AND oem_no = ${oem}
+              LIMIT 1
+            `,
+          )
+          if (existing.length > 0) {
+            await db.$executeRawUnsafe(
+              `UPDATE v0.products_oems SET ptdrk_products_id = $1, ref_no = $2, brand_list_id = $3, relation_type = $4, created_by = $5
+               WHERE id = $6`,
+              ptdrkProductsId, refNo, brandListId, relationType, auth.user.email || null, existing[0].id,
+            )
+          } else {
+            await db.$executeRawUnsafe(
+              `INSERT INTO v0.products_oems (dnmk_products_id, ptdrk_products_id, bsbg_products_id, oem_no, ref_no, brand_list_id, relation_type, created_by)
+               VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)`,
+              dnmkProductsId, ptdrkProductsId, oem, refNo, brandListId, relationType, auth.user.email || null,
+            )
+          }
+        }
+        savedCount += 1
+      }
+
+      // 4. Re-trigger v0 pipeline: refresh product_code_signals + public_part_links
+      if (dnmkProductsId || finalBsbgId) {
+        const mappingRow = await db.$queryRaw<Array<{ id: number }>>(
+          Prisma.sql`
+            SELECT id FROM v0.product_mapping
+            WHERE mapping_status = 'APPROVED'
+              AND (dnmk_products_id = ${dnmkProductsId} OR bsbg_products_id = ${finalBsbgId})
+            ORDER BY id ASC LIMIT 1
+          `,
+        )
+        if (mappingRow.length > 0) {
+          try {
+            await ensureV0ProductFromProductMapping(mappingRow[0].id)
+          } catch (e) {
+            console.error(`[eslestirme:models:oems:save_manual] ensureV0Product failed for mapping ${mappingRow[0].id}:`, e)
+          }
         }
       }
 
-      return successResponse({ message: 'OEM kaydedildi.', bsbgProductsId: finalBsbgId?.toString() ?? null }, context)
+      revalidateAdminCatalogPaths()
+      return successResponse({ message: `${savedCount} OEM kaydedildi.`, bsbgProductsId: finalBsbgId?.toString() ?? null }, context)
     }
 
     // ---------------------------------------------------------------

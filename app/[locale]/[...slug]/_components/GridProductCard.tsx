@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React from 'react'
 import { SafeImage } from '@/components/ui/SafeImage'
 import Link from 'next/link'
 import { Package, Calendar } from 'lucide-react'
-import { useTranslations, useFormatter } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import {
   Select,
   SelectContent,
@@ -17,190 +17,50 @@ import {
   PRODUCT_SPEC_KEYS,
   PRODUCT_SPEC_VALUE_KEYS
 } from '@/lib/product-card-i18n'
-import { buildProductDisplayName } from '@/lib/product-display-name'
-import { useShop } from '@/components/ShopProvider'
 import { CustomerRequestDialog } from '@/components/customer-requests/CustomerRequestDialog'
+import { useProductCardState, type ProductCardItem } from '@/lib/product-card-state'
 
-interface ProductProperty {
-  key: string
-  value: string
-}
-
-import type { AvailabilityStatus } from '@/lib/search/availability'
-import type { SearchCTA } from '@/lib/search/availability'
-
-interface GridProductCardProps {
-  id: number
-  name: string
-  sourceType?: 'part' | 'supplier_product'
-  supplierProductId?: number | null
-  brandName: string
-  brandLogo?: string | null
-  categoryName?: string | null
-  image?: string | null
-  thumb?: string | null
-  price?: string | null
-  priceSource?: 'real' | 'placeholder'
-  isPlaceholderPrice?: boolean
-  isPurchasable?: boolean
-  properties: ProductProperty[]
-  eans: string[]
-  variantCount?: number
-  isVehicleSpecific?: boolean
-  isBestseller?: boolean
-  stock?: number
-  isPriceLoading?: boolean
-  availabilityStatus?: AvailabilityStatus
-  cta?: SearchCTA
-  detailUrl?: string | null
+interface GridProductCardProps extends ProductCardItem {
   isFirst?: boolean
 }
 
-export function GridProductCard({
-  id,
-  name,
-  sourceType = 'part',
-  supplierProductId,
-  brandName,
-  brandLogo,
-  categoryName,
-  image,
-  thumb,
-  price,
-  priceSource,
-  isPlaceholderPrice = false,
-  isPurchasable,
-  properties,
-  eans,
-  variantCount = 1,
-  isVehicleSpecific = true,
-  isBestseller = false,
-  stock,
-  isPriceLoading = false,
-  availabilityStatus,
-  cta,
-  detailUrl,
-  isFirst = false
-}: GridProductCardProps) {
+export function GridProductCard(props: GridProductCardProps) {
   const t = useTranslations('ProductCard')
-  const format = useFormatter()
-  const { addToCart } = useShop()
-  const [showAllProperties, setShowAllProperties] = useState(false)
-  const [quantity, setQuantity] = useState(1)
-
-  // Format price display
-  const VAT_RATE = 0.2
-  const exVatPrice = price ? parseFloat(price) : null
-  const priceIncVat =
-    exVatPrice != null && Number.isFinite(exVatPrice)
-      ? exVatPrice * (1 + VAT_RATE)
-      : null
-  const hasDisplayPrice =
-    priceIncVat != null &&
-    priceSource === 'real' &&
-    !isPlaceholderPrice
-  const formattedPrice =
-    hasDisplayPrice
-      ? new Intl.NumberFormat('tr-TR', {
-          style: 'currency',
-          currency: 'TRY',
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }).format(priceIncVat)
-      : null
-
-  // Limit displayed properties
-  const displayedProperties = showAllProperties
-    ? properties
-    : properties.slice(0, 4)
-
-  // Get first EAN for display
-  const eanDisplay = eans.length > 0 ? eans[0] : null
-
-  // Image URL
-  const imageUrl = thumb || image
-  const hasPrice = hasDisplayPrice
-  const hasAvailableStock = (stock ?? 0) > 0
-  const computedPurchasable = hasPrice && hasAvailableStock
-  const canAddToCart = isPurchasable ?? computedPurchasable
-  const safePriceIncVat = priceIncVat ?? 0
-  const hasSupplierSource =
-    sourceType === 'supplier_product' || Boolean(supplierProductId)
-  const displayName = buildProductDisplayName({
-    categoryName,
-    brandName,
-    name
-  })
-
-  const resolvedAvailability = availabilityStatus ?? (
-    canAddToCart ? 'PURCHASABLE' as AvailabilityStatus
-    : hasPrice ? 'OUT_OF_STOCK' as AvailabilityStatus
-    : 'REQUEST_PRICE' as AvailabilityStatus
-  )
-  const resolvedCta = cta ?? (
-    resolvedAvailability === 'PURCHASABLE' ? 'add_to_cart' as SearchCTA
-    : resolvedAvailability === 'OUT_OF_STOCK' ? 'notify_or_request_price' as SearchCTA
-    : resolvedAvailability === 'VERIFY_FITMENT' ? 'verify_fitment' as SearchCTA
-    : 'request_price' as SearchCTA
-  )
-  const stockStatusClass =
-    resolvedAvailability === 'PURCHASABLE'
-      ? 'text-success'
-      : resolvedAvailability === 'OUT_OF_STOCK'
-        ? 'text-destructive'
-        : 'text-muted-foreground'
-  const productLink = detailUrl ?? `/part/${id}`
-
-  const handleAddToCart = () => {
-    if (!canAddToCart) return
-
-    addToCart(
-      {
-        partId: id,
-        id: String(id),
-        name: displayName,
-        brand: brandName,
-        price: safePriceIncVat,
-        imageUrl: imageUrl ?? '/logo.png'
-      },
-      quantity
-    )
-  }
-
-  // Keep dispatch date deterministic between SSR/CSR to avoid hydration-driven CLS.
-  const dispatchDateLabel = useMemo(() => {
-    const now = new Date()
-    const daysUntilTuesday = (2 - now.getUTCDay() + 7) % 7 || 7
-    const nextTuesdayUtc = new Date(
-      Date.UTC(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate() + daysUntilTuesday
-      )
-    )
-    return format.dateTime(nextTuesdayUtc, {
-      weekday: 'long',
-      month: 'numeric',
-      day: 'numeric',
-      year: '2-digit',
-      timeZone: 'UTC'
-    })
-  }, [format])
+  const {
+    showAllProperties,
+    setShowAllProperties,
+    quantity,
+    setQuantity,
+    formattedPrice,
+    hasDisplayPrice,
+    displayedProperties,
+    eanDisplay,
+    imageUrl,
+    canAddToCart,
+    hasSupplierSource,
+    displayName,
+    resolvedAvailability,
+    resolvedCta,
+    stockStatusClass,
+    productLink,
+    handleAddToCart,
+    dispatchDateLabel
+  } = useProductCardState(props)
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-sm border border-border bg-background transition-colors hover:border-input">
       <div className="flex items-center px-3 pt-3">
-        {brandLogo ? (
+        {props.brandLogo ? (
           <SafeImage
-            src={brandLogo}
-            alt={brandName}
+            src={props.brandLogo}
+            alt={props.brandName}
             width={84}
             height={24}
             className="h-6 object-contain"
             fallback={
               <div className="flex h-6 items-center justify-center rounded-sm">
                 <span className="text-[13px] font-semibold text-foreground">
-                  {brandName}
+                  {props.brandName}
                 </span>
               </div>
             }
@@ -208,7 +68,7 @@ export function GridProductCard({
         ) : (
           <div className="flex h-6 items-center justify-center rounded-sm">
             <span className="text-[13px] font-semibold text-foreground">
-              {brandName}
+              {props.brandName}
             </span>
           </div>
         )}
@@ -223,8 +83,8 @@ export function GridProductCard({
             height={180}
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             className="h-full w-full max-h-40 object-contain"
-            priority={isFirst}
-            loading={isFirst ? 'eager' : 'lazy'}
+            priority={props.isFirst}
+            loading={props.isFirst ? 'eager' : 'lazy'}
             fallback={<Package className="h-16 w-16 text-muted-foreground/70" />}
           />
         ) : (
@@ -240,18 +100,18 @@ export function GridProductCard({
         </Link>
 
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          {isVehicleSpecific && (
+          {props.isVehicleSpecific && (
             <span className="rounded-sm bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
               {t('vehicleSpecific')}
             </span>
           )}
-          {!isVehicleSpecific && variantCount > 1 && (
+          {!props.isVehicleSpecific && (props.variantCount ?? 1) > 1 && (
             <span className="rounded-sm bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
-              {t('fitmentVariants', { count: variantCount })}
+              {t('fitmentVariants', { count: Number(props.variantCount) })}
             </span>
           )}
           <span className="text-[11px] text-muted-foreground font-medium">
-            {t('specs.ID')}: {id}
+            {t('specs.ID')}: {props.id}
           </span>
           {hasSupplierSource && (
             <span className="rounded-sm bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
@@ -291,7 +151,7 @@ export function GridProductCard({
           })}
         </div>
 
-        {properties.length > 4 && (
+        {props.properties.length > 4 && (
           <button
             onClick={() => setShowAllProperties(!showAllProperties)}
             className="mb-2 text-left text-[12px] font-semibold text-primary transition-colors hover:text-primary"
@@ -308,7 +168,7 @@ export function GridProductCard({
             </span>
           </p>
 
-          {isPriceLoading ? (
+          {props.isPriceLoading ? (
             <p className="mb-3 min-h-[38px] text-sm text-muted-foreground">
               {t('priceLoading')}
             </p>
@@ -330,21 +190,21 @@ export function GridProductCard({
             </p>
           )}
 
-          {hasPrice ? (
+          {hasDisplayPrice ? (
             <div className="flex items-center gap-2">
               <Select
                 value={quantity.toString()}
                 onValueChange={(v) => setQuantity(Number(v))}
-                disabled={!canAddToCart || isPriceLoading}
+                disabled={!canAddToCart || props.isPriceLoading}
               >
                 <SelectTrigger className="h-8 w-14 rounded-sm border-input focus-visible:ring-ring/50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(stock !== undefined
-                    ? stock > 0
+                  {(props.stock !== undefined
+                    ? props.stock > 0
                       ? Array.from(
-                          { length: Math.min(stock, 5) },
+                          { length: Math.min(props.stock, 5) },
                           (_, i) => i + 1
                         )
                       : []
@@ -359,7 +219,7 @@ export function GridProductCard({
 
               <Button
                 onClick={handleAddToCart}
-                disabled={!canAddToCart || isPriceLoading}
+                disabled={!canAddToCart || props.isPriceLoading}
                 size="sm"
                 className="h-8 flex-1 rounded-sm text-xs font-semibold"
               >
@@ -372,10 +232,10 @@ export function GridProductCard({
                 requestType={resolvedCta === 'verify_fitment' ? 'FITMENT_CHECK' : 'PRICE_REQUEST'}
                 source={resolvedCta === 'verify_fitment' ? 'FITMENT_MODAL' : 'PRICE_MODAL'}
                 product={{
-                  partId: id,
+                  partId: props.id,
                   partName: displayName,
-                  brandName,
-                  categoryName
+                  brandName: props.brandName,
+                  categoryName: props.categoryName
                 }}
                 trigger={
                   <Button className="h-8 w-full bg-success text-success-foreground hover:bg-success/90 text-xs font-semibold">

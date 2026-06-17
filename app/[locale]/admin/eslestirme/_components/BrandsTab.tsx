@@ -110,6 +110,7 @@ export function BrandsTab() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [isFetching, setIsFetching] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [bsbgSeeding, setBsbgSeeding] = useState(false)
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const [filters, setFilters] = useState<BrandFilters>(DEFAULT_BRAND_FILTERS)
@@ -246,6 +247,27 @@ export function BrandsTab() {
         toast.error('Oluşturma başarısız')
       }
       setGenerating(false)
+    })
+  }, [loadBrands])
+
+  const handleSeedBsbg = useCallback(() => {
+    setBsbgSeeding(true)
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/brands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'seed-bsbg', apply: true }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Başbuğ markaları işlendi')
+          void loadBrands(filtersRef.current)
+        } else toast.error(data.error?.message || 'Başbuğ marka seed başarısız')
+      } catch {
+        toast.error('Başbuğ marka seed başarısız')
+      }
+      setBsbgSeeding(false)
     })
   }, [loadBrands])
 
@@ -433,9 +455,13 @@ export function BrandsTab() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating}>
+          <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating || bsbgSeeding}>
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${generating ? 'animate-spin' : ''}`} />
             {generating ? 'Oluşturuluyor...' : 'Otomatik Eşleştir'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSeedBsbg} disabled={bsbgSeeding || generating}>
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${bsbgSeeding ? 'animate-spin' : ''}`} />
+            {bsbgSeeding ? 'İşleniyor...' : 'Başbuğ Otomatik Eşleştir'}
           </Button>
           <Button
             variant="outline"

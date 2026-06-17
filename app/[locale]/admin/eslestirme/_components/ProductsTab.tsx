@@ -91,6 +91,8 @@ export function ProductsTab() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [isFetching, setIsFetching] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [oemBridging, setOemBridging] = useState(false)
+  const [dnbsbgMatching, setDnbsbgMatching] = useState(false)
   const [, startTransition] = useTransition()
   const [sorting, setSorting] = useState<SortingState>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
@@ -119,6 +121,7 @@ export function ProductsTab() {
   const [oemLoading, setOemLoading] = useState(false)
   const [oemSaving, setOemSaving] = useState<Record<string, boolean>>({})
   const [savedOems, setSavedOems] = useState<any[]>([])
+  const [productOems, setProductOems] = useState<any[]>([])
   const [savedOemDeleting, setSavedOemDeleting] = useState<Record<number, boolean>>({})
 
   const [manualOemInput, setManualOemInput] = useState('')
@@ -270,6 +273,50 @@ export function ProductsTab() {
     })
   }, [loadModels])
 
+  const handleOemBridge = useCallback(() => {
+    setOemBridging(true)
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'dnprd-oem-bridge', apply: true }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Dinamik OEM\'leri dolduruldu')
+          void loadModels(filtersRef.current)
+        } else toast.error(data.error?.message || 'OEM bridge başarısız')
+      } catch {
+        toast.error('OEM bridge başarısız')
+      } finally {
+        setOemBridging(false)
+      }
+    })
+  }, [loadModels])
+
+  const handleDnbsbgMatch = useCallback(() => {
+    setDnbsbgMatching(true)
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/admin/eslestirme/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'populate-dnbsbg', apply: true }),
+        })
+        const data = await res.json()
+        if (!data.error) {
+          toast.success(data.message || 'Dinamik-Başbuğ eşleştirildi')
+          void loadModels(filtersRef.current)
+        } else toast.error(data.error?.message || 'Eşleştirme başarısız')
+      } catch {
+        toast.error('Dinamik-Başbuğ eşleştirme başarısız')
+      } finally {
+        setDnbsbgMatching(false)
+      }
+    })
+  }, [loadModels])
+
   const handleBulkApprove = useCallback(() => {
     const ids = Object.entries(rowSelection).filter(([, s]) => s).map(([id]) => Number(id))
     if (ids.length === 0) { toast.error('En az bir eşleştirme seçin'); return }
@@ -399,11 +446,13 @@ export function ProductsTab() {
       if (row.dnprdId) params.set('dnmkProductsId', row.dnprdId)
       if (row.productId) params.set('ptdrkProductsId', String(row.productId))
       if (row.id) params.set('mappingId', String(row.id))
+      if (row.bsbgProductsId) params.set('bsbgProductsId', String(row.bsbgProductsId))
       const res = await fetch(`/api/admin/eslestirme/models/oems?${params}`)
       if (res.ok) {
         const data = await res.json()
         setOemResults(data.results || [])
         setSavedOems(data.saved || [])
+        setProductOems(data.productOems || [])
         setMappingBrandListId(data.mappingBrandListId ?? null)
       }
     } catch {
@@ -535,29 +584,38 @@ export function ProductsTab() {
     let successCount = 0
     let failCount = 0
 
+    // Group previews by bsbgProductId (or null) — save in one request per group
+    const groups = new Map<string | null, typeof toSave>()
     for (const p of toSave) {
+      const key = p.bsbgProductId || null
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(p)
+    }
+
+    for (const [bsbgId, items] of groups) {
       try {
+        const first = items[0]
         const res = await fetch('/api/admin/eslestirme/models/oems', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'save_manual',
-              dnmkProductsId: detailRow.dnprdId || null,
-              ptdrkProductsId: detailRow.productId || null,
-              oemNo: p.oemNo,
-              bsbgProductsId: p.bsbgProductId || null,
-              createBsbgIfMissing: p.status === 'create_needed' && !!p.bsbgBrandId,
-              bsbgBrandId: p.bsbgBrandId || null,
-              brandListId: p.brandListId != null ? p.brandListId : null,
-              relationType: p.relationType || 'CROSS_REFERENCE',
-              refNo: detailRow.parcatedarik.refNo || null,
-            }),
+          body: JSON.stringify({
+            action: 'save_manual',
+            dnmkProductsId: detailRow.dnprdId || null,
+            ptdrkProductsId: detailRow.productId || null,
+            oemNos: items.map((p) => p.oemNo),
+            bsbgProductsId: bsbgId,
+            createBsbgIfMissing: first.status === 'create_needed' && !!first.bsbgBrandId,
+            bsbgBrandId: first.bsbgBrandId || null,
+            brandListId: first.brandListId != null ? first.brandListId : null,
+            relationType: first.relationType || 'CROSS_REFERENCE',
+            refNo: detailRow.parcatedarik.refNo || null,
+          }),
         })
         const data = await res.json()
-        if (!data.error) successCount++
-        else failCount++
+        if (!data.error) successCount += items.length
+        else failCount += items.length
       } catch {
-        failCount++
+        failCount += items.length
       }
     }
 
@@ -636,9 +694,17 @@ export function ProductsTab() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating}>
+        <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating || oemBridging || dnbsbgMatching}>
           <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${generating ? 'animate-spin' : ''}`} />
           {generating ? 'Oluşturuluyor...' : 'Populate & Eşleştir'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleOemBridge} disabled={generating || oemBridging || dnbsbgMatching}>
+          <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${oemBridging ? 'animate-spin' : ''}`} />
+          {oemBridging ? 'Dolduruluyor...' : 'Dinamik OEM Doldur'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleDnbsbgMatch} disabled={generating || oemBridging || dnbsbgMatching}>
+          <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${dnbsbgMatching ? 'animate-spin' : ''}`} />
+          {dnbsbgMatching ? 'Eşleştiriliyor...' : 'Dinamik-Başbuğ Eşleştir'}
         </Button>
         <Button variant="outline" size="sm" onClick={handleBulkApprove} disabled={selectedCount === 0}>
           <Check className="mr-1.5 h-3.5 w-3.5" /> Seçilenleri Onayla ({selectedCount})
@@ -796,7 +862,7 @@ export function ProductsTab() {
       </Dialog>
 
       {detailRow && (
-        <Dialog open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) { setDetailRow(null); setOemResults([]); setManualOemInput(''); setManualOemPreviews([]); setMappingBrandListId(null) } }}>
+        <Dialog open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) { setDetailRow(null); setOemResults([]); setManualOemInput(''); setManualOemPreviews([]); setMappingBrandListId(null); setProductOems([]) } }}>
           <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-lg font-mono">{detailRow.part_no || detailRow.dinamik.stockCode || detailRow.parcatedarik.title?.slice(0, 40) || 'Ürün Detayı'}</DialogTitle>
@@ -859,6 +925,37 @@ export function ProductsTab() {
                   )}
                 </div>
               </div>
+
+              {productOems.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ürün OEM Bilgileri</p>
+                  <div className="rounded-md border bg-muted/30 p-3 space-y-1.5 text-sm max-h-48 overflow-y-auto">
+                    {productOems.map((oem, idx) => (
+                      <div key={`po_${idx}`} className="rounded border bg-background p-2 text-xs flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono font-medium">{oem.oemNo}</span>
+                            <Badge variant="outline" className={`text-[10px] whitespace-nowrap ${oem.supplier === 'DNMK' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                              {oem.supplier === 'DNMK' ? 'Dinamik' : 'Başbuğ'}
+                            </Badge>
+                            {oem.source && oem.source !== 'MANUAL' && (
+                              <Badge variant="outline" className="text-[10px] border-muted-foreground/20 bg-muted text-muted-foreground whitespace-nowrap">
+                                {oem.source === 'PTDRK_BRIDGE' ? 'ptdrk köprüsü' : oem.source === 'SYNC_PRIMARY' ? 'senkron' : oem.source}
+                              </Badge>
+                            )}
+                          </div>
+                          {oem.malzemeNo && (
+                            <p className="text-muted-foreground">
+                              <span className="font-mono">{oem.malzemeNo}</span>
+                              {oem.bsbgBrand && <> &middot; {oem.bsbgBrand}</>}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Manuel OEM Ekle</p>
@@ -1023,63 +1120,9 @@ export function ProductsTab() {
               )}
 
               {detailRow.parcatedarik.refNo && (
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">OEM Eşleşmesi (ref_no &rarr; oem_no)</p>
-                  <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm">
-                    <p className="text-xs text-muted-foreground">
-                      ref_no: <span className="font-mono font-medium text-foreground">{detailRow.parcatedarik.refNo}</span>
-                    </p>
-                    {oemLoading && (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-                    {!oemLoading && oemResults.length === 0 && (
-                      <p className="text-xs text-muted-foreground">Bu ref_no ile eşleşen Başbuğ ürünü bulunamadı.</p>
-                    )}
-                    {!oemLoading && oemResults.length > 0 && (
-                      <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                        {oemResults.map((r) => (
-                          <div key={r.bsbgProductId} className="rounded border bg-background p-2 text-xs space-y-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 space-y-0.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <Badge variant="outline" className="text-[10px] px-1.5 border-primary/20 bg-primary/5 text-primary">Başbuğ</Badge>
-                                  <span className="font-mono font-medium">{r.malzemeNo}</span>
-                                  <span className="text-muted-foreground">— {r.bsbgBrand}</span>
-                                </div>
-                                {r.aciklama && <p className="text-muted-foreground">{r.aciklama.slice(0, 80)}</p>}
-                                <p className="font-mono text-muted-foreground">oem_no: {r.oemNo || '—'}</p>
-                                <div className="flex items-center gap-2">
-                                  {r.relationType === 'SAME_BRAND' && (
-                                    <Badge variant="outline" className="text-[10px] border-success/20 bg-success/10 text-success">Aynı Marka</Badge>
-                                  )}
-                                  {r.relationType === 'CROSS_REFERENCE' && (
-                                    <Badge variant="outline" className="text-[10px] border-warning/20 bg-warning/10 text-warning">Çapraz Referans</Badge>
-                                  )}
-                                  {r.relationType === 'UNKNOWN' && (
-                                    <Badge variant="outline" className="text-[10px] border-border bg-muted text-muted-foreground">Marka Bilinmiyor</Badge>
-                                  )}
-                                  {r.canonicalBrand && (
-                                    <span className="text-muted-foreground">Marka: {r.canonicalBrand}</span>
-                                  )}
-                                </div>
-                              </div>
-                              <Button
-                                variant={r.alreadySaved ? 'outline' : 'default'}
-                                size="sm"
-                                className="h-7 text-xs shrink-0"
-                                disabled={oemSaving[r.bsbgProductId]}
-                                onClick={() => r.alreadySaved ? handleDeleteOem(r) : handleSaveOem(r)}
-                              >
-                                {oemSaving[r.bsbgProductId] ? '...' : r.alreadySaved ? 'Kaldır' : 'Eşleştir'}
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  ref_no: <span className="font-mono font-medium text-foreground">{detailRow.parcatedarik.refNo}</span>
+                  <span className="ml-2">&middot; OEM'ler otomatik "Dinamik OEM Doldur" ile taşınır.</span>
                 </div>
               )}
 

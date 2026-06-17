@@ -4,6 +4,7 @@ import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-
 import { approvePendingPtOnlyDbrandsMatch } from '@/lib/admin/dnbrd-match-approve'
 import { removeRedundantDbrandsMatchRows } from '@/lib/admin/dnbrd-match-cleanup'
 import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
+import { seedBsbgBrandMappings } from '@/lib/admin/bsbg-brand-seed'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 
@@ -177,6 +178,21 @@ export async function POST(request: NextRequest) {
       const cmd = `bun scripts/generate-dinamik-parca-brand-aliases.ts APPLY=true ${limit}`
       execSync(cmd, { timeout: 300_000, stdio: 'pipe' })
       return successResponse({ message: 'Marka eşleştirmeleri oluşturuldu.' }, context)
+    }
+
+    if (action === 'seed-bsbg') {
+      const apply = body?.apply !== false
+      const stats = await seedBsbgBrandMappings({ apply })
+      revalidateAdminCatalogPaths()
+      return successResponse(
+        {
+          stats,
+          message: apply
+            ? `Başbuğ markaları işlendi: ${stats.mergedIntoExisting} mevcut eşleştirmeye eklendi, ${stats.newRowsInserted} yeni APPROVED, ${stats.unmatchedInserted} PENDING.`
+            : 'Dry-run tamamlandı (apply=false).',
+        },
+        context
+      )
     }
 
     if (action === 'bulk-approve') {

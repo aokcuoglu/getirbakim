@@ -861,15 +861,32 @@ model dnmk_products {
   is_passive     Boolean   @default(false)
   passive_at     DateTime? @db.Timestamptz(6)
 
-  dnmk_brands     dnmk_brands       @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
-  product_mapping product_mapping[]
-  product_sources product_sources[]
-  dnmk_cost       dnmk_cost?
-  products_oems   products_oems[]
+  dnmk_brands        dnmk_brands         @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
+  product_mapping   product_mapping[]
+  product_sources   product_sources[]
+  dnmk_cost         dnmk_cost?
+  products_oems     products_oems[]
+  dnmk_product_oems dnmk_product_oems[]
 
   @@unique([dnmk_brands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
   @@index([dnmk_brands_id], map: "idx_dproducts_dbrands_id")
   @@index([stock_code])
+  @@schema("v0")
+}
+
+model dnmk_product_oems {
+  id              Int      @id @default(autoincrement())
+  dnmk_products_id BigInt
+  oem_no          String
+  source          String   @default("PTDRK_BRIDGE")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  dnmk_products dnmk_products @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
+
+  @@unique([dnmk_products_id, oem_no], name: "uq_dnmk_product_oems_product_oem")
+  @@index([oem_no], map: "idx_dnmk_product_oems_oem_no")
+  @@index([dnmk_products_id], map: "idx_dnmk_product_oems_product")
   @@schema("v0")
 }
 
@@ -952,17 +969,34 @@ model bsbg_products {
   is_passive       Boolean   @default(false)
   passive_at       DateTime? @db.Timestamptz(6)
 
-  bsbg_brands       bsbg_brands       @relation(fields: [bsbg_brands_id], references: [id], onDelete: Restrict)
-  bsbg_cost         bsbg_cost[]
-  product_sources   product_sources[]
-  product_mapping   product_mapping[]
-  products_oems     products_oems[]
+  bsbg_brands          bsbg_brands          @relation(fields: [bsbg_brands_id], references: [id], onDelete: Restrict)
+  bsbg_cost            bsbg_cost[]
+  product_sources      product_sources[]
+  product_mapping      product_mapping[]
+  products_oems        products_oems[]
+  bsbg_products_oem_no bsbg_products_oem_no[]
 
   @@unique([bsbg_brands_id, malzeme_no], map: "uq_bsbg_products_brand_malzeme_no")
   @@index([bsbg_brands_id])
   @@index([malzeme_no])
   @@index([oem_no])
   @@index([liste_grubu_kodu])
+  @@schema("v0")
+}
+
+model bsbg_products_oem_no {
+  id               BigInt   @id @default(autoincrement())
+  bsbg_products_id BigInt
+  oem_no           String
+  source           String   @default("MANUAL")
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  bsbg_products bsbg_products @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
+
+  @@unique([bsbg_products_id, oem_no], name: "uq_bsbg_products_oem_no_product_oem")
+  @@index([oem_no], map: "idx_bsbg_products_oem_no_oem_no")
+  @@index([bsbg_products_id], map: "idx_bsbg_products_oem_no_product")
   @@schema("v0")
 }
 
@@ -1007,3 +1041,5 @@ model bsbg_cost {
   @@index([captured_at])
   @@schema("v0")
 }
+
+

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { getAdminAuth } from '@/lib/admin-auth'
 import { approveDpmatchRows, approvePendingDpmatchWithoutBrandMatch } from '@/lib/admin/dpprd-normalized'
 import { insertApprovedDpmatchForUnpairedBrands, populateDpmatch } from '@/lib/admin/dpprd-populate'
+import { populateDnmkOemFromPtdrk } from '@/lib/admin/dnprd-oem-bridge'
+import { populateDnmkBsbgMatches } from '@/lib/admin/dnbsbg-match'
 import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
@@ -241,6 +243,36 @@ export async function POST(request: NextRequest) {
           message: apply
             ? `${stats.unpairedDproductInserted} Dinamik-only, ${stats.unpairedProductInserted} PT-only eşleştirme eklendi.`
             : `${stats.unpairedDproductCandidates} Dinamik-only, ${stats.unpairedProductCandidates} PT-only eklenebilir.`,
+        },
+        context
+      )
+    }
+
+    if (action === 'dnprd-oem-bridge') {
+      const apply = body?.apply !== false
+      const stats = await populateDnmkOemFromPtdrk({ apply })
+      return successResponse(
+        {
+          apply,
+          stats,
+          message: apply
+            ? `${stats.oemsInserted} OEM tokenı ${stats.productsProcessed} Dinamik ürününe eklendi.`
+            : `${stats.candidates} aday çift bulundu (apply=false).`,
+        },
+        context
+      )
+    }
+
+    if (action === 'populate-dnbsbg') {
+      const apply = body?.apply !== false
+      const stats = await populateDnmkBsbgMatches({ apply })
+      return successResponse(
+        {
+          apply,
+          stats,
+          message: apply
+            ? `Eşleştirme tamamlandı: ${stats.partNoMatchLinked} part_no, ${stats.oemBridgeSameLinked} OEM aynı marka, ${stats.oemBridgeCrossRefs} çapraz referans, ${stats.dnmkOnlyApproved} dnmk-only, ${stats.bsbgOnlyApproved} bsbg-only.`
+            : 'Kuru çalışma — eşleşme adayları hesaplandı (apply=false).',
         },
         context
       )
