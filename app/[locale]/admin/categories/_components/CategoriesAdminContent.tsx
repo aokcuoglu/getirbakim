@@ -1,4 +1,3 @@
-import { AdminSurface } from '@/components/admin/admin-page-shell'
 import { getCategories } from '@/lib/actions/category-actions'
 import { CategoriesTable } from './CategoriesTable'
 
@@ -11,9 +10,9 @@ export async function CategoriesAdminContent({
 
   if (!result.success) {
     return (
-      <AdminSurface className="p-4 text-destructive">
+      <div className="rounded-md border border-border bg-card p-4 text-destructive">
         Error: {result.error}
-      </AdminSurface>
+      </div>
     )
   }
 

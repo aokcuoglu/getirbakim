@@ -12,6 +12,13 @@ import { ConsoleWarningSuppressor } from '@/components/ConsoleWarningSuppressor'
 import { CookieYesLoader } from '@/components/CookieYesLoader'
 import { GlobalCartDrawer } from '@/components/GlobalCartDrawer'
 import ChatAssistant from '@/components/ChatAssistant'
+import { Inconsolata } from 'next/font/google'
+import { GeistMono } from 'geist/font'
+
+const inconsolata = Inconsolata({
+  variable: '--font-inconsolata',
+  subsets: ['latin', 'latin-ext']
+})
 import { resolveSiteUrl, isIndexingAllowed } from '@/lib/site-url'
 
 import {
@@ -78,10 +85,7 @@ export default async function RootLayout({
   const websiteJsonLd = buildWebSiteJsonLd(locale)
 
   return (
-    <html lang={locale} className="h-full" suppressHydrationWarning>
-      <head>
-        <link rel="stylesheet" href="https://use.typekit.net/ufe1kab.css" />
-      </head>
+    <html lang={locale} className={`${inconsolata.variable} ${GeistMono.variable} h-full`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col font-sans">
         <script
           type="application/ld+json"

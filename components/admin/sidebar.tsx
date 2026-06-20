@@ -394,19 +394,8 @@ export function Sidebar({
               label: 'Dinamik',
               href: '/admin/suppliers/dinamik',
               active: pathname.startsWith('/admin/suppliers/dinamik')
-            },
-            {
-              label: 'V0 Ürün Zenginleştirme',
-              href: '/admin/v0-products',
-              active: pathname.startsWith('/admin/v0-products')
             }
           ]
-        },
-        {
-          icon: GitCompare,
-          label: 'Eşleştirme',
-          href: '/admin/eslestirme',
-          active: pathname.startsWith('/admin/eslestirme')
         }
       ]
     },
@@ -427,7 +416,7 @@ export function Sidebar({
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'sidebar-scroll relative z-20 flex h-full flex-col bg-sidebar transition-[width] duration-200 ease-linear',
+          'sidebar-scroll relative z-20 flex h-full flex-col bg-sidebar font-mono transition-[width] duration-200 ease-linear',
           isCollapsed ? 'w-[var(--admin-sidebar-width-icon)]' : 'w-[var(--admin-sidebar-width)]',
           !isCollapsed && 'border-r border-sidebar-border'
         )}

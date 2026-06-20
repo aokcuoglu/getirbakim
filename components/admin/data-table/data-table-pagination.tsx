@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 
 interface DataTablePaginationProps<TData> {
-  table: Table<TData>
+  table?: Table<TData>
   totalRows: number
   page: number
   pages: number
@@ -29,7 +29,7 @@ export function DataTablePagination<TData>({
   return (
     <div className="flex items-center justify-between px-2 py-3">
       <div className="flex-1 text-sm text-muted-foreground">
-        {table.getFilteredSelectedRowModel().rows.length > 0 && (
+        {table && table.getFilteredSelectedRowModel().rows.length > 0 && (
           <>{table.getFilteredSelectedRowModel().rows.length} / {totalRows.toLocaleString('tr-TR')} satır seçildi</>
         )}
       </div>

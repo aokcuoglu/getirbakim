@@ -293,31 +293,29 @@ model part_vehicle_types {
 }
 
 model parts {
-  id                        BigInt                      @id
-  tecdoc_article_id         BigInt?
-  name                      String
-  part_no                   BigInt?
-  article_link_id           BigInt
-  price                     Decimal?                    @db.Decimal(10, 2)
-  in_basket                 Boolean                     @default(false)
-  brand_id                  Int
-  category_id               Int
-  created_at                DateTime                    @default(now()) @db.Timestamp(6)
-  updated_at                DateTime                    @default(now()) @db.Timestamp(6)
-  order_items               order_items[]
-  part_cross_references     part_cross_references[]
-  customer_requests         customer_requests[]
-  part_documents            part_documents[]
-  part_eans                 part_eans[]
-  part_images               part_images[]
-  part_infos                part_infos[]
-  part_oens                 part_oens[]
-  part_properties           part_properties[]
-  part_vehicle_types        part_vehicle_types[]
-  public_part_code_lookup   public_part_code_lookup[]
-  product_public_part_links product_public_part_links[]
-  part_brands               part_brands                 @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  part_categories           part_categories             @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                    BigInt                  @id
+  tecdoc_article_id     BigInt?
+  name                  String
+  part_no               BigInt?
+  article_link_id       BigInt
+  price                 Decimal?                @db.Decimal(10, 2)
+  in_basket             Boolean                 @default(false)
+  brand_id              Int
+  category_id           Int
+  created_at            DateTime                @default(now()) @db.Timestamp(6)
+  updated_at            DateTime                @default(now()) @db.Timestamp(6)
+  order_items           order_items[]
+  part_cross_references part_cross_references[]
+  customer_requests     customer_requests[]
+  part_documents        part_documents[]
+  part_eans             part_eans[]
+  part_images           part_images[]
+  part_infos            part_infos[]
+  part_oens             part_oens[]
+  part_properties       part_properties[]
+  part_vehicle_types    part_vehicle_types[]
+  part_brands           part_brands             @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  part_categories       part_categories         @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([article_link_id])
   @@index([tecdoc_article_id])
@@ -331,56 +329,17 @@ model parts {
   @@schema("public")
 }
 
-model product_mapping {
-  id                Int     @id @default(autoincrement())
-  dnmk_products_id  BigInt?
-  ptdrk_products_id Int?
-  bsbg_products_id  BigInt?
-  part_no           String?
-  mapping_status    String  @default("PENDING")
-  match_method      String?
-  brand_list_id     Int?
-
-  dnmk_products             dnmk_products?              @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-  ptdrk_products            ptdrk_products?             @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
-  bsbg_products             bsbg_products?              @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
-  brand_list                brand_list?                 @relation(fields: [brand_list_id], references: [id], onDelete: SetNull)
-  product_sources           product_sources[]
-  product_public_part_links product_public_part_links[]
-
-  @@index([ptdrk_products_id], name: "idx_dpmatch_ptproducts")
-  @@index([dnmk_products_id], name: "idx_dpmatch_dproduct")
-  @@index([bsbg_products_id], name: "idx_product_mapping_bsbg")
-  @@index([mapping_status], name: "idx_dpmatch_status")
-  @@index([match_method], name: "idx_dpmatch_method")
-  @@index([part_no], name: "idx_dpmatch_part_no")
-  @@index([brand_list_id], name: "idx_dpmatch_brand_list")
-  @@schema("v0")
-}
-
 model products_oems {
-  id                Int      @id @default(autoincrement())
-  dnmk_products_id  BigInt?
-  ptdrk_products_id Int?
-  bsbg_products_id  BigInt?
-  oem_no            String?
-  ref_no            String?
-  brand_list_id     Int?
-  relation_type     String   @default("CROSS_REFERENCE")
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
-  created_by        String?
+  id            BigInt   @id @default(autoincrement())
+  v0_product_id BigInt
+  oem_no        String
+  source        String   @default("MANUAL")
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
 
-  dnmk_products  dnmk_products?  @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-  ptdrk_products ptdrk_products? @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
-  bsbg_products  bsbg_products?  @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
-  brand_list     brand_list?     @relation(fields: [brand_list_id], references: [id], onDelete: SetNull)
+  v0_products v0_products @relation(fields: [v0_product_id], references: [id], onDelete: Cascade)
 
-  @@unique([dnmk_products_id, bsbg_products_id, oem_no], name: "uq_products_oems")
-  @@index([dnmk_products_id], name: "idx_products_oems_dnmk")
-  @@index([ptdrk_products_id], name: "idx_products_oems_ptdrk")
-  @@index([bsbg_products_id], name: "idx_products_oems_bsbg")
+  @@unique([v0_product_id, oem_no], name: "uq_products_oems_v0_product_oem")
   @@index([oem_no], name: "idx_products_oems_oem_no")
-  @@index([ref_no], name: "idx_products_oems_ref_no")
   @@schema("v0")
 }
 
@@ -391,119 +350,22 @@ model v0_products {
   brand_name        String?
   brand_list_id     Int?
   primary_image_url String?
+  product_mapping_id BigInt?
   status            String   @default("ACTIVE")
   created_at        DateTime @default(now()) @db.Timestamptz(6)
   updated_at        DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  brand_list                brand_list?                 @relation(fields: [brand_list_id], references: [id], onDelete: SetNull)
-  product_sources           product_sources[]
-  product_code_signals      product_code_signals[]
-  product_public_part_links product_public_part_links[]
+  brand_list      brand_list?      @relation(fields: [brand_list_id], references: [id], onDelete: SetNull)
+  product_mapping product_mapping? @relation(fields: [product_mapping_id], references: [id], onDelete: SetNull)
+  products_oems   products_oems[]
+
+  @@unique([product_mapping_id], name: "uq_v0_products_product_mapping")
 
   @@index([brand_list_id], name: "idx_v0_products_brand_list")
   @@index([status], name: "idx_v0_products_status")
   @@index([normalized_name], name: "idx_v0_products_normalized_name")
+  @@index([product_mapping_id], name: "idx_v0_products_product_mapping")
   @@map("products")
-  @@schema("v0")
-}
-
-model product_sources {
-  id                 BigInt   @id @default(autoincrement())
-  v0_product_id      BigInt
-  source_type        String
-  source_record_id   String
-  dnmk_products_id   BigInt?
-  bsbg_products_id   BigInt?
-  ptdrk_products_id  Int?
-  product_mapping_id Int?
-  source_sku         String?
-  source_brand       String?
-  source_name        String?
-  is_primary         Boolean  @default(false)
-  created_at         DateTime @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  v0_products          v0_products            @relation(fields: [v0_product_id], references: [id], onDelete: Cascade)
-  dnmk_products        dnmk_products?         @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-  bsbg_products        bsbg_products?         @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
-  ptdrk_products       ptdrk_products?        @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
-  product_mapping      product_mapping?       @relation(fields: [product_mapping_id], references: [id], onDelete: SetNull)
-  product_code_signals product_code_signals[]
-
-  @@unique([source_type, source_record_id], name: "uq_product_sources_source")
-  @@index([v0_product_id], name: "idx_product_sources_v0_product")
-  @@index([dnmk_products_id], name: "idx_product_sources_dnmk")
-  @@index([bsbg_products_id], name: "idx_product_sources_bsbg")
-  @@index([ptdrk_products_id], name: "idx_product_sources_ptdrk")
-  @@index([product_mapping_id], name: "idx_product_sources_mapping")
-  @@schema("v0")
-}
-
-model product_code_signals {
-  id                BigInt   @id @default(autoincrement())
-  v0_product_id     BigInt
-  product_source_id BigInt?
-  source_type       String
-  source_record_id  String
-  raw_code          String
-  normalized_code   String
-  code_kind         String
-  origin            String
-  confidence        Decimal  @db.Decimal(5, 4)
-  evidence_json     Json?    @db.JsonB
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  v0_products     v0_products      @relation(fields: [v0_product_id], references: [id], onDelete: Cascade)
-  product_sources product_sources? @relation(fields: [product_source_id], references: [id], onDelete: Cascade)
-
-  @@unique([v0_product_id, source_type, source_record_id, normalized_code, origin], name: "uq_product_code_signal")
-  @@index([normalized_code], name: "idx_product_code_signals_normalized")
-  @@index([code_kind, normalized_code], name: "idx_product_code_signals_kind_code")
-  @@index([v0_product_id], name: "idx_product_code_signals_v0_product")
-  @@schema("v0")
-}
-
-model product_public_part_links {
-  id                 BigInt    @id @default(autoincrement())
-  v0_product_id      BigInt
-  part_id            BigInt
-  product_mapping_id Int?
-  status             String    @default("CANDIDATE")
-  match_reason       String
-  confidence         Decimal   @db.Decimal(5, 4)
-  evidence_json      Json?     @db.JsonB
-  approved_at        DateTime? @db.Timestamptz(6)
-  approved_by        String?
-  review_note        String?   @db.Text
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-
-  v0_products     v0_products      @relation(fields: [v0_product_id], references: [id], onDelete: Cascade)
-  parts           parts            @relation(fields: [part_id], references: [id], onDelete: Cascade)
-  product_mapping product_mapping? @relation(fields: [product_mapping_id], references: [id], onDelete: SetNull)
-
-  @@unique([v0_product_id, part_id], name: "uq_product_public_part_link")
-  @@index([part_id], name: "idx_product_public_part_links_part")
-  @@index([status], name: "idx_product_public_part_links_status")
-  @@index([v0_product_id, status], name: "idx_product_public_part_links_product_status")
-  @@schema("v0")
-}
-
-model public_part_code_lookup {
-  id              BigInt   @id @default(autoincrement())
-  code_kind       String
-  normalized_code String
-  part_id         BigInt
-  matched_code    String
-  match_reason    String
-  created_at      DateTime @default(now()) @db.Timestamptz(6)
-
-  parts parts @relation(fields: [part_id], references: [id], onDelete: Cascade)
-
-  @@unique([code_kind, normalized_code, part_id, match_reason, matched_code], name: "uq_public_part_code_lookup")
-  @@index([code_kind, normalized_code], name: "idx_public_part_code_lookup_kind_code")
-  @@index([part_id], name: "idx_public_part_code_lookup_part")
   @@schema("v0")
 }
 
@@ -520,16 +382,55 @@ model public_part_code_lookup {
 // ==========================================
 
 model brand_list {
-  id               Int     @id @default(autoincrement())
-  brand            String  @unique
-  logo_url         String?
+  id       Int     @id @default(autoincrement())
+  brand    String  @unique
+  logo_url String?
 
-  brand_mappings  brand_mappings[]
-  v0_products     v0_products[]
-  product_mapping product_mapping[]
-  products_oems   products_oems[]
+  brand_mappings   brand_mappings[]
+  product_mappings product_mapping[]
+  v0_products      v0_products[]
 
   @@index([brand], name: "idx_dbrands_match_brand")
+  @@schema("v0")
+}
+
+// ==========================================
+// Dinamik ↔ ParçaTedarik Product Mapping
+// Matches dnmk_products to ptdrk_products under approved
+// brand_mappings pairs (same brand_list_id). Drives the OEM
+// bridge: ptdrk_products.ref_no → dnmk_products.oem_no.
+// ==========================================
+
+model product_mapping {
+  id                BigInt    @id @default(autoincrement())
+  brand_list_id     Int
+  dnmk_products_id  BigInt
+  ptdrk_products_id Int?
+  bsbg_products_id  BigInt?   @unique(map: "uq_product_mapping_bsbg")
+  mapping_status    String    @default("PENDING") // PENDING|APPROVED|IGNORED
+  match_method      String? // PART_NO_EXACT|MANUAL|BULK|NO_MATCH
+  confidence        Decimal?  @db.Decimal(5, 4)
+  oem_no            String? // Comma-separated OEM tokens written to dnmk_products.oem_no
+  approved_by       String?
+  approved_at       DateTime? @db.Timestamptz(6)
+  ignored_at        DateTime? @db.Timestamptz(6)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  brand_list     brand_list      @relation(fields: [brand_list_id], references: [id], onDelete: Cascade)
+  dnmk_products  dnmk_products   @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
+  ptdrk_products ptdrk_products? @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
+  bsbg_products  bsbg_products?  @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
+
+  v0_products v0_products?
+
+  @@unique([dnmk_products_id, ptdrk_products_id], name: "uq_product_mapping_pair")
+  @@index([mapping_status], name: "idx_product_mapping_status")
+  @@index([brand_list_id], name: "idx_product_mapping_brand_list")
+  @@index([dnmk_products_id], name: "idx_product_mapping_dnmk")
+  @@index([ptdrk_products_id], name: "idx_product_mapping_ptdrk")
+  @@index([bsbg_products_id], name: "idx_product_mapping_bsbg")
+  @@map("product_mappings")
   @@schema("v0")
 }
 
@@ -828,10 +729,8 @@ model ptdrk_products {
   created_at      DateTime? @default(now()) @db.Timestamp(6)
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
 
-  ptdrk_brands    ptdrk_brands      @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  product_mapping product_mapping[]
-  product_sources product_sources[]
-  products_oems   products_oems[]
+  ptdrk_brands     ptdrk_brands      @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
+  product_mappings product_mapping[]
 
   @@index([ptdrk_brands_id])
   @@index([product_id])
@@ -850,6 +749,7 @@ model dnmk_products {
   stock_code     String
   stock_name     String?
   part_no        String?
+  oem_no         String?
   barcode_1      String?
   barcode_2      String?
   barcode_3      String?
@@ -861,32 +761,13 @@ model dnmk_products {
   is_passive     Boolean   @default(false)
   passive_at     DateTime? @db.Timestamptz(6)
 
-  dnmk_brands        dnmk_brands         @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
-  product_mapping   product_mapping[]
-  product_sources   product_sources[]
-  dnmk_cost         dnmk_cost?
-  products_oems     products_oems[]
-  dnmk_product_oems dnmk_product_oems[]
+  dnmk_brands      dnmk_brands       @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
+  dnmk_cost        dnmk_cost?
+  product_mappings product_mapping[]
 
   @@unique([dnmk_brands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
   @@index([dnmk_brands_id], map: "idx_dproducts_dbrands_id")
   @@index([stock_code])
-  @@schema("v0")
-}
-
-model dnmk_product_oems {
-  id              Int      @id @default(autoincrement())
-  dnmk_products_id BigInt
-  oem_no          String
-  source          String   @default("PTDRK_BRIDGE")
-  created_at      DateTime @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  dnmk_products dnmk_products @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-
-  @@unique([dnmk_products_id, oem_no], name: "uq_dnmk_product_oems_product_oem")
-  @@index([oem_no], map: "idx_dnmk_product_oems_oem_no")
-  @@index([dnmk_products_id], map: "idx_dnmk_product_oems_product")
   @@schema("v0")
 }
 
@@ -969,34 +850,15 @@ model bsbg_products {
   is_passive       Boolean   @default(false)
   passive_at       DateTime? @db.Timestamptz(6)
 
-  bsbg_brands          bsbg_brands          @relation(fields: [bsbg_brands_id], references: [id], onDelete: Restrict)
-  bsbg_cost            bsbg_cost[]
-  product_sources      product_sources[]
-  product_mapping      product_mapping[]
-  products_oems        products_oems[]
-  bsbg_products_oem_no bsbg_products_oem_no[]
+  bsbg_brands     bsbg_brands     @relation(fields: [bsbg_brands_id], references: [id], onDelete: Restrict)
+  bsbg_cost       bsbg_cost[]
+  product_mapping product_mapping?
 
   @@unique([bsbg_brands_id, malzeme_no], map: "uq_bsbg_products_brand_malzeme_no")
   @@index([bsbg_brands_id])
   @@index([malzeme_no])
   @@index([oem_no])
   @@index([liste_grubu_kodu])
-  @@schema("v0")
-}
-
-model bsbg_products_oem_no {
-  id               BigInt   @id @default(autoincrement())
-  bsbg_products_id BigInt
-  oem_no           String
-  source           String   @default("MANUAL")
-  created_at       DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  bsbg_products bsbg_products @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
-
-  @@unique([bsbg_products_id, oem_no], name: "uq_bsbg_products_oem_no_product_oem")
-  @@index([oem_no], map: "idx_bsbg_products_oem_no_oem_no")
-  @@index([bsbg_products_id], map: "idx_bsbg_products_oem_no_product")
   @@schema("v0")
 }
 
@@ -1041,5 +903,3 @@ model bsbg_cost {
   @@index([captured_at])
   @@schema("v0")
 }
-
-

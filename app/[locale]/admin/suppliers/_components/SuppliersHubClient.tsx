@@ -289,29 +289,12 @@ export function SuppliersHubClient({ overview }: { overview: SuppliersHubOvervie
           <div className="max-w-xl space-y-2">
             <h2 className="flex items-center gap-2 text-base font-semibold">
               <Link2 className="size-4 text-primary" aria-hidden />
-              Eşleştirme merkezine bağlantı
+              Tedarikçi merkezi
             </h2>
             <p className="text-sm text-muted-foreground">
-              Bu panel tedarikçi API ve katalog verisini yönetir. Onaylanan marka ve
-              ürün eşleştirmeleri{' '}
-              <Link href="/admin/eslestirme" className="font-medium text-foreground underline-offset-4 hover:underline">
-                Eşleştirme Yönetimi
-              </Link>{' '}
-              ekranındaki tabloları besler. Stok ve fiyat politikası sonraki aşamada.
+              Bu panel tedarikçi API ve katalog verisini yönetir. Stok ve fiyat
+              politikası sonraki aşamada.
             </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              <Link href="/admin/eslestirme?tab=brands">
-                Marka eşleştirme
-                <ArrowRight className="size-4" aria-hidden />
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/admin/eslestirme?tab=products">
-                Ürün & model
-              </Link>
-            </Button>
           </div>
         </div>
       </section>

@@ -51,14 +51,14 @@ export function createRequestColumns(
   return [
     {
       accessorKey: 'id',
-      header: () => <span className="text-xs font-medium">ID</span>,
+      header: 'ID',
       cell: ({ row }) => (
         <span className="font-mono text-xs text-muted-foreground">{row.original.id}</span>
       ),
     },
     {
       accessorKey: 'name',
-      header: () => <span className="text-xs font-medium">Müşteri</span>,
+      header: 'Müşteri',
       cell: ({ row }) => (
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{row.original.name}</p>
@@ -69,7 +69,7 @@ export function createRequestColumns(
     {
       id: 'type',
       accessorFn: (row) => row.requestType,
-      header: () => <span className="text-xs font-medium">Tip</span>,
+      header: 'Tip',
       cell: ({ row }) => (
         <Badge variant="outline" className="text-xs">
           {TYPE_LABELS[row.original.requestType] || row.original.requestType}
@@ -79,13 +79,13 @@ export function createRequestColumns(
     {
       id: 'status',
       accessorFn: (row) => row.status,
-      header: () => <span className="text-xs font-medium">Durum</span>,
+      header: 'Durum',
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
     },
     {
       id: 'source',
       accessorFn: (row) => row.source,
-      header: () => <span className="text-xs font-medium">Kaynak</span>,
+      header: 'Kaynak',
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {SOURCE_LABELS[row.original.source] || row.original.source}
@@ -94,7 +94,7 @@ export function createRequestColumns(
     },
     {
       id: 'partInfo',
-      header: () => <span className="text-xs font-medium">Ürün</span>,
+      header: 'Ürün',
       cell: ({ row }) => (
         <div>
           {row.original.partNameSnapshot ? (
@@ -110,7 +110,7 @@ export function createRequestColumns(
     },
     {
       accessorKey: 'createdAt',
-      header: () => <span className="text-xs font-medium">Tarih</span>,
+      header: 'Tarih',
       cell: ({ row }) => (
         <span className="text-sm">
           {new Date(row.original.createdAt).toLocaleDateString('tr-TR', {
@@ -123,9 +123,7 @@ export function createRequestColumns(
     },
     {
       id: 'actions',
-      header: () => (
-        <span className="text-xs font-medium text-right w-full block pr-2">İşlem</span>
-      ),
+      header: 'İşlem',
       cell: ({ row }) => (
         <div className="flex justify-end">
           <AdminRowActions

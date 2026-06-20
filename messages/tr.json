@@ -1001,8 +1001,8 @@
       "pagination": "Sayfa {page} / {pages} · {total} kayıt"
     },
     "brands": {
-      "title": "Onaylı Markalar",
-      "description": "Eşleştirmede onaylanan markalar (v0.dpbrd). Eksik logoları yükleyin.",
+      "title": "Markalar",
+      "description": "Ürün markalarını yönetin",
       "searchPlaceholder": "Marka veya üretici ara...",
       "loadError": "Onaylı markalar yüklenemedi",
       "upload": "Yükle",

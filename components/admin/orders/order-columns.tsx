@@ -16,7 +16,7 @@ export function createOrderColumns(
   return [
     {
       accessorKey: 'orderNumber',
-      header: () => <span className="text-xs font-medium">Sipariş No</span>,
+      header: 'Sipariş No',
       cell: ({ row }) => (
         <span className="text-sm font-semibold">{row.original.orderNumber}</span>
       ),
@@ -24,7 +24,7 @@ export function createOrderColumns(
     {
       id: 'customer',
       accessorFn: (row) => row.customerName,
-      header: () => <span className="text-xs font-medium">Müşteri</span>,
+      header: 'Müşteri',
       cell: ({ row }) => (
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{row.original.customerName}</p>
@@ -36,7 +36,7 @@ export function createOrderColumns(
     },
     {
       accessorKey: 'totalAmount',
-      header: () => <span className="text-xs font-medium">Tutar</span>,
+      header: 'Tutar',
       cell: ({ row }) => (
         <span className="text-sm font-semibold">
           {formatCurrency(row.original.totalAmount, 'TRY')}
@@ -45,13 +45,13 @@ export function createOrderColumns(
     },
     {
       accessorKey: 'status',
-      header: () => <span className="text-xs font-medium">Durum</span>,
+      header: 'Durum',
       cell: ({ row }) => <OrderStatusBadge status={row.original.status} />,
     },
     {
       id: 'payment',
       accessorFn: (row) => row.paymentStatus,
-      header: () => <span className="text-xs font-medium">Ödeme</span>,
+      header: 'Ödeme',
       cell: ({ row }) => (
         <div>
           <p className="text-sm">{row.original.paymentStatus}</p>
@@ -63,7 +63,7 @@ export function createOrderColumns(
     },
     {
       accessorKey: 'createdAt',
-      header: () => <span className="text-xs font-medium">Tarih</span>,
+      header: 'Tarih',
       cell: ({ row }) => (
         <span className="text-sm">
           {new Date(row.original.createdAt).toLocaleDateString('tr-TR', {
@@ -76,9 +76,7 @@ export function createOrderColumns(
     },
     {
       id: 'actions',
-      header: () => (
-        <span className="text-xs font-medium text-right w-full block pr-2">İşlem</span>
-      ),
+      header: 'İşlem',
       cell: ({ row }) => (
         <div className="flex justify-end">
           <AdminRowActions

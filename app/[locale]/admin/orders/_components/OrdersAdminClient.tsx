@@ -12,7 +12,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
-import { AdminSurface } from '@/components/admin/admin-page-shell'
+
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
 import { DataTable } from '@/components/admin/data-table/data-table'
 import { ORDER_STATUS_LABELS } from '@/components/admin/orders/order-status-badge'
@@ -77,7 +77,7 @@ export function OrdersAdminClient({ initialData }: OrdersAdminClientProps) {
   const { orders, pagination, kpis } = data
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AdminKpiGrid>
         <AdminKpiCard label="Toplam Sipariş" value={kpis.totalOrders} subtitle="Yüklenen set" tone="default" />
         <AdminKpiCard label="Beklemede" value={kpis.pendingOrders} subtitle="Ödeme bekliyor" tone="warning" />
@@ -85,52 +85,50 @@ export function OrdersAdminClient({ initialData }: OrdersAdminClientProps) {
         <AdminKpiCard label="İptal / Hatalı" value={kpis.cancelledOrders} subtitle="İptal / Başarısız / İadeli" tone="danger" />
       </AdminKpiGrid>
 
-      <AdminSurface className="space-y-0 p-0">
-        <div className="border-b border-border p-4 sm:px-6">
-          <AdminTableToolbar
-            searchValue={searchValue}
-            onSearchChange={handleSearchChange}
-            searchPlaceholder="Sipariş no, müşteri adı ile ara..."
-            showRefresh={true}
-            onRefresh={() => load({})}
-            isRefreshing={isLoading}
-            isSearchLoading={isLoading}
-            filters={
-              <>
-                <Select value={statusFilter} onValueChange={handleStatusChange}>
-                  <SelectTrigger className="h-8 w-[180px] rounded-md border-border bg-background">
-                    <ListFilter className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                    <SelectValue placeholder="Tüm Durumlar" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL_STATUS}>Tüm Durumlar</SelectItem>
-                    {ORDER_STATUSES.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {ORDER_STATUS_LABELS[status] || status}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="default" disabled>
-                  <Calendar className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
-                  Tarih
-                </Button>
-              </>
-            }
-            onAdvancedFilter={() => undefined}
-            advancedFilterLabel="Daha Fazla Filtre"
-          />
-        </div>
-
-        <DataTable
-          columns={columns}
-          data={orders}
-          isLoading={isLoading}
-          pagination={pagination}
-          onPaginationChange={handlePageChange}
-          emptyMessage="Sipariş bulunamadı."
+      <div className="rounded-md border border-border bg-card p-4">
+        <AdminTableToolbar
+          searchValue={searchValue}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder="Sipariş no, müşteri adı ile ara..."
+          showRefresh={true}
+          onRefresh={() => load({})}
+          isRefreshing={isLoading}
+          isSearchLoading={isLoading}
+          filters={
+            <>
+              <Select value={statusFilter} onValueChange={handleStatusChange}>
+                <SelectTrigger className="h-8 w-[180px] rounded-md border-border bg-background">
+                  <ListFilter className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <SelectValue placeholder="Tüm Durumlar" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_STATUS}>Tüm Durumlar</SelectItem>
+                  {ORDER_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {ORDER_STATUS_LABELS[status] || status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="default" disabled>
+                <Calendar className="mr-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                Tarih
+              </Button>
+            </>
+          }
+          onAdvancedFilter={() => undefined}
+          advancedFilterLabel="Daha Fazla Filtre"
         />
-      </AdminSurface>
+      </div>
+
+      <DataTable
+        columns={columns}
+        data={orders}
+        isLoading={isLoading}
+        pagination={pagination}
+        onPaginationChange={handlePageChange}
+        emptyMessage="Sipariş bulunamadı."
+      />
     </div>
   )
 }

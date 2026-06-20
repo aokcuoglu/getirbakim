@@ -261,29 +261,40 @@ When validating:
 - do not claim confidence without evidence
 - mention what was validated and what was not
 
-### Docker Build (Mandatory)
+### Docker Build
 
-**Every development change that modifies source code (pages, components, API routes, scripts, Prisma schema) MUST be followed by a Docker build verification.**
+A full Docker build (`docker compose -f docker-compose.local.yml up -d --build`) is **not required** for every change.
 
-The local Docker setup uses OrbStack/Docker with `docker-compose.local.yml`. Build command:
+For routine development:
 
 ```bash
-docker compose -f docker-compose.local.yml up -d --build
+# Terminal 1: Start dependencies (PostgreSQL + Meilisearch) in Docker
+bun run dev:deps
+
+# Terminal 2: Start Next.js dev server with HMR
+bun run dev
 ```
 
-After build, verify health:
+This is faster than Docker build and provides Hot Module Replacement.
+
+**When to run a full Docker build:**
+
+Run `bun run dev:docker` before deployment or when:
+- Modifying `Dockerfile`, `next.config.mjs`, or `docker-compose*.yml`
+- Adding/modifying dependencies in `package.json`
+- Making changes that could break production build (e.g., Node-specific APIs, `fs`, `path`)
+- Prisma schema changes (to verify `prisma generate` at build time)
+- You want to verify the production build behaves correctly
+
+After a Docker build, verify health:
 ```bash
 curl -s http://localhost:3001/api/health | grep '"status":"ok"'
 ```
 
-Why this is mandatory:
-- Next.js has different behavior in `next dev` vs `npx next build` (production build).
-- Turbopack dev server may succeed while production build fails (import issues, dynamic require, missing statics).
-- Prisma schema changes must pass `prisma generate` at build time.
-- Pages that use `fs`, `path`, or Node-specific APIs can break in production even if they work in dev.
-- API route handlers, middleware, and static generation paths differ between dev and production.
-
-If the Docker build fails, the change is NOT done — regardless of typecheck or test results.
+Why dev (`bun run dev`) sometimes misses issues:
+- Next.js dev uses Turbopack; production build uses Webpack.
+- Dynamic requires or Node-specific APIs may work in dev but fail in production.
+- Static generation and middleware paths differ between dev and production.
 
 For risky changes, explicitly mention:
 - what could regress
@@ -334,7 +345,7 @@ A task is not done until:
 - the relevant code path has been inspected
 - the requested change has been implemented or the blocker is clearly explained
 - validation has been performed or its absence is clearly stated
-- Docker build has passed and health endpoint returns `"status":"ok"`
+- Docker build has passed and health endpoint returns `"status":"ok"` (only when Docker build is indicated by the "When to run a full Docker build" criteria above)
 - risks and assumptions are made explicit
 - the final diff has been reviewed for correctness and regressions
 

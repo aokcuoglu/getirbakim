@@ -12,7 +12,6 @@ import type {
 
 export type {
   MappingStatusCounts,
-  SuppliersHubOverview,
   SuppliersHubPipelineStep,
   SuppliersHubProviderCard
 } from '@/lib/types/suppliers-hub'
@@ -47,17 +46,6 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
     FROM v0.brand_mappings
-    GROUP BY mapping_status
-  `)
-  return mapStatusCounts(rows)
-}
-
-async function getDpmatchCounts(): Promise<MappingStatusCounts> {
-  const rows = await db.$queryRaw<
-    Array<{ mapping_status: string; count: bigint }>
-  >(Prisma.sql`
-    SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.product_mapping
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -104,7 +92,6 @@ async function getParcaCatalogStats(): Promise<{
   }
 }
 
-/** Fast row estimate; exact COUNT(*) on dnprd can exceed pooler statement_timeout. */
 async function getDinamikCatalogRowCount(): Promise<number> {
   const [estimateRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COALESCE(c.reltuples, 0)::bigint AS count
@@ -123,15 +110,13 @@ async function getDinamikCatalogRowCount(): Promise<number> {
 }
 
 async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
-  const [brandStats, matchCounts, parcaStats, dinamikRowCount] =
+  const [brandStats, dnbrdMatch, parcaStats, dinamikRowCount] =
     await Promise.all([
       getDinamikBrandMatchStats(),
-      Promise.all([getDbrandsMatchCounts(), getDpmatchCounts()]),
+      getDbrandsMatchCounts(),
       getParcaCatalogStats(),
       getDinamikCatalogRowCount()
     ])
-
-  const [dnbrdMatch, dpprd] = matchCounts
 
   const parcaCard: SuppliersHubProviderCard = {
     id: 'parcatedarik',
@@ -166,7 +151,7 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
         label: 'Üreticiler',
         description: 'Eşleştirme hedef marka havuzu',
         count: parcaStats.manufacturers,
-        href: '/admin/eslestirme?tab=brands',
+        href: '/admin/brands',
         status: 'ok'
       },
       {
@@ -174,7 +159,7 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
         label: 'Ürünler',
         description: 'PT sitesinden toplanan ürün satırları',
         count: parcaStats.products,
-        href: '/admin/eslestirme?tab=products',
+        href: '/admin/products',
         status: parcaStats.brokenUrls > 0 ? 'warning' : 'ok'
       },
       {
@@ -182,27 +167,19 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
         label: 'Marka bağları',
         description: 'dpbrd onaylı kayıtlar',
         count: dnbrdMatch.approved,
-        href: '/admin/eslestirme?tab=brands',
+        href: '/admin/brands',
         status: dnbrdMatch.pending > 0 ? 'warning' : 'ok'
-      },
-      {
-        id: 'model-links',
-        label: 'Model bağları',
-        description: 'dpprd onaylı ürün çiftleri',
-        count: dpprd.approved,
-        href: '/admin/eslestirme?tab=products',
-        status: dpprd.pending > 0 ? 'warning' : 'ok'
       }
     ],
     actions: [
       {
         label: 'Marka eşleştir',
-        href: '/admin/eslestirme?tab=brands',
+        href: '/admin/brands',
         variant: 'primary'
       },
       {
         label: 'Ürün / model',
-        href: '/admin/eslestirme?tab=products',
+        href: '/admin/suppliers/match-products',
         variant: 'secondary'
       }
     ]
@@ -212,9 +189,9 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
     generatedAt: new Date().toISOString(),
     summary: {
       totalDinamikProducts: dinamikRowCount,
-      unmatchedDinamikBrands: 0,
+      unmatchedDinamikBrands: brandStats.unmatchedBrands,
       pendingBrandMatches: dnbrdMatch.pending,
-      pendingModelMatches: dpprd.pending,
+      pendingModelMatches: 0,
       parcaProducts: parcaStats.products,
       parcaBrokenUrls: parcaStats.brokenUrls
     },

@@ -2,10 +2,9 @@
 
 import { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
-import { DataTableColumnHeader } from '@/components/admin/data-table/data-table-column-header'
 import type { AdminApprovedBrandRow } from '@/lib/admin/approved-dnbrd-catalog'
 import { BrandLogoUploadCell } from './BrandLogoUploadCell'
-import { Eye } from 'lucide-react'
+import { Eye, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export function createApprovedBrandColumns(handlers: {
@@ -15,6 +14,7 @@ export function createApprovedBrandColumns(handlers: {
   selectedIds: number[]
   onToggleSelect: (id: number) => void
   onViewDetail: (row: AdminApprovedBrandRow) => void
+  onMatch: (row: AdminApprovedBrandRow) => void
 }): ColumnDef<AdminApprovedBrandRow, unknown>[] {
   return [
     {
@@ -39,7 +39,7 @@ export function createApprovedBrandColumns(handlers: {
     },
     {
       id: 'logo',
-      header: () => <span className="text-xs font-medium">Logo</span>,
+      header: 'Logo',
       cell: ({ row }) => (
         <BrandLogoUploadCell
           row={row.original}
@@ -52,16 +52,14 @@ export function createApprovedBrandColumns(handlers: {
     },
     {
       accessorKey: 'normalizedName',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Canonical Marka" />
-      ),
+      header: 'Canonical Marka',
       cell: ({ getValue }) => (
         <span className="text-sm font-semibold">{getValue<string>() || '—'}</span>
       )
     },
     {
       id: 'logoStatus',
-      header: () => <span className="text-xs font-medium">Logo Durumu</span>,
+      header: 'Logo Durumu',
       cell: ({ row }) => {
         const hasLogo = Boolean(row.original.logoUrl?.trim())
         return (
@@ -80,17 +78,29 @@ export function createApprovedBrandColumns(handlers: {
     },
     {
       id: 'actions',
-      header: () => <span className="text-xs font-medium">İşlem</span>,
+      header: 'İşlem',
       cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handlers.onViewDetail(row.original)}
-          className="h-8 gap-1"
-        >
-          <Eye className="h-3.5 w-3.5" />
-          <span className="text-xs">Detay</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handlers.onViewDetail(row.original)}
+            className="h-8 gap-1"
+            title="Detay"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handlers.onMatch(row.original)}
+            className="h-8 gap-1"
+            title="Eşleştir / Birleştir"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            <span className="text-xs">Eşleştir</span>
+          </Button>
+        </div>
       ),
       enableSorting: false
     }

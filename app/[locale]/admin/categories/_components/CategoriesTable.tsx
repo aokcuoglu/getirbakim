@@ -19,7 +19,7 @@ import {
   MobileDataCard,
   ResponsiveDataView
 } from '@/components/admin/responsive-data-view'
-import { AdminTableHead, adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
+import { adminTableHeaderRowClassName } from '@/components/admin/data-table/admin-table-head'
 import { AdminTableShell } from '@/components/admin/data-table/admin-table-shell'
 
 interface Category {
@@ -340,27 +340,13 @@ export function CategoriesTable({ categories, searchQuery = '' }: CategoriesTabl
           <Table>
             <TableHeader>
               <TableRow className={adminTableHeaderRowClassName()}>
-                <TableHead>
-                  <AdminTableHead>Ad</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>Görsel</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>URL Anahtarı</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>Durum</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>Ana Menü</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>Alt Kategori</AdminTableHead>
-                </TableHead>
-                <TableHead>
-                  <AdminTableHead>Aksiyon</AdminTableHead>
-                </TableHead>
+                <TableHead>Ad</TableHead>
+                <TableHead>Görsel</TableHead>
+                <TableHead>URL Anahtarı</TableHead>
+                <TableHead>Durum</TableHead>
+                <TableHead>Ana Menü</TableHead>
+                <TableHead>Alt Kategori</TableHead>
+                <TableHead>Aksiyon</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

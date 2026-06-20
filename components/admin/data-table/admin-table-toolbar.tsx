@@ -17,6 +17,7 @@ interface AdminTableToolbarProps {
   filters?: React.ReactNode
   className?: string
   showRefresh?: boolean
+  actions?: React.ReactNode
 }
 
 export function AdminTableToolbar({
@@ -30,7 +31,8 @@ export function AdminTableToolbar({
   advancedFilterLabel = 'Daha Fazla Filtre',
   filters,
   className,
-  showRefresh = true
+  showRefresh = true,
+  actions
 }: AdminTableToolbarProps) {
   return (
     <div
@@ -52,23 +54,26 @@ export function AdminTableToolbar({
             <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
           ) : null}
         </div>
-        {showRefresh && onRefresh ? (
-          <div className="admin-toolbar-actions">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onRefresh}
-              disabled={isRefreshing}
-              className="rounded-md border-border bg-background"
-            >
-              {isRefreshing ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Yenile
-            </Button>
+        {(showRefresh && onRefresh) || actions ? (
+          <div className="admin-toolbar-actions flex items-center gap-2">
+            {showRefresh && onRefresh ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                className="rounded-md border-border bg-background"
+              >
+                {isRefreshing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Yenile
+              </Button>
+            ) : null}
+            {actions}
           </div>
         ) : null}
       </div>

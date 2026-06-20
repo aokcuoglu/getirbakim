@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { useTranslations } from 'next-intl'
 import { Clock, Package, Tag, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
+import { signIn as nextAuthSignIn } from 'next-auth/react'
 import { useShop } from '@/components/ShopProvider'
 import { Link, useRouter } from '@/lib/navigation'
 import { toast } from 'sonner'
@@ -23,7 +24,7 @@ interface LoginModalProps {
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  onLoginSuccess?: (user: any) => void
+  onLoginSuccess?: (user?: any) => void
 }
 
 export function LoginModal({
@@ -111,35 +112,18 @@ export function LoginModal({
           router.refresh()
         }
       } else {
-        const { signIn } = await import('@/lib/actions/auth-actions')
-        const result: any = await signIn(formData)
-        console.log('SignIn Result:', result)
+        const result: any = await nextAuthSignIn('credentials', {
+          email,
+          password,
+          redirect: false,
+        })
 
         if (result?.error) {
-          console.log('Error type:', typeof result.error, result.error)
-          const errorMsg =
-            typeof result.error === 'string'
-              ? result.error
-              : JSON.stringify(result.error)
-
-          if (result.fieldErrors) {
-            const firstError = Object.values(result.fieldErrors)[0] as string[]
-            if (firstError && firstError.length > 0) {
-              setError(`${errorMsg}: ${firstError[0]}`)
-            } else {
-              setError(errorMsg)
-            }
-          } else {
-            setError(
-              errorMsg === '{}'
-                ? 'An unexpected error occurred (empty response)'
-                : errorMsg
-            )
-          }
-        } else if (result?.success) {
+          setError(t('invalidCredentials') || 'Invalid email or password')
+        } else {
           handleCloseModal()
           toast.success(t('loginSuccess'))
-          if (onLoginSuccess) onLoginSuccess()
+          if (onLoginSuccess) await onLoginSuccess()
           await refetchUser()
           router.refresh()
         }

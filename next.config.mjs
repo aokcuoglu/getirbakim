@@ -61,6 +61,11 @@ const nextConfig = {
                 hostname: 'www.getirbakim.com',
                 pathname: '/api/storage/**',
             },
+            {
+                protocol: 'https',
+                hostname: 'parcatedarik.com',
+                pathname: '/**',
+            },
         ],
         // Performance optimizations
         formats: ['image/avif', 'image/webp'],

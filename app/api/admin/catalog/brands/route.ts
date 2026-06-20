@@ -40,7 +40,9 @@ export async function GET(request: NextRequest) {
       matchSide:
         matchSide === 'matched' ||
         matchSide === 'dinamik_only' ||
-        matchSide === 'pt_only'
+        matchSide === 'pt_only' ||
+        matchSide === 'pending' ||
+        matchSide === 'unmatched'
           ? matchSide
           : 'all',
       page: parseInt(url.searchParams.get('page') ?? '1', 10),

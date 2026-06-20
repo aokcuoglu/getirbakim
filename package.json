@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:deps": "docker volume create getirbakim-postgres-data 2>/dev/null; docker volume create getirbakim-meili-data 2>/dev/null; docker compose -f docker-compose.local.yml up -d postgres meilisearch",
     "dev:docker": "docker compose -f docker-compose.local.yml up -d --build",
     "build": "prisma generate && next build",
     "start": "next start",
@@ -24,10 +25,7 @@
     "parts2world:sync-catalog": "bun lib/suppliers/parts2world/sync-catalog.ts",
     "parts2world:sync-article-info": "bun lib/suppliers/parts2world/sync-article-info.ts",
     "search:setup": "bun scripts/meili-setup.ts",
-    "search:debug-category": "bun scripts/debug-meili-category.ts",
-    "search:v0:setup": "bun scripts/meili-v0-setup.ts",
-    "search:v0:reindex": "bun scripts/meili-v0-reindex.ts",
-    "v0:backfill-products": "bun scripts/backfill-v0-products-enrichment.ts"
+    "search:debug-category": "bun scripts/debug-meili-category.ts"
   },
   "dependencies": {
     "@google/genai": "^1.32.0",
@@ -52,6 +50,7 @@
     "csv-parse": "^6.1.0",
     "dotenv": "^17.2.3",
     "framer-motion": "^12.40.0",
+    "geist": "^1.7.2",
     "hono": "^4.10.8",
     "jose": "^6.1.3",
     "lucide-react": "^0.562.0",

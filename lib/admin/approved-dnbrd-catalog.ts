@@ -23,7 +23,7 @@ export type AdminApprovedBrandRow = {
 export type AdminApprovedBrandFilters = {
   q?: string
   logoStatus?: 'all' | 'missing' | 'has_logo'
-  matchSide?: 'all' | 'matched' | 'dinamik_only' | 'pt_only'
+  matchSide?: 'all' | 'matched' | 'dinamik_only' | 'pt_only' | 'pending' | 'unmatched'
   page?: number
   limit?: number
   sort?: string
@@ -34,7 +34,7 @@ export type AdminApprovedBrandListResult = {
   rows: AdminApprovedBrandRow[]
   pagination: { page: number; limit: number; total: number; pages: number }
   summary: { total: number; withLogo: number; missingLogo: number }
-  filters: Required<Pick<AdminApprovedBrandFilters, 'q' | 'logoStatus'>> & {
+  filters: Required<Pick<AdminApprovedBrandFilters, 'q' | 'logoStatus' | 'matchSide'>> & {
     page: number
     limit: number
   }
@@ -54,7 +54,7 @@ function normalizeFilters(input: AdminApprovedBrandFilters = {}) {
         ? logoStatus
         : ('all' as const),
     matchSide:
-      matchSide === 'matched' || matchSide === 'dinamik_only' || matchSide === 'pt_only'
+      matchSide === 'matched' || matchSide === 'dinamik_only' || matchSide === 'pt_only' || matchSide === 'pending' || matchSide === 'unmatched'
         ? matchSide
         : ('all' as const),
     page,
@@ -81,6 +81,81 @@ function buildWhereClause(
     clauses.push(Prisma.sql`cb.logo_url IS NOT NULL AND BTRIM(cb.logo_url) <> ''`)
   }
 
+  if (filters.matchSide === 'matched') {
+    // En az bir mapping'te dnmk veya BSBG bağlantısı var
+    clauses.push(Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND (m.dnmk_brands_id IS NOT NULL OR m.bsbg_brands_id IS NOT NULL)
+      )
+    `)
+  } else if (filters.matchSide === 'dinamik_only') {
+    // Sadece dnmk tarafı dolu olan mapping var, ptdrk tarafı hiç dolu değil
+    clauses.push(Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.dnmk_brands_id IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.ptdrk_brands_id IS NOT NULL
+      )
+    `)
+  } else if (filters.matchSide === 'pt_only') {
+    // Sadece ptdrk tarafı dolu olan mapping var, dnmk tarafı hiç dolu değil
+    clauses.push(Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.ptdrk_brands_id IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.dnmk_brands_id IS NOT NULL
+      )
+    `)
+  } else if (filters.matchSide === 'pending') {
+    // En az bir PENDING mapping var (BSBG-only olanları hariç tut)
+    clauses.push(Prisma.sql`
+      EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.mapping_status = 'PENDING'
+          AND (m.dnmk_brands_id IS NOT NULL OR m.ptdrk_brands_id IS NOT NULL)
+      )
+    `)
+  } else if (filters.matchSide === 'unmatched') {
+    // Sadece ptdrk bağlantısı olup dnmk ve BSBG'si olmayan
+    clauses.push(Prisma.sql`
+      NOT EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.dnmk_brands_id IS NOT NULL
+          AND m.ptdrk_brands_id IS NOT NULL
+          AND m.mapping_status = 'APPROVED'
+      )
+      AND EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.ptdrk_brands_id IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.dnmk_brands_id IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM v0.brand_mappings m
+        WHERE m.brand_list_id = cb.id
+          AND m.bsbg_brands_id IS NOT NULL
+      )
+    `)
+  }
+
   if (clauses.length === 0) {
     return Prisma.sql`1=1`
   }
@@ -96,22 +171,21 @@ export async function listApprovedDbrandsForAdmin(
   const orderDir = filters.sortDir === 'desc' ? 'DESC' : 'ASC'
   const orderBy = Prisma.sql`cb.brand ${Prisma.raw(orderDir)}`
 
-  // Count and summary
-  const [countRows, summaryRows] = await Promise.all([
-    db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.brand_list cb WHERE ${whereClause}`
-    ),
-    db.$queryRaw<
-      Array<{ total: bigint; with_logo: bigint; missing_logo: bigint }>
-    >(Prisma.sql`
-      SELECT
-        COUNT(*)::bigint AS total,
-        COUNT(*) FILTER (WHERE cb.logo_url IS NOT NULL AND BTRIM(cb.logo_url) <> '')::bigint AS with_logo,
-        COUNT(*) FILTER (WHERE cb.logo_url IS NULL OR BTRIM(cb.logo_url) = '')::bigint AS missing_logo
-      FROM v0.brand_list cb
-      WHERE ${whereClause}
-    `)
-  ])
+  // Count for pagination (respects filters)
+  const countRows = await db.$queryRaw<Array<{ count: bigint }>>(
+    Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.brand_list cb WHERE ${whereClause}`
+  )
+
+  // Summary is always unfiltered — KPI cards must not change when filters are applied
+  const summaryRows = await db.$queryRaw<
+    Array<{ total: bigint; with_logo: bigint; missing_logo: bigint }>
+  >(Prisma.sql`
+    SELECT
+      COUNT(*)::bigint AS total,
+      COUNT(*) FILTER (WHERE cb.logo_url IS NOT NULL AND BTRIM(cb.logo_url) <> '')::bigint AS with_logo,
+      COUNT(*) FILTER (WHERE cb.logo_url IS NULL OR BTRIM(cb.logo_url) = '')::bigint AS missing_logo
+    FROM v0.brand_list cb
+  `)
 
   const total = Number(countRows[0]?.count ?? 0)
   const summary = summaryRows[0]
@@ -209,6 +283,7 @@ export async function listApprovedDbrandsForAdmin(
     filters: {
       q: filters.q,
       logoStatus: filters.logoStatus,
+      matchSide: filters.matchSide,
       page: filters.page,
       limit: filters.limit
     }
@@ -306,10 +381,13 @@ export async function mergeCanonicalBrands(
   try {
     // Wrap in transaction
     await db.$transaction(async (tx) => {
-      // 1. Move all mappings from source brands to target
+      // 1. Move all mappings from source brands to target, approve them
       await tx.$executeRaw(Prisma.sql`
         UPDATE v0.brand_mappings
-        SET brand_list_id = ${targetId}
+        SET brand_list_id = ${targetId},
+            mapping_status = 'APPROVED',
+            match_method = COALESCE(match_method, 'MANUAL'),
+            updated_at = NOW()
         WHERE brand_list_id IN (${Prisma.join(sourceIds)})
       `)
 

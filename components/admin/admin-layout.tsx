@@ -48,8 +48,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       '/admin/customers',
       '/admin/categories',
       '/admin/requests',
-      '/admin/suppliers',
-      '/admin/eslestirme'
+      '/admin/suppliers'
     ]
     coreRoutes.forEach((route) => router.prefetch(route))
   }, [router])

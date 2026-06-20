@@ -57,7 +57,7 @@ export function createCustomerColumns(
     },
     {
       accessorKey: 'name',
-      header: () => <span className="text-xs font-medium">Müşteri</span>,
+      header: 'Müşteri',
       cell: ({ row }) => (
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{row.original.name}</p>
@@ -69,7 +69,7 @@ export function createCustomerColumns(
     },
     {
       accessorKey: 'email',
-      header: () => <span className="text-xs font-medium">İletişim</span>,
+      header: 'İletişim',
       cell: ({ row }) => (
         <div>
           <p className="text-sm text-foreground">{row.original.email}</p>
@@ -79,14 +79,14 @@ export function createCustomerColumns(
     },
     {
       accessorKey: 'ordersCount',
-      header: () => <span className="text-xs font-medium">Sipariş</span>,
+      header: 'Sipariş',
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">{row.original.ordersCount}</span>
       ),
     },
     {
       accessorKey: 'totalSpent',
-      header: () => <span className="text-xs font-medium">Toplam Harcama</span>,
+      header: 'Toplam Harcama',
       cell: ({ row }) => (
         <span className="text-sm font-semibold">
           {formatCurrency(row.original.totalSpent, 'TRY')}
@@ -95,7 +95,7 @@ export function createCustomerColumns(
     },
     {
       accessorKey: 'role',
-      header: () => <span className="text-xs font-medium">Rol</span>,
+      header: 'Rol',
       cell: ({ row }) => {
         const currentRole = handlers.rowRoles?.[row.original.id] || row.original.role || 'CUSTOMER'
         return (
@@ -118,9 +118,7 @@ export function createCustomerColumns(
     },
     {
       id: 'actions',
-      header: () => (
-        <span className="text-xs font-medium text-right w-full block pr-2">Aksiyon</span>
-      ),
+      header: 'Aksiyon',
       cell: ({ row }) => (
         <div className="flex justify-end">
           <AdminRowActions

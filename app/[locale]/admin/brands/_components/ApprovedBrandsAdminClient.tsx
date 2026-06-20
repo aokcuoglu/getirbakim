@@ -32,14 +32,17 @@ import type {
   AdminApprovedBrandRow
 } from '@/lib/admin/approved-dnbrd-catalog'
 import { DataTable } from '@/components/admin/data-table/data-table'
+import { BrandMatchSheet } from './BrandMatchSheet'
 import { createApprovedBrandColumns } from './approved-brand-columns'
 import { BrandDetailModal } from './BrandDetailModal'
 
 type LogoStatus = 'all' | 'missing' | 'has_logo'
+type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only' | 'pending' | 'unmatched'
 
 type BrandFilters = {
   q: string
   logoStatus: LogoStatus
+  matchSide: MatchSide
   page: number
   limit: number
   sort?: string
@@ -49,6 +52,7 @@ type BrandFilters = {
 const DEFAULT_FILTERS: BrandFilters = {
   q: '',
   logoStatus: 'all',
+  matchSide: 'all',
   page: 1,
   limit: 50
 }
@@ -57,6 +61,7 @@ function buildSearchParams(f: BrandFilters) {
   const params = new URLSearchParams()
   if (f.q) params.set('q', f.q)
   if (f.logoStatus !== 'all') params.set('logoStatus', f.logoStatus)
+  if (f.matchSide && f.matchSide !== 'all') params.set('matchSide', f.matchSide)
   params.set('page', String(f.page))
   params.set('limit', String(f.limit))
   if (f.sort) {
@@ -85,6 +90,7 @@ export function ApprovedBrandsAdminClient({
     ...DEFAULT_FILTERS,
     q: initialData.filters.q,
     logoStatus: initialData.filters.logoStatus,
+    matchSide: (initialData.filters.matchSide as MatchSide) ?? 'all',
     page: initialData.filters.page,
     limit: initialData.filters.limit
   })
@@ -92,6 +98,8 @@ export function ApprovedBrandsAdminClient({
   const [isSearchPending, setIsSearchPending] = useState(false)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [matchSheetOpen, setMatchSheetOpen] = useState(false)
+  const [matchSource, setMatchSource] = useState<AdminApprovedBrandRow | null>(null)
   const [targetId, setTargetId] = useState<string>('')
   const [isMerging, setIsMerging] = useState(false)
   const [detailBrand, setDetailBrand] = useState<AdminApprovedBrandRow | null>(null)
@@ -216,6 +224,11 @@ export function ApprovedBrandsAdminClient({
     setDetailDialogOpen(true)
   }, [])
 
+  const handleMatch = useCallback((row: AdminApprovedBrandRow) => {
+    setMatchSource(row)
+    setMatchSheetOpen(true)
+  }, [])
+
   const handleMerge = useCallback(async () => {
     if (selectedIds.length < 2) {
       toast.error('En az 2 marka seçmelisiniz.')
@@ -269,9 +282,10 @@ export function ApprovedBrandsAdminClient({
         uploadingId,
         selectedIds,
         onToggleSelect: handleToggleSelect,
-        onViewDetail: handleViewDetail
+        onViewDetail: handleViewDetail,
+        onMatch: handleMatch
       }),
-    [handleUpload, handleUploadFromUrl, uploadingId, selectedIds, handleToggleSelect, handleViewDetail]
+    [handleUpload, handleUploadFromUrl, uploadingId, selectedIds, handleToggleSelect, handleViewDetail, handleMatch]
   )
 
   const handleSortingChange = useCallback(
@@ -395,6 +409,38 @@ export function ApprovedBrandsAdminClient({
             }
             label={t('filterHasLogo') as string}
           />
+          <span className="mx-1 h-4 w-px bg-border" />
+          <AdminFilterChip
+            active={filters.matchSide === 'matched'}
+            onClick={() =>
+              applyFilters({
+                matchSide: filters.matchSide === 'matched' ? 'all' : 'matched',
+                page: 1
+              })
+            }
+            label="Eşleşmiş"
+          />
+          <AdminFilterChip
+            active={filters.matchSide === 'pending'}
+            onClick={() =>
+              applyFilters({
+                matchSide: filters.matchSide === 'pending' ? 'all' : 'pending',
+                page: 1
+              })
+            }
+            label="Bekleyen"
+          />
+          <AdminFilterChip
+            active={filters.matchSide === 'unmatched'}
+            onClick={() =>
+              applyFilters({
+                matchSide: filters.matchSide === 'unmatched' ? 'all' : 'unmatched',
+                page: 1
+              })
+            }
+            label="Eşleşmemiş"
+          />
+
         </AdminFilterBar>
       </div>
 
@@ -402,9 +448,6 @@ export function ApprovedBrandsAdminClient({
         <p>
           {pagination.total} marka (sayfa {pagination.page} / {pagination.pages})
         </p>
-        <Button variant="outline" size="sm" asChild>
-          <a href="/admin/eslestirme?tab=brands">Eşleştirmeye git</a>
-        </Button>
       </div>
 
       <DataTable
@@ -426,6 +469,17 @@ export function ApprovedBrandsAdminClient({
           setDetailDialogOpen(open)
           if (!open) setDetailBrand(null)
         }}
+      />
+
+      {/* Brand Match Sheet (source brand_list → target brand_list merge) */}
+      <BrandMatchSheet
+        source={matchSource}
+        open={matchSheetOpen}
+        onOpenChange={(open) => {
+          setMatchSheetOpen(open)
+          if (!open) setMatchSource(null)
+        }}
+        onLinked={() => void loadRows(filtersRef.current)}
       />
 
       {/* Merge Dialog */}

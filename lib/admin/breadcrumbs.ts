@@ -8,6 +8,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
   '/admin': 'Genel Bakış',
   '/admin/products': 'Ürünler',
   '/admin/products/new': 'Yeni Ürün',
+  '/admin/products/match': 'Eşleştirme',
   '/admin/products/tools': 'Araçlar',
   '/admin/brands': 'Markalar',
   '/admin/orders': 'Siparişler',
@@ -17,6 +18,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
   '/admin/requests': 'Talepler',
   '/admin/suppliers': 'Tedarikçiler',
   '/admin/suppliers/dinamik': 'Dinamik',
+  '/admin/suppliers/match-products': 'Ürün Eşleştirme',
   '/admin/eslestirme': 'Eşleştirme'
 }
 
@@ -31,6 +33,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   suppliers: 'Tedarikçiler',
   eslestirme: 'Eşleştirme',
   dinamik: 'Dinamik',
+  'match-products': 'Ürün Eşleştirme',
   new: 'Yeni',
   tools: 'Araçlar',
   edit: 'Düzenle'

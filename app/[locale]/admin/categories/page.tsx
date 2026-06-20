@@ -1,9 +1,5 @@
 import { Suspense } from 'react'
-import {
-  AdminPageHeader,
-  AdminPageShell,
-  AdminSurface
-} from '@/components/admin/admin-page-shell'
+import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
 import { Link } from '@/lib/navigation'
@@ -21,27 +17,27 @@ export default async function AdminCategoriesPage({
   const searchQuery = params.q || ''
 
   return (
-    <AdminPageShell>
+    <AdminPageShell width="wide">
       <AdminPageHeader
         title="Kategoriler"
         description="Kategori ağacını yönetin ve yeni kategoriler oluşturun."
         breadcrumbs={getAdminBreadcrumbs('/admin/categories')}
         actions={
-          <Button asChild className="inline-flex w-full items-center gap-2 sm:w-auto">
+          <Button size="sm" asChild>
             <Link href="/admin/categories/new">
-              <Plus size={16} />
-              Add Category
+              <Plus size={16} className="mr-2" />
+              Kategori Ekle
             </Link>
           </Button>
         }
       />
 
-      <AdminSurface className="p-4">
+      <div className="rounded-md border border-border bg-card p-4">
         <SearchInput
           defaultValue={searchQuery}
-          placeholder="Search categories by name..."
+          placeholder="Kategori adı ile ara..."
         />
-      </AdminSurface>
+      </div>
 
       <Suspense fallback={<AdminTablePageSkeleton kpiCount={0} rowCount={6} />}>
         <CategoriesAdminContent searchQuery={searchQuery} />
