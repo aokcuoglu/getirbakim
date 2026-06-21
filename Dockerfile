@@ -55,7 +55,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Dummy DATABASE_URL for build-time page data collection (not used for actual queries)
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 
-RUN npx next build
+# Use compile-only build mode to avoid prerendering pages that need DB access.
+# Pages are rendered at runtime (ISR with revalidate) when DB is available.
+# This prevents "Can't reach database server" errors during Docker build.
+RUN npx next build --experimental-build-mode compile
 
 # Stage 3: Production runner
 FROM node:22-slim AS runner
