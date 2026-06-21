@@ -151,13 +151,16 @@ PG_CONTAINER="getirbakim-postgres"
 # does NOT carry DATABASE_URL — it is synthesized in docker-compose.yml from
 # POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB). Mirror that logic here so the
 # migrate container can reach postgres over the project network.
-PG_USER=$(grep -E '^POSTGRES_USER=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
+PG_USER=$(grep -m1 'POSTGRES_USER=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '\r\n"' || echo "")
 PG_USER="${PG_USER:-postgres}"
-PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
-PG_DB=$(grep -E '^POSTGRES_DB=' "${ENV_FILE}" | head -1 | cut -d= -f2- | tr -d '\r\n"')
+PG_PASS=$(grep -m1 'POSTGRES_PASSWORD=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '\r\n"' || echo "")
+PG_DB=$(grep -m1 'POSTGRES_DB=' "${ENV_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '\r\n"' || echo "")
 PG_DB="${PG_DB:-getirbakim}"
 if [[ -z "${PG_PASS}" ]]; then
   echo "FATAL: POSTGRES_PASSWORD missing in ${ENV_FILE}, cannot build DATABASE_URL"
+  echo "       Expected a line like: POSTGRES_PASSWORD=your_password"
+  echo "       Raw grep output for POSTGRES_PASSWORD:"
+  grep -n 'POSTGRES_PASSWORD' "${ENV_FILE}" 2>/dev/null || echo "       (no match found)"
   exit 1
 fi
 DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB}"
