@@ -165,6 +165,27 @@ if [[ -z "${PG_PASS}" ]]; then
 fi
 DATABASE_URL="postgresql://${PG_USER}:${PG_PASS}@postgres:5432/${PG_DB}"
 
+# ── Safety backup BEFORE migrations ─────────────────────────────────────────
+# Migrations can be destructive (column drops, DROP SCHEMA ... CASCADE). Take a
+# compressed pg_dump first so a bad migration is recoverable. A backup failure
+# aborts the deploy — we do not run migrations without a fresh restore point.
+# Escape hatch: set SKIP_PREDEPLOY_BACKUP=1 to bypass intentionally.
+if [[ "${SKIP_PREDEPLOY_BACKUP:-0}" == "1" ]]; then
+  echo ">>> Skipping pre-migrate backup (SKIP_PREDEPLOY_BACKUP=1)"
+else
+  echo ">>> Pre-migrate database backup..."
+  if PG_CONTAINER="${PG_CONTAINER}" PG_USER="${PG_USER}" PG_DB="${PG_DB}" \
+       bash scripts/pg-backup.sh; then
+    echo "  Pre-migrate backup OK"
+  else
+    echo "FATAL: pre-migrate backup failed — aborting before migrations."
+    echo "       Check disk space, permissions on the backup dir, and that the"
+    echo "       postgres container is healthy. To bypass intentionally, re-run"
+    echo "       the deploy with SKIP_PREDEPLOY_BACKUP=1."
+    exit 1
+  fi
+fi
+
 echo ">>> Running Prisma migrations..."
 # Docker Compose names networks as <project>_<network-name>; with project
 # "getirbakim" and network "app-network", the actual name is

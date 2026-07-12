@@ -43,8 +43,11 @@ if ! docker inspect --format='{{.State.Health.Status}}' "${PG_CONTAINER}" 2>/dev
 fi
 
 echo ">>> Running pg_dump..."
+# `catalog` is the product source-of-truth schema; include it once it exists.
+# pg_dump silently skips a schema pattern that matches nothing, so this is safe
+# even before the catalog schema has been created.
 docker exec "${PG_CONTAINER}" pg_dump -U "${PG_USER}" -d "${PG_DB}" --no-owner --no-acl --clean --if-exists \
-  -n public -n trodo -n v0 \
+  -n public -n trodo -n v0 -n catalog \
   | gzip > "${BACKUP_FILE}"
 
 FILE_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
