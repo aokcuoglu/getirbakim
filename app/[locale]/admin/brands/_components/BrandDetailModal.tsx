@@ -77,7 +77,7 @@ export function BrandDetailModal({ brand, open, onOpenChange }: BrandDetailModal
                     className="rounded-md border p-3 space-y-1.5 text-sm"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         ID: {m.mappingId}
                       </span>
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide ${status.className}`}>

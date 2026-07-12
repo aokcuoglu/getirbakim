@@ -47,7 +47,6 @@ import type {
   DpprdManualSearchCandidate,
   DpprdManualLinkInput,
   DpprdMappingStatus,
-  DpprdMatchMethod
 } from '@/lib/types/dpprd-match'
 import type {
   PartTechnicalReferenceInput,
@@ -7279,8 +7278,9 @@ export async function getDpprdMatchOverview(): Promise<DpprdMatchOverviewResult>
 
   const oemRow = await db.$queryRaw<Array<DpprdOemWrittenRow>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS n
-    FROM v0.product_mappings
-    WHERE mapping_status = 'APPROVED' AND oem_no IS NOT NULL
+    FROM v0.product_mappings pm
+    INNER JOIN v0.dnmk_products d ON d.id = pm.dnmk_products_id
+    WHERE pm.mapping_status = 'APPROVED' AND d.oem_no IS NOT NULL
   `)
   overview.oemWritten = Number(oemRow[0]?.n ?? 0)
 
@@ -7319,13 +7319,6 @@ interface DpprdListRow {
   ptdrk_brand: string | null
   ptdrk_ref_no: string | null
   mapping_status: string
-  match_method: string | null
-  confidence: Prisma.Decimal | null
-  oem_no: string | null
-  approved_at: Date | null
-  ignored_at: Date | null
-  created_at: Date
-  updated_at: Date
 }
 
 export async function listDpprdMatches(
@@ -7391,14 +7384,7 @@ export async function listDpprdMatches(
       p.title AS ptdrk_title,
       pb.name AS ptdrk_brand,
       p.ref_no AS ptdrk_ref_no,
-      pm.mapping_status,
-      pm.match_method,
-      pm.confidence,
-      pm.oem_no,
-      pm.approved_at,
-      pm.ignored_at,
-      pm.created_at,
-      pm.updated_at
+      pm.mapping_status
     FROM v0.product_mappings pm
     INNER JOIN v0.dnmk_products d ON d.id = pm.dnmk_products_id
     INNER JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
@@ -7406,7 +7392,7 @@ export async function listDpprdMatches(
     INNER JOIN v0.ptdrk_brands pb ON pb.id = p.ptdrk_brands_id
     LEFT JOIN v0.brand_list bl ON bl.id = pm.brand_list_id
     ${whereClause}
-    ORDER BY pm.mapping_status, pm.created_at DESC
+    ORDER BY pm.mapping_status
     LIMIT ${limit} OFFSET ${offset}
   `)
 
@@ -7425,14 +7411,7 @@ export async function listDpprdMatches(
     ptdrkTitle: row.ptdrk_title,
     ptdrkBrand: row.ptdrk_brand,
     ptdrkRefNo: row.ptdrk_ref_no,
-    mappingStatus: row.mapping_status as DpprdMappingStatus,
-    matchMethod: (row.match_method as DpprdMatchMethod | null) ?? null,
-    confidence: row.confidence != null ? Number(row.confidence) : null,
-    oemNo: row.oem_no,
-    approvedAt: row.approved_at ? row.approved_at.toISOString() : null,
-    ignoredAt: row.ignored_at ? row.ignored_at.toISOString() : null,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString()
+    mappingStatus: row.mapping_status as DpprdMappingStatus
   }))
 
   return {
@@ -7547,11 +7526,7 @@ export async function approveDpprdMatch(input: {
 
   await db.$executeRaw(Prisma.sql`
     UPDATE v0.product_mappings
-    SET mapping_status = 'APPROVED',
-        approved_by = ${userId},
-        approved_at = NOW(),
-        oem_no = ${bridge.oemNo},
-        updated_at = NOW()
+    SET mapping_status = 'APPROVED'
     WHERE id = ${row.id}::bigint
   `)
 
@@ -7574,9 +7549,7 @@ export async function ignoreDpprdMatch(input: {
 
   await db.$executeRaw(Prisma.sql`
     UPDATE v0.product_mappings
-    SET mapping_status = 'IGNORED',
-        ignored_at = NOW(),
-        updated_at = NOW()
+    SET mapping_status = 'IGNORED'
     WHERE id = ${BigInt(input.id)}::bigint
   `)
 
@@ -7710,8 +7683,6 @@ export async function manualLinkDpprdMatch(
     return { success: false, message: 'Dinamik ve ParçaTedarik ürün ID gerekli.' }
   }
 
-  const matchMethod: DpprdMatchMethod = input.matchMethod ?? 'MANUAL'
-
   // Verify the pair belongs to an approved paired brand_mapping.
   const pairRows = await db.$queryRaw<
     Array<{ brand_list_id: number; dnmk_products_id: bigint; ptdrk_products_id: number }>
@@ -7746,19 +7717,11 @@ export async function manualLinkDpprdMatch(
   // Upsert product_mappings as APPROVED.
   await db.$executeRaw(Prisma.sql`
     INSERT INTO v0.product_mappings
-      (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status, match_method, confidence, oem_no, approved_by, approved_at)
+      (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status)
     VALUES
-      (${pair.brand_list_id}::int, ${pair.dnmk_products_id}::bigint, ${pair.ptdrk_products_id}::int,
-       'APPROVED', ${matchMethod}::text, ${matchMethod === 'MANUAL' ? 1 : null}::decimal(5,4),
-       ${bridge.oemNo}, ${userId}, NOW())
+      (${pair.brand_list_id}::int, ${pair.dnmk_products_id}::bigint, ${pair.ptdrk_products_id}::int, 'APPROVED')
     ON CONFLICT (dnmk_products_id, ptdrk_products_id) DO UPDATE
-      SET mapping_status = 'APPROVED',
-          match_method = EXCLUDED.match_method,
-          oem_no = EXCLUDED.oem_no,
-          approved_by = EXCLUDED.approved_by,
-          approved_at = NOW(),
-          ignored_at = NULL,
-          updated_at = NOW()
+      SET mapping_status = 'APPROVED'
   `)
 
   revalidateSupplierPaths()

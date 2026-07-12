@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "dev:deps": "docker volume create getirbakim-postgres-data 2>/dev/null; docker volume create getirbakim-meili-data 2>/dev/null; docker compose -f docker-compose.local.yml up -d postgres meilisearch",
-    "dev:docker": "docker compose -f docker-compose.local.yml up -d --build",
+    "dev:deps:stop": "docker compose -f docker-compose.local.yml down",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "bun run check:unsafe-sql && bunx tsc --noEmit --pretty false --incremental false",

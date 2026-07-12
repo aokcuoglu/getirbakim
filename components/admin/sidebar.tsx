@@ -15,7 +15,8 @@ import {
   Truck,
   GitCompare,
   ChevronsUpDown,
-  Tags
+  Tags,
+  Boxes
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, usePathname } from '@/lib/navigation'
@@ -338,6 +339,14 @@ export function Sidebar({
       title: 'Katalog & Satış',
       items: [
         {
+          icon: Boxes,
+          label: 'Katalog Ürünleri',
+          href: '/admin/catalog/products',
+          active:
+            pathname === '/admin/catalog/products' ||
+            pathname.startsWith('/admin/catalog/')
+        },
+        {
           icon: Package,
           label: 'Ürünler',
           href: '/admin/products',
@@ -416,7 +425,7 @@ export function Sidebar({
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'sidebar-scroll relative z-20 flex h-full flex-col bg-sidebar font-mono transition-[width] duration-200 ease-linear',
+          'sidebar-scroll relative z-20 flex h-full flex-col bg-sidebar transition-[width] duration-200 ease-linear',
           isCollapsed ? 'w-[var(--admin-sidebar-width-icon)]' : 'w-[var(--admin-sidebar-width)]',
           !isCollapsed && 'border-r border-sidebar-border'
         )}

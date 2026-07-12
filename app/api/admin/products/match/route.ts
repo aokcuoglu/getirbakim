@@ -434,6 +434,117 @@ export async function GET(request: NextRequest) {
       return successResponse({ rows }, context)
     }
 
+    // ── DNMK product detail (row-click modal) ────────────────────────────────
+    // Returns the full dnmk_products row (+ cost, brand) plus every mapping it
+    // participates in, exposing the linked ptdrk_products.ref_no — the value the
+    // DNMK↔PT matching exists to carry over into dnmk_products.oem_no.
+    if (target === 'dnmk_detail') {
+      const dnmkProductsId = url.searchParams.get('dnmkProductsId')
+      if (!dnmkProductsId) {
+        return errorResponse({ status: 400, code: 'MISSING_FIELDS', message: 'dnmkProductsId required.', context })
+      }
+      const dnmkIdNum = BigInt(dnmkProductsId)
+
+      const productRows = await db.$queryRaw<
+        Array<{
+          id: bigint
+          stock_code: string
+          stock_name: string | null
+          part_no: string | null
+          oem_no: string | null
+          barcode_1: string | null
+          barcode_2: string | null
+          barcode_3: string | null
+          image_url: string | null
+          is_passive: boolean
+          created_at: Date
+          updated_at: Date
+          last_seen_at: Date
+          brand: string
+          price: Prisma.Decimal | null
+          stock_qty: number | null
+          campaign_rate: Prisma.Decimal | null
+        }>
+      >(Prisma.sql`
+        SELECT
+          dp.id, dp.stock_code, dp.stock_name, dp.part_no, dp.oem_no,
+          dp.barcode_1, dp.barcode_2, dp.barcode_3, dp.image_url,
+          dp.is_passive, dp.created_at, dp.updated_at, dp.last_seen_at,
+          db.brand,
+          dc.price, dc.stock_qty, dc.campaign_rate
+        FROM v0.dnmk_products dp
+        JOIN v0.dnmk_brands db ON db.id = dp.dnmk_brands_id
+        LEFT JOIN v0.dnmk_cost dc ON dc.dnmk_products_id = dp.id
+        WHERE dp.id = ${dnmkIdNum}
+        LIMIT 1
+      `)
+
+      if (productRows.length === 0) {
+        return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Ürün bulunamadı.', context })
+      }
+      const p = productRows[0]
+
+      const mappingRows = await db.$queryRaw<
+        Array<{
+          mapping_id: bigint
+          mapping_status: string
+          brand_list_name: string | null
+          ptdrk_id: number | null
+          ptdrk_product_id: string | null
+          ptdrk_part_no: string | null
+          ptdrk_title: string | null
+          ptdrk_ref_no: string | null
+        }>
+      >(Prisma.sql`
+        SELECT
+          pm.id AS mapping_id,
+          pm.mapping_status,
+          bl.brand AS brand_list_name,
+          pp.id AS ptdrk_id,
+          pp.product_id AS ptdrk_product_id,
+          pp.part_no AS ptdrk_part_no,
+          pp.title AS ptdrk_title,
+          pp.ref_no AS ptdrk_ref_no
+        FROM v0.product_mappings pm
+        LEFT JOIN v0.ptdrk_products pp ON pp.id = pm.ptdrk_products_id
+        LEFT JOIN v0.brand_list bl ON bl.id = pm.brand_list_id
+        WHERE pm.dnmk_products_id = ${dnmkIdNum}
+        ORDER BY pm.id
+      `)
+
+      return successResponse({
+        product: {
+          id: Number(p.id),
+          stock_code: p.stock_code,
+          stock_name: p.stock_name,
+          part_no: p.part_no,
+          oem_no: p.oem_no,
+          barcode_1: p.barcode_1,
+          barcode_2: p.barcode_2,
+          barcode_3: p.barcode_3,
+          image_url: p.image_url,
+          is_passive: p.is_passive,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+          last_seen_at: p.last_seen_at,
+          brand: p.brand,
+          price: p.price != null ? Number(p.price) : null,
+          stock_qty: p.stock_qty,
+          campaign_rate: p.campaign_rate != null ? Number(p.campaign_rate) : null
+        },
+        mappings: mappingRows.map((m) => ({
+          mapping_id: Number(m.mapping_id),
+          mapping_status: m.mapping_status,
+          brand_list_name: m.brand_list_name,
+          ptdrk_id: m.ptdrk_id != null ? Number(m.ptdrk_id) : null,
+          ptdrk_product_id: m.ptdrk_product_id,
+          ptdrk_part_no: m.ptdrk_part_no,
+          ptdrk_title: m.ptdrk_title,
+          ptdrk_ref_no: m.ptdrk_ref_no
+        }))
+      }, context)
+    }
+
     // ── Source: DNMK products ────────────────────────────────────────────────
     if (source === 'dnmk') {
       const searchFilter = q
@@ -445,9 +556,15 @@ export async function GET(request: NextRequest) {
         brandFilter = Prisma.sql`AND bm.brand_list_id = ${parseInt(brandListId)}`
       }
 
+      // 'matched' = APPROVED with an actual PT/BSBG link. 'approved_no_match' =
+      // APPROVED but deliberately without any link (both ids NULL). Both share
+      // mapping_status='APPROVED'; the NULL-ness of the link columns is what
+      // distinguishes "approved with a match" from "approved without a match".
       let matchSideFilter = Prisma.empty
       if (matchSide === 'matched') {
-        matchSideFilter = Prisma.sql`AND pm.mapping_status = 'APPROVED'`
+        matchSideFilter = Prisma.sql`AND pm.mapping_status = 'APPROVED' AND (pm.ptdrk_products_id IS NOT NULL OR pm.bsbg_products_id IS NOT NULL)`
+      } else if (matchSide === 'approved_no_match') {
+        matchSideFilter = Prisma.sql`AND pm.mapping_status = 'APPROVED' AND pm.ptdrk_products_id IS NULL AND pm.bsbg_products_id IS NULL`
       } else if (matchSide === 'pending') {
         matchSideFilter = Prisma.sql`AND pm.mapping_status = 'PENDING'`
       } else if (matchSide === 'unmatched') {
@@ -476,6 +593,7 @@ export async function GET(request: NextRequest) {
           brand: string
           brand_list_id: number
           mapping_status: string | null
+          has_match: boolean | null
         }>
       >(Prisma.sql`
         SELECT DISTINCT ON (dp.id)
@@ -485,7 +603,8 @@ export async function GET(request: NextRequest) {
           dp.stock_name,
           bl.brand,
           bm.brand_list_id,
-          pm.mapping_status
+          pm.mapping_status,
+          (pm.ptdrk_products_id IS NOT NULL OR pm.bsbg_products_id IS NOT NULL) AS has_match
         FROM v0.dnmk_products dp
         JOIN v0.brand_mappings bm ON bm.dnmk_brands_id = dp.dnmk_brands_id
         JOIN v0.brand_list bl ON bl.id = bm.brand_list_id
@@ -498,10 +617,11 @@ export async function GET(request: NextRequest) {
         LIMIT ${limit} OFFSET ${offset}
       `)
 
-      const summaryResult = await db.$queryRaw<Array<{ total: bigint; matched: bigint; pending: bigint; unmatched: bigint }>>(Prisma.sql`
+      const summaryResult = await db.$queryRaw<Array<{ total: bigint; matched: bigint; noMatch: bigint; pending: bigint; unmatched: bigint }>>(Prisma.sql`
         SELECT
           COUNT(DISTINCT dp.id)::bigint AS total,
-          COUNT(DISTINCT dp.id) FILTER (WHERE pm.mapping_status = 'APPROVED')::bigint AS matched,
+          COUNT(DISTINCT dp.id) FILTER (WHERE pm.mapping_status = 'APPROVED' AND (pm.ptdrk_products_id IS NOT NULL OR pm.bsbg_products_id IS NOT NULL))::bigint AS matched,
+          COUNT(DISTINCT dp.id) FILTER (WHERE pm.mapping_status = 'APPROVED' AND pm.ptdrk_products_id IS NULL AND pm.bsbg_products_id IS NULL)::bigint AS "noMatch",
           COUNT(DISTINCT dp.id) FILTER (WHERE pm.mapping_status = 'PENDING')::bigint AS pending,
           COUNT(DISTINCT dp.id) FILTER (WHERE pm.id IS NULL)::bigint AS unmatched
         FROM v0.dnmk_products dp
@@ -516,9 +636,9 @@ export async function GET(request: NextRequest) {
       if (!summary) throw new Error('summary query failed')
 
       return successResponse({
-        rows: rows.map((r) => ({ id: Number(r.id), stock_code: r.stock_code, part_no: r.part_no, stock_name: r.stock_name, brand: r.brand, brand_list_id: r.brand_list_id, mapping_status: r.mapping_status })),
+        rows: rows.map((r) => ({ id: Number(r.id), stock_code: r.stock_code, part_no: r.part_no, stock_name: r.stock_name, brand: r.brand, brand_list_id: r.brand_list_id, mapping_status: r.mapping_status, has_match: r.has_match ?? false })),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-        summary: { total: Number(summary.total), matched: Number(summary.matched), pending: Number(summary.pending), unmatched: Number(summary.unmatched) }
+        summary: { total: Number(summary.total), matched: Number(summary.matched), noMatch: Number(summary.noMatch), pending: Number(summary.pending), unmatched: Number(summary.unmatched) }
       }, context)
     }
 
@@ -722,6 +842,48 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { dnmkProductsId, bsbgProductsId, ptdrkProductsId, ptdrkProductsIds, brandListId, action } = body
+
+    // ── Bulk approve without match: every unmatched DNMK product under a brand ─
+    // Inserts an APPROVED row with NULL ptdrk/bsbg for every DNMK product that
+    // has no product_mappings row yet (scoped to the selected brand + optional
+    // search query, mirroring the DNMK list). These rows are "approved without a
+    // match": mapping_status='APPROVED' but both link ids NULL — distinguishable
+    // from real matches (which carry a non-null ptdrk_products_id/bsbg_products_id).
+    if (action === 'bulk_approve_no_match') {
+      if (!brandListId) {
+        return errorResponse({ status: 400, code: 'MISSING_FIELDS', message: 'brandListId required.', context })
+      }
+      const brandListIdNum = parseInt(brandListId)
+      if (!Number.isFinite(brandListIdNum) || brandListIdNum <= 0) {
+        return errorResponse({ status: 400, code: 'MISSING_FIELDS', message: 'brandListId invalid.', context })
+      }
+
+      const q = typeof body.q === 'string' ? body.q.trim() : ''
+      const searchFilter = q
+        ? Prisma.sql`AND (bl.brand ILIKE ${'%' + q + '%'} OR dp.stock_code ILIKE ${'%' + q + '%'} OR dp.part_no ILIKE ${'%' + q + '%'} OR dp.stock_name ILIKE ${'%' + q + '%'} OR dp.barcode_1 ILIKE ${'%' + q + '%'} OR dp.barcode_2 ILIKE ${'%' + q + '%'} OR dp.barcode_3 ILIKE ${'%' + q + '%'})`
+        : Prisma.empty
+
+      try {
+        const result = await db.$executeRaw(Prisma.sql`
+          INSERT INTO v0.product_mappings
+            (brand_list_id, dnmk_products_id, ptdrk_products_id, bsbg_products_id, mapping_status)
+          SELECT DISTINCT ON (dp.id)
+            bm.brand_list_id, dp.id, NULL, NULL, 'APPROVED'
+          FROM v0.dnmk_products dp
+          JOIN v0.brand_mappings bm ON bm.dnmk_brands_id = dp.dnmk_brands_id
+          JOIN v0.brand_list bl ON bl.id = bm.brand_list_id
+          LEFT JOIN v0.product_mappings pm ON pm.dnmk_products_id = dp.id
+          WHERE pm.id IS NULL
+            AND bm.brand_list_id = ${brandListIdNum}
+            ${searchFilter}
+          ORDER BY dp.id
+        `)
+        return successResponse({ success: true, approved: Number(result) }, context)
+      } catch (error) {
+        console.error('[admin:products:match] bulk_approve_no_match error:', error)
+        return errorResponse({ status: 500, code: 'BULK_APPROVE_NO_MATCH_FAILED', message: 'Eşleşmesiz toplu onay yapılamadı.', context })
+      }
+    }
 
     // ── Bulk approve pairs: many (dnmk ↔ ptdrk) pairs (single tx) ───────────
     // Accepts an array of {dnmkId, ptdrkId} pairs and a brandListId, writes

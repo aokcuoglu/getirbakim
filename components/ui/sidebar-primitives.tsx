@@ -18,7 +18,7 @@ export function SidebarContainer({
 }) {
   return (
     <aside
-      className={cn('lg:w-80 shrink-0 rounded-md border border-border bg-card p-4 font-mono', className)}
+      className={cn('lg:w-80 shrink-0 rounded-md border border-border bg-card p-4', className)}
     >
       <div
         className={cn(

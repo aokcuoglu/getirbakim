@@ -1,5 +1,4 @@
 export type DpprdMappingStatus = 'PENDING' | 'APPROVED' | 'IGNORED'
-export type DpprdMatchMethod = 'PART_NO_EXACT' | 'MANUAL' | 'BULK'
 
 export interface DpprdMatchFilters {
   q?: string
@@ -25,13 +24,6 @@ export interface DpprdMatchListItem {
   ptdrkBrand: string | null
   ptdrkRefNo: string | null
   mappingStatus: DpprdMappingStatus
-  matchMethod: DpprdMatchMethod | null
-  confidence: number | null
-  oemNo: string | null
-  approvedAt: string | null
-  ignoredAt: string | null
-  createdAt: string
-  updatedAt: string
 }
 
 export interface DpprdMatchOverview {
@@ -76,5 +68,4 @@ export interface DpprdManualSearchCandidate {
 export interface DpprdManualLinkInput {
   dnmkProductId: string
   ptdrkProductId: number
-  matchMethod?: DpprdMatchMethod
 }

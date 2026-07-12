@@ -113,7 +113,8 @@
     "loggingIn": "Giriş yapılıyor...",
     "registering": "Kayıt yapılıyor...",
     "loginSuccess": "Başarıyla giriş yapıldı",
-    "registerSuccess": "Kayıt işlemi başarılı"
+    "registerSuccess": "Kayıt işlemi başarılı",
+    "invalidCredentials": "E-posta veya şifre hatalı"
   },
   "Footer": {
     "brandDescription": "Profesyoneller ve meraklılar için premium otomotiv bileşenleri. Yapay zeka destekli uyumluluk kontrolü ile her seferinde doğru parça.",
@@ -644,20 +645,23 @@
       "stock": "Stok",
       "images": "Görseller",
       "specifications": "Özellikler"
-    },
-    "Auth": {
-      "loginTitle": "Giriş Yap",
-      "signUpTitle": "Kayıt Ol",
-      "email": "E-posta",
-      "password": "Şifre",
-      "loginButton": "Giriş Yap",
-      "signUpButton": "Kayıt Ol",
-      "loading": "Yükleniyor...",
-      "noAccount": "Hesabınız yok mu?",
-      "hasAccount": "Zaten bir hesabınız var mı?",
-      "register": "Buradan kayıt olun",
-      "loginLink": "Buradan giriş yapın"
     }
+  },
+  "Auth": {
+    "loginTitle": "Giriş Yap",
+    "signUpTitle": "Kayıt Ol",
+    "name": "Ad Soyad",
+    "email": "E-posta",
+    "password": "Şifre",
+    "confirmPassword": "Şifre (Tekrar)",
+    "loginButton": "Giriş Yap",
+    "signUpButton": "Kayıt Ol",
+    "loading": "Yükleniyor...",
+    "loginSuccess": "Giriş başarılı",
+    "noAccount": "Hesabınız yok mu?",
+    "hasAccount": "Zaten bir hesabınız var mı?",
+    "register": "Buradan kayıt olun",
+    "loginLink": "Buradan giriş yapın"
   },
   "GlobalSearch": {
     "ariaSearch": "Ara",
@@ -1026,5 +1030,26 @@
       "filterMatched": "Eşleşmiş",
       "pagination": "Sayfa {page} / {pages} · {total} kayıt"
     }
+  },
+  "ProductDetail": {
+    "sku": "Ürün Kodu",
+    "inStock": "Stokta",
+    "supplyable": "Tedarik edilebilir",
+    "unavailable": "Fiyat için iletişime geçin",
+    "vatIncluded": "KDV dahil",
+    "priceOnRequest": "Fiyat için iletişime geçin",
+    "deliveryInStock": "Stoktan hızlı teslimat",
+    "deliverySupplyable": "Tedarik süresi ürüne göre değişir",
+    "addToCart": "Sepete Ekle",
+    "decrease": "Azalt",
+    "increase": "Artır",
+    "noImage": "Görsel yok",
+    "stockQty": "{count, plural, one {# adet stokta} other {# adet stokta}}",
+    "offerCount": "{count, plural, one {# tedarikçi teklifi} other {# tedarikçi teklifi}}",
+    "oemCodes": "OEM Kodları",
+    "specifications": "Teknik Özellikler",
+    "ean": "Barkod (EAN)",
+    "compatibility": "Uyumlu Araçlar",
+    "moreVehicles": "+{count} araç daha"
   }
 }

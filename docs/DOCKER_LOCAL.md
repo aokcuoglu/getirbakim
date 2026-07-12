@@ -1,122 +1,92 @@
-# Docker Local Runtime
+# Local Docker Runtime (Infra Only)
 
-> **For the recommended local development workflow (app outside Docker, only Meilisearch in Docker), see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).**
+> The Next.js app **no longer runs in Docker locally**. `docker-compose.local.yml`
+> now provides only the backing services — **Postgres + Meilisearch** — and the
+> app runs natively via `bun run dev` on **http://localhost:3001**. This mirrors
+> the bakimx local setup (only infra in Docker, app native for fast HMR).
 >
-> This document covers the **full Docker local mode** for production parity testing.
-
-GetirBakim V2 can run locally via Docker using `docker-compose.local.yml`.
+> For the full local dev guide see [LOCAL_DEVELOPMENT.md](./LOCAL_DEVELOPMENT.md).
 
 ## Prerequisites
 
 - [OrbStack](https://orbstack.dev/) or [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - `.env` file in project root (copy from `.env.example`)
+- `.env.local` with host-facing overrides (already committed for local dev)
 
 ## Quick Start
 
 ```bash
-# 1. Create .env if missing
-cp .env.example .env
-# Edit .env with your credentials
+# 1. Start Postgres + Meilisearch in Docker (creates the data volumes if missing)
+bun run dev:deps
 
-# 2. Build and run
-docker compose -f docker-compose.local.yml up -d --build
+# 2. Start the Next.js dev server (port 3001)
+bun run dev
 
 # 3. Verify
-curl -s http://localhost:3001/api/health
+curl -s http://localhost:3001/api/health | jq
 ```
 
-The app runs at **http://localhost:3001**.
+The app runs at **http://localhost:3001**. `database` and `meilisearch` in the
+health payload confirm the app reached the dockerized services.
 
-### Ports (3000 vs 3001)
+## Ports
 
-| Mode | Host URL | Notes |
-|------|----------|--------|
-| `bun run dev` | http://localhost:3000 | Default Next dev server |
-| `docker-compose.local.yml` | http://localhost:3001 | Host **and** container listen on **3001** (`127.0.0.1:3001:3001`) |
+| Service | Host address | Notes |
+|---------|--------------|--------|
+| App (`bun run dev`) | http://localhost:3001 | `next dev -p 3001`, runs on the host (not Docker) |
+| Postgres | `127.0.0.1:54322` | Container listens on 5432, published to 54322 |
+| Meilisearch | `127.0.0.1:7700` | Bound to localhost only |
 
-`docker-compose.local.yml` **hardcodes** `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` at image build time so a `.env` still pointing at `:3000` does not break auth or redirects in Docker.
-
-For Docker, also set in `.env` (runtime metadata, health checks):
+`.env.local` already points the host-side app at these:
 
 ```env
+DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
+MEILI_HOST=http://127.0.0.1:7700
 NEXT_PUBLIC_SITE_URL=http://localhost:3001
 NEXT_PUBLIC_APP_URL=http://localhost:3001
 ```
 
 ### Admin panel (`/tr/admin`)
 
-Admin routes require an admin session (Stack Auth) with `users.role = ADMIN` in the database.
-
-- **Log in on port 3001**, not 3000: `bun run dev` uses `:3000`; Docker uses `:3001`. Cookies are not shared between ports.
-- If you open `/tr/admin` without a session, you are redirected to `/tr/login?redirect=...` (not the storefront home).
-- Set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` to `http://localhost:3001` in `.env` (see table above).
+Admin routes require an admin session with `users.role = ADMIN` in the database.
+Log in on **http://localhost:3001**. If you open `/tr/admin` without a session,
+you are redirected to `/tr/login?redirect=...`.
 
 ## Commands
 
 | Action | Command |
 |--------|---------|
-| Build & start | `docker compose -f docker-compose.local.yml up -d --build` |
-| Stop | `docker compose -f docker-compose.local.yml down` |
-| Stop & remove orphans | `docker compose -f docker-compose.local.yml down --remove-orphans` |
-| Rebuild (no cache) | `docker compose -f docker-compose.local.yml build --no-cache` |
-| View logs | `docker compose -f docker-compose.local.yml logs app --tail=100 -f` |
-| Check status | `docker compose -f docker-compose.local.yml ps` |
-| Restart | `docker compose -f docker-compose.local.yml restart` |
-| Shell into container | `docker exec -it getirbakim-app-local sh` |
+| Start infra (postgres + meili) | `bun run dev:deps` |
+| Stop infra | `bun run dev:deps:stop` |
+| Start app | `bun run dev` |
+| Infra logs | `docker compose -f docker-compose.local.yml logs -f` |
+| Infra status | `docker compose -f docker-compose.local.yml ps` |
+| Postgres shell | `docker exec -it getirbakim-postgres-local psql -U postgres -d getirbakim` |
 
 ## Healthcheck
-
-The container includes a built-in healthcheck hitting `/api/health` every 30 seconds.
-
-Manual smoke:
 
 ```bash
 curl -s http://localhost:3001/api/health | jq
 ```
 
-Expected response:
+Expected:
 
 ```json
 {
   "status": "ok",
-  "version": "dev-local",
-  "checks": { "database": "ok" },
-  "runtimeMs": 5,
-  "timestamp": "2026-05-04T..."
+  "checks": { "database": "ok", "meilisearch": "ok (available)", "siteUrl": "http://localhost:3001" }
 }
 ```
 
-If `database` is `"error"`, check `DATABASE_URL` in your `.env`.
-
-## Build Arguments
-
-The local compose passes these `NEXT_PUBLIC_*` build args from your `.env`:
-
-- `NEXT_PUBLIC_SITE_URL` (default: `http://localhost:3001`)
-- `NEXT_PUBLIC_APP_URL` (default: `http://localhost:3001`)
-- `NEXT_PUBLIC_MEILI_HOST` (default: `http://localhost:7700`)
-- `NEXT_PUBLIC_MEILI_SEARCH_KEY`
-- `NEXT_PUBLIC_BUILD_VERSION` (default: `dev-local`)
-- `NEXT_PUBLIC_ENABLE_COOKIEYES` (default: `false`)
-- `NEXT_PUBLIC_COOKIEYES_CLIENT_ID`
-- `NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS`
-
-Server-side secrets are injected at runtime via `env_file: .env`. For database access,
-`docker-compose.local.yml` overrides `DATABASE_URL` and `DIRECT_URL` so the app always
-uses the local `getirbakim` PostgreSQL service at `postgres:5432`.
-
-The same compose file provides a local PostgreSQL database. For `bun run dev` and Prisma commands running on the host, use `.env.local`:
-
-```env
-DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
-DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
-```
+If `database` is `"error"`, confirm `bun run dev:deps` is up and `DATABASE_URL`
+in `.env.local` points at `127.0.0.1:54322`.
 
 ### Dinamik API (proxy zorunlu)
 
-Dinamik, yalnızca whitelist’teki VPS IP’sinden istek kabul eder. Yerel Docker veya `bun run dev` ortamında admin API testleri **doğrudan internete değil**, VPS Squid proxy’sine gitmelidir.
-
-`.env` içine ekleyin (Postman’de kullandığınız kullanıcı/şifre/port ile aynı):
+Dinamik, yalnızca whitelist’teki VPS IP’sinden istek kabul eder. Yerel `bun run dev`
+ortamında admin API testleri **doğrudan internete değil**, VPS Squid proxy’sine
+gitmelidir. `.env` içine ekleyin (Postman’de kullandığınız kullanıcı/şifre/port ile aynı):
 
 ```env
 DINAMIK_BASE=https://dinamikapp-api.dinamik.online
@@ -126,13 +96,9 @@ DINAMIK_PROXY_URL=http://dinamik:your-password@173.249.36.2:8888
 DINAMIK_PROXY_REQUIRED=true
 ```
 
-Değişiklikten sonra:
-
-```bash
-docker compose -f docker-compose.local.yml up -d --build
-```
-
-Admin panelde `/admin/suppliers/dinamik` üzerinde **Proxy 173.249.36.2:8888** rozeti görünmeli. Squid `acl` satırında Mac’inizin güncel public IP’si (`curl -4 ifconfig.me`) tanımlı olmalı.
+Admin panelde `/admin/suppliers/dinamik` üzerinde **Proxy 173.249.36.2:8888** rozeti
+görünmeli. Squid `acl` satırında Mac’inizin güncel public IP’si (`curl -4 ifconfig.me`)
+tanımlı olmalı.
 
 ## Common Issues
 
@@ -142,52 +108,39 @@ Admin panelde `/admin/suppliers/dinamik` üzerinde **Proxy 173.249.36.2:8888** r
 Cannot connect to the Docker daemon
 ```
 
-Start OrbStack or Docker Desktop and retry.
+Start OrbStack or Docker Desktop and retry `bun run dev:deps`.
 
 ### Port 3001 occupied
 
 ```
-Error: Bind for 127.0.0.1:3001 failed: port is already allocated
+Error: listen EADDRINUSE :::3001
 ```
-
-Find and stop the process:
 
 ```bash
 lsof -i :3001
 kill <PID>
 ```
 
-Or change the port in `docker-compose.local.yml`.
+Or change the port in the `dev` script (`next dev -p <port>`).
 
-### .env missing
+### External volume not found
 
 ```
-ERROR: env_file .env not found
+Error: external volume "getirbakim-postgres-data" not found
 ```
 
-Copy from `.env.example` and fill in values:
-
-```bash
-cp .env.example .env
-```
+`bun run dev:deps` creates the `getirbakim-postgres-data` and
+`getirbakim-meili-data` volumes before starting. Run it (not a bare
+`docker compose up`) so the volumes exist.
 
 ### PrismaPg prepared statement errors
 
 Symptom: `P1000: PostgreSQL error: prepared statement "s0" does not exist`
 
-Fix: Switch `DATABASE_URL` to session pooler (port 5432). See above.
+Fix: Use the session pooler (port 5432 inside the container / 54322 on host), which
+`.env.local` already targets.
 
-### Container exits immediately
+## Production Docker
 
-```bash
-docker compose -f docker-compose.local.yml logs app --tail=50
-```
-
-Common causes:
-- Missing required env var
-- Invalid `DATABASE_URL`
-- Build failed (re-run with `--build`)
-
-### Build fails with missing NEXT_PUBLIC_ vars
-
-The build requires `NEXT_PUBLIC_*` vars as build args. Ensure they exist in your `.env` or accept the defaults in the compose file.
+Production still runs the app in Docker via `docker-compose.yml` on the VPS (built
+from `Dockerfile`). That flow is unchanged — this document only covers local infra.

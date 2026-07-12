@@ -13,7 +13,8 @@ See `AGENTS.md` for detailed working principles, domain guidance, and engineerin
 ## Commands
 
 ```bash
-bun run dev            # Start dev server (port 3000)
+bun run dev:deps       # Start Postgres + Meilisearch in Docker (infra only)
+bun run dev            # Start dev server (port 3001) — app runs outside Docker
 bun run build          # prisma generate + next build
 bun run lint           # TypeScript typecheck + unsafe raw SQL check
 bun run typecheck      # TypeScript only

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { SlidersHorizontal } from 'lucide-react'
@@ -136,6 +136,8 @@ interface AdminFilterBarProps {
   children?: React.ReactNode
   onReset?: () => void
   resetLabel?: string
+  onRefresh?: () => void
+  refreshLabel?: string
   className?: string
 }
 
@@ -143,11 +145,25 @@ export function AdminFilterBar({
   children,
   onReset,
   resetLabel = 'Filtreleri Sıfırla',
+  onRefresh,
+  refreshLabel = 'Yenile',
   className
 }: AdminFilterBarProps) {
   return (
     <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
       {children}
+      {onRefresh ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={onRefresh}
+        >
+          <RefreshCw className="mr-1 h-3 w-3" />
+          {refreshLabel}
+        </Button>
+      ) : null}
       {onReset ? (
         <Button
           type="button"

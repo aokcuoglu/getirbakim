@@ -176,7 +176,7 @@ function ProviderCard({ provider }: { provider: SuppliersHubProviderCard }) {
           </Badge>
         </div>
         {provider.baseUrl ? (
-          <p className="truncate font-mono text-xs text-muted-foreground">
+          <p className="truncate text-xs text-muted-foreground">
             {provider.baseUrl}
           </p>
         ) : null}

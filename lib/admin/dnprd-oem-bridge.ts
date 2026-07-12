@@ -246,10 +246,7 @@ export async function bulkApplyOemBridgeForPendingMappings(options?: {
     ),
     mapping_updated AS (
       UPDATE v0.product_mappings pm
-      SET mapping_status = 'APPROVED',
-          oem_no = u.oem_no,
-          approved_at = NOW(),
-          updated_at = NOW()
+      SET mapping_status = 'APPROVED'
       FROM updated u
       WHERE pm.id = u.id
       RETURNING u.oem_no

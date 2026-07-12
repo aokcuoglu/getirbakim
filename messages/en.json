@@ -113,7 +113,8 @@
     "loggingIn": "Logging in...",
     "registering": "Registering...",
     "loginSuccess": "Successfully logged in",
-    "registerSuccess": "Registration successful"
+    "registerSuccess": "Registration successful",
+    "invalidCredentials": "Invalid email or password"
   },
   "Footer": {
     "brandDescription": "Premium automotive components for professionals and enthusiasts. AI-verified fitment guarantees the perfect part every time.",
@@ -644,20 +645,23 @@
       "stock": "Stock",
       "images": "Images",
       "specifications": "Specifications"
-    },
-    "Auth": {
-      "loginTitle": "Log In",
-      "signUpTitle": "Sign Up",
-      "email": "Email",
-      "password": "Password",
-      "loginButton": "Log In",
-      "signUpButton": "Sign Up",
-      "loading": "Loading...",
-      "noAccount": "Don't have an account?",
-      "hasAccount": "Already have an account?",
-      "register": "Register here",
-      "loginLink": "Login here"
     }
+  },
+  "Auth": {
+    "loginTitle": "Log In",
+    "signUpTitle": "Sign Up",
+    "name": "Full Name",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "loginButton": "Log In",
+    "signUpButton": "Sign Up",
+    "loading": "Loading...",
+    "loginSuccess": "Login successful",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "register": "Register here",
+    "loginLink": "Login here"
   },
   "GlobalSearch": {
     "ariaSearch": "Search",
@@ -1026,5 +1030,26 @@
       "filterMatched": "Matched",
       "pagination": "Page {page} / {pages} · {total} records"
     }
+  },
+  "ProductDetail": {
+    "sku": "Part No",
+    "inStock": "In stock",
+    "supplyable": "Available to order",
+    "unavailable": "Contact for price",
+    "vatIncluded": "VAT included",
+    "priceOnRequest": "Price on request",
+    "deliveryInStock": "Fast delivery from stock",
+    "deliverySupplyable": "Lead time varies by product",
+    "addToCart": "Add to Cart",
+    "decrease": "Decrease",
+    "increase": "Increase",
+    "noImage": "No image",
+    "stockQty": "{count, plural, one {# in stock} other {# in stock}}",
+    "offerCount": "{count, plural, one {# supplier offer} other {# supplier offers}}",
+    "oemCodes": "OEM Codes",
+    "specifications": "Specifications",
+    "ean": "Barcode (EAN)",
+    "compatibility": "Compatible Vehicles",
+    "moreVehicles": "+{count} more vehicles"
   }
 }
