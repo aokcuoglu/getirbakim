@@ -8,8 +8,15 @@ on:
         required: false
         type: string
   push:
+    branches:
+      - main
     tags:
       - "v*"
+
+# Serialize deploys so an in-flight deploy is never interrupted by a newer one.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
 
 jobs:
   deploy:
