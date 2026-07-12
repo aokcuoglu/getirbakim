@@ -1,121 +1,17 @@
-# Local build docker-compose — builds from local Dockerfile.
-# Usage: docker compose -f docker-compose.local.yml up -d --build
+# Local infrastructure only — Postgres + Meilisearch.
 #
-# This is for local Docker testing. The production docker-compose.yml
-# builds from the local Dockerfile on VPS and requires .env.production.
+# The app itself runs OUTSIDE Docker via `bun run dev` on port 3001
+# (see package.json "dev"). This mirrors the bakimx local setup: only the
+# backing services live in Docker, the Next.js app runs natively for fast HMR.
 #
-# For local development without Docker, use: bun run dev (port 3000).
-# This stack binds the app to host port 3001 (container listens on 3001 too).
-# See docs/DOCKER_LOCAL.md for detailed instructions.
+# Usage:
+#   bun run dev:deps   # start postgres + meilisearch in Docker
+#   bun run dev        # start Next.js on http://localhost:3001
 #
-# Meilisearch is included as a local service. Port 7700 is bound to
-# 127.0.0.1 only — never exposed to the public network.
-#
-# Phase 2 hardening additions:
-#   - Meilisearch healthcheck (app waits for meilisearch to be healthy)
-#   - Resource limits (prevent OOM)
-#   - Log rotation (json-file with size limits)
-#   - Improved startup ordering (service_healthy vs service_started)
-#   - Nginx service available as an optional profile for testing
+# .env.local already points DATABASE_URL/MEILI_HOST at the host-mapped ports
+# below (127.0.0.1:54322 for postgres, 127.0.0.1:7700 for meilisearch).
 
 services:
-  # ── Optional Nginx for Production Config Testing ────────────────────────
-  # Usage: docker compose -f docker-compose.local.yml --profile nginx up -d
-  # This lets you test the production nginx config locally.
-  # Access: http://localhost (port 80) — proxied to app via Docker network.
-  nginx:
-    image: nginx:stable-alpine
-    container_name: getirbakim-nginx-local
-    profiles:
-      - nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./infra/nginx/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro
-      # Local self-signed certs for testing (generate first):
-      # mkdir -p infra/certs && openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-      #   -keyout infra/certs/privkey.pem -out infra/certs/fullchain.pem \
-      #   -subj "/CN=localhost"
-      # Uncomment:
-      # - ./infra/certs:/etc/letsencrypt/live/getirbakim.com:ro
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        # Always 3001 for this compose file — do not inherit :3000 from .env (bun dev).
-        NEXT_PUBLIC_SITE_URL: http://localhost:3001
-        NEXT_PUBLIC_APP_URL: http://localhost:3001
-        NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST:-http://localhost:7700}
-        NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY:-}
-        NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
-        NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
-        NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
-        NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev-local}
-        NEXT_PUBLIC_V0_ONLY_SITE: ${NEXT_PUBLIC_V0_ONLY_SITE:-false}
-        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
-        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
-        SENTRY_ORG: ${SENTRY_ORG:-}
-        SENTRY_PROJECT: ${SENTRY_PROJECT:-getirbakim}
-    container_name: getirbakim-app-local
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      NODE_ENV: production
-      HOSTNAME: 0.0.0.0
-      PORT: "3001"
-      NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev-local}
-      MEILI_ENABLED: "true"
-      MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-dev-master-key}
-      MEILI_INDEX_PRODUCTS: products
-      NEXT_PUBLIC_V0_ONLY_SITE: "false"
-      DATABASE_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
-      DIRECT_URL: postgresql://${LOCAL_POSTGRES_USER:-postgres}:${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}@postgres:5432/${LOCAL_POSTGRES_DB:-getirbakim}
-      DATABASE_POOL_MAX: "15"
-      AUTH_TRUST_HOST: "true"
-    volumes:
-      - ./data/storage:/app/data/storage:delegated
-    depends_on:
-      meilisearch:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    networks:
-      - app-network
-    ports:
-      - "127.0.0.1:3001:3001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:3001/api/health"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 40s
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "2"
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 256M
-
   meilisearch:
     image: getmeili/meilisearch:v1.12
     container_name: getirbakim-meilisearch-local
@@ -126,8 +22,6 @@ services:
       MEILI_NO_ANALYTICS: "true"
     volumes:
       - meili_data_local:/meili_data
-    networks:
-      - app-network
     ports:
       - "127.0.0.1:7700:7700"
     healthcheck:
@@ -158,8 +52,6 @@ services:
       POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:-local-dev-postgres-password}
     volumes:
       - postgres_data_local:/var/lib/postgresql/data
-    networks:
-      - app-network
     ports:
       - "127.0.0.1:54322:5432"
     healthcheck:
@@ -184,13 +76,10 @@ services:
         reservations:
           memory: 256M
 
-networks:
-  app-network:
-    driver: bridge
-
 volumes:
   meili_data_local:
     external: true
     name: getirbakim-meili-data
   postgres_data_local:
+    external: true
     name: getirbakim-postgres-data

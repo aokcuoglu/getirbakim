@@ -101,7 +101,7 @@ export default function ChatAssistant() {
                 <h3 className="text-sm font-bold text-foreground">
                   {t('aiTitle')}
                 </h3>
-                <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                   ● ACTIVE
                 </span>
               </div>

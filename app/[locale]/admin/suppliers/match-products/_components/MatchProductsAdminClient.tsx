@@ -236,8 +236,7 @@ export function MatchProductsAdminClient({
     startTransition(async () => {
       const result = await manualLinkDpprdMatch({
         dnmkProductId: drawerMatch.dnmkProductId,
-        ptdrkProductId: candidate.id,
-        matchMethod: 'MANUAL'
+        ptdrkProductId: candidate.id
       })
       setDrawerLinkingId(null)
       if (!result.success) {
@@ -303,27 +302,6 @@ export function MatchProductsAdminClient({
             </span>
           )
         }
-      },
-      {
-        id: 'oemNo',
-        header: 'OEM',
-        cell: ({ row }) => {
-          const oem = row.original.oemNo
-          return (
-            <span className="text-xs" title={oem ?? ''}>
-              {oem ? truncate(oem, 24) : '-'}
-            </span>
-          )
-        }
-      },
-      {
-        id: 'method',
-        header: 'Yöntem',
-        cell: ({ row }) => (
-          <span className="text-[11px] text-muted-foreground">
-            {row.original.matchMethod ?? '-'}
-          </span>
-        )
       },
       {
         id: 'status',
@@ -533,9 +511,6 @@ export function MatchProductsAdminClient({
                     <p className="truncate">↳ {m.ptdrkPartNo ?? '-'}</p>
                     <p className="truncate">{truncate(m.ptdrkTitle, 40)}</p>
                   </div>
-                  {m.oemNo && (
-                    <p className="mt-1 text-[11px] text-foreground">OEM: {truncate(m.oemNo, 24)}</p>
-                  )}
                   <div className="mt-3 flex gap-1">
                     {m.mappingStatus !== 'APPROVED' && (
                       <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleApprove(m.id)} disabled={isPending}>
@@ -577,7 +552,7 @@ export function MatchProductsAdminClient({
             <SheetDescription>
               {drawerMatch && (
                 <>
-                  Dinamik: <span className="font-mono">{drawerMatch.dnmkStockCode}</span> ({drawerMatch.dnmkBrand})
+                  Dinamik: <span>{drawerMatch.dnmkStockCode}</span> ({drawerMatch.dnmkBrand})
                 </>
               )}
             </SheetDescription>
@@ -611,7 +586,7 @@ export function MatchProductsAdminClient({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-mono font-medium text-foreground">{c.partNo ?? '-'}</p>
+                        <p className="font-medium text-foreground">{c.partNo ?? '-'}</p>
                         <p className="text-muted-foreground truncate">{truncate(c.title, 48)}</p>
                         <p className="text-muted-foreground/70">{c.brandName}</p>
                         {c.refNo && (
@@ -621,7 +596,7 @@ export function MatchProductsAdminClient({
                         )}
                         {c.previewOemNo && (
                           <p className="mt-1 text-foreground">
-                            OEM (önizleme): <span className="font-mono">{truncate(c.previewOemNo, 28)}</span>
+                            OEM (önizleme): <span>{truncate(c.previewOemNo, 28)}</span>
                           </p>
                         )}
                       </div>

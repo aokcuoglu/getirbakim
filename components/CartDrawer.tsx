@@ -50,7 +50,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
             <span className="text-xs font-semibold text-foreground uppercase tracking-wide">
                Shipping Status
             </span>
-            <span className="text-xs text-muted-foreground font-mono">
+            <span className="text-xs text-muted-foreground">
                {progress.toFixed(0)}%
             </span>
           </div>
@@ -127,7 +127,7 @@ const CartDrawer: React.FC<CartDrawerProps> = ({
           <div className="p-6 bg-background border-t border-border">
             <div className="flex justify-between items-center mb-4 text-sm">
               <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-bold text-foreground font-mono">{total.toFixed(2)} TRY</span>
+              <span className="font-bold text-foreground">{total.toFixed(2)} TRY</span>
             </div>
             <GlassButton
               className="w-full h-11 flex items-center justify-center gap-2"

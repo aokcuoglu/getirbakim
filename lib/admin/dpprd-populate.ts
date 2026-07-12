@@ -87,22 +87,19 @@ export async function populateDpprdMatches(options?: {
   // 3. Bulk insert with ON CONFLICT DO NOTHING. We split into chunks to keep
   //    parameter counts within Postgres' 65555-parameter limit and to bound
   //    transaction size. Each row contributes 3 params (brand_list_id,
-  //    dnmk_products_id, ptdrk_products_id). The remaining columns use
-  //    explicit literals so column/value counts stay balanced: each tuple
-  //    expands to (brand_list_id, dnmk_products_id, ptdrk_products_id,
-  //    'PENDING', 'PART_NO_EXACT', 1.0000).
+  //    dnmk_products_id, ptdrk_products_id) plus the status literal:
   const CHUNK_SIZE = 1000
   for (let i = 0; i < candidates.length; i += CHUNK_SIZE) {
     const chunk = candidates.slice(i, i + CHUNK_SIZE)
     const tuples = chunk.map(
       (c) =>
-        Prisma.sql`(${c.brand_list_id}, ${c.dnmk_products_id}, ${c.ptdrk_products_id}, 'PENDING', 'PART_NO_EXACT', 1.0000)`
+        Prisma.sql`(${c.brand_list_id}, ${c.dnmk_products_id}, ${c.ptdrk_products_id}, 'PENDING')`
     )
     const valuesSql = Prisma.join(tuples)
 
     const result = await db.$executeRaw(Prisma.sql`
       INSERT INTO v0.product_mappings
-        (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status, match_method, confidence)
+        (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status)
       VALUES ${valuesSql}
       ON CONFLICT (dnmk_products_id, ptdrk_products_id) DO NOTHING
     `)

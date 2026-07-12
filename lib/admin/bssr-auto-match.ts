@@ -103,16 +103,14 @@ export async function autoMatchBssrProducts(options?: {
         WHERE rn_bsbg = 1 AND rn_dnmk = 1
       )
       INSERT INTO v0.product_mappings
-        (brand_list_id, dnmk_products_id, bsbg_products_id, mapping_status, match_method, confidence)
-      SELECT brand_list_id, dnmk_products_id, bsbg_products_id, 'PENDING', 'PART_NO_EXACT', 1.0000
+        (brand_list_id, dnmk_products_id, bsbg_products_id, mapping_status)
+      SELECT brand_list_id, dnmk_products_id, bsbg_products_id, 'PENDING'
       FROM stable_matches
       ON CONFLICT (bsbg_products_id) WHERE bsbg_products_id IS NOT NULL
       DO UPDATE SET
         brand_list_id = EXCLUDED.brand_list_id,
         dnmk_products_id = EXCLUDED.dnmk_products_id,
-        mapping_status = 'PENDING',
-        match_method = 'PART_NO_EXACT',
-        confidence = 1.0000
+        mapping_status = 'PENDING'
     `)
     stats.insertedDnmkBsbg = Number(insertResult)
     log(`[bssr-auto-match] Inserted ${stats.insertedDnmkBsbg} dnmk+bsbg mapping rows`)
@@ -122,13 +120,11 @@ export async function autoMatchBssrProducts(options?: {
   if (apply) {
     const bsbgOnlyResult = await db.$executeRaw(Prisma.sql`
       INSERT INTO v0.product_mappings
-        (brand_list_id, bsbg_products_id, mapping_status, match_method, confidence)
+        (brand_list_id, bsbg_products_id, mapping_status)
       SELECT
         bm.brand_list_id,
         bp.id,
-        'PENDING',
-        'MANUAL',
-        NULL
+        'PENDING'
       FROM v0.bsbg_products bp
       JOIN v0.brand_mappings bm ON bm.bsbg_brands_id = bp.bsbg_brands_id
       WHERE NOT EXISTS (

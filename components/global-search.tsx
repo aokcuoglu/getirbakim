@@ -225,7 +225,7 @@ export function GlobalSearch({
         >
           <Search size={18} strokeWidth={1.5} className="mr-3" />
           <span className="flex-1 text-left">{t('smartSearch')}</span>
-          <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
+          <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 text-[10px] font-medium opacity-100 sm:flex">
             <span className="text-xs">⌘</span>K
           </kbd>
         </button>

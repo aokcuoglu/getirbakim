@@ -42,6 +42,8 @@ interface DnmkProductRow {
   brand: string
   brand_list_id: number
   mapping_status: string | null
+  /** True when APPROVED via a real PT/BSBG link; false when approved without a match. */
+  has_match?: boolean
 }
 
 interface BsbgProductRow {
@@ -79,8 +81,41 @@ interface PaginationInfo {
 interface SummaryInfo {
   total: number
   matched: number
+  /** APPROVED but without any PT/BSBG link (approved-without-match). DNMK tab only. */
+  noMatch?: number
   pending: number
   unmatched: number
+}
+
+interface DnmkDetailMapping {
+  mapping_id: number
+  mapping_status: string
+  brand_list_name: string | null
+  ptdrk_id: number | null
+  ptdrk_product_id: string | null
+  ptdrk_part_no: string | null
+  ptdrk_title: string | null
+  ptdrk_ref_no: string | null
+}
+
+interface DnmkDetail {
+  id: number
+  stock_code: string
+  stock_name: string | null
+  part_no: string | null
+  oem_no: string | null
+  barcode_1: string | null
+  barcode_2: string | null
+  barcode_3: string | null
+  image_url: string | null
+  is_passive: boolean
+  created_at: string
+  updated_at: string
+  last_seen_at: string
+  brand: string
+  price: number | null
+  stock_qty: number | null
+  campaign_rate: number | null
 }
 
 interface BulkSuggestPair {
@@ -120,6 +155,21 @@ function statusIcon(status: string | null) {
   return <XCircle size={12} />
 }
 
+// DNMK rows can be APPROVED with a real PT/BSBG link or APPROVED without any
+// match (has_match === false). Both share mapping_status='APPROVED', so surface
+// the distinction in the badge.
+const isApprovedNoMatch = (status: string | null, hasMatch?: boolean) => isApproved(status) && hasMatch === false
+
+function dnmkStatusColor(status: string | null, hasMatch?: boolean): string {
+  if (isApprovedNoMatch(status, hasMatch)) return 'text-sky-600 bg-sky-50 border-sky-200'
+  return statusColor(status)
+}
+
+function dnmkStatusLabel(status: string | null, hasMatch?: boolean): string {
+  if (isApprovedNoMatch(status, hasMatch)) return 'Onaylı (eşleşmesiz)'
+  return statusLabel(status)
+}
+
 const TABS: { value: TabSource; label: string }[] = [
   { value: 'dnmk', label: 'DNMK Ürünleri' },
   { value: 'bsbg', label: 'BSBG Ürünleri' },
@@ -134,17 +184,17 @@ export function ProductMatchClient() {
   // DNMK state
   const [dnmkRows, setDnmkRows] = useState<DnmkProductRow[]>([])
   const [dnmkPagination, setDnmkPagination] = useState<PaginationInfo>({ page: 1, limit: 50, total: 0, pages: 0 })
-  const [dnmkSummary, setDnmkSummary] = useState<SummaryInfo>({ total: 0, matched: 0, pending: 0, unmatched: 0 })
+  const [dnmkSummary, setDnmkSummary] = useState<SummaryInfo>({ total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
 
   // BSBG state
   const [bsbgRows, setBsbgRows] = useState<BsbgProductRow[]>([])
   const [bsbgPagination, setBsbgPagination] = useState<PaginationInfo>({ page: 1, limit: 50, total: 0, pages: 0 })
-  const [bsbgSummary, setBsbgSummary] = useState<SummaryInfo>({ total: 0, matched: 0, pending: 0, unmatched: 0 })
+  const [bsbgSummary, setBsbgSummary] = useState<SummaryInfo>({ total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
 
   // PTDRK state
   const [ptdrkRows, setPtdrkRows] = useState<PtdrkProductRow[]>([])
   const [ptdrkPagination, setPtdrkPagination] = useState<PaginationInfo>({ page: 1, limit: 50, total: 0, pages: 0 })
-  const [ptdrkSummary, setPtdrkSummary] = useState<SummaryInfo>({ total: 0, matched: 0, pending: 0, unmatched: 0 })
+  const [ptdrkSummary, setPtdrkSummary] = useState<SummaryInfo>({ total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
 
   // Shared state
   const [brands, setBrands] = useState<BrandOption[]>([])
@@ -164,11 +214,41 @@ export function ProductMatchClient() {
   const [selectedPtIds, setSelectedPtIds] = useState<Set<number>>(new Set())
   const [matchingLoading, setMatchingLoading] = useState(false)
 
+  // DNMK detail modal state
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false)
+  const [detailProduct, setDetailProduct] = useState<DnmkDetail | null>(null)
+  const [detailMappings, setDetailMappings] = useState<DnmkDetailMapping[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const openDetailDialog = useCallback(async (dnmkId: number) => {
+    setDetailDialogOpen(true)
+    setDetailProduct(null)
+    setDetailMappings([])
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/admin/products/match?target=dnmk_detail&dnmkProductsId=${dnmkId}`)
+      const data = await res.json()
+      if (data.error) {
+        toast.error(data.message || 'Ürün detayı yüklenemedi.')
+        setDetailDialogOpen(false)
+        return
+      }
+      setDetailProduct(data.product)
+      setDetailMappings(data.mappings || [])
+    } catch {
+      toast.error('Ürün detayı yüklenemedi.')
+      setDetailDialogOpen(false)
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
   // Bulk match modal state
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [bulkPairs, setBulkPairs] = useState<BulkSuggestPair[]>([])
   const [bulkLoading, setBulkLoading] = useState(false)
   const [bulkApproving, setBulkApproving] = useState(false)
+  const [bulkApprovingNoMatch, setBulkApprovingNoMatch] = useState(false)
   const [bulkSelectedKeys, setBulkSelectedKeys] = useState<Set<string>>(new Set())
   const [bulkPage, setBulkPage] = useState(1)
   const [bulkPagination, setBulkPagination] = useState<PaginationInfo>({ page: 1, limit: 200, total: 0, pages: 0 })
@@ -241,15 +321,15 @@ export function ProductMatchClient() {
         if (source === 'dnmk') {
           setDnmkRows(data.rows || [])
           setDnmkPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 })
-          setDnmkSummary(data.summary || { total: 0, matched: 0, pending: 0, unmatched: 0 })
+          setDnmkSummary(data.summary || { total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
         } else if (source === 'bsbg') {
           setBsbgRows(data.rows || [])
           setBsbgPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 })
-          setBsbgSummary(data.summary || { total: 0, matched: 0, pending: 0, unmatched: 0 })
+          setBsbgSummary(data.summary || { total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
         } else {
           setPtdrkRows(data.rows || [])
           setPtdrkPagination(data.pagination || { page: 1, limit: 50, total: 0, pages: 0 })
-          setPtdrkSummary(data.summary || { total: 0, matched: 0, pending: 0, unmatched: 0 })
+          setPtdrkSummary(data.summary || { total: 0, matched: 0, noMatch: 0, pending: 0, unmatched: 0 })
         }
       }
     } catch {
@@ -316,6 +396,43 @@ export function ProductMatchClient() {
       setMatchingLoading(false)
     }
   }, [matchDnmkProduct, selectedBrandListId, filters, searchValue, dnmkPagination.page, bsbgPagination.page, ptdrkPagination.page, activeTab, fetchRows])
+
+  // Bulk-approve every unmatched DNMK product under the selected brand (+ active
+  // search) as "approved without a match": mapping_status='APPROVED' with NULL
+  // ptdrk/bsbg. Requires a brand to keep the scope bounded.
+  const handleBulkApproveNoMatch = useCallback(async () => {
+    if (!filters.brandListId) {
+      toast.error('Önce marka seçin.')
+      return
+    }
+    const brandName = brands.find((b) => String(b.id) === String(filters.brandListId))?.brand ?? 'seçili marka'
+    if (!window.confirm(`${brandName} için eşleşmemiş tüm DNMK ürünleri "eşleşmesiz" olarak onaylanacak. Devam edilsin mi?`)) {
+      return
+    }
+    setBulkApprovingNoMatch(true)
+    try {
+      const res = await fetch('/api/admin/products/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'bulk_approve_no_match',
+          brandListId: parseInt(filters.brandListId),
+          q: searchValue || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        toast.error(data.message || 'Eşleşmesiz toplu onay başarısız.')
+        return
+      }
+      toast.success(`${data.approved ?? 0} ürün eşleşmesiz onaylandı.`)
+      void fetchRows(filters, searchValue, dnmkPagination.page, 'dnmk')
+    } catch {
+      toast.error('Bir hata oluştu.')
+    } finally {
+      setBulkApprovingNoMatch(false)
+    }
+  }, [filters, searchValue, brands, dnmkPagination.page, fetchRows])
 
   const bulkSelectedKeysRef = useRef<Set<string>>(new Set())
   const syncBulkSelectedKeysRef = (next: Set<string>) => {
@@ -496,6 +613,7 @@ export function ProductMatchClient() {
         <AdminKpiGrid>
           <AdminKpiCard label="Toplam DNMK Ürün" value={activeSummary.total} tone="default" />
           <AdminKpiCard label="Eşleşmiş" value={activeSummary.matched} tone="success" />
+          <AdminKpiCard label="Onaylı (eşleşmesiz)" value={activeSummary.noMatch ?? 0} tone="info" />
           <AdminKpiCard label="Bekleyen" value={activeSummary.pending} tone="warning" />
           <AdminKpiCard label="Eşleşmemiş" value={activeSummary.unmatched} tone="danger" />
         </AdminKpiGrid>
@@ -543,6 +661,13 @@ export function ProductMatchClient() {
           onClick={() => applyFilters({ matchSide: filters.matchSide === 'matched' ? 'all' : 'matched' })}
           label="Eşleşmiş"
         />
+        {activeTab === 'dnmk' && (
+          <AdminFilterChip
+            active={filters.matchSide === 'approved_no_match'}
+            onClick={() => applyFilters({ matchSide: filters.matchSide === 'approved_no_match' ? 'all' : 'approved_no_match' })}
+            label="Onaylı (eşleşmesiz)"
+          />
+        )}
         <AdminFilterChip
           active={filters.matchSide === 'pending'}
           onClick={() => applyFilters({ matchSide: filters.matchSide === 'pending' ? 'all' : 'pending' })}
@@ -573,6 +698,21 @@ export function ProductMatchClient() {
           <Link2 className="h-3 w-3" />
           Toplu Eşleştir
         </Button>
+
+        {activeTab === 'dnmk' && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 px-3 text-xs gap-1.5"
+            onClick={handleBulkApproveNoMatch}
+            disabled={!filters.brandListId || bulkApprovingNoMatch}
+            title={filters.brandListId ? 'Seçili marka + aramadaki tüm eşleşmemiş DNMK ürünlerini eşleşmesiz APPROVED olarak işaretle' : 'Önce marka seçin'}
+          >
+            {bulkApprovingNoMatch ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+            Eşleşmeyenleri Onayla
+          </Button>
+        )}
       </AdminFilterBar>
 
       <AdminTableShell>
@@ -602,18 +742,22 @@ export function ProductMatchClient() {
             </thead>
             <tbody>
               {(activeRows as DnmkProductRow[]).map((row) => (
-                <tr key={row.id} className="border-b text-sm hover:bg-muted/50">
+                <tr
+                  key={row.id}
+                  className="border-b text-sm hover:bg-muted/50 cursor-pointer"
+                  onClick={() => void openDetailDialog(row.id)}
+                >
                   <td className="px-4 py-2.5">
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${statusColor(row.mapping_status)}`}>
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${dnmkStatusColor(row.mapping_status, row.has_match)}`}>
                       {statusIcon(row.mapping_status)}
-                      {statusLabel(row.mapping_status)}
+                      {dnmkStatusLabel(row.mapping_status, row.has_match)}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-medium">{row.brand}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs whitespace-nowrap">{row.stock_code}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{row.part_no ?? '-'}</td>
+                  <td className="px-4 py-2.5 text-xs whitespace-nowrap">{row.stock_code}</td>
+                  <td className="px-4 py-2.5 text-xs">{row.part_no ?? '-'}</td>
                   <td className="px-4 py-2.5 truncate max-w-[300px]">{row.stock_name ?? '-'}</td>
-                  <td className="px-4 py-2.5">{renderDnmkActions(row)}</td>
+                  <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>{renderDnmkActions(row)}</td>
                 </tr>
               ))}
             </tbody>
@@ -640,8 +784,8 @@ export function ProductMatchClient() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-medium">{row.brand}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{row.malzeme_no}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{row.part_no ?? '-'}</td>
+                  <td className="px-4 py-2.5 text-xs">{row.malzeme_no}</td>
+                  <td className="px-4 py-2.5 text-xs">{row.part_no ?? '-'}</td>
                   <td className="px-4 py-2.5 max-w-xs truncate">{row.aciklama ?? '-'}</td>
                   <td className="px-4 py-2.5">{renderBsbgActions()}</td>
                 </tr>
@@ -669,7 +813,7 @@ export function ProductMatchClient() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-medium">{row.brand}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs">{row.part_no ?? '-'}</td>
+                  <td className="px-4 py-2.5 text-xs">{row.part_no ?? '-'}</td>
                   <td className="px-4 py-2.5 max-w-xs truncate">{row.title}</td>
                   <td className="px-4 py-2.5">{renderPtdrkActions()}</td>
                 </tr>
@@ -690,7 +834,7 @@ export function ProductMatchClient() {
           <DialogContent className="max-w-2xl overflow-hidden">
             <DialogHeader className="min-w-0">
               <DialogTitle>Ürün Eşleştir</DialogTitle>
-              <DialogDescription className="text-xs font-mono truncate min-w-0">
+              <DialogDescription className="text-xs truncate min-w-0">
                 {matchDnmkProduct.stock_code} — {matchDnmkProduct.stock_name ?? matchDnmkProduct.part_no ?? '-'}
               </DialogDescription>
             </DialogHeader>
@@ -780,7 +924,7 @@ export function ProductMatchClient() {
                           }}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 text-xs font-mono overflow-hidden">
+                          <div className="flex items-center gap-2 text-xs overflow-hidden">
                             <span className="font-medium truncate min-w-0">{pt.part_no ?? pt.product_id}</span>
                             {typeof pt.similarity === 'number' && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
@@ -911,8 +1055,8 @@ export function ProductMatchClient() {
                       <tr className="text-left">
                         <th className="px-3 py-2 w-8"></th>
                         <th className="px-3 py-2">Marka</th>
-                        <th className="px-3 py-2 font-mono">DNMK Part No</th>
-                        <th className="px-3 py-2 font-mono">PTDRK Part No</th>
+                        <th className="px-3 py-2">DNMK Part No</th>
+                        <th className="px-3 py-2">PTDRK Part No</th>
                         <th className="px-3 py-2 w-16 text-center">Benzerlik</th>
                         <th className="px-3 py-2">DNMK Açıklama</th>
                         <th className="px-3 py-2">PTDRK Açıklama</th>
@@ -945,8 +1089,8 @@ export function ProductMatchClient() {
                               />
                             </td>
                             <td className="px-3 py-2 truncate max-w-[80px]">{row.brand_name}</td>
-                            <td className="px-3 py-2 font-mono whitespace-nowrap">{row.dnmk_part_no ?? row.dnmk_stock_code}</td>
-                            <td className="px-3 py-2 font-mono whitespace-nowrap">{row.ptdrk_part_no ?? row.ptdrk_product_id}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{row.dnmk_part_no ?? row.dnmk_stock_code}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{row.ptdrk_part_no ?? row.ptdrk_product_id}</td>
                             <td className="px-3 py-2 text-center">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] ${
                                 row.similarity >= 0.7
@@ -1039,6 +1183,142 @@ export function ProductMatchClient() {
         </Dialog>
       )}
 
+      {detailDialogOpen && (
+        <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader className="min-w-0">
+              <DialogTitle>DNMK Ürün Detayı</DialogTitle>
+              <DialogDescription className="text-xs truncate min-w-0">
+                {detailProduct
+                  ? `${detailProduct.stock_code} — ${detailProduct.brand}`
+                  : 'Yükleniyor...'}
+              </DialogDescription>
+            </DialogHeader>
+
+            {detailLoading || !detailProduct ? (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin mr-2" />
+                Detaylar yükleniyor...
+              </div>
+            ) : (
+              <div className="space-y-5 min-w-0">
+                <div className="flex gap-4">
+                  {detailProduct.image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={detailProduct.image_url}
+                      alt={detailProduct.stock_name ?? detailProduct.stock_code}
+                      className="size-24 shrink-0 rounded-md border object-contain bg-white"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-sm font-medium leading-snug">{detailProduct.stock_name ?? '-'}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium ${statusColor(detailMappings[0]?.mapping_status ?? null)}`}>
+                        {statusIcon(detailMappings[0]?.mapping_status ?? null)}
+                        {statusLabel(detailMappings[0]?.mapping_status ?? null)}
+                      </span>
+                      {detailProduct.is_passive && (
+                        <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-600">
+                          Pasif
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+                  <DetailField label="Stok Kodu" value={detailProduct.stock_code} mono />
+                  <DetailField label="Parça No" value={detailProduct.part_no} mono />
+                  <DetailField label="Marka" value={detailProduct.brand} />
+                  <DetailField label="OEM No (oem_no)" value={detailProduct.oem_no} mono highlight />
+                  <DetailField label="Barkod 1" value={detailProduct.barcode_1} mono />
+                  <DetailField label="Barkod 2" value={detailProduct.barcode_2} mono />
+                  <DetailField label="Barkod 3" value={detailProduct.barcode_3} mono />
+                  <DetailField
+                    label="Fiyat"
+                    value={detailProduct.price != null ? `${detailProduct.price.toFixed(2)} ₺` : null}
+                  />
+                  <DetailField
+                    label="Stok Adedi"
+                    value={detailProduct.stock_qty != null ? String(detailProduct.stock_qty) : null}
+                  />
+                </dl>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Eşleşen PT Ürünleri (ref_no → oem_no)
+                    </p>
+                    <span className="text-xs text-muted-foreground">{detailMappings.length}</span>
+                  </div>
+                  {detailMappings.length === 0 ? (
+                    <div className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
+                      Bu ürün için eşleşme yok.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {detailMappings.map((m) => (
+                        <div key={m.mapping_id} className="rounded-md border p-3 text-xs">
+                          {m.ptdrk_id == null ? (
+                            <p className="text-muted-foreground">
+                              Eşleşmesiz onay
+                              {m.brand_list_name ? ` · ${m.brand_list_name}` : ''}
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">{m.ptdrk_part_no ?? m.ptdrk_product_id ?? '-'}</span>
+                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium ${statusColor(m.mapping_status)}`}>
+                                  {statusIcon(m.mapping_status)}
+                                  {statusLabel(m.mapping_status)}
+                                </span>
+                              </div>
+                              {m.ptdrk_title && (
+                                <p className="text-muted-foreground">{m.ptdrk_title}</p>
+                              )}
+                              <p className="pt-1">
+                                <span className="text-muted-foreground">ref_no: </span>
+                                {m.ptdrk_ref_no ? (
+                                  <span className="font-medium text-foreground">{m.ptdrk_ref_no}</span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+    </div>
+  )
+}
+
+function DetailField({
+  label,
+  value,
+  mono,
+  highlight,
+}: {
+  label: string
+  value: string | null
+  mono?: boolean
+  highlight?: boolean
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className={`mt-0.5 break-words ${mono ? 'text-xs' : 'text-sm'} ${highlight && value ? 'font-semibold text-foreground' : value ? 'text-foreground' : 'text-muted-foreground'}`}>
+        {value ?? '-'}
+      </dd>
     </div>
   )
 }

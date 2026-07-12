@@ -7,6 +7,8 @@ export interface AdminBreadcrumbItem {
 const ADMIN_ROUTE_LABELS: Record<string, string> = {
   '/admin': 'Genel Bakış',
   '/admin/products': 'Ürünler',
+  '/admin/catalog': 'Katalog',
+  '/admin/catalog/products': 'Katalog Ürünleri',
   '/admin/products/new': 'Yeni Ürün',
   '/admin/products/match': 'Eşleştirme',
   '/admin/products/tools': 'Araçlar',
@@ -25,6 +27,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
 /** Fallback segment labels for nested or dynamic routes */
 const SEGMENT_LABELS: Record<string, string> = {
   products: 'Ürünler',
+  catalog: 'Katalog',
   brands: 'Markalar',
   orders: 'Siparişler',
   customers: 'Müşteriler',

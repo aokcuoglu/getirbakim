@@ -55,12 +55,12 @@ export async function autoMatchDpprdProducts(options?: {
     const chunk = candidates.slice(i, i + CHUNK_SIZE)
     const tuples = chunk.map(
       (c) =>
-        Prisma.sql`(${c.brand_list_id}, ${c.dnmk_products_id}, ${c.ptdrk_products_id}, 'PENDING', 'PART_NO_EXACT', 1.0000)`
+        Prisma.sql`(${c.brand_list_id}, ${c.dnmk_products_id}, ${c.ptdrk_products_id}, 'PENDING')`
     )
 
     const result = await db.$executeRaw(Prisma.sql`
       INSERT INTO v0.product_mappings
-        (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status, match_method, confidence)
+        (brand_list_id, dnmk_products_id, ptdrk_products_id, mapping_status)
       VALUES ${Prisma.join(tuples)}
       ON CONFLICT (dnmk_products_id, ptdrk_products_id) WHERE ptdrk_products_id IS NOT NULL DO NOTHING
     `)
