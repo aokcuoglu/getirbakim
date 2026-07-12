@@ -187,21 +187,34 @@ else
 fi
 
 echo ">>> Running Prisma migrations..."
-# Docker Compose names networks as <project>_<network-name>; with project
-# "getirbakim" and network "app-network", the actual name is
-# getirbakim_app-network (NOT getirbakim_default).
+# Prisma 7 keeps BOTH the schema path and the datasource url in prisma.config.ts
+# at the repo root (the schema's datasource block has no `url`), and migrate also
+# needs prisma/migrations + the pinned prisma@7 CLI. Mounting only prisma/ and
+# running unpinned `npx prisma` from `/` fails with "Could not find Prisma Schema"
+# and silently applies nothing. So mount the WHOLE project, run from its root, and
+# install the exact CLI from the project's own bun.lock. DIRECT_URL is what
+# prisma.config.ts reads for CLI ops (direct 5432 port, prepared-statement safe).
+# Network name is <project>_<network>, i.e. getirbakim_app-network.
+MIGRATE_RC=0
 MIGRATE_OUTPUT=$(docker run --rm \
   --network getirbakim_app-network \
-  -v "$PWD/prisma:/app/prisma" \
+  -v "$PWD:/repo" -w /repo \
+  -e DIRECT_URL="${DATABASE_URL}" \
   -e DATABASE_URL="${DATABASE_URL}" \
-  node:22-slim \
-  npx --yes prisma migrate deploy 2>&1) || true
+  oven/bun:1 \
+  sh -c "bun install --frozen-lockfile && bunx prisma migrate deploy" 2>&1) || MIGRATE_RC=$?
 echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
-if echo "${MIGRATE_OUTPUT}" | grep -qi "error"; then
-  echo "WARN: Prisma migrate deploy reported an error — check above"
-else
-  echo "  Prisma migrations OK"
+if [[ "${MIGRATE_RC}" -ne 0 ]]; then
+  # Abort loudly: a failed/partial migration must not be reported as a green
+  # deploy (that is how a broken schema previously reached production unnoticed).
+  # A fresh pre-migrate backup exists, so it is safe to stop and investigate.
+  echo "FATAL: prisma migrate deploy failed (rc=${MIGRATE_RC}) — aborting deploy."
+  echo "       A pre-migrate backup was taken. Inspect the output above, fix the"
+  echo "       migration, and re-run. To bypass DB steps entirely, deploy with"
+  echo "       SKIP_PREDEPLOY_BACKUP=1 only after resolving the migration."
+  exit 1
 fi
+echo "  Prisma migrations OK"
 
 echo ">>> Ensuring v0 schema tables..."
 V0_SQL_OUTPUT=$(docker exec -i "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" < scripts/v0-init.sql 2>&1) || true
