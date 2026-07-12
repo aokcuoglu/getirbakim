@@ -83,10 +83,10 @@ export async function batchUpsertDproductDetails(
     const values = batch.map(
       (row) =>
         Prisma.sql`(
-          ${row.fullStockCode},
-          ${row.price},
-          ${row.stock_qty},
-          ${row.campaign_rate},
+          ${row.fullStockCode}::text,
+          ${row.price}::numeric,
+          ${row.stock_qty}::int,
+          ${row.campaign_rate}::numeric,
           ${row.regional_stock != null ? JSON.stringify(row.regional_stock) : null}::jsonb,
           ${JSON.stringify(row.raw)}::jsonb
         )`
@@ -113,7 +113,7 @@ export async function batchUpsertDproductDetails(
         NOW(),
         NOW()
       FROM (
-        VALUES ${Prisma.join(values)})
+        VALUES ${Prisma.join(values)}
       ) AS v(full_stock_code, price, stock_qty, campaign_rate, regional_stock, raw)
       INNER JOIN v0.dnmk_products d
         ON d.dnmk_brands_id = ${dnbrdId}
