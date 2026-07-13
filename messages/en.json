@@ -967,7 +967,12 @@
       "k120": "Expired",
       "k121": "Copy Code",
       "k122": "Coupon marked as used.",
-      "k123": "Mark as Used"
+      "k123": "Mark as Used",
+      "k124": "Your current password is incorrect.",
+      "k125": "New password must be at least 6 characters.",
+      "k126": "New password must be different from the current one.",
+      "k127": "Your password has been updated.",
+      "k128": "Could not update password. Please try again."
     },
     "ordersListed": "{count} orders listed."
   },

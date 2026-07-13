@@ -34,6 +34,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { OrderStatusBadge } from '@/components/orders/OrderStatusBadge'
 import { Link } from '@/lib/navigation'
 import { removeUserVehicle } from '@/lib/actions/user-vehicles'
+import { changePassword } from '@/lib/actions/auth-actions'
 import { useShop } from '@/components/ShopProvider'
 import type { Vehicle } from '@/types'
 import {
@@ -169,6 +170,7 @@ export function AccountWorkspace({
     next: '',
     confirm: ''
   })
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
   const [notificationSettings, setNotificationSettings] = useState({
     sms: true,
     email: true,
@@ -320,25 +322,47 @@ export function AccountWorkspace({
     )
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (!password.current || !password.next || !password.confirm) {
       toast.error(t('auto.k018'))
       return
     }
     if (password.next !== password.confirm) {
-      toast.error(
-        t('auto.k019')
-      )
+      toast.error(t('auto.k019'))
       return
     }
-    setPassword({
-      current: '',
-      next: '',
-      confirm: ''
-    })
-    toast.success(
-      t('auto.k020')
-    )
+
+    setIsChangingPassword(true)
+    try {
+      const result = await changePassword({
+        currentPassword: password.current,
+        newPassword: password.next,
+        confirmPassword: password.confirm
+      })
+
+      if (result.error) {
+        const errorKeys: Record<string, string> = {
+          mismatch: 'auto.k019',
+          weak: 'auto.k125',
+          invalid_current: 'auto.k124',
+          same_password: 'auto.k126',
+          invalid_fields: 'auto.k018'
+        }
+        toast.error(t(errorKeys[result.error] ?? 'auto.k128'))
+        return
+      }
+
+      setPassword({
+        current: '',
+        next: '',
+        confirm: ''
+      })
+      toast.success(t('auto.k127'))
+    } catch {
+      toast.error(t('auto.k128'))
+    } finally {
+      setIsChangingPassword(false)
+    }
   }
 
   const handleSaveNotifications = () => {
@@ -716,7 +740,7 @@ export function AccountWorkspace({
                 </Field>
               </div>
               <div className="flex justify-end">
-                <Button onClick={handleChangePassword}>
+                <Button onClick={handleChangePassword} disabled={isChangingPassword}>
                   {t('auto.k055')}
                 </Button>
               </div>
