@@ -36,7 +36,7 @@ import {
   ignoreDpprdMatch,
   manualLinkDpprdMatch,
   searchPtdrkForManualMatch
-} from '@/lib/actions/admin-suppliers'
+} from '@/lib/actions/admin-dpprd-match'
 import type {
   DpprdManualSearchCandidate,
   DpprdMatchBrandOption,

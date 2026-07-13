@@ -1,7 +1,7 @@
 import {
   getDpprdMatchOverview,
   listDpprdMatches
-} from '@/lib/actions/admin-suppliers'
+} from '@/lib/actions/admin-dpprd-match'
 import { MatchProductsAdminClient } from './MatchProductsAdminClient'
 import type { DpprdMatchFilters } from '@/lib/types/dpprd-match'
 
