@@ -1,24 +1,19 @@
 # Production docker-compose — Contabo VPS deployment.
 #
-# Architecture (Phase 2 Hardened):
-#   Cloudflare → Nginx (Docker, :80/:443 only) → App (:3000 internal) + Meilisearch (:7700 internal)
-#   PostgreSQL runs inside Docker on the same VPS (no external DB host).
+# Architecture:
+#   Cloudflare → edge-nginx (:80/:443, TLS — the standalone neutral `edge` unit,
+#   shared with the co-hosted bakimx project) → this app (:3000) via the external
+#   `edge` network. Meilisearch / PostgreSQL / Squid stay private on app-network.
 #
-# Key changes from legacy setup:
-#   - Nginx is now INSIDE Docker Compose (was host-level service)
-#   - App has NO port binding → internal Docker network only
-#   - Meilisearch has NO port binding → internal Docker network only
-#   - PostgreSQL has NO port binding → internal Docker network only
-#   - All services have healthchecks
-#   - Resource limits prevent OOM kills
-#   - Rate limiting handled by nginx (infra/nginx/nginx.production.conf)
+#   This stack runs NO nginx of its own. The edge lives in the `edge/` unit and is
+#   owned by neither product; this app just attaches to the `edge` network with
+#   the alias `getirbakim-app`. See edge/README.md for the edge + migration.
 #
-# Migration from host-nginx to docker-nginx:
-#   1. systemctl stop nginx   (or equivalent — frees ports 80/443)
-#   2. systemctl disable nginx
-#   3. Deploy with this compose file
-#   4. Docker nginx takes over 80/443 automatically
-#   5. Certbot renewal stays on host → post-hook reloads docker nginx
+# Properties:
+#   - App / Meilisearch / PostgreSQL / Squid have NO public port binding
+#   - App is reachable publicly only through edge-nginx over the `edge` network
+#   - All services have healthchecks; resource limits prevent OOM kills
+#   - TLS certs: host certbot; deploy-hook reloads edge-nginx (see edge/README.md)
 #
 # Build strategy: local build from Dockerfile on VPS.
 # The deploy script (scripts/vps-deploy.sh) injects NEXT_PUBLIC_BUILD_VERSION
@@ -31,46 +26,10 @@
 # See docs/DEPLOYMENT_CONTABO.md for full instructions.
 
 services:
-  # ── Nginx Reverse Proxy (sole public entry point) ──────────────────────
-  nginx:
-    image: nginx:stable-alpine
-    container_name: getirbakim-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      # Production nginx config (managed in repo)
-      - ./infra/nginx/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro
-      # Let's Encrypt certificates (managed by host certbot)
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      # Certbot ACME challenge webroot
-      - /var/www/certbot:/var/www/certbot:ro
-      # Nginx logs — NOT mounted as volume; image's built-in symlinks
-      # (/dev/stdout, /dev/stderr) ensure logs appear in docker logs.
-      # Use `docker logs getirbakim-nginx` for debugging.
-    depends_on:
-      app:
-        condition: service_healthy
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 64M
+  # NOTE: This stack has NO nginx. The public entry point (:80/:443, TLS) is the
+  # standalone neutral `edge` unit shared with the co-hosted bakimx project (see
+  # the `edge/` repo/dir on the VPS). This app joins the external `edge` network
+  # with the alias `getirbakim-app`, which the edge nginx proxies to on :3000.
 
   # ── Next.js Application ────────────────────────────────────────────────
   app:
@@ -112,11 +71,16 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - app-network
+      # Private stack network (db / meili / squid).
+      app-network:
+      # Shared neutral edge network — the edge nginx proxies to this alias.
+      edge:
+        aliases:
+          - getirbakim-app
     volumes:
       - ./data/storage:/app/data/storage:delegated
-    # NO port binding — internal Docker network only.
-    # Nginx proxies to app:3000 via the app-network bridge.
+    # NO port binding — reached only via the private stack network (internal
+    # services) and the edge network (public traffic through edge-nginx:3000).
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
@@ -240,6 +204,12 @@ services:
 networks:
   app-network:
     driver: bridge
+  # Shared neutral edge network, owned by the standalone `edge` unit (not by this
+  # project). Created out of band: `docker network create edge`. External so a
+  # `docker compose down` here never destroys it or affects the co-hosted app.
+  edge:
+    external: true
+    name: edge
 
 volumes:
   meili_data:
