@@ -130,7 +130,7 @@
 
 ### 3.2 Security Headers
 
-**Active nginx config** (`infra/nginx/nginx.production.conf`):
+**Active nginx config** (the standalone `edge` unit (`edge/conf.d/getirbakim.conf`, no longer in this repo)):
 - HAS: HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP
 - These are also set in Next.js middleware (defense in depth)
 
@@ -227,7 +227,7 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 | `docker-compose.local.yml` | Local dev | Same as above + different port (3001) |
 | `Dockerfile` | Multi-stage | Good: standalone output, healthcheck curl installed |
 | `nginx/conf.d/default.conf` | Docker nginx config | **Upstream name mismatch** (`nextjs` vs `app`) |
-| `infra/nginx/nginx.production.conf` | Production nginx config (security headers, gzip, caching) |
+| the standalone `edge` unit (`edge/conf.d/getirbakim.conf`, no longer in this repo) | Production nginx config (security headers, gzip, caching) |
 
 ### Scripts
 | File | Purpose |
@@ -266,7 +266,7 @@ Most Cloudflare readiness items are **UNKNOWN** because no Cloudflare config exi
 ## 10. Key Assumptions That Need Verification
 
 1. **Is Cloudflare Proxy (orange-cloud) active** on getirbakim.com?
-2. **Which nginx config is active on VPS?** `infra/nginx/nginx.production.conf` (Docker-mounted, managed in repo)
+2. **Which nginx config is active on VPS?** the standalone `edge` unit (`edge/conf.d/getirbakim.conf`, no longer in this repo) (Docker-mounted, managed in repo)
 3. **Is `MEILI_SEARCH_KEY` configured?** Only master key visible in env. Search-only keys for frontend are best practice.
 4. **Is UFW/iptables configured** to restrict port 443 to Cloudflare IPs only?
 5. **Are Cron jobs configured** on the VPS for supplier sync?

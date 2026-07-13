@@ -72,41 +72,16 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 fi
 
 echo ""
-echo ">>> Testing nginx image with config..."
-docker pull nginx:stable-alpine 2>/dev/null || true
-NGINX_TEST=$(docker run --rm \
-  -v "$PWD/infra/nginx/nginx.production.conf:/etc/nginx/conf.d/default.conf:ro" \
-  -v /etc/letsencrypt:/etc/letsencrypt:ro \
-  -v /var/www/certbot:/var/www/certbot:ro \
-  nginx:stable-alpine nginx -t 2>&1) || true
-echo "  nginx -t exit code: $?"
-echo "  Output: ${NGINX_TEST:-(none)}"
-
-echo ""
-echo ">>> Checking SSL certificates..."
-CERT_PATH="/etc/letsencrypt/live/getirbakim.com/fullchain.pem"
-if [[ -f "${CERT_PATH}" ]]; then
-  echo "  SSL certificate found at ${CERT_PATH}"
-  if openssl x509 -checkend 86400 -noout -in "${CERT_PATH}" 2>/dev/null; then
-    echo "  SSL certificate valid for at least 24 hours"
-  else
-    echo "  WARNING: SSL certificate expires within 24 hours or is invalid"
-    echo "  Certificate info:"
-    openssl x509 -subject -issuer -dates -noout -in "${CERT_PATH}" 2>/dev/null || true
-  fi
-else
-  echo "  WARNING: SSL certificate not found at ${CERT_PATH}"
-  echo "  nginx will fail to bind port 443 — run certbot before deploying"
-fi
-
-echo ""
-echo ">>> Stopping host nginx (if running) to free ports 80/443..."
-systemctl stop nginx 2>/dev/null || true
+# This stack no longer runs nginx or binds 80/443 — TLS + routing live in the
+# standalone `edge` unit (see edge/README.md). The app attaches to the external
+# `edge` network, so `docker compose up` fails if that network is missing.
+# Ensure it exists (idempotent; the edge unit also creates it).
+echo ">>> Ensuring shared 'edge' network exists..."
+docker network inspect edge >/dev/null 2>&1 || docker network create edge
 
 echo ">>> Removing any stale containers..."
 docker rm -f getirbakim-app 2>/dev/null || true
 docker rm -f getirbakim-meilisearch 2>/dev/null || true
-docker rm -f getirbakim-nginx 2>/dev/null || true
 docker rm -f getirbakim-postgres 2>/dev/null || true
 
 
@@ -246,25 +221,8 @@ fi
 
 wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
 wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
-wait_for_healthy "getirbakim-nginx" 60 || {
-  echo "FATAL: nginx not healthy within 60s — dumping diagnostics..."
-  echo ""
-  echo "--- nginx container logs (tail 80) ---"
-  docker logs getirbakim-nginx --tail=80 2>/dev/null || echo "(no logs)"
-  echo ""
-  echo "--- nginx full logs (details) ---"
-  docker logs getirbakim-nginx --details 2>&1 | tail -20 || echo "(no details)"
-  echo ""
-  echo "--- nginx container inspect (exit code, error) ---"
-  docker inspect getirbakim-nginx --format 'ExitCode={{.State.ExitCode}} Error={{.State.Error}} Status={{.State.Status}}' 2>/dev/null || echo "(inspect failed)"
-  echo ""
-  echo "--- nginx config validation ---"
-  docker compose --env-file "${ENV_FILE}" exec -T nginx nginx -t 2>&1 || echo "(exec failed — container may be restarting)"
-  echo ""
-  echo "--- port binding on host (80/443) ---"
-  ss -tlnp 'sport = :80 or sport = :443' 2>/dev/null || netstat -tlnp 2>/dev/null | grep -E '(:80|:443)\s' || echo "(no listeners on 80/443)"
-  exit 1
-}
+# No nginx here — public traffic is served by the standalone edge unit. The
+# public health check near the end (via ${DOMAIN}) exercises the edge path.
 
 echo ""
 echo ">>> Container status:"
@@ -273,11 +231,9 @@ docker compose --env-file "${ENV_FILE}" ps
 echo ""
 echo ">>> Container health checks..."
 APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-app 2>/dev/null || echo "unknown")
-NGINX_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-nginx 2>/dev/null || echo "unknown")
 MEILI_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-meilisearch 2>/dev/null || echo "unknown")
 PG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-postgres 2>/dev/null || echo "unknown")
 echo "  app:        ${APP_HEALTH}"
-echo "  nginx:      ${NGINX_HEALTH}"
 echo "  meilisearch: ${MEILI_HEALTH}"
 echo "  postgres:   ${PG_HEALTH}"
 
@@ -305,24 +261,6 @@ if docker exec "${PG_CONTAINER}" pg_isready -U "${PG_USER}" -d "${PG_DB}" >/dev/
   echo "  pg_trgm extension and search indexes OK"
 else
   echo "WARN: PostgreSQL not ready, skipping pg_trgm and search indexes"
-fi
-
-# Verify nginx is proxying correctly (check from app container which has curl)
-echo ">>> Verifying nginx reverse proxy..."
-NGINX_PROXY_OK=false
-for i in 1 2 3; do
-  if docker compose --env-file "${ENV_FILE}" exec -T app curl -sf http://nginx/api/health 2>/dev/null | grep -q '"status":"ok"'; then
-    echo "OK: Nginx proxy health check passed (attempt ${i}/3)"
-    NGINX_PROXY_OK=true
-    break
-  fi
-  echo "  Nginx proxy check attempt ${i}/3 failed, waiting 5s..."
-  sleep 5
-done
-
-if [ "${NGINX_PROXY_OK}" = "false" ]; then
-  echo "WARN: Nginx proxy health check failed after 3 attempts"
-  docker compose --env-file "${ENV_FILE}" logs nginx --tail=30 2>/dev/null || true
 fi
 
 if [[ -n "${DOMAIN}" ]]; then
