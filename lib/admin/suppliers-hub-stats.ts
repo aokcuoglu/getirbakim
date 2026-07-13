@@ -45,7 +45,7 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
     Array<{ mapping_status: string; count: bigint }>
   >(Prisma.sql`
     SELECT mapping_status, COUNT(*)::bigint AS count
-    FROM v0.brand_mappings
+    FROM catalog.brand_mappings
     GROUP BY mapping_status
   `)
   return mapStatusCounts(rows)
@@ -104,7 +104,7 @@ async function getDinamikCatalogRowCount(): Promise<number> {
   if (estimate > 0) return Math.round(estimate)
 
   const [exactRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS count FROM v0.dnmk_products
+    SELECT COUNT(*)::bigint AS count FROM catalog.supplier_dinamik_products
   `)
   return Number(exactRow?.count ?? 0)
 }
@@ -176,11 +176,6 @@ async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
         label: 'Marka eşleştir',
         href: '/admin/brands',
         variant: 'primary'
-      },
-      {
-        label: 'Ürün / model',
-        href: '/admin/suppliers/match-products',
-        variant: 'secondary'
       }
     ]
   }

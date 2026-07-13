@@ -15,7 +15,7 @@ export interface ArticlesRequestBody {
   searchIds?: number[]
   vehicleId?: number | null
   brands?: string[]
-  brandListIds?: number[]
+  brandIds?: number[]
   stockStatuses?: string[]
   page?: number
   limit?: number
@@ -53,13 +53,13 @@ type CatalogRow = {
   total_stock_qty: number
   offer_count: number
   min_selling_price_try: Prisma.Decimal | null
-  brand_list_id: number
+  brand_id: number
   category_id: number | null
   primary_image_url: string | null
   created_at: Date
   updated_at: Date
-  brand_list: { brand: string; logo_url: string | null }
-  part_categories: { id: number; name: string; name_tr: string | null } | null
+  brand: { brand: string; logo_url: string | null }
+  category: { id: number; name: string; name_tr: string | null } | null
   product_overrides: { name_override: string | null } | null
 }
 
@@ -94,12 +94,12 @@ function rowToSearchHit(row: CatalogRow): SearchHit {
     isPlaceholderPrice: !hasPrice,
     isPurchasable,
     inBasket: false,
-    brandId: row.brand_list_id,
-    brandName: row.brand_list.brand,
-    brandLogo: row.brand_list.logo_url,
-    categoryId: row.part_categories?.id ?? 0,
-    categoryName: row.part_categories?.name ?? null,
-    categoryNameTr: row.part_categories?.name_tr ?? null,
+    brandId: row.brand_id,
+    brandName: row.brand.brand,
+    brandLogo: row.brand.logo_url,
+    categoryId: row.category?.id ?? 0,
+    categoryName: row.category?.name ?? null,
+    categoryNameTr: row.category?.name_tr ?? null,
     oemCodes: [],
     oemBrands: [],
     vehicleTypes: [],
@@ -133,10 +133,10 @@ function buildWhere(body: ArticlesRequestBody): Prisma.productsWhereInput {
     where.category_id = { in: body.searchIds }
   }
 
-  if (body.brandListIds && body.brandListIds.length > 0) {
-    where.brand_list_id = { in: body.brandListIds }
+  if (body.brandIds && body.brandIds.length > 0) {
+    where.brand_id = { in: body.brandIds }
   } else if (body.brands && body.brands.length > 0) {
-    where.brand_list = { brand: { in: body.brands } }
+    where.brand = { brand: { in: body.brands } }
   }
 
   const stock = body.stockStatuses ?? []
@@ -201,20 +201,20 @@ export async function getCatalogArticles(
         total_stock_qty: true,
         offer_count: true,
         min_selling_price_try: true,
-        brand_list_id: true,
+        brand_id: true,
         category_id: true,
         primary_image_url: true,
         created_at: true,
         updated_at: true,
-        brand_list: { select: { brand: true, logo_url: true } },
-        part_categories: { select: { id: true, name: true, name_tr: true } },
+        brand: { select: { brand: true, logo_url: true } },
+        category: { select: { id: true, name: true, name_tr: true } },
         product_overrides: { select: { name_override: true } }
       }
     }),
     body.includeTotal !== false ? db.products.count({ where }) : Promise.resolve(null)
   ])
 
-  const hits = rows.map((r) => rowToSearchHit(r as CatalogRow))
+  const hits = rows.map((r) => rowToSearchHit(r as unknown as CatalogRow))
 
   let brandFacetDistribution: Record<string, number> = {}
   const stockFacetDistribution: Record<string, number> = { 'in-stock': 0, 'on-order': 0 }
@@ -222,18 +222,18 @@ export async function getCatalogArticles(
   if (body.includeFacets && (body.searchIds?.length || body.brands?.length)) {
     const [brandGroups, inStockCount, total] = await Promise.all([
       db.products.groupBy({
-        by: ['brand_list_id'],
+        by: ['brand_id'],
         where,
         _count: { _all: true },
-        orderBy: { _count: { brand_list_id: 'desc' } },
+        orderBy: { _count: { brand_id: 'desc' } },
         take: 50
       }),
       db.products.count({ where: { ...where, in_stock: true } }),
       totalHits ?? db.products.count({ where })
     ])
-    const brandIds = brandGroups.map((g) => g.brand_list_id)
+    const brandIds = brandGroups.map((g) => g.brand_id)
     const brands = brandIds.length
-      ? await db.brand_list.findMany({
+      ? await db.brands.findMany({
           where: { id: { in: brandIds } },
           select: { id: true, brand: true }
         })
@@ -241,7 +241,7 @@ export async function getCatalogArticles(
     const nameById = new Map(brands.map((b) => [b.id, b.brand]))
     brandFacetDistribution = Object.fromEntries(
       brandGroups
-        .map((g) => [nameById.get(g.brand_list_id) ?? '', g._count._all] as const)
+        .map((g) => [nameById.get(g.brand_id) ?? '', g._count._all] as const)
         .filter(([name]) => name)
     )
     stockFacetDistribution['in-stock'] = inStockCount

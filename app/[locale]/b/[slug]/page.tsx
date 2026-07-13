@@ -70,7 +70,7 @@ export default async function BrandPage({ params, searchParams }: BrandPageProps
   const articles =
     brand.brandListIds.length > 0
       ? await getCatalogArticles({
-          brandListIds: brand.brandListIds,
+          brandIds: brand.brandListIds,
           page,
           limit: PAGE_LIMIT,
           sort,

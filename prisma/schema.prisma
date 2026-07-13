@@ -4,8 +4,13 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "trodo", "v0", "catalog"]
+  schemas  = ["public", "v0", "trodo", "catalog"]
 }
+
+// ============================================================================
+// public schema — platform tables (users, orders, vehicles, Tecdoc parts)
+// UNCHANGED — do not modify.
+// ============================================================================
 
 model engines {
   id           Int        @id
@@ -169,15 +174,15 @@ model part_brands {
 }
 
 model part_categories {
-  id          Int     @id
+  id          Int        @id
   name        String
-  is_active   Boolean @default(true)
-  has_childs  Boolean @default(false)
+  is_active   Boolean    @default(true)
+  has_childs  Boolean    @default(false)
   parent_id   Int?
   name_tr     String?
   url_key     String?
-  is_main_nav Boolean @default(false)
-  image       String? @db.Text
+  is_main_nav Boolean    @default(false)
+  image       String?    @db.Text
   parts       parts[]
   products    products[]
 
@@ -282,11 +287,11 @@ model part_properties {
 }
 
 model part_vehicle_types {
-  id              Int    @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   part_id         BigInt
   vehicle_type_id Int
-  parts           parts  @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  vtypes          vtypes @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parts           parts         @relation(fields: [part_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vehicle_type    vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([part_id, vehicle_type_id])
   @@index([vehicle_type_id, part_id])
@@ -332,127 +337,6 @@ model parts {
   @@schema("public")
 }
 
-model products_oems {
-  id            BigInt   @id @default(autoincrement())
-  v0_product_id BigInt
-  oem_no        String
-  source        String   @default("MANUAL")
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-
-  v0_products v0_products @relation(fields: [v0_product_id], references: [id], onDelete: Cascade)
-
-  @@unique([v0_product_id, oem_no], name: "uq_products_oems_v0_product_oem")
-  @@index([oem_no], name: "idx_products_oems_oem_no")
-  @@schema("v0")
-}
-
-model v0_products {
-  id                BigInt   @id @default(autoincrement())
-  display_name      String
-  normalized_name   String?
-  brand_name        String?
-  brand_list_id     Int?
-  primary_image_url String?
-  product_mapping_id BigInt?
-  status            String   @default("ACTIVE")
-  created_at        DateTime @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  brand_list      brand_list?      @relation(fields: [brand_list_id], references: [id], onDelete: SetNull)
-  product_mapping product_mapping? @relation(fields: [product_mapping_id], references: [id], onDelete: SetNull)
-  products_oems   products_oems[]
-
-  @@unique([product_mapping_id], name: "uq_v0_products_product_mapping")
-
-  @@index([brand_list_id], name: "idx_v0_products_brand_list")
-  @@index([status], name: "idx_v0_products_status")
-  @@index([normalized_name], name: "idx_v0_products_normalized_name")
-  @@index([product_mapping_id], name: "idx_v0_products_product_mapping")
-  @@map("products")
-  @@schema("v0")
-}
-
-// ==========================================
-// Dinamik-ParcaTedarik Brand Alias
-// Maps Dinamik brands to ParcaTedarik manufacturers
-// for disambiguating model matches by brand
-// ==========================================
-
-// ==========================================
-// Dinamik-ParcaTedarik Canonical Brands
-// Unified brand table with unique normalized names.
-// Source brand mappings live in brand_mappings.
-// ==========================================
-
-model brand_list {
-  id       Int     @id @default(autoincrement())
-  brand    String  @unique
-  logo_url String?
-
-  brand_mappings   brand_mappings[]
-  product_mappings product_mapping[]
-  v0_products      v0_products[]
-  products         products[]
-
-  @@index([brand], name: "idx_dbrands_match_brand")
-  @@schema("v0")
-}
-
-// ==========================================
-// Dinamik ↔ ParçaTedarik Product Mapping
-// Matches dnmk_products to ptdrk_products under approved
-// brand_mappings pairs (same brand_list_id). Drives the OEM
-// bridge: ptdrk_products.ref_no → dnmk_products.oem_no.
-// ==========================================
-
-model product_mapping {
-  id                BigInt    @id @default(autoincrement())
-  brand_list_id     Int
-  dnmk_products_id  BigInt
-  ptdrk_products_id Int?
-  bsbg_products_id  BigInt?   @unique(map: "uq_product_mapping_bsbg")
-  mapping_status    String    @default("PENDING") // PENDING|APPROVED|IGNORED
-
-  brand_list     brand_list      @relation(fields: [brand_list_id], references: [id], onDelete: Cascade)
-  dnmk_products  dnmk_products   @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-  ptdrk_products ptdrk_products? @relation(fields: [ptdrk_products_id], references: [id], onDelete: Cascade)
-  bsbg_products  bsbg_products?  @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
-
-  v0_products v0_products?
-
-  @@unique([dnmk_products_id, ptdrk_products_id], name: "uq_product_mapping_pair")
-  @@index([mapping_status], name: "idx_product_mapping_status")
-  @@index([brand_list_id], name: "idx_product_mapping_brand_list")
-  @@index([dnmk_products_id], name: "idx_product_mapping_dnmk")
-  @@index([ptdrk_products_id], name: "idx_product_mapping_ptdrk")
-  @@index([bsbg_products_id], name: "idx_product_mapping_bsbg")
-  @@map("product_mappings")
-  @@schema("v0")
-}
-
-model brand_mappings {
-  id              Int     @id @default(autoincrement())
-  brand_list_id   Int
-  dnmk_brands_id  BigInt?
-  ptdrk_brands_id Int?
-  bsbg_brands_id  BigInt?
-  mapping_status  String  @default("PENDING")
-  match_method    String?
-
-  brand_list   brand_list    @relation(fields: [brand_list_id], references: [id], onDelete: Cascade)
-  dnmk_brands  dnmk_brands?  @relation(fields: [dnmk_brands_id], references: [id], onDelete: Cascade)
-  ptdrk_brands ptdrk_brands? @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  bsbg_brands  bsbg_brands?  @relation(fields: [bsbg_brands_id], references: [id], onDelete: Cascade)
-
-  @@unique([brand_list_id, dnmk_brands_id, ptdrk_brands_id, bsbg_brands_id], name: "uq_dpbrm_brands")
-  @@index([brand_list_id], name: "idx_dpbrm_dpbrands")
-  @@index([dnmk_brands_id], name: "idx_dpbrm_dnmk")
-  @@index([ptdrk_brands_id], name: "idx_dpbrm_ptdrk")
-  @@index([bsbg_brands_id], name: "idx_dpbrm_bsbg")
-  @@index([mapping_status], name: "idx_dpbrm_status")
-  @@schema("v0")
-}
-
 model user_vehicles {
   id           Int       @id @default(autoincrement())
   user_id      String
@@ -496,6 +380,52 @@ model notifications {
   @@index([user_id, read_at])
   @@schema("public")
 }
+
+model vehicles {
+  id         Int          @id
+  model_id   Int
+  name       String
+  year_from  Int?
+  year_to    Int?
+  url_key    String?
+  created_at DateTime?    @default(now()) @db.Timestamp(6)
+  fuel_types fuel_types[]
+  models     models       @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "vehicles_model_id_models_id_fk")
+
+  @@schema("public")
+}
+
+model scrape_progress {
+  id              Int      @id @default(autoincrement())
+  vehicle_type_id Int
+  category_id     Int
+  parts_count     Int      @default(0)
+  scraped_at      DateTime @default(now()) @db.Timestamp(6)
+
+  @@unique([vehicle_type_id, category_id])
+  @@index([vehicle_type_id])
+  @@schema("public")
+}
+
+model oil_capacities {
+  id              Int           @id @default(autoincrement())
+  vehicle_type_id Int           @unique
+  brand           String
+  capacity        String?
+  viscosity1      String?
+  viscosity2      String?
+  viscosity3      String?
+  created_at      DateTime      @default(now()) @db.Timestamp(6)
+  updated_at      DateTime      @default(now()) @db.Timestamp(6)
+  vehicle_type    vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+// ============================================================================
+// trodo schema — vehicle variant/category tree (legacy import).
+// UNCHANGED — do not modify.
+// ============================================================================
 
 model variants {
   id                  Int             @id
@@ -569,135 +499,15 @@ model category_tree {
   @@schema("trodo")
 }
 
-model vbrands {
-  id      Int       @id
-  name    String    @unique
-  vmodels vmodels[]
+// ============================================================================
+// v0 schema — ParcaTedarik scrape + vehicle catalog (Tecdoc-light).
+// Supplier raw tables and brand matching moved to catalog schema.
+// Old product_mappings / products / products_oems tables DROPPED.
+// ============================================================================
 
-  @@map("vbrands")
-  @@schema("v0")
-}
-
-model vmodels {
-  id        Int      @id
-  name      String
-  date_from String?
-  date_to   String?
-  brand_id  Int
-  vbrands   vbrands  @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  vtypes    vtypes[]
-
-  @@map("vmodels")
-  @@schema("v0")
-}
-
-model vtypes {
-  id                  Int                  @id
-  name                String
-  cc                  Int?
-  fuel_type           String?
-  hp                  Int?
-  kwt                 Int?
-  year_of_constr_from String?
-  year_of_constr_to   String?
-  model_id            Int
-  part_vehicle_types    part_vehicle_types[]
-  product_vehicle_types product_vehicle_types[]
-  oil_capacities        oil_capacities?
-  vtype_details         vtype_details?
-  vmodels               vmodels              @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([name], name: "vtypes_name_idx")
-  @@map("vtypes")
-  @@schema("v0")
-}
-
-model vtype_details {
-  id                      BigInt   @id @default(autoincrement())
-  vehicle_type_id         Int      @unique
-  brake_system            String?
-  car_id                  Int?
-  ccm_tech                Int?
-  construction_type       String?
-  cylinder                Int?
-  cylinder_capacity_ccm   Int?
-  cylinder_capacity_liter Int?
-  fuel_type               String?
-  fuel_type_process       String?
-  impulsion_type          String?
-  manu_id                 Int?
-  manu_name               String?
-  mod_id                  Int?
-  model_name              String?
-  motor_type              String?
-  power_hp_from           Int?
-  power_hp_to             Int?
-  power_kw_from           Int?
-  power_kw_to             Int?
-  type_name               String?
-  type_number             Int?
-  valves                  Int?
-  year_of_constr_from     String?
-  year_of_constr_to       String?
-  rmi_type_id             Int?
-  motor_codes             Json?
-  raw_payload             Json?
-  created_at              DateTime @default(now()) @db.Timestamp(6)
-  updated_at              DateTime @updatedAt @db.Timestamp(6)
-  vtypes                  vtypes   @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([manu_id], name: "vtype_details_manu_id_idx")
-  @@index([mod_id], name: "vtype_details_mod_id_idx")
-  @@index([updated_at], name: "vtype_details_updated_at_idx")
-  @@map("vtype_details")
-  @@schema("v0")
-}
-
-model oil_capacities {
-  id              Int      @id @default(autoincrement())
-  vehicle_type_id Int      @unique
-  brand           String
-  capacity        String?
-  viscosity1      String?
-  viscosity2      String?
-  viscosity3      String?
-  created_at      DateTime @default(now()) @db.Timestamp(6)
-  updated_at      DateTime @default(now()) @db.Timestamp(6)
-  vtypes          vtypes   @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
-
-  @@schema("public")
-}
-
-model vehicles {
-  id         Int          @id
-  model_id   Int
-  name       String
-  year_from  Int?
-  year_to    Int?
-  url_key    String?
-  created_at DateTime?    @default(now()) @db.Timestamp(6)
-  fuel_types fuel_types[]
-  models     models       @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "vehicles_model_id_models_id_fk")
-
-  @@schema("public")
-}
-
-model scrape_progress {
-  id              Int      @id @default(autoincrement())
-  vehicle_type_id Int
-  category_id     Int
-  parts_count     Int      @default(0)
-  scraped_at      DateTime @default(now()) @db.Timestamp(6)
-
-  @@unique([vehicle_type_id, category_id])
-  @@index([vehicle_type_id])
-  @@schema("public")
-}
-
-// ==========================================
-// ParcaTedarik catalog (scraped from parcatedarik.com)
-// Logo/image columns moved to dnmk tables after matching
-// ==========================================
+// ----------------------------------------------------------------------------
+// ParcaTedarik scrape (preserved as-is, do not modify).
+// ----------------------------------------------------------------------------
 
 model ptdrk_brands {
   id             Int              @id @default(autoincrement())
@@ -726,8 +536,8 @@ model ptdrk_products {
   created_at      DateTime? @default(now()) @db.Timestamp(6)
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
 
-  ptdrk_brands     ptdrk_brands      @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  product_mappings product_mapping[]
+  ptdrk_brands   ptdrk_brands     @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
+  brand_mappings brand_mappings[]
 
   @@index([ptdrk_brands_id])
   @@index([product_id])
@@ -735,100 +545,198 @@ model ptdrk_products {
   @@schema("v0")
 }
 
-// ==========================================
-// Dinamik Supplier Products (was dinamik.products)
-// Raw supplier product data from Dinamik API/CSV import
-// ==========================================
+// ----------------------------------------------------------------------------
+// Vehicle catalog (Tecdoc-light) — renamed from v* to vehicle_*.
+// Storefront-active (hierarchy-service, search, fitment).
+// ----------------------------------------------------------------------------
 
-model dnmk_products {
-  id             BigInt    @id
-  dnmk_brands_id BigInt
-  stock_code     String
-  stock_name     String?
-  part_no        String?
-  oem_no         String?
-  barcode_1      String?
-  barcode_2      String?
-  barcode_3      String?
-  image_url      String?
-  raw            Json      @db.JsonB
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  last_seen_at   DateTime  @default(now()) @db.Timestamptz(6)
-  is_passive     Boolean   @default(false)
-  passive_at     DateTime? @db.Timestamptz(6)
+model vehicle_brands {
+  id     Int              @id
+  name   String           @unique
+  models vehicle_models[]
 
-  dnmk_brands      dnmk_brands       @relation(fields: [dnmk_brands_id], references: [id], onDelete: Restrict)
-  dnmk_cost        dnmk_cost?
-  product_mappings product_mapping[]
-  product_offers   product_offers?
-
-  @@unique([dnmk_brands_id, stock_code], map: "uq_dproducts_dbrands_stock_code")
-  @@index([dnmk_brands_id], map: "idx_dproducts_dbrands_id")
-  @@index([stock_code])
+  @@map("vehicle_brands")
   @@schema("v0")
 }
 
-model dnmk_cost {
-  id               BigInt   @id @default(autoincrement())
-  dnmk_products_id BigInt   @unique
-  price            Decimal? @db.Decimal(10, 2)
-  stock_qty        Int?
-  campaign_rate    Decimal? @db.Decimal(6, 3)
-  regional_stock   Json?    @db.JsonB
-  raw              Json     @db.JsonB
-  last_seen_at     DateTime @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+model vehicle_models {
+  id        Int             @id
+  name      String
+  date_from String?
+  date_to   String?
+  brand_id  Int
+  brand     vehicle_brands  @relation(fields: [brand_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  types     vehicle_types[]
 
-  dnmk_products dnmk_products @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-
-  @@index([last_seen_at(sort: Desc)])
+  @@map("vehicle_models")
   @@schema("v0")
 }
 
-// ==========================================
-// Dinamik Brands (was dinamik.brands)
-// Deduplicated brand name list from Dinamik
-// ==========================================
+model vehicle_types {
+  id                    Int                     @id
+  name                  String
+  cc                    Int?
+  fuel_type             String?
+  hp                    Int?
+  kwt                   Int?
+  year_of_constr_from   String?
+  year_of_constr_to     String?
+  model_id              Int
+  part_vehicle_types    part_vehicle_types[]
+  product_vehicle_types product_vehicle_types[]
+  oil_capacities        oil_capacities?
+  details               vehicle_type_details?
+  model                 vehicle_models          @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-model dnmk_brands {
-  id             BigInt           @id @default(autoincrement())
-  brand          String           @unique
-  created_at     DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
-  // Canonical brand mappings moved to brand_mappings
-  dnmk_products  dnmk_products[]
+  @@index([name], name: "vtypes_name_idx")
+  @@map("vehicle_types")
+  @@schema("v0")
+}
+
+model vehicle_type_details {
+  id                      BigInt        @id @default(autoincrement())
+  vehicle_type_id         Int           @unique
+  brake_system            String?
+  car_id                  Int?
+  ccm_tech                Int?
+  construction_type       String?
+  cylinder                Int?
+  cylinder_capacity_ccm   Int?
+  cylinder_capacity_liter Int?
+  fuel_type               String?
+  fuel_type_process       String?
+  impulsion_type          String?
+  manu_id                 Int?
+  manu_name               String?
+  mod_id                  Int?
+  model_name              String?
+  motor_type              String?
+  power_hp_from           Int?
+  power_hp_to             Int?
+  power_kw_from           Int?
+  power_kw_to             Int?
+  type_name               String?
+  type_number             Int?
+  valves                  Int?
+  year_of_constr_from     String?
+  year_of_constr_to       String?
+  rmi_type_id             Int?
+  motor_codes             Json?
+  raw_payload             Json?
+  created_at              DateTime      @default(now()) @db.Timestamp(6)
+  updated_at              DateTime      @updatedAt @db.Timestamp(6)
+  vehicle_type            vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([manu_id], name: "vtype_details_manu_id_idx")
+  @@index([mod_id], name: "vtype_details_mod_id_idx")
+  @@index([updated_at], name: "vtype_details_updated_at_idx")
+  @@map("vehicle_type_details")
+  @@schema("v0")
+}
+
+// ============================================================================
+// catalog schema — supplier raw data, brand matching, canonical sellable
+// catalog. Formerly split across v0 (supplier raw + brands) and catalog
+// (products/offers). Now unified under a single schema.
+//
+// Layering:
+//   1. Supplier raw   — supplier_dinamik_*, supplier_basbug_*
+//   2. Brand matching — brands, brand_mappings
+//   3. Canonical catalog — products, product_offers, product_oems, ...
+//
+// public.parts is an enrichment source only (links are disposable,
+// copied data is durable).
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. Supplier raw tables
+// ----------------------------------------------------------------------------
+
+// Dinamik brands — deduplicated brand list from Dinamik API getBrandList.
+
+model supplier_dinamik_brands {
+  id             BigInt                      @id @default(autoincrement())
+  brand          String                      @unique
+  created_at     DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime                    @default(now()) @updatedAt @db.Timestamptz(6)
+  products       supplier_dinamik_products[]
   brand_mappings brand_mappings[]
 
-  @@schema("v0")
+  @@schema("catalog")
 }
 
-// ==========================================
-// Başbuğ Brands — üretici markaları (uk alanı)
-// Deduplicated brand name list from Başbuğ API
-// ==========================================
+// Dinamik products — getStockList response (master record).
+// oem_no is populated by the OEM bridge from ptdrk_products.ref_no
+// (Dinamik API does not provide OEM numbers).
 
-model bsbg_brands {
+model supplier_dinamik_products {
+  id           BigInt    @id @default(autoincrement())
+  brand_id     BigInt
+  stock_code   String
+  stock_name   String?
+  part_no      String?
+  oem_no       String?
+  barcode_1    String?
+  barcode_2    String?
+  barcode_3    String?
+  image_url    String?
+  raw          Json      @db.JsonB
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  last_seen_at DateTime  @default(now()) @db.Timestamptz(6)
+  is_passive   Boolean   @default(false)
+  passive_at   DateTime? @db.Timestamptz(6)
+
+  brand          supplier_dinamik_brands @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  cost           supplier_dinamik_cost?
+  product_offers product_offers[]
+
+  @@unique([brand_id, stock_code], map: "uq_dinamik_products_brand_stock_code")
+  @@index([brand_id], map: "idx_dinamik_products_brand_id")
+  @@index([stock_code])
+  @@schema("catalog")
+}
+
+// Dinamik cost — getPriceList + getStock price/stock snapshot (1:1 with products).
+
+model supplier_dinamik_cost {
+  id             BigInt   @id @default(autoincrement())
+  product_id     BigInt   @unique
+  price          Decimal? @db.Decimal(10, 2)
+  stock_qty      Int?
+  campaign_rate  Decimal? @db.Decimal(6, 3)
+  regional_stock Json?    @db.JsonB
+  raw            Json     @db.JsonB
+  last_seen_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  product supplier_dinamik_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([last_seen_at(sort: Desc)])
+  @@schema("catalog")
+}
+
+// Başbuğ brands — manufacturer brand names (uk field from MalzemeleriGetir).
+
+model supplier_basbug_brands {
   id           BigInt   @id @default(autoincrement())
   brand        String   @unique
   created_at   DateTime @default(now()) @db.Timestamptz(6)
   updated_at   DateTime @updatedAt @db.Timestamptz(6)
   last_seen_at DateTime @default(now()) @db.Timestamptz(6)
 
-  bsbg_products  bsbg_products[]
+  products       supplier_basbug_products[]
   brand_mappings brand_mappings[]
 
-  @@schema("v0")
+  @@schema("catalog")
 }
 
-// ==========================================
-// Başbuğ Products — MalzemeleriGetir response
-// Raw supplier product data from Başbuğ API
-// ==========================================
+// Başbuğ products — MalzemeleriGetir response (master record).
+// oem_no comes directly from API (m.oe field).
 
-model bsbg_products {
+model supplier_basbug_products {
   id               BigInt    @id @default(autoincrement())
-  bsbg_brands_id   BigInt
+  brand_id         BigInt
   malzeme_no       String
   part_no          String?
   aciklama         String?
@@ -848,25 +756,21 @@ model bsbg_products {
   is_passive       Boolean   @default(false)
   passive_at       DateTime? @db.Timestamptz(6)
 
-  bsbg_brands     bsbg_brands     @relation(fields: [bsbg_brands_id], references: [id], onDelete: Restrict)
-  bsbg_cost       bsbg_cost[]
-  product_mapping product_mapping?
-  product_offers  product_offers?
+  brand          supplier_basbug_brands         @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  cost_history   supplier_basbug_cost_history[]
+  product_offers product_offers[]
 
-  @@unique([bsbg_brands_id, malzeme_no], map: "uq_bsbg_products_brand_malzeme_no")
-  @@index([bsbg_brands_id])
+  @@unique([brand_id, malzeme_no], map: "uq_basbug_products_brand_malzeme_no")
+  @@index([brand_id])
   @@index([malzeme_no])
   @@index([oem_no])
   @@index([liste_grubu_kodu])
-  @@schema("v0")
+  @@schema("catalog")
 }
 
-// ==========================================
-// Başbuğ Exchange Rates — DovizBilgisiGetir
-// Daily snapshot with historical tracking
-// ==========================================
+// Başbuğ exchange rates — DovizBilgisiGetir, daily snapshot.
 
-model bsbg_rate {
+model supplier_basbug_rates {
   id          Int      @id @default(autoincrement())
   doviz_cinsi String
   alis        Decimal  @db.Decimal(18, 6)
@@ -875,42 +779,82 @@ model bsbg_rate {
   tarih       DateTime @db.Date
   created_at  DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([doviz_cinsi, kaynak, tarih], map: "uq_bsbg_rate_cinsi_kaynak_tarih")
+  @@unique([doviz_cinsi, kaynak, tarih], map: "uq_basbug_rates_cinsi_kaynak_tarih")
   @@index([tarih])
   @@index([doviz_cinsi, tarih(sort: Desc)])
-  @@schema("v0")
+  @@schema("catalog")
 }
 
-// ==========================================
-// Başbuğ Cost History — MalzemeleriGetir fiyat snapshotları
-// Her sync'te her ürün için bir satır — historical tracking
-// ==========================================
+// Başbuğ cost history — price snapshot per sync run (historical tracking).
 
-model bsbg_cost {
-  id               BigInt   @id @default(autoincrement())
-  bsbg_products_id BigInt
-  liste_fiyati     Decimal? @db.Decimal(12, 2)
-  para_birimi      String?
-  kur_degeri       Decimal? @db.Decimal(18, 6)
-  fiyat_tl         Decimal? @db.Decimal(12, 2)
-  captured_at      DateTime @default(now()) @db.Timestamptz(6)
+model supplier_basbug_cost_history {
+  id           BigInt   @id @default(autoincrement())
+  product_id   BigInt
+  liste_fiyati Decimal? @db.Decimal(12, 2)
+  para_birimi  String?
+  kur_degeri   Decimal? @db.Decimal(18, 6)
+  fiyat_tl     Decimal? @db.Decimal(12, 2)
+  captured_at  DateTime @default(now()) @db.Timestamptz(6)
 
-  bsbg_products bsbg_products @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
+  product supplier_basbug_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  @@index([bsbg_products_id, captured_at(sort: Desc)])
+  @@index([product_id, captured_at(sort: Desc)])
   @@index([para_birimi])
   @@index([captured_at])
-  @@schema("v0")
+  @@schema("catalog")
 }
 
-// ==========================================
-// catalog schema — canonical sellable catalog.
-// Products are the union of supplier rows (dnmk/bsbg) matched by
-// (brand_list_id, part_no_norm). Offers carry per-supplier price/stock
-// with provenance FKs back to the raw supplier tables in v0.
-// public.parts is an enrichment source only (links are disposable,
-// copied data is durable).
-// ==========================================
+// ----------------------------------------------------------------------------
+// 2. Brand matching layer
+// ----------------------------------------------------------------------------
+
+// Canonical brand — unified brand name across all suppliers.
+// Source brand mappings live in brand_mappings.
+
+model brands {
+  id       Int     @id @default(autoincrement())
+  brand    String  @unique
+  logo_url String?
+
+  brand_mappings brand_mappings[]
+  products       products[]
+
+  @@index([brand], name: "idx_brands_match_brand")
+  @@schema("catalog")
+}
+
+// Brand mappings — links each supplier's brand to a canonical brand.
+// At least one supplier FK must be set; mapping_status controls whether
+// the supplier's products participate in catalog matching.
+
+model brand_mappings {
+  id               Int     @id @default(autoincrement())
+  brand_id         Int
+  dinamik_brand_id BigInt?
+  ptdrk_brand_id   Int?
+  basbug_brand_id  BigInt?
+  mapping_status   String  @default("PENDING") // PENDING | APPROVED | IGNORED
+  match_method     String?
+
+  brand            brands                   @relation(fields: [brand_id], references: [id], onDelete: Cascade)
+  dinamik_brand    supplier_dinamik_brands? @relation(fields: [dinamik_brand_id], references: [id], onDelete: Cascade)
+  ptdrk_brand      ptdrk_brands?            @relation(fields: [ptdrk_brand_id], references: [id], onDelete: Cascade)
+  basbug_brand     supplier_basbug_brands?  @relation(fields: [basbug_brand_id], references: [id], onDelete: Cascade)
+  ptdrkProducts    ptdrk_products?          @relation(fields: [ptdrk_productsId], references: [id])
+  ptdrk_productsId Int?
+
+  @@unique([brand_id, dinamik_brand_id, ptdrk_brand_id, basbug_brand_id], name: "uq_brand_mappings_suppliers")
+  @@index([brand_id], name: "idx_brand_mappings_brand")
+  @@index([dinamik_brand_id], name: "idx_brand_mappings_dinamik")
+  @@index([ptdrk_brand_id], name: "idx_brand_mappings_ptdrk")
+  @@index([basbug_brand_id], name: "idx_brand_mappings_basbug")
+  @@index([mapping_status], name: "idx_brand_mappings_status")
+  @@schema("catalog")
+}
+
+// ----------------------------------------------------------------------------
+// 3. Suppliers registry
+// ----------------------------------------------------------------------------
 
 model suppliers {
   code               String    @id // 'dinamik' | 'basbug'
@@ -925,9 +869,16 @@ model suppliers {
   @@schema("catalog")
 }
 
+// ----------------------------------------------------------------------------
+// 4. Canonical catalog — products, offers, enrichment
+// ----------------------------------------------------------------------------
+
+// Canonical product — one row per (brand_id, part_no_norm).
+// Union of supplier rows matched under an APPROVED brand mapping.
+
 model products {
   id                BigInt  @id @default(autoincrement())
-  brand_list_id     Int
+  brand_id          Int
   part_no           String // display form (best raw variant)
   part_no_norm      String // UPPER + [^A-Z0-9] stripped — matching key
   name              String
@@ -946,9 +897,9 @@ model products {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  brand_list            brand_list              @relation(fields: [brand_list_id], references: [id], onDelete: Restrict)
-  part_categories       part_categories?        @relation(fields: [category_id], references: [id], onDelete: SetNull)
-  parts                 parts?                  @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
+  brand                 brands                  @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  category              part_categories?        @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  primary_part          parts?                  @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
   product_offers        product_offers[]
   product_oems          product_oems[]
   product_eans          product_eans[]
@@ -958,16 +909,19 @@ model products {
   product_part_links    product_part_links[]
   product_overrides     product_overrides?
 
-  @@unique([brand_list_id, part_no_norm], map: "uq_products_brand_partno_norm")
+  @@unique([brand_id, part_no_norm], map: "uq_products_brand_partno_norm")
   @@index([part_no_norm])
   @@index([status])
   @@index([category_id, status])
-  @@index([brand_list_id, status])
+  @@index([brand_id, status])
   @@index([in_stock, status])
   @@index([primary_part_id])
   @@index([updated_at])
   @@schema("catalog")
 }
+
+// Per-supplier offer — provenance FK back to the raw supplier table.
+// cost → sell chain materialized at sync time.
 
 model product_offers {
   id            BigInt @id @default(autoincrement())
@@ -975,9 +929,9 @@ model product_offers {
   supplier_code String
 
   // provenance: exactly one supplier FK set, matching supplier_code (CHECK in migration)
-  dnmk_products_id BigInt? @unique(map: "uq_offers_dnmk_product")
-  bsbg_products_id BigInt? @unique(map: "uq_offers_bsbg_product")
-  supplier_sku     String
+  dinamik_product_id BigInt? @unique(map: "uq_offers_dinamik_product")
+  basbug_product_id  BigInt? @unique(map: "uq_offers_basbug_product")
+  supplier_sku       String
 
   // cost → sell chain, materialized at sync time
   list_price        Decimal?  @db.Decimal(12, 2)
@@ -998,10 +952,10 @@ model product_offers {
   created_at     DateTime  @default(now()) @db.Timestamptz(6)
   updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  products      products       @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  suppliers     suppliers      @relation(fields: [supplier_code], references: [code], onDelete: Restrict)
-  dnmk_products dnmk_products? @relation(fields: [dnmk_products_id], references: [id], onDelete: Cascade)
-  bsbg_products bsbg_products? @relation(fields: [bsbg_products_id], references: [id], onDelete: Cascade)
+  product         products                   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  supplier        suppliers                  @relation(fields: [supplier_code], references: [code], onDelete: Restrict)
+  dinamik_product supplier_dinamik_products? @relation(fields: [dinamik_product_id], references: [id], onDelete: Cascade)
+  basbug_product  supplier_basbug_products?  @relation(fields: [basbug_product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, supplier_code], map: "uq_offers_product_supplier")
   @@index([supplier_code, is_active])
@@ -1009,6 +963,8 @@ model product_offers {
   @@index([is_active, stock_qty])
   @@schema("catalog")
 }
+
+// OEM codes for a canonical product.
 
 model product_oems {
   id         BigInt   @id @default(autoincrement())
@@ -1019,7 +975,7 @@ model product_oems {
   source     String // 'BSBG' | 'DNMK' | 'PARTS' | 'MANUAL'
   created_at DateTime @default(now()) @db.Timestamptz(6)
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, code_norm], map: "uq_product_oems_product_code")
   @@index([code_norm])
@@ -1027,18 +983,22 @@ model product_oems {
   @@schema("catalog")
 }
 
+// EAN / barcode codes for a canonical product.
+
 model product_eans {
   id         BigInt @id @default(autoincrement())
   product_id BigInt
   code       String
   source     String // 'DNMK' | 'PARTS' | 'MANUAL'
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, code], map: "uq_product_eans_product_code")
   @@index([code])
   @@schema("catalog")
 }
+
+// Product images.
 
 model product_images {
   id         BigInt  @id @default(autoincrement())
@@ -1048,12 +1008,14 @@ model product_images {
   position   Int     @default(0)
   source     String // 'DNMK' | 'PARTS' | 'MANUAL'
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, url], map: "uq_product_images_product_url")
   @@index([product_id, position])
   @@schema("catalog")
 }
+
+// Product technical properties.
 
 model product_properties {
   id         BigInt @id @default(autoincrement())
@@ -1062,21 +1024,22 @@ model product_properties {
   value      String
   source     String @default("PARTS")
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, key], map: "uq_product_properties_product_key")
   @@schema("catalog")
 }
 
 // Copied fitment — durable across public.parts refreshes.
+
 model product_vehicle_types {
   id              BigInt @id @default(autoincrement())
   product_id      BigInt
   vehicle_type_id Int
   source          String @default("PARTS")
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  vtypes   vtypes   @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
+  product      products      @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  vehicle_type vehicle_types @relation(fields: [vehicle_type_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, vehicle_type_id], map: "uq_product_vehicle_types")
   @@index([vehicle_type_id, product_id])
@@ -1084,6 +1047,7 @@ model product_vehicle_types {
 }
 
 // Disposable bridge to public.parts — regenerated by enrich-from-parts.
+
 model product_part_links {
   id           BigInt    @id @default(autoincrement())
   product_id   BigInt
@@ -1096,14 +1060,16 @@ model product_part_links {
   reviewed_at  DateTime? @db.Timestamptz(6)
   reviewed_by  String?
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  parts    parts    @relation(fields: [part_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  part    parts    @relation(fields: [part_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, part_id], map: "uq_product_part_links")
   @@index([part_id])
   @@index([status])
   @@schema("catalog")
 }
+
+// Admin overrides for a canonical product.
 
 model product_overrides {
   product_id             BigInt   @id
@@ -1115,7 +1081,7 @@ model product_overrides {
   updated_by             String?
   updated_at             DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  products products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@schema("catalog")
 }

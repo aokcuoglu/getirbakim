@@ -18,16 +18,16 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dnmk_brands) AS dnbrd_total,
+      (SELECT COUNT(*)::int FROM catalog.supplier_dinamik_brands) AS dnbrd_total,
       (SELECT COUNT(*)::int FROM v0.ptdrk_brands) AS manufacturer_total,
       (
-        SELECT COUNT(DISTINCT dnmk_brands_id)::int
-        FROM v0.dnmk_products
+        SELECT COUNT(DISTINCT brand_id)::int
+        FROM catalog.supplier_dinamik_products
       ) AS dnprd_brand_total,
       (
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
-          FROM v0.dnmk_brands d
+          FROM catalog.supplier_dinamik_brands d
           INNER JOIN v0.ptdrk_brands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
         ) x
@@ -35,33 +35,33 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
       (
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
-          FROM v0.dnmk_brands d
+          FROM catalog.supplier_dinamik_brands d
           INNER JOIN v0.ptdrk_brands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
           WHERE NOT EXISTS (
             SELECT 1
-            FROM v0.dnmk_products p
-            WHERE p.dnmk_brands_id = d.id
+            FROM catalog.supplier_dinamik_products p
+            WHERE p.brand_id = d.id
           )
         ) x
       ) AS manufacturer_only_in_dnbrd,
       (
         SELECT COUNT(*)::int
-        FROM v0.dnmk_products p
-        LEFT JOIN v0.dnmk_brands b ON b.id = p.dnmk_brands_id
+        FROM catalog.supplier_dinamik_products p
+        LEFT JOIN catalog.supplier_dinamik_brands b ON b.id = p.brand_id
         WHERE b.id IS NULL
       ) AS dnprd_missing_in_dnbrd
   `)
 
   const samples = await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
     SELECT d.brand
-    FROM v0.dnmk_brands d
+    FROM catalog.supplier_dinamik_brands d
     INNER JOIN v0.ptdrk_brands m
       ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
     WHERE NOT EXISTS (
       SELECT 1
-      FROM v0.dnmk_products p
-      WHERE p.dnmk_brands_id = d.id
+      FROM catalog.supplier_dinamik_products p
+      WHERE p.brand_id = d.id
     )
     ORDER BY d.brand ASC
     LIMIT 20
@@ -94,7 +94,7 @@ export async function ensureDbrandsRows(brands: string[]): Promise<number> {
     const batch = unique.slice(i, i + BATCH_SIZE)
     const values = batch.map((brand) => Prisma.sql`(${brand})`)
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.dnmk_brands (brand)
+      INSERT INTO catalog.supplier_dinamik_brands (brand)
       VALUES ${Prisma.join(values)}
       ON CONFLICT (brand) DO NOTHING
     `)
@@ -133,13 +133,13 @@ async function removeManufacturerOnlyDbrands(
   if (dryRun) {
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
-      FROM v0.dnmk_brands d
+      FROM catalog.supplier_dinamik_brands d
       INNER JOIN v0.ptdrk_brands m
         ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       WHERE NOT EXISTS (
         SELECT 1
-        FROM v0.dnmk_products p
-        WHERE p.dnmk_brands_id = d.id
+        FROM catalog.supplier_dinamik_products p
+        WHERE p.brand_id = d.id
       )
       ${apiExclusion}
     `)
@@ -147,13 +147,13 @@ async function removeManufacturerOnlyDbrands(
   }
 
   const deleted = await db.$executeRaw(Prisma.sql`
-    DELETE FROM v0.dnmk_brands d
+    DELETE FROM catalog.supplier_dinamik_brands d
     USING v0.ptdrk_brands m
     WHERE LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       AND NOT EXISTS (
         SELECT 1
-        FROM v0.dnmk_products p
-        WHERE p.dnmk_brands_id = d.id
+        FROM catalog.supplier_dinamik_products p
+        WHERE p.brand_id = d.id
       )
       ${apiExclusion}
   `)
@@ -166,7 +166,7 @@ async function upsertDbrandsFromDproducts(dryRun: boolean): Promise<number> {
     return audit.dnprdMissingInDbrands
   }
 
-  // dnprd.dnmk_brands_id FK ensures parent rows exist; nothing to backfill from product strings.
+  // dnprd.dinamik_brand_id FK ensures parent rows exist; nothing to backfill from product strings.
   return 0
 }
 
@@ -184,7 +184,7 @@ export async function syncDbrandsFromApi(
       return { inserted: 0, apiBrandCount: 0, brandNames: [] }
     }
 
-    const existing = await db.dnmk_brands.findMany({ select: { brand: true } })
+    const existing = await db.supplier_dinamik_brands.findMany({ select: { brand: true } })
     const existingKeys = new Set(
       existing.map((row) => row.brand.trim().toLowerCase())
     )

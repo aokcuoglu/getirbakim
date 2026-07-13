@@ -135,7 +135,7 @@ export async function runBasbugCatalogSeedJob(
 
         const brandIds = new Map<string, bigint>()
         for (const brand of distinctBrands.values()) {
-          const result = await db.bsbg_brands.upsert({
+          const result = await db.supplier_basbug_brands.upsert({
             where: { brand },
             update: { last_seen_at: new Date() },
             create: { brand },
@@ -145,12 +145,12 @@ export async function runBasbugCatalogSeedJob(
         }
 
         await chunk(malzemeler, BATCH_SIZE, async (batch) => {
-          await db.bsbg_products.createMany({
+          await db.supplier_basbug_products.createMany({
             data: batch.map((m) => {
               const currency = mapCurrency(m.dc)
               const bsbgBrandsId = brandIds.get(m.uk || 'BİLİNMEYEN')!
               return {
-                bsbg_brands_id: bsbgBrandsId,
+                brand_id: bsbgBrandsId,
                 malzeme_no: m.no,
                 part_no: (m.uk?.toUpperCase() === 'OE-FD' || m.uk?.toUpperCase() === 'VIEW MAX' || m.uk?.toUpperCase() === 'CONTITECH' || m.uk?.toUpperCase() === 'R' || m.uk?.toUpperCase() === 'FMY' || m.uk?.toUpperCase() === 'ARI IS') ? m.no : (() => { const i = m.no.indexOf(' '); return i > 0 ? m.no.slice(i + 1).trim() || null : null })(),
                 aciklama: normalizeText(m.ac),
@@ -231,7 +231,7 @@ async function getLatestRate(currency: string): Promise<{
     return { kurDegeri: null, fiyatTl: null }
   }
 
-  const rate = await db.bsbg_rate.findFirst({
+  const rate = await db.supplier_basbug_rates.findFirst({
     where: { doviz_cinsi: currency },
     orderBy: { tarih: 'desc' },
     select: { satis: true }
@@ -259,7 +259,7 @@ export async function runBasbugRateSyncJob(): Promise<BasbugRateSyncResult> {
 
     for (const rate of rates) {
       try {
-        await db.bsbg_rate.upsert({
+        await db.supplier_basbug_rates.upsert({
           where: {
             doviz_cinsi_kaynak_tarih: {
               doviz_cinsi: rate.dovizCinsi,

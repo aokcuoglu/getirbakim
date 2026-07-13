@@ -13,7 +13,7 @@ const dnmkKey = normCodeSql(Prisma.sql`COALESCE(dp.part_no, dp.stock_code)`)
 const bsbgKey = normCodeSql(Prisma.sql`COALESCE(bp.part_no, bp.malzeme_no)`)
 
 /**
- * Attach Dinamik raw rows (v0.dnmk_products) to the canonical catalog.
+ * Attach Dinamik raw rows (catalog.supplier_dinamik_products) to the canonical catalog.
  *
  * Idempotent and additive: rows that already have an offer are skipped.
  * Only rows under an APPROVED brand mapping participate. Matching key is
@@ -32,29 +32,29 @@ export async function matchDinamikSupplierRows(): Promise<MatchSupplierStats> {
   stats.productsCreated = await db.$executeRaw(Prisma.sql`
     WITH candidates AS (
       SELECT
-        bm.brand_list_id,
+        bm.brand_id,
         COALESCE(dp.part_no, dp.stock_code) AS part_no_display,
         ${dnmkKey} AS key_norm,
         COALESCE(NULLIF(dp.stock_name, ''), dp.stock_code) AS display_name,
         NULLIF(dp.image_url, '') AS image_url,
         ROW_NUMBER() OVER (
-          PARTITION BY bm.brand_list_id, ${dnmkKey}
+          PARTITION BY bm.brand_id, ${dnmkKey}
           ORDER BY dp.id
         ) AS rn
-      FROM v0.dnmk_products dp
-      JOIN v0.brand_mappings bm
-        ON bm.dnmk_brands_id = dp.dnmk_brands_id
+      FROM catalog.supplier_dinamik_products dp
+      JOIN catalog.brand_mappings bm
+        ON bm.dinamik_brand_id = dp.brand_id
         AND bm.mapping_status = 'APPROVED'
       WHERE dp.is_passive = false
         AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.dnmk_products_id = dp.id
+          SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id
         )
     )
-    INSERT INTO catalog.products (brand_list_id, part_no, part_no_norm, name, primary_image_url)
-    SELECT brand_list_id, part_no_display, key_norm, display_name, image_url
+    INSERT INTO catalog.products (brand_id, part_no, part_no_norm, name, primary_image_url)
+    SELECT brand_id, part_no_display, key_norm, display_name, image_url
     FROM candidates
     WHERE rn = 1 AND key_norm IS NOT NULL
-    ON CONFLICT (brand_list_id, part_no_norm) DO NOTHING
+    ON CONFLICT (brand_id, part_no_norm) DO NOTHING
   `)
 
   // Tie-break among duplicate raw rows collapsing into one product: prefer a
@@ -70,20 +70,20 @@ export async function matchDinamikSupplierRows(): Promise<MatchSupplierStats> {
           PARTITION BY p.id
           ORDER BY (COALESCE(dc.stock_qty, 0) > 0) DESC, dc.price ASC NULLS LAST, dp.id
         ) AS rn
-      FROM v0.dnmk_products dp
-      JOIN v0.brand_mappings bm
-        ON bm.dnmk_brands_id = dp.dnmk_brands_id
+      FROM catalog.supplier_dinamik_products dp
+      JOIN catalog.brand_mappings bm
+        ON bm.dinamik_brand_id = dp.brand_id
         AND bm.mapping_status = 'APPROVED'
       JOIN catalog.products p
-        ON p.brand_list_id = bm.brand_list_id
+        ON p.brand_id = bm.brand_id
         AND p.part_no_norm = ${dnmkKey}
-      LEFT JOIN v0.dnmk_cost dc ON dc.dnmk_products_id = dp.id
+      LEFT JOIN catalog.supplier_dinamik_cost dc ON dc.product_id = dp.id
       WHERE dp.is_passive = false
         AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.dnmk_products_id = dp.id
+          SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id
         )
     )
-    INSERT INTO catalog.product_offers (product_id, supplier_code, dnmk_products_id, supplier_sku)
+    INSERT INTO catalog.product_offers (product_id, supplier_code, dinamik_product_id, supplier_sku)
     SELECT product_id, ${SUPPLIER_DINAMIK}, dnmk_id, stock_code
     FROM candidates
     WHERE rn = 1
@@ -105,19 +105,19 @@ async function linkBasbugOffersByKey(): Promise<number> {
         ROW_NUMBER() OVER (
           PARTITION BY p.id ORDER BY bp.liste_fiyati ASC NULLS LAST, bp.id
         ) AS rn
-      FROM v0.bsbg_products bp
-      JOIN v0.brand_mappings bm
-        ON bm.bsbg_brands_id = bp.bsbg_brands_id
+      FROM catalog.supplier_basbug_products bp
+      JOIN catalog.brand_mappings bm
+        ON bm.basbug_brand_id = bp.brand_id
         AND bm.mapping_status = 'APPROVED'
       JOIN catalog.products p
-        ON p.brand_list_id = bm.brand_list_id
+        ON p.brand_id = bm.brand_id
         AND p.part_no_norm = ${bsbgKey}
       WHERE bp.is_passive = false
         AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.bsbg_products_id = bp.id
+          SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
         )
     )
-    INSERT INTO catalog.product_offers (product_id, supplier_code, bsbg_products_id, supplier_sku)
+    INSERT INTO catalog.product_offers (product_id, supplier_code, basbug_product_id, supplier_sku)
     SELECT product_id, ${SUPPLIER_BASBUG}, bsbg_id, malzeme_no
     FROM candidates
     WHERE rn = 1
@@ -126,7 +126,7 @@ async function linkBasbugOffersByKey(): Promise<number> {
 }
 
 /**
- * Attach Başbuğ raw rows (v0.bsbg_products) to the canonical catalog.
+ * Attach Başbuğ raw rows (catalog.supplier_basbug_products) to the canonical catalog.
  *
  * Başbuğ part_no derivation is a brittle heuristic, so the match ladder is:
  *  1. normalized part_no (falling back to malzeme_no) → existing product
@@ -147,16 +147,16 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
     WITH bsbg_tokens AS (
       SELECT DISTINCT
         bp.id AS bsbg_id,
-        bm.brand_list_id,
+        bm.brand_id,
         ${normCodeSql(Prisma.sql`tok`)} AS code_norm
-      FROM v0.bsbg_products bp
-      JOIN v0.brand_mappings bm
-        ON bm.bsbg_brands_id = bp.bsbg_brands_id
+      FROM catalog.supplier_basbug_products bp
+      JOIN catalog.brand_mappings bm
+        ON bm.basbug_brand_id = bp.brand_id
         AND bm.mapping_status = 'APPROVED'
       CROSS JOIN LATERAL regexp_split_to_table(COALESCE(bp.oem_no, ''), '[;,]| - ') AS tok
       WHERE bp.is_passive = false
         AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.bsbg_products_id = bp.id
+          SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
         )
         AND LENGTH(${normCodeSql(Prisma.sql`tok`)}) >= 4
     ),
@@ -166,7 +166,7 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
       JOIN catalog.product_oems oe ON oe.code_norm = bt.code_norm
       JOIN catalog.products p
         ON p.id = oe.product_id
-        AND p.brand_list_id = bt.brand_list_id
+        AND p.brand_id = bt.brand_id
       WHERE NOT EXISTS (
         SELECT 1 FROM catalog.product_offers po
         WHERE po.product_id = oe.product_id AND po.supplier_code = ${SUPPLIER_BASBUG}
@@ -187,12 +187,12 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
           ORDER BY bp.liste_fiyati ASC NULLS LAST, uc.bsbg_id
         ) AS rn
       FROM unique_candidates uc
-      JOIN v0.bsbg_products bp ON bp.id = uc.bsbg_id
+      JOIN catalog.supplier_basbug_products bp ON bp.id = uc.bsbg_id
     )
-    INSERT INTO catalog.product_offers (product_id, supplier_code, bsbg_products_id, supplier_sku)
+    INSERT INTO catalog.product_offers (product_id, supplier_code, basbug_product_id, supplier_sku)
     SELECT s.product_id, ${SUPPLIER_BASBUG}, s.bsbg_id, bp.malzeme_no
     FROM stable s
-    JOIN v0.bsbg_products bp ON bp.id = s.bsbg_id
+    JOIN catalog.supplier_basbug_products bp ON bp.id = s.bsbg_id
     WHERE s.rn = 1
     ON CONFLICT DO NOTHING
   `)
@@ -200,28 +200,28 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
   stats.productsCreated = await db.$executeRaw(Prisma.sql`
     WITH candidates AS (
       SELECT
-        bm.brand_list_id,
+        bm.brand_id,
         COALESCE(bp.part_no, bp.malzeme_no) AS part_no_display,
         ${bsbgKey} AS key_norm,
         COALESCE(NULLIF(bp.aciklama, ''), bp.malzeme_no) AS display_name,
         ROW_NUMBER() OVER (
-          PARTITION BY bm.brand_list_id, ${bsbgKey}
+          PARTITION BY bm.brand_id, ${bsbgKey}
           ORDER BY bp.id
         ) AS rn
-      FROM v0.bsbg_products bp
-      JOIN v0.brand_mappings bm
-        ON bm.bsbg_brands_id = bp.bsbg_brands_id
+      FROM catalog.supplier_basbug_products bp
+      JOIN catalog.brand_mappings bm
+        ON bm.basbug_brand_id = bp.brand_id
         AND bm.mapping_status = 'APPROVED'
       WHERE bp.is_passive = false
         AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.bsbg_products_id = bp.id
+          SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
         )
     )
-    INSERT INTO catalog.products (brand_list_id, part_no, part_no_norm, name)
-    SELECT brand_list_id, part_no_display, key_norm, display_name
+    INSERT INTO catalog.products (brand_id, part_no, part_no_norm, name)
+    SELECT brand_id, part_no_display, key_norm, display_name
     FROM candidates
     WHERE rn = 1 AND key_norm IS NOT NULL
-    ON CONFLICT (brand_list_id, part_no_norm) DO NOTHING
+    ON CONFLICT (brand_id, part_no_norm) DO NOTHING
   `)
 
   // Second key pass links the offers for the products just created.
@@ -234,7 +234,7 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
     UPDATE catalog.products p
     SET name = bp.aciklama
     FROM catalog.product_offers po
-    JOIN v0.bsbg_products bp ON bp.id = po.bsbg_products_id
+    JOIN catalog.supplier_basbug_products bp ON bp.id = po.basbug_product_id
     WHERE po.product_id = p.id
       AND po.supplier_code = ${SUPPLIER_BASBUG}
       AND NULLIF(bp.aciklama, '') IS NOT NULL
@@ -255,19 +255,19 @@ export async function countUnlinkedSupplierRows(): Promise<UnlinkedSupplierRows>
     SELECT
       (
         SELECT COUNT(*)
-        FROM v0.dnmk_products dp
-        JOIN v0.brand_mappings bm
-          ON bm.dnmk_brands_id = dp.dnmk_brands_id AND bm.mapping_status = 'APPROVED'
+        FROM catalog.supplier_dinamik_products dp
+        JOIN catalog.brand_mappings bm
+          ON bm.dinamik_brand_id = dp.brand_id AND bm.mapping_status = 'APPROVED'
         WHERE dp.is_passive = false
-          AND NOT EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.dnmk_products_id = dp.id)
+          AND NOT EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id)
       ) AS dinamik,
       (
         SELECT COUNT(*)
-        FROM v0.bsbg_products bp
-        JOIN v0.brand_mappings bm
-          ON bm.bsbg_brands_id = bp.bsbg_brands_id AND bm.mapping_status = 'APPROVED'
+        FROM catalog.supplier_basbug_products bp
+        JOIN catalog.brand_mappings bm
+          ON bm.basbug_brand_id = bp.brand_id AND bm.mapping_status = 'APPROVED'
         WHERE bp.is_passive = false
-          AND NOT EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.bsbg_products_id = bp.id)
+          AND NOT EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id)
       ) AS basbug
   `)
 

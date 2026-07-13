@@ -15,7 +15,7 @@ export type DinamikBrandMatchStats = {
 export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStats> {
   const activeMatch = Prisma.sql`
     m.mapping_status IN ('PENDING', 'APPROVED')
-    AND m.ptdrk_brands_id IS NOT NULL
+    AND m.ptdrk_brand_id IS NOT NULL
   `
 
   const [row] = await db.$queryRaw<
@@ -26,14 +26,14 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
     }>
   >(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::int FROM v0.dnmk_brands) AS total_dinamik_brands,
+      (SELECT COUNT(*)::int FROM catalog.supplier_dinamik_brands) AS total_dinamik_brands,
       (
         SELECT COUNT(*)::int
-        FROM v0.dnmk_brands d
+        FROM catalog.supplier_dinamik_brands d
         WHERE EXISTS (
           SELECT 1
-          FROM v0.brand_mappings m
-          WHERE m.dnmk_brands_id = d.id
+          FROM catalog.brand_mappings m
+          WHERE m.dinamik_brand_id = d.id
             AND ${activeMatch}
         )
       ) AS matched_brands,

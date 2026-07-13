@@ -117,8 +117,8 @@ export async function getAdminCatalogProducts(
         offer_count: true,
         primary_part_id: true,
         updated_at: true,
-        brand_list: { select: { brand: true } },
-        part_categories: { select: { name: true } },
+        brand: { select: { brand: true } },
+        category: { select: { name: true } },
         product_overrides: {
           select: { lock_price: true, selling_price_override: true, name_override: true }
         }
@@ -140,8 +140,8 @@ export async function getAdminCatalogProducts(
       displayName: resolveCatalogName(r.name, r.product_overrides?.name_override),
       slug: r.slug,
       status: r.status as CatalogProductStatus,
-      brandName: r.brand_list.brand,
-      categoryName: r.part_categories?.name ?? null,
+      brandName: r.brand.brand,
+      categoryName: r.category?.name ?? null,
       sellingPriceExVat,
       priceIncVat: priceIncVat(sellingPriceExVat),
       totalStockQty: r.total_stock_qty,
@@ -187,12 +187,12 @@ export async function getAdminCatalogProductDetail(
   const product = await db.products.findUnique({
     where: { id: productId },
     include: {
-      brand_list: { select: { brand: true } },
-      part_categories: { select: { id: true, name: true } },
+      brand: { select: { brand: true } },
+      category: { select: { id: true, name: true } },
       product_overrides: true,
       product_offers: {
         orderBy: [{ is_active: 'desc' }, { selling_price_try: 'asc' }],
-        include: { suppliers: { select: { name: true } } }
+        include: { supplier: { select: { name: true } } }
       },
       product_oems: { orderBy: { id: 'asc' }, take: 200 },
       _count: {
@@ -217,7 +217,7 @@ export async function getAdminCatalogProductDetail(
           select: { name: true }
         })
       )?.name ?? null
-    : product.part_categories?.name ?? null
+    : product.category?.name ?? null
 
   return {
     id: product.id.toString(),
@@ -225,7 +225,7 @@ export async function getAdminCatalogProductDetail(
     name: resolveCatalogName(product.name, override?.name_override),
     slug: product.slug,
     status: product.status as CatalogProductStatus,
-    brandName: product.brand_list.brand,
+    brandName: product.brand.brand,
     categoryId: categoryOverrideId ?? product.category_id,
     categoryName,
     primaryImageUrl: product.primary_image_url,
@@ -237,7 +237,7 @@ export async function getAdminCatalogProductDetail(
     offers: product.product_offers.map((o) => ({
       id: o.id.toString(),
       supplierCode: o.supplier_code,
-      supplierName: o.suppliers.name,
+      supplierName: o.supplier.name,
       supplierSku: o.supplier_sku,
       listPrice: decimalToNumber(o.list_price),
       costTry: decimalToNumber(o.cost_try),

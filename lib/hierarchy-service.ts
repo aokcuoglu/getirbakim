@@ -167,7 +167,7 @@ async function fetchVariants(engineId: number): Promise<VariantItem[]> {
  * Fetch vehicle brands from database
  */
 async function fetchVehicleBrands(): Promise<HierarchyItem[]> {
-  const data = await db.vbrands.findMany({
+  const data = await db.vehicle_brands.findMany({
     select: { id: true, name: true },
     orderBy: { name: 'asc' }
   })
@@ -178,7 +178,7 @@ async function fetchVehicleBrands(): Promise<HierarchyItem[]> {
  * Fetch vehicle models from database by brandId
  */
 async function fetchVehicleModels(brandId: number): Promise<HierarchyItem[]> {
-  const data = await db.vmodels.findMany({
+  const data = await db.vehicle_models.findMany({
     where: { brand_id: brandId },
     select: { id: true, name: true, date_from: true, date_to: true },
     orderBy: { name: 'asc' }
@@ -206,7 +206,7 @@ function slugify(text: string): string {
 }
 
 async function fetchVehicleTypes(modelId: number): Promise<VariantItem[]> {
-  const data = await db.vtypes.findMany({
+  const data = await db.vehicle_types.findMany({
     where: { model_id: modelId },
     select: {
       id: true,
@@ -313,7 +313,7 @@ export async function getDropdownData(
 
   let brandsCount = 0
   if (entity === 'vehicle_brands') {
-    brandsCount = await db.vbrands.count()
+    brandsCount = await db.vehicle_brands.count()
     debugLog(`[HierarchyService] Total brands in DB: ${brandsCount}`)
   }
 

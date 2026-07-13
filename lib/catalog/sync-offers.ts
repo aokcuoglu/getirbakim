@@ -28,8 +28,9 @@ async function touchSupplierSyncTime(code: string): Promise<void> {
 
 /**
  * Refresh price/stock/active state of all Dinamik offers from the raw layer
- * (v0.dnmk_products + v0.dnmk_cost), materializing the cost → sell chain with
- * the same math as calculateSellingPrice():
+ * (catalog.supplier_dinamik_products + catalog.supplier_dinamik_cost),
+ * materializing the cost → sell chain with the same math as
+ * calculateSellingPrice():
  *   net  = round(price × (1 − standardDiscountRate) × (1 − campaignRate), 2)
  *   sell = round(net × (1 + marginRate) + fixedFee, 2)
  * campaign_rate > 1 is treated as a percentage, mirroring normalizeRate().
@@ -58,8 +59,8 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
               )))
           )::numeric, 2
         ) AS net_cost
-      FROM v0.dnmk_products dp
-      LEFT JOIN v0.dnmk_cost dc ON dc.dnmk_products_id = dp.id
+      FROM catalog.supplier_dinamik_products dp
+      LEFT JOIN catalog.supplier_dinamik_cost dc ON dc.product_id = dp.id
     )
     UPDATE catalog.product_offers po
     SET
@@ -81,7 +82,7 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
       last_synced_at = NOW(),
       updated_at = NOW()
     FROM src
-    WHERE po.dnmk_products_id = src.dnmk_id
+    WHERE po.dinamik_product_id = src.dnmk_id
   `)
 
   const [row] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
@@ -97,7 +98,8 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
 /**
  * Refresh price/active state of all Başbuğ offers. List price is in the
  * supplier's currency (para_birimi, TL→TRY); non-TRY prices are converted
- * with the latest v0.bsbg_rate (satış) snapshot for that currency.
+ * with the latest catalog.supplier_basbug_rates (satış) snapshot for that
+ * currency.
  * Stock stays 0 until the StokGetir endpoint is wired into ingestion.
  */
 export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
@@ -118,7 +120,7 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
           WHEN r.satis IS NULL THEN NULL
           ELSE ROUND((bp.liste_fiyati * r.satis)::numeric, 2)
         END AS cost_try
-      FROM v0.bsbg_products bp
+      FROM catalog.supplier_basbug_products bp
       CROSS JOIN LATERAL (
         SELECT CASE
           WHEN COALESCE(NULLIF(UPPER(TRIM(bp.para_birimi)), ''), 'TRY') IN ('TL', 'TRY') THEN 'TRY'
@@ -127,7 +129,7 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
       ) cur
       LEFT JOIN LATERAL (
         SELECT br.satis, br.tarih
-        FROM v0.bsbg_rate br
+        FROM catalog.supplier_basbug_rates br
         WHERE br.doviz_cinsi = cur.currency
         ORDER BY br.tarih DESC
         LIMIT 1
@@ -157,7 +159,7 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
       last_synced_at = NOW(),
       updated_at = NOW()
     FROM src
-    WHERE po.bsbg_products_id = src.bsbg_id
+    WHERE po.basbug_product_id = src.bsbg_id
   `)
 
   const [row] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`

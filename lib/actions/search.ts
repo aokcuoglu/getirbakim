@@ -76,7 +76,7 @@ export async function searchGlobal(query: string): Promise<SearchResults> {
         ]
       : [
           { name: { contains: q, mode: 'insensitive' } },
-          { brand_list: { brand: { contains: q, mode: 'insensitive' } } }
+          { brand: { brand: { contains: q, mode: 'insensitive' } } }
         ]
   }
 
@@ -97,14 +97,14 @@ export async function searchGlobal(query: string): Promise<SearchResults> {
         slug: true,
         primary_image_url: true,
         min_selling_price_try: true,
-        brand_list: { select: { brand: true } },
-        part_categories: { select: { name: true } }
+        brand: { select: { brand: true } },
+        category: { select: { name: true } }
       },
       take: 8
     }),
     isCodeLike
       ? Promise.resolve([] as Array<{ id: number; brand: string; logo_url: string | null }>)
-      : db.brand_list.findMany({
+      : db.brands.findMany({
           where: { brand: { contains: q, mode: 'insensitive' } },
           select: { id: true, brand: true, logo_url: true },
           take: 5
@@ -124,8 +124,8 @@ export async function searchGlobal(query: string): Promise<SearchResults> {
     return {
       id: Number(p.id),
       name: p.name,
-      brandName: p.brand_list.brand,
-      categoryName: p.part_categories?.name ?? '',
+      brandName: p.brand.brand,
+      categoryName: p.category?.name ?? '',
       price: price.incVat != null ? price.incVat.toFixed(2) : null,
       image: p.primary_image_url,
       urlKey: p.slug ?? '',

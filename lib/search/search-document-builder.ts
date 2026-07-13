@@ -76,7 +76,7 @@ interface CatalogDocRow {
   name: string
   name_override: string | null
   slug: string | null
-  brand_list_id: number
+  brand_id: number
   brand_name: string
   brand_logo: string | null
   category_id: number | null
@@ -105,7 +105,7 @@ const SELECT_SQL = Prisma.sql`
     p.name,
     o.name_override,
     p.slug,
-    p.brand_list_id,
+    p.brand_id,
     bl.brand                           AS brand_name,
     bl.logo_url                        AS brand_logo,
     COALESCE(o.category_override_id, p.category_id) AS category_id,
@@ -125,7 +125,7 @@ const SELECT_SQL = Prisma.sql`
     veh.type_names                     AS vehicle_type_names,
     COALESCE(veh.fitment_count, 0)::int AS fitment_count
   FROM catalog.products p
-  JOIN v0.brand_list bl ON bl.id = p.brand_list_id
+  JOIN catalog.brands bl ON bl.id = p.brand_id
   LEFT JOIN catalog.product_overrides o ON o.product_id = p.id
   LEFT JOIN public.part_categories c
     ON c.id = COALESCE(o.category_override_id, p.category_id)
@@ -144,9 +144,9 @@ const SELECT_SQL = Prisma.sql`
       array_agg(DISTINCT vt.name) AS type_names,
       COUNT(*)                    AS fitment_count
     FROM catalog.product_vehicle_types pvt
-    JOIN v0.vtypes vt  ON vt.id = pvt.vehicle_type_id
-    JOIN v0.vmodels vm ON vm.id = vt.model_id
-    JOIN v0.vbrands vb ON vb.id = vm.brand_id
+    JOIN v0.vehicle_types vt  ON vt.id = pvt.vehicle_type_id
+    JOIN v0.vehicle_models vm ON vm.id = vt.model_id
+    JOIN v0.vehicle_brands vb ON vb.id = vm.brand_id
     WHERE pvt.product_id = p.id
   ) veh ON TRUE
 `
@@ -199,7 +199,7 @@ function rowToDocument(row: CatalogDocRow): SearchDocument {
 
     brand: row.brand_name,
     brandName: row.brand_name,
-    brandId: row.brand_list_id,
+    brandId: row.brand_id,
     brandLogo: row.brand_logo,
 
     categoryId: row.category_id,
