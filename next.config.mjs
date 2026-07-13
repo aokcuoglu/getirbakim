@@ -90,12 +90,16 @@ const nextConfig = {
     async redirects() {
         return [
             {
-                source: '/:locale/:slug-:id(\\d+)/:rest*',
+                // Legacy <slug>-<id> canonicalization. Constrain :locale to real
+                // locales so un-prefixed catalog URLs like /urun/<brand>-<partno>-<id>
+                // (whose trailing id is significant) are not mistaken for a
+                // locale-prefixed legacy URL and stripped down to /urun/<brand>.
+                source: '/:locale(en|tr)/:slug-:id(\\d+)/:rest*',
                 destination: '/:locale/:slug/:rest*',
                 permanent: true,
             },
             {
-                source: '/:locale/:slug-:id(\\d+)',
+                source: '/:locale(en|tr)/:slug-:id(\\d+)',
                 destination: '/:locale/:slug',
                 permanent: true,
             },
