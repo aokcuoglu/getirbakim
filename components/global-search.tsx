@@ -129,7 +129,8 @@ export function GlobalSearch({
             name: product.name,
             brandName: product.brandName,
             categoryName: product.categoryName,
-            price: product.price
+            price: product.price,
+            urlKey: product.urlKey
           }))
         )
         setBrandResults(data.brands ?? [])
@@ -168,7 +169,8 @@ export function GlobalSearch({
 
   const handleSelectPart = (part: PartDocument) => {
     setOpen(false)
-    router.push(`/${locale}/part/${String(part.id)}`)
+    const slug = typeof part.urlKey === 'string' ? part.urlKey : ''
+    router.push(slug ? `/${locale}/urun/${slug}` : `/${locale}/part/${String(part.id)}`)
   }
 
   const handleSelectBrand = (brand: SearchResultBrand) => {

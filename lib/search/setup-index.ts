@@ -40,6 +40,8 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'documentType',
       'availabilityStatus',
       'brand',
+      'brandName',
+      'categoryName',
       'categorySlug',
       'categoryId',
       'providerCode',
@@ -59,7 +61,8 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'stockQty',
       'updatedAt',
       'offerCount',
-      'fitmentCount'
+      'fitmentCount',
+      'name'
     ],
     typoTolerance: {
       enabled: true,
