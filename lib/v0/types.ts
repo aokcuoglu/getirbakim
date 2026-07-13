@@ -7,6 +7,7 @@ export type V0BrandMatchRow = {
   ptUrlKey: string | null
   logoUrl: string | null
   slug: string
+  brandListIds: number[]
 }
 
 export type V0HomeBrandItem = Pick<
