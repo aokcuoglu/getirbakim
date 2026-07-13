@@ -15,6 +15,7 @@ import { useTranslations } from 'next-intl'
 import { Clock, Package, Tag, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { signIn as nextAuthSignIn } from 'next-auth/react'
+import { signUp } from '@/lib/actions/auth-actions'
 import { useShop } from '@/components/ShopProvider'
 import { Link, useRouter } from '@/lib/navigation'
 import { toast } from 'sonner'
@@ -91,10 +92,6 @@ export function LoginModal({
 
         formData.append('name', `${firstName} ${lastName}`.trim())
         formData.append('confirmPassword', confirmPassword)
-
-        // Import dynamically or at top. I'll stick to import at top.
-        // Wait, I need to add the import first.
-        const { signUp, signIn } = await import('@/lib/actions/auth-actions')
 
         const result = await signUp(formData)
 
