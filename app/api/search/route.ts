@@ -110,8 +110,18 @@ export async function POST(request: NextRequest) {
   try {
     const index = getMeiliClient().index(getProductsIndexName())
 
+    // Retry without sort if Meilisearch rejects it (e.g. the sortableAttributes
+    // setting has not been applied to the index yet) so search never 500s.
+    const runMainSearch = () =>
+      index
+        .search(query, { filter: mainFilter, limit, offset, sort })
+        .catch((err) => {
+          if (isMeiliUnavailableError(err)) throw err
+          return index.search(query, { filter: mainFilter, limit, offset })
+        })
+
     const [main, brandFacet, categoryFacet] = await Promise.all([
-      index.search(query, { filter: mainFilter, limit, offset, sort }),
+      runMainSearch(),
       index.search(query, {
         filter: brandFacetFilter,
         limit: 0,

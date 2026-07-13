@@ -61,7 +61,8 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'stockQty',
       'updatedAt',
       'offerCount',
-      'fitmentCount'
+      'fitmentCount',
+      'name'
     ],
     typoTolerance: {
       enabled: true,
