@@ -163,9 +163,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 128M
+          memory: 256M
 
   # ── Squid Forward Proxy (Dinamik API egress — IP whitelist) ────────────
   # The Dinamik supplier API whitelists the VPS IP. The app reaches it via
