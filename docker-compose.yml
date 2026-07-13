@@ -105,6 +105,7 @@ services:
       DATABASE_POOL_MAX: "10"
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      AUTH_URL: ${AUTH_URL:-https://getirbakim.com}
     depends_on:
       meilisearch:
         condition: service_healthy
