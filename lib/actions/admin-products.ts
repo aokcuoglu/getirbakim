@@ -1479,43 +1479,9 @@ export async function createAdminPartFromDinamik(input: {
     return { success: false, message }
   }
 
-  try {
-    const { manualMapDinamikProductToPart } =
-      await import('@/lib/actions/admin-suppliers')
-    const mappingResult = await manualMapDinamikProductToPart({
-      stockCode,
-      queryBrand,
-      partId: createdPartId,
-      note: input.note?.trim() || 'manuel:admin-products-dinamik-import'
-    })
-
-    if (!mappingResult.success) {
-      revalidateAdminPaths()
-      return {
-        success: true,
-        message: `Public part #${createdPartId} oluşturuldu fakat Dinamik mapping başarısız: ${mappingResult.message}`,
-        data: {
-          partId: createdPartId,
-          stockCode
-        }
-      }
-    }
-  } catch (error) {
-    revalidateAdminPaths()
-    const errText =
-      error instanceof Error
-        ? error.message
-        : 'Dinamik mapping sırasında hata oluştu.'
-    return {
-      success: true,
-      message: `Public part #${createdPartId} oluşturuldu fakat mapping atlanıldı: ${errText}`,
-      data: {
-        partId: createdPartId,
-        stockCode
-      }
-    }
-  }
-
+  // Old Dinamik→part supplier-mapping removed with the retired supplier system
+  // (superseded by the catalog pipeline). Part creation no longer maps offers.
+  void queryBrand
   revalidateAdminPaths()
 
   return {
@@ -1739,37 +1705,8 @@ export async function createAdminPartFromTemplate(input: {
     return { success: false, message }
   }
 
-  try {
-    const { manualMapDinamikProductToPart } =
-      await import('@/lib/actions/admin-suppliers')
-    const mappingResult = await manualMapDinamikProductToPart({
-      stockCode,
-      queryBrand,
-      partId: createdPartId,
-      note: input.note?.trim() || 'manuel:admin-products-dinamik-template'
-    })
-
-    if (!mappingResult.success) {
-      revalidateAdminPaths()
-      return {
-        success: true,
-        message: `Public part #${createdPartId} şablondan oluşturuldu fakat Dinamik mapping başarısız: ${mappingResult.message}`,
-        data: { partId: createdPartId, stockCode }
-      }
-    }
-  } catch (error) {
-    revalidateAdminPaths()
-    const errText =
-      error instanceof Error
-        ? error.message
-        : 'Dinamik mapping sırasında hata oluştu.'
-    return {
-      success: true,
-      message: `Public part #${createdPartId} şablondan oluşturuldu fakat mapping atlanıldı: ${errText}`,
-      data: { partId: createdPartId, stockCode }
-    }
-  }
-
+  // Old Dinamik→part supplier-mapping removed with the retired supplier system.
+  void queryBrand
   revalidateAdminPaths()
 
   return {
