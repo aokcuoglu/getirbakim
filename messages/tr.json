@@ -967,7 +967,12 @@
       "k120": "Suresi Doldu",
       "k121": "Kodu Kopyala",
       "k122": "Kupon kullanildi olarak isaretlendi.",
-      "k123": "Kullanildi Isaretle"
+      "k123": "Kullanildi Isaretle",
+      "k124": "Mevcut sifreniz hatali.",
+      "k125": "Yeni sifre en az 6 karakter olmali.",
+      "k126": "Yeni sifre eskisinden farkli olmali.",
+      "k127": "Sifreniz guncellendi.",
+      "k128": "Sifre guncellenemedi. Lutfen tekrar deneyin."
     },
     "ordersListed": "{count} sipariş listeleniyor."
   },
