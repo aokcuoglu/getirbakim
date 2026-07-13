@@ -1055,6 +1055,9 @@
     "specifications": "Teknik Özellikler",
     "ean": "Barkod (EAN)",
     "compatibility": "Uyumlu Araçlar",
-    "moreVehicles": "+{count} araç daha"
+    "moreVehicles": "+{count} araç daha",
+    "home": "Ana Sayfa",
+    "relatedProducts": "Benzer ürünler",
+    "oemSearchHint": "Bu OEM koduna uyan ürünleri ara"
   }
 }

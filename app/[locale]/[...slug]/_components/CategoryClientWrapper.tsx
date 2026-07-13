@@ -245,6 +245,10 @@ export function CategoryClientWrapper({
           extraSidebarSections={categoryExtraSections}
           hasVehicleSelected={hasVehicleSelected}
           priceLoadingIds={new Set<number>()}
+          minPrice={filters.minPrice}
+          maxPrice={filters.maxPrice}
+          onMinPriceChange={setMinPrice}
+          onMaxPriceChange={setMaxPrice}
         />
       </div>
     </div>

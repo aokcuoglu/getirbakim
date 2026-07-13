@@ -1055,6 +1055,9 @@
     "specifications": "Specifications",
     "ean": "Barcode (EAN)",
     "compatibility": "Compatible Vehicles",
-    "moreVehicles": "+{count} more vehicles"
+    "moreVehicles": "+{count} more vehicles",
+    "home": "Home",
+    "relatedProducts": "Related products",
+    "oemSearchHint": "Search products matching this OEM code"
   }
 }

@@ -1,11 +1,21 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useTranslations } from 'next-intl'
-import { Minus, Plus, ShoppingCart, Truck, PackageCheck, Clock } from 'lucide-react'
+import Link from 'next/link'
+import { useTranslations, useLocale } from 'next-intl'
+import {
+  Minus,
+  Plus,
+  ShoppingCart,
+  Truck,
+  PackageCheck,
+  Clock,
+  ChevronRight
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useShop } from '@/components/ShopProvider'
+import { buildCategoryUrl } from '@/lib/catalog-url'
 import type { CatalogProductDetailView } from '@/lib/actions/catalog-store'
 
 interface Props {
@@ -14,9 +24,19 @@ interface Props {
 
 export function CatalogProductDetail({ product }: Props) {
   const t = useTranslations('ProductDetail')
+  const locale = useLocale()
   const { addToCart, setIsCartOpen } = useShop()
   const [quantity, setQuantity] = useState(1)
   const [activeImage, setActiveImage] = useState(product.primaryImageUrl)
+
+  const categoryName =
+    product.category &&
+    (locale === 'tr' && product.category.nameTr
+      ? product.category.nameTr
+      : product.category.name)
+  const categoryHref = product.category?.urlKey
+    ? buildCategoryUrl(locale, { categoryUrlKey: product.category.urlKey })
+    : null
 
   const canOrder =
     product.price.incVat != null &&
@@ -66,14 +86,27 @@ export function CatalogProductDetail({ product }: Props) {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:py-10">
-      <nav className="mb-4 text-xs text-muted-foreground">
-        <span>{product.brand.name}</span>
-        {product.category && (
+      <nav className="mb-4 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        <Link href="/" className="transition-colors hover:text-foreground">
+          {t('home')}
+        </Link>
+        {categoryName && (
           <>
-            <span className="mx-1.5">/</span>
-            <span>{product.category.name}</span>
+            <ChevronRight size={12} />
+            {categoryHref ? (
+              <Link
+                href={categoryHref}
+                className="transition-colors hover:text-foreground"
+              >
+                {categoryName}
+              </Link>
+            ) : (
+              <span>{categoryName}</span>
+            )}
           </>
         )}
+        <ChevronRight size={12} />
+        <span className="font-medium text-foreground">{product.name}</span>
       </nav>
 
       <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
@@ -220,13 +253,14 @@ export function CatalogProductDetail({ product }: Props) {
           <h2 className="mb-3 text-base font-semibold text-foreground">{t('oemCodes')}</h2>
           <div className="flex flex-wrap gap-2">
             {product.oems.map((oem) => (
-              <span
+              <Link
                 key={`${oem.code}-${oem.brand ?? ''}`}
-                className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-foreground"
-                title={oem.brand ?? undefined}
+                href={`/${locale}/search?q=${encodeURIComponent(oem.code)}`}
+                className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-foreground transition-colors hover:border-primary hover:text-primary"
+                title={oem.brand ? `${oem.brand} · ${t('oemSearchHint')}` : t('oemSearchHint')}
               >
                 {oem.code}
-              </span>
+              </Link>
             ))}
           </div>
         </section>

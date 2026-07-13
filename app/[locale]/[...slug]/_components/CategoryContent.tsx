@@ -62,6 +62,10 @@ interface CategoryContentProps {
   extraSidebarSections?: React.ReactNode
   hasVehicleSelected?: boolean // True if vehicle is selected but no products found
   priceLoadingIds?: Set<number>
+  minPrice?: number
+  maxPrice?: number
+  onMinPriceChange?: (v: number | undefined) => void
+  onMaxPriceChange?: (v: number | undefined) => void
 }
 
 export function CategoryContent({
@@ -89,7 +93,11 @@ export function CategoryContent({
   onClearFilters,
   extraSidebarSections,
   hasVehicleSelected = false,
-  priceLoadingIds = new Set<number>()
+  priceLoadingIds = new Set<number>(),
+  minPrice,
+  maxPrice,
+  onMinPriceChange,
+  onMaxPriceChange
 }: CategoryContentProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -239,6 +247,10 @@ export function CategoryContent({
             extraSections={extraSidebarSections}
             title={getLocalizedCategoryName(category, locale)}
             activeFilterCount={activeFilterCount}
+            minPrice={minPrice}
+            maxPrice={maxPrice}
+            onMinPriceChange={onMinPriceChange}
+            onMaxPriceChange={onMaxPriceChange}
           />
 
           {/* Sorting and view controls */}

@@ -19,7 +19,7 @@ export interface CatalogProductDetailView {
   partNo: string
   name: string
   brand: { id: number; name: string; logoUrl: string | null }
-  category: { id: number; name: string } | null
+  category: { id: number; name: string; nameTr: string | null; urlKey: string | null } | null
   status: string
   primaryImageUrl: string | null
   images: Array<{ url: string; thumb: string | null }>
@@ -40,10 +40,10 @@ function vehicleLabel(vt: {
   name: string
   fuel_type: string | null
   hp: number | null
-  vmodels: { name: string; vbrands: { name: string } } | null
+  model: { name: string; brand: { name: string } } | null
 }): string {
-  const make = vt.vmodels?.vbrands?.name?.trim()
-  const model = vt.vmodels?.name?.trim()
+  const make = vt.model?.brand?.name?.trim()
+  const model = vt.model?.name?.trim()
   const parts = [make, model, vt.name?.trim()].filter(Boolean)
   const base = parts.join(' ')
   const extras = [vt.hp ? `${vt.hp} HP` : null, vt.fuel_type?.trim() || null]
@@ -63,8 +63,8 @@ export async function getCatalogProductBySlug(
   const product = await db.products.findUnique({
     where: { slug },
     include: {
-      brand_list: { select: { id: true, brand: true, logo_url: true } },
-      part_categories: { select: { id: true, name: true } },
+      brand: { select: { id: true, brand: true, logo_url: true } },
+      category: { select: { id: true, name: true, name_tr: true, url_key: true } },
       product_overrides: true,
       product_images: {
         orderBy: [{ position: 'asc' }, { id: 'asc' }],
@@ -85,13 +85,13 @@ export async function getCatalogProductBySlug(
       product_vehicle_types: {
         take: 80,
         include: {
-          vtypes: {
+          vehicle_type: {
             select: {
               id: true,
               name: true,
               fuel_type: true,
               hp: true,
-              vmodels: { select: { name: true, vbrands: { select: { name: true } } } }
+              model: { select: { name: true, brand: { select: { name: true } } } }
             }
           }
         }
@@ -107,9 +107,9 @@ export async function getCatalogProductBySlug(
   const category = categoryOverrideId
     ? await db.part_categories.findUnique({
         where: { id: categoryOverrideId },
-        select: { id: true, name: true }
+        select: { id: true, name: true, name_tr: true, url_key: true }
       })
-    : product.part_categories
+    : product.category
 
   const price = buildCatalogPrice(product.min_selling_price_try)
   const availability = resolveCatalogAvailability({
@@ -129,11 +129,18 @@ export async function getCatalogProductBySlug(
     partNo: product.part_no,
     name: resolveCatalogName(product.name, override?.name_override),
     brand: {
-      id: product.brand_list.id,
-      name: product.brand_list.brand,
-      logoUrl: product.brand_list.logo_url
+      id: product.brand.id,
+      name: product.brand.brand,
+      logoUrl: product.brand.logo_url
     },
-    category: category ? { id: category.id, name: category.name } : null,
+    category: category
+      ? {
+          id: category.id,
+          name: category.name,
+          nameTr: category.name_tr,
+          urlKey: category.url_key
+        }
+      : null,
     status: product.status,
     primaryImageUrl,
     images,
@@ -145,8 +152,8 @@ export async function getCatalogProductBySlug(
     eans: product.product_eans.map((e) => e.code),
     properties: product.product_properties.map((p) => ({ key: p.key, value: p.value })),
     vehicles: product.product_vehicle_types
-      .filter((pvt) => pvt.vtypes)
-      .map((pvt) => ({ id: pvt.vtypes!.id, label: vehicleLabel(pvt.vtypes!) }))
+      .filter((pvt) => pvt.vehicle_type)
+      .map((pvt) => ({ id: pvt.vehicle_type!.id, label: vehicleLabel(pvt.vehicle_type!) }))
       .filter((v) => v.label.length > 0),
     vehicleCount: product._count.product_vehicle_types,
     href: catalogProductHref(product.slug ?? ''),
@@ -172,7 +179,7 @@ export interface CatalogProductCardView {
  * included as SUPPLYABLE per the "tedarik edilebilir" display policy.
  */
 export async function getCatalogProductsForStore(input?: {
-  brandListId?: number
+  brandId?: number
   categoryId?: number
   take?: number
   skip?: number
@@ -184,7 +191,7 @@ export async function getCatalogProductsForStore(input?: {
     where: {
       status: 'ACTIVE',
       min_selling_price_try: { not: null },
-      ...(input?.brandListId ? { brand_list_id: input.brandListId } : {}),
+      ...(input?.brandId ? { brand_id: input.brandId } : {}),
       ...(input?.categoryId ? { category_id: input.categoryId } : {})
     },
     // in-stock first, then most recently updated
@@ -198,7 +205,7 @@ export async function getCatalogProductsForStore(input?: {
       primary_image_url: true,
       min_selling_price_try: true,
       total_stock_qty: true,
-      brand_list: { select: { brand: true, logo_url: true } },
+      brand: { select: { brand: true, logo_url: true } },
       product_overrides: { select: { name_override: true } }
     }
   })
@@ -209,8 +216,8 @@ export async function getCatalogProductsForStore(input?: {
       id: r.id.toString(),
       slug: r.slug ?? '',
       name: resolveCatalogName(r.name, r.product_overrides?.name_override),
-      brandName: r.brand_list.brand,
-      brandLogo: r.brand_list.logo_url,
+      brandName: r.brand.brand,
+      brandLogo: r.brand.logo_url,
       image: r.primary_image_url,
       price,
       availability: resolveCatalogAvailability({

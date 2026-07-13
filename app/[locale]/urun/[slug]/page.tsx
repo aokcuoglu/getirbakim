@@ -1,9 +1,13 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { getCatalogProductBySlug } from '@/lib/actions/catalog-store'
+import {
+  getCatalogProductBySlug,
+  getCatalogProductsForStore
+} from '@/lib/actions/catalog-store'
 import { buildLocaleAlternates, defaultRobotsIndexing } from '@/lib/seo/url'
 import { resolveSiteUrl } from '@/lib/site-url'
 import { CatalogProductDetail } from './_components/CatalogProductDetail'
+import { RelatedProducts } from './_components/RelatedProducts'
 
 export const revalidate = 300
 
@@ -42,6 +46,17 @@ export default async function ProductDetailPage({ params }: PageProps) {
 
   if (!product) notFound()
 
+  const related = product.category
+    ? (
+        await getCatalogProductsForStore({
+          categoryId: product.category.id,
+          take: 13
+        })
+      )
+        .filter((p) => p.id !== product.id)
+        .slice(0, 12)
+    : []
+
   const siteUrl = resolveSiteUrl()
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -75,6 +90,7 @@ export default async function ProductDetailPage({ params }: PageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <CatalogProductDetail product={product} />
+      <RelatedProducts products={related} />
     </>
   )
 }
