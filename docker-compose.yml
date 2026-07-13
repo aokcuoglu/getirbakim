@@ -163,9 +163,12 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          # Indexing the ~1M-doc catalog peaks well above 512M; the container
+          # was OOM-killed (exit 137) mid-backfill. VPS has 7.8G / no swap, so
+          # 3G leaves headroom alongside app (1G) + postgres.
+          memory: 3G
         reservations:
-          memory: 128M
+          memory: 512M
 
   # ── Squid Forward Proxy (Dinamik API egress — IP whitelist) ────────────
   # The Dinamik supplier API whitelists the VPS IP. The app reaches it via
