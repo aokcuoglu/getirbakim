@@ -1,0 +1,48 @@
+name: Catalog Reindex
+
+# Configure the Meilisearch products index and backfill it from the catalog
+# schema, then verify search. Runs on the VPS via scripts/catalog-reindex.sh
+# (app container reaches meili over the Docker network).
+#
+# Prereq: MEILI_ENABLED=true in .env.production and the app recreated. Manual only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      fresh:
+        description: 'Drop existing meili docs first (?fresh=1)'
+        type: boolean
+        default: true
+      timeout_seconds:
+        description: 'Per-request curl timeout in seconds (~1M docs)'
+        default: '1800'
+
+concurrency:
+  group: catalog-reindex
+  cancel-in-progress: false
+
+jobs:
+  reindex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run catalog reindex on VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ServerAliveInterval=60 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' \
+             && git fetch origin -q \
+             && git checkout origin/main -- scripts/catalog-reindex.sh \
+             && PROJECT_PATH='${{ secrets.VPS_PROJECT_PATH }}' FRESH='${{ inputs.fresh }}' TIMEOUT='${{ inputs.timeout_seconds }}' bash scripts/catalog-reindex.sh"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
