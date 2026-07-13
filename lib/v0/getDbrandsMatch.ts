@@ -46,18 +46,18 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
   WITH approved AS (
     SELECT
       m.id,
-      m.dnmk_brands_id,
-      m.ptdrk_brands_id,
-      m.brand_list_id,
+      m.dinamik_brand_id AS dnmk_brands_id,
+      m.ptdrk_brand_id AS ptdrk_brands_id,
+      m.brand_id AS brand_list_id,
       cb.brand,
       cb.logo_url,
       d.brand AS dinamik_brand,
       pt.name AS ptbrand_name,
       pt.url_key AS pt_url_key
-    FROM v0.brand_mappings m
-    JOIN v0.brand_list cb ON cb.id = m.brand_list_id
-    LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+    FROM catalog.brand_mappings m
+    JOIN catalog.brands cb ON cb.id = m.brand_id
+    LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
+    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
     WHERE m.mapping_status = 'APPROVED'
       AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
   ),
@@ -129,18 +129,18 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
     WITH approved AS (
       SELECT
         m.id,
-        m.dnmk_brands_id,
-        m.ptdrk_brands_id,
-        m.brand_list_id,
+        m.dinamik_brand_id AS dnmk_brands_id,
+        m.ptdrk_brand_id AS ptdrk_brands_id,
+        m.brand_id AS brand_list_id,
         cb.brand,
         cb.logo_url,
         d.brand AS dinamik_brand,
         pt.name AS ptbrand_name,
         pt.url_key AS pt_url_key
-      FROM v0.brand_mappings m
-      JOIN v0.brand_list cb ON cb.id = m.brand_list_id
-      LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      FROM catalog.brand_mappings m
+      JOIN catalog.brands cb ON cb.id = m.brand_id
+      LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       WHERE m.mapping_status = 'APPROVED'
         AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
     ),
