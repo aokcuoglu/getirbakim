@@ -139,7 +139,7 @@ export async function searchCategoryProductsWithMeili(
   }
 }
 
-function mapMeiliDocsToSearchHits(docs: SearchDocument[]): SearchHit[] {
+export function mapMeiliDocsToSearchHits(docs: SearchDocument[]): SearchHit[] {
   return docs.map((doc): SearchHit => {
     const priceStr = doc.price !== null ? String(doc.price) : null
     const isPurchasable = doc.availabilityStatus === 'PURCHASABLE'
@@ -148,10 +148,7 @@ function mapMeiliDocsToSearchHits(docs: SearchDocument[]): SearchHit[] {
 
     const availability: SearchDocumentAvailability = doc.availabilityStatus || 'REQUEST_PRICE'
     const cta = resolveCTA(availability)
-    const detailUrl = doc.detailUrl || resolveDetailUrl({
-      partId: doc.partId,
-      supplierProductId: doc.supplierProductId ?? undefined
-    })
+    const detailUrl = doc.detailUrl || resolveDetailUrl({ partId: doc.partId })
 
     return {
       id: doc.id,

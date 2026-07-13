@@ -40,6 +40,8 @@ export async function configureMeilisearchIndex(): Promise<void> {
       'documentType',
       'availabilityStatus',
       'brand',
+      'brandName',
+      'categoryName',
       'categorySlug',
       'categoryId',
       'providerCode',
