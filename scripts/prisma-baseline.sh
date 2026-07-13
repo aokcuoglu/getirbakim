@@ -84,6 +84,17 @@ if [[ "${BASELINE}" == "1" ]]; then
   else
     echo ">>> product_mappings still has extra columns → ${DROP_MIG} will run via deploy"
   fi
+
+  # Safety guard: the catalog migration runs `DROP SCHEMA IF EXISTS v1 CASCADE`.
+  # Refuse to proceed if v1 actually holds tables, unless explicitly forced.
+  # (A full backup was already taken above, so FORCE_DROP_V1=1 stays recoverable.)
+  V1_TABLES=$(psql_q "SELECT count(*) FROM information_schema.tables WHERE table_schema='v1';" 2>/dev/null || echo "0")
+  if [[ "${V1_TABLES}" != "0" && "${FORCE_DROP_V1:-0}" != "1" ]]; then
+    echo "FATAL: v1 schema has ${V1_TABLES} table(s); migration 12 would DROP it (CASCADE)."
+    echo "       Full backup: ${FULL}. Inspect v1, then re-run with FORCE_DROP_V1=1 to proceed."
+    exit 1
+  fi
+  echo ">>> v1 schema tables: ${V1_TABLES} (safe to drop)"
 else
   APPLIED_LIST=""
 fi
