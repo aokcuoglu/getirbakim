@@ -1,0 +1,80 @@
+name: Catalog Sync
+
+# Populate/refresh the catalog schema from the raw supplier layer
+# (v0.dnmk_products / v0.bsbg_products) by calling the internal catalog
+# endpoints from INSIDE the VPS — nginx blocks /api/internal/* publicly, so we
+# hit the app container directly over the Docker network.
+#
+# Idempotent: safe to re-run. Manual only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      enrich:
+        description: 'Also run enrich-from-parts (names/images/props/fitment) after sync'
+        type: boolean
+        default: true
+      timeout_seconds:
+        description: 'Per-request curl timeout in seconds (~1.1M raw rows can take a while)'
+        default: '1800'
+
+# Never let two catalog syncs (or a sync + a deploy-triggered one) overlap.
+concurrency:
+  group: catalog-sync
+  cancel-in-progress: false
+
+jobs:
+  catalog-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run catalog sync on VPS
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o ServerAliveInterval=60 \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "cd '${{ secrets.VPS_PROJECT_PATH }}' && ENRICH='${{ inputs.enrich }}' TIMEOUT='${{ inputs.timeout_seconds }}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          SECRET=$(grep -m1 '^CRON_SECRET=' .env.production | cut -d= -f2- | tr -d '\r\n"')
+          PGU=$(grep -m1 '^POSTGRES_USER=' .env.production | cut -d= -f2- | tr -d '\r\n"'); PGU=${PGU:-postgres}
+          PGD=$(grep -m1 '^POSTGRES_DB=' .env.production | cut -d= -f2- | tr -d '\r\n"'); PGD=${PGD:-getirbakim}
+          APP=getirbakim-app
+          DB=getirbakim-postgres
+
+          echo "== raw supplier counts =="
+          docker exec -i "$DB" psql -U "$PGU" -d "$PGD" -tAc \
+            "SELECT 'dnmk='||count(*) FROM v0.dnmk_products
+             UNION ALL SELECT 'bsbg='||count(*) FROM v0.bsbg_products;"
+
+          echo "== catalog sync (match -> products/offers, OEM/EAN, rollups) =="
+          docker exec "$APP" curl -sS -m "$TIMEOUT" --fail-with-body \
+            -H "Authorization: Bearer $SECRET" \
+            http://localhost:3000/api/internal/catalog/sync
+          echo
+
+          if [ "$ENRICH" = "true" ]; then
+            echo "== enrich from public.parts =="
+            docker exec "$APP" curl -sS -m "$TIMEOUT" --fail-with-body \
+              -H "Authorization: Bearer $SECRET" \
+              http://localhost:3000/api/internal/catalog/enrich
+            echo
+          fi
+
+          echo "== verify =="
+          docker exec -i "$DB" psql -U "$PGU" -d "$PGD" -tAc \
+            "SELECT count(*) AS products,
+                    count(*) FILTER (WHERE in_stock) AS in_stock,
+                    count(*) FILTER (WHERE slug IS NOT NULL) AS with_slug
+             FROM catalog.products;"
+          REMOTE
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
