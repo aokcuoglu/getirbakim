@@ -205,16 +205,35 @@ MIGRATE_OUTPUT=$(docker run --rm \
   sh -c "bun install --frozen-lockfile && bunx prisma migrate deploy" 2>&1) || MIGRATE_RC=$?
 echo "  ${MIGRATE_OUTPUT//$'\n'/$'\n'  }"
 if [[ "${MIGRATE_RC}" -ne 0 ]]; then
-  # Abort loudly: a failed/partial migration must not be reported as a green
-  # deploy (that is how a broken schema previously reached production unnoticed).
-  # A fresh pre-migrate backup exists, so it is safe to stop and investigate.
-  echo "FATAL: prisma migrate deploy failed (rc=${MIGRATE_RC}) — aborting deploy."
-  echo "       A pre-migrate backup was taken. Inspect the output above, fix the"
-  echo "       migration, and re-run. To bypass DB steps entirely, deploy with"
-  echo "       SKIP_PREDEPLOY_BACKUP=1 only after resolving the migration."
-  exit 1
+  if echo "${MIGRATE_OUTPUT}" | grep -q "P3005"; then
+    # P3005 = non-empty database with no _prisma_migrations history. Prod's schema
+    # was built by v0-init.sql, never by `prisma migrate`, so Migrate must first be
+    # adopted (baseline) before it will apply anything. Run the one-time baseline;
+    # it is guarded (only baselines when history is empty) and idempotent, so this
+    # branch is a no-op on every deploy after the first successful one.
+    echo ">>> P3005: existing schema without migration history — running one-time baseline..."
+    if PROJECT_PATH="${PROJECT_PATH:-$PWD}" ENV_FILE="${ENV_FILE}" \
+         PG_CONTAINER="${PG_CONTAINER}" NETWORK="getirbakim_app-network" \
+         bash scripts/prisma-baseline.sh; then
+      echo "  Baseline complete — migrations applied"
+    else
+      echo "FATAL: baseline failed — aborting deploy. A pre-migrate backup was taken;"
+      echo "       inspect the output above before retrying."
+      exit 1
+    fi
+  else
+    # Abort loudly: a failed/partial migration must not be reported as a green
+    # deploy (that is how a broken schema previously reached production unnoticed).
+    # A fresh pre-migrate backup exists, so it is safe to stop and investigate.
+    echo "FATAL: prisma migrate deploy failed (rc=${MIGRATE_RC}) — aborting deploy."
+    echo "       A pre-migrate backup was taken. Inspect the output above, fix the"
+    echo "       migration, and re-run. To bypass DB steps entirely, deploy with"
+    echo "       SKIP_PREDEPLOY_BACKUP=1 only after resolving the migration."
+    exit 1
+  fi
+else
+  echo "  Prisma migrations OK"
 fi
-echo "  Prisma migrations OK"
 
 echo ">>> Ensuring v0 schema tables..."
 V0_SQL_OUTPUT=$(docker exec -i "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" < scripts/v0-init.sql 2>&1) || true
