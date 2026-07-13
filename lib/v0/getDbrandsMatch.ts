@@ -16,6 +16,7 @@ const approvedBrandsCacheOptions = {
 type DbrandsMatchQueryRow = {
   id: number
   dbrands_ids: bigint[] | null
+  brand_list_ids: number[] | null
   ptdrk_brands_id: number | null
   brand_name: string
   pt_url_key: string | null
@@ -24,6 +25,9 @@ type DbrandsMatchQueryRow = {
 
 function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
   const dnbrdIds = (row.dbrands_ids ?? []).map((id) => id.toString())
+  const brandListIds = (row.brand_list_ids ?? []).filter(
+    (id): id is number => id != null
+  )
 
   return {
     matchId: row.id,
@@ -33,7 +37,8 @@ function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
     brandName: row.brand_name,
     ptUrlKey: row.pt_url_key,
     logoUrl: row.logo_url,
-    slug: toBrandSlug(row.pt_url_key, row.brand_name)
+    slug: toBrandSlug(row.pt_url_key, row.brand_name),
+    brandListIds
   }
 }
 
@@ -43,6 +48,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
       m.id,
       m.dnmk_brands_id,
       m.ptdrk_brands_id,
+      m.brand_list_id,
       cb.brand,
       cb.logo_url,
       d.brand AS dinamik_brand,
@@ -70,6 +76,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
     SELECT
       MIN(id) AS id,
       ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
+      ARRAY_AGG(DISTINCT brand_list_id) FILTER (WHERE brand_list_id IS NOT NULL) AS brand_list_ids,
       MIN(ptdrk_brands_id) AS ptdrk_brands_id,
       COALESCE(
         MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
@@ -84,6 +91,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
   SELECT
     g.id,
     g.dbrands_ids,
+    g.brand_list_ids,
     g.ptdrk_brands_id,
     g.brand_name,
     g.pt_url_key,
@@ -123,6 +131,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
         m.id,
         m.dnmk_brands_id,
         m.ptdrk_brands_id,
+        m.brand_list_id,
         cb.brand,
         cb.logo_url,
         d.brand AS dinamik_brand,
@@ -156,6 +165,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
       SELECT
         MIN(id) AS id,
         ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
+        ARRAY_AGG(DISTINCT brand_list_id) FILTER (WHERE brand_list_id IS NOT NULL) AS brand_list_ids,
         MIN(ptdrk_brands_id) AS ptdrk_brands_id,
         COALESCE(
           MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
@@ -171,6 +181,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
     SELECT
       g.id,
       g.dbrands_ids,
+      g.brand_list_ids,
       g.ptdrk_brands_id,
       g.brand_name,
       g.pt_url_key,

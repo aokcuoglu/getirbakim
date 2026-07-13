@@ -15,6 +15,7 @@ export interface ArticlesRequestBody {
   searchIds?: number[]
   vehicleId?: number | null
   brands?: string[]
+  brandListIds?: number[]
   stockStatuses?: string[]
   page?: number
   limit?: number
@@ -132,7 +133,9 @@ function buildWhere(body: ArticlesRequestBody): Prisma.productsWhereInput {
     where.category_id = { in: body.searchIds }
   }
 
-  if (body.brands && body.brands.length > 0) {
+  if (body.brandListIds && body.brandListIds.length > 0) {
+    where.brand_list_id = { in: body.brandListIds }
+  } else if (body.brands && body.brands.length > 0) {
     where.brand_list = { brand: { in: body.brands } }
   }
 
