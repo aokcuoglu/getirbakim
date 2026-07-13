@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { Plus, Wrench, Link2 } from 'lucide-react'
+import { Plus, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Link } from '@/lib/navigation'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
@@ -22,12 +22,6 @@ export default async function AdminProductsPage(props: {
         breadcrumbs={getAdminBreadcrumbs('/admin/products')}
         actions={
           <>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/admin/products/match">
-                <Link2 size={14} className="mr-2" />
-                Eşleştir
-              </Link>
-            </Button>
             <Button variant="outline" size="sm" asChild>
               <Link href="/admin/products/tools">
                 <Wrench size={14} className="mr-2" />

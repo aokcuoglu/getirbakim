@@ -2,6 +2,9 @@ import "server-only";
 import {
   fetch as undiciFetch,
   ProxyAgent,
+  Agent,
+  buildConnector,
+  type Dispatcher,
   type RequestInit as UndiciRequestInit,
 } from "undici";
 import type { DinamikProxyDiagnostics } from "@/lib/types/dinamik-proxy";
@@ -12,7 +15,48 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const REQUIRE_PROXY_BY_DEFAULT = true;
 
 let proxyInitialized = false;
-let proxyAgent: ProxyAgent | null | undefined;
+let proxyAgent: Dispatcher | null | undefined;
+
+/**
+ * Local-dev egress via a plain SSH TCP tunnel to the Dinamik API, bypassing the
+ * VPS Squid entirely: `ssh -L <port>:dinamikapp-api.dinamik.online:443 root@<vps>`.
+ * Set DINAMIK_DIRECT_TUNNEL=127.0.0.1:<port>. The dispatcher dials the tunnel but
+ * keeps the real hostname for SNI + Host header (the API vhosts on Host). Inert
+ * when the env var is unset. See dinamik-api-access memory.
+ */
+function readDirectTunnel(): { host: string; port: number } | undefined {
+  const raw = process.env.DINAMIK_DIRECT_TUNNEL?.trim();
+  if (!raw) return undefined;
+  const [host, portStr] = raw.split(":");
+  const port = Number(portStr);
+  if (!host || !Number.isFinite(port)) return undefined;
+  return { host, port };
+}
+
+function buildDirectTunnelAgent(target: { host: string; port: number }): Agent {
+  const allowInsecureTls = parseBool(
+    process.env.DINAMIK_PROXY_TLS_INSECURE,
+    false
+  );
+  const baseConnector = buildConnector({ rejectUnauthorized: !allowInsecureTls });
+  return new Agent({
+    connect(opts, callback) {
+      const servername =
+        (opts as { servername?: string }).servername ||
+        (opts as { hostname?: string }).hostname;
+      baseConnector(
+        {
+          ...opts,
+          hostname: target.host,
+          host: target.host,
+          port: target.port,
+          servername,
+        },
+        callback
+      );
+    },
+  });
+}
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value.trim() === "") return fallback;
@@ -71,6 +115,13 @@ export function getDinamikProxyDiagnostics(): DinamikProxyDiagnostics {
 function initProxyOnce() {
   if (proxyInitialized) return;
 
+  const directTunnel = readDirectTunnel();
+  if (directTunnel) {
+    proxyAgent = buildDirectTunnelAgent(directTunnel);
+    proxyInitialized = true;
+    return;
+  }
+
   const proxyUrl = readProxyUrl();
   const proxyRequired = isProxyRequired();
 
@@ -110,7 +161,7 @@ function initProxyOnce() {
 }
 
 type DinamikRequestInit = UndiciRequestInit & {
-  dispatcher?: ProxyAgent;
+  dispatcher?: Dispatcher;
 };
 
 function withProxyDispatcher(init: RequestInit): DinamikRequestInit {

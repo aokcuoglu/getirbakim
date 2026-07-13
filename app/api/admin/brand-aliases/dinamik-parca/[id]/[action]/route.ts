@@ -57,7 +57,7 @@ export async function POST(
     switch (action) {
       case 'approve': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE v0.brand_mappings
+          Prisma.sql`UPDATE catalog.brand_mappings
             SET mapping_status = 'APPROVED'
             WHERE id = ${id}`
         )
@@ -66,7 +66,7 @@ export async function POST(
 
       case 'reject': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE v0.brand_mappings
+          Prisma.sql`UPDATE catalog.brand_mappings
             SET mapping_status = 'REJECTED'
             WHERE id = ${id}`
         )
@@ -75,7 +75,7 @@ export async function POST(
 
       case 'ignore': {
         await db.$executeRaw(
-          Prisma.sql`UPDATE v0.brand_mappings
+          Prisma.sql`UPDATE catalog.brand_mappings
             SET mapping_status = 'IGNORED'
             WHERE id = ${id}`
         )
@@ -113,14 +113,14 @@ export async function POST(
         await db.$executeRaw(
           Prisma.sql`
             WITH canonical AS (
-              INSERT INTO v0.brand_list (brand)
+              INSERT INTO catalog.brands (brand)
               VALUES (${normalized})
               ON CONFLICT (brand) DO UPDATE SET brand = ${normalized}
               RETURNING id
             )
-            UPDATE v0.brand_mappings
-              SET ptdrk_brands_id = ${mfrId},
-                  brand_list_id = (SELECT id FROM canonical),
+            UPDATE catalog.brand_mappings
+              SET ptdrk_brand_id = ${mfrId},
+                  brand_id = (SELECT id FROM canonical),
                   match_method = 'MANUAL',
                   mapping_status = 'APPROVED'
               WHERE id = ${id}`
@@ -130,7 +130,7 @@ export async function POST(
 
       case 'delete': {
         await db.$executeRaw(
-          Prisma.sql`DELETE FROM v0.brand_mappings WHERE id = ${id}`
+          Prisma.sql`DELETE FROM catalog.brand_mappings WHERE id = ${id}`
         )
         return successResponse({ id, action, message: 'Marka eşleştirmesi silindi.' }, context)
       }

@@ -84,7 +84,7 @@ function dedupeItemsBySku(items: DinamikStockItem[]): DinamikStockItem[] {
 function mapItemToDproductMasterRow(dnbrdId: bigint, item: DinamikStockItem) {
   const stockCode = item.stokKodu.trim()
   return {
-    dnmk_brands_id: dnbrdId,
+    brand_id: dnbrdId,
     stock_code: stockCode,
     stock_name: item.stokAdi,
     part_no: deriveDproductsPartNo(stockCode),
@@ -120,20 +120,20 @@ export async function markDproductsBrandPassive(
   if (dryRun) {
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
-      FROM v0.dnmk_products
-      WHERE dnmk_brands_id = ${dnbrdId}
+      FROM catalog.supplier_dinamik_products
+      WHERE brand_id = ${dnbrdId}
         AND is_passive = false
     `)
     return row?.count ?? 0
   }
 
   const updated = await db.$executeRaw(Prisma.sql`
-    UPDATE v0.dnmk_products
+    UPDATE catalog.supplier_dinamik_products
     SET
       is_passive = true,
       passive_at = NOW(),
       updated_at = NOW()
-    WHERE dnmk_brands_id = ${dnbrdId}
+    WHERE brand_id = ${dnbrdId}
       AND is_passive = false
   `)
   return Number(updated)
@@ -155,7 +155,7 @@ export async function batchUpsertDproducts(
     const values = batch.map(
       (row) =>
         Prisma.sql`(
-          ${row.dnmk_brands_id},
+          ${row.brand_id},
           ${row.stock_code},
           ${row.stock_name},
           ${row.part_no},
@@ -172,8 +172,8 @@ export async function batchUpsertDproducts(
     )
 
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.dnmk_products (
-        dnmk_brands_id,
+      INSERT INTO catalog.supplier_dinamik_products (
+        brand_id,
         stock_code,
         stock_name,
         part_no,
@@ -188,13 +188,13 @@ export async function batchUpsertDproducts(
         passive_at
       )
       VALUES ${Prisma.join(values)}
-      ON CONFLICT (dnmk_brands_id, stock_code) DO UPDATE SET
+      ON CONFLICT (brand_id, stock_code) DO UPDATE SET
         stock_name = EXCLUDED.stock_name,
         barcode_1 = EXCLUDED.barcode_1,
         barcode_2 = EXCLUDED.barcode_2,
         barcode_3 = EXCLUDED.barcode_3,
-        part_no = COALESCE(EXCLUDED.part_no, v0.dnmk_products.part_no),
-        image_url = COALESCE(EXCLUDED.image_url, v0.dnmk_products.image_url),
+        part_no = COALESCE(EXCLUDED.part_no, catalog.supplier_dinamik_products.part_no),
+        image_url = COALESCE(EXCLUDED.image_url, catalog.supplier_dinamik_products.image_url),
         updated_at = NOW(),
         last_seen_at = NOW(),
         is_passive = false,
@@ -279,7 +279,7 @@ export async function listDbrandsForDproductsSync(input?: {
       ? Math.min(input.limitBrands, 5000)
       : null
 
-  const rows = await db.dnmk_brands.findMany({
+  const rows = await db.supplier_dinamik_brands.findMany({
     select: { brand: true },
     orderBy: { brand: 'asc' },
     ...(limit ? { take: limit } : {})

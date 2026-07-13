@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 const BATCH_SIZE = 400
 
 export type DproductDetailsRow = {
-  /** Full stokKodu for joining v0.dnmk_cost.dnmk_products_id. */
+  /** Full stokKodu for joining catalog.supplier_dinamik_cost.product_id. */
   fullStockCode: string
   price: number | null
   stock_qty: number | null
@@ -56,16 +56,16 @@ export async function batchUpsertDproductDetails(
 
     const existing = await db.$queryRaw<
       Array<{
-        dnmk_products_id: bigint
+        dinamik_product_id: bigint
         stock_code: string
         price: string | null
         stock_qty: number | null
       }>
     >(Prisma.sql`
-      SELECT d.id AS dnmk_products_id, d.stock_code, o.price::text AS price, o.stock_qty
-      FROM v0.dnmk_products d
-      LEFT JOIN v0.dnmk_cost o ON o.dnmk_products_id = d.id
-      WHERE d.dnmk_brands_id = ${dnbrdId}
+      SELECT d.id AS dinamik_product_id, d.stock_code, o.price::text AS price, o.stock_qty
+      FROM catalog.supplier_dinamik_products d
+      LEFT JOIN catalog.supplier_dinamik_cost o ON o.product_id = d.id
+      WHERE d.brand_id = ${dnbrdId}
         AND d.stock_code IN (${Prisma.join(stockCodes.map((code) => Prisma.sql`${code}`))})
     `)
 
@@ -73,7 +73,7 @@ export async function batchUpsertDproductDetails(
       existing.map((row) => [
         row.stock_code,
         {
-          dnmk_products_id: row.dnmk_products_id,
+          dinamik_product_id: row.dinamik_product_id,
           price: row.price != null ? Number(row.price) : null,
           stock_qty: row.stock_qty
         }
@@ -93,8 +93,8 @@ export async function batchUpsertDproductDetails(
     )
 
     const count = await db.$executeRaw(Prisma.sql`
-      INSERT INTO v0.dnmk_cost (
-        dnmk_products_id,
+      INSERT INTO catalog.supplier_dinamik_cost (
+        product_id,
         price,
         stock_qty,
         campaign_rate,
@@ -115,11 +115,11 @@ export async function batchUpsertDproductDetails(
       FROM (
         VALUES ${Prisma.join(values)}
       ) AS v(full_stock_code, price, stock_qty, campaign_rate, regional_stock, raw)
-      INNER JOIN v0.dnmk_products d
-        ON d.dnmk_brands_id = ${dnbrdId}
+      INNER JOIN catalog.supplier_dinamik_products d
+        ON d.brand_id = ${dnbrdId}
        AND d.stock_code = v.full_stock_code
-      ON CONFLICT (dnmk_products_id) DO UPDATE SET
-        price = COALESCE(EXCLUDED.price, v0.dnmk_cost.price),
+      ON CONFLICT (product_id) DO UPDATE SET
+        price = COALESCE(EXCLUDED.price, catalog.supplier_dinamik_cost.price),
         stock_qty = EXCLUDED.stock_qty,
         campaign_rate = EXCLUDED.campaign_rate,
         regional_stock = EXCLUDED.regional_stock,

@@ -139,7 +139,7 @@ async function main() {
     const brands = ONLY_BRAND
       ? [ONLY_BRAND]
       : (
-          await db.dnmk_brands.findMany({
+          await db.supplier_dinamik_brands.findMany({
             select: { brand: true },
             orderBy: { brand: 'asc' }
           })

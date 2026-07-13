@@ -23,7 +23,7 @@ export async function resolveDbrandsIdsByBrand(
 
   const rows = await db.$queryRaw<Array<{ id: bigint; brand: string }>>(Prisma.sql`
     SELECT id, brand
-    FROM v0.dnmk_brands
+    FROM catalog.supplier_dinamik_brands
     WHERE brand IN (${Prisma.join(unique)})
   `)
 

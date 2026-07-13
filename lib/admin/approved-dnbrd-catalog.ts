@@ -85,73 +85,73 @@ function buildWhereClause(
     // En az bir mapping'te dnmk veya BSBG bağlantısı var
     clauses.push(Prisma.sql`
       EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND (m.dnmk_brands_id IS NOT NULL OR m.bsbg_brands_id IS NOT NULL)
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND (m.dinamik_brand_id IS NOT NULL OR m.basbug_brand_id IS NOT NULL)
       )
     `)
   } else if (filters.matchSide === 'dinamik_only') {
     // Sadece dnmk tarafı dolu olan mapping var, ptdrk tarafı hiç dolu değil
     clauses.push(Prisma.sql`
       EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.dnmk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.dinamik_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.ptdrk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.ptdrk_brand_id IS NOT NULL
       )
     `)
   } else if (filters.matchSide === 'pt_only') {
     // Sadece ptdrk tarafı dolu olan mapping var, dnmk tarafı hiç dolu değil
     clauses.push(Prisma.sql`
       EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.ptdrk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.ptdrk_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.dnmk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.dinamik_brand_id IS NOT NULL
       )
     `)
   } else if (filters.matchSide === 'pending') {
     // En az bir PENDING mapping var (BSBG-only olanları hariç tut)
     clauses.push(Prisma.sql`
       EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
           AND m.mapping_status = 'PENDING'
-          AND (m.dnmk_brands_id IS NOT NULL OR m.ptdrk_brands_id IS NOT NULL)
+          AND (m.dinamik_brand_id IS NOT NULL OR m.ptdrk_brand_id IS NOT NULL)
       )
     `)
   } else if (filters.matchSide === 'unmatched') {
     // Sadece ptdrk bağlantısı olup dnmk ve BSBG'si olmayan
     clauses.push(Prisma.sql`
       NOT EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.dnmk_brands_id IS NOT NULL
-          AND m.ptdrk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.dinamik_brand_id IS NOT NULL
+          AND m.ptdrk_brand_id IS NOT NULL
           AND m.mapping_status = 'APPROVED'
       )
       AND EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.ptdrk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.ptdrk_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.dnmk_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.dinamik_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
-        SELECT 1 FROM v0.brand_mappings m
-        WHERE m.brand_list_id = cb.id
-          AND m.bsbg_brands_id IS NOT NULL
+        SELECT 1 FROM catalog.brand_mappings m
+        WHERE m.brand_id = cb.id
+          AND m.basbug_brand_id IS NOT NULL
       )
     `)
   }
@@ -173,7 +173,7 @@ export async function listApprovedDbrandsForAdmin(
 
   // Count for pagination (respects filters)
   const countRows = await db.$queryRaw<Array<{ count: bigint }>>(
-    Prisma.sql`SELECT COUNT(*)::bigint AS count FROM v0.brand_list cb WHERE ${whereClause}`
+    Prisma.sql`SELECT COUNT(*)::bigint AS count FROM catalog.brands cb WHERE ${whereClause}`
   )
 
   // Summary is always unfiltered — KPI cards must not change when filters are applied
@@ -184,7 +184,7 @@ export async function listApprovedDbrandsForAdmin(
       COUNT(*)::bigint AS total,
       COUNT(*) FILTER (WHERE cb.logo_url IS NOT NULL AND BTRIM(cb.logo_url) <> '')::bigint AS with_logo,
       COUNT(*) FILTER (WHERE cb.logo_url IS NULL OR BTRIM(cb.logo_url) = '')::bigint AS missing_logo
-    FROM v0.brand_list cb
+    FROM catalog.brands cb
   `)
 
   const total = Number(countRows[0]?.count ?? 0)
@@ -199,7 +199,7 @@ export async function listApprovedDbrandsForAdmin(
     }>
   >(Prisma.sql`
     SELECT id, brand, logo_url
-    FROM v0.brand_list cb
+    FROM catalog.brands cb
     WHERE ${whereClause}
     ORDER BY ${orderBy}
     LIMIT ${filters.limit} OFFSET ${offset}
@@ -208,11 +208,11 @@ export async function listApprovedDbrandsForAdmin(
   // Fetch mappings for these canonical brands in batch
   const canonicalIds = canonicalRows.map((r) => r.id)
   let mappingsRaw: Array<{
-    brand_list_id: number
+    brand_id: number
     mapping_id: number
-    dnmk_brands_id: bigint | null
-    ptdrk_brands_id: number | null
-    bsbg_brands_id: bigint | null
+    dinamik_brand_id: bigint | null
+    ptdrk_brand_id: number | null
+    basbug_brand_id: bigint | null
     dnmk_brand: string | null
     pt_name: string | null
     bsbg_brand: string | null
@@ -223,21 +223,21 @@ export async function listApprovedDbrandsForAdmin(
   if (canonicalIds.length > 0) {
     mappingsRaw = await db.$queryRaw`
       SELECT
-        m.brand_list_id,
+        m.brand_id,
         m.id AS mapping_id,
-        m.dnmk_brands_id,
-        m.ptdrk_brands_id,
-        m.bsbg_brands_id,
+        m.dinamik_brand_id,
+        m.ptdrk_brand_id,
+        m.basbug_brand_id,
         d.brand AS dnmk_brand,
         pt.name AS pt_name,
         bs.brand AS bsbg_brand,
         m.mapping_status,
         m.match_method
-      FROM v0.brand_mappings m
-      LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
-      LEFT JOIN v0.bsbg_brands bs ON bs.id = m.bsbg_brands_id
-      WHERE m.brand_list_id IN (${Prisma.join(canonicalIds)})
+      FROM catalog.brand_mappings m
+      LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
+      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
+      LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
+      WHERE m.brand_id IN (${Prisma.join(canonicalIds)})
       ORDER BY m.id
     `
   }
@@ -245,19 +245,19 @@ export async function listApprovedDbrandsForAdmin(
   // Group mappings by canonical brand id
   const mappingsByBrandId = new Map<number, AdminApprovedBrandMapping[]>()
   for (const m of mappingsRaw) {
-    const arr = mappingsByBrandId.get(m.brand_list_id) ?? []
+    const arr = mappingsByBrandId.get(m.brand_id) ?? []
     arr.push({
       mappingId: m.mapping_id,
-      dnmkBrandsId: m.dnmk_brands_id != null ? String(m.dnmk_brands_id) : null,
-      ptdrkBrandsId: m.ptdrk_brands_id,
-      bsbgBrandsId: m.bsbg_brands_id != null ? String(m.bsbg_brands_id) : null,
+      dnmkBrandsId: m.dinamik_brand_id != null ? String(m.dinamik_brand_id) : null,
+      ptdrkBrandsId: m.ptdrk_brand_id,
+      bsbgBrandsId: m.basbug_brand_id != null ? String(m.basbug_brand_id) : null,
       dnmkBrand: m.dnmk_brand,
       ptName: m.pt_name,
       bsbgBrand: m.bsbg_brand,
       mappingStatus: m.mapping_status,
       matchMethod: m.match_method
     })
-    mappingsByBrandId.set(m.brand_list_id, arr)
+    mappingsByBrandId.set(m.brand_id, arr)
   }
 
   const rows: AdminApprovedBrandRow[] = canonicalRows.map((r) => ({
@@ -301,7 +301,7 @@ export async function getApprovedDbrandsMatchById(
     }>
   >(Prisma.sql`
     SELECT id, brand, logo_url
-    FROM v0.brand_list cb
+    FROM catalog.brands cb
     WHERE cb.id = ${matchId}
     LIMIT 1
   `)
@@ -312,9 +312,9 @@ export async function getApprovedDbrandsMatchById(
   const mappings = await db.$queryRaw<
     Array<{
       mapping_id: number
-      dnmk_brands_id: bigint | null
-      ptdrk_brands_id: number | null
-      bsbg_brands_id: bigint | null
+      dinamik_brand_id: bigint | null
+      ptdrk_brand_id: number | null
+      basbug_brand_id: bigint | null
       dnmk_brand: string | null
       pt_name: string | null
       bsbg_brand: string | null
@@ -324,19 +324,19 @@ export async function getApprovedDbrandsMatchById(
   >(Prisma.sql`
     SELECT
       m.id AS mapping_id,
-      m.dnmk_brands_id,
-      m.ptdrk_brands_id,
-      m.bsbg_brands_id,
+      m.dinamik_brand_id,
+      m.ptdrk_brand_id,
+      m.basbug_brand_id,
       d.brand AS dnmk_brand,
       pt.name AS pt_name,
       bs.brand AS bsbg_brand,
       m.mapping_status,
       m.match_method
-    FROM v0.brand_mappings m
-    LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
-    LEFT JOIN v0.bsbg_brands bs ON bs.id = m.bsbg_brands_id
-    WHERE m.brand_list_id = ${matchId}
+    FROM catalog.brand_mappings m
+    LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
+    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
+    LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
+    WHERE m.brand_id = ${matchId}
     ORDER BY m.id
   `)
 
@@ -346,9 +346,9 @@ export async function getApprovedDbrandsMatchById(
     logoUrl: r.logo_url,
     mappings: mappings.map((m) => ({
       mappingId: m.mapping_id,
-      dnmkBrandsId: m.dnmk_brands_id != null ? String(m.dnmk_brands_id) : null,
-      ptdrkBrandsId: m.ptdrk_brands_id,
-      bsbgBrandsId: m.bsbg_brands_id != null ? String(m.bsbg_brands_id) : null,
+      dnmkBrandsId: m.dinamik_brand_id != null ? String(m.dinamik_brand_id) : null,
+      ptdrkBrandsId: m.ptdrk_brand_id,
+      bsbgBrandsId: m.basbug_brand_id != null ? String(m.basbug_brand_id) : null,
       dnmkBrand: m.dnmk_brand,
       ptName: m.pt_name,
       bsbgBrand: m.bsbg_brand,
@@ -363,7 +363,7 @@ export async function setApprovedDbrandsMatchLogo(
   logoUrl: string
 ): Promise<boolean> {
   const updated = await db.$executeRaw(Prisma.sql`
-    UPDATE v0.brand_list
+    UPDATE catalog.brands
     SET logo_url = ${logoUrl}
     WHERE id = ${canonicalId}
   `)
@@ -383,29 +383,29 @@ export async function mergeCanonicalBrands(
     await db.$transaction(async (tx) => {
       // 1. Move all mappings from source brands to target, approve them
       await tx.$executeRaw(Prisma.sql`
-        UPDATE v0.brand_mappings
-        SET brand_list_id = ${targetId},
+        UPDATE catalog.brand_mappings
+        SET brand_id = ${targetId},
             mapping_status = 'APPROVED',
             match_method = COALESCE(match_method, 'MANUAL'),
             updated_at = NOW()
-        WHERE brand_list_id IN (${Prisma.join(sourceIds)})
+        WHERE brand_id IN (${Prisma.join(sourceIds)})
       `)
 
       // 2. Remove duplicate mappings (keep the one with lowest id for each unique combo)
       await tx.$executeRaw`
-        DELETE FROM v0.brand_mappings a
+        DELETE FROM catalog.brand_mappings a
         WHERE a.id > (
           SELECT MIN(b.id)
-          FROM v0.brand_mappings b
-          WHERE b.brand_list_id = a.brand_list_id
-            AND b.dnmk_brands_id IS NOT DISTINCT FROM a.dnmk_brands_id
-            AND b.ptdrk_brands_id IS NOT DISTINCT FROM a.ptdrk_brands_id
+          FROM catalog.brand_mappings b
+          WHERE b.brand_id = a.brand_id
+            AND b.dinamik_brand_id IS NOT DISTINCT FROM a.dinamik_brand_id
+            AND b.ptdrk_brand_id IS NOT DISTINCT FROM a.ptdrk_brand_id
         )
       `
 
       // 3. If target has no logo but a source has one, copy it
       const targetLogo = await tx.$queryRaw<Array<{ logo_url: string | null }>>(
-        Prisma.sql`SELECT logo_url FROM v0.brand_list WHERE id = ${targetId}`
+        Prisma.sql`SELECT logo_url FROM catalog.brands WHERE id = ${targetId}`
       )
       if (!targetLogo[0]?.logo_url) {
         const sourceLogos = await tx.$queryRaw<
@@ -413,7 +413,7 @@ export async function mergeCanonicalBrands(
         >(
           Prisma.sql`
             SELECT logo_url
-            FROM v0.brand_list
+            FROM catalog.brands
             WHERE id IN (${Prisma.join(sourceIds)})
               AND logo_url IS NOT NULL
             LIMIT 1
@@ -421,7 +421,7 @@ export async function mergeCanonicalBrands(
         )
         if (sourceLogos.length > 0) {
           await tx.$executeRaw(Prisma.sql`
-            UPDATE v0.brand_list
+            UPDATE catalog.brands
             SET logo_url = ${sourceLogos[0].logo_url}
             WHERE id = ${targetId}
           `)
@@ -430,7 +430,7 @@ export async function mergeCanonicalBrands(
 
       // 4. Delete source canonical brands
       await tx.$executeRaw(
-        Prisma.sql`DELETE FROM v0.brand_list WHERE id IN (${Prisma.join(sourceIds)})`
+        Prisma.sql`DELETE FROM catalog.brands WHERE id IN (${Prisma.join(sourceIds)})`
       )
     })
 

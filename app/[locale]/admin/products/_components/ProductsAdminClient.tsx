@@ -3,9 +3,7 @@
 import { useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
-import { Boxes, EyeOff, AlertTriangle, TrendingDown, Link2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Link } from '@/lib/navigation'
+import { Boxes, EyeOff, AlertTriangle, TrendingDown } from 'lucide-react'
 import {
   MobileDataCard,
   ResponsiveDataView
@@ -128,14 +126,6 @@ export function ProductsAdminClient(_props: ProductsAdminClientProps = {}) {
           searchPlaceholder="Ürün adı veya parça no ara..."
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
-          actions={
-            <Button variant="outline" size="sm" asChild className="rounded-md border-border bg-background">
-              <Link href="/admin/products/match">
-                <Link2 className="mr-2 h-4 w-4" />
-                Eşleştir
-              </Link>
-            </Button>
-          }
         />
 
         <AdminFilterBar onReset={resetFilters} className="mt-3">
