@@ -34,18 +34,18 @@ async function main() {
     totalManufacturers,
     sampleRefNos
   ] = await Promise.all([
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_products`,
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''`,
-    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM v0.ptdrk_brands`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM catalog.ptdrk_products`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM catalog.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''`,
+    db.$queryRaw<[{ count: bigint }]>`SELECT COUNT(*) AS count FROM catalog.ptdrk_brands`,
     db.$queryRaw<{ ref_no: string | null }[]>`
-      SELECT ref_no FROM v0.ptdrk_products
+      SELECT ref_no FROM catalog.ptdrk_products
       WHERE ref_no IS NOT NULL AND ref_no != ''
       LIMIT 20
     `
   ])
 
   const allParcaRefNos = await db.$queryRaw<{ ref_no: string }[]>`
-    SELECT ref_no FROM v0.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''
+    SELECT ref_no FROM catalog.ptdrk_products WHERE ref_no IS NOT NULL AND ref_no != ''
   `
 
   const tokenSet = new Set<string>()

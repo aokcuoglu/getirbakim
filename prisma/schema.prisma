@@ -500,8 +500,8 @@ model category_tree {
 }
 
 // ============================================================================
-// v0 schema — ParcaTedarik scrape + vehicle catalog (Tecdoc-light).
-// Supplier raw tables and brand matching moved to catalog schema.
+// catalog schema (cont.) — ParcaTedarik scrape + vehicle catalog (Tecdoc-light).
+// Moved out of the old v0 schema; v0 now holds only _prisma_migrations.
 // Old product_mappings / products / products_oems tables DROPPED.
 // ============================================================================
 
@@ -519,7 +519,7 @@ model ptdrk_brands {
   ptdrk_products ptdrk_products[]
   brand_mappings brand_mappings[]
 
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 model ptdrk_products {
@@ -542,7 +542,7 @@ model ptdrk_products {
   @@index([ptdrk_brands_id])
   @@index([product_id])
   @@index([sku])
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 // ----------------------------------------------------------------------------
@@ -556,7 +556,7 @@ model vehicle_brands {
   models vehicle_models[]
 
   @@map("vehicle_brands")
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 model vehicle_models {
@@ -569,7 +569,7 @@ model vehicle_models {
   types     vehicle_types[]
 
   @@map("vehicle_models")
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 model vehicle_types {
@@ -590,7 +590,7 @@ model vehicle_types {
 
   @@index([name], name: "vtypes_name_idx")
   @@map("vehicle_types")
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 model vehicle_type_details {
@@ -631,7 +631,7 @@ model vehicle_type_details {
   @@index([mod_id], name: "vtype_details_mod_id_idx")
   @@index([updated_at], name: "vtype_details_updated_at_idx")
   @@map("vehicle_type_details")
-  @@schema("v0")
+  @@schema("catalog")
 }
 
 // ============================================================================

@@ -57,7 +57,7 @@ async function main() {
   console.log('[generate-brand-aliases] Loading ParcaTedarik manufacturers...')
   const manufacturers = await db.$queryRaw<
     Array<{ id: number; name: string }>
-  >(Prisma.sql`SELECT id, name FROM v0.ptdrk_brands ORDER BY id`)
+  >(Prisma.sql`SELECT id, name FROM catalog.ptdrk_brands ORDER BY id`)
 
   console.log(`[generate-brand-aliases] Loaded ${manufacturers.length} manufacturers`)
 

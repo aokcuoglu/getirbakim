@@ -144,9 +144,9 @@ const SELECT_SQL = Prisma.sql`
       array_agg(DISTINCT vt.name) AS type_names,
       COUNT(*)                    AS fitment_count
     FROM catalog.product_vehicle_types pvt
-    JOIN v0.vehicle_types vt  ON vt.id = pvt.vehicle_type_id
-    JOIN v0.vehicle_models vm ON vm.id = vt.model_id
-    JOIN v0.vehicle_brands vb ON vb.id = vm.brand_id
+    JOIN catalog.vehicle_types vt  ON vt.id = pvt.vehicle_type_id
+    JOIN catalog.vehicle_models vm ON vm.id = vt.model_id
+    JOIN catalog.vehicle_brands vb ON vb.id = vm.brand_id
     WHERE pvt.product_id = p.id
   ) veh ON TRUE
 `

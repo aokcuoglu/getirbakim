@@ -37,7 +37,7 @@ export async function getDinamikBrandMatchStats(): Promise<DinamikBrandMatchStat
             AND ${activeMatch}
         )
       ) AS matched_brands,
-      (SELECT COUNT(*)::int FROM v0.ptdrk_brands) AS total_pc_manufacturers
+      (SELECT COUNT(*)::int FROM catalog.ptdrk_brands) AS total_pc_manufacturers
   `)
 
   const total = row?.total_dinamik_brands ?? 0

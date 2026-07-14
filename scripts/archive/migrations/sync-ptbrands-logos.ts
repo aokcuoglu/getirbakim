@@ -1,6 +1,6 @@
 /**
  * Scrape manufacturer logos from parcatedarik.com/manufacturer/all
- * and update v0.ptdrk_brands.logo_url (matched by url_key, then name).
+ * and update catalog.ptdrk_brands.logo_url (matched by url_key, then name).
  *
  * Usage:
  *   bun scripts/sync-ptbrd-logos.ts              # dry run (default)
@@ -120,7 +120,7 @@ async function main() {
 
   const ptbrd = await db.$queryRaw<PtBrandRow[]>(Prisma.sql`
     SELECT id, name, url_key, logo_url
-    FROM v0.ptdrk_brands
+    FROM catalog.ptdrk_brands
     ORDER BY id
   `)
 
@@ -204,12 +204,12 @@ async function main() {
         )
       )
       const inserted = await db.$executeRaw(Prisma.sql`
-        INSERT INTO v0.ptdrk_brands (name, url_key, logo_url, created_at, updated_at)
+        INSERT INTO catalog.ptdrk_brands (name, url_key, logo_url, created_at, updated_at)
         SELECT v.name, v.url_key, v.logo_url, NOW(), NOW()
         FROM (VALUES ${insertValues}) AS v(name, url_key, logo_url)
         ON CONFLICT (url_key) DO UPDATE SET
           name = EXCLUDED.name,
-          logo_url = COALESCE(v0.ptdrk_brands.logo_url, EXCLUDED.logo_url),
+          logo_url = COALESCE(catalog.ptdrk_brands.logo_url, EXCLUDED.logo_url),
           updated_at = NOW()
       `)
       console.log(`[sync-ptbrd-logos] Inserted/upserted ${inserted} ptbrd rows`)
@@ -249,7 +249,7 @@ async function main() {
     )
 
     await db.$executeRaw(Prisma.sql`
-      UPDATE v0.ptdrk_brands AS p
+      UPDATE catalog.ptdrk_brands AS p
       SET logo_url = v.logo_url, updated_at = NOW()
       FROM (VALUES ${values}) AS v(id, logo_url)
       WHERE p.id = v.id::int

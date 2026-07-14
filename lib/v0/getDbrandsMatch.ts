@@ -57,7 +57,7 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
     FROM catalog.brand_mappings m
     JOIN catalog.brands cb ON cb.id = m.brand_id
     LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
+    LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
     WHERE m.mapping_status = 'APPROVED'
       AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
   ),
@@ -140,7 +140,7 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
       FROM catalog.brand_mappings m
       JOIN catalog.brands cb ON cb.id = m.brand_id
       LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
+      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       WHERE m.mapping_status = 'APPROVED'
         AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
     ),

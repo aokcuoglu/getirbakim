@@ -76,10 +76,10 @@ async function getParcaCatalogStats(): Promise<{
           WHERE p.part_no IS NOT NULL
             AND BTRIM(p.part_no) <> ''
         )::bigint AS with_model
-      FROM v0.ptdrk_products p
+      FROM catalog.ptdrk_products p
     `),
     db.$queryRaw<Array<{ manufacturers: bigint }>>(Prisma.sql`
-      SELECT COUNT(*)::bigint AS manufacturers FROM v0.ptdrk_brands
+      SELECT COUNT(*)::bigint AS manufacturers FROM catalog.ptdrk_brands
     `)
   ])
 

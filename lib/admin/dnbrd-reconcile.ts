@@ -19,7 +19,7 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
   >(Prisma.sql`
     SELECT
       (SELECT COUNT(*)::int FROM catalog.supplier_dinamik_brands) AS dnbrd_total,
-      (SELECT COUNT(*)::int FROM v0.ptdrk_brands) AS manufacturer_total,
+      (SELECT COUNT(*)::int FROM catalog.ptdrk_brands) AS manufacturer_total,
       (
         SELECT COUNT(DISTINCT brand_id)::int
         FROM catalog.supplier_dinamik_products
@@ -28,7 +28,7 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
           FROM catalog.supplier_dinamik_brands d
-          INNER JOIN v0.ptdrk_brands m
+          INNER JOIN catalog.ptdrk_brands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
         ) x
       ) AS dpbrding_manufacturer,
@@ -36,7 +36,7 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
         SELECT COUNT(*)::int FROM (
           SELECT d.brand
           FROM catalog.supplier_dinamik_brands d
-          INNER JOIN v0.ptdrk_brands m
+          INNER JOIN catalog.ptdrk_brands m
             ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
           WHERE NOT EXISTS (
             SELECT 1
@@ -56,7 +56,7 @@ export async function auditDbrands(): Promise<DbrandsAudit> {
   const samples = await db.$queryRaw<Array<{ brand: string }>>(Prisma.sql`
     SELECT d.brand
     FROM catalog.supplier_dinamik_brands d
-    INNER JOIN v0.ptdrk_brands m
+    INNER JOIN catalog.ptdrk_brands m
       ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
     WHERE NOT EXISTS (
       SELECT 1
@@ -115,7 +115,7 @@ function normalizeBrandKeys(brands: string[]): string[] {
 }
 
 /**
- * Drops dnbrd rows that duplicate v0.ptdrk_brands names with no dnprd yet.
+ * Drops dnbrd rows that duplicate catalog.ptdrk_brands names with no dnprd yet.
  * Dinamik getBrandList names are kept so pipeline step 2 can fetch their catalog.
  */
 async function removeManufacturerOnlyDbrands(
@@ -134,7 +134,7 @@ async function removeManufacturerOnlyDbrands(
     const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS count
       FROM catalog.supplier_dinamik_brands d
-      INNER JOIN v0.ptdrk_brands m
+      INNER JOIN catalog.ptdrk_brands m
         ON LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       WHERE NOT EXISTS (
         SELECT 1
@@ -148,7 +148,7 @@ async function removeManufacturerOnlyDbrands(
 
   const deleted = await db.$executeRaw(Prisma.sql`
     DELETE FROM catalog.supplier_dinamik_brands d
-    USING v0.ptdrk_brands m
+    USING catalog.ptdrk_brands m
     WHERE LOWER(BTRIM(m.name)) = LOWER(BTRIM(d.brand))
       AND NOT EXISTS (
         SELECT 1

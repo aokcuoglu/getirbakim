@@ -34,14 +34,14 @@ export async function auditDbrandsMatch(): Promise<DbrandsMatchAudit> {
     SELECT
       (SELECT COUNT(*)::int FROM catalog.brand_mappings) AS match_total,
       (SELECT COUNT(*)::int FROM catalog.supplier_dinamik_brands) AS dnbrd_total,
-      (SELECT COUNT(*)::int FROM v0.ptdrk_brands) AS manufacturer_total,
+      (SELECT COUNT(*)::int FROM catalog.ptdrk_brands) AS manufacturer_total,
       (SELECT COUNT(*)::int FROM catalog.brand_mappings WHERE dinamik_brand_id IS NOT NULL) AS with_dinamik_brand,
       (SELECT COUNT(*)::int FROM catalog.brand_mappings WHERE ptdrk_brand_id IS NOT NULL) AS with_manufacturer,
       (SELECT COUNT(*)::int FROM catalog.brand_mappings WHERE dinamik_brand_id IS NULL AND ptdrk_brand_id IS NOT NULL) AS pt_only_rows,
       (SELECT COUNT(*)::int FROM catalog.brand_mappings WHERE dinamik_brand_id IS NOT NULL AND ptdrk_brand_id IS NULL) AS dinamik_stub_rows,
       (SELECT COUNT(*)::int FROM catalog.brand_mappings WHERE dinamik_brand_id IS NOT NULL AND ptdrk_brand_id IS NOT NULL) AS paired_rows,
       (
-        SELECT COUNT(*)::int FROM v0.ptdrk_brands m
+        SELECT COUNT(*)::int FROM catalog.ptdrk_brands m
         WHERE NOT EXISTS (SELECT 1 FROM catalog.brand_mappings a WHERE a.ptdrk_brand_id = m.id)
       ) AS manufacturers_missing,
       (
@@ -131,7 +131,7 @@ async function countDinamikStubInserts(dryRun: boolean): Promise<number> {
 async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
   const [row] = await db.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT COUNT(*)::int AS count
-    FROM v0.ptdrk_brands m
+    FROM catalog.ptdrk_brands m
     WHERE NOT EXISTS (
       SELECT 1 FROM catalog.brand_mappings a WHERE a.ptdrk_brand_id = m.id
     )
@@ -145,7 +145,7 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
         brand_id, dinamik_brand_id, ptdrk_brand_id, mapping_status, match_method
       )
       SELECT cb.id, NULL, pt.id, 'PENDING', NULL
-      FROM v0.ptdrk_brands pt
+      FROM catalog.ptdrk_brands pt
       JOIN catalog.brands cb ON cb.brand = UPPER(BTRIM(pt.name))
       WHERE NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m WHERE m.ptdrk_brand_id = pt.id
@@ -157,7 +157,7 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
   const remaining = await db.$executeRaw(Prisma.sql`
     INSERT INTO catalog.brands (brand)
     SELECT UPPER(BTRIM(pt.name))
-    FROM v0.ptdrk_brands pt
+    FROM catalog.ptdrk_brands pt
     WHERE NOT EXISTS (
       SELECT 1 FROM catalog.brand_mappings m WHERE m.ptdrk_brand_id = pt.id
     )
@@ -173,7 +173,7 @@ async function countPtOnlyInserts(dryRun: boolean): Promise<number> {
         brand_id, dinamik_brand_id, ptdrk_brand_id, mapping_status, match_method
       )
       SELECT cb.id, NULL, pt.id, 'PENDING', NULL
-      FROM v0.ptdrk_brands pt
+      FROM catalog.ptdrk_brands pt
       JOIN catalog.brands cb ON cb.brand = UPPER(BTRIM(pt.name))
       WHERE NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m WHERE m.ptdrk_brand_id = pt.id
@@ -193,7 +193,7 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
   `)
 
   const manufacturers = await db.$queryRaw<Array<{ id: number; name: string }>>(
-    Prisma.sql`SELECT id, name FROM v0.ptdrk_brands ORDER BY id`
+    Prisma.sql`SELECT id, name FROM catalog.ptdrk_brands ORDER BY id`
   )
 
   const exactNormMap = new Map<string, Array<{ id: number; name: string }>>()
@@ -309,7 +309,7 @@ async function seedAutoMatchedPairs(dryRun: boolean): Promise<number> {
           Prisma.sql`(${row.dinamik_brand_id}, ${row.ptdrk_brand_id}, ${row.match_method})`
       )
     )}) AS v(dinamik_brand_id, ptdrk_brand_id, match_method)
-    JOIN v0.ptdrk_brands pt ON pt.id = v.ptdrk_brand_id
+    JOIN catalog.ptdrk_brands pt ON pt.id = v.ptdrk_brand_id
     JOIN catalog.brands cb ON cb.brand = UPPER(BTRIM(COALESCE(NULLIF(BTRIM(pt.name), ''), ''), ''))
     ON CONFLICT (dinamik_brand_id, ptdrk_brand_id) DO NOTHING
   `)
