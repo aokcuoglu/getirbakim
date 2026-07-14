@@ -4,9 +4,6 @@ CREATE SCHEMA IF NOT EXISTS "catalog";
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
 
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "trodo";
-
 -- CreateTable
 CREATE TABLE "engines" (
     "id" INTEGER NOT NULL,
@@ -333,69 +330,6 @@ CREATE TABLE "oil_capacities" (
     "updated_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "oil_capacities_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "trodo"."variants" (
-    "id" INTEGER NOT NULL,
-    "engine_id" INTEGER NOT NULL,
-    "name" TEXT NOT NULL,
-    "year_from" INTEGER,
-    "year_to" INTEGER,
-    "ccm" TEXT,
-    "kw_ps" TEXT,
-    "engine_code" TEXT,
-    "url_key" TEXT,
-    "tecdoc_id" INTEGER,
-    "magento_id" INTEGER,
-    "tags" TEXT,
-    "popularity_order" INTEGER,
-    "is_popular" BOOLEAN DEFAULT false,
-    "dropdown_id" INTEGER,
-    "liters" TEXT,
-    "engine_fuel" TEXT,
-    "engine_liters" TEXT,
-    "created_at" TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "variants_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "trodo"."category_tree" (
-    "id" BIGSERIAL NOT NULL,
-    "variant_id" INTEGER NOT NULL,
-    "category_id" INTEGER NOT NULL,
-    "parent_category_id" INTEGER,
-    "tree_parent_key" TEXT NOT NULL,
-    "child_position" INTEGER NOT NULL,
-    "child_category_ids" INTEGER[],
-    "children_count" INTEGER NOT NULL DEFAULT 0,
-    "is_extra_branch" BOOLEAN NOT NULL DEFAULT false,
-    "root_category_id" INTEGER,
-    "current_category_id" INTEGER,
-    "base_url" TEXT,
-    "car_title" TEXT,
-    "car_link" TEXT,
-    "empty_message" TEXT,
-    "name" TEXT NOT NULL,
-    "url_key" TEXT NOT NULL,
-    "path" TEXT NOT NULL,
-    "path_ids" INTEGER[],
-    "path_depth" INTEGER NOT NULL,
-    "image_name" TEXT,
-    "inherited_image_name" TEXT,
-    "position" INTEGER,
-    "page_type" TEXT,
-    "intro_html" TEXT,
-    "seo_title" TEXT,
-    "headline" TEXT,
-    "dynamic_text" TEXT,
-    "content_html" TEXT,
-    "raw_attributes" JSONB NOT NULL,
-    "created_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(6) NOT NULL,
-
-    CONSTRAINT "category_tree_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -960,30 +894,6 @@ CREATE UNIQUE INDEX "scrape_progress_vehicle_type_id_category_id_key" ON "scrape
 CREATE UNIQUE INDEX "oil_capacities_vehicle_type_id_key" ON "oil_capacities"("vehicle_type_id");
 
 -- CreateIndex
-CREATE INDEX "category_tree_variant_id_idx" ON "trodo"."category_tree"("variant_id");
-
--- CreateIndex
-CREATE INDEX "category_tree_category_id_idx" ON "trodo"."category_tree"("category_id");
-
--- CreateIndex
-CREATE INDEX "category_tree_variant_id_parent_category_id_idx" ON "trodo"."category_tree"("variant_id", "parent_category_id");
-
--- CreateIndex
-CREATE INDEX "category_tree_variant_id_tree_parent_key_idx" ON "trodo"."category_tree"("variant_id", "tree_parent_key");
-
--- CreateIndex
-CREATE INDEX "category_tree_variant_id_url_key_idx" ON "trodo"."category_tree"("variant_id", "url_key");
-
--- CreateIndex
-CREATE INDEX "category_tree_variant_id_page_type_idx" ON "trodo"."category_tree"("variant_id", "page_type");
-
--- CreateIndex
-CREATE INDEX "category_tree_variant_id_is_extra_branch_idx" ON "trodo"."category_tree"("variant_id", "is_extra_branch");
-
--- CreateIndex
-CREATE UNIQUE INDEX "category_tree_variant_id_category_id_key" ON "trodo"."category_tree"("variant_id", "category_id");
-
--- CreateIndex
 CREATE UNIQUE INDEX "ptdrk_brands_name_key" ON "catalog"."ptdrk_brands"("name");
 
 -- CreateIndex
@@ -1255,12 +1165,6 @@ ALTER TABLE "vehicles" ADD CONSTRAINT "vehicles_model_id_models_id_fk" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "oil_capacities" ADD CONSTRAINT "oil_capacities_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "catalog"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "trodo"."variants" ADD CONSTRAINT "variants_engine_id_engines_id_fk" FOREIGN KEY ("engine_id") REFERENCES "engines"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
-
--- AddForeignKey
-ALTER TABLE "trodo"."category_tree" ADD CONSTRAINT "category_tree_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "trodo"."variants"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE "catalog"."ptdrk_products" ADD CONSTRAINT "ptdrk_products_ptdrk_brands_id_fkey" FOREIGN KEY ("ptdrk_brands_id") REFERENCES "catalog"."ptdrk_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;

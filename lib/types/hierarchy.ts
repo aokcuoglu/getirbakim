@@ -42,7 +42,6 @@ export type HierarchyLevel =
   | 'vehicles'
   | 'fuel_types'
   | 'engines'
-  | 'variants'
   | 'vehicle_brands'
   | 'vehicle_models'
   | 'vehicle_types'
@@ -84,11 +83,6 @@ export const HIERARCHY_CONFIG: Record<HierarchyLevel, HierarchyLevelConfig> = {
     table: 'engines',
     parentColumn: 'fuel_type_id',
     redisKeyPrefix: 'ref:engines'
-  },
-  variants: {
-    table: 'variants',
-    parentColumn: 'engine_id',
-    redisKeyPrefix: 'ref:variants'
   },
   vehicle_brands: {
     table: 'vbrands',

@@ -120,20 +120,13 @@ export async function getPartsForVehicle({
     let partIds: bigint[] = []
 
     if (vehicleTypeId) {
-      // vehicleTypeId is the variant.id from URL, we need to get tecdocId from variants table
-      const variant = await db.variants.findFirst({
-        where: { id: vehicleTypeId }
+      // vehicleTypeId maps directly to part_vehicle_types.vehicle_type_id
+      const vehicleParts = await db.part_vehicle_types.findMany({
+        where: { vehicle_type_id: vehicleTypeId },
+        select: { part_id: true }
       })
 
-      if (variant?.tecdoc_id) {
-        // Get part IDs that match the vehicle type using tecdocId
-        const vehicleParts = await db.part_vehicle_types.findMany({
-          where: { vehicle_type_id: variant.tecdoc_id },
-          select: { part_id: true }
-        })
-
-        partIds = vehicleParts.map((p) => p.part_id)
-      }
+      partIds = vehicleParts.map((p) => p.part_id)
     }
 
     // If no vehicle type specified or no parts found, return empty

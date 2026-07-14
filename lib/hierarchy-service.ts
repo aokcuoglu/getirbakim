@@ -48,8 +48,6 @@ function getRedisKey(entity: HierarchyLevel, parentId?: number): string {
       return `ref:fuel_types:${parentId}`
     case 'engines':
       return `ref:engines:${parentId}`
-    case 'variants':
-      return `ref:variants:${parentId}`
     case 'vehicle_brands':
       return 'ref:v_brands'
     case 'vehicle_models':
@@ -130,39 +128,6 @@ async function fetchEngines(fuelTypeId: number): Promise<HierarchyItem[]> {
   return data
 }
 
-/**
- * Fetch variants from database by engineId
- * Includes additional fields for dropdown display
- */
-async function fetchVariants(engineId: number): Promise<VariantItem[]> {
-  const data = await db.variants.findMany({
-    where: { engine_id: engineId },
-    select: {
-      id: true,
-      name: true,
-      year_from: true,
-      year_to: true,
-      ccm: true,
-      kw_ps: true,
-      engine_code: true,
-      url_key: true,
-      tecdoc_id: true
-    },
-    orderBy: { name: 'asc' }
-  })
-
-  return data.map((v) => ({
-    id: v.id,
-    name: v.name,
-    yearFrom: v.year_from,
-    yearTo: v.year_to,
-    ccm: v.ccm,
-    kwPs: v.kw_ps,
-    engineCode: v.engine_code,
-    urlKey: v.url_key,
-    tecdocId: v.tecdoc_id
-  }))
-}
 /**
  * Fetch vehicle brands from database
  */
@@ -290,8 +255,8 @@ async function fetchWithCache<T>(
  * const models = await getDropdownData('models', 5)
  *
  * @example
- * // Get variants with extra details
- * const variants = await getDropdownData('variants', 123)
+ * // Get vehicle types with extra details
+ * const types = await getDropdownData('vehicle_types', 123)
  */
 export async function getDropdownData(
   entity: HierarchyLevel,
@@ -348,12 +313,6 @@ export async function getDropdownData(
         )
         break
 
-      case 'variants':
-        result = await fetchWithCache<VariantItem[]>(cacheKey, () =>
-          fetchVariants(parentId!)
-        )
-        break
-
       case 'vehicle_brands':
         result = await fetchWithCache<HierarchyItem[]>(
           cacheKey,
@@ -401,5 +360,3 @@ export const getFuelTypes = (vehicleId: number) =>
   getDropdownData('fuel_types', vehicleId)
 export const getEngines = (fuelTypeId: number) =>
   getDropdownData('engines', fuelTypeId)
-export const getVariants = (engineId: number) =>
-  getDropdownData('variants', engineId)

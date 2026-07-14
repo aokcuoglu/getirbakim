@@ -82,21 +82,14 @@ export async function getBrandsForCategory({
     }
 
     if (vehicleTypeId) {
-      const variant = await db.variants.findFirst({
-        where: { id: vehicleTypeId }
+      // vehicleTypeId maps directly to part_vehicle_types.vehicle_type_id
+      const vehicleParts = await db.part_vehicle_types.findMany({
+        where: { vehicle_type_id: vehicleTypeId },
+        select: { part_id: true }
       })
 
-      if (variant?.tecdoc_id) {
-        const vehicleParts = await db.part_vehicle_types.findMany({
-          where: { vehicle_type_id: variant.tecdoc_id },
-          select: { part_id: true }
-        })
-
-        partIds = vehicleParts.map((p) => p.part_id)
-        if (partIds.length === 0) return []
-      } else {
-        return []
-      }
+      partIds = vehicleParts.map((p) => p.part_id)
+      if (partIds.length === 0) return []
     }
 
     // Build where condition

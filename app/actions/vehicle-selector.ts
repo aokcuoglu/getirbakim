@@ -20,7 +20,6 @@ const hierarchyLevelSchema = z.enum([
   'vehicles',
   'fuel_types',
   'engines',
-  'variants',
   'vehicle_brands',
   'vehicle_models',
   'vehicle_types'
@@ -141,15 +140,6 @@ export async function getEnginesAction(
   fuelTypeId: number
 ): Promise<DropdownDataResponse> {
   return getDropdownDataAction({ entity: 'engines', parentId: fuelTypeId })
-}
-
-/**
- * Get variants for a specific engine (includes extra fields)
- */
-export async function getVariantsAction(
-  engineId: number
-): Promise<DropdownDataResponse> {
-  return getDropdownDataAction({ entity: 'variants', parentId: engineId })
 }
 
 /**
