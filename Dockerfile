@@ -91,7 +91,6 @@ RUN chown -R nextjs:nodejs /app/node_modules/@prisma || true
 # Meilisearch operational scripts need source files and dependencies
 COPY --from=builder /app/tsconfig.json /app/tsconfig.json
 COPY --from=builder /app/scripts/ /app/scripts/
-COPY --from=builder /app/lib/search/code-normalization.ts /app/lib/search/code-normalization.ts
 COPY --from=builder /app/lib/search/search-document-types.ts /app/lib/search/search-document-types.ts
 COPY --from=builder /app/lib/search/search-synonyms.ts /app/lib/search/search-synonyms.ts
 COPY --from=builder /app/lib/search/availability.ts /app/lib/search/availability.ts
