@@ -1,7 +1,7 @@
 /**
- * Import MODEL column from CSV into v0.ptdrk_products.part_no
+ * Import MODEL column from CSV into catalog.ptdrk_products.part_no
  *
- * Matches CSV.id to v0.ptdrk_products.id and updates:
+ * Matches CSV.id to catalog.ptdrk_products.id and updates:
  *   part_no = CSV.MODEL (raw)
  *
  * Usage:
@@ -153,7 +153,7 @@ async function main() {
     const batch = idsWithModel.slice(i, i + BATCH_SIZE)
     const products = await db.$queryRaw<
       Array<{ id: number; title: string; model: string | null }>
-    >`SELECT id, title, part_no AS model FROM v0.ptdrk_products WHERE id IN (${Prisma.join(batch)})`
+    >`SELECT id, title, part_no AS model FROM catalog.ptdrk_products WHERE id IN (${Prisma.join(batch)})`
 
     for (const p of products) {
       const mv = modelValues.get(p.id)
@@ -232,7 +232,7 @@ async function main() {
     })
 
     const sql = `
-      UPDATE v0.ptdrk_products AS p
+      UPDATE catalog.ptdrk_products AS p
       SET part_no = v.part_no
       FROM (VALUES ${valuesClauses.join(', ')}) AS v(id, part_no)
       WHERE p.id = v.id
@@ -252,16 +252,16 @@ async function main() {
   console.log('=== Validation SQL ===')
 
   const totalProducts = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptdrk_products`
+    `SELECT COUNT(*) AS count FROM catalog.ptdrk_products`
   console.log(`  Total products: ${totalProducts[0].count}`)
 
   const withModel = await db.$queryRaw<Array<{ count: bigint }>>
-    `SELECT COUNT(*) AS count FROM v0.ptdrk_products WHERE part_no IS NOT NULL AND part_no <> ''`
+    `SELECT COUNT(*) AS count FROM catalog.ptdrk_products WHERE part_no IS NOT NULL AND part_no <> ''`
   console.log(`  Products with model: ${withModel[0].count}`)
 
   const normalizedModelSubquery = `
     SELECT DISTINCT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(part_no, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
-    FROM v0.ptdrk_products
+    FROM catalog.ptdrk_products
     WHERE part_no IS NOT NULL AND BTRIM(part_no) <> ''
   `
 
@@ -276,7 +276,7 @@ async function main() {
     Array<{ norm: string; count: bigint }>
   >(Prisma.sql`
     SELECT sub.norm, COUNT(*) AS count
-    FROM v0.ptdrk_products p
+    FROM catalog.ptdrk_products p
     CROSS JOIN LATERAL (
       SELECT NULLIF(UPPER(REGEXP_REPLACE(COALESCE(p.part_no, ''), '[^A-Z0-9]', '', 'gi')), '') AS norm
     ) sub
@@ -295,7 +295,7 @@ async function main() {
     Array<{ id: number; product_id: string; model: string | null; title: string }>
   >`
     SELECT id, product_id, part_no AS model, title
-    FROM v0.ptdrk_products
+    FROM catalog.ptdrk_products
     WHERE part_no IS NOT NULL AND part_no <> ''
     ORDER BY updated_at DESC NULLS LAST
     LIMIT 20

@@ -64,7 +64,7 @@ async function fetchStats(): Promise<BackfillStats> {
         pt.logo_url AS resolved_logo_url
       FROM v0.brand_list cb
       JOIN v0.brand_mappings m ON m.brand_list_id = cb.id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     )
     SELECT
       COUNT(*)::bigint AS total_rows,
@@ -117,7 +117,7 @@ async function runBackfill(): Promise<number> {
         pt.logo_url AS resolved_logo_url
       FROM v0.brand_list cb2
       JOIN v0.brand_mappings m ON m.brand_list_id = cb2.id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
       WHERE pt.logo_url IS NOT NULL
         AND (
           ${FORCE}

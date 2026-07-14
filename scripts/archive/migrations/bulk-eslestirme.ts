@@ -66,8 +66,8 @@ async function findMappingIds(): Promise<{ ids: number[]; total: number; pending
   const joinClauses = `
     LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
     LEFT JOIN v0.dnmk_brands db ON db.id = d.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
-    LEFT JOIN v0.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
+    LEFT JOIN catalog.ptdrk_products p ON p.id = m.ptdrk_products_id
+    LEFT JOIN catalog.ptdrk_brands mfr ON mfr.id = p.ptdrk_brands_id
     LEFT JOIN v0.brand_list bl ON bl.id = m.brand_list_id
   `
   const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : 'WHERE 1=1'
@@ -118,7 +118,7 @@ async function getRefNoMap(mappingIds: number[]): Promise<Map<number, { refNo: s
     >(
       `SELECT m.id, m.dnmk_products_id::text, m.ptdrk_products_id, p.ref_no
        FROM v0.product_mapping m
-       LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+       LEFT JOIN catalog.ptdrk_products p ON p.id = m.ptdrk_products_id
        WHERE m.id IN (${chunk.join(',')})`
     )
     for (const r of rows) {

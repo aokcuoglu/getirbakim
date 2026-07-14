@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     const whereClause = buildWhereClause(q, status)
 
     const countResult = await db.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`SELECT COUNT(*) AS count FROM catalog.brands cb LEFT JOIN catalog.brand_mappings m ON m.brand_id = cb.id LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id WHERE ${whereClause}`
+      Prisma.sql`SELECT COUNT(*) AS count FROM catalog.brands cb LEFT JOIN catalog.brand_mappings m ON m.brand_id = cb.id LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id WHERE ${whereClause}`
     )
     const total = Number(countResult[0]?.count ?? 0)
     const pages = Math.max(1, Math.ceil(total / limit))
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
       FROM catalog.brands cb
       LEFT JOIN catalog.brand_mappings m ON m.brand_id = cb.id
       LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-      LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
+      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       WHERE ${whereClause}
       ORDER BY d.brand ASC NULLS LAST
       LIMIT ${limit} OFFSET ${offset}

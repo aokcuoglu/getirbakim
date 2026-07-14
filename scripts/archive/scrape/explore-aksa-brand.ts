@@ -24,7 +24,7 @@ async function main() {
       pb.name as pt_brand_name
     FROM v0.brand_list mb
     LEFT JOIN v0.dnmk_brands db ON db.id = mb.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands pb ON pb.id = mb.ptdrk_brands_id
+    LEFT JOIN catalog.ptdrk_brands pb ON pb.id = mb.ptdrk_brands_id
     WHERE mb.brand = 'AKSA'
     ORDER BY mb.id
   `
@@ -42,7 +42,7 @@ async function main() {
   // Product counts per ptdrk_brands_id
   const ptCounts = await db.$queryRaw`
     SELECT p.ptdrk_brands_id, COUNT(*)::int as product_count
-    FROM v0.ptdrk_products p
+    FROM catalog.ptdrk_products p
     WHERE p.ptdrk_brands_id IN (SELECT ptdrk_brands_id FROM v0.brand_list WHERE brand = 'AKSA')
     GROUP BY p.ptdrk_brands_id
   `

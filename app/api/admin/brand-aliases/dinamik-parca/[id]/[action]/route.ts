@@ -96,7 +96,7 @@ export async function POST(
         const mfrId = parseInt(String(parcatedarikManufacturerId), 10)
         const manufacturer = await db.$queryRaw<
           Array<{ id: number; name: string }>
-        >(Prisma.sql`SELECT id, name FROM v0.ptdrk_brands WHERE id = ${mfrId}`)
+        >(Prisma.sql`SELECT id, name FROM catalog.ptdrk_brands WHERE id = ${mfrId}`)
 
         if (!manufacturer || manufacturer.length === 0) {
           return errorResponse({

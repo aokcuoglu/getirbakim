@@ -39,7 +39,7 @@ async function main() {
     FROM v0.brand_list cb
     LEFT JOIN v0.brand_mappings m ON m.brand_list_id = cb.id
     LEFT JOIN v0.dnmk_brands d ON d.id = m.dnmk_brands_id
-    LEFT JOIN v0.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
+    LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brands_id
     WHERE cb.brand = 'AKSA'
   `)
   console.log('\nAKSA Sample:', JSON.stringify(aksa.rows, null, 2))

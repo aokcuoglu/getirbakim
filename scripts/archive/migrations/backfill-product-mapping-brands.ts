@@ -73,7 +73,7 @@ async function backfillBrands(): Promise<number> {
         bm.brand_list_id,
         cb.brand
       FROM v0.product_mapping m2
-      JOIN v0.ptdrk_products p ON p.id = m2.ptdrk_products_id
+      JOIN catalog.ptdrk_products p ON p.id = m2.ptdrk_products_id
       JOIN v0.brand_mappings bm ON bm.ptdrk_brands_id = p.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
       JOIN v0.brand_list cb ON cb.id = bm.brand_list_id
       WHERE m2.brand_list_id IS NULL
@@ -125,7 +125,7 @@ async function main() {
       FROM v0.product_mapping m
       LEFT JOIN v0.dnmk_products d ON d.id = m.dnmk_products_id
       LEFT JOIN v0.brand_mappings bm_d ON bm_d.dnmk_brands_id = d.dnmk_brands_id AND bm_d.mapping_status = 'APPROVED'
-      LEFT JOIN v0.ptdrk_products p ON p.id = m.ptdrk_products_id
+      LEFT JOIN catalog.ptdrk_products p ON p.id = m.ptdrk_products_id
       LEFT JOIN v0.brand_mappings bm_p ON bm_p.ptdrk_brands_id = p.ptdrk_brands_id AND bm_p.mapping_status = 'APPROVED'
       WHERE (bm_d.brand_list_id IS NOT NULL OR bm_p.brand_list_id IS NOT NULL)
     `)
