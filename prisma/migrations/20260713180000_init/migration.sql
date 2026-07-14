@@ -7,9 +7,6 @@ CREATE SCHEMA IF NOT EXISTS "public";
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "trodo";
 
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "v0";
-
 -- CreateTable
 CREATE TABLE "engines" (
     "id" INTEGER NOT NULL,
@@ -402,7 +399,7 @@ CREATE TABLE "trodo"."category_tree" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."ptdrk_brands" (
+CREATE TABLE "catalog"."ptdrk_brands" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "url_key" TEXT,
@@ -414,7 +411,7 @@ CREATE TABLE "v0"."ptdrk_brands" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."ptdrk_products" (
+CREATE TABLE "catalog"."ptdrk_products" (
     "id" SERIAL NOT NULL,
     "ptdrk_brands_id" INTEGER NOT NULL,
     "product_id" TEXT NOT NULL,
@@ -432,7 +429,7 @@ CREATE TABLE "v0"."ptdrk_products" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."vehicle_brands" (
+CREATE TABLE "catalog"."vehicle_brands" (
     "id" INTEGER NOT NULL,
     "name" TEXT NOT NULL,
 
@@ -440,7 +437,7 @@ CREATE TABLE "v0"."vehicle_brands" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."vehicle_models" (
+CREATE TABLE "catalog"."vehicle_models" (
     "id" INTEGER NOT NULL,
     "name" TEXT NOT NULL,
     "date_from" TEXT,
@@ -451,7 +448,7 @@ CREATE TABLE "v0"."vehicle_models" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."vehicle_types" (
+CREATE TABLE "catalog"."vehicle_types" (
     "id" INTEGER NOT NULL,
     "name" TEXT NOT NULL,
     "cc" INTEGER,
@@ -466,7 +463,7 @@ CREATE TABLE "v0"."vehicle_types" (
 );
 
 -- CreateTable
-CREATE TABLE "v0"."vehicle_type_details" (
+CREATE TABLE "catalog"."vehicle_type_details" (
     "id" BIGSERIAL NOT NULL,
     "vehicle_type_id" INTEGER NOT NULL,
     "brake_system" TEXT,
@@ -987,43 +984,43 @@ CREATE INDEX "category_tree_variant_id_is_extra_branch_idx" ON "trodo"."category
 CREATE UNIQUE INDEX "category_tree_variant_id_category_id_key" ON "trodo"."category_tree"("variant_id", "category_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ptdrk_brands_name_key" ON "v0"."ptdrk_brands"("name");
+CREATE UNIQUE INDEX "ptdrk_brands_name_key" ON "catalog"."ptdrk_brands"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ptdrk_brands_url_key_key" ON "v0"."ptdrk_brands"("url_key");
+CREATE UNIQUE INDEX "ptdrk_brands_url_key_key" ON "catalog"."ptdrk_brands"("url_key");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ptdrk_products_product_id_key" ON "v0"."ptdrk_products"("product_id");
+CREATE UNIQUE INDEX "ptdrk_products_product_id_key" ON "catalog"."ptdrk_products"("product_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ptdrk_products_url_key" ON "v0"."ptdrk_products"("url");
+CREATE UNIQUE INDEX "ptdrk_products_url_key" ON "catalog"."ptdrk_products"("url");
 
 -- CreateIndex
-CREATE INDEX "ptdrk_products_ptdrk_brands_id_idx" ON "v0"."ptdrk_products"("ptdrk_brands_id");
+CREATE INDEX "ptdrk_products_ptdrk_brands_id_idx" ON "catalog"."ptdrk_products"("ptdrk_brands_id");
 
 -- CreateIndex
-CREATE INDEX "ptdrk_products_product_id_idx" ON "v0"."ptdrk_products"("product_id");
+CREATE INDEX "ptdrk_products_product_id_idx" ON "catalog"."ptdrk_products"("product_id");
 
 -- CreateIndex
-CREATE INDEX "ptdrk_products_sku_idx" ON "v0"."ptdrk_products"("sku");
+CREATE INDEX "ptdrk_products_sku_idx" ON "catalog"."ptdrk_products"("sku");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "vehicle_brands_name_key" ON "v0"."vehicle_brands"("name");
+CREATE UNIQUE INDEX "vehicle_brands_name_key" ON "catalog"."vehicle_brands"("name");
 
 -- CreateIndex
-CREATE INDEX "vtypes_name_idx" ON "v0"."vehicle_types"("name");
+CREATE INDEX "vtypes_name_idx" ON "catalog"."vehicle_types"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "vehicle_type_details_vehicle_type_id_key" ON "v0"."vehicle_type_details"("vehicle_type_id");
+CREATE UNIQUE INDEX "vehicle_type_details_vehicle_type_id_key" ON "catalog"."vehicle_type_details"("vehicle_type_id");
 
 -- CreateIndex
-CREATE INDEX "vtype_details_manu_id_idx" ON "v0"."vehicle_type_details"("manu_id");
+CREATE INDEX "vtype_details_manu_id_idx" ON "catalog"."vehicle_type_details"("manu_id");
 
 -- CreateIndex
-CREATE INDEX "vtype_details_mod_id_idx" ON "v0"."vehicle_type_details"("mod_id");
+CREATE INDEX "vtype_details_mod_id_idx" ON "catalog"."vehicle_type_details"("mod_id");
 
 -- CreateIndex
-CREATE INDEX "vtype_details_updated_at_idx" ON "v0"."vehicle_type_details"("updated_at");
+CREATE INDEX "vtype_details_updated_at_idx" ON "catalog"."vehicle_type_details"("updated_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "supplier_dinamik_brands_brand_key" ON "catalog"."supplier_dinamik_brands"("brand");
@@ -1239,7 +1236,7 @@ ALTER TABLE "part_properties" ADD CONSTRAINT "part_properties_part_id_fkey" FORE
 ALTER TABLE "part_vehicle_types" ADD CONSTRAINT "part_vehicle_types_part_id_fkey" FOREIGN KEY ("part_id") REFERENCES "parts"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "part_vehicle_types" ADD CONSTRAINT "part_vehicle_types_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "v0"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "part_vehicle_types" ADD CONSTRAINT "part_vehicle_types_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "catalog"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE "parts" ADD CONSTRAINT "parts_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "part_brands"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -1257,7 +1254,7 @@ ALTER TABLE "notifications" ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN 
 ALTER TABLE "vehicles" ADD CONSTRAINT "vehicles_model_id_models_id_fk" FOREIGN KEY ("model_id") REFERENCES "models"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "oil_capacities" ADD CONSTRAINT "oil_capacities_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "v0"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "oil_capacities" ADD CONSTRAINT "oil_capacities_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "catalog"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "trodo"."variants" ADD CONSTRAINT "variants_engine_id_engines_id_fk" FOREIGN KEY ("engine_id") REFERENCES "engines"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -1266,16 +1263,16 @@ ALTER TABLE "trodo"."variants" ADD CONSTRAINT "variants_engine_id_engines_id_fk"
 ALTER TABLE "trodo"."category_tree" ADD CONSTRAINT "category_tree_variant_id_fkey" FOREIGN KEY ("variant_id") REFERENCES "trodo"."variants"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "v0"."ptdrk_products" ADD CONSTRAINT "ptdrk_products_ptdrk_brands_id_fkey" FOREIGN KEY ("ptdrk_brands_id") REFERENCES "v0"."ptdrk_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "catalog"."ptdrk_products" ADD CONSTRAINT "ptdrk_products_ptdrk_brands_id_fkey" FOREIGN KEY ("ptdrk_brands_id") REFERENCES "catalog"."ptdrk_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "v0"."vehicle_models" ADD CONSTRAINT "vehicle_models_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "v0"."vehicle_brands"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE "catalog"."vehicle_models" ADD CONSTRAINT "vehicle_models_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "catalog"."vehicle_brands"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "v0"."vehicle_types" ADD CONSTRAINT "vehicle_types_model_id_fkey" FOREIGN KEY ("model_id") REFERENCES "v0"."vehicle_models"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
+ALTER TABLE "catalog"."vehicle_types" ADD CONSTRAINT "vehicle_types_model_id_fkey" FOREIGN KEY ("model_id") REFERENCES "catalog"."vehicle_models"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE "v0"."vehicle_type_details" ADD CONSTRAINT "vehicle_type_details_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "v0"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
+ALTER TABLE "catalog"."vehicle_type_details" ADD CONSTRAINT "vehicle_type_details_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "catalog"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE NO ACTION;
 
 -- AddForeignKey
 ALTER TABLE "catalog"."supplier_dinamik_products" ADD CONSTRAINT "supplier_dinamik_products_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "catalog"."supplier_dinamik_brands"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1296,13 +1293,13 @@ ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_brand_id_f
 ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_dinamik_brand_id_fkey" FOREIGN KEY ("dinamik_brand_id") REFERENCES "catalog"."supplier_dinamik_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_ptdrk_brand_id_fkey" FOREIGN KEY ("ptdrk_brand_id") REFERENCES "v0"."ptdrk_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_ptdrk_brand_id_fkey" FOREIGN KEY ("ptdrk_brand_id") REFERENCES "catalog"."ptdrk_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_basbug_brand_id_fkey" FOREIGN KEY ("basbug_brand_id") REFERENCES "catalog"."supplier_basbug_brands"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_ptdrk_productsId_fkey" FOREIGN KEY ("ptdrk_productsId") REFERENCES "v0"."ptdrk_products"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "catalog"."brand_mappings" ADD CONSTRAINT "brand_mappings_ptdrk_productsId_fkey" FOREIGN KEY ("ptdrk_productsId") REFERENCES "catalog"."ptdrk_products"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "catalog"."products" ADD CONSTRAINT "products_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "catalog"."brands"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1341,7 +1338,7 @@ ALTER TABLE "catalog"."product_properties" ADD CONSTRAINT "product_properties_pr
 ALTER TABLE "catalog"."product_vehicle_types" ADD CONSTRAINT "product_vehicle_types_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "catalog"."products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "catalog"."product_vehicle_types" ADD CONSTRAINT "product_vehicle_types_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "v0"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "catalog"."product_vehicle_types" ADD CONSTRAINT "product_vehicle_types_vehicle_type_id_fkey" FOREIGN KEY ("vehicle_type_id") REFERENCES "catalog"."vehicle_types"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "catalog"."product_part_links" ADD CONSTRAINT "product_part_links_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "catalog"."products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -1351,3 +1348,4 @@ ALTER TABLE "catalog"."product_part_links" ADD CONSTRAINT "product_part_links_pa
 
 -- AddForeignKey
 ALTER TABLE "catalog"."product_overrides" ADD CONSTRAINT "product_overrides_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "catalog"."products"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
