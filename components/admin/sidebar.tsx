@@ -405,6 +405,12 @@ export function Sidebar({
               active: pathname.startsWith('/admin/suppliers/dinamik')
             }
           ]
+        },
+        {
+          icon: GitCompare,
+          label: 'Eşleştirme',
+          href: '/admin/eslestirme',
+          active: pathname.startsWith('/admin/eslestirme')
         }
       ]
     },
