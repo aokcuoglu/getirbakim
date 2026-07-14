@@ -101,10 +101,16 @@ export function BrandMatchTab({ initialData }: BrandMatchTabProps) {
       if (row.mappingId == null) return
       setBusyId(row.supplierId)
       try {
+        // unlink tedarikçi kolonunu boşaltır (satırı silmez) → supplier + supplierBrandId.
+        // approve/reject satır durumunu değiştirir → mappingId.
+        const payload =
+          action === 'unlink'
+            ? { supplier: filtersRef.current.supplier, supplierBrandId: row.supplierId }
+            : { mappingId: row.mappingId }
         const res = await fetch(`/api/admin/eslestirme/brands/${action}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mappingId: row.mappingId })
+          body: JSON.stringify(payload)
         })
         const data = await res.json()
         if (data.error) {

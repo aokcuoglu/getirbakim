@@ -6,11 +6,11 @@ import {
   withApiContext
 } from '@/lib/api/route-utils'
 import {
-  deleteBrandMapping,
   isSupplierKey,
   linkSupplierBrandToCanonical,
   parseSupplierBrandId,
-  setBrandMappingStatus
+  setBrandMappingStatus,
+  unlinkSupplierBrand
 } from '@/lib/admin/supplier-brand-match'
 
 const VALID_ACTIONS = ['link', 'unlink', 'approve', 'reject', 'ignore'] as const
@@ -67,15 +67,24 @@ export async function POST(
     }
 
     if (action === 'unlink') {
-      const mappingId = parseInt(String(body?.mappingId), 10)
-      if (isNaN(mappingId)) {
-        return errorResponse({ status: 400, code: 'INVALID_ID', message: 'Geçerli bir mappingId gerekli.', context })
+      const supplier = String(body?.supplier ?? '')
+      if (!isSupplierKey(supplier)) {
+        return errorResponse({ status: 400, code: 'INVALID_SUPPLIER', message: 'Geçersiz tedarikçi.', context })
       }
-      const ok = await deleteBrandMapping(mappingId)
+      if (body?.supplierBrandId == null || String(body.supplierBrandId).trim() === '') {
+        return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'supplierBrandId gerekli.', context })
+      }
+      let supplierBrandId: bigint | number
+      try {
+        supplierBrandId = parseSupplierBrandId(supplier, body.supplierBrandId)
+      } catch {
+        return errorResponse({ status: 400, code: 'INVALID_ID', message: 'Geçersiz supplierBrandId.', context })
+      }
+      const ok = await unlinkSupplierBrand(supplier, supplierBrandId)
       if (!ok) {
         return errorResponse({ status: 404, code: 'NOT_FOUND', message: 'Eşleştirme bulunamadı.', context })
       }
-      return successResponse({ mappingId, action, message: 'Marka eşleştirmesi kaldırıldı.' }, context)
+      return successResponse({ action, message: 'Marka eşleştirmesi kaldırıldı.' }, context)
     }
 
     // link — tedarikçi markasını kanonik markaya bağla.

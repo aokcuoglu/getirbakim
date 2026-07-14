@@ -323,10 +323,27 @@ async function upsertCanonicalBrand(
   return rows[0]?.id ?? null
 }
 
+// Bir satırda hiç tedarikçi FK'sı kalmadıysa true (silinebilir yetim satır).
+const ALL_SUPPLIER_FKS_NULL = Prisma.sql`
+  dinamik_brand_id IS NULL AND ptdrk_brand_id IS NULL AND basbug_brand_id IS NULL
+`
+// Bir satırın kaç tedarikçi kolonu dolu (en dolu satırı tercih ederken sıralama için).
+const FILLED_FK_COUNT = Prisma.sql`
+  ((dinamik_brand_id IS NOT NULL)::int + (ptdrk_brand_id IS NOT NULL)::int + (basbug_brand_id IS NOT NULL)::int)
+`
+
 /**
- * Bir tedarikçi markasını kanonik markaya bağlar (upsert). Tedarikçi başına ayrı
- * satır konvansiyonuna uyar: o tedarikçinin FK'sı dolu mevcut satır varsa
- * günceller, yoksa yeni satır ekler.
+ * Bir tedarikçi markasını kanonik markaya bağlar — KONSOLİDE eder.
+ *
+ * Kanonik başına tek satırda ilgili tedarikçi kolonlarını doldurma ilkesi:
+ *  A) Bu tedarikçi markası zaten aynı kanonik'e bağlıysa → sadece onayla.
+ *  B) Farklı bir kanonik'e/satıra bağlıysa → o satırdan bu FK'yı boşalt, satır
+ *     tamamen boşaldıysa sil (taşıma).
+ *  C) Hedef kanonik'te bu tedarikçinin kolonu BOŞ bir satır varsa → onu doldur
+ *     (en dolu satırı tercih ederek). Yoksa yeni satır ekle.
+ *
+ * Aynı tedarikçinin birden fazla markası aynı kanonik'e giderse (ör. ABA + ABA-AV
+ * → "ABA"), slot dolu olacağı için ek satır açılır — bu beklenen davranış.
  */
 async function upsertSupplierMapping(
   tx: Prisma.TransactionClient,
@@ -334,17 +351,43 @@ async function upsertSupplierMapping(
   supplierBrandId: bigint | number,
   canonicalId: number
 ): Promise<void> {
-  const existing = await tx.$queryRaw<Array<{ id: number }>>(Prisma.sql`
-    SELECT id FROM catalog.brand_mappings
+  // A/B) Bu tedarikçi markasının mevcut bağlarını ele al.
+  const current = await tx.$queryRaw<Array<{ id: number; brand_id: number }>>(Prisma.sql`
+    SELECT id, brand_id FROM catalog.brand_mappings
     WHERE ${cfg.fkCol} = ${supplierBrandId}
-    ORDER BY id
-    LIMIT 1
   `)
-  if (existing[0]?.id) {
+  const alreadyOnTarget = current.find((r) => r.brand_id === canonicalId)
+  if (alreadyOnTarget) {
     await tx.$executeRaw(Prisma.sql`
       UPDATE catalog.brand_mappings
-      SET brand_id = ${canonicalId}, mapping_status = 'APPROVED', match_method = 'MANUAL'
-      WHERE id = ${existing[0].id}
+      SET mapping_status = 'APPROVED', match_method = 'MANUAL'
+      WHERE id = ${alreadyOnTarget.id}
+    `)
+    return
+  }
+  if (current.length > 0) {
+    // Farklı kanonik'e bağlı: bu tedarikçinin FK'sını boşalt, yetim satırları sil.
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE catalog.brand_mappings SET ${cfg.fkCol} = NULL WHERE ${cfg.fkCol} = ${supplierBrandId}
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM catalog.brand_mappings
+      WHERE id IN (${Prisma.join(current.map((r) => r.id))}) AND ${ALL_SUPPLIER_FKS_NULL}
+    `)
+  }
+
+  // C) Kanonik'te bu tedarikçinin kolonu boş bir satır varsa doldur; yoksa yeni satır.
+  const slot = await tx.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+    SELECT id FROM catalog.brand_mappings
+    WHERE brand_id = ${canonicalId} AND ${cfg.fkCol} IS NULL
+    ORDER BY ${FILLED_FK_COUNT} DESC, id
+    LIMIT 1
+  `)
+  if (slot[0]?.id) {
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE catalog.brand_mappings
+      SET ${cfg.fkCol} = ${supplierBrandId}, mapping_status = 'APPROVED', match_method = 'MANUAL'
+      WHERE id = ${slot[0].id}
     `)
   } else {
     await tx.$executeRaw(Prisma.sql`
@@ -440,10 +483,106 @@ export async function setBrandMappingStatus(
   return Number(updated) > 0
 }
 
-/** Bir marka eşleştirme satırını siler (bağlantıyı kaldırır). */
-export async function deleteBrandMapping(mappingId: number): Promise<boolean> {
-  const deleted = await db.$executeRaw(Prisma.sql`
-    DELETE FROM catalog.brand_mappings WHERE id = ${mappingId}
-  `)
-  return Number(deleted) > 0
+/**
+ * Bir tedarikçi markasının bağlantısını kaldırır. Konsolide satırlarda satırın
+ * tamamını silmez — yalnız bu tedarikçinin FK kolonunu boşaltır; satırda başka
+ * tedarikçi kalmadıysa (yetim) satırı siler.
+ */
+export async function unlinkSupplierBrand(
+  supplier: SupplierKey,
+  supplierBrandId: bigint | number
+): Promise<boolean> {
+  const cfg = SUPPLIER_CONFIG[supplier]
+  return db.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ id: number }>>(Prisma.sql`
+      SELECT id FROM catalog.brand_mappings WHERE ${cfg.fkCol} = ${supplierBrandId}
+    `)
+    if (rows.length === 0) return false
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE catalog.brand_mappings SET ${cfg.fkCol} = NULL WHERE ${cfg.fkCol} = ${supplierBrandId}
+    `)
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM catalog.brand_mappings
+      WHERE id IN (${Prisma.join(rows.map((r) => r.id))}) AND ${ALL_SUPPLIER_FKS_NULL}
+    `)
+    return true
+  })
+}
+
+/**
+ * Mevcut ayrı satırları konsolide eder: her (kanonik, durum) grubu için farklı
+ * tedarikçilerin FK'larını mümkün olan en az satıra "zip"ler. Aynı tedarikçinin
+ * birden fazla markası varsa ek satır kalır. Tek seferlik bakım işlemidir.
+ */
+export async function consolidateBrandMappings(): Promise<{ before: number; after: number }> {
+  return db.$transaction(async (tx) => {
+    const beforeRows = await tx.$queryRaw<Array<{ n: bigint }>>(
+      Prisma.sql`SELECT COUNT(*)::bigint AS n FROM catalog.brand_mappings`
+    )
+    const before = Number(beforeRows[0]?.n ?? 0)
+
+    const rows = await tx.$queryRaw<
+      Array<{
+        id: number
+        brand_id: number
+        dinamik: bigint | null
+        ptdrk: number | null
+        basbug: bigint | null
+        status: string
+        method: string | null
+      }>
+    >(Prisma.sql`
+      SELECT id, brand_id, dinamik_brand_id AS dinamik, ptdrk_brand_id AS ptdrk,
+             basbug_brand_id AS basbug, mapping_status AS status, match_method AS method
+      FROM catalog.brand_mappings
+      ORDER BY brand_id, mapping_status, id
+    `)
+
+    // (brand_id, status) bazında grupla.
+    const groups = new Map<string, typeof rows>()
+    for (const r of rows) {
+      const key = `${r.brand_id}::${r.status}`
+      const arr = groups.get(key) ?? []
+      arr.push(r)
+      groups.set(key, arr)
+    }
+
+    for (const [key, groupRows] of groups) {
+      // Bu grupta zaten tek satır ve ≤1 tedarikçi doluysa dokunma (gereksiz yazma yok).
+      const dinamik = [...new Set(groupRows.map((r) => r.dinamik).filter((v): v is bigint => v != null))]
+      const ptdrk = [...new Set(groupRows.map((r) => r.ptdrk).filter((v): v is number => v != null))]
+      const basbug = [...new Set(groupRows.map((r) => r.basbug).filter((v): v is bigint => v != null))]
+      const needed = Math.max(dinamik.length, ptdrk.length, basbug.length, 0)
+      if (needed <= 1 && groupRows.length <= 1) continue
+
+      const [brandIdStr, status] = key.split('::')
+      const brandId = Number(brandIdStr)
+      const method = groupRows.find((r) => r.method)?.method ?? 'MANUAL'
+
+      // Eski satırları sil, konsolide satırları ekle.
+      await tx.$executeRaw(Prisma.sql`
+        DELETE FROM catalog.brand_mappings
+        WHERE id IN (${Prisma.join(groupRows.map((r) => r.id))})
+      `)
+      for (let i = 0; i < Math.max(needed, 1); i++) {
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO catalog.brand_mappings
+            (brand_id, dinamik_brand_id, ptdrk_brand_id, basbug_brand_id, mapping_status, match_method)
+          VALUES (
+            ${brandId},
+            ${dinamik[i] ?? null},
+            ${ptdrk[i] ?? null},
+            ${basbug[i] ?? null},
+            ${status},
+            ${method}
+          )
+        `)
+      }
+    }
+
+    const afterRows = await tx.$queryRaw<Array<{ n: bigint }>>(
+      Prisma.sql`SELECT COUNT(*)::bigint AS n FROM catalog.brand_mappings`
+    )
+    return { before, after: Number(afterRows[0]?.n ?? 0) }
+  })
 }
