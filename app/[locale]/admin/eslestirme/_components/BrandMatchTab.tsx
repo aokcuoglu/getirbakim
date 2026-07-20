@@ -1,8 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loader2, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDebouncedCallback } from 'use-debounce'
+import { Button } from '@/components/ui/button'
 import { AdminFilterBar, AdminFilterChip } from '@/components/admin/data-table/admin-filter-chip'
 import { AdminKpiCard, AdminKpiGrid } from '@/components/admin/data-table/admin-kpi-card'
 import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-toolbar'
@@ -10,6 +12,7 @@ import { DataTable } from '@/components/admin/data-table/data-table'
 import {
   SUPPLIER_KEYS,
   SUPPLIER_LABELS,
+  type AutoMatchExactResult,
   type SupplierBrandMatchResult,
   type SupplierBrandMatchRow,
   type SupplierBrandMatchStatus,
@@ -50,6 +53,8 @@ export function BrandMatchTab({ initialData }: BrandMatchTabProps) {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [matchSheetOpen, setMatchSheetOpen] = useState(false)
   const [matchSource, setMatchSource] = useState<SupplierBrandMatchRow | null>(null)
+  const [autoRunning, setAutoRunning] = useState(false)
+  const [autoResult, setAutoResult] = useState<AutoMatchExactResult | null>(null)
 
   const [filters, setFilters] = useState<TabFilters>({
     supplier: initialData.supplier,
@@ -133,6 +138,28 @@ export function BrandMatchTab({ initialData }: BrandMatchTabProps) {
     setMatchSheetOpen(true)
   }, [])
 
+  const runAutoMatch = useCallback(async () => {
+    setAutoRunning(true)
+    setAutoResult(null)
+    try {
+      const res = await fetch('/api/admin/eslestirme/brands/auto-match', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data?.error?.message || 'Otomatik eşleştirme çalıştırılamadı.')
+        return
+      }
+      setAutoResult(data as AutoMatchExactResult)
+      toast.success(
+        `Birebir eşleştirme tamam: +${data.brandsLinked} marka bağlandı, +${data.canonicalsCreated} kanonik.`
+      )
+      await loadRows(filtersRef.current)
+    } catch {
+      toast.error('Otomatik eşleştirme sırasında hata oluştu.')
+    } finally {
+      setAutoRunning(false)
+    }
+  }, [loadRows])
+
   const columns = createSupplierBrandColumns({
     onMatch: handleMatch,
     onApprove: (r) => void runAction(r, 'approve'),
@@ -149,6 +176,35 @@ export function BrandMatchTab({ initialData }: BrandMatchTabProps) {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Marka Eşleştirme</h3>
+          <p className="text-xs text-muted-foreground">
+            Dinamik, Başbuğ ve Parçatedarik markalarını kanonik markalara bağlayın. Birebir
+            (kelimesi kelimesine) aynı olan markalar tek tıkla otomatik eşleştirilebilir.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => void runAutoMatch()} disabled={autoRunning}>
+          {autoRunning ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Wand2 className="mr-2 h-4 w-4" />
+          )}
+          {autoRunning ? 'Eşleştiriliyor…' : 'Birebir otomatik eşleştir'}
+        </Button>
+      </div>
+
+      {autoResult && (
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="mb-2 text-sm font-semibold">Son otomatik eşleştirme</p>
+          <ul className="space-y-1 font-mono text-xs text-muted-foreground">
+            {autoResult.steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <AdminKpiGrid>
         <AdminKpiCard label="Toplam Marka" value={summary.total} tone="default" />
         <AdminKpiCard label="Eşleşmiş" value={summary.matched} tone="success" />

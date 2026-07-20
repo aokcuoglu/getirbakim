@@ -65,7 +65,7 @@ export async function refreshProductRollups(): Promise<RollupStats> {
       )
     ) || '-' || p.id
     FROM catalog.brands bl
-    WHERE bl.id = p.brand_list_id
+    WHERE bl.id = p.brand_id
       AND p.slug IS NULL
   `)
 
