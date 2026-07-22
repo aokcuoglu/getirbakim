@@ -370,6 +370,73 @@ export async function setApprovedDbrandsMatchLogo(
   return Number(updated) > 0
 }
 
+export async function updateCanonicalBrandName(
+  canonicalId: number,
+  name: string
+): Promise<{ success: boolean; error?: string }> {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return { success: false, error: 'Marka adı boş olamaz.' }
+  }
+
+  try {
+    const updated = await db.$executeRaw(Prisma.sql`
+      UPDATE catalog.brands
+      SET brand = ${trimmed}
+      WHERE id = ${canonicalId}
+    `)
+    if (Number(updated) === 0) {
+      return { success: false, error: 'Marka bulunamadı.' }
+    }
+    return { success: true }
+  } catch (e) {
+    // catalog.brands.brand @unique — çakışmayı kullanıcıya anlaşılır dön.
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('23505') || msg.toLowerCase().includes('unique')) {
+      return { success: false, error: 'Bu isimde başka bir marka zaten var.' }
+    }
+    console.error('[updateCanonicalBrandName] Error:', e)
+    return { success: false, error: 'Marka adı güncellenemedi.' }
+  }
+}
+
+export async function deleteCanonicalBrand(
+  canonicalId: number
+): Promise<{
+  success: boolean
+  error?: string
+  productCount?: number
+  mappingCount?: number
+}> {
+  // Bağlı ürün veya eşleşme varsa silme — önce taşınmalı/birleştirilmeli.
+  const counts = await db.$queryRaw<
+    Array<{ product_count: bigint; mapping_count: bigint }>
+  >(Prisma.sql`
+    SELECT
+      (SELECT COUNT(*) FROM catalog.products WHERE brand_id = ${canonicalId})::bigint AS product_count,
+      (SELECT COUNT(*) FROM catalog.brand_mappings WHERE brand_id = ${canonicalId})::bigint AS mapping_count
+  `)
+  const productCount = Number(counts[0]?.product_count ?? 0)
+  const mappingCount = Number(counts[0]?.mapping_count ?? 0)
+
+  if (productCount > 0 || mappingCount > 0) {
+    return {
+      success: false,
+      error: `Silinemez: ${productCount} ürün ve ${mappingCount} eşleşme bağlı. Önce taşıyın veya birleştirin.`,
+      productCount,
+      mappingCount
+    }
+  }
+
+  const deleted = await db.$executeRaw(Prisma.sql`
+    DELETE FROM catalog.brands WHERE id = ${canonicalId}
+  `)
+  if (Number(deleted) === 0) {
+    return { success: false, error: 'Marka bulunamadı.' }
+  }
+  return { success: true, productCount, mappingCount }
+}
+
 export async function mergeCanonicalBrands(
   sourceIds: number[],
   targetId: number

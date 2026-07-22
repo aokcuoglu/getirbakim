@@ -154,6 +154,9 @@ export function ApprovedBrandsAdminClient({
             item.id === row.id ? { ...item, logoUrl } : item
           )
         )
+        setDetailBrand((current) =>
+          current && current.id === row.id ? { ...current, logoUrl } : current
+        )
         setSummary((current) => ({
           ...current,
           withLogo: current.withLogo + (row.logoUrl ? 0 : 1),
@@ -228,6 +231,130 @@ export function ApprovedBrandsAdminClient({
     setMatchSource(row)
     setMatchSheetOpen(true)
   }, [])
+
+  const handleRename = useCallback(
+    async (row: AdminApprovedBrandRow, name: string): Promise<boolean> => {
+      const trimmed = name.trim()
+      try {
+        const res = await fetch(`/api/admin/catalog/brands/${row.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed })
+        })
+        const data = await res.json()
+        if (data.error) {
+          toast.error(data.error?.message || 'Marka adı güncellenemedi.')
+          return false
+        }
+        toast.success('Marka adı güncellendi.')
+        const patch = (r: AdminApprovedBrandRow) =>
+          r.id === row.id ? { ...r, normalizedName: trimmed } : r
+        setRows((cur) => cur.map(patch))
+        setDetailBrand((cur) => (cur ? patch(cur) : cur))
+        return true
+      } catch {
+        toast.error('Marka adı güncellenemedi.')
+        return false
+      }
+    },
+    []
+  )
+
+  const handleMappingAction = useCallback(
+    async (
+      row: AdminApprovedBrandRow,
+      mapping: AdminApprovedBrandRow['mappings'][number],
+      action: 'approve' | 'reject' | 'ignore' | 'unlink'
+    ): Promise<boolean> => {
+      const patchRow = (updater: (r: AdminApprovedBrandRow) => AdminApprovedBrandRow) => {
+        const apply = (r: AdminApprovedBrandRow) => (r.id === row.id ? updater(r) : r)
+        setRows((cur) => cur.map(apply))
+        setDetailBrand((cur) => (cur ? apply(cur) : cur))
+      }
+
+      try {
+        if (action === 'unlink') {
+          const targets: Array<{ supplier: string; supplierBrandId: string | number }> = []
+          if (mapping.dnmkBrandsId) targets.push({ supplier: 'dinamik', supplierBrandId: mapping.dnmkBrandsId })
+          if (mapping.ptdrkBrandsId != null) targets.push({ supplier: 'ptdrk', supplierBrandId: mapping.ptdrkBrandsId })
+          if (mapping.bsbgBrandsId) targets.push({ supplier: 'basbug', supplierBrandId: mapping.bsbgBrandsId })
+          if (targets.length === 0) {
+            toast.error('Kaldırılacak tedarikçi bağlantısı bulunamadı.')
+            return false
+          }
+          for (const target of targets) {
+            const res = await fetch('/api/admin/eslestirme/brands/unlink', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(target)
+            })
+            const data = await res.json()
+            if (data.error) {
+              toast.error(data.error?.message || 'Eşleşme kaldırılamadı.')
+              return false
+            }
+          }
+          toast.success('Eşleşme kaldırıldı.')
+          patchRow((r) => ({
+            ...r,
+            mappings: r.mappings.filter((m) => m.mappingId !== mapping.mappingId)
+          }))
+          return true
+        }
+
+        const res = await fetch(`/api/admin/eslestirme/brands/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mappingId: mapping.mappingId })
+        })
+        const data = await res.json()
+        if (data.error) {
+          toast.error(data.error?.message || 'İşlem başarısız.')
+          return false
+        }
+        const statusMap = { approve: 'APPROVED', reject: 'REJECTED', ignore: 'IGNORED' } as const
+        toast.success(data.message || 'Eşleşme güncellendi.')
+        patchRow((r) => ({
+          ...r,
+          mappings: r.mappings.map((m) =>
+            m.mappingId === mapping.mappingId ? { ...m, mappingStatus: statusMap[action] } : m
+          )
+        }))
+        return true
+      } catch {
+        toast.error('İşlem sırasında hata oluştu.')
+        return false
+      }
+    },
+    []
+  )
+
+  const handleDeleteBrand = useCallback(
+    async (row: AdminApprovedBrandRow): Promise<boolean> => {
+      try {
+        const res = await fetch(`/api/admin/catalog/brands/${row.id}`, { method: 'DELETE' })
+        const data = await res.json()
+        if (data.error) {
+          toast.error(data.error?.message || 'Marka silinemedi.')
+          return false
+        }
+        toast.success('Marka silindi.')
+        setRows((cur) => cur.filter((r) => r.id !== row.id))
+        setSelectedIds((cur) => cur.filter((id) => id !== row.id))
+        setSummary((cur) => ({
+          total: Math.max(0, cur.total - 1),
+          withLogo: row.logoUrl ? Math.max(0, cur.withLogo - 1) : cur.withLogo,
+          missingLogo: row.logoUrl ? cur.missingLogo : Math.max(0, cur.missingLogo - 1)
+        }))
+        setPagination((cur) => ({ ...cur, total: Math.max(0, cur.total - 1) }))
+        return true
+      } catch {
+        toast.error('Marka silinirken hata oluştu.')
+        return false
+      }
+    },
+    []
+  )
 
   const handleMerge = useCallback(async () => {
     if (selectedIds.length < 2) {
@@ -461,7 +588,7 @@ export function ApprovedBrandsAdminClient({
         emptyMessage={(t('empty') as string) || 'Sonuç bulunamadı.'}
       />
 
-      {/* Brand Detail Modal */}
+      {/* Brand Detail Modal (edit) */}
       <BrandDetailModal
         brand={detailBrand}
         open={detailDialogOpen}
@@ -469,6 +596,12 @@ export function ApprovedBrandsAdminClient({
           setDetailDialogOpen(open)
           if (!open) setDetailBrand(null)
         }}
+        uploadingId={uploadingId}
+        onRename={handleRename}
+        onUpload={handleUpload}
+        onUploadFromUrl={handleUploadFromUrl}
+        onMappingAction={handleMappingAction}
+        onDelete={handleDeleteBrand}
       />
 
       {/* Brand Match Sheet (source brand_list → target brand_list merge) */}
