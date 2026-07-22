@@ -181,8 +181,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - app-network
-    # NO port binding — internal Docker network only.
-    # App communicates via postgres:5432 on the Docker network.
+    # Bind ONLY to host loopback — not reachable from the internet, only via an
+    # SSH tunnel to the VPS. Lets DBeaver/psql on remote PCs reach a stable
+    # 127.0.0.1:5432 endpoint (no need to chase the changing container IP).
+    # App still talks to postgres via postgres:5432 on the Docker network.
+    ports:
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-getirbakim}"]
       interval: 5s
