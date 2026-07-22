@@ -1,6 +1,8 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import {
+  SUPPLIER_KEYS,
+  type AutoMatchExactResult,
   type BrandCandidate,
   type BrandCandidateKind,
   type SupplierBrandMatchFilters,
@@ -35,6 +37,7 @@ export type {
   SupplierBrandMatchFilters,
   SupplierBrandMatchRow,
   SupplierBrandMatchResult,
+  AutoMatchExactResult,
   BrandCandidate,
   BrandCandidateKind
 } from './supplier-brand-shared'
@@ -349,7 +352,8 @@ async function upsertSupplierMapping(
   tx: Prisma.TransactionClient,
   cfg: SupplierConfig,
   supplierBrandId: bigint | number,
-  canonicalId: number
+  canonicalId: number,
+  method: string = 'MANUAL'
 ): Promise<void> {
   // A/B) Bu tedarikçi markasının mevcut bağlarını ele al.
   const current = await tx.$queryRaw<Array<{ id: number; brand_id: number }>>(Prisma.sql`
@@ -360,7 +364,7 @@ async function upsertSupplierMapping(
   if (alreadyOnTarget) {
     await tx.$executeRaw(Prisma.sql`
       UPDATE catalog.brand_mappings
-      SET mapping_status = 'APPROVED', match_method = 'MANUAL'
+      SET mapping_status = 'APPROVED', match_method = ${method}
       WHERE id = ${alreadyOnTarget.id}
     `)
     return
@@ -386,13 +390,13 @@ async function upsertSupplierMapping(
   if (slot[0]?.id) {
     await tx.$executeRaw(Prisma.sql`
       UPDATE catalog.brand_mappings
-      SET ${cfg.fkCol} = ${supplierBrandId}, mapping_status = 'APPROVED', match_method = 'MANUAL'
+      SET ${cfg.fkCol} = ${supplierBrandId}, mapping_status = 'APPROVED', match_method = ${method}
       WHERE id = ${slot[0].id}
     `)
   } else {
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO catalog.brand_mappings (brand_id, ${cfg.fkCol}, mapping_status, match_method)
-      VALUES (${canonicalId}, ${supplierBrandId}, 'APPROVED', 'MANUAL')
+      VALUES (${canonicalId}, ${supplierBrandId}, 'APPROVED', ${method})
     `)
   }
 }
@@ -507,6 +511,195 @@ export async function unlinkSupplierBrand(
     `)
     return true
   })
+}
+
+/** Bir tedarikçi marka id'sini o tedarikçinin FK kolonu tipine çevirir. */
+function toSupplierFk(supplier: SupplierKey, id: string): bigint | number {
+  return supplier === 'ptdrk' ? Number(id) : BigInt(id)
+}
+
+/**
+ * Bir tedarikçi markasının şu an APPROVED olarak bağlı olduğu kanonik id (yoksa null).
+ * (Birebir otomatik eşleştirmede mevcut/manuel kararlara dokunmamak için kullanılır.)
+ */
+async function approvedCanonicalFor(
+  tx: Prisma.TransactionClient,
+  cfg: SupplierConfig,
+  supplierBrandId: bigint | number
+): Promise<number | null> {
+  const rows = await tx.$queryRaw<Array<{ brand_id: number }>>(Prisma.sql`
+    SELECT brand_id FROM catalog.brand_mappings
+    WHERE ${cfg.fkCol} = ${supplierBrandId} AND mapping_status = 'APPROVED'
+    ORDER BY id LIMIT 1
+  `)
+  return rows[0]?.brand_id ?? null
+}
+
+/** Katı eşleşme anahtarı: trim + iç boşluk sadeleştirme + büyük harf (noktalama korunur). */
+function exactBrandKey(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toUpperCase()
+}
+
+/**
+ * Birebir (kelimesi kelimesine) otomatik marka eşleştirme.
+ *
+ * Üç tedarikçinin (dinamik / başbuğ / parçatedarik) marka adları `exactBrandKey`
+ * ile gruplanır. Bir grup şu koşulda otomatik eşleştirilir:
+ *   - adı ≥2 FARKLI tedarikçide geçiyorsa, VEYA
+ *   - aynı ada sahip bir kanonik marka zaten varsa.
+ * Grup içindeki bağlanmamış tedarikçi markaları tek kanonik markaya
+ * `APPROVED` / `match_method = 'AUTO_EXACT'` olarak bağlanır.
+ *
+ * Güvenlik ilkeleri (mevcut/manuel kararları korur):
+ *   - Zaten APPROVED bağlı markalara dokunulmaz.
+ *   - Grup üyeleri BİRDEN FAZLA farklı kanonik'e bağlıysa grup atlanır (conflict).
+ *   - Hedef kanonik: üyelerden biri zaten bir kanonik'e bağlıysa O kullanılır;
+ *     yoksa addan kanonik oluşturulur/bulunur (mevcut isim-normalizasyonuyla).
+ *
+ * İdempotenttir: tekrar çalıştırmak yeni bağ oluşturmaz.
+ */
+export async function autoMatchExactBrands(
+  onProgress?: (message: string) => void
+): Promise<AutoMatchExactResult> {
+  const steps: string[] = []
+  const emit = (m: string) => {
+    steps.push(m)
+    onProgress?.(m)
+  }
+
+  // 1) Üç tedarikçinin tüm markalarını yükle.
+  const loadSupplier = async (
+    supplier: SupplierKey
+  ): Promise<Array<{ supplier: SupplierKey; id: string; name: string }>> => {
+    const cfg = SUPPLIER_CONFIG[supplier]
+    const rows = await db.$queryRaw<Array<{ id: string; name: string | null }>>(Prisma.sql`
+      SELECT ${cfg.idCol}::text AS id, ${cfg.nameCol} AS name FROM ${cfg.table}
+    `)
+    return rows.map((r) => ({ supplier, id: r.id, name: r.name ?? '' }))
+  }
+  const loaded = await Promise.all(SUPPLIER_KEYS.map(loadSupplier))
+  const allBrands = loaded.flat()
+
+  // 2) Tek-tedarikçi gruplarının uygunluğu için mevcut kanonik adları.
+  const canonRows = await db.$queryRaw<Array<{ brand: string }>>(
+    Prisma.sql`SELECT brand FROM catalog.brands`
+  )
+  const canonicalNameSet = new Set(canonRows.map((r) => r.brand))
+
+  // 3) Katı anahtara göre grupla.
+  type Member = { supplier: SupplierKey; id: string; name: string }
+  const groups = new Map<string, { rep: string; members: Member[] }>()
+  for (const b of allBrands) {
+    const key = exactBrandKey(b.name)
+    if (!key) continue
+    const g = groups.get(key)
+    if (g) g.members.push(b)
+    else groups.set(key, { rep: b.name.trim(), members: [b] })
+  }
+  emit(`${allBrands.length} tedarikçi markası, ${groups.size} benzersiz ad`)
+
+  const { normalizeModel } = await import('@/lib/matching/code-normalization')
+
+  const result: AutoMatchExactResult = {
+    groupsQualified: 0,
+    groupsMatched: 0,
+    brandsLinked: 0,
+    canonicalsCreated: 0,
+    alreadyLinked: 0,
+    conflicts: 0,
+    perSupplier: { dinamik: 0, basbug: 0, ptdrk: 0 },
+    steps
+  }
+
+  for (const { rep, members } of groups.values()) {
+    const distinctSuppliers = new Set(members.map((m) => m.supplier))
+    const canonName = normalizeModel(rep) ?? rep.trim().toUpperCase()
+    const canonicalExists = canonicalNameSet.has(canonName)
+    if (distinctSuppliers.size < 2 && !canonicalExists) continue
+    result.groupsQualified++
+
+    // Her grup kendi (küçük, idempotent) transaction'ında işlenir.
+    const outcome = await db.$transaction(
+      async (tx): Promise<
+        | { status: 'conflict' }
+        | { status: 'skipped' }
+        | {
+            status: 'ok'
+            created: boolean
+            linked: number
+            already: number
+            perSupplier: Record<SupplierKey, number>
+          }
+      > => {
+        // Üyelerin mevcut APPROVED kanoniklerini topla.
+        const memberStates = await Promise.all(
+          members.map(async (m) => {
+            const cfg = SUPPLIER_CONFIG[m.supplier]
+            const fk = toSupplierFk(m.supplier, m.id)
+            const canonicalId = await approvedCanonicalFor(tx, cfg, fk)
+            return { m, cfg, fk, canonicalId }
+          })
+        )
+
+        const linkedCanonicals = new Set(
+          memberStates
+            .map((s) => s.canonicalId)
+            .filter((v): v is number => v != null)
+        )
+        // Birden fazla farklı kanonik → belirsiz; manuel karara bırak.
+        if (linkedCanonicals.size > 1) return { status: 'conflict' }
+
+        let canonicalId: number
+        let created = false
+        if (linkedCanonicals.size === 1) {
+          canonicalId = [...linkedCanonicals][0]
+        } else {
+          const newId = await upsertCanonicalBrand(tx, rep)
+          if (!newId) return { status: 'skipped' }
+          canonicalId = newId
+          created = !canonicalExists
+        }
+
+        let linked = 0
+        let already = 0
+        const perSupplier: Record<SupplierKey, number> = { dinamik: 0, basbug: 0, ptdrk: 0 }
+        for (const s of memberStates) {
+          if (s.canonicalId === canonicalId) {
+            already++
+            continue
+          }
+          await upsertSupplierMapping(tx, s.cfg, s.fk, canonicalId, 'AUTO_EXACT')
+          linked++
+          perSupplier[s.m.supplier]++
+        }
+        return { status: 'ok', created, linked, already, perSupplier }
+      }
+    )
+
+    if (outcome.status === 'conflict') {
+      result.conflicts++
+      continue
+    }
+    if (outcome.status === 'skipped') continue
+
+    if (outcome.created) {
+      result.canonicalsCreated++
+      canonicalNameSet.add(canonName)
+    }
+    result.brandsLinked += outcome.linked
+    result.alreadyLinked += outcome.already
+    for (const k of SUPPLIER_KEYS) result.perSupplier[k] += outcome.perSupplier[k]
+    if (outcome.linked > 0) result.groupsMatched++
+  }
+
+  emit(
+    `Bitti — ${result.groupsMatched} grup eşleşti, +${result.brandsLinked} marka bağlandı ` +
+      `(Dinamik ${result.perSupplier.dinamik}, Başbuğ ${result.perSupplier.basbug}, ` +
+      `Parçatedarik ${result.perSupplier.ptdrk}), +${result.canonicalsCreated} kanonik, ` +
+      `${result.conflicts} çakışma atlandı`
+  )
+
+  return result
 }
 
 /**

@@ -8,13 +8,12 @@ set -euo pipefail
 # `prisma migrate deploy` refuses with:
 #     Error: P3005 — The database schema is not empty.
 #
-# This adopts Prisma Migrate on the existing DB WITHOUT re-running the migrations
-# already reflected in the schema:
-#   1. FULL backup (all schemas, including v1 which migration 12 drops).
-#   2. Mark the 10 pre-existing "base" migrations as already applied.
-#   3. Decide whether the column-drop migration must run (columns still present)
-#      or be baselined (already minimal).
-#   4. `migrate deploy` applies the genuinely-new migrations (catalog schema).
+# This adopts Prisma Migrate on the existing DB WITHOUT re-running the
+# squashed init migration (whose `CREATE TABLE` statements would fail with
+# 42P07 "relation already exists" because the tables already exist):
+#   1. FULL backup.
+#   2. Mark the single squashed `20260713180000_init` migration as applied.
+#   3. `migrate deploy` is then a no-op (no newer migrations exist).
 #
 # Run ONCE, on the VPS, from the project root:
 #     cd /opt/getirbakim && bash scripts/prisma-baseline.sh
@@ -52,54 +51,24 @@ if [[ "${APPLIED_COUNT}" != "no-table" && "${APPLIED_COUNT}" != "0" ]]; then
   BASELINE=0
 fi
 
-# Migrations already reflected in the prod schema (mark as applied):
-BASE_MIGRATIONS="20260608000000_add_password_hash \
-20260614000000_add_ptbrd_logo \
-20260617000000_add_oem_child_tables_and_reset_matching \
-20260617000100_ensure_v0_matching_tables \
-20260618000000_drop_oem_child_tables_redefine_products_oems \
-20260618000100_clean_v0_products \
-20260619000000_drop_v0_matching_enrichment_tables \
-20260620000000_add_product_mapping_and_reset_dnmk_oem \
-20260620000100_make_ptdrk_products_id_nullable \
-20260620000200_add_bsbg_products_id_and_product_mapping_fk"
+# Migrations already reflected in the prod schema (mark as applied).
+# After the migration squash (commit 4c67cccf) there is a single init migration.
+BASE_MIGRATIONS="20260713180000_init"
 
 if [[ "${BASELINE}" == "1" ]]; then
-  # 1. FULL backup (all schemas incl. v1) before any change.
+  # 1. FULL backup before any change.
   mkdir -p "${BACKUP_DIR}"
   TS=$(date +%Y%m%d_%H%M%S)
   FULL="${BACKUP_DIR}/baseline_full_${PG_DB}_${TS}.sql.gz"
   echo ">>> Full backup (all schemas) → ${FULL}"
   docker exec "${PG_CONTAINER}" pg_dump -U "${PG_USER}" -d "${PG_DB}" --no-owner --no-acl | gzip > "${FULL}"
   echo "  $(du -h "${FULL}" | cut -f1) written"
-
-  # 2. The column-drop migration runs only if the columns still exist;
-  #    otherwise baseline it as applied.
-  DROP_MIG="20260620000300_drop_product_mappings_extra_columns"
-  HAS_COL=$(psql_q "SELECT count(*) FROM information_schema.columns WHERE table_schema='v0' AND table_name='product_mappings' AND column_name='confidence';" || echo "0")
   APPLIED_LIST="${BASE_MIGRATIONS}"
-  if [[ "${HAS_COL}" == "0" ]]; then
-    echo ">>> product_mappings already minimal → baseline ${DROP_MIG} too"
-    APPLIED_LIST="${APPLIED_LIST} ${DROP_MIG}"
-  else
-    echo ">>> product_mappings still has extra columns → ${DROP_MIG} will run via deploy"
-  fi
-
-  # Safety guard: the catalog migration runs `DROP SCHEMA IF EXISTS v1 CASCADE`.
-  # Refuse to proceed if v1 actually holds tables, unless explicitly forced.
-  # (A full backup was already taken above, so FORCE_DROP_V1=1 stays recoverable.)
-  V1_TABLES=$(psql_q "SELECT count(*) FROM information_schema.tables WHERE table_schema='v1';" 2>/dev/null || echo "0")
-  if [[ "${V1_TABLES}" != "0" && "${FORCE_DROP_V1:-0}" != "1" ]]; then
-    echo "FATAL: v1 schema has ${V1_TABLES} table(s); migration 12 would DROP it (CASCADE)."
-    echo "       Full backup: ${FULL}. Inspect v1, then re-run with FORCE_DROP_V1=1 to proceed."
-    exit 1
-  fi
-  echo ">>> v1 schema tables: ${V1_TABLES} (safe to drop)"
 else
   APPLIED_LIST=""
 fi
 
-# 3. Single container: install the pinned CLI once, mark migrations applied,
+# 2. Single container: install the pinned CLI once, mark migrations applied,
 #    then apply the rest. DIRECT_URL is what prisma.config.ts reads.
 echo ">>> Resolving/applying migrations..."
 docker run --rm --network "${NETWORK}" -v "${PWD}:/repo" -w /repo \
@@ -120,5 +89,4 @@ docker run --rm --network "${NETWORK}" -v "${PWD}:/repo" -w /repo \
 echo ""
 echo "=== Baseline complete ==="
 echo "  catalog schema present: $(psql_q "SELECT count(*) FROM pg_namespace WHERE nspname='catalog';")"
-echo "  v1 schema present:      $(psql_q "SELECT count(*) FROM pg_namespace WHERE nspname='v1';")"
 echo "  migrations recorded:    $(psql_q "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL;")"
