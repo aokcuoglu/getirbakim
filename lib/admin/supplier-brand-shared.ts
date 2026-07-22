@@ -58,6 +58,32 @@ export type SupplierBrandMatchResult = {
   filters: { q: string; status: SupplierBrandMatchStatus }
 }
 
+/**
+ * Birebir (kelimesi kelimesine) otomatik marka eşleştirmenin sonucu.
+ *
+ * Üç tedarikçinin marka adları katı bir anahtarla (trim + iç boşluk sadeleştirme
+ * + büyük harf; noktalama korunur) gruplanır. Bir ad ≥2 farklı tedarikçide
+ * geçiyorsa (veya aynı adlı kanonik zaten varsa) tek kanonik markaya bağlanır.
+ */
+export type AutoMatchExactResult = {
+  /** Otomatik eşleştirmeye uygun bulunan grup sayısı. */
+  groupsQualified: number
+  /** En az bir marka bağlanan grup sayısı. */
+  groupsMatched: number
+  /** Yeni bağlanan tedarikçi markası sayısı (toplam). */
+  brandsLinked: number
+  /** Yeni oluşturulan kanonik marka sayısı. */
+  canonicalsCreated: number
+  /** Zaten doğru kanonik'e bağlı olduğu için atlanan marka sayısı. */
+  alreadyLinked: number
+  /** Üyeleri farklı kanoniklere bağlı olduğu için atlanan grup sayısı (manuel karar). */
+  conflicts: number
+  /** Tedarikçi başına yeni bağlanan marka sayısı. */
+  perSupplier: Record<SupplierKey, number>
+  /** İnsan-okur adım günlüğü. */
+  steps: string[]
+}
+
 /** Eşleştirme adayının kaynağı: kanonik marka ya da üç tedarikçiden biri. */
 export type BrandCandidateKind = 'canonical' | SupplierKey
 

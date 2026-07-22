@@ -9,6 +9,6 @@ export default async function AdminGuardLayout({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
-  await requireAdminAuth({ locale, redirectTo: `/${locale}/admin` })
+  await requireAdminAuth(`/${locale}`)
   return <AdminLayout>{children}</AdminLayout>
 }
