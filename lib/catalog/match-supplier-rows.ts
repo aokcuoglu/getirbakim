@@ -7,6 +7,8 @@ export interface MatchSupplierStats {
   offersLinked: number
   offersLinkedByOem: number
   namesUpgraded: number
+  /** Bu pass'te PENDING kuyruğa eklenen belirsiz (çok adaylı) eşleştirme sayısı. */
+  pendingCandidates: number
 }
 
 const dnmkKey = normCodeSql(Prisma.sql`COALESCE(dp.part_no, dp.stock_code)`)
@@ -26,7 +28,8 @@ export async function matchDinamikSupplierRows(): Promise<MatchSupplierStats> {
     productsCreated: 0,
     offersLinked: 0,
     offersLinkedByOem: 0,
-    namesUpgraded: 0
+    namesUpgraded: 0,
+    pendingCandidates: 0
   }
 
   stats.productsCreated = await db.$executeRaw(Prisma.sql`
@@ -138,7 +141,8 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
     productsCreated: 0,
     offersLinked: 0,
     offersLinkedByOem: 0,
-    namesUpgraded: 0
+    namesUpgraded: 0,
+    pendingCandidates: 0
   }
 
   stats.offersLinked = await linkBasbugOffersByKey()
@@ -197,6 +201,56 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
     ON CONFLICT DO NOTHING
   `)
 
+  // Rung 2b: OEM örtüşmesi birden çok ürüne denk gelen (belirsiz) satırlar —
+  // rung 2a'nın sessizce düşürdükleri — otomatik bağlanmaz, PENDING kuyruğa
+  // yazılır ve manuel incelemeye bırakılır. Marka onayı + OEM sinyali var ama
+  // hangi kanonik ürün olduğu belirsiz.
+  stats.pendingCandidates = await db.$executeRaw(Prisma.sql`
+    WITH bsbg_tokens AS (
+      SELECT DISTINCT
+        bp.id AS bsbg_id,
+        bm.brand_id,
+        ${normCodeSql(Prisma.sql`tok`)} AS code_norm
+      FROM catalog.supplier_basbug_products bp
+      JOIN catalog.brand_mappings bm
+        ON bm.basbug_brand_id = bp.brand_id
+        AND bm.mapping_status = 'APPROVED'
+      CROSS JOIN LATERAL regexp_split_to_table(COALESCE(bp.oem_no, ''), '[;,]| - ') AS tok
+      WHERE bp.is_passive = false
+        AND NOT EXISTS (
+          SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
+        )
+        AND LENGTH(${normCodeSql(Prisma.sql`tok`)}) >= 4
+    ),
+    candidate_products AS (
+      SELECT DISTINCT bt.bsbg_id, oe.product_id, oe.code_norm
+      FROM bsbg_tokens bt
+      JOIN catalog.product_oems oe ON oe.code_norm = bt.code_norm
+      JOIN catalog.products p
+        ON p.id = oe.product_id
+        AND p.brand_id = bt.brand_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM catalog.product_offers po
+        WHERE po.product_id = oe.product_id AND po.supplier_code = ${SUPPLIER_BASBUG}
+      )
+    ),
+    multi AS (
+      SELECT bsbg_id
+      FROM candidate_products
+      GROUP BY bsbg_id
+      HAVING COUNT(DISTINCT product_id) > 1
+    )
+    INSERT INTO catalog.product_match_candidates
+      (product_id, supplier_code, basbug_product_id, match_method, matched_code, confidence, status)
+    SELECT DISTINCT cp.product_id, ${SUPPLIER_BASBUG}, cp.bsbg_id, 'OEM_MULTI', cp.code_norm, 0.500, 'PENDING'
+    FROM candidate_products cp
+    JOIN multi m ON m.bsbg_id = cp.bsbg_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = cp.bsbg_id
+    )
+    ON CONFLICT (basbug_product_id, product_id) DO NOTHING
+  `)
+
   stats.productsCreated = await db.$executeRaw(Prisma.sql`
     WITH candidates AS (
       SELECT
@@ -215,6 +269,12 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
       WHERE bp.is_passive = false
         AND NOT EXISTS (
           SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
+        )
+        -- Belirsiz (PENDING kuyrukta) satırlar kendi kanonik ürününü yaratmasın;
+        -- manuel inceleme mevcut bir ürüne bağlayabilsin diye kuyrukta beklesin.
+        AND NOT EXISTS (
+          SELECT 1 FROM catalog.product_match_candidates c
+          WHERE c.basbug_product_id = bp.id AND c.status = 'PENDING'
         )
     )
     INSERT INTO catalog.products (brand_id, part_no, part_no_norm, name)
@@ -239,6 +299,17 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
       AND po.supplier_code = ${SUPPLIER_BASBUG}
       AND NULLIF(bp.aciklama, '') IS NOT NULL
       AND p.name IS DISTINCT FROM bp.aciklama
+  `)
+
+  // Housekeeping: herhangi bir yoldan offer kazanmış satırların artık geçersiz
+  // PENDING adaylarını temizle — kuyruk yalnız gerçekten bekleyenleri göstersin
+  // ve re-run'lar idempotent kalsın.
+  await db.$executeRaw(Prisma.sql`
+    DELETE FROM catalog.product_match_candidates c
+    WHERE c.status = 'PENDING'
+      AND EXISTS (
+        SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = c.basbug_product_id
+      )
   `)
 
   return stats

@@ -457,8 +457,9 @@ model ptdrk_products {
   created_at      DateTime? @default(now()) @db.Timestamp(6)
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
 
-  ptdrk_brands   ptdrk_brands     @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  brand_mappings brand_mappings[]
+  ptdrk_brands       ptdrk_brands         @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
+  brand_mappings     brand_mappings[]
+  product_ptdrk_refs product_ptdrk_refs[]
 
   @@index([ptdrk_brands_id])
   @@index([product_id])
@@ -608,9 +609,10 @@ model supplier_dinamik_products {
   is_passive   Boolean   @default(false)
   passive_at   DateTime? @db.Timestamptz(6)
 
-  brand          supplier_dinamik_brands @relation(fields: [brand_id], references: [id], onDelete: Restrict)
-  cost           supplier_dinamik_cost?
-  product_offers product_offers[]
+  brand                    supplier_dinamik_brands    @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  cost                     supplier_dinamik_cost?
+  product_offers           product_offers[]
+  product_match_candidates product_match_candidates[]
 
   @@unique([brand_id, stock_code], map: "uq_dinamik_products_brand_stock_code")
   @@index([brand_id], map: "idx_dinamik_products_brand_id")
@@ -677,9 +679,10 @@ model supplier_basbug_products {
   is_passive       Boolean   @default(false)
   passive_at       DateTime? @db.Timestamptz(6)
 
-  brand          supplier_basbug_brands         @relation(fields: [brand_id], references: [id], onDelete: Restrict)
-  cost_history   supplier_basbug_cost_history[]
-  product_offers product_offers[]
+  brand                    supplier_basbug_brands        @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  cost_history             supplier_basbug_cost_history[]
+  product_offers           product_offers[]
+  product_match_candidates product_match_candidates[]
 
   @@unique([brand_id, malzeme_no], map: "uq_basbug_products_brand_malzeme_no")
   @@index([brand_id])
@@ -829,6 +832,8 @@ model products {
   product_vehicle_types product_vehicle_types[]
   product_part_links    product_part_links[]
   product_overrides     product_overrides?
+  product_match_candidates product_match_candidates[]
+  product_ptdrk_refs       product_ptdrk_refs[]
 
   @@unique([brand_id, part_no_norm], map: "uq_products_brand_partno_norm")
   @@index([part_no_norm])
@@ -987,6 +992,57 @@ model product_part_links {
   @@unique([product_id, part_id], map: "uq_product_part_links")
   @@index([part_id])
   @@index([status])
+  @@schema("catalog")
+}
+
+// PENDING cross-supplier match candidates for human review.
+// One row per (supplier raw row × candidate canonical product). Produced when an
+// OEM overlap resolves to >1 product (ambiguous) — the auto-match ladder skips
+// these, so they queue here for manual approve/reject.
+
+model product_match_candidates {
+  id                 BigInt    @id @default(autoincrement())
+  product_id         BigInt // candidate canonical product
+  supplier_code      String // 'basbug' | 'dinamik'
+  dinamik_product_id BigInt?
+  basbug_product_id  BigInt?
+  match_method       String // 'OEM_MULTI'
+  matched_code       String? // representative overlapping OEM (normalized)
+  confidence         Decimal?  @db.Decimal(4, 3)
+  status             String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  reviewed_at        DateTime? @db.Timestamptz(6)
+  reviewed_by        String?
+
+  product         products                   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  dinamik_product supplier_dinamik_products? @relation(fields: [dinamik_product_id], references: [id], onDelete: Cascade)
+  basbug_product  supplier_basbug_products?  @relation(fields: [basbug_product_id], references: [id], onDelete: Cascade)
+
+  @@unique([basbug_product_id, product_id], map: "uq_match_cand_basbug_product")
+  @@unique([dinamik_product_id, product_id], map: "uq_match_cand_dinamik_product")
+  @@index([status])
+  @@index([product_id])
+  @@index([basbug_product_id])
+  @@schema("catalog")
+}
+
+// Parçatedarik reference link — ptdrk product → canonical product.
+// Reference/enrichment only (NOT a sellable offer; ptdrk has no stock).
+// One row per ptdrk product; feeds OEM/price reference for the canonical.
+
+model product_ptdrk_refs {
+  id               BigInt   @id @default(autoincrement())
+  product_id       BigInt
+  ptdrk_product_id Int      @unique(map: "uq_ptdrk_ref_product")
+  matched_code     String?
+  confidence       Decimal? @db.Decimal(4, 3)
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  created_by       String?
+
+  product products       @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  ptdrk   ptdrk_products @relation(fields: [ptdrk_product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
   @@schema("catalog")
 }
 

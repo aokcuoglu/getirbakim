@@ -1,0 +1,368 @@
+'use client'
+
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Check, ExternalLink, Link2Off, Loader2, Package } from 'lucide-react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import {
+  PRODUCT_LIST_SUPPLIER_IS_OFFER,
+  PRODUCT_LIST_SUPPLIER_LABELS,
+  type ManualCandidatesResult,
+  type ManualSimilarCandidate,
+  type SupplierProductRow
+} from '@/lib/admin/product-match-shared'
+import { CatalogProductDetailSheet } from '@/app/[locale]/admin/catalog/products/_components/CatalogProductDetailSheet'
+import { CoverageBadge } from './CoverageBadge'
+
+interface ProductMatchModalProps {
+  row: SupplierProductRow | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Eşleştirme/kaldırma sonrası (tabloyu + KPI'ları tazele). */
+  onChanged?: () => void
+}
+
+function SimilarityBadge({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const tone =
+    value >= 0.7
+      ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-400'
+      : value >= 0.4
+        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400'
+        : 'border-border bg-muted text-muted-foreground'
+  return (
+    <Badge variant="outline" className={`shrink-0 text-[11px] font-semibold ${tone}`}>
+      %{pct}
+    </Badge>
+  )
+}
+
+/** Parçatedarik referansını yeni sekmede dış sayfasına (parcatedarik.com) açar. */
+function ExternalRefLink({
+  href,
+  className,
+  children
+}: {
+  href: string
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className={`inline-flex items-center gap-1 hover:underline ${className ?? ''}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <span className="truncate">{children}</span>
+      <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+    </a>
+  )
+}
+
+/** Kanonik ürün adını tıklanabilir yapar; tıklayınca admin detay sheet'ini açar. */
+function CanonicalDetailButton({
+  onClick,
+  className,
+  children
+}: {
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex min-w-0 items-center gap-1 text-left hover:underline ${className ?? ''}`}
+    >
+      <span className="truncate">{children}</span>
+      <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
+    </button>
+  )
+}
+
+export function ProductMatchModal({ row, open, onOpenChange, onChanged }: ProductMatchModalProps) {
+  const [cands, setCands] = useState<ManualCandidatesResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [linkingId, setLinkingId] = useState<string | null>(null)
+  const [unlinking, setUnlinking] = useState(false)
+  // Modal açıldığındaki eşleşme durumu; kaldırınca yeniden eşleştirmeye geçer.
+  const [matched, setMatched] = useState(false)
+  const [currentName, setCurrentName] = useState<string | null>(null)
+  // Kanonik ürün detay sheet'i (eşleştirme modalinin üzerine açılır).
+  const [detailProductId, setDetailProductId] = useState<string | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+
+  const openDetail = useCallback((productId: string) => {
+    setDetailProductId(productId)
+    setDetailOpen(true)
+  }, [])
+
+  const isOffer = row ? PRODUCT_LIST_SUPPLIER_IS_OFFER[row.supplier] : true
+
+  const loadCandidates = useCallback(async (r: SupplierProductRow) => {
+    setLoading(true)
+    setCands(null)
+    try {
+      const params = new URLSearchParams({
+        view: 'candidates',
+        supplier: r.supplier,
+        supplierProductId: r.supplierProductId,
+        limit: '20'
+      })
+      const res = await fetch(`/api/admin/eslestirme/products/manual?${params}`)
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data?.error?.message || 'Adaylar yüklenemedi.')
+        return
+      }
+      setCands(data)
+    } catch {
+      toast.error('Adaylar yüklenirken hata oluştu.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open && row) {
+      setMatched(row.matched)
+      setCurrentName(row.canonicalName)
+      if (!row.matched) void loadCandidates(row)
+      else setCands(null)
+    }
+    if (!open) {
+      setCands(null)
+      setLinkingId(null)
+      setUnlinking(false)
+      setDetailOpen(false)
+      setDetailProductId(null)
+    }
+  }, [open, row, loadCandidates])
+
+  const unlink = useCallback(async () => {
+    if (!row) return
+    setUnlinking(true)
+    try {
+      const res = await fetch('/api/admin/eslestirme/products/manual/unlink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplier: row.supplier, supplierProductId: row.supplierProductId })
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data?.error?.message || 'Kaldırılamadı.')
+        return
+      }
+      toast.success('Eşleşme kaldırıldı.')
+      setMatched(false)
+      setCurrentName(null)
+      onChanged?.()
+      void loadCandidates(row)
+    } catch {
+      toast.error('Kaldırma sırasında hata oluştu.')
+    } finally {
+      setUnlinking(false)
+    }
+  }, [row, onChanged, loadCandidates])
+
+  const link = useCallback(
+    async (cand: ManualSimilarCandidate) => {
+      if (!row) return
+      setLinkingId(cand.productId)
+      try {
+        const res = await fetch('/api/admin/eslestirme/products/manual/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            supplier: row.supplier,
+            supplierProductId: row.supplierProductId,
+            productId: cand.productId
+          })
+        })
+        const data = await res.json()
+        if (!res.ok || data.error) {
+          toast.error(data?.error?.message || 'Eşleştirme yapılamadı.')
+          return
+        }
+        toast.success(isOffer ? 'Eşleştirildi, offer oluşturuldu.' : 'Referans olarak bağlandı.')
+        onOpenChange(false)
+        onChanged?.()
+      } catch {
+        toast.error('Eşleştirme sırasında hata oluştu.')
+      } finally {
+        setLinkingId(null)
+      }
+    },
+    [row, isOffer, onOpenChange, onChanged]
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[85vh] w-full flex-col overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="space-y-1 border-b border-border px-5 pb-3 pt-5">
+          <DialogTitle className="text-base">
+            {matched ? 'Eşleşmeyi Düzenle' : 'Ürünü Eşleştir'}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {isOffer
+              ? 'Bu tedarikçi ürününü benzerlik oranına göre bir kanonik ürüne bağlayın.'
+              : 'Parçatedarik ürünü referans olarak bir kanonik ürüne bağlanır (satılabilir offer olmaz).'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-5 pt-4">
+          <div className="rounded-md border border-border bg-muted/30 p-3">
+            {row ? (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{row.name || row.sku}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {PRODUCT_LIST_SUPPLIER_LABELS[row.supplier]}
+                  {row.brandName ? ` · ${row.brandName}` : ''} · SKU: {row.sku}
+                  {row.partNo ? ` · part: ${row.partNo}` : ''}
+                </p>
+                {row.oem ? (
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground">OEM: {row.oem}</p>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Ürün seçilmedi.</p>
+            )}
+          </div>
+
+          {matched ? (
+            <div className="space-y-2 rounded-md border border-success/30 bg-success/10 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">Şu an bağlı olduğu kanonik ürün:</p>
+                {row?.coverage ? <CoverageBadge coverage={row.coverage} /> : null}
+              </div>
+              {row?.canonicalProductId ? (
+                <CanonicalDetailButton
+                  onClick={() => openDetail(row.canonicalProductId!)}
+                  className="max-w-full text-sm font-medium text-foreground"
+                >
+                  {currentName || '—'}
+                </CanonicalDetailButton>
+              ) : (
+                <p className="truncate text-sm font-medium text-foreground">{currentName || '—'}</p>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => void unlink()}
+                disabled={unlinking}
+              >
+                {unlinking ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2Off className="mr-2 h-4 w-4" />
+                )}
+                Bağlantıyı kaldır ve yeniden eşleştir
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Aday Kanonik Ürünler ({cands?.candidates.length ?? 0})
+                </p>
+                <div className="overflow-hidden rounded-md border border-border">
+                  {loading ? (
+                    <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      Adaylar hesaplanıyor…
+                    </p>
+                  ) : !cands || cands.candidates.length === 0 ? (
+                    <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      Benzer kanonik ürün bulunamadı.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border">
+                      {cands.candidates.map((c) => (
+                        <li key={c.productId} className="flex items-center gap-2 px-3 py-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <SimilarityBadge value={c.similarity} />
+                              <CanonicalDetailButton
+                                onClick={() => openDetail(c.productId)}
+                                className="min-w-0 text-sm font-medium text-foreground"
+                              >
+                                {c.name}
+                              </CanonicalDetailButton>
+                            </div>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              part: {c.partNo}
+                              {c.existingSuppliers.length > 0
+                                ? ` · ${c.existingSuppliers.map((s) => PRODUCT_LIST_SUPPLIER_LABELS[s]).join(', ')}`
+                                : ''}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="h-7 shrink-0 px-2 text-xs"
+                            onClick={() => void link(c)}
+                            disabled={linkingId === c.productId}
+                          >
+                            {linkingId === c.productId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            {isOffer ? 'Eşleştir' : 'Referansla'}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {cands && cands.ptdrkReferences.length > 0 && (
+                <div className="overflow-hidden rounded-md border border-border">
+                  <p className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Package className="h-3.5 w-3.5" />
+                    Parçatedarik referansları (offer değil)
+                  </p>
+                  <ul className="divide-y divide-border">
+                    {cands.ptdrkReferences.map((p) => (
+                      <li key={p.ptdrkProductId} className="flex items-center gap-2 px-3 py-1.5">
+                        <SimilarityBadge value={p.similarity} />
+                        <div className="min-w-0 flex-1">
+                          <ExternalRefLink href={p.url} className="max-w-full text-xs font-medium text-foreground">
+                            {p.title}
+                          </ExternalRefLink>
+                          <p className="truncate text-[10px] text-muted-foreground">
+                            {p.partNo ? `part: ${p.partNo}` : ''}
+                            {p.refNo ? ` · ref: ${p.refNo}` : ''}
+                            {p.priceActual != null ? ` · ${p.priceActual.toLocaleString('tr-TR')} ₺` : ''}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+
+      <CatalogProductDetailSheet
+        productId={detailProductId}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onSaved={() => onChanged?.()}
+      />
+    </Dialog>
+  )
+}
