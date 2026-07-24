@@ -5,6 +5,7 @@ import {
   matchBasbugSupplierRows,
   countUnlinkedSupplierRows
 } from '@/lib/catalog/match-supplier-rows'
+import { ingestDinamikOems, ingestBasbugOems } from '@/lib/catalog/ingest-oems'
 import { refreshProductRollups } from '@/lib/catalog/refresh-product-rollups'
 import type {
   ProductMatchOverview,
@@ -56,10 +57,38 @@ export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
       )
   `)
 
-  const [totals] = await db.$queryRaw<Array<{ products: bigint; offers: bigint }>>(Prisma.sql`
+  const [ptdrk] = await db.$queryRaw<Array<{ total: bigint; linked: bigint }>>(Prisma.sql`
+    SELECT
+      COUNT(*)::bigint AS total,
+      COUNT(*) FILTER (
+        WHERE EXISTS (SELECT 1 FROM catalog.product_ptdrk_refs pr WHERE pr.ptdrk_product_id = pp.id)
+      )::bigint AS linked
+    FROM catalog.ptdrk_products pp
+    WHERE EXISTS (
+      SELECT 1 FROM catalog.brand_mappings bm
+      WHERE bm.ptdrk_brand_id = pp.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
+    )
+  `)
+
+  const [totals] = await db.$queryRaw<
+    Array<{ products: bigint; offers: bigint; dual: bigint; pending: bigint }>
+  >(Prisma.sql`
     SELECT
       (SELECT COUNT(*) FROM catalog.products)::bigint AS products,
-      (SELECT COUNT(*) FROM catalog.product_offers)::bigint AS offers
+      (SELECT COUNT(*) FROM catalog.product_offers)::bigint AS offers,
+      (
+        SELECT COUNT(*) FROM (
+          SELECT product_id
+          FROM catalog.product_offers
+          GROUP BY product_id
+          HAVING COUNT(DISTINCT supplier_code) >= 2
+        ) t
+      )::bigint AS dual,
+      (
+        SELECT COUNT(*)
+        FROM catalog.product_match_candidates
+        WHERE status = 'PENDING'
+      )::bigint AS pending
   `)
 
   const cov = (row: { total: bigint; linked: bigint } | undefined) => {
@@ -71,10 +100,13 @@ export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
   return {
     suppliers: [
       { supplier: 'dinamik', ...cov(dinamik) },
-      { supplier: 'basbug', ...cov(basbug) }
+      { supplier: 'basbug', ...cov(basbug) },
+      { supplier: 'ptdrk', ...cov(ptdrk) }
     ],
     canonicalProducts: Number(totals?.products ?? 0),
-    totalOffers: Number(totals?.offers ?? 0)
+    totalOffers: Number(totals?.offers ?? 0),
+    dualSupplierProducts: Number(totals?.dual ?? 0),
+    pendingCandidates: Number(totals?.pending ?? 0)
   }
 }
 
@@ -100,12 +132,22 @@ export async function runProductMatching(
   const dinamik = await matchDinamikSupplierRows()
   emit(`Dinamik: +${dinamik.productsCreated} kanonik ürün, +${dinamik.offersLinked} offer`)
 
+  // Dinamik ürünlerinin OEM'lerini product_oems'e yaz — Başbuğ OEM merdiveni bunlara
+  // karşı örtüşme arar. Bu adım olmadan OEM çapraz eşleşmesi (aşağıda) atıl kalır.
+  const dnmkOems = await ingestDinamikOems()
+  emit(`Dinamik OEM: +${dnmkOems} product_oems`)
+
   // Dinamik önce çalışır ki Başbuğ OEM-örtüşme merdiveni Dinamik OEM'lerini görebilsin.
   const basbug = await matchBasbugSupplierRows()
   emit(
     `Başbuğ: +${basbug.productsCreated} kanonik ürün, +${basbug.offersLinked} offer` +
-      (basbug.offersLinkedByOem ? ` (+${basbug.offersLinkedByOem} OEM ile)` : '')
+      (basbug.offersLinkedByOem ? ` (+${basbug.offersLinkedByOem} OEM ile)` : '') +
+      (basbug.pendingCandidates ? ` · ${basbug.pendingCandidates} belirsiz → inceleme` : '')
   )
+
+  // Ortak ürünlere Başbuğ OEM'lerini de ekle (sonraki run'lar ve zenginleştirme için).
+  const bsbgOems = await ingestBasbugOems()
+  emit(`Başbuğ OEM: +${bsbgOems} product_oems`)
 
   // Rollup ikincildir (fiyat/stok cache'i) — patlarsa eşleştirme sonucunu düşürmesin.
   let rollups = { rollupsUpdated: 0, slugsFilled: 0 }

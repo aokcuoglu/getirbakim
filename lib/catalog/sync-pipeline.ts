@@ -58,7 +58,7 @@ export async function runCatalogSyncPipeline(options?: {
 
   const bsbgMatch = await matchBasbugSupplierRows()
   log(
-    `[catalog-sync] basbug match: +${bsbgMatch.productsCreated} products, +${bsbgMatch.offersLinked} offers by key, +${bsbgMatch.offersLinkedByOem} by OEM, ${bsbgMatch.namesUpgraded} names upgraded`
+    `[catalog-sync] basbug match: +${bsbgMatch.productsCreated} products, +${bsbgMatch.offersLinked} offers by key, +${bsbgMatch.offersLinkedByOem} by OEM, ${bsbgMatch.namesUpgraded} names upgraded, ${bsbgMatch.pendingCandidates} ambiguous → review`
   )
 
   const bsbgOffers = await refreshBasbugOffers()
