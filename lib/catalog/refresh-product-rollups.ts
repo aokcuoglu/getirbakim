@@ -78,6 +78,53 @@ export async function refreshProductRollups(): Promise<RollupStats> {
  * min_selling_price_try / stock / offer_count reflect the new state
  * immediately, without waiting for the next full sync.
  */
+/**
+ * Toplu varyant: verilen kanonik ürünlerin rollup'ını tek geçişte tazeler.
+ * CSV içe aktarma gibi yüzlerce ürüne dokunan akışlar için — ürün başına ayrı
+ * UPDATE atmak yerine 1000'lik partiler hâlinde çalışır.
+ */
+export async function refreshProductRollupsForIds(productIds: bigint[]): Promise<void> {
+  if (productIds.length === 0) return
+
+  for (let i = 0; i < productIds.length; i += 1_000) {
+    const part = productIds.slice(i, i + 1_000)
+    await db.$executeRaw(Prisma.sql`
+      WITH agg AS (
+        SELECT
+          p.id,
+          MIN(po.selling_price_try) FILTER (WHERE po.is_active) AS min_sell,
+          COALESCE(SUM(po.stock_qty) FILTER (WHERE po.is_active), 0)::int AS total_stock,
+          COUNT(po.id) FILTER (WHERE po.is_active)::int AS offer_count
+        FROM catalog.products p
+        LEFT JOIN catalog.product_offers po ON po.product_id = p.id
+        WHERE p.id IN (${Prisma.join(part)})
+        GROUP BY p.id
+      ),
+      eff AS (
+        SELECT
+          a.id,
+          CASE
+            WHEN o.lock_price AND o.selling_price_override IS NOT NULL THEN o.selling_price_override
+            ELSE a.min_sell
+          END AS min_sell,
+          a.total_stock,
+          a.offer_count
+        FROM agg a
+        LEFT JOIN catalog.product_overrides o ON o.product_id = a.id
+      )
+      UPDATE catalog.products p
+      SET
+        min_selling_price_try = e.min_sell,
+        total_stock_qty = e.total_stock,
+        in_stock = e.total_stock > 0,
+        offer_count = e.offer_count,
+        updated_at = NOW()
+      FROM eff e
+      WHERE p.id = e.id
+    `)
+  }
+}
+
 export async function refreshSingleProductRollup(productId: bigint): Promise<void> {
   await db.$executeRaw(Prisma.sql`
     WITH agg AS (

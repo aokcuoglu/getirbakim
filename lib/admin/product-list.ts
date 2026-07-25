@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { canonicalNameSql, canonicalOverrideJoin } from '@/lib/catalog/canonical-name-sql'
+import { buildProductListFilters } from './product-list-sql'
 import type {
   ProductListCoverage,
   ProductListResult,
@@ -17,51 +18,9 @@ import type {
  * Ana kural: yalnız markası brand_mappings'te APPROVED olan ürünler listelenir/
  * eşleştirilebilir. Marka filtresi (brandId) kanonik marka bazlıdır.
  *
- * Identifier'lar sabit whitelist'ten (Prisma.raw güvenli — kullanıcı girdisi yok).
+ * Kolon haritası ve WHERE parçaları `product-list-sql.ts`'te; CSV export'u aynı
+ * filtreleri paylaşsın diye.
  */
-
-type Cfg = {
-  prodTable: Prisma.Sql
-  brandTable: Prisma.Sql
-  brandIdCol: Prisma.Sql // supplier ürünündeki marka FK'si
-  brandNameCol: Prisma.Sql // marka tablosundaki ad kolonu
-  mapFk: Prisma.Sql // brand_mappings'teki tedarikçi FK'si
-  skuCol: Prisma.Sql
-  nameCol: Prisma.Sql
-  oemCol: Prisma.Sql
-  matchTable: Prisma.Sql
-  matchFk: Prisma.Sql
-  passive: boolean
-}
-
-const CONFIG: Record<ProductListSupplier, Cfg> = {
-  dinamik: {
-    prodTable: Prisma.raw('catalog.supplier_dinamik_products'),
-    brandTable: Prisma.raw('catalog.supplier_dinamik_brands'),
-    brandIdCol: Prisma.raw('brand_id'),
-    brandNameCol: Prisma.raw('brand'),
-    mapFk: Prisma.raw('dinamik_brand_id'),
-    skuCol: Prisma.raw('stock_code'),
-    nameCol: Prisma.raw('stock_name'),
-    oemCol: Prisma.raw('oem_no'),
-    matchTable: Prisma.raw('catalog.product_offers'),
-    matchFk: Prisma.raw('dinamik_product_id'),
-    passive: true
-  },
-  basbug: {
-    prodTable: Prisma.raw('catalog.supplier_basbug_products'),
-    brandTable: Prisma.raw('catalog.supplier_basbug_brands'),
-    brandIdCol: Prisma.raw('brand_id'),
-    brandNameCol: Prisma.raw('brand'),
-    mapFk: Prisma.raw('basbug_brand_id'),
-    skuCol: Prisma.raw('malzeme_no'),
-    nameCol: Prisma.raw('aciklama'),
-    oemCol: Prisma.raw('oem_no'),
-    matchTable: Prisma.raw('catalog.product_offers'),
-    matchFk: Prisma.raw('basbug_product_id'),
-    passive: true
-  }
-}
 
 export function isProductListSupplier(v: unknown): v is ProductListSupplier {
   return v === 'dinamik' || v === 'basbug'
@@ -84,56 +43,21 @@ export async function listSupplierProductsTable(input: {
   page?: number
   limit?: number
 }): Promise<ProductListResult> {
-  const cfg = CONFIG[input.supplier]
-  const status = input.status ?? 'all'
-  const coverage = input.coverage ?? 'all'
+  const {
+    cfg,
+    status,
+    coverage,
+    passiveFilter,
+    approvedBrand,
+    qFilter,
+    statusFilter,
+    coverageFilter,
+    hasDinamik,
+    hasBasbug
+  } = buildProductListFilters(input)
   const page = Math.max(1, input.page ?? 1)
   const limit = Math.min(Math.max(1, input.limit ?? 50), 200)
   const offset = (page - 1) * limit
-  const like = input.q?.trim() ? `%${input.q.trim()}%` : null
-
-  const passiveFilter = cfg.passive ? Prisma.sql`AND sp.is_passive = false` : Prisma.empty
-  const brandFilter =
-    input.brandId != null ? Prisma.sql`AND bm.brand_id = ${input.brandId}` : Prisma.empty
-
-  // Onaylı marka koşulu (ana kural) — fan-out'suz EXISTS.
-  const approvedBrand = Prisma.sql`
-    AND EXISTS (
-      SELECT 1 FROM catalog.brand_mappings bm
-      WHERE bm.${cfg.mapFk} = sp.${cfg.brandIdCol} AND bm.mapping_status = 'APPROVED'
-      ${brandFilter}
-    )`
-
-  const qFilter = like
-    ? Prisma.sql`AND (sp.${cfg.skuCol} ILIKE ${like} OR sp.${cfg.nameCol} ILIKE ${like} OR sp.part_no ILIKE ${like} OR sp.${cfg.oemCol} ILIKE ${like})`
-    : Prisma.empty
-
-  const statusFilter =
-    status === 'matched'
-      ? Prisma.sql`AND m.id IS NOT NULL`
-      : status === 'unmatched'
-        ? Prisma.sql`AND m.id IS NULL`
-        : Prisma.empty
-
-  // Bağlı kanonik ürünün offer kapsamı (badge + filtre için ortak ifadeler).
-  const hasDinamik = Prisma.sql`EXISTS (
-    SELECT 1 FROM catalog.product_offers po
-    WHERE po.product_id = m.product_id AND po.dinamik_product_id IS NOT NULL
-  )`
-  const hasBasbug = Prisma.sql`EXISTS (
-    SELECT 1 FROM catalog.product_offers po
-    WHERE po.product_id = m.product_id AND po.basbug_product_id IS NOT NULL
-  )`
-
-  // Kapsam filtresi yalnız eşleşen satırlara uygulanır (m.product_id gerektirir).
-  const coverageFilter =
-    coverage === 'both'
-      ? Prisma.sql`AND ${hasDinamik} AND ${hasBasbug}`
-      : coverage === 'dinamik'
-        ? Prisma.sql`AND ${hasDinamik} AND NOT ${hasBasbug}`
-        : coverage === 'basbug'
-          ? Prisma.sql`AND ${hasBasbug} AND NOT ${hasDinamik}`
-          : Prisma.empty
 
   const rowsRaw = await db.$queryRaw<
     Array<{
