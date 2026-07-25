@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import {
   getRefSuggestionSummary,
   getRefSuggestions,
+  reviewAllPendingRefSuggestions,
   reviewRefSuggestions,
   type RefSuggestionRow,
   type RefSuggestionSummary
@@ -23,6 +24,9 @@ const CONFIDENCE_STYLE: Record<string, string> = {
 }
 
 type KindFilter = 'OEM' | 'NAME'
+type ConfidenceFilter = 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'
+
+const CONFIDENCE_FILTERS: ConfidenceFilter[] = ['ALL', 'HIGH', 'MEDIUM', 'LOW']
 
 /**
  * Web'den toplanan OEM / SEO ad önerilerinin inceleme kuyruğu.
@@ -33,6 +37,8 @@ export function WebSuggestionsPanel() {
   const [summary, setSummary] = useState<RefSuggestionSummary | null>(null)
   const [rows, setRows] = useState<RefSuggestionRow[]>([])
   const [kind, setKind] = useState<KindFilter>('OEM')
+  const [confidence, setConfidence] = useState<ConfidenceFilter>('ALL')
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null)
   const [brand, setBrand] = useState('ABA')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
@@ -44,7 +50,13 @@ export function WebSuggestionsPanel() {
       const brandFilter = brand.trim() || null
       const [sum, list] = await Promise.all([
         getRefSuggestionSummary(brandFilter),
-        getRefSuggestions({ brand: brandFilter, kind, status: 'PENDING', limit: 200 })
+        getRefSuggestions({
+          brand: brandFilter,
+          kind,
+          confidence: confidence === 'ALL' ? null : confidence,
+          status: 'PENDING',
+          limit: 200
+        })
       ])
       setSummary(sum)
       setRows(list)
@@ -54,7 +66,7 @@ export function WebSuggestionsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [brand, kind])
+  }, [brand, kind, confidence])
 
   useEffect(() => {
     void load()
@@ -85,6 +97,37 @@ export function WebSuggestionsPanel() {
       void getRefSuggestionSummary(brand.trim() || null)
         .then(setSummary)
         .catch(() => undefined)
+    })
+  }
+
+  /**
+   * Filtreye uyan tüm bekleyen önerileri işler. Sunucu çağrı başına sınırlı
+   * sayıda öneri uyguladığı için (Meili tazeleme dahil zaman aşımına düşmesin),
+   * kalan sıfırlanana dek yinelenir.
+   */
+  const reviewAll = (decision: 'APPROVE' | 'REJECT') => {
+    startTransition(async () => {
+      const filter = {
+        brand: brand.trim() || null,
+        kind,
+        confidence: confidence === 'ALL' ? null : confidence
+      }
+      let processed = 0
+      for (let pass = 0; pass < 100; pass++) {
+        const res = await reviewAllPendingRefSuggestions({ filter, decision })
+        if (!res.success) {
+          toast.error(res.message)
+          break
+        }
+        processed += res.processed
+        setBulkProgress(`${processed} işlendi · ${res.remaining} kaldı`)
+        if (res.remaining === 0 || res.processed === 0) break
+      }
+      setBulkProgress(null)
+      toast.success(
+        decision === 'APPROVE' ? `${processed} öneri uygulandı.` : `${processed} öneri reddedildi.`
+      )
+      void load()
     })
   }
 
@@ -136,8 +179,20 @@ export function WebSuggestionsPanel() {
         >
           Ad ({tr(summary?.pendingName ?? 0)})
         </Button>
+        <span className="ml-1 text-xs text-muted-foreground">Güven:</span>
+        {CONFIDENCE_FILTERS.map((c) => (
+          <Button
+            key={c}
+            size="sm"
+            variant={confidence === c ? 'default' : 'outline'}
+            onClick={() => setConfidence(c)}
+          >
+            {c === 'ALL' ? 'Tümü' : c}
+          </Button>
+        ))}
         <span className="text-xs text-muted-foreground">
           Uygulanmış: {tr(counts.applied)} · Reddedilmiş: {tr(summary?.rejected ?? 0)}
+          {bulkProgress ? ` · ${bulkProgress}` : ''}
         </span>
 
         <div className="ml-auto flex items-center gap-1">
@@ -165,6 +220,16 @@ export function WebSuggestionsPanel() {
           >
             <X className="h-4 w-4" />
             Reddet
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending || rows.length === 0}
+            title="Ekrandaki 200 satırı değil, filtreye uyan tüm bekleyen önerileri onaylar."
+            onClick={() => reviewAll('APPROVE')}
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Filtredekilerin tümünü onayla
           </Button>
         </div>
       </div>

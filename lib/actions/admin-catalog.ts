@@ -41,6 +41,8 @@ const DEFAULT_LIMIT = 25
 const STATUSES: CatalogProductStatus[] = ['ACTIVE', 'DRAFT', 'HIDDEN', 'ARCHIVED']
 /** Tek server action çağrısında incelenebilecek en fazla web önerisi. */
 const MAX_REVIEW_BATCH = 300
+/** Filtreye göre toplu onayda tek çağrıda işlenen öneri sayısı. */
+const MAX_BULK_BATCH = 500
 
 function normalizeCode(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -1075,6 +1077,7 @@ export async function getRefSuggestionSummary(brand?: string | null): Promise<Re
 export async function getRefSuggestions(input?: {
   brand?: string | null
   kind?: 'OEM' | 'NAME' | null
+  confidence?: string | null
   status?: string | null
   limit?: number
 }): Promise<RefSuggestionRow[]> {
@@ -1084,6 +1087,7 @@ export async function getRefSuggestions(input?: {
   const brand = input?.brand?.trim() || null
   const kind = input?.kind ?? null
   const status = input?.status?.trim() || 'PENDING'
+  const confidence = input?.confidence?.trim() || null
 
   const rows = await db.$queryRaw<Record<string, unknown>[]>`
     select s.id, s.product_id, s.kind, s.value, s.oem_brand, s.confidence,
@@ -1097,6 +1101,7 @@ export async function getRefSuggestions(input?: {
     where s.status = ${status}
       and (${brand}::text is null or b.brand = ${brand}::text)
       and (${kind}::text is null or s.kind = ${kind}::text)
+      and (${confidence}::text is null or s.confidence = ${confidence}::text)
     order by p.part_no, s.kind, s.id
     limit ${limit}
   `
@@ -1169,6 +1174,37 @@ export async function reviewRefSuggestions(input: {
     }
   }
 
+  const applied = await applyPendingSuggestions(ids, reviewer)
+  if (applied.total === 0) {
+    return { success: false, message: 'Öneri bulunamadı ya da zaten incelenmiş.', appliedIds: [] }
+  }
+
+  return {
+    success: true,
+    message: `${applied.oemCount} OEM · ${applied.nameCount} ad önerisi uygulandı.`,
+    appliedIds: applied.appliedIds
+  }
+}
+
+interface ApplyOutcome {
+  total: number
+  oemCount: number
+  nameCount: number
+  appliedIds: string[]
+}
+
+/**
+ * PENDING önerileri kanonik tablolara yazar ve APPLIED işaretler.
+ *
+ * OEM satırı source='WEB' ile eklenir — MANUAL'den ayrı durması toplu geri
+ * almayı (`delete … where source='WEB'`) elle girilen kayıtlara dokunmadan
+ * mümkün kılar. Ad önerisi product_overrides.name_override'a hedefli update ile
+ * yazılır; aynı satırdaki fiyat/kilit/not alanları KORUNUR
+ * (updateCatalogProductOverride'ın tam satır davranışı burada veri kaybettirirdi).
+ */
+async function applyPendingSuggestions(ids: bigint[], reviewer: string): Promise<ApplyOutcome> {
+  if (ids.length === 0) return { total: 0, oemCount: 0, nameCount: 0, appliedIds: [] }
+
   const rows = await db.$queryRaw<
     {
       id: bigint
@@ -1185,19 +1221,20 @@ export async function reviewRefSuggestions(input: {
     join catalog.products p on p.id = s.product_id
     where s.id in (${Prisma.join(ids)}) and s.status = 'PENDING'
   `)
-  if (rows.length === 0) {
-    return { success: false, message: 'Öneri bulunamadı ya da zaten incelenmiş.', appliedIds: [] }
-  }
+  if (rows.length === 0) return { total: 0, oemCount: 0, nameCount: 0, appliedIds: [] }
 
   const oemRows = rows.filter((r) => r.kind === 'OEM')
   const nameRows = rows.filter((r) => r.kind === 'NAME')
 
   await db.$transaction(async (tx) => {
-    if (oemRows.length > 0) {
-      const values = oemRows.map(
-        (r) =>
-          Prisma.sql`(${r.product_id}, ${r.value}, ${r.value_norm}, ${r.oem_brand}, ${'WEB'})`
-      )
+    // Tek INSERT'e sığmayacak kadar çok satır olabilir (kayış çapraz eşleşmesi
+    // ürün başına onlarca OEM getiriyor) — parametre sınırına takılmamak için parçala.
+    for (let i = 0; i < oemRows.length; i += 500) {
+      const values = oemRows
+        .slice(i, i + 500)
+        .map(
+          (r) => Prisma.sql`(${r.product_id}, ${r.value}, ${r.value_norm}, ${r.oem_brand}, ${'WEB'})`
+        )
       await tx.$executeRaw(Prisma.sql`
         insert into catalog.product_oems (product_id, code, code_norm, oem_brand, source)
         values ${Prisma.join(values)}
@@ -1223,12 +1260,14 @@ export async function reviewRefSuggestions(input: {
       `)
     }
 
-    await tx.$executeRaw(Prisma.sql`
-      update catalog.product_ref_suggestions
-      set status = 'APPLIED', reviewed_at = now(), reviewed_by = ${reviewer},
-          applied_at = now()
-      where id in (${Prisma.join(rows.map((r) => r.id))})
-    `)
+    for (let i = 0; i < rows.length; i += 500) {
+      await tx.$executeRaw(Prisma.sql`
+        update catalog.product_ref_suggestions
+        set status = 'APPLIED', reviewed_at = now(), reviewed_by = ${reviewer},
+            applied_at = now()
+        where id in (${Prisma.join(rows.slice(i, i + 500).map((r) => r.id))})
+      `)
+    }
   })
 
   // Arama dokümanı hem adı hem OEM havuzunu taşıyor → dokunulan ürünleri tazele.
@@ -1236,17 +1275,97 @@ export async function reviewRefSuggestions(input: {
   // hızlı hem de Meili'yi boğmayacak kadar ölçülü.
   const touched = [...new Set(rows.map((r) => r.product_id.toString()))]
   for (let i = 0; i < touched.length; i += 8) {
-    await Promise.all(
-      touched.slice(i, i + 8).map((id) => syncProductSearchDocument(BigInt(id)))
-    )
+    await Promise.all(touched.slice(i, i + 8).map((id) => syncProductSearchDocument(BigInt(id))))
   }
   for (const slug of new Set(rows.map((r) => r.slug))) {
     revalidateCatalogAdmin(slug)
   }
 
   return {
-    success: true,
-    message: `${oemRows.length} OEM · ${nameRows.length} ad önerisi uygulandı.`,
+    total: rows.length,
+    oemCount: oemRows.length,
+    nameCount: nameRows.length,
     appliedIds: rows.map((r) => r.id.toString())
+  }
+}
+
+export interface BulkReviewFilter {
+  brand?: string | null
+  kind?: 'OEM' | 'NAME' | null
+  confidence?: string | null
+}
+
+export interface BulkReviewResult {
+  success: boolean
+  message: string
+  /** Bu çağrıda işlenen öneri sayısı. */
+  processed: number
+  /** Filtreye uyan, hâlâ bekleyen öneri sayısı — UI bitene kadar tekrar çağırır. */
+  remaining: number
+}
+
+/**
+ * Filtreye uyan TÜM bekleyen önerileri onaylar ya da reddeder — parça parça.
+ *
+ * Neden parça parça: kayış çapraz eşleşmesi tek markada binlerce öneri
+ * üretebiliyor; hepsini tek istekte uygulamak (ürün başına Meili tazeleme dahil)
+ * server action'ı zaman aşımına düşürürdü. Çağrı başına MAX_BULK_BATCH kadarını
+ * işler ve kalanı döndürür; arayüz kalan sıfırlanana dek yineler.
+ */
+export async function reviewAllPendingRefSuggestions(input: {
+  filter: BulkReviewFilter
+  decision: 'APPROVE' | 'REJECT'
+}): Promise<BulkReviewResult> {
+  const auth = await requireAdminAuth()
+  const reviewer = auth.user.email ?? auth.user.id
+
+  const brand = input.filter.brand?.trim() || null
+  const kind = input.filter.kind ?? null
+  const confidence = input.filter.confidence?.trim() || null
+
+  const matching = Prisma.sql`
+    from catalog.product_ref_suggestions s
+    join catalog.products p on p.id = s.product_id
+    join catalog.brands b on b.id = p.brand_id
+    where s.status = 'PENDING'
+      and (${brand}::text is null or b.brand = ${brand}::text)
+      and (${kind}::text is null or s.kind = ${kind}::text)
+      and (${confidence}::text is null or s.confidence = ${confidence}::text)
+  `
+
+  const batch = await db.$queryRaw<{ id: bigint }[]>(Prisma.sql`
+    select s.id ${matching} order by s.id limit ${MAX_BULK_BATCH}
+  `)
+  if (batch.length === 0) {
+    return { success: true, message: 'İşlenecek öneri kalmadı.', processed: 0, remaining: 0 }
+  }
+  const ids = batch.map((r) => r.id)
+
+  let processed = 0
+  if (input.decision === 'REJECT') {
+    processed = Number(
+      await db.$executeRaw(Prisma.sql`
+        update catalog.product_ref_suggestions
+        set status = 'REJECTED', reviewed_at = now(), reviewed_by = ${reviewer}
+        where id in (${Prisma.join(ids)}) and status = 'PENDING'
+      `)
+    )
+  } else {
+    processed = (await applyPendingSuggestions(ids, reviewer)).total
+  }
+
+  const [{ n }] = await db.$queryRaw<{ n: bigint }[]>(Prisma.sql`
+    select count(*) n ${matching}
+  `)
+  const remaining = Number(n)
+
+  return {
+    success: true,
+    message:
+      input.decision === 'APPROVE'
+        ? `${processed} öneri uygulandı${remaining > 0 ? `, ${remaining} kaldı` : ''}.`
+        : `${processed} öneri reddedildi${remaining > 0 ? `, ${remaining} kaldı` : ''}.`,
+    processed,
+    remaining
   }
 }

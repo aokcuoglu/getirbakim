@@ -14,6 +14,9 @@
  * --seed-names: web verisi olmadan, mevcut tedarikçi adını SEO başlığına çevirip
  * NAME önerisi üretir (yeni bilgi uydurmaz, yalnız biçim düzeltir).
  *
+ * --crossbrand-belts: kayış ürünlerinde (nPKnnnn) aynı ölçü kodunu taşıyan diğer
+ * markaların OEM'lerini öneri olarak üretir — web'e çıkmadan, kendi katalogumuzdan.
+ *
  * Doğrulama kuralları (OEM):
  *   · normalize kod >= 5 karakter ve en az bir rakam içerir
  *   · ürünün kendi part_no'suyla aynı olamaz (o zaten source='PART_NO')
@@ -317,6 +320,97 @@ async function runIngest(opts: {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Kayış ürünleri için katalog içi çapraz eşleşmeden OEM önerisi üretir.
+ *
+ * Kayışta parça numarası bir ölçü standardıdır: 6PK1199 = 6 kanal, 1199 mm ve
+ * her markada aynı parçayı gösterir. Bu yüzden aynı part_no'yu taşıyan
+ * GATES/CONTITECH gibi markaların (çoğu TecDoc'tan gelen) OEM çapraz
+ * referansları ABA muadiline de uygulanır — dışarıdan veri çekmeye gerek
+ * kalmadan, kendi katalogumuzdan.
+ *
+ * Kayış DIŞINDAKİ ürünlere bilinçli olarak uygulanmaz: orada aynı numara
+ * markadan markaya farklı parça olabilir, standart bir ölçü kodu değildir.
+ */
+async function runCrossBrandBelts(brand: string, dryRun: boolean) {
+  const rows = await db.$queryRaw<
+    {
+      product_id: bigint
+      code: string
+      code_norm: string
+      oem_brand: string
+      part_no: string
+      source_brand: string
+      source: string
+    }[]
+  >`
+    with aba as (
+      select p.id, p.part_no, p.part_no_norm
+      from catalog.products p
+      join catalog.brands b on b.id = p.brand_id
+      where b.brand = ${brand}
+        and p.part_no ~ '^[0-9]{1,2}PK[0-9]{3,4}'
+    )
+    select distinct on (a.id, o.code_norm, o.oem_brand)
+           a.id as product_id, o.code, o.code_norm, o.oem_brand,
+           a.part_no, cb.brand as source_brand, o.source
+    from aba a
+    join catalog.products c on c.part_no_norm = a.part_no_norm
+    join catalog.brands cb on cb.id = c.brand_id and cb.brand <> ${brand}
+    join catalog.product_oems o on o.product_id = c.id
+    where o.source <> 'PART_NO'
+      and not exists (
+        select 1 from catalog.product_oems existing
+        where existing.product_id = a.id
+          and existing.code_norm = o.code_norm
+          and existing.oem_brand = o.oem_brand
+      )
+      -- Aynı kod hem markalı hem markasız geliyorsa markasızı ele: araç markası
+      -- taşıyan satır her zaman daha bilgili ve vitrinde tekrar üretmez.
+      and (
+        o.oem_brand <> ''
+        or not exists (
+          select 1
+          from catalog.products c2
+          join catalog.brands cb2 on cb2.id = c2.brand_id and cb2.brand <> ${brand}
+          join catalog.product_oems o2 on o2.product_id = c2.id
+          where c2.part_no_norm = a.part_no_norm
+            and o2.code_norm = o.code_norm
+            and o2.oem_brand <> ''
+        )
+      )
+    order by a.id, o.code_norm, o.oem_brand, o.source
+  `
+
+  const suggestions: SuggestionRow[] = rows.map((r) => ({
+    productId: r.product_id,
+    kind: KIND_OEM,
+    value: r.code,
+    valueNorm: r.code_norm,
+    oemBrand: r.oem_brand,
+    // TecDoc türevi satırlar (PARTS) en güvenilir kaynak; tedarikçi türevleri bir alt kademe.
+    confidence: r.source === 'PARTS' ? 'HIGH' : 'MEDIUM',
+    sourceSite: `katalog:${r.source_brand}`,
+    sourceUrl: null,
+    evidence: `${r.part_no} · ${r.source_brand} (${r.source}) aynı ölçü kodunu taşıyor`
+  }))
+
+  const inserted = await insertSuggestions(suggestions, dryRun)
+  const products = new Set(rows.map((r) => r.product_id.toString())).size
+  console.log(
+    `[çapraz] ${suggestions.length} aday OEM · ${products} kayış ürünü${dryRun ? '  [DRY-RUN]' : ''}`
+  )
+  if (dryRun) {
+    for (const s of suggestions.slice(0, 8)) {
+      console.log(`   ${s.oemBrand || '(marka yok)'} ${s.value} · ${s.sourceSite} · ${s.confidence}`)
+    }
+  } else {
+    console.log(`[çapraz] ${inserted} yeni öneri yazıldı (tekrarlar atlandı).`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 async function runApply(dryRun: boolean) {
   const approved = await db.$queryRaw<
     {
@@ -393,6 +487,7 @@ async function main() {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const apply = args.includes('--apply')
+  const crossBrandBelts = args.includes('--crossbrand-belts')
   const seedNames = args.includes('--seed-names')
   const brand = args.find((a) => a.startsWith('--brand='))?.split('=')[1] ?? 'ABA'
   const file = args.find((a) => a.startsWith('--file='))?.split('=')[1] ?? ''
@@ -400,6 +495,8 @@ async function main() {
 
   if (apply) {
     await runApply(dryRun)
+  } else if (crossBrandBelts) {
+    await runCrossBrandBelts(brand, dryRun)
   } else {
     if (!file && !seedNames) {
       console.error('[ingest] --file=<jsonl> ya da --seed-names gerekli.')
