@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   PRODUCT_LIST_SUPPLIERS,
-  PRODUCT_LIST_SUPPLIER_IS_OFFER,
   PRODUCT_LIST_SUPPLIER_LABELS,
   type ProductMatchCandidateGroup,
   type ProductMatchOverview,
@@ -19,13 +18,11 @@ import { ProductListTab } from './ProductListTab'
 
 const DOT: Record<string, string> = {
   dinamik: 'bg-blue-500',
-  basbug: 'bg-violet-500',
-  ptdrk: 'bg-amber-500'
+  basbug: 'bg-violet-500'
 }
 
 function SupplierCoverageCard({ cov }: { cov: SupplierCoverage }) {
   const pct = cov.total > 0 ? Math.round((cov.linked / cov.total) * 100) : 0
-  const isOffer = PRODUCT_LIST_SUPPLIER_IS_OFFER[cov.supplier]
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -34,9 +31,6 @@ function SupplierCoverageCard({ cov }: { cov: SupplierCoverage }) {
           <p className="text-sm font-semibold text-foreground">
             {PRODUCT_LIST_SUPPLIER_LABELS[cov.supplier]}
           </p>
-          {!isOffer && (
-            <span className="text-[10px] text-muted-foreground">(referans)</span>
-          )}
         </span>
         <span className="text-xs font-semibold tabular-nums text-foreground">%{pct}</span>
       </div>
@@ -158,8 +152,8 @@ export function ProductMatchTab() {
         <div>
           <h3 className="text-sm font-semibold text-foreground">Ürün Eşleştirme</h3>
           <p className="text-xs text-muted-foreground">
-            Onaylı markalar altındaki ürünleri kanonik kataloğa bağlayın. Otomatik akış Dinamik +
-            Başbuğ&apos;u offer olarak bağlar; Parçatedarik referans olarak elle bağlanır.
+            Onaylı markalar altındaki ürünleri kanonik kataloğa bağlayın. Otomatik akış Dinamik ve
+            Başbuğ&apos;u offer olarak bağlar.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -187,7 +181,7 @@ export function ProductMatchTab() {
         <SummaryStat label="Bekleyen İnceleme" value={overview?.pendingCandidates ?? 0} />
       </div>
 
-      {/* Firma bazlı kapsama (Dinamik / Başbuğ / Parçatedarik) */}
+      {/* Firma bazlı kapsama (Dinamik / Başbuğ) */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {overview
           ? overview.suppliers.map((cov) => <SupplierCoverageCard key={cov.supplier} cov={cov} />)

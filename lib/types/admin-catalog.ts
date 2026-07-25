@@ -86,7 +86,7 @@ export interface AdminCatalogProductDetail {
   href: string | null
   offers: AdminCatalogOffer[]
   oems: Array<{ code: string; brand: string | null; source: string }>
-  eanCount: number
+  eans: Array<{ code: string; source: string }>
   imageCount: number
   propertyCount: number
   vehicleCount: number
@@ -114,4 +114,17 @@ export interface UpdateCatalogOverrideInput {
 export interface AdminCatalogActionResult {
   success: boolean
   message: string
+}
+
+export interface MutateProductCodeInput {
+  id: string
+  code: string
+}
+
+export interface MutateProductOemResult extends AdminCatalogActionResult {
+  oems: Array<{ code: string; brand: string | null; source: string }>
+}
+
+export interface MutateProductEanResult extends AdminCatalogActionResult {
+  eans: Array<{ code: string; source: string }>
 }

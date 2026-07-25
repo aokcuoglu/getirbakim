@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge'
 import { useShop } from '@/components/ShopProvider'
 import { buildCategoryUrl } from '@/lib/catalog-url'
 import type { CatalogProductDetailView } from '@/lib/actions/catalog-store'
+import { ProductTechnicalInfo } from './ProductTechnicalInfo'
 
 interface Props {
   product: CatalogProductDetailView
@@ -247,93 +248,8 @@ export function CatalogProductDetail({ product }: Props) {
         </div>
       </div>
 
-      {/* OEM codes */}
-      {product.oems.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 text-base font-semibold text-foreground">{t('oemCodes')}</h2>
-          <div className="flex flex-wrap gap-2">
-            {product.oems.map((oem) => (
-              <Link
-                key={`${oem.code}-${oem.brand ?? ''}`}
-                href={`/${locale}/search?q=${encodeURIComponent(oem.code)}`}
-                className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-foreground transition-colors hover:border-primary hover:text-primary"
-                title={oem.brand ? `${oem.brand} · ${t('oemSearchHint')}` : t('oemSearchHint')}
-              >
-                {oem.code}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Specifications */}
-      {product.properties.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 text-base font-semibold text-foreground">
-            {t('specifications')}
-          </h2>
-          <div className="overflow-hidden rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <tbody>
-                {product.properties.map((prop, i) => (
-                  <tr
-                    key={prop.key}
-                    className={i % 2 === 0 ? 'bg-card' : 'bg-background'}
-                  >
-                    <td className="w-1/2 px-4 py-2 font-medium text-muted-foreground">
-                      {prop.key}
-                    </td>
-                    <td className="px-4 py-2 text-foreground">{prop.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* EAN */}
-      {product.eans.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 text-base font-semibold text-foreground">{t('ean')}</h2>
-          <div className="flex flex-wrap gap-2">
-            {product.eans.map((ean) => (
-              <span
-                key={ean}
-                className="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-foreground"
-              >
-                {ean}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Vehicle compatibility */}
-      {product.vehicles.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 text-base font-semibold text-foreground">
-            {t('compatibility')}
-          </h2>
-          <ul className="grid grid-cols-1 gap-1.5 text-sm text-foreground sm:grid-cols-2">
-            {product.vehicles.map((v) => (
-              <li
-                key={v.id}
-                className="rounded-md border border-border bg-card px-3 py-1.5"
-              >
-                {v.label}
-              </li>
-            ))}
-          </ul>
-          {product.vehicleCount > product.vehicles.length && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t('moreVehicles', {
-                count: product.vehicleCount - product.vehicles.length
-              })}
-            </p>
-          )}
-        </section>
-      )}
+      {/* TecDoc enrichment — accordion sections + table of contents */}
+      <ProductTechnicalInfo product={product} />
     </div>
   )
 }

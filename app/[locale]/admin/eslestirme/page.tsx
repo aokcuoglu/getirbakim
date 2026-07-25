@@ -11,7 +11,7 @@ export default async function AdminEslestirmePage() {
     <AdminPageShell width="wide">
       <AdminPageHeader
         title="Eşleştirme"
-        description="Dinamik, Başbuğ ve Parçatedarik firmalarının marka ve ürün eşleştirmelerini yönetin."
+        description="Dinamik ve Başbuğ firmalarının marka ve ürün eşleştirmelerini yönetin."
         breadcrumbs={getAdminBreadcrumbs('/admin/eslestirme')}
       />
       <Suspense fallback={<AdminTablePageSkeleton kpiCount={4} />}>

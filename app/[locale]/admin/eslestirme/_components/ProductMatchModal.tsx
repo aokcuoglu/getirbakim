@@ -13,13 +13,12 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import {
-  PRODUCT_LIST_SUPPLIER_IS_OFFER,
   PRODUCT_LIST_SUPPLIER_LABELS,
   type ManualCandidatesResult,
   type ManualSimilarCandidate,
   type SupplierProductRow
 } from '@/lib/admin/product-match-shared'
-import { CatalogProductDetailSheet } from '@/app/[locale]/admin/catalog/products/_components/CatalogProductDetailSheet'
+import { CatalogProductDetailSheet } from '@/app/[locale]/admin/products/_components/CatalogProductDetailSheet'
 import { CoverageBadge } from './CoverageBadge'
 
 interface ProductMatchModalProps {
@@ -42,30 +41,6 @@ function SimilarityBadge({ value }: { value: number }) {
     <Badge variant="outline" className={`shrink-0 text-[11px] font-semibold ${tone}`}>
       %{pct}
     </Badge>
-  )
-}
-
-/** Parçatedarik referansını yeni sekmede dış sayfasına (parcatedarik.com) açar. */
-function ExternalRefLink({
-  href,
-  className,
-  children
-}: {
-  href: string
-  className?: string
-  children: ReactNode
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={`inline-flex items-center gap-1 hover:underline ${className ?? ''}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <span className="truncate">{children}</span>
-      <ExternalLink className="h-3 w-3 shrink-0 opacity-60" />
-    </a>
   )
 }
 
@@ -107,8 +82,6 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
     setDetailProductId(productId)
     setDetailOpen(true)
   }, [])
-
-  const isOffer = row ? PRODUCT_LIST_SUPPLIER_IS_OFFER[row.supplier] : true
 
   const loadCandidates = useCallback(async (r: SupplierProductRow) => {
     setLoading(true)
@@ -195,7 +168,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
           toast.error(data?.error?.message || 'Eşleştirme yapılamadı.')
           return
         }
-        toast.success(isOffer ? 'Eşleştirildi, offer oluşturuldu.' : 'Referans olarak bağlandı.')
+        toast.success('Eşleştirildi, offer oluşturuldu.')
         onOpenChange(false)
         onChanged?.()
       } catch {
@@ -204,7 +177,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
         setLinkingId(null)
       }
     },
-    [row, isOffer, onOpenChange, onChanged]
+    [row, onOpenChange, onChanged]
   )
 
   return (
@@ -215,9 +188,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
             {matched ? 'Eşleşmeyi Düzenle' : 'Ürünü Eşleştir'}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {isOffer
-              ? 'Bu tedarikçi ürününü benzerlik oranına göre bir kanonik ürüne bağlayın.'
-              : 'Parçatedarik ürünü referans olarak bir kanonik ürüne bağlanır (satılabilir offer olmaz).'}
+            Bu tedarikçi ürününü benzerlik oranına göre bir kanonik ürüne bağlayın.
           </DialogDescription>
         </DialogHeader>
 
@@ -318,7 +289,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                             ) : (
                               <Check className="mr-1 h-3.5 w-3.5" />
                             )}
-                            {isOffer ? 'Eşleştir' : 'Referansla'}
+                            Eşleştir
                           </Button>
                         </li>
                       ))}
@@ -327,31 +298,6 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                 </div>
               </div>
 
-              {cands && cands.ptdrkReferences.length > 0 && (
-                <div className="overflow-hidden rounded-md border border-border">
-                  <p className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    <Package className="h-3.5 w-3.5" />
-                    Parçatedarik referansları (offer değil)
-                  </p>
-                  <ul className="divide-y divide-border">
-                    {cands.ptdrkReferences.map((p) => (
-                      <li key={p.ptdrkProductId} className="flex items-center gap-2 px-3 py-1.5">
-                        <SimilarityBadge value={p.similarity} />
-                        <div className="min-w-0 flex-1">
-                          <ExternalRefLink href={p.url} className="max-w-full text-xs font-medium text-foreground">
-                            {p.title}
-                          </ExternalRefLink>
-                          <p className="truncate text-[10px] text-muted-foreground">
-                            {p.partNo ? `part: ${p.partNo}` : ''}
-                            {p.refNo ? ` · ref: ${p.refNo}` : ''}
-                            {p.priceActual != null ? ` · ${p.priceActual.toLocaleString('tr-TR')} ₺` : ''}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </>
           )}
         </div>

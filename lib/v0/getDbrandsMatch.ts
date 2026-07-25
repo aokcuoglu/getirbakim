@@ -17,9 +17,8 @@ type DbrandsMatchQueryRow = {
   id: number
   dbrands_ids: bigint[] | null
   brand_list_ids: number[] | null
-  ptdrk_brands_id: number | null
   brand_name: string
-  pt_url_key: string | null
+  brand_slug: string | null
   logo_url: string | null
 }
 
@@ -33,11 +32,11 @@ function mapRow(row: DbrandsMatchQueryRow): V0BrandMatchRow {
     matchId: row.id,
     dnbrdId: dnbrdIds[0] ?? null,
     dnbrdIds,
-    ptbrdId: row.ptdrk_brands_id,
     brandName: row.brand_name,
-    ptUrlKey: row.pt_url_key,
     logoUrl: row.logo_url,
-    slug: toBrandSlug(row.pt_url_key, row.brand_name),
+    // Slug artık catalog.brands.slug'ta kalıcı (ParcaTedarik url_key'inden
+    // taşındı). Boşsa marka adından türetilir.
+    slug: toBrandSlug(row.brand_slug, row.brand_name),
     brandListIds
   }
 }
@@ -47,26 +46,23 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
     SELECT
       m.id,
       m.dinamik_brand_id AS dnmk_brands_id,
-      m.ptdrk_brand_id AS ptdrk_brands_id,
       m.brand_id AS brand_list_id,
       cb.brand,
+      cb.slug AS brand_slug,
+      cb.display_name,
       cb.logo_url,
-      d.brand AS dinamik_brand,
-      pt.name AS ptbrand_name,
-      pt.url_key AS pt_url_key
+      d.brand AS dinamik_brand
     FROM catalog.brand_mappings m
     JOIN catalog.brands cb ON cb.id = m.brand_id
     LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-    LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
     WHERE m.mapping_status = 'APPROVED'
-      AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
+      AND BTRIM(COALESCE(cb.brand, d.brand, '')) <> ''
   ),
   with_key AS (
     SELECT
       *,
       COALESCE(
         NULLIF(BTRIM(brand), ''),
-        CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
         CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
         'id:' || id::text
       ) AS group_key
@@ -77,13 +73,12 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
       MIN(id) AS id,
       ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
       ARRAY_AGG(DISTINCT brand_list_id) FILTER (WHERE brand_list_id IS NOT NULL) AS brand_list_ids,
-      MIN(ptdrk_brands_id) AS ptdrk_brands_id,
       COALESCE(
-        MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
+        MAX(NULLIF(BTRIM(display_name), '')),
         MAX(NULLIF(BTRIM(brand), '')),
         MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
       ) AS brand_name,
-      MAX(pt_url_key) AS pt_url_key,
+      MAX(brand_slug) AS brand_slug,
       MAX(logo_url) FILTER (WHERE logo_url IS NOT NULL) AS logo_url
     FROM with_key
     GROUP BY group_key
@@ -92,9 +87,8 @@ const APPROVED_BRANDS_GROUPED = Prisma.sql`
     g.id,
     g.dbrands_ids,
     g.brand_list_ids,
-    g.ptdrk_brands_id,
     g.brand_name,
-    g.pt_url_key,
+    g.brand_slug,
     g.logo_url
   FROM grouped g
 `
@@ -130,26 +124,23 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
       SELECT
         m.id,
         m.dinamik_brand_id AS dnmk_brands_id,
-        m.ptdrk_brand_id AS ptdrk_brands_id,
         m.brand_id AS brand_list_id,
         cb.brand,
+        cb.slug AS brand_slug,
+        cb.display_name,
         cb.logo_url,
-        d.brand AS dinamik_brand,
-        pt.name AS ptbrand_name,
-        pt.url_key AS pt_url_key
+        d.brand AS dinamik_brand
       FROM catalog.brand_mappings m
       JOIN catalog.brands cb ON cb.id = m.brand_id
       LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       WHERE m.mapping_status = 'APPROVED'
-        AND BTRIM(COALESCE(cb.brand, d.brand, pt.name, '')) <> ''
+        AND BTRIM(COALESCE(cb.brand, d.brand, '')) <> ''
     ),
     with_key AS (
       SELECT
         *,
         COALESCE(
           NULLIF(BTRIM(brand), ''),
-          CASE WHEN ptdrk_brands_id IS NOT NULL THEN 'pt:' || ptdrk_brands_id::text END,
           CASE WHEN dnmk_brands_id IS NOT NULL THEN 'db:' || dnmk_brands_id::text END,
           'id:' || id::text
         ) AS group_key
@@ -166,13 +157,12 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
         MIN(id) AS id,
         ARRAY_AGG(DISTINCT dnmk_brands_id) FILTER (WHERE dnmk_brands_id IS NOT NULL) AS dbrands_ids,
         ARRAY_AGG(DISTINCT brand_list_id) FILTER (WHERE brand_list_id IS NOT NULL) AS brand_list_ids,
-        MIN(ptdrk_brands_id) AS ptdrk_brands_id,
         COALESCE(
-          MAX(ptbrand_name) FILTER (WHERE ptbrand_name IS NOT NULL),
+          MAX(NULLIF(BTRIM(display_name), '')),
           MAX(NULLIF(BTRIM(brand), '')),
           MIN(dinamik_brand) FILTER (WHERE dinamik_brand IS NOT NULL)
         ) AS brand_name,
-        MAX(pt_url_key) AS pt_url_key,
+        MAX(brand_slug) AS brand_slug,
         MAX(logo_url) FILTER (WHERE logo_url IS NOT NULL) AS logo_url
       FROM with_key w
       WHERE w.group_key = (SELECT group_key FROM target)
@@ -182,9 +172,8 @@ async function fetchDbrandsMatchById(matchId: number): Promise<V0BrandMatchRow |
       g.id,
       g.dbrands_ids,
       g.brand_list_ids,
-      g.ptdrk_brands_id,
       g.brand_name,
-      g.pt_url_key,
+      g.brand_slug,
       g.logo_url
     FROM grouped g
     LIMIT 1

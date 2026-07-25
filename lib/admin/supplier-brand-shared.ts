@@ -6,28 +6,28 @@
  * `supplier-brand-match.ts` içindedir.
  */
 
-export type SupplierKey = 'dinamik' | 'basbug' | 'ptdrk'
+export type SupplierKey = 'dinamik' | 'basbug'
 
-export const SUPPLIER_KEYS: SupplierKey[] = ['dinamik', 'basbug', 'ptdrk']
+export const SUPPLIER_KEYS: SupplierKey[] = ['dinamik', 'basbug']
 
 export const SUPPLIER_LABELS: Record<SupplierKey, string> = {
   dinamik: 'Dinamik',
-  basbug: 'Başbuğ',
-  ptdrk: 'Parçatedarik'
+  basbug: 'Başbuğ'
 }
 
 export function isSupplierKey(value: string): value is SupplierKey {
   return (SUPPLIER_KEYS as string[]).includes(value)
 }
 
-/** Bir tedarikçi marka id'sini o tedarikçinin FK kolonuna uygun tipe çevirir. */
+/**
+ * Bir tedarikçi marka id'sini FK kolonuna uygun tipe çevirir.
+ * Dinamik ve başbuğ kolonlarının ikisi de bigint.
+ */
 export function parseSupplierBrandId(
-  supplier: SupplierKey,
+  _supplier: SupplierKey,
   raw: string | number
-): bigint | number {
-  const s = String(raw).trim()
-  if (supplier === 'ptdrk') return parseInt(s, 10)
-  return BigInt(s)
+): bigint {
+  return BigInt(String(raw).trim())
 }
 
 export type SupplierBrandMatchStatus = 'all' | 'matched' | 'pending' | 'unmatched'
@@ -90,8 +90,7 @@ export type BrandCandidateKind = 'canonical' | SupplierKey
 export const CANDIDATE_KIND_LABELS: Record<BrandCandidateKind, string> = {
   canonical: 'Kanonik',
   dinamik: 'Dinamik',
-  basbug: 'Başbuğ',
-  ptdrk: 'Parçatedarik'
+  basbug: 'Başbuğ'
 }
 
 /**

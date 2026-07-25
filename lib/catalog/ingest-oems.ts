@@ -11,7 +11,7 @@ const tokenNorm = normCodeSql(Prisma.sql`tok`)
 
 /**
  * Split Dinamik OEM strings (supplier_dinamik_products.oem_no, populated by
- * the OEM bridge from ptdrk_products.ref_no) into normalized
+ * the supplier OEM bridge) into normalized
  * catalog.product_oems rows.
  * Tokens shorter than 4 normalized chars are dropped as noise.
  * Idempotent: unique (product_id, code_norm) + ON CONFLICT DO NOTHING.

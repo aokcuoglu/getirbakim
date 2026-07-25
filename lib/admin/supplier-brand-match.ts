@@ -14,7 +14,7 @@ import {
 /**
  * Firma-merkezli marka eşleştirme okuma/yazma modeli (SERVER-only — db kullanır).
  *
- * Üç tedarikçinin (dinamik / başbuğ / parçatedarik) marka tablolarını
+ * İki tedarikçinin (dinamik / başbuğ) marka tablolarını
  * `catalog.brand_mappings` ile LEFT JOIN LATERAL edip her tedarikçi markasını
  * (varsa) kanonik marka eşleşmesiyle birlikte döndürür. Tedarikçi tabloları
  * asimetrik olduğu için (kolon adı `brand` vs `name`, PK BigInt vs Int, FK
@@ -62,12 +62,6 @@ const SUPPLIER_CONFIG: Record<SupplierKey, SupplierConfig> = {
     idCol: Prisma.raw('id'),
     nameCol: Prisma.raw('brand'),
     fkCol: Prisma.raw('basbug_brand_id')
-  },
-  ptdrk: {
-    table: Prisma.raw('catalog.ptdrk_brands'),
-    idCol: Prisma.raw('id'),
-    nameCol: Prisma.raw('name'),
-    fkCol: Prisma.raw('ptdrk_brand_id')
   }
 }
 
@@ -219,8 +213,7 @@ export async function listSupplierBrandsForMatching(
  * Eşleştirme adaylarını arar: kanonik markalar + üç tedarikçinin markaları.
  *
  * Kanonik `catalog.brands` çoğu zaman boş olduğundan, aday havuzuna diğer
- * tedarikçilerin (özellikle Parçatedarik referans kataloğunun) markaları da
- * dahil edilir. Her tedarikçi adayı, varsa bağlı olduğu kanonik markayla döner.
+ * tedarikçilerin markaları da dahil edilir. Her tedarikçi adayı, varsa bağlı olduğu kanonik markayla döner.
  */
 export async function searchBrandCandidates(params: {
   q: string
@@ -249,7 +242,7 @@ export async function searchBrandCandidates(params: {
   // Kaynak markanın kendisini adaylardan çıkar.
   const exclusion = (supplier: SupplierKey, idCol: Prisma.Sql): Prisma.Sql => {
     if (params.excludeSupplier !== supplier || !params.excludeId) return Prisma.empty
-    const id = supplier === 'ptdrk' ? Number(params.excludeId) : BigInt(params.excludeId)
+    const id = BigInt(params.excludeId)
     return Prisma.sql`AND ${idCol} <> ${id}`
   }
 
@@ -290,8 +283,6 @@ export async function searchBrandCandidates(params: {
       ${supplierBranch('dinamik', SUPPLIER_CONFIG.dinamik, Prisma.raw('d'))}
       UNION ALL
       ${supplierBranch('basbug', SUPPLIER_CONFIG.basbug, Prisma.raw('bs'))}
-      UNION ALL
-      ${supplierBranch('ptdrk', SUPPLIER_CONFIG.ptdrk, Prisma.raw('pt'))}
     ) t
     ORDER BY
       (LOWER(t.name) = LOWER(${q})) DESC,
@@ -327,6 +318,9 @@ async function upsertCanonicalBrand(
 }
 
 // Bir satırda hiç tedarikçi FK'sı kalmadıysa true (silinebilir yetim satır).
+// NOT: ptdrk_brand_id projeden kaldırıldı ama KOLON VE VERİ DB'de duruyor.
+// Buradaki ve konsolidasyondaki ptdrk referansları veri koruma amaçlıdır:
+// çıkarılırsa hâlâ ptdrk bağı olan satırlar yetim sayılıp silinir / değer kaybolur.
 const ALL_SUPPLIER_FKS_NULL = Prisma.sql`
   dinamik_brand_id IS NULL AND ptdrk_brand_id IS NULL AND basbug_brand_id IS NULL
 `
@@ -513,9 +507,9 @@ export async function unlinkSupplierBrand(
   })
 }
 
-/** Bir tedarikçi marka id'sini o tedarikçinin FK kolonu tipine çevirir. */
-function toSupplierFk(supplier: SupplierKey, id: string): bigint | number {
-  return supplier === 'ptdrk' ? Number(id) : BigInt(id)
+/** Bir tedarikçi marka id'sini FK kolonu tipine çevirir (ikisi de bigint). */
+function toSupplierFk(_supplier: SupplierKey, id: string): bigint {
+  return BigInt(id)
 }
 
 /**
@@ -543,7 +537,7 @@ function exactBrandKey(name: string): string {
 /**
  * Birebir (kelimesi kelimesine) otomatik marka eşleştirme.
  *
- * Üç tedarikçinin (dinamik / başbuğ / parçatedarik) marka adları `exactBrandKey`
+ * İki tedarikçinin (dinamik / başbuğ) marka adları `exactBrandKey`
  * ile gruplanır. Bir grup şu koşulda otomatik eşleştirilir:
  *   - adı ≥2 FARKLI tedarikçide geçiyorsa, VEYA
  *   - aynı ada sahip bir kanonik marka zaten varsa.
@@ -607,7 +601,7 @@ export async function autoMatchExactBrands(
     canonicalsCreated: 0,
     alreadyLinked: 0,
     conflicts: 0,
-    perSupplier: { dinamik: 0, basbug: 0, ptdrk: 0 },
+    perSupplier: { dinamik: 0, basbug: 0 },
     steps
   }
 
@@ -662,7 +656,7 @@ export async function autoMatchExactBrands(
 
         let linked = 0
         let already = 0
-        const perSupplier: Record<SupplierKey, number> = { dinamik: 0, basbug: 0, ptdrk: 0 }
+        const perSupplier: Record<SupplierKey, number> = { dinamik: 0, basbug: 0 }
         for (const s of memberStates) {
           if (s.canonicalId === canonicalId) {
             already++
@@ -694,8 +688,8 @@ export async function autoMatchExactBrands(
 
   emit(
     `Bitti — ${result.groupsMatched} grup eşleşti, +${result.brandsLinked} marka bağlandı ` +
-      `(Dinamik ${result.perSupplier.dinamik}, Başbuğ ${result.perSupplier.basbug}, ` +
-      `Parçatedarik ${result.perSupplier.ptdrk}), +${result.canonicalsCreated} kanonik, ` +
+      `(Dinamik ${result.perSupplier.dinamik}, Başbuğ ${result.perSupplier.basbug}), ` +
+      `+${result.canonicalsCreated} kanonik, ` +
       `${result.conflicts} çakışma atlandı`
   )
 

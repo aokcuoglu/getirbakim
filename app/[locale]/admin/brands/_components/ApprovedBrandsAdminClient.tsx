@@ -37,7 +37,7 @@ import { createApprovedBrandColumns } from './approved-brand-columns'
 import { BrandDetailModal } from './BrandDetailModal'
 
 type LogoStatus = 'all' | 'missing' | 'has_logo'
-type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'pt_only' | 'pending' | 'unmatched'
+type MatchSide = 'all' | 'matched' | 'dinamik_only' | 'basbug_only' | 'pending' | 'unmatched'
 
 type BrandFilters = {
   q: string
@@ -276,7 +276,6 @@ export function ApprovedBrandsAdminClient({
         if (action === 'unlink') {
           const targets: Array<{ supplier: string; supplierBrandId: string | number }> = []
           if (mapping.dnmkBrandsId) targets.push({ supplier: 'dinamik', supplierBrandId: mapping.dnmkBrandsId })
-          if (mapping.ptdrkBrandsId != null) targets.push({ supplier: 'ptdrk', supplierBrandId: mapping.ptdrkBrandsId })
           if (mapping.bsbgBrandsId) targets.push({ supplier: 'basbug', supplierBrandId: mapping.bsbgBrandsId })
           if (targets.length === 0) {
             toast.error('Kaldırılacak tedarikçi bağlantısı bulunamadı.')

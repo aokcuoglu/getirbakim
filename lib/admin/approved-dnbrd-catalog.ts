@@ -4,7 +4,6 @@ import { Prisma } from '@prisma/client'
 export type AdminApprovedBrandMapping = {
   mappingId: number
   dnmkBrandsId: string | null
-  ptdrkBrandsId: number | null
   bsbgBrandsId: string | null
   dnmkBrand: string | null
   ptName: string | null
@@ -23,7 +22,7 @@ export type AdminApprovedBrandRow = {
 export type AdminApprovedBrandFilters = {
   q?: string
   logoStatus?: 'all' | 'missing' | 'has_logo'
-  matchSide?: 'all' | 'matched' | 'dinamik_only' | 'pt_only' | 'pending' | 'unmatched'
+  matchSide?: 'all' | 'matched' | 'dinamik_only' | 'basbug_only' | 'pending' | 'unmatched'
   page?: number
   limit?: number
   sort?: string
@@ -54,7 +53,7 @@ function normalizeFilters(input: AdminApprovedBrandFilters = {}) {
         ? logoStatus
         : ('all' as const),
     matchSide:
-      matchSide === 'matched' || matchSide === 'dinamik_only' || matchSide === 'pt_only' || matchSide === 'pending' || matchSide === 'unmatched'
+      matchSide === 'matched' || matchSide === 'dinamik_only' || matchSide === 'basbug_only' || matchSide === 'pending' || matchSide === 'unmatched'
         ? matchSide
         : ('all' as const),
     page,
@@ -91,7 +90,7 @@ function buildWhereClause(
       )
     `)
   } else if (filters.matchSide === 'dinamik_only') {
-    // Sadece dnmk tarafı dolu olan mapping var, ptdrk tarafı hiç dolu değil
+    // Sadece dnmk tarafı dolu olan mapping var, başbuğ tarafı hiç dolu değil
     clauses.push(Prisma.sql`
       EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
@@ -101,16 +100,16 @@ function buildWhereClause(
       AND NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
         WHERE m.brand_id = cb.id
-          AND m.ptdrk_brand_id IS NOT NULL
+          AND m.basbug_brand_id IS NOT NULL
       )
     `)
-  } else if (filters.matchSide === 'pt_only') {
-    // Sadece ptdrk tarafı dolu olan mapping var, dnmk tarafı hiç dolu değil
+  } else if (filters.matchSide === 'basbug_only') {
+    // Sadece başbuğ tarafı dolu olan mapping var, dnmk tarafı hiç dolu değil
     clauses.push(Prisma.sql`
       EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
         WHERE m.brand_id = cb.id
-          AND m.ptdrk_brand_id IS NOT NULL
+          AND m.basbug_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
@@ -125,28 +124,17 @@ function buildWhereClause(
         SELECT 1 FROM catalog.brand_mappings m
         WHERE m.brand_id = cb.id
           AND m.mapping_status = 'PENDING'
-          AND (m.dinamik_brand_id IS NOT NULL OR m.ptdrk_brand_id IS NOT NULL)
+          AND (m.dinamik_brand_id IS NOT NULL OR m.basbug_brand_id IS NOT NULL)
       )
     `)
   } else if (filters.matchSide === 'unmatched') {
-    // Sadece ptdrk bağlantısı olup dnmk ve BSBG'si olmayan
+    // Hiçbir tedarikçiye APPROVED bağı olmayan kanonik markalar
     clauses.push(Prisma.sql`
       NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
         WHERE m.brand_id = cb.id
-          AND m.dinamik_brand_id IS NOT NULL
-          AND m.ptdrk_brand_id IS NOT NULL
+          AND (m.dinamik_brand_id IS NOT NULL OR m.basbug_brand_id IS NOT NULL)
           AND m.mapping_status = 'APPROVED'
-      )
-      AND EXISTS (
-        SELECT 1 FROM catalog.brand_mappings m
-        WHERE m.brand_id = cb.id
-          AND m.ptdrk_brand_id IS NOT NULL
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM catalog.brand_mappings m
-        WHERE m.brand_id = cb.id
-          AND m.dinamik_brand_id IS NOT NULL
       )
       AND NOT EXISTS (
         SELECT 1 FROM catalog.brand_mappings m
@@ -211,7 +199,6 @@ export async function listApprovedDbrandsForAdmin(
     brand_id: number
     mapping_id: number
     dinamik_brand_id: bigint | null
-    ptdrk_brand_id: number | null
     basbug_brand_id: bigint | null
     dnmk_brand: string | null
     pt_name: string | null
@@ -226,7 +213,6 @@ export async function listApprovedDbrandsForAdmin(
         m.brand_id,
         m.id AS mapping_id,
         m.dinamik_brand_id,
-        m.ptdrk_brand_id,
         m.basbug_brand_id,
         d.brand AS dnmk_brand,
         pt.name AS pt_name,
@@ -235,7 +221,6 @@ export async function listApprovedDbrandsForAdmin(
         m.match_method
       FROM catalog.brand_mappings m
       LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
       WHERE m.brand_id IN (${Prisma.join(canonicalIds)})
       ORDER BY m.id
@@ -249,7 +234,6 @@ export async function listApprovedDbrandsForAdmin(
     arr.push({
       mappingId: m.mapping_id,
       dnmkBrandsId: m.dinamik_brand_id != null ? String(m.dinamik_brand_id) : null,
-      ptdrkBrandsId: m.ptdrk_brand_id,
       bsbgBrandsId: m.basbug_brand_id != null ? String(m.basbug_brand_id) : null,
       dnmkBrand: m.dnmk_brand,
       ptName: m.pt_name,
@@ -313,8 +297,7 @@ export async function getApprovedDbrandsMatchById(
     Array<{
       mapping_id: number
       dinamik_brand_id: bigint | null
-      ptdrk_brand_id: number | null
-      basbug_brand_id: bigint | null
+        basbug_brand_id: bigint | null
       dnmk_brand: string | null
       pt_name: string | null
       bsbg_brand: string | null
@@ -325,7 +308,6 @@ export async function getApprovedDbrandsMatchById(
     SELECT
       m.id AS mapping_id,
       m.dinamik_brand_id,
-      m.ptdrk_brand_id,
       m.basbug_brand_id,
       d.brand AS dnmk_brand,
       pt.name AS pt_name,
@@ -334,7 +316,6 @@ export async function getApprovedDbrandsMatchById(
       m.match_method
     FROM catalog.brand_mappings m
     LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
-    LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
     LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
     WHERE m.brand_id = ${matchId}
     ORDER BY m.id
@@ -347,7 +328,6 @@ export async function getApprovedDbrandsMatchById(
     mappings: mappings.map((m) => ({
       mappingId: m.mapping_id,
       dnmkBrandsId: m.dinamik_brand_id != null ? String(m.dinamik_brand_id) : null,
-      ptdrkBrandsId: m.ptdrk_brand_id,
       bsbgBrandsId: m.basbug_brand_id != null ? String(m.basbug_brand_id) : null,
       dnmkBrand: m.dnmk_brand,
       ptName: m.pt_name,
@@ -466,7 +446,6 @@ export async function mergeCanonicalBrands(
           FROM catalog.brand_mappings b
           WHERE b.brand_id = a.brand_id
             AND b.dinamik_brand_id IS NOT DISTINCT FROM a.dinamik_brand_id
-            AND b.ptdrk_brand_id IS NOT DISTINCT FROM a.ptdrk_brand_id
         )
       `
 

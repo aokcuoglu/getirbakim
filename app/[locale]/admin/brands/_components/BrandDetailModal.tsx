@@ -80,7 +80,6 @@ export function BrandDetailModal({
   if (!brand) return null
 
   const hasDnmk = brand.mappings.some((m) => m.dnmkBrand)
-  const hasPtdrk = brand.mappings.some((m) => m.ptName)
   const hasBsbg = brand.mappings.some((m) => m.bsbgBrand)
 
   const nameChanged = nameInput.trim() !== brand.normalizedName && nameInput.trim().length > 0
@@ -176,7 +175,6 @@ export function BrandDetailModal({
           </p>
           <div className="flex flex-wrap gap-x-6 gap-y-1.5">
             <ProviderStatus label="Dinamik" active={hasDnmk} />
-            <ProviderStatus label="P-Tedarik" active={hasPtdrk} />
             <ProviderStatus label="Başbuğ" active={hasBsbg} />
           </div>
         </div>
@@ -209,12 +207,6 @@ export function BrandDetailModal({
                         <>
                           <span className="text-muted-foreground">Dinamik:</span>
                           <span className="font-medium">{m.dnmkBrand}</span>
-                        </>
-                      )}
-                      {m.ptName && (
-                        <>
-                          <span className="text-muted-foreground">P-Tedarik:</span>
-                          <span className="font-medium">{m.ptName}</span>
                         </>
                       )}
                       {m.bsbgBrand && (

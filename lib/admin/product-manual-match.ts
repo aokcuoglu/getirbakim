@@ -5,7 +5,6 @@ import type {
   ListManualRowsResult,
   ManualCandidatesResult,
   ManualMatchBrand,
-  ManualPtdrkReference,
   ManualSimilarCandidate,
   ManualUnlinkedRow,
   ProductListSupplier,
@@ -19,8 +18,7 @@ import type {
  *   kanonik marka seç → o markanın APPROVED tedarikçi eşleşmeleri altındaki
  *   OFFER'I OLMAYAN dinamik/başbuğ ham satırlarını getir → seçilen satıra
  *   pg_trgm benzerlik oranıyla sıralı aday kanonik ürünleri göster →
- *   birini seçip offer oluştur (bağla). Parçatedarik yalnız referans/benzerlik
- *   ipucu olarak görünür (offer olamaz — product_offers'ta ptdrk FK'si yok).
+ *   birini seçip offer oluştur (bağla).
  *
  * Benzerlik skoru: 0.6*similarity(part_no_norm) + 0.4*similarity(name).
  */
@@ -45,7 +43,7 @@ export function isProductSupplier(value: unknown): value is ProductSupplierKey {
 }
 
 export function isProductListSupplier(value: unknown): value is ProductListSupplier {
-  return value === 'dinamik' || value === 'basbug' || value === 'ptdrk'
+  return value === 'dinamik' || value === 'basbug'
 }
 
 /**
@@ -213,7 +211,6 @@ export async function listUnlinkedRowsForBrand(input: {
   }
 }
 
-const ptdrkKey = normCodeSql(Prisma.sql`pp.part_no`)
 
 /** Seçilen ham satırın adı + normalize anahtarı (benzerlik kaynağı). */
 async function loadSourceNameKey(
@@ -230,21 +227,6 @@ async function loadSourceNameKey(
       JOIN catalog.brand_mappings bm
         ON bm.dinamik_brand_id = dp.brand_id AND bm.mapping_status = 'APPROVED'
       WHERE dp.id = ${supplierProductId}
-      LIMIT 1
-    `)
-    if (!row) return null
-    return { name: row.s_name ?? '', key: row.s_key, brandId: row.brand_id }
-  }
-  if (supplier === 'ptdrk') {
-    const [row] = await db.$queryRaw<
-      Array<{ s_name: string | null; s_key: string | null; brand_id: number }>
-    >(Prisma.sql`
-      SELECT COALESCE(NULLIF(pp.title, ''), pp.sku, pp.product_id) AS s_name,
-             ${ptdrkKey} AS s_key, bm.brand_id
-      FROM catalog.ptdrk_products pp
-      JOIN catalog.brand_mappings bm
-        ON bm.ptdrk_brand_id = pp.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
-      WHERE pp.id = ${supplierProductId}
       LIMIT 1
     `)
     if (!row) return null
@@ -274,7 +256,7 @@ const SIM_SCORE = (sKey: string | null, sName: string) => Prisma.sql`
 
 /**
  * Bir kaynak ham satıra pg_trgm benzerlik oranıyla sıralı aday kanonik ürünler
- * (aynı marka, bu tedarikçiden offer'ı olmayanlar) + Parçatedarik referansları.
+ * (aynı marka, bu tedarikçiden offer'ı olmayanlar).
  */
 export async function searchSimilarCandidates(input: {
   supplier: ProductListSupplier
@@ -283,7 +265,7 @@ export async function searchSimilarCandidates(input: {
 }): Promise<ManualCandidatesResult> {
   const limit = Math.min(Math.max(1, input.limit ?? 20), 50)
   const src = await loadSourceNameKey(input.supplier, input.supplierProductId)
-  if (!src) return { candidates: [], ptdrkReferences: [] }
+  if (!src) return { candidates: [] }
 
   const score = SIM_SCORE(src.key, src.name)
 
@@ -324,43 +306,7 @@ export async function searchSimilarCandidates(input: {
     }
   })
 
-  // Kaynak zaten Parçatedarik ise ptdrk referansları gösterilmez.
-  const ptdrkRows =
-    input.supplier === 'ptdrk'
-      ? []
-      : await db.$queryRaw<
-          Array<{
-            id: number
-            title: string
-            part_no: string | null
-            ref_no: string | null
-            price_actual: Prisma.Decimal | null
-            url: string
-            score: number
-          }>
-        >(Prisma.sql`
-          SELECT pp.id, pp.title, pp.part_no, pp.ref_no, pp.price_actual, pp.url,
-            COALESCE(similarity(pp.title, ${src.name}), 0) AS score
-          FROM catalog.ptdrk_products pp
-          JOIN catalog.brand_mappings bm
-            ON bm.ptdrk_brand_id = pp.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
-          WHERE bm.brand_id = ${src.brandId}
-            AND COALESCE(similarity(pp.title, ${src.name}), 0) > 0
-          ORDER BY score DESC, pp.id
-          LIMIT 5
-        `)
-
-  const ptdrkReferences: ManualPtdrkReference[] = ptdrkRows.map((r) => ({
-    ptdrkProductId: r.id.toString(),
-    title: r.title,
-    partNo: r.part_no,
-    refNo: r.ref_no,
-    priceActual: r.price_actual == null ? null : Number(r.price_actual),
-    url: r.url,
-    similarity: Number(r.score)
-  }))
-
-  return { candidates, ptdrkReferences }
+  return { candidates }
 }
 
 export type ManualLinkResult =
@@ -379,44 +325,6 @@ export async function manualLinkSupplierRow(input: {
   reviewedBy: string | null
 }): Promise<ManualLinkResult> {
   const { supplier, supplierProductId, productId, reviewedBy } = input
-
-  // Parçatedarik: offer DEĞİL — referans kaydı (product_ptdrk_refs).
-  if (supplier === 'ptdrk') {
-    return db.$transaction(async (tx) => {
-      const [src] = await tx.$queryRaw<Array<{ brand_id: number }>>(Prisma.sql`
-        SELECT bm.brand_id
-        FROM catalog.ptdrk_products pp
-        JOIN catalog.brand_mappings bm
-          ON bm.ptdrk_brand_id = pp.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
-        WHERE pp.id = ${supplierProductId}
-        LIMIT 1
-      `)
-      if (!src) return { ok: false as const, reason: 'NOT_FOUND' as const }
-
-      const [prod] = await tx.$queryRaw<Array<{ id: bigint }>>(Prisma.sql`
-        SELECT id FROM catalog.products WHERE id = ${productId} AND brand_id = ${src.brand_id} LIMIT 1
-      `)
-      if (!prod) return { ok: false as const, reason: 'BRAND_MISMATCH' as const }
-
-      const [linked] = await tx.$queryRaw<Array<{ one: number }>>(Prisma.sql`
-        SELECT 1 AS one FROM catalog.product_ptdrk_refs WHERE ptdrk_product_id = ${supplierProductId} LIMIT 1
-      `)
-      if (linked) return { ok: false as const, reason: 'ALREADY_LINKED' as const }
-
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO catalog.product_ptdrk_refs (product_id, ptdrk_product_id, matched_code, confidence, created_by)
-        SELECT ${productId}, ${supplierProductId}, ${ptdrkKey},
-          (COALESCE(similarity(p.part_no_norm, ${ptdrkKey}), 0) * 0.6 + COALESCE(similarity(p.name, COALESCE(NULLIF(pp.title,''), pp.sku, pp.product_id)), 0) * 0.4),
-          ${reviewedBy}
-        FROM catalog.products p
-        JOIN catalog.ptdrk_products pp ON pp.id = ${supplierProductId}
-        WHERE p.id = ${productId}
-        ON CONFLICT (ptdrk_product_id) DO NOTHING
-      `)
-
-      return { ok: true as const, productId: productId.toString() }
-    })
-  }
 
   return db.$transaction(async (tx) => {
     const src = await (async () => {
@@ -521,7 +429,6 @@ export async function manualLinkSupplierRow(input: {
 
 /**
  * Bir eşleşmeyi kaldırır (edit için): Dinamik/Başbuğ → offer'ı siler,
- * Parçatedarik → referans kaydını siler. Kanonik ürün silinmez.
  */
 export async function unlinkSupplierRow(input: {
   supplier: ProductListSupplier
@@ -529,11 +436,7 @@ export async function unlinkSupplierRow(input: {
 }): Promise<{ ok: boolean }> {
   const { supplier, supplierProductId } = input
   let deleted = 0
-  if (supplier === 'ptdrk') {
-    deleted = await db.$executeRaw(Prisma.sql`
-      DELETE FROM catalog.product_ptdrk_refs WHERE ptdrk_product_id = ${supplierProductId}
-    `)
-  } else if (supplier === SUPPLIER_DINAMIK) {
+  if (supplier === SUPPLIER_DINAMIK) {
     deleted = await db.$executeRaw(Prisma.sql`
       DELETE FROM catalog.product_offers WHERE dinamik_product_id = ${supplierProductId}
     `)

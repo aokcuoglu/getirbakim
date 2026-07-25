@@ -1,5 +1,16 @@
 import { db } from '@/lib/db'
 import {
+  getPartEnrichment,
+  STOREFRONT_LIMITS,
+  type EnrichmentHasMore,
+  type PartCode,
+  type PartDocument,
+  type PartImage,
+  type PartProperty,
+  type VehicleFitment
+} from '@/lib/catalog/part-enrichment'
+import { normalizeCode } from '@/lib/matching/code-normalization'
+import {
   buildCatalogPrice,
   resolveCatalogAvailability,
   resolveCatalogName,
@@ -8,9 +19,13 @@ import {
   type CatalogPriceView
 } from '@/lib/catalog/store-view'
 
-export interface CatalogVehicleFit {
+export type CatalogVehicleFit = VehicleFitment
+
+export interface CatalogCategoryRef {
   id: number
-  label: string
+  name: string
+  nameTr: string | null
+  urlKey: string | null
 }
 
 export interface CatalogProductDetailView {
@@ -19,37 +34,101 @@ export interface CatalogProductDetailView {
   partNo: string
   name: string
   brand: { id: number; name: string; logoUrl: string | null }
-  category: { id: number; name: string; nameTr: string | null; urlKey: string | null } | null
+  category: CatalogCategoryRef | null
+  /** Kök → yaprak kategori zinciri (public.part_categories.parent_id). */
+  categoryPath: CatalogCategoryRef[]
   status: string
   primaryImageUrl: string | null
-  images: Array<{ url: string; thumb: string | null }>
+  images: PartImage[]
   price: CatalogPriceView
   availability: CatalogAvailability
   totalStockQty: number
   offerCount: number
-  oems: Array<{ code: string; brand: string | null }>
+  oems: PartCode[]
+  crossReferences: PartCode[]
+  documents: PartDocument[]
   eans: string[]
-  properties: Array<{ key: string; value: string }>
+  properties: PartProperty[]
   vehicles: CatalogVehicleFit[]
+  /** part_vehicle_types ham satır sayısı — tanılama amaçlı, gösterilmez. */
   vehicleCount: number
+  /**
+   * Bölüm limite dayandı mı. Ham TecDoc satır sayıları mükerrer olduğu için
+   * "+N kayıt" yerine yalnızca "listede daha fazlası var" bilgisi taşınır.
+   */
+  hasMore: EnrichmentHasMore
   href: string
   updatedAt: string
 }
 
-function vehicleLabel(vt: {
-  name: string
-  fuel_type: string | null
-  hp: number | null
-  model: { name: string; brand: { name: string } } | null
-}): string {
-  const make = vt.model?.brand?.name?.trim()
-  const model = vt.model?.name?.trim()
-  const parts = [make, model, vt.name?.trim()].filter(Boolean)
-  const base = parts.join(' ')
-  const extras = [vt.hp ? `${vt.hp} HP` : null, vt.fuel_type?.trim() || null]
-    .filter(Boolean)
-    .join(', ')
-  return extras ? `${base} (${extras})` : base
+const CATEGORY_PATH_MAX_DEPTH = 5
+
+/**
+ * Kategori kırılımını yaprak düğümden köke doğru yürür ve kök → yaprak
+ * sırasında döner. Bozuk/döngüsel parent_id verisine karşı derinlik sınırlı.
+ */
+async function getCategoryPath(leafId: number): Promise<CatalogCategoryRef[]> {
+  const path: CatalogCategoryRef[] = []
+  const seen = new Set<number>()
+  let currentId: number | null = leafId
+
+  for (let depth = 0; depth < CATEGORY_PATH_MAX_DEPTH && currentId != null; depth++) {
+    if (seen.has(currentId)) break
+    seen.add(currentId)
+
+    // `id`'yi ayrı bir sabite al: sorgu argümanı doğrudan `currentId` olursa
+    // TS, satırın tipini kendi ataması üzerinden döngüsel çözmeye çalışır.
+    const id: number = currentId
+    const row: (CatalogCategoryRef & { parentId: number | null }) | null =
+      await db.part_categories
+        .findUnique({
+          where: { id },
+          select: { id: true, name: true, name_tr: true, url_key: true, parent_id: true }
+        })
+        .then((r) =>
+          r
+            ? {
+                id: r.id,
+                name: r.name,
+                nameTr: r.name_tr,
+                urlKey: r.url_key,
+                parentId: r.parent_id
+              }
+            : null
+        )
+    if (!row) break
+
+    path.unshift({
+      id: row.id,
+      name: row.name,
+      nameTr: row.nameTr,
+      urlKey: row.urlKey
+    })
+    currentId = row.parentId
+  }
+
+  return path
+}
+
+/**
+ * Katalog tarafındaki tedarikçi kaynaklı OEM'leri TecDoc (part_oens)
+ * kayıtlarıyla birleştirir. Aynı numara iki kaynakta da bulunabildiği için
+ * marka + normalize kod üzerinden tekilleştirilir; TecDoc kaydı marka bilgisi
+ * taşıdığı için önce gelir.
+ */
+function mergeOems(tecdoc: PartCode[], supplier: PartCode[]): PartCode[] {
+  const out: PartCode[] = []
+  const seen = new Set<string>()
+  for (const row of [...tecdoc, ...supplier]) {
+    const code = row.code?.trim()
+    if (!code) continue
+    const brand = row.brand?.trim() || null
+    const key = `${brand?.toUpperCase() ?? ''}|${normalizeCode(code)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ brand, code })
+  }
+  return out
 }
 
 /**
@@ -66,41 +145,21 @@ export async function getCatalogProductBySlug(
       brand: { select: { id: true, brand: true, logo_url: true } },
       category: { select: { id: true, name: true, name_tr: true, url_key: true } },
       product_overrides: true,
-      product_images: {
-        orderBy: [{ position: 'asc' }, { id: 'asc' }],
-        take: 12,
-        select: { url: true, thumb: true }
-      },
       product_oems: {
         orderBy: { id: 'asc' },
         take: 200,
         select: { code: true, oem_brand: true }
       },
-      product_eans: { take: 50, select: { code: true } },
-      product_properties: {
-        orderBy: { key: 'asc' },
-        take: 100,
-        select: { key: true, value: true }
-      },
-      product_vehicle_types: {
-        take: 80,
-        include: {
-          vehicle_type: {
-            select: {
-              id: true,
-              name: true,
-              fuel_type: true,
-              hp: true,
-              model: { select: { name: true, brand: { select: { name: true } } } }
-            }
-          }
-        }
-      },
-      _count: { select: { product_vehicle_types: true } }
+      product_eans: { take: 50, select: { code: true } }
     }
   })
 
   if (!product || product.status !== 'ACTIVE') return null
+
+  // Resim/özellik/OE/çapraz referans/doküman/araç uyumluluğu katalogda
+  // tutulmaz; onaylanmış product_part_links üzerinden public.part_*
+  // tablolarından canlı okunur.
+  const enrichment = await getPartEnrichment(product.id, STOREFRONT_LIMITS)
 
   const override = product.product_overrides
   const categoryOverrideId = override?.category_override_id ?? null
@@ -110,6 +169,7 @@ export async function getCatalogProductBySlug(
         select: { id: true, name: true, name_tr: true, url_key: true }
       })
     : product.category
+  const categoryPath = category ? await getCategoryPath(category.id) : []
 
   const price = buildCatalogPrice(product.min_selling_price_try)
   const availability = resolveCatalogAvailability({
@@ -117,11 +177,16 @@ export async function getCatalogProductBySlug(
     totalStockQty: product.total_stock_qty
   })
 
-  const images = product.product_images.map((img) => ({
-    url: img.url,
-    thumb: img.thumb
-  }))
+  const images = enrichment.images
   const primaryImageUrl = product.primary_image_url ?? images[0]?.url ?? null
+
+  const oems = mergeOems(
+    enrichment.oems,
+    product.product_oems.map((o) => ({ code: o.code, brand: o.oem_brand }))
+  )
+  const eans = [
+    ...new Set([...product.product_eans.map((e) => e.code), ...enrichment.eans])
+  ]
 
   return {
     id: product.id.toString(),
@@ -141,6 +206,7 @@ export async function getCatalogProductBySlug(
           urlKey: category.url_key
         }
       : null,
+    categoryPath,
     status: product.status,
     primaryImageUrl,
     images,
@@ -148,14 +214,14 @@ export async function getCatalogProductBySlug(
     availability,
     totalStockQty: product.total_stock_qty,
     offerCount: product.offer_count,
-    oems: product.product_oems.map((o) => ({ code: o.code, brand: o.oem_brand })),
-    eans: product.product_eans.map((e) => e.code),
-    properties: product.product_properties.map((p) => ({ key: p.key, value: p.value })),
-    vehicles: product.product_vehicle_types
-      .filter((pvt) => pvt.vehicle_type)
-      .map((pvt) => ({ id: pvt.vehicle_type!.id, label: vehicleLabel(pvt.vehicle_type!) }))
-      .filter((v) => v.label.length > 0),
-    vehicleCount: product._count.product_vehicle_types,
+    oems,
+    crossReferences: enrichment.crossReferences,
+    documents: enrichment.documents,
+    eans,
+    properties: enrichment.properties,
+    vehicles: enrichment.vehicles,
+    vehicleCount: enrichment.vehicleCount,
+    hasMore: enrichment.hasMore,
     href: catalogProductHref(product.slug ?? ''),
     updatedAt: product.updated_at.toISOString()
   }

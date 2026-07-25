@@ -43,12 +43,11 @@ const EMPTY: ProductListResult = {
 /**
  * Firma bazlı geçerli kapsam seçenekleri. Dinamik satırları eşleşince kanonik
  * ürünün mutlaka bir Dinamik offer'ı olur → "Yalnız Başbuğ" imkânsız (boş döner);
- * Başbuğ için tersi. Parçatedarik referans olduğundan üç seçenek de anlamlı.
+ * Başbuğ için tersi.
  */
 const COVERAGE_OPTIONS: Record<ProductListSupplier, ProductMatchCoverage[]> = {
   dinamik: ['both', 'dinamik'],
-  basbug: ['both', 'basbug'],
-  ptdrk: ['both', 'dinamik', 'basbug']
+  basbug: ['both', 'basbug']
 }
 
 function buildParams(f: Filters) {
@@ -150,8 +149,7 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
       <div>
         <h3 className="text-sm font-semibold text-foreground">Ürün Listesi</h3>
         <p className="text-xs text-muted-foreground">
-          Onaylı marka altındaki Dinamik, Başbuğ ve Parçatedarik ürünlerini listeleyin ve eşleştirin.
-          Parçatedarik referans olarak bağlanır (offer değil).
+          Onaylı marka altındaki Dinamik ve Başbuğ ürünlerini listeleyin ve eşleştirin.
         </p>
       </div>
 

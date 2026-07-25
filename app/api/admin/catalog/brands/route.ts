@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       matchSide:
         matchSide === 'matched' ||
         matchSide === 'dinamik_only' ||
-        matchSide === 'pt_only' ||
+        matchSide === 'basbug_only' ||
         matchSide === 'pending' ||
         matchSide === 'unmatched'
           ? matchSide
