@@ -21,6 +21,11 @@
     "postinstall": "prisma generate",
     "db:pull": "prisma db pull",
     "db:generate": "prisma generate",
+    "db:target": "bash scripts/db-guard.sh check",
+    "db:status": "bunx prisma migrate status",
+    "db:diff:check": "bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code",
+    "db:migration:new": "bash scripts/db-migration-new.sh",
+    "db:migrate": "bunx prisma migrate deploy",
     "search:setup": "bun scripts/meili-setup.ts",
     "search:debug-category": "bun scripts/debug-meili-category.ts"
   },

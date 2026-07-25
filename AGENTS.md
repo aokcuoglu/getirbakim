@@ -242,6 +242,48 @@ If a change affects inventory, price, order flow, or compatibility, call out the
 - If migrations are needed, keep them minimal and reversible where possible.
 - Explicitly note any backfill, migration, or data consistency risk.
 
+### Banned commands
+
+`prisma migrate dev`, `prisma migrate reset` and `prisma db push` must never be
+run against any database in this project — local included, local especially.
+
+They reconcile the dev database by dropping whatever does not match the
+datamodel. Local `public` holds a 129 GB TecDoc archive (`part_vehicle_types`
+alone is ~931M rows) that exists in no other environment and no backup, local has
+no `_prisma_migrations` table, and `migrate diff` currently reports 12 stray
+indexes plus a `parts.part_no` text→bigint rewrite waiting to fire.
+
+Use instead:
+
+```bash
+bun run db:target          # which database am I pointed at?
+bun run db:diff:check      # is the target in sync with schema.prisma? (exit 0 = yes)
+bun run db:migration:new <name>   # author a migration via a throwaway shadow DB
+bun run db:migrate         # prisma migrate deploy
+bun run db:status          # prisma migrate status
+```
+
+`scripts/db-migration-new.sh` replays the committed migration history into a
+disposable shadow database and diffs that against `schema.prisma`, so the dev
+database is never inspected or modified.
+
+### Schema and data ownership
+
+- **Schema flows one way**: `schema.prisma` → migration → `migrate deploy` → prod.
+  Local and prod must stay *structurally identical*; differences belong in data,
+  never in structure. An empty table in an environment costs nothing; a
+  structural difference breaks the next deploy.
+- **Writes to prod have exactly two channels**: `prisma migrate deploy`, and
+  idempotent additive scripts (`INSERT ... ON CONFLICT DO NOTHING`, scoped by the
+  `source` column, never `DELETE`/`TRUNCATE`). No ad-hoc `psql` writes.
+- **Never move `catalog` rows between environments by id.** `catalog.products.id`
+  values are *not* aligned between local and prod — sampled ids 100k/500k/900k
+  resolve to entirely different products. Match on the natural key (brand +
+  normalised part number) or re-derive in place.
+- Manual edits made by the team in the admin UI (`product_overrides`,
+  `source='MANUAL'` rows, `brand_mappings`) are authoritative. Any script that
+  touches those tables must leave them untouched.
+
 ---
 
 ## Testing and validation
