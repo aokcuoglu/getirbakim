@@ -902,13 +902,18 @@ model product_oems {
   product_id BigInt
   code       String // raw as received
   code_norm  String // normalizeOem()
-  oem_brand  String? // vehicle maker (from part_oens.brand when enriched)
+  // Vehicle maker (from part_oens.brand when enriched). '' = unknown, NOT null:
+  // one OEM code is shared across a maker group (55284051 → FIAT / ALFA ROMEO /
+  // LANCIA / ABARTH), so the brand belongs in the unique key — and a nullable
+  // column cannot join a unique key (Postgres counts NULLs as distinct, so
+  // ON CONFLICT DO NOTHING would stop deduping; Prisma rejects it outright).
+  oem_brand  String   @default("")
   source     String // 'BSBG' | 'DNMK' | 'PARTS' | 'MANUAL' | 'PART_NO'
   created_at DateTime @default(now()) @db.Timestamptz(6)
 
   product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
-  @@unique([product_id, code_norm], map: "uq_product_oems_product_code")
+  @@unique([product_id, code_norm, oem_brand], map: "uq_product_oems_product_code_brand")
   @@index([code_norm])
   @@index([source])
   @@schema("catalog")
