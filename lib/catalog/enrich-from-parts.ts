@@ -94,17 +94,21 @@ export async function enrichFromParts(options?: {
 
   const oemsCopied = await db.$executeRaw(Prisma.sql`
     INSERT INTO catalog.product_oems (product_id, code, code_norm, oem_brand, source)
-    SELECT DISTINCT ON (l.product_id, ${normCodeSql(Prisma.sql`po.code`)})
+    SELECT DISTINCT ON (
+      l.product_id, ${normCodeSql(Prisma.sql`po.code`)}, COALESCE(BTRIM(po.brand), '')
+    )
       l.product_id,
       po.code,
       ${normCodeSql(Prisma.sql`po.code`)},
-      NULLIF(po.brand, ''),
+      COALESCE(BTRIM(po.brand), ''),
       'PARTS'
     FROM catalog.product_part_links l
     JOIN public.part_oens po ON po.part_id = l.part_id
     WHERE l.status = 'APPROVED'
       AND ${normCodeSql(Prisma.sql`po.code`)} IS NOT NULL
-    ON CONFLICT (product_id, code_norm) DO NOTHING
+    ORDER BY
+      l.product_id, ${normCodeSql(Prisma.sql`po.code`)}, COALESCE(BTRIM(po.brand), ''), po.code
+    ON CONFLICT (product_id, code_norm, oem_brand) DO NOTHING
   `)
   log(`[catalog-enrich] +${oemsCopied} OEM codes copied`)
 

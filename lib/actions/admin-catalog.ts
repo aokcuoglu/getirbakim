@@ -203,7 +203,9 @@ export async function getAdminCatalogProductDetail(
         orderBy: [{ is_active: 'desc' }, { selling_price_try: 'asc' }],
         include: { supplier: { select: { name: true } } }
       },
-      product_oems: { orderBy: { id: 'asc' }, take: 200 },
+      // Limit, marka varyantlarını da barındırmalı: tek bir OEM kodu bir araç
+      // markası grubunun her markası için ayrı satır taşıyabilir.
+      product_oems: { orderBy: { id: 'asc' }, take: 600 },
       product_eans: {
         orderBy: { id: 'asc' },
         take: 200,
@@ -260,7 +262,7 @@ export async function getAdminCatalogProductDetail(
     })),
     oems: product.product_oems.map((o) => ({
       code: o.code,
-      brand: o.oem_brand,
+      brand: o.oem_brand || null,
       source: o.source
     })),
     eans: product.product_eans.map((e) => ({ code: e.code, source: e.source })),
@@ -391,10 +393,10 @@ async function loadProductOems(
   const rows = await db.product_oems.findMany({
     where: { product_id: productId },
     orderBy: { id: 'asc' },
-    take: 200,
+    take: 600,
     select: { code: true, oem_brand: true, source: true }
   })
-  return rows.map((o) => ({ code: o.code, brand: o.oem_brand, source: o.source }))
+  return rows.map((o) => ({ code: o.code, brand: o.oem_brand || null, source: o.source }))
 }
 
 /** Ürünün güncel EAN listesini getirir. */
@@ -435,12 +437,13 @@ export async function addCatalogProductOem(
   }
 
   const values = parsed.map(
-    (p) => Prisma.sql`(${product.productId}, ${p.code}, ${p.codeNorm}, ${p.brand}, 'MANUAL')`
+    (p) =>
+      Prisma.sql`(${product.productId}, ${p.code}, ${p.codeNorm}, ${p.brand?.trim() ?? ''}, 'MANUAL')`
   )
   const inserted = await db.$executeRaw(Prisma.sql`
     INSERT INTO catalog.product_oems (product_id, code, code_norm, oem_brand, source)
     VALUES ${Prisma.join(values)}
-    ON CONFLICT (product_id, code_norm) DO NOTHING
+    ON CONFLICT (product_id, code_norm, oem_brand) DO NOTHING
   `)
 
   revalidateCatalogAdmin(product.slug)
@@ -452,7 +455,12 @@ export async function addCatalogProductOem(
   }
 }
 
-/** Yalnızca MANUAL kaynaklı bir OEM'i siler. */
+/**
+ * Yalnızca MANUAL kaynaklı bir OEM'i siler. `brand` verilirse yalnız o marka
+ * varyantını hedefler — aynı kod birden çok araç markası altında ayrı satır
+ * olarak durabildiği için (unique key: product_id + code_norm + oem_brand),
+ * markasız silme kodun tüm varyantlarını süpürürdü.
+ */
 export async function removeCatalogProductOem(
   input: MutateProductCodeInput
 ): Promise<MutateProductOemResult> {
@@ -470,9 +478,15 @@ export async function removeCatalogProductOem(
     }
   }
 
+  const brandFilter =
+    input.brand === undefined
+      ? Prisma.empty
+      : Prisma.sql`AND oem_brand = ${input.brand?.trim() ?? ''}`
+
   await db.$executeRaw(Prisma.sql`
     DELETE FROM catalog.product_oems
     WHERE product_id = ${product.productId} AND code_norm = ${codeNorm} AND source = 'MANUAL'
+      ${brandFilter}
   `)
 
   revalidateCatalogAdmin(product.slug)

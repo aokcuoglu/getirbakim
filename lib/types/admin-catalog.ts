@@ -119,6 +119,12 @@ export interface AdminCatalogActionResult {
 export interface MutateProductCodeInput {
   id: string
   code: string
+  /**
+   * OEM silmede marka varyantını hedefler (bkz. removeCatalogProductOem).
+   * Verilmezse kodun tüm marka varyantları silinir. EAN mutasyonlarında
+   * kullanılmaz.
+   */
+  brand?: string | null
 }
 
 export interface MutateProductOemResult extends AdminCatalogActionResult {

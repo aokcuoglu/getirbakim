@@ -14,22 +14,29 @@ const tokenNorm = normCodeSql(Prisma.sql`tok`)
  * the supplier OEM bridge) into normalized
  * catalog.product_oems rows.
  * Tokens shorter than 4 normalized chars are dropped as noise.
- * Idempotent: unique (product_id, code_norm) + ON CONFLICT DO NOTHING.
+ *
+ * Supplier OEM strings carry no vehicle maker, so oem_brand is '' (unknown) —
+ * these rows can therefore coexist with brand-carrying PARTS rows for the same
+ * code, which is why the display layer drops the brand-less duplicate.
+ *
+ * Idempotent: unique (product_id, code_norm, oem_brand) + ON CONFLICT DO NOTHING.
  */
 export async function ingestDinamikOems(): Promise<number> {
   const inserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO catalog.product_oems (product_id, code, code_norm, source)
+    INSERT INTO catalog.product_oems (product_id, code, code_norm, oem_brand, source)
     SELECT DISTINCT ON (po.product_id, ${tokenNorm})
       po.product_id,
       TRIM(tok),
       ${tokenNorm},
+      '',
       'DNMK'
     FROM catalog.product_offers po
     JOIN catalog.supplier_dinamik_products dp ON dp.id = po.dinamik_product_id
     CROSS JOIN LATERAL regexp_split_to_table(COALESCE(dp.oem_no, ''), '[;,]| - ') AS tok
     WHERE ${tokenNorm} IS NOT NULL
       AND LENGTH(${tokenNorm}) >= 4
-    ON CONFLICT (product_id, code_norm) DO NOTHING
+    ORDER BY po.product_id, ${tokenNorm}, TRIM(tok)
+    ON CONFLICT (product_id, code_norm, oem_brand) DO NOTHING
   `)
 
   return Number(inserted)
@@ -38,18 +45,20 @@ export async function ingestDinamikOems(): Promise<number> {
 /** Same as ingestDinamikOems, for Başbuğ (supplier_basbug_products.oem_no). */
 export async function ingestBasbugOems(): Promise<number> {
   const inserted = await db.$executeRaw(Prisma.sql`
-    INSERT INTO catalog.product_oems (product_id, code, code_norm, source)
+    INSERT INTO catalog.product_oems (product_id, code, code_norm, oem_brand, source)
     SELECT DISTINCT ON (po.product_id, ${tokenNorm})
       po.product_id,
       TRIM(tok),
       ${tokenNorm},
+      '',
       'BSBG'
     FROM catalog.product_offers po
     JOIN catalog.supplier_basbug_products bp ON bp.id = po.basbug_product_id
     CROSS JOIN LATERAL regexp_split_to_table(COALESCE(bp.oem_no, ''), '[;,]| - ') AS tok
     WHERE ${tokenNorm} IS NOT NULL
       AND LENGTH(${tokenNorm}) >= 4
-    ON CONFLICT (product_id, code_norm) DO NOTHING
+    ORDER BY po.product_id, ${tokenNorm}, TRIM(tok)
+    ON CONFLICT (product_id, code_norm, oem_brand) DO NOTHING
   `)
 
   return Number(inserted)

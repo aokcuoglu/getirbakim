@@ -234,8 +234,12 @@ export function CatalogProductDetailSheet({
               onSaved()
               return true
             }}
-            onRemove={async (code) => {
-              const res = await removeCatalogProductOem({ id: detail.id, code })
+            onRemove={async (item) => {
+              const res = await removeCatalogProductOem({
+                id: detail.id,
+                code: item.code,
+                brand: item.extra ?? ''
+              })
               if (!res.success) {
                 toast.error(res.message)
                 return
@@ -263,8 +267,8 @@ export function CatalogProductDetailSheet({
               onSaved()
               return true
             }}
-            onRemove={async (code) => {
-              const res = await removeCatalogProductEan({ id: detail.id, code })
+            onRemove={async (item) => {
+              const res = await removeCatalogProductEan({ id: detail.id, code: item.code })
               if (!res.success) {
                 toast.error(res.message)
                 return
@@ -407,6 +411,13 @@ interface CodeItem {
 }
 
 /**
+ * Satır kimliği. `extra` (OEM'de araç markası) dahil: aynı kod, aynı kaynak
+ * altında birden çok marka varyantı olarak listelenebilir — key'e girmezse
+ * React'te çakışır, silme sırasında da yanlış satır hedeflenir.
+ */
+const codeKey = (c: CodeItem) => `${c.source}:${c.code}:${c.extra ?? ''}`
+
+/**
  * Kanonik ürünün kimlik havuzunu (OEM/çapraz veya EAN) listeler + manuel
  * ekleme/silme yapar. Sync kaynaklı (DNMK/BSBG/PARTS) satırlar salt-okunur;
  * yalnız MANUAL kayıtlarda kaldır (X) görünür. Mutasyonlar anında kaydeder.
@@ -424,7 +435,7 @@ function CodeEditor({
   placeholder: string
   hint?: string
   onAdd: (code: string) => Promise<boolean>
-  onRemove: (code: string) => Promise<void>
+  onRemove: (item: CodeItem) => Promise<void>
 }) {
   const [value, setValue] = useState('')
   const [adding, setAdding] = useState(false)
@@ -439,9 +450,9 @@ function CodeEditor({
     if (ok) setValue('')
   }
 
-  const handleRemove = async (code: string) => {
-    setRemoving(code)
-    await onRemove(code)
+  const handleRemove = async (item: CodeItem) => {
+    setRemoving(codeKey(item))
+    await onRemove(item)
     setRemoving(null)
   }
 
@@ -456,7 +467,7 @@ function CodeEditor({
         <ul className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-border p-2">
           {codes.map((c) => (
             <li
-              key={`${c.source}:${c.code}`}
+              key={codeKey(c)}
               className="flex items-center gap-2 text-xs"
             >
               <span className="font-mono text-foreground">{c.code}</span>
@@ -469,8 +480,8 @@ function CodeEditor({
                   <button
                     type="button"
                     aria-label="Kaldır"
-                    onClick={() => void handleRemove(c.code)}
-                    disabled={removing === c.code}
+                    onClick={() => void handleRemove(c)}
+                    disabled={removing === codeKey(c)}
                     className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50"
                   >
                     {removing === c.code ? (

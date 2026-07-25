@@ -117,18 +117,25 @@ async function getCategoryPath(leafId: number): Promise<CatalogCategoryRef[]> {
  * taşıdığı için önce gelir.
  */
 function mergeOems(tecdoc: PartCode[], supplier: PartCode[]): PartCode[] {
-  const out: PartCode[] = []
+  const rows: Array<PartCode & { codeNorm: string }> = []
   const seen = new Set<string>()
+  const brandedCodes = new Set<string>()
   for (const row of [...tecdoc, ...supplier]) {
     const code = row.code?.trim()
     if (!code) continue
     const brand = row.brand?.trim() || null
-    const key = `${brand?.toUpperCase() ?? ''}|${normalizeCode(code)}`
+    const codeNorm = normalizeCode(code)
+    const key = `${brand?.toUpperCase() ?? ''}|${codeNorm}`
     if (seen.has(key)) continue
     seen.add(key)
-    out.push({ brand, code })
+    if (brand) brandedCodes.add(codeNorm)
+    rows.push({ brand, code, codeNorm })
   }
-  return out
+  // Tedarikçi OEM dizeleri marka taşımadığı için markasız satır üretir; aynı kod
+  // TecDoc'tan markalı olarak da geldiyse markasız kopya bilgi katmaz, düşer.
+  return rows
+    .filter((r) => r.brand !== null || !brandedCodes.has(r.codeNorm))
+    .map(({ brand, code }) => ({ brand, code }))
 }
 
 /**
@@ -147,7 +154,9 @@ export async function getCatalogProductBySlug(
       product_overrides: true,
       product_oems: {
         orderBy: { id: 'asc' },
-        take: 200,
+        // Limit marka varyantlarını da barındırmalı — tek bir OEM kodu bir araç
+        // markası grubunun her markası için ayrı satır taşıyabilir.
+        take: 600,
         select: { code: true, oem_brand: true }
       },
       product_eans: { take: 50, select: { code: true } }

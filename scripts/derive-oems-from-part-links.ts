@@ -37,20 +37,28 @@ async function main() {
 
   const result = await db.$transaction(
     async (tx) => {
-      // Ürün başına code_norm bazında tekilleştir; aynı ürün birden fazla parçaya
-      // bağlı olabilir ve parçalar aynı OEM kodunu paylaşabilir.
+      // Ürün başına (code_norm, oem_brand) bazında tekilleştir; aynı ürün birden
+      // fazla parçaya bağlı olabilir ve parçalar aynı OEM kodunu paylaşabilir.
+      // Marka tekilleştirmeye dahil: tek bir OEM kodu araç markası grubunun
+      // tamamında geçer (55284051 → FIAT / ALFA ROMEO / LANCIA / ABARTH) ve
+      // hepsi ayrı satır olarak korunmalı.
+      //
+      // order by, distinct on ile aynı öneki paylaşmak zorunda — ham `code`
+      // tiebreak'i aynı normalize koda ait biçim varyantları ("55 284 051" vs
+      // "55284051") arasındaki seçimi deterministik yapar.
       await tx.$executeRaw`
         create temp table staged on commit drop as
-        select distinct on (l.product_id, ${Prisma.raw(SQL_NORM('po.code'))})
+        select distinct on (l.product_id, ${Prisma.raw(SQL_NORM('po.code'))}, coalesce(btrim(po.brand), ''))
                l.product_id,
                po.code,
                ${Prisma.raw(SQL_NORM('po.code'))} as code_norm,
-               nullif(btrim(po.brand), '') as oem_brand
+               coalesce(btrim(po.brand), '') as oem_brand
         from catalog.product_part_links l
         join part_oens po on po.part_id = l.part_id
         where l.status = 'CONFIRMED'
           and length(${Prisma.raw(SQL_NORM('po.code'))}) between 4 and 30
           and ${Prisma.raw(SQL_NORM('po.code'))} ~ '[0-9]'
+        order by l.product_id, ${Prisma.raw(SQL_NORM('po.code'))}, coalesce(btrim(po.brand), ''), po.code
       `
       const [staged] = await tx.$queryRaw<{ satir: bigint; urun: bigint }[]>`
         select count(*) satir, count(distinct product_id) urun from staged
@@ -64,7 +72,7 @@ async function main() {
       const inserted = await tx.$executeRaw`
         insert into catalog.product_oems (product_id, code, code_norm, oem_brand, source)
         select product_id, code, code_norm, oem_brand, ${SOURCE} from staged
-        on conflict (product_id, code_norm) do nothing
+        on conflict (product_id, code_norm, oem_brand) do nothing
       `
       return { staged, deleted, inserted }
     },
