@@ -2,9 +2,7 @@ export type V0BrandMatchRow = {
   matchId: number
   dnbrdId: string | null
   dnbrdIds: string[]
-  ptbrdId: number | null
   brandName: string
-  ptUrlKey: string | null
   logoUrl: string | null
   slug: string
   brandListIds: number[]

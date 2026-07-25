@@ -24,7 +24,7 @@ export async function BrandsAdminContent({
     matchSide:
       matchSide === 'matched' ||
       matchSide === 'dinamik_only' ||
-      matchSide === 'pt_only'
+      matchSide === 'basbug_only'
         ? matchSide
         : 'all',
     page: parseInt(searchParams.page ?? '1', 10),

@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     return errorResponse({
       status: 400,
       code: 'INVALID_SUPPLIER',
-      message: `Geçersiz tedarikçi: ${supplier}. İzin verilenler: dinamik, basbug, ptdrk`,
+      message: `Geçersiz tedarikçi: ${supplier}. İzin verilenler: dinamik, basbug`,
       context
     })
   }

@@ -5,14 +5,14 @@ import { Link } from '@/lib/navigation'
 import { AdminPageHeader, AdminPageShell } from '@/components/admin/admin-page-shell'
 import { AdminTablePageSkeleton } from '@/components/admin/admin-table-page-skeleton'
 import { getAdminBreadcrumbs } from '@/lib/admin/breadcrumbs'
-import { ProductsAdminClient } from './_components/ProductsAdminClient'
+import { CatalogProductsContent } from './_components/CatalogProductsContent'
 
 export const dynamic = 'force-dynamic'
 
 export default async function AdminProductsPage(props: {
   searchParams: Promise<Record<string, string | undefined>>
 }) {
-  await props.searchParams
+  const searchParams = await props.searchParams
 
   return (
     <AdminPageShell width="wide">
@@ -44,7 +44,7 @@ export default async function AdminProductsPage(props: {
         }
       />
       <Suspense fallback={<AdminTablePageSkeleton kpiCount={4} />}>
-        <ProductsAdminClient />
+        <CatalogProductsContent searchParams={searchParams} />
       </Suspense>
     </AdminPageShell>
   )

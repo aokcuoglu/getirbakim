@@ -1,12 +1,10 @@
 'use client'
 
 import {
-  AlertTriangle,
   ArrowRight,
   Clock,
   Layers,
   Link2,
-  Package,
   Plug,
   Truck
 } from 'lucide-react'
@@ -29,7 +27,6 @@ import type {
 
 const providerIcons = {
   dinamik: Truck,
-  parcatedarik: Package,
   basbug: Plug
 } as const
 
@@ -84,14 +81,6 @@ function SummaryStrip({ overview }: { overview: SuppliersHubOverview }) {
       value: summary.pendingModelMatches.toLocaleString('tr-TR'),
       sub: 'dpprd PENDING'
     },
-    {
-      label: 'ParçaTedarik ürün',
-      value: summary.parcaProducts.toLocaleString('tr-TR'),
-      sub:
-        summary.parcaBrokenUrls > 0
-          ? `${summary.parcaBrokenUrls.toLocaleString('tr-TR')} bozuk URL`
-          : 'URL sağlığı iyi'
-    }
   ]
 
   return (
@@ -231,16 +220,7 @@ function ProviderCard({ provider }: { provider: SuppliersHubProviderCard }) {
           </div>
         ) : null}
 
-        {provider.id === 'parcatedarik' &&
-        provider.metrics.some((m) => m.label.includes('Bozuk') && m.value > 0) ? (
-          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-            <span>
-              Bazı ürün URL’leri eksik veya geçersiz. Eşleştirme çalışır; scraper
-              düzeltmesi sonraya bırakıldı.
-            </span>
-          </div>
-        ) : null}
+
 
         <div>
           <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

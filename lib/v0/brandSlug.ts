@@ -1,10 +1,14 @@
 import { toCategorySlug } from '@/lib/seo/sitemap'
 
+/**
+ * Marka sayfası slug'ı. `storedSlug` catalog.brands.slug'tan gelir; boşsa
+ * marka adından türetilir.
+ */
 export function toBrandSlug(
-  ptUrlKey: string | null | undefined,
+  storedSlug: string | null | undefined,
   brandName: string
 ): string {
-  return toCategorySlug(ptUrlKey, brandName)
+  return toCategorySlug(storedSlug, brandName)
 }
 
 export function buildBrandPath(slug: string): string {

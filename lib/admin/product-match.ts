@@ -57,19 +57,6 @@ export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
       )
   `)
 
-  const [ptdrk] = await db.$queryRaw<Array<{ total: bigint; linked: bigint }>>(Prisma.sql`
-    SELECT
-      COUNT(*)::bigint AS total,
-      COUNT(*) FILTER (
-        WHERE EXISTS (SELECT 1 FROM catalog.product_ptdrk_refs pr WHERE pr.ptdrk_product_id = pp.id)
-      )::bigint AS linked
-    FROM catalog.ptdrk_products pp
-    WHERE EXISTS (
-      SELECT 1 FROM catalog.brand_mappings bm
-      WHERE bm.ptdrk_brand_id = pp.ptdrk_brands_id AND bm.mapping_status = 'APPROVED'
-    )
-  `)
-
   const [totals] = await db.$queryRaw<
     Array<{ products: bigint; offers: bigint; dual: bigint; pending: bigint }>
   >(Prisma.sql`
@@ -100,8 +87,7 @@ export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
   return {
     suppliers: [
       { supplier: 'dinamik', ...cov(dinamik) },
-      { supplier: 'basbug', ...cov(basbug) },
-      { supplier: 'ptdrk', ...cov(ptdrk) }
+      { supplier: 'basbug', ...cov(basbug) }
     ],
     canonicalProducts: Number(totals?.products ?? 0),
     totalOffers: Number(totals?.offers ?? 0),

@@ -2,7 +2,6 @@ import 'server-only'
 
 import { unstable_cache } from 'next/cache'
 import { Prisma } from '@prisma/client'
-import { getDinamikBrandMatchStats } from '@/lib/admin/dinamik-brand-match-stats'
 import { db } from '@/lib/db'
 import type {
   MappingStatusCounts,
@@ -51,47 +50,6 @@ async function getDbrandsMatchCounts(): Promise<MappingStatusCounts> {
   return mapStatusCounts(rows)
 }
 
-async function getParcaCatalogStats(): Promise<{
-  products: number
-  manufacturers: number
-  brokenUrls: number
-  withModel: number
-}> {
-  const [productRow, manufacturerRow] = await Promise.all([
-    db.$queryRaw<
-      Array<{
-        products: bigint
-        broken_urls: bigint
-        with_model: bigint
-      }>
-    >(Prisma.sql`
-      SELECT
-        COUNT(*)::bigint AS products,
-        COUNT(*) FILTER (
-          WHERE p.url IS NULL
-            OR BTRIM(p.url) = ''
-            OR p.url NOT LIKE 'http%'
-        )::bigint AS broken_urls,
-        COUNT(*) FILTER (
-          WHERE p.part_no IS NOT NULL
-            AND BTRIM(p.part_no) <> ''
-        )::bigint AS with_model
-      FROM catalog.ptdrk_products p
-    `),
-    db.$queryRaw<Array<{ manufacturers: bigint }>>(Prisma.sql`
-      SELECT COUNT(*)::bigint AS manufacturers FROM catalog.ptdrk_brands
-    `)
-  ])
-
-  const row = productRow[0]
-  return {
-    products: Number(row?.products ?? 0),
-    manufacturers: Number(manufacturerRow[0]?.manufacturers ?? 0),
-    brokenUrls: Number(row?.broken_urls ?? 0),
-    withModel: Number(row?.with_model ?? 0)
-  }
-}
-
 async function getDinamikCatalogRowCount(): Promise<number> {
   const [estimateRow] = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
     SELECT COALESCE(c.reltuples, 0)::bigint AS count
@@ -109,88 +67,72 @@ async function getDinamikCatalogRowCount(): Promise<number> {
   return Number(exactRow?.count ?? 0)
 }
 
-async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
-  const [brandStats, dnbrdMatch, parcaStats, dinamikRowCount] =
-    await Promise.all([
-      getDinamikBrandMatchStats(),
-      getDbrandsMatchCounts(),
-      getParcaCatalogStats(),
-      getDinamikCatalogRowCount()
-    ])
+async function getSupplierOfferCounts(): Promise<Record<string, number>> {
+  const rows = await db.$queryRaw<Array<{ supplier_code: string; count: bigint }>>(Prisma.sql`
+    SELECT supplier_code, COUNT(*)::bigint AS count
+    FROM catalog.product_offers
+    GROUP BY supplier_code
+  `)
+  return Object.fromEntries(rows.map((r) => [r.supplier_code, Number(r.count)]))
+}
 
-  const parcaCard: SuppliersHubProviderCard = {
-    id: 'parcatedarik',
-    name: 'ParçaTedarik',
-    subtitle: 'Referans katalog — üretici ve ürün URL\'leri',
-    integrationStatus: parcaStats.brokenUrls > 0 ? 'partial' : 'active',
-    baseUrl: 'https://www.parcatedarik.com',
+async function loadSuppliersHubOverviewData(): Promise<SuppliersHubOverview> {
+  const [brandMappings, dinamikRowCount, offerCounts] = await Promise.all([
+    getDbrandsMatchCounts(),
+    getDinamikCatalogRowCount(),
+    getSupplierOfferCounts()
+  ])
+
+  const buildCard = (
+    id: 'dinamik' | 'basbug',
+    name: string,
+    subtitle: string,
+    catalogRows: number
+  ): SuppliersHubProviderCard => ({
+    id,
+    name,
+    subtitle,
+    integrationStatus: 'active',
+    baseUrl: null,
     lastSyncAt: null,
     syncHealth: null,
     metrics: [
-      {
-        label: 'Üretici',
-        value: parcaStats.manufacturers
-      },
-      {
-        label: 'Ürün kaydı',
-        value: parcaStats.products
-      },
-      {
-        label: 'Model normalize',
-        value: parcaStats.withModel
-      },
-      {
-        label: 'Bozuk / eksik URL',
-        value: parcaStats.brokenUrls,
-        hint: 'Sonra düzeltilecek — scraper veya import'
-      }
+      { label: 'Katalog satırı', value: catalogRows },
+      { label: 'Aktif teklif', value: offerCounts[id] ?? 0 }
     ],
     pipeline: [
       {
-        id: 'manufacturers',
-        label: 'Üreticiler',
-        description: 'Eşleştirme hedef marka havuzu',
-        count: parcaStats.manufacturers,
-        href: '/admin/brands',
+        id: 'brands',
+        label: 'Marka eşleştirme',
+        description: 'Onaylı kanonik marka bağları',
+        count: brandMappings.approved,
+        href: '/admin/eslestirme',
+        status: brandMappings.pending > 0 ? 'warning' : 'ok'
+      },
+      {
+        id: 'offers',
+        label: 'Ürün teklifleri',
+        description: 'Fiyat/stok verebildiğimiz satırlar',
+        count: offerCounts[id] ?? 0,
+        href: '/admin/eslestirme',
         status: 'ok'
-      },
-      {
-        id: 'products',
-        label: 'Ürünler',
-        description: 'PT sitesinden toplanan ürün satırları',
-        count: parcaStats.products,
-        href: '/admin/products',
-        status: parcaStats.brokenUrls > 0 ? 'warning' : 'ok'
-      },
-      {
-        id: 'brand-links',
-        label: 'Marka bağları',
-        description: 'dpbrd onaylı kayıtlar',
-        count: dnbrdMatch.approved,
-        href: '/admin/brands',
-        status: dnbrdMatch.pending > 0 ? 'warning' : 'ok'
       }
     ],
-    actions: [
-      {
-        label: 'Marka eşleştir',
-        href: '/admin/brands',
-        variant: 'primary'
-      }
-    ]
-  }
+    actions: [{ label: 'Eşleştirmeye git', href: '/admin/eslestirme', variant: 'primary' }]
+  })
 
   return {
     generatedAt: new Date().toISOString(),
     summary: {
       totalDinamikProducts: dinamikRowCount,
-      unmatchedDinamikBrands: brandStats.unmatchedBrands,
-      pendingBrandMatches: dnbrdMatch.pending,
-      pendingModelMatches: 0,
-      parcaProducts: parcaStats.products,
-      parcaBrokenUrls: parcaStats.brokenUrls
+      unmatchedDinamikBrands: brandMappings.pending,
+      pendingBrandMatches: brandMappings.pending,
+      pendingModelMatches: 0
     },
-    providers: [parcaCard]
+    providers: [
+      buildCard('dinamik', 'Dinamik Otomotiv', 'Ana katalog kaynağı', dinamikRowCount),
+      buildCard('basbug', 'Başbuğ Otomotiv', 'OEM bilgisi olan ikincil kaynak', offerCounts.basbug ?? 0)
+    ]
   }
 }
 

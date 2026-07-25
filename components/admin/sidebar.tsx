@@ -15,8 +15,7 @@ import {
   Truck,
   GitCompare,
   ChevronsUpDown,
-  Tags,
-  Boxes
+  Tags
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, usePathname } from '@/lib/navigation'
@@ -338,14 +337,6 @@ export function Sidebar({
     {
       title: 'Katalog & Satış',
       items: [
-        {
-          icon: Boxes,
-          label: 'Katalog Ürünleri',
-          href: '/admin/catalog/products',
-          active:
-            pathname === '/admin/catalog/products' ||
-            pathname.startsWith('/admin/catalog/')
-        },
         {
           icon: Package,
           label: 'Ürünler',

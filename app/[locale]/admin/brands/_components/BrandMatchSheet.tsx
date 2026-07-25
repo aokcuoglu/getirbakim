@@ -28,7 +28,6 @@ interface BrandListCandidate {
   brand: string
   logo_url: string | null
   dnmk_count: number
-  ptdrk_count: number
 }
 
 export function BrandMatchSheet({
@@ -61,12 +60,11 @@ export function BrandMatchSheet({
         // Exclude the source itself from results
         const rows: BrandListCandidate[] = (data.rows || [])
           .filter((r: { id: number }) => r.id !== source?.id)
-          .map((r: { id: number; normalizedName: string; logoUrl: string | null; mappings: Array<{ dnmkBrandsId: string | null; ptdrkBrandsId: number | null }> }) => ({
+          .map((r: { id: number; normalizedName: string; logoUrl: string | null; mappings: Array<{ dnmkBrandsId: string | null }> }) => ({
             id: r.id,
             brand: r.normalizedName,
             logo_url: r.logoUrl,
             dnmk_count: r.mappings.filter((m: { dnmkBrandsId: string | null }) => m.dnmkBrandsId).length,
-            ptdrk_count: r.mappings.filter((m: { ptdrkBrandsId: number | null }) => m.ptdrkBrandsId).length
           }))
         setCandidates(rows)
       } catch {
@@ -197,7 +195,7 @@ export function BrandMatchSheet({
                   <div className="min-w-0">
                     <p className="font-medium truncate">{c.brand}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      id: {c.id} · dnmk: {c.dnmk_count} · ptdrk: {c.ptdrk_count}
+                      id: {c.id} · dnmk: {c.dnmk_count}
                     </p>
                   </div>
                 </button>
@@ -218,7 +216,7 @@ export function BrandMatchSheet({
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Tüm dnmk/ptdrk/bsbg mapping'ler hedefe taşınır, kaynak brand_list silinir.
+                Tüm dnmk/bsbg mapping'ler hedefe taşınır, kaynak brand_list silinir.
               </p>
               <Button
                 size="sm"

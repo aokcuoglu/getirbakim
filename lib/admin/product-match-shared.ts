@@ -2,8 +2,8 @@
  * Ürün eşleştirme — client-safe sabitler ve tipler (SERVER bağımlılığı YOK).
  * DB erişen fonksiyonlar `product-match.ts` içindedir.
  *
- * Not: ürün eşleştirme yalnız Dinamik ve Başbuğ içindir — Parçatedarik ürünleri
- * `product_offers`'a girmez (OEM zenginleştirme kaynağıdır).
+ * Ürün eşleştirme yalnız Dinamik ve Başbuğ içindir; fiyat/stok verebildiğimiz
+ * kaynaklar bunlar.
  */
 
 export type ProductSupplierKey = 'dinamik' | 'basbug'
@@ -15,25 +15,14 @@ export const PRODUCT_SUPPLIER_LABELS: Record<ProductSupplierKey, string> = {
   basbug: 'Başbuğ'
 }
 
-/**
- * Liste/eşleştirme tarafında görünen tedarikçiler. Dinamik/Başbuğ satılabilir
- * offer üretir; Parçatedarik yalnız referans (offer değil) olarak bağlanır.
- */
-export type ProductListSupplier = 'dinamik' | 'basbug' | 'ptdrk'
+/** Liste/eşleştirme tarafında görünen tedarikçiler; ikisi de satılabilir offer üretir. */
+export type ProductListSupplier = 'dinamik' | 'basbug'
 
-export const PRODUCT_LIST_SUPPLIERS: ProductListSupplier[] = ['dinamik', 'basbug', 'ptdrk']
+export const PRODUCT_LIST_SUPPLIERS: ProductListSupplier[] = ['dinamik', 'basbug']
 
 export const PRODUCT_LIST_SUPPLIER_LABELS: Record<ProductListSupplier, string> = {
   dinamik: 'Dinamik',
-  basbug: 'Başbuğ',
-  ptdrk: 'Parçatedarik'
-}
-
-/** Parçatedarik satılabilir offer değil — yalnız referans olarak bağlanır. */
-export const PRODUCT_LIST_SUPPLIER_IS_OFFER: Record<ProductListSupplier, boolean> = {
-  dinamik: true,
-  basbug: true,
-  ptdrk: false
+  basbug: 'Başbuğ'
 }
 
 /** Bir tedarikçinin onaylı markaları altındaki ürün kapsama sayıları. */
@@ -147,21 +136,8 @@ export type ManualSimilarCandidate = {
   existingSuppliers: ProductSupplierKey[]
 }
 
-/** Parçatedarik referans ürünü (offer olmaz — yalnız benzerlik/OEM ipucu). */
-export type ManualPtdrkReference = {
-  ptdrkProductId: string
-  title: string
-  partNo: string | null
-  refNo: string | null
-  priceActual: number | null
-  /** Parçatedarik dış ürün sayfası (parcatedarik.com). */
-  url: string
-  similarity: number
-}
-
 export type ManualCandidatesResult = {
   candidates: ManualSimilarCandidate[]
-  ptdrkReferences: ManualPtdrkReference[]
 }
 
 export type ListManualRowsResult = {
@@ -202,7 +178,7 @@ export type SupplierProductRow = {
   name: string | null
   partNo: string | null
   oem: string | null
-  /** Bir kanonik ürüne bağlı mı (Dinamik/Başbuğ: offer; Parçatedarik: referans). */
+  /** Bir kanonik ürüne offer olarak bağlı mı. */
   matched: boolean
   canonicalProductId: string | null
   canonicalName: string | null

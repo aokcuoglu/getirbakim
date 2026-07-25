@@ -15,7 +15,7 @@ export const maxDuration = 300
 /**
  * Birebir (kelimesi kelimesine) otomatik marka eşleştirme.
  *
- * Dinamik / Başbuğ / Parçatedarik markalarından adı birebir aynı olanları tek
+ * Dinamik / Başbuğ markalarından adı birebir aynı olanları tek
  * kanonik markaya bağlar. Bkz. `autoMatchExactBrands`.
  */
 export async function POST(request: NextRequest) {

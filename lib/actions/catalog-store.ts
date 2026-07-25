@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { getPartEnrichment } from '@/lib/catalog/part-enrichment'
 import {
   buildCatalogPrice,
   resolveCatalogAvailability,
@@ -36,22 +37,6 @@ export interface CatalogProductDetailView {
   updatedAt: string
 }
 
-function vehicleLabel(vt: {
-  name: string
-  fuel_type: string | null
-  hp: number | null
-  model: { name: string; brand: { name: string } } | null
-}): string {
-  const make = vt.model?.brand?.name?.trim()
-  const model = vt.model?.name?.trim()
-  const parts = [make, model, vt.name?.trim()].filter(Boolean)
-  const base = parts.join(' ')
-  const extras = [vt.hp ? `${vt.hp} HP` : null, vt.fuel_type?.trim() || null]
-    .filter(Boolean)
-    .join(', ')
-  return extras ? `${base} (${extras})` : base
-}
-
 /**
  * Full storefront detail for one catalog product, resolved from the offer
  * rollup cache plus enrichment (OEM/EAN/fitment/properties/images). Returns
@@ -66,41 +51,20 @@ export async function getCatalogProductBySlug(
       brand: { select: { id: true, brand: true, logo_url: true } },
       category: { select: { id: true, name: true, name_tr: true, url_key: true } },
       product_overrides: true,
-      product_images: {
-        orderBy: [{ position: 'asc' }, { id: 'asc' }],
-        take: 12,
-        select: { url: true, thumb: true }
-      },
       product_oems: {
         orderBy: { id: 'asc' },
         take: 200,
         select: { code: true, oem_brand: true }
       },
-      product_eans: { take: 50, select: { code: true } },
-      product_properties: {
-        orderBy: { key: 'asc' },
-        take: 100,
-        select: { key: true, value: true }
-      },
-      product_vehicle_types: {
-        take: 80,
-        include: {
-          vehicle_type: {
-            select: {
-              id: true,
-              name: true,
-              fuel_type: true,
-              hp: true,
-              model: { select: { name: true, brand: { select: { name: true } } } }
-            }
-          }
-        }
-      },
-      _count: { select: { product_vehicle_types: true } }
+      product_eans: { take: 50, select: { code: true } }
     }
   })
 
   if (!product || product.status !== 'ACTIVE') return null
+
+  // Resim/özellik/araç uyumluluğu katalogda tutulmaz; onaylanmış
+  // product_part_links üzerinden public.part_* tablolarından canlı okunur.
+  const enrichment = await getPartEnrichment(product.id)
 
   const override = product.product_overrides
   const categoryOverrideId = override?.category_override_id ?? null
@@ -117,10 +81,7 @@ export async function getCatalogProductBySlug(
     totalStockQty: product.total_stock_qty
   })
 
-  const images = product.product_images.map((img) => ({
-    url: img.url,
-    thumb: img.thumb
-  }))
+  const images = enrichment.images
   const primaryImageUrl = product.primary_image_url ?? images[0]?.url ?? null
 
   return {
@@ -149,13 +110,10 @@ export async function getCatalogProductBySlug(
     totalStockQty: product.total_stock_qty,
     offerCount: product.offer_count,
     oems: product.product_oems.map((o) => ({ code: o.code, brand: o.oem_brand })),
-    eans: product.product_eans.map((e) => e.code),
-    properties: product.product_properties.map((p) => ({ key: p.key, value: p.value })),
-    vehicles: product.product_vehicle_types
-      .filter((pvt) => pvt.vehicle_type)
-      .map((pvt) => ({ id: pvt.vehicle_type!.id, label: vehicleLabel(pvt.vehicle_type!) }))
-      .filter((v) => v.label.length > 0),
-    vehicleCount: product._count.product_vehicle_types,
+    eans: [...new Set([...product.product_eans.map((e) => e.code), ...enrichment.eans])],
+    properties: enrichment.properties,
+    vehicles: enrichment.vehicles,
+    vehicleCount: enrichment.vehicleCount,
     href: catalogProductHref(product.slug ?? ''),
     updatedAt: product.updated_at.toISOString()
   }

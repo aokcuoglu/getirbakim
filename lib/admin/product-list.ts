@@ -9,10 +9,9 @@ import type {
 } from './product-match-shared'
 
 /**
- * "Ürün Listesi" tablosu (SERVER-only): bir tedarikçinin (dinamik|başbuğ|ptdrk)
+ * "Ürün Listesi" tablosu (SERVER-only): bir tedarikçinin (dinamik|başbuğ)
  * ONAYLI marka altındaki ham ürünlerini eşleşme durumuyla listeler.
- *   - Dinamik/Başbuğ: eşleşme = catalog.product_offers (satılabilir offer)
- *   - Parçatedarik  : eşleşme = catalog.product_ptdrk_refs (referans, offer değil)
+ * Eşleşme = catalog.product_offers (satılabilir offer).
  *
  * Ana kural: yalnız markası brand_mappings'te APPROVED olan ürünler listelenir/
  * eşleştirilebilir. Marka filtresi (brandId) kanonik marka bazlıdır.
@@ -60,24 +59,11 @@ const CONFIG: Record<ProductListSupplier, Cfg> = {
     matchTable: Prisma.raw('catalog.product_offers'),
     matchFk: Prisma.raw('basbug_product_id'),
     passive: true
-  },
-  ptdrk: {
-    prodTable: Prisma.raw('catalog.ptdrk_products'),
-    brandTable: Prisma.raw('catalog.ptdrk_brands'),
-    brandIdCol: Prisma.raw('ptdrk_brands_id'),
-    brandNameCol: Prisma.raw('name'),
-    mapFk: Prisma.raw('ptdrk_brand_id'),
-    skuCol: Prisma.raw('sku'),
-    nameCol: Prisma.raw('title'),
-    oemCol: Prisma.raw('ref_no'),
-    matchTable: Prisma.raw('catalog.product_ptdrk_refs'),
-    matchFk: Prisma.raw('ptdrk_product_id'),
-    passive: false
   }
 }
 
 export function isProductListSupplier(v: unknown): v is ProductListSupplier {
-  return v === 'dinamik' || v === 'basbug' || v === 'ptdrk'
+  return v === 'dinamik' || v === 'basbug'
 }
 
 export function isProductListStatus(v: unknown): v is ProductListStatus {

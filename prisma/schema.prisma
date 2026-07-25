@@ -739,6 +739,11 @@ model brands {
   id       Int     @id @default(autoincrement())
   brand    String  @unique
   logo_url String?
+  /// Vitrin marka sayfası URL'i. ParcaTedarik kaldırılmadan önce onun
+  /// url_key'inden türetilip kalıcılaştırıldı; boşsa brand'den slugify edilir.
+  slug         String? @unique
+  /// Görünen ad (ör. "Blue Print"); boşsa brand kullanılır.
+  display_name String?
 
   brand_mappings brand_mappings[]
   products       products[]
@@ -898,7 +903,7 @@ model product_oems {
   code       String // raw as received
   code_norm  String // normalizeOem()
   oem_brand  String? // vehicle maker (from part_oens.brand when enriched)
-  source     String // 'BSBG' | 'DNMK' | 'PARTS' | 'MANUAL'
+  source     String // 'BSBG' | 'DNMK' | 'PARTS' | 'MANUAL' | 'PART_NO'
   created_at DateTime @default(now()) @db.Timestamptz(6)
 
   product products @relation(fields: [product_id], references: [id], onDelete: Cascade)

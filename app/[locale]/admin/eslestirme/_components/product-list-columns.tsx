@@ -13,8 +13,7 @@ import { CoverageBadge } from './CoverageBadge'
 
 const DOT: Record<ProductListSupplier, string> = {
   dinamik: 'bg-blue-500',
-  basbug: 'bg-violet-500',
-  ptdrk: 'bg-amber-500'
+  basbug: 'bg-violet-500'
 }
 
 export function createProductListColumns(handlers: {
@@ -46,8 +45,10 @@ export function createProductListColumns(handlers: {
       accessorKey: 'name',
       header: 'Ürün',
       cell: ({ row }) => (
-        <div className="min-w-0 max-w-[360px]">
-          <p className="truncate text-sm">{row.original.name || row.original.sku}</p>
+        <div className="w-[220px] min-w-0 max-w-[220px]">
+          <p className="truncate text-sm" title={row.original.name || row.original.sku}>
+            {row.original.name || row.original.sku}
+          </p>
           <p className="truncate text-[11px] text-muted-foreground">
             SKU: {row.original.sku}
             {row.original.partNo ? ` · part: ${row.original.partNo}` : ''}
@@ -61,7 +62,7 @@ export function createProductListColumns(handlers: {
       cell: ({ row }) => {
         const r = row.original
         return r.matched ? (
-          <div className="min-w-0 max-w-[280px]">
+          <div className="w-[200px] min-w-0 max-w-[200px]">
             <div className="flex flex-wrap items-center gap-1">
               <Badge variant="outline" className="border-success/20 bg-success/15 text-success">
                 Eşleşti
@@ -69,7 +70,9 @@ export function createProductListColumns(handlers: {
               {r.coverage ? <CoverageBadge coverage={r.coverage} /> : null}
             </div>
             {r.canonicalName ? (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">→ {r.canonicalName}</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={r.canonicalName}>
+                → {r.canonicalName}
+              </p>
             ) : null}
           </div>
         ) : (

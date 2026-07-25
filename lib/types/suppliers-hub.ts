@@ -16,7 +16,7 @@ export type SuppliersHubPipelineStep = {
 }
 
 export type SuppliersHubProviderCard = {
-  id: 'dinamik' | 'parcatedarik' | 'basbug'
+  id: 'dinamik' | 'basbug'
   name: string
   subtitle: string
   integrationStatus: 'active' | 'partial' | 'planned'
@@ -43,8 +43,6 @@ export type SuppliersHubOverview = {
     unmatchedDinamikBrands: number
     pendingBrandMatches: number
     pendingModelMatches: number
-    parcaProducts: number
-    parcaBrokenUrls: number
   }
   providers: SuppliersHubProviderCard[]
 }

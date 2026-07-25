@@ -1,10 +1,11 @@
 'use client'
 
-import { GitCompare, Package } from 'lucide-react'
+import { GitCompare, Layers, Package } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { SupplierBrandMatchResult } from '@/lib/admin/supplier-brand-shared'
 import { BrandMatchTab } from './BrandMatchTab'
 import { ProductMatchTab } from './ProductMatchTab'
+import { EnrichmentTab } from './EnrichmentTab'
 
 interface EslestirmeClientProps {
   initialBrandData: SupplierBrandMatchResult
@@ -22,6 +23,10 @@ export function EslestirmeClient({ initialBrandData }: EslestirmeClientProps) {
           <Package className="h-4 w-4" />
           Ürün Eşleştirme
         </TabsTrigger>
+        <TabsTrigger value="enrichment">
+          <Layers className="h-4 w-4" />
+          Zenginleştirme
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="brands" className="mt-4">
@@ -30,6 +35,10 @@ export function EslestirmeClient({ initialBrandData }: EslestirmeClientProps) {
 
       <TabsContent value="products" className="mt-4">
         <ProductMatchTab />
+      </TabsContent>
+
+      <TabsContent value="enrichment" className="mt-4">
+        <EnrichmentTab />
       </TabsContent>
     </Tabs>
   )

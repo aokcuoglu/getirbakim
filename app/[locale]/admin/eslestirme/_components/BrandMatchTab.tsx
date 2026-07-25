@@ -180,7 +180,7 @@ export function BrandMatchTab({ initialData }: BrandMatchTabProps) {
         <div>
           <h3 className="text-sm font-semibold text-foreground">Marka Eşleştirme</h3>
           <p className="text-xs text-muted-foreground">
-            Dinamik, Başbuğ ve Parçatedarik markalarını kanonik markalara bağlayın. Birebir
+            Dinamik ve Başbuğ markalarını kanonik markalara bağlayın. Birebir
             (kelimesi kelimesine) aynı olan markalar tek tıkla otomatik eşleştirilebilir.
           </p>
         </div>
