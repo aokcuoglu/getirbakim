@@ -50,7 +50,7 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
         ROUND(
           (
             dc.price
-            * (1 - ${policy.standardDiscountRate})
+            * (1 - ${policy.standardDiscountRate}::numeric)
             * (1 - LEAST(1, GREATEST(0,
                 CASE
                   WHEN COALESCE(dc.campaign_rate, 0) > 1 THEN dc.campaign_rate / 100
@@ -73,7 +73,10 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
       net_cost_try = src.net_cost,
       selling_price_try = CASE
         WHEN src.net_cost IS NULL THEN NULL
-        ELSE ROUND((src.net_cost * (1 + ${policy.marginRate}) + ${policy.fixedFee})::numeric, 2)
+        ELSE ROUND(
+          (src.net_cost * (1 + ${policy.marginRate}::numeric) + ${policy.fixedFee}::numeric)::numeric,
+          2
+        )
       END,
       stock_qty = COALESCE(src.stock_qty, 0),
       stock_breakdown = src.regional_stock,
@@ -138,7 +141,7 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
     src AS (
       SELECT
         priced.*,
-        ROUND((priced.cost_try * (1 - ${policy.standardDiscountRate}))::numeric, 2) AS net_cost
+        ROUND((priced.cost_try * (1 - ${policy.standardDiscountRate}::numeric))::numeric, 2) AS net_cost
       FROM priced
     )
     UPDATE catalog.product_offers po
@@ -152,7 +155,10 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
       net_cost_try = src.net_cost,
       selling_price_try = CASE
         WHEN src.net_cost IS NULL THEN NULL
-        ELSE ROUND((src.net_cost * (1 + ${policy.marginRate}) + ${policy.fixedFee})::numeric, 2)
+        ELSE ROUND(
+          (src.net_cost * (1 + ${policy.marginRate}::numeric) + ${policy.fixedFee}::numeric)::numeric,
+          2
+        )
       END,
       is_active = NOT src.is_passive,
       priced_at = NOW(),
