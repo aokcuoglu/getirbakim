@@ -423,12 +423,14 @@ function CountPill({ label, value }: { label: string; value: number }) {
 }
 
 function SourceBadge({ source }: { source: string }) {
-  const isManual = source === 'MANUAL'
+  // MANUAL: admin elle girdi · WEB: onaylanmış web önerisi — ikisi de silinebilir,
+  // bu yüzden tedarikçi/TecDoc kaynaklarından görsel olarak ayrılır.
+  const editable = source === 'MANUAL' || source === 'WEB'
   return (
     <Badge
       variant="outline"
       className={
-        isManual
+        editable
           ? 'border-primary/40 bg-primary/10 text-[10px] font-medium text-primary'
           : 'border-border bg-muted text-[10px] text-muted-foreground'
       }
@@ -855,7 +857,7 @@ function CodeEditor({
               ) : null}
               <span className="ml-auto flex items-center gap-1.5">
                 <SourceBadge source={c.source} />
-                {c.source === 'MANUAL' ? (
+                {c.source === 'MANUAL' || c.source === 'WEB' ? (
                   <button
                     type="button"
                     aria-label="Kaldır"

@@ -19,6 +19,7 @@ import {
   decimalToNumber
 } from '@/lib/catalog/store-view'
 import { normalizeOem, parseOemEntries } from '@/lib/matching/code-normalization'
+import { canonicalNameSql, canonicalOverrideJoin } from '@/lib/catalog/canonical-name-sql'
 import type {
   AdminCatalogActionResult,
   AdminCatalogFilters,
@@ -38,6 +39,8 @@ import type {
 
 const DEFAULT_LIMIT = 25
 const STATUSES: CatalogProductStatus[] = ['ACTIVE', 'DRAFT', 'HIDDEN', 'ARCHIVED']
+/** Tek server action çağrısında incelenebilecek en fazla web önerisi. */
+const MAX_REVIEW_BATCH = 300
 
 function normalizeCode(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -502,9 +505,13 @@ export async function removeCatalogProductOem(
       ? Prisma.empty
       : Prisma.sql`AND oem_brand = ${input.brand?.trim() ?? ''}`
 
+  // MANUAL (elle girilen) ve WEB (onaylanmış web önerisi) satırları silinebilir;
+  // DNMK/BSBG/PARTS tedarikçi/TecDoc türevi olduğu için sync tarafından yeniden
+  // üretilir, buradan silmek anlamsız olurdu.
   await db.$executeRaw(Prisma.sql`
     DELETE FROM catalog.product_oems
-    WHERE product_id = ${product.productId} AND code_norm = ${codeNorm} AND source = 'MANUAL'
+    WHERE product_id = ${product.productId} AND code_norm = ${codeNorm}
+      AND source IN ('MANUAL', 'WEB')
       ${brandFilter}
   `)
 
@@ -1000,5 +1007,246 @@ export async function reviewProductPartLink(input: {
   return {
     success: true,
     message: input.decision === 'APPROVE' ? 'Eşleşme onaylandı.' : 'Eşleşme reddedildi.'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Web kaynaklı OEM / ad önerileri (catalog.product_ref_suggestions)
+//
+// Kaynak açık web olduğu için öneriler doğrudan katalogda yayınlanmaz: burada
+// kaynak URL + kanıt metniyle bekler, admin onayladığı anda product_oems
+// (source='WEB') ve product_overrides.name_override'a yazılır. Onay = uygulama;
+// ayrı bir toplu iş beklemeye gerek yok.
+// ---------------------------------------------------------------------------
+
+export interface RefSuggestionRow {
+  id: string
+  productId: string
+  kind: 'OEM' | 'NAME'
+  value: string
+  oemBrand: string | null
+  confidence: string
+  sourceSite: string
+  sourceUrl: string | null
+  evidence: string | null
+  status: string
+  brandName: string
+  partNo: string
+  currentName: string
+}
+
+export interface RefSuggestionSummary {
+  pendingOem: number
+  pendingName: number
+  appliedOem: number
+  appliedName: number
+  rejected: number
+}
+
+/** Öneri kuyruğunun özeti (rozet sayıları). */
+export async function getRefSuggestionSummary(brand?: string | null): Promise<RefSuggestionSummary> {
+  await requireAdminAuth()
+  const brandFilter = brand?.trim() || null
+
+  const rows = await db.$queryRaw<{ kind: string; status: string; n: bigint }[]>`
+    select s.kind, s.status, count(*) n
+    from catalog.product_ref_suggestions s
+    join catalog.products p on p.id = s.product_id
+    join catalog.brands b on b.id = p.brand_id
+    where (${brandFilter}::text is null or b.brand = ${brandFilter}::text)
+    group by s.kind, s.status
+  `
+
+  const pick = (kind: string, status: string) =>
+    Number(rows.find((r) => r.kind === kind && r.status === status)?.n ?? 0)
+
+  return {
+    pendingOem: pick('OEM', 'PENDING'),
+    pendingName: pick('NAME', 'PENDING'),
+    appliedOem: pick('OEM', 'APPLIED'),
+    appliedName: pick('NAME', 'APPLIED'),
+    rejected: rows
+      .filter((r) => r.status === 'REJECTED')
+      .reduce((n, r) => n + Number(r.n), 0)
+  }
+}
+
+/** İncelenecek önerileri listeler (varsayılan: bekleyenler). */
+export async function getRefSuggestions(input?: {
+  brand?: string | null
+  kind?: 'OEM' | 'NAME' | null
+  status?: string | null
+  limit?: number
+}): Promise<RefSuggestionRow[]> {
+  await requireAdminAuth()
+
+  const limit = Math.min(Math.max(input?.limit ?? 100, 1), 500)
+  const brand = input?.brand?.trim() || null
+  const kind = input?.kind ?? null
+  const status = input?.status?.trim() || 'PENDING'
+
+  const rows = await db.$queryRaw<Record<string, unknown>[]>`
+    select s.id, s.product_id, s.kind, s.value, s.oem_brand, s.confidence,
+           s.source_site, s.source_url, s.evidence, s.status,
+           b.brand as brand_name, p.part_no,
+           ${canonicalNameSql('p', 'o')} as current_name
+    from catalog.product_ref_suggestions s
+    join catalog.products p on p.id = s.product_id
+    join catalog.brands b on b.id = p.brand_id
+    ${canonicalOverrideJoin('p', 'o')}
+    where s.status = ${status}
+      and (${brand}::text is null or b.brand = ${brand}::text)
+      and (${kind}::text is null or s.kind = ${kind}::text)
+    order by p.part_no, s.kind, s.id
+    limit ${limit}
+  `
+
+  return rows.map((r) => ({
+    id: String(r.id),
+    productId: String(r.product_id),
+    kind: String(r.kind) as 'OEM' | 'NAME',
+    value: String(r.value ?? ''),
+    oemBrand: r.oem_brand ? String(r.oem_brand) : null,
+    confidence: String(r.confidence ?? 'MEDIUM'),
+    sourceSite: String(r.source_site ?? ''),
+    sourceUrl: r.source_url ? String(r.source_url) : null,
+    evidence: r.evidence ? String(r.evidence) : null,
+    status: String(r.status ?? ''),
+    brandName: String(r.brand_name ?? ''),
+    partNo: String(r.part_no ?? ''),
+    currentName: String(r.current_name ?? '')
+  }))
+}
+
+export interface ReviewRefSuggestionResult {
+  success: boolean
+  message: string
+  appliedIds: string[]
+}
+
+/**
+ * Önerileri onaylar (uygular) ya da reddeder.
+ *
+ * Onay yolunda OEM satırı catalog.product_oems'e source='WEB' ile yazılır —
+ * MANUAL'den ayrı tutulur ki toplu geri alma (`delete … where source='WEB'`)
+ * elle girilen kayıtlara dokunmasın. Ad önerisi product_overrides.name_override
+ * alanına yazılır; aynı satırdaki fiyat/kilit/not alanları KORUNUR (upsert
+ * yerine hedefli update — updateCatalogProductOverride'ın tam satır davranışı
+ * burada veri kaybettirirdi).
+ */
+export async function reviewRefSuggestions(input: {
+  ids: string[]
+  decision: 'APPROVE' | 'REJECT'
+}): Promise<ReviewRefSuggestionResult> {
+  const auth = await requireAdminAuth()
+  const reviewer = auth.user.email ?? auth.user.id
+
+  const ids: bigint[] = []
+  // Tek çağrıda sınır: onay yolu ürün başına arama dokümanı da tazeliyor,
+  // sınırsız toplu onay server action'ı zaman aşımına düşürürdü.
+  for (const raw of input.ids.slice(0, MAX_REVIEW_BATCH)) {
+    try {
+      ids.push(BigInt(raw))
+    } catch {
+      /* geçersiz id sessizce atlanır */
+    }
+  }
+  if (ids.length === 0) {
+    return { success: false, message: 'Geçerli öneri seçilmedi.', appliedIds: [] }
+  }
+
+  if (input.decision === 'REJECT') {
+    const n = await db.$executeRaw(Prisma.sql`
+      update catalog.product_ref_suggestions
+      set status = 'REJECTED', reviewed_at = now(), reviewed_by = ${reviewer}
+      where id in (${Prisma.join(ids)}) and status = 'PENDING'
+    `)
+    revalidateCatalogAdmin()
+    return {
+      success: true,
+      message: `${Number(n)} öneri reddedildi.`,
+      appliedIds: input.ids
+    }
+  }
+
+  const rows = await db.$queryRaw<
+    {
+      id: bigint
+      product_id: bigint
+      kind: string
+      value: string
+      value_norm: string
+      oem_brand: string
+      slug: string | null
+    }[]
+  >(Prisma.sql`
+    select s.id, s.product_id, s.kind, s.value, s.value_norm, s.oem_brand, p.slug
+    from catalog.product_ref_suggestions s
+    join catalog.products p on p.id = s.product_id
+    where s.id in (${Prisma.join(ids)}) and s.status = 'PENDING'
+  `)
+  if (rows.length === 0) {
+    return { success: false, message: 'Öneri bulunamadı ya da zaten incelenmiş.', appliedIds: [] }
+  }
+
+  const oemRows = rows.filter((r) => r.kind === 'OEM')
+  const nameRows = rows.filter((r) => r.kind === 'NAME')
+
+  await db.$transaction(async (tx) => {
+    if (oemRows.length > 0) {
+      const values = oemRows.map(
+        (r) =>
+          Prisma.sql`(${r.product_id}, ${r.value}, ${r.value_norm}, ${r.oem_brand}, ${'WEB'})`
+      )
+      await tx.$executeRaw(Prisma.sql`
+        insert into catalog.product_oems (product_id, code, code_norm, oem_brand, source)
+        values ${Prisma.join(values)}
+        on conflict (product_id, code_norm, oem_brand) do nothing
+      `)
+    }
+
+    for (const r of nameRows) {
+      await tx.$executeRaw(Prisma.sql`
+        insert into catalog.product_overrides (product_id, name_override, updated_by)
+        values (${r.product_id}, ${r.value}, ${reviewer})
+        on conflict (product_id) do update
+          set name_override = excluded.name_override,
+              updated_by = excluded.updated_by,
+              updated_at = current_timestamp
+      `)
+      // Aynı ürüne ait diğer bekleyen ad önerileri anlamsızlaşır.
+      await tx.$executeRaw(Prisma.sql`
+        update catalog.product_ref_suggestions
+        set status = 'REJECTED', reviewed_at = now(), reviewed_by = ${reviewer}
+        where product_id = ${r.product_id} and kind = 'NAME' and status = 'PENDING'
+          and id <> ${r.id}
+      `)
+    }
+
+    await tx.$executeRaw(Prisma.sql`
+      update catalog.product_ref_suggestions
+      set status = 'APPLIED', reviewed_at = now(), reviewed_by = ${reviewer},
+          applied_at = now()
+      where id in (${Prisma.join(rows.map((r) => r.id))})
+    `)
+  })
+
+  // Arama dokümanı hem adı hem OEM havuzunu taşıyor → dokunulan ürünleri tazele.
+  // Meili çağrıları sıralı yapılırsa toplu onay dakikalar sürer; 8'li gruplar hem
+  // hızlı hem de Meili'yi boğmayacak kadar ölçülü.
+  const touched = [...new Set(rows.map((r) => r.product_id.toString()))]
+  for (let i = 0; i < touched.length; i += 8) {
+    await Promise.all(
+      touched.slice(i, i + 8).map((id) => syncProductSearchDocument(BigInt(id)))
+    )
+  }
+  for (const slug of new Set(rows.map((r) => r.slug))) {
+    revalidateCatalogAdmin(slug)
+  }
+
+  return {
+    success: true,
+    message: `${oemRows.length} OEM · ${nameRows.length} ad önerisi uygulandı.`,
+    appliedIds: rows.map((r) => r.id.toString())
   }
 }

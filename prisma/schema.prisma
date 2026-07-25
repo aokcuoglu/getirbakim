@@ -839,6 +839,7 @@ model products {
   product_overrides     product_overrides?
   product_match_candidates product_match_candidates[]
   product_ptdrk_refs       product_ptdrk_refs[]
+  product_ref_suggestions  product_ref_suggestions[]
 
   @@unique([brand_id, part_no_norm], map: "uq_products_brand_partno_norm")
   @@index([part_no_norm])
@@ -1052,6 +1053,34 @@ model product_ptdrk_refs {
   product products       @relation(fields: [product_id], references: [id], onDelete: Cascade)
   ptdrk   ptdrk_products @relation(fields: [ptdrk_product_id], references: [id], onDelete: Cascade)
 
+  @@index([product_id])
+  @@schema("catalog")
+}
+
+// Web'den toplanan OEM / SEO ad önerileri — admin onayı bekleyen inceleme kuyruğu.
+// Onaylananlar product_oems (source='WEB') ve product_overrides.name_override'a akar.
+
+model product_ref_suggestions {
+  id          BigInt    @id @default(autoincrement())
+  product_id  BigInt
+  kind        String // 'OEM' | 'NAME'
+  value       String // OEM: biçimli kod · NAME: önerilen başlık
+  value_norm  String // OEM: normalizeOem(value) · NAME: upper(btrim(value))
+  oem_brand   String    @default("") // product_oems ile aynı sözleşme: '' = bilinmiyor
+  confidence  String    @default("MEDIUM") // 'HIGH' | 'MEDIUM' | 'LOW'
+  source_site String
+  source_url  String?
+  evidence    String?   @db.Text
+  status      String    @default("PENDING") // 'PENDING' | 'APPROVED' | 'REJECTED' | 'APPLIED'
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  reviewed_at DateTime? @db.Timestamptz(6)
+  reviewed_by String?
+  applied_at  DateTime? @db.Timestamptz(6)
+
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, kind, value_norm, oem_brand], map: "uq_ref_suggestions_product_kind_value")
+  @@index([status, kind])
   @@index([product_id])
   @@schema("catalog")
 }

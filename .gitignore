@@ -119,3 +119,6 @@ scripts/output/*.pid
 
 # Meilisearch local config (contains keys)
 .env.local.meili
+
+# Web tarama çıktıları (harvest-brand-refs.ts) — türetilebilir veri, repoya girmez
+.data/
