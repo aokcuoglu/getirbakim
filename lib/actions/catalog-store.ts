@@ -139,6 +139,42 @@ function mergeOems(tecdoc: PartCode[], supplier: PartCode[]): PartCode[] {
 }
 
 /**
+ * Manuel görseller (catalog.product_images) TecDoc'tan devralınanların önüne
+ * geçer: admin bir ürüne kendi fotoğrafını eklediyse vitrinde ilk o görünsün.
+ * Aynı adres iki kaynakta da varsa tek satır kalır.
+ */
+function mergeImages(
+  manual: Array<{ url: string; thumb: string | null }>,
+  inherited: PartImage[]
+): PartImage[] {
+  const seen = new Set<string>()
+  const out: PartImage[] = []
+  for (const img of [...manual.map((m) => ({ url: m.url, thumb: m.thumb })), ...inherited]) {
+    const url = img.url?.trim()
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    out.push({ url, thumb: img.thumb })
+  }
+  return out
+}
+
+/** Aynı politika özelliklerde: manuel değer, devralınan TecDoc değerini ezer. */
+function mergeProperties(
+  manual: Array<{ key: string; value: string }>,
+  inherited: PartProperty[]
+): PartProperty[] {
+  const seen = new Set<string>()
+  const out: PartProperty[] = []
+  for (const prop of [...manual, ...inherited]) {
+    const key = prop.key?.trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push({ key, value: prop.value })
+  }
+  return out
+}
+
+/**
  * Full storefront detail for one catalog product, resolved from the offer
  * rollup cache plus enrichment (OEM/EAN/fitment/properties/images). Returns
  * null for missing or non-ACTIVE products so the route can 404.
@@ -159,7 +195,19 @@ export async function getCatalogProductBySlug(
         take: 600,
         select: { code: true, oem_brand: true }
       },
-      product_eans: { take: 50, select: { code: true } }
+      product_eans: { take: 50, select: { code: true } },
+      // Admin'in elle girdiği görsel/özellik; TecDoc'tan devralınanların önüne
+      // geçer (bkz. mergeImages / mergeProperties).
+      product_images: {
+        orderBy: [{ position: 'asc' }, { id: 'asc' }],
+        take: 60,
+        select: { url: true, thumb: true }
+      },
+      product_properties: {
+        orderBy: { key: 'asc' },
+        take: 120,
+        select: { key: true, value: true }
+      }
     }
   })
 
@@ -186,8 +234,9 @@ export async function getCatalogProductBySlug(
     totalStockQty: product.total_stock_qty
   })
 
-  const images = enrichment.images
+  const images = mergeImages(product.product_images, enrichment.images)
   const primaryImageUrl = product.primary_image_url ?? images[0]?.url ?? null
+  const properties = mergeProperties(product.product_properties, enrichment.properties)
 
   const oems = mergeOems(
     enrichment.oems,
@@ -227,7 +276,7 @@ export async function getCatalogProductBySlug(
     crossReferences: enrichment.crossReferences,
     documents: enrichment.documents,
     eans,
-    properties: enrichment.properties,
+    properties,
     vehicles: enrichment.vehicles,
     vehicleCount: enrichment.vehicleCount,
     hasMore: enrichment.hasMore,

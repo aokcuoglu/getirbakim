@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { normCodeSql, SUPPLIER_BASBUG, SUPPLIER_DINAMIK } from './catalog-sql'
+import { hasNameOverrideSql } from './canonical-name-sql'
 
 export interface MatchSupplierStats {
   productsCreated: number
@@ -289,7 +290,9 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
 
   // Display-name policy: Başbuğ aciklama wins over the Dinamik stock_name
   // (richer Turkish descriptions). Only touches rows that actually differ,
-  // so re-runs are no-ops.
+  // so re-runs are no-ops. Admin'in name_override girdiği ürünlere hiç
+  // dokunulmaz — override zaten gösterimde kazanır, ama ham adı da
+  // oynatmayıp gereksiz rollup/index churn'ünü önlüyoruz.
   stats.namesUpgraded = await db.$executeRaw(Prisma.sql`
     UPDATE catalog.products p
     SET name = bp.aciklama
@@ -299,6 +302,7 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
       AND po.supplier_code = ${SUPPLIER_BASBUG}
       AND NULLIF(bp.aciklama, '') IS NOT NULL
       AND p.name IS DISTINCT FROM bp.aciklama
+      AND NOT ${hasNameOverrideSql('p')}
   `)
 
   // Housekeeping: herhangi bir yoldan offer kazanmış satırların artık geçersiz

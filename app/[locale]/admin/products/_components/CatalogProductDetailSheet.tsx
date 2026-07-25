@@ -1,8 +1,17 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { toast } from 'sonner'
-import { Loader2, ExternalLink, Plus, X } from 'lucide-react'
+import {
+  Loader2,
+  ExternalLink,
+  ImageIcon,
+  Plus,
+  Star,
+  Trash2,
+  Upload,
+  X
+} from 'lucide-react'
 import { AdminFormSheet } from '@/components/admin/admin-form-sheet'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -23,11 +32,17 @@ import {
   addCatalogProductOem,
   getAdminCatalogProductDetail,
   removeCatalogProductEan,
+  removeCatalogProductImage,
   removeCatalogProductOem,
-  updateCatalogProductOverride
+  removeCatalogProductProperty,
+  setCatalogProductPrimaryImage,
+  updateCatalogProductOverride,
+  upsertCatalogProductProperty
 } from '@/lib/actions/admin-catalog'
 import type {
+  AdminCatalogImage,
   AdminCatalogProductDetail,
+  AdminCatalogProperty,
   CatalogProductStatus
 } from '@/lib/types/admin-catalog'
 
@@ -279,10 +294,29 @@ export function CatalogProductDetailSheet({
             }}
           />
 
-          {/* Read-only enrichment counts */}
-          <div className="grid grid-cols-2 gap-2 text-center text-xs">
-            <CountPill label="Görsel" value={detail.imageCount} />
-            <CountPill label="Araç" value={detail.vehicleCount} />
+          {/* Görseller — manuel yükleme + devralınan TecDoc görselleri */}
+          <ImageEditor
+            productId={detail.id}
+            images={detail.images}
+            onChange={(images) => {
+              setDetail({ ...detail, images, imageCount: images.length })
+              onSaved()
+            }}
+          />
+
+          {/* Teknik özellikler — genişlik, yükseklik, çap… */}
+          <PropertyEditor
+            productId={detail.id}
+            properties={detail.properties}
+            onChange={(properties) => {
+              setDetail({ ...detail, properties, propertyCount: properties.length })
+              onSaved()
+            }}
+          />
+
+          {/* Araç uyumluluğu yalnız TecDoc'tan devralınır, elle girilmez. */}
+          <div className="grid grid-cols-1 gap-2 text-center text-xs">
+            <CountPill label="Uyumlu Araç" value={detail.vehicleCount} />
           </div>
 
           <Separator />
@@ -401,6 +435,351 @@ function SourceBadge({ source }: { source: string }) {
     >
       {source}
     </Badge>
+  )
+}
+
+/**
+ * Görsel havuzu: manuel yüklenen catalog.product_images satırları + onaylı
+ * part link'lerinden devralınan TecDoc görselleri. Devralınanlar id'siz gelir;
+ * silinemez ama birincil seçilebilir.
+ *
+ * Yükleme API route'undan geçer (multipart dosya + harici URL indirme storage
+ * gerektiriyor); silme/birincil seçme server action ile anında kaydeder.
+ */
+function ImageEditor({
+  productId,
+  images,
+  onChange
+}: {
+  productId: string
+  images: AdminCatalogImage[]
+  onChange: (images: AdminCatalogImage[]) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const send = async (body: FormData) => {
+    setBusy('upload')
+    try {
+      const res = await fetch(`/api/admin/catalog/products/${productId}/images`, {
+        method: 'POST',
+        body
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data?.error?.message || 'Görsel yüklenemedi.')
+        return false
+      }
+      onChange(data.images)
+      toast.success(data.message)
+      return true
+    } catch {
+      toast.error('Görsel yüklenirken hata oluştu.')
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleUrl = async () => {
+    const trimmed = url.trim()
+    if (!trimmed || busy) return
+    const body = new FormData()
+    body.set('url', trimmed)
+    if (await send(body)) setUrl('')
+  }
+
+  const handleRemove = async (image: AdminCatalogImage) => {
+    if (!image.id) return
+    setBusy(image.url)
+    const res = await removeCatalogProductImage({ id: productId, imageId: image.id })
+    setBusy(null)
+    if (!res.success) {
+      toast.error(res.message)
+      return
+    }
+    onChange(res.images)
+    toast.success(res.message)
+  }
+
+  const handlePrimary = async (image: AdminCatalogImage) => {
+    if (image.isPrimary) return
+    setBusy(image.url)
+    const res = await setCatalogProductPrimaryImage({ id: productId, url: image.url })
+    setBusy(null)
+    if (!res.success) {
+      toast.error(res.message)
+      return
+    }
+    onChange(res.images)
+    toast.success(res.message)
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">
+        Görseller{' '}
+        <span className="text-xs font-normal text-muted-foreground">({images.length})</span>
+      </h3>
+
+      {images.length > 0 && (
+        <div className="grid grid-cols-4 gap-2">
+          {images.map((img) => (
+            <div
+              key={img.url}
+              className={`group relative aspect-square overflow-hidden rounded-md border bg-muted ${
+                img.isPrimary ? 'border-primary ring-1 ring-primary' : 'border-border'
+              }`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={img.thumb || img.url}
+                alt=""
+                loading="lazy"
+                className="h-full w-full object-contain"
+              />
+              {busy === img.url && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/70">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              )}
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-background/85 px-1 py-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <button
+                  type="button"
+                  aria-label="Birincil görsel yap"
+                  title={img.isPrimary ? 'Birincil görsel' : 'Birincil görsel yap'}
+                  onClick={() => void handlePrimary(img)}
+                  disabled={busy != null}
+                  className="rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-50"
+                >
+                  <Star
+                    className={`h-3.5 w-3.5 ${img.isPrimary ? 'fill-primary text-primary' : ''}`}
+                  />
+                </button>
+                <span className="text-[9px] uppercase text-muted-foreground">{img.source}</span>
+                {img.id ? (
+                  <button
+                    type="button"
+                    aria-label="Görseli kaldır"
+                    onClick={() => void handleRemove(img)}
+                    disabled={busy != null}
+                    className="rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <span className="w-4" />
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {images.length === 0 && (
+        <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+          <ImageIcon className="h-4 w-4" />
+          Görsel yok.
+        </div>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+        className="hidden"
+        onChange={async (event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (!file) return
+          const body = new FormData()
+          body.set('file', file)
+          await send(body)
+        }}
+      />
+
+      <div className="flex items-center gap-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void handleUrl()
+            }
+          }}
+          type="url"
+          inputMode="url"
+          placeholder="https://… görsel adresi"
+          className="h-8 text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => void handleUrl()}
+          disabled={busy != null || url.trim().length === 0}
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+        >
+          {busy === 'upload' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+          Ekle
+        </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy != null}
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Dosya
+        </button>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        Dosya ya da adres verin; her ikisi de sunucuya kopyalanır (en fazla 2 MB).
+        Yıldız birincil görseli seçer — vitrin kartlarında o görünür. “PARTS”
+        kaynaklı görseller TecDoc’tan devralınır, silinemez.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Teknik özellik havuzu (genişlik, yükseklik, çap…). Manuel satırlar
+ * catalog.product_properties'e yazılır ve aynı anahtarlı TecDoc değerini ezer;
+ * manuel satır silinince devralınan değer yeniden görünür.
+ */
+function PropertyEditor({
+  productId,
+  properties,
+  onChange
+}: {
+  productId: string
+  properties: AdminCatalogProperty[]
+  onChange: (properties: AdminCatalogProperty[]) => void
+}) {
+  const [key, setKey] = useState('')
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    if (!key.trim() || !value.trim() || saving) return
+    setSaving(true)
+    const res = await upsertCatalogProductProperty({ id: productId, key, value })
+    setSaving(false)
+    if (!res.success) {
+      toast.error(res.message)
+      return
+    }
+    onChange(res.properties)
+    toast.success(res.message)
+    setKey('')
+    setValue('')
+  }
+
+  const handleRemove = async (prop: AdminCatalogProperty) => {
+    setRemoving(prop.key)
+    const res = await removeCatalogProductProperty({ id: productId, key: prop.key })
+    setRemoving(null)
+    if (!res.success) {
+      toast.error(res.message)
+      return
+    }
+    onChange(res.properties)
+    toast.success(res.message)
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">
+        Teknik Özellikler{' '}
+        <span className="text-xs font-normal text-muted-foreground">({properties.length})</span>
+      </h3>
+
+      {properties.length > 0 && (
+        <ul className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-border p-2">
+          {properties.map((p) => (
+            <li key={p.key} className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                title="Değeri düzenlemek için doldur"
+                onClick={() => {
+                  setKey(p.key)
+                  setValue(p.value)
+                }}
+                className="min-w-0 flex-1 truncate text-left hover:underline"
+              >
+                <span className="text-muted-foreground">{p.key}</span>
+                <span className="mx-1 text-muted-foreground">·</span>
+                <span className="font-medium text-foreground">{p.value}</span>
+              </button>
+              <span className="flex shrink-0 items-center gap-1.5">
+                <SourceBadge source={p.source} />
+                {p.id ? (
+                  <button
+                    type="button"
+                    aria-label="Kaldır"
+                    onClick={() => void handleRemove(p)}
+                    disabled={removing === p.key}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50"
+                  >
+                    {removing === p.key ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <X className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Input
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Genişlik (mm)"
+          className="h-8 text-xs"
+        />
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void handleSave()
+            }
+          }}
+          placeholder="120"
+          className="h-8 text-xs"
+        />
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving || !key.trim() || !value.trim()}
+          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+          Ekle
+        </button>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        Var olan bir özelliğe tıklayınca alanlar dolar; aynı adla kaydetmek
+        değerini günceller. “PARTS” satırları TecDoc’tan devralınır — aynı adı
+        manuel girerek ezebilirsiniz.
+      </p>
+    </div>
   )
 }
 

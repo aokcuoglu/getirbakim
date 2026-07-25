@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { canonicalNameSql, canonicalOverrideJoin } from '@/lib/catalog/canonical-name-sql'
 import type {
   ProductListCoverage,
   ProductListResult,
@@ -145,6 +146,7 @@ export async function listSupplierProductsTable(input: {
       matched: boolean
       canonical_id: bigint | null
       canonical_name: string | null
+      name_overridden: boolean
       has_dinamik: boolean
       has_basbug: boolean
     }>
@@ -152,7 +154,10 @@ export async function listSupplierProductsTable(input: {
     SELECT sp.id AS sid, sb.${cfg.brandNameCol} AS brand_name, sp.${cfg.skuCol} AS sku,
       COALESCE(NULLIF(sp.${cfg.nameCol}, ''), sp.${cfg.skuCol}) AS name,
       sp.part_no, sp.${cfg.oemCol} AS oem,
-      (m.id IS NOT NULL) AS matched, m.product_id AS canonical_id, p.name AS canonical_name,
+      (m.id IS NOT NULL) AS matched, m.product_id AS canonical_id,
+      -- Kanonik ad = admin'in name_override'ı (varsa), yoksa products.name.
+      ${canonicalNameSql('p', 'ov')} AS canonical_name,
+      (NULLIF(btrim(ov.name_override), '') IS NOT NULL) AS name_overridden,
       -- Bağlı kanonik ürünün offer kapsamı (badge için): iki tedarikçili mi tek mi.
       ${hasDinamik} AS has_dinamik,
       ${hasBasbug} AS has_basbug
@@ -160,6 +165,7 @@ export async function listSupplierProductsTable(input: {
     JOIN ${cfg.brandTable} sb ON sb.id = sp.${cfg.brandIdCol}
     LEFT JOIN ${cfg.matchTable} m ON m.${cfg.matchFk} = sp.id
     LEFT JOIN catalog.products p ON p.id = m.product_id
+    ${canonicalOverrideJoin('p', 'ov')}
     WHERE true
     ${passiveFilter}
     ${approvedBrand}
@@ -214,6 +220,7 @@ export async function listSupplierProductsTable(input: {
     matched: r.matched,
     canonicalProductId: r.canonical_id == null ? null : r.canonical_id.toString(),
     canonicalName: r.canonical_name,
+    canonicalNameOverridden: r.name_overridden,
     coverage:
       r.has_dinamik && r.has_basbug
         ? 'both'
