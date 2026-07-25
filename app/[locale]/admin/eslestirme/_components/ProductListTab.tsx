@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Tag, X } from 'lucide-react'
+import { Download, Loader2, Tag, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDebouncedCallback } from 'use-debounce'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,7 @@ import {
 import { createProductListColumns } from './product-list-columns'
 import { ProductMatchModal } from './ProductMatchModal'
 import { BrandFilterModal } from './BrandFilterModal'
+import { ProductCsvImportDialog } from './ProductCsvImportDialog'
 
 type Filters = {
   supplier: ProductListSupplier
@@ -50,13 +51,19 @@ const COVERAGE_OPTIONS: Record<ProductListSupplier, ProductMatchCoverage[]> = {
   basbug: ['both', 'basbug']
 }
 
-function buildParams(f: Filters) {
+/** Sunucu tarafındaki filtreler — export ve liste AYNI parametreleri kullanır. */
+function buildFilterParams(f: Filters) {
   const p = new URLSearchParams()
   p.set('supplier', f.supplier)
   if (f.status !== 'all') p.set('status', f.status)
   if (f.coverage !== 'all') p.set('coverage', f.coverage)
   if (f.q) p.set('q', f.q)
   if (f.brandId != null) p.set('brandId', String(f.brandId))
+  return p
+}
+
+function buildParams(f: Filters) {
+  const p = buildFilterParams(f)
   p.set('page', String(f.page))
   p.set('limit', String(f.limit))
   return p
@@ -71,6 +78,8 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [brandModalOpen, setBrandModalOpen] = useState(false)
   const [brandName, setBrandName] = useState<string | null>(null)
+  const [csvOpen, setCsvOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const [filters, setFilters] = useState<Filters>({
     supplier: 'dinamik',
@@ -147,6 +156,34 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     onMatched?.()
   }, [load, onMatched])
 
+  // İki adım: önce ucuz sayım çağrısı (satır tavanı / yetki hatalarını düzgün
+  // bir toast'la göstermek için), sonra indirmeyi tarayıcıya bırak. Yanıtı
+  // fetch ile blob'a almak 1M satırda yüzlerce MB'ı sekme belleğine yığardı;
+  // doğrudan gezinmede tarayıcı akışı diske yazar.
+  const onExport = useCallback(async () => {
+    setExporting(true)
+    try {
+      const params = buildFilterParams(filtersRef.current)
+      const res = await fetch(`/api/admin/eslestirme/products/export?${params}&countOnly=1`)
+      const data = await res.json().catch(() => null)
+      if (!res.ok || data?.error) {
+        toast.error(data?.error?.message || 'CSV indirilemedi.')
+        return
+      }
+      const total = Number(data?.total ?? 0)
+      if (total === 0) {
+        toast.error('Bu filtreyle indirilecek satır yok.')
+        return
+      }
+      window.location.href = `/api/admin/eslestirme/products/export?${params}`
+      toast.success(`${total.toLocaleString('tr-TR')} satır indiriliyor…`)
+    } catch {
+      toast.error('CSV indirilirken hata oluştu.')
+    } finally {
+      setExporting(false)
+    }
+  }, [])
+
   const columns = createProductListColumns({ onMatch })
 
   const statusChips: { key: ProductListStatus; label: string }[] = [
@@ -201,6 +238,34 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
           isSearchLoading={isSearchPending || isFetching}
           onRefresh={() => void load(filtersRef.current)}
           isRefreshing={isFetching}
+          actions={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-md border-border bg-background"
+                onClick={() => void onExport()}
+                disabled={exporting}
+                title="Ekrandaki filtrelere uyan TÜM satırları CSV olarak indir"
+              >
+                {exporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                CSV indir
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-md border-border bg-background"
+                onClick={() => setCsvOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                CSV yükle
+              </Button>
+            </>
+          }
         />
 
         <AdminFilterBar
@@ -296,6 +361,12 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
           if (!o) setMatchRow(null)
         }}
         onChanged={() => void onChanged()}
+      />
+
+      <ProductCsvImportDialog
+        open={csvOpen}
+        onOpenChange={setCsvOpen}
+        onApplied={() => void onChanged()}
       />
 
       <BrandFilterModal

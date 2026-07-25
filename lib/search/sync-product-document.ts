@@ -15,16 +15,29 @@ import { buildCatalogSearchDocumentsBatch } from './search-document-builder'
  * (bir sonraki reindex zaten düzeltir).
  */
 export async function syncProductSearchDocument(productId: bigint): Promise<void> {
-  if (!isMeiliEnabled()) return
-  try {
-    const docs = await buildCatalogSearchDocumentsBatch([productId])
-    const index = getMeiliAdminClient().index(getProductsIndexName())
-    if (docs.length > 0) {
-      await index.addDocuments(docs)
-    } else {
-      await index.deleteDocument(productId.toString())
+  await syncProductSearchDocuments([productId])
+}
+
+/**
+ * Toplu varyant (CSV içe aktarma gibi çok ürüne dokunan akışlar için).
+ * Dokümanı üretilemeyen ürünler (ACTIVE değil / slug yok) indeksten silinir.
+ * Meili kapalıysa ya da erişilemiyorsa sessizce geçilir — admin yazımı bu
+ * yüzden başarısız olmasın.
+ */
+export async function syncProductSearchDocuments(productIds: bigint[]): Promise<void> {
+  if (!isMeiliEnabled() || productIds.length === 0) return
+
+  const index = getMeiliAdminClient().index(getProductsIndexName())
+  for (let i = 0; i < productIds.length; i += 500) {
+    const part = productIds.slice(i, i + 500)
+    try {
+      const docs = await buildCatalogSearchDocumentsBatch(part)
+      const kept = new Set(docs.map((d) => String(d.id)))
+      const dropped = part.map((id) => id.toString()).filter((id) => !kept.has(id))
+      if (docs.length > 0) await index.addDocuments(docs)
+      if (dropped.length > 0) await index.deleteDocuments(dropped)
+    } catch (err) {
+      console.warn('[meili] doküman güncellemesi başarısız:', part.length, 'ürün', err)
     }
-  } catch (err) {
-    console.warn('[meili] tek ürün doküman güncellemesi başarısız:', productId.toString(), err)
   }
 }
