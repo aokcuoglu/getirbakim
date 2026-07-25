@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Check, ExternalLink, Link2Off, Loader2, Package } from 'lucide-react'
+import { AlertTriangle, Check, ExternalLink, Link2Off, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -74,6 +74,10 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
   // Modal açıldığındaki eşleşme durumu; kaldırınca yeniden eşleştirmeye geçer.
   const [matched, setMatched] = useState(false)
   const [currentName, setCurrentName] = useState<string | null>(null)
+  // Bu modalda açılan yeni kanonik ürün; tablo satırı henüz eski (eşleşmemiş)
+  // hâlini taşıdığı için bağlı ürünün kimliği buradan gelir.
+  const [createdProductId, setCreatedProductId] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
   // Kanonik ürün detay sheet'i (eşleştirme modalinin üzerine açılır).
   const [detailProductId, setDetailProductId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -118,6 +122,8 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
       setCands(null)
       setLinkingId(null)
       setUnlinking(false)
+      setCreating(false)
+      setCreatedProductId(null)
       setDetailOpen(false)
       setDetailProductId(null)
     }
@@ -180,6 +186,42 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
     [row, onOpenChange, onChanged]
   )
 
+  /**
+   * Ham satırdan yeni kanonik ürün açar. Modal kapanmaz — ürün açılır açılmaz
+   * detay sheet'i üstüne gelir ki admin OEM/EAN/görsel/özelliği hemen girsin.
+   */
+  const createCanonical = useCallback(async () => {
+    if (!row) return
+    setCreating(true)
+    try {
+      const res = await fetch('/api/admin/eslestirme/products/manual/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplier: row.supplier,
+          supplierProductId: row.supplierProductId
+        })
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        toast.error(data?.error?.message || 'Kanonik ürün oluşturulamadı.')
+        return
+      }
+      toast.success(data.message || 'Yeni kanonik ürün açıldı.')
+      setMatched(true)
+      setCurrentName(data.name ?? null)
+      setCreatedProductId(data.productId)
+      onChanged?.()
+      openDetail(data.productId)
+    } catch {
+      toast.error('Kanonik ürün oluşturulurken hata oluştu.')
+    } finally {
+      setCreating(false)
+    }
+  }, [row, onChanged, openDetail])
+
+  const linkedProductId = row?.canonicalProductId ?? createdProductId
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] w-full flex-col overflow-hidden p-0 sm:max-w-lg">
@@ -214,12 +256,15 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
           {matched ? (
             <div className="space-y-2 rounded-md border border-success/30 bg-success/10 p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground">Şu an bağlı olduğu kanonik ürün:</p>
+                <p className="text-xs text-muted-foreground">
+                  Şu an bağlı olduğu kanonik ürün:
+                  {row?.canonicalNameOverridden ? ' (özel ad)' : ''}
+                </p>
                 {row?.coverage ? <CoverageBadge coverage={row.coverage} /> : null}
               </div>
-              {row?.canonicalProductId ? (
+              {linkedProductId ? (
                 <CanonicalDetailButton
-                  onClick={() => openDetail(row.canonicalProductId!)}
+                  onClick={() => openDetail(linkedProductId)}
                   className="max-w-full text-sm font-medium text-foreground"
                 >
                   {currentName || '—'}
@@ -244,6 +289,36 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
             </div>
           ) : (
             <>
+              {/*
+                Eşleşmeyen satırların büyük çoğunluğu "anahtarı kapılmış"
+                durumundadır: aynı part_no'lu kanonik ürün var ve bu
+                tedarikçiden offer'ı dolu. O ürün aday listesinden elendiği
+                için ekran boş görünür — asıl hedefi burada gösteriyoruz.
+              */}
+              {cands?.conflict ? (
+                <div className="space-y-2 rounded-md border border-warning/30 bg-warning/10 p-3">
+                  <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                    <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-warning" />
+                    <span>
+                      Aynı part numarasını taşıyan kanonik ürün zaten var
+                      {cands.conflict.blockingSku
+                        ? ` ve ${PRODUCT_LIST_SUPPLIER_LABELS[row!.supplier]} teklifi «${cands.conflict.blockingSku}» satırında dolu`
+                        : ''}
+                      . Bu satırı bağlayamayız; ürünü düzenlemek için üstüne tıklayın.
+                    </span>
+                  </p>
+                  <CanonicalDetailButton
+                    onClick={() => openDetail(cands.conflict!.productId)}
+                    className="max-w-full text-sm font-medium text-foreground"
+                  >
+                    {cands.conflict.name}
+                  </CanonicalDetailButton>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    part: {cands.conflict.partNo}
+                  </p>
+                </div>
+              ) : null}
+
               <div>
                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Aday Kanonik Ürünler ({cands?.candidates.length ?? 0})
@@ -298,6 +373,27 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                 </div>
               </div>
 
+              <div className="space-y-1.5 rounded-md border border-border p-3">
+                <p className="text-[11px] text-muted-foreground">
+                  Bu satır gerçekten ayrı bir ürünse kendi kanonik kaydını açın —
+                  ürün hemen açılır, detay sheet’inden OEM, barkod, görsel ve
+                  teknik özellik girebilirsiniz.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void createCanonical()}
+                  disabled={creating || !row}
+                >
+                  {creating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
+                  Yeni kanonik ürün oluştur
+                </Button>
+              </div>
             </>
           )}
         </div>

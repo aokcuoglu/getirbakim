@@ -86,18 +86,20 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     filtersRef.current = filters
   }, [filters])
 
-  const load = useCallback(async (f: Filters) => {
+  const load = useCallback(async (f: Filters): Promise<ProductListResult | null> => {
     setIsFetching(true)
     try {
       const res = await fetch(`/api/admin/eslestirme/products/list?${buildParams(f)}`)
       const d = await res.json()
       if (!res.ok || d.error) {
         toast.error(d?.error?.message || 'Ürün listesi yüklenemedi.')
-        return
+        return null
       }
       setData(d)
+      return d as ProductListResult
     } catch {
       toast.error('Ürün listesi yüklenirken hata oluştu.')
+      return null
     } finally {
       setIsFetching(false)
     }
@@ -127,8 +129,21 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     setModalOpen(true)
   }, [])
 
-  const onChanged = useCallback(() => {
-    void load(filtersRef.current)
+  // Modal açıkken de (ör. isim override kaydedildiğinde) tablo tazelenir ve
+  // açık modalin satır snapshot'ı taze veriyle değiştirilir — yoksa modal eski
+  // kanonik adı göstermeye devam eder.
+  const onChanged = useCallback(async () => {
+    const fresh = await load(filtersRef.current)
+    if (fresh) {
+      setMatchRow((prev) =>
+        prev
+          ? (fresh.rows.find(
+              (r) =>
+                r.supplier === prev.supplier && r.supplierProductId === prev.supplierProductId
+            ) ?? prev)
+          : prev
+      )
+    }
     onMatched?.()
   }, [load, onMatched])
 
@@ -280,7 +295,7 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
           setModalOpen(o)
           if (!o) setMatchRow(null)
         }}
-        onChanged={onChanged}
+        onChanged={() => void onChanged()}
       />
 
       <BrandFilterModal

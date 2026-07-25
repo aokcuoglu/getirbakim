@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { SUPPLIER_BASBUG } from '@/lib/catalog/catalog-sql'
+import { canonicalNameSql, canonicalOverrideJoin } from '@/lib/catalog/canonical-name-sql'
 import type {
   ListProductCandidatesResult,
   ProductMatchCandidate,
@@ -120,7 +121,7 @@ export async function listPendingProductCandidates(
       c.match_method,
       c.matched_code,
       c.confidence,
-      p.name AS product_name,
+      ${canonicalNameSql('p', 'ov')} AS product_name,
       p.part_no AS product_part_no,
       br.brand AS product_brand,
       EXISTS (
@@ -133,6 +134,7 @@ export async function listPendingProductCandidates(
       ) AS has_basbug
     FROM catalog.product_match_candidates c
     JOIN catalog.products p ON p.id = c.product_id
+    ${canonicalOverrideJoin('p', 'ov')}
     LEFT JOIN catalog.brands br ON br.id = p.brand_id
     WHERE c.status = 'PENDING'
       AND c.basbug_product_id IN (${Prisma.join(bsbgIds)})

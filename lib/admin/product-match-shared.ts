@@ -136,8 +136,39 @@ export type ManualSimilarCandidate = {
   existingSuppliers: ProductSupplierKey[]
 }
 
+/**
+ * Eşleşmeyen bir satırın neden bağlanamadığını açıklayan çakışma kaydı.
+ *
+ * Bir ham satır, aynı marka altında aynı part_no_norm'a sahip kanonik ürün
+ * ZATEN varsa ve o ürünün bu tedarikçiden bir offer'ı varsa sonsuza kadar
+ * bağlanmadan kalır: matcher yeni ürün açamaz (uq brand+part_no_norm) ve
+ * offer da ekleyemez (uq product+supplier_code). Aday listesi de bu ürünü
+ * elediği için ekran boş görünür — admin'e asıl hedefi bu kayıt gösterir.
+ */
+export type UnmatchedRowConflict = {
+  productId: string
+  name: string
+  partNo: string
+  /** Bu ürünü aynı tedarikçiden tutan mevcut offer'ın SKU'su (yoksa null). */
+  blockingSku: string | null
+}
+
 export type ManualCandidatesResult = {
   candidates: ManualSimilarCandidate[]
+  /** Yalnız eşleşmeyen satırlarda ve yalnız çakışma varsa dolu. */
+  conflict?: UnmatchedRowConflict | null
+}
+
+/** Ham tedarikçi satırından açılan yeni kanonik ürün. */
+export type CreateCanonicalProductResult = {
+  productId: string
+  partNo: string
+  name: string
+  /**
+   * part_no anahtarı çakıştığı için ürünün kimliği tedarikçi SKU'sundan
+   * türetildiyse true (ör. "251010741" dolu → "ABA 251010741").
+   */
+  usedSkuKey: boolean
 }
 
 export type ListManualRowsResult = {
@@ -181,7 +212,10 @@ export type SupplierProductRow = {
   /** Bir kanonik ürüne offer olarak bağlı mı. */
   matched: boolean
   canonicalProductId: string | null
+  /** Kanonik ürünün gösterim adı: name_override (varsa) yoksa products.name. */
   canonicalName: string | null
+  /** Ad admin tarafından override edilmiş mi (tabloda rozetle gösterilir). */
+  canonicalNameOverridden: boolean
   /** Bağlı kanonik ürünün tedarikçi offer kapsamı (badge için). */
   coverage: ProductMatchCoverage | null
 }

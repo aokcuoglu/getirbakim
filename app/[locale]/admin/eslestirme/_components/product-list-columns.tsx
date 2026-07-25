@@ -70,8 +70,22 @@ export function createProductListColumns(handlers: {
               {r.coverage ? <CoverageBadge coverage={r.coverage} /> : null}
             </div>
             {r.canonicalName ? (
-              <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={r.canonicalName}>
+              <p
+                className={`mt-0.5 truncate text-[11px] ${
+                  r.canonicalNameOverridden ? 'font-medium text-foreground' : 'text-muted-foreground'
+                }`}
+                title={
+                  r.canonicalNameOverridden
+                    ? `Kanonik ad (isim override): ${r.canonicalName}`
+                    : r.canonicalName
+                }
+              >
                 → {r.canonicalName}
+                {r.canonicalNameOverridden ? (
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                    (özel ad)
+                  </span>
+                ) : null}
               </p>
             ) : null}
           </div>

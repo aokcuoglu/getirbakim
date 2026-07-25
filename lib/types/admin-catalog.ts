@@ -69,6 +69,28 @@ export interface AdminCatalogOffer {
   lastSyncedAt: string | null
 }
 
+/**
+ * Sheet'te gösterilen bir görsel. `id` yalnız catalog.product_images satırında
+ * doludur; devralınan (public.part_images, TecDoc) görseller id'siz gelir ve
+ * salt-okunurdur — silmek için kaynak parçayı değiştirmek gerekir.
+ */
+export interface AdminCatalogImage {
+  id: string | null
+  url: string
+  thumb: string | null
+  position: number
+  source: string
+  isPrimary: boolean
+}
+
+/** Sheet'te gösterilen bir teknik özellik. `id` kuralı görsellerle aynı. */
+export interface AdminCatalogProperty {
+  id: string | null
+  key: string
+  value: string
+  source: string
+}
+
 export interface AdminCatalogProductDetail {
   id: string
   partNo: string
@@ -87,6 +109,8 @@ export interface AdminCatalogProductDetail {
   offers: AdminCatalogOffer[]
   oems: Array<{ code: string; brand: string | null; source: string }>
   eans: Array<{ code: string; source: string }>
+  images: AdminCatalogImage[]
+  properties: AdminCatalogProperty[]
   imageCount: number
   propertyCount: number
   vehicleCount: number
@@ -133,4 +157,20 @@ export interface MutateProductOemResult extends AdminCatalogActionResult {
 
 export interface MutateProductEanResult extends AdminCatalogActionResult {
   eans: Array<{ code: string; source: string }>
+}
+
+export interface MutateProductImageResult extends AdminCatalogActionResult {
+  images: AdminCatalogImage[]
+  /** products.primary_image_url — vitrin kartı/arama indeksi bunu kullanır. */
+  primaryImageUrl: string | null
+}
+
+export interface MutateProductPropertyResult extends AdminCatalogActionResult {
+  properties: AdminCatalogProperty[]
+}
+
+export interface MutateProductPropertyInput {
+  id: string
+  key: string
+  value?: string
 }

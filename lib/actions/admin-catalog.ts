@@ -5,7 +5,8 @@ import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { refreshSingleProductRollup } from '@/lib/catalog/refresh-product-rollups'
-import { getPartEnrichment } from '@/lib/catalog/part-enrichment'
+import { getConfirmedPartIds } from '@/lib/catalog/part-enrichment'
+import { syncProductSearchDocument } from '@/lib/search/sync-product-document'
 import {
   getCatalogEnrichmentCoverage,
   type CatalogEnrichmentCoverage
@@ -21,12 +22,17 @@ import { normalizeOem, parseOemEntries } from '@/lib/matching/code-normalization
 import type {
   AdminCatalogActionResult,
   AdminCatalogFilters,
+  AdminCatalogImage,
   AdminCatalogListResult,
   AdminCatalogProductDetail,
+  AdminCatalogProperty,
   CatalogProductStatus,
   MutateProductCodeInput,
   MutateProductEanResult,
+  MutateProductImageResult,
   MutateProductOemResult,
+  MutateProductPropertyInput,
+  MutateProductPropertyResult,
   UpdateCatalogOverrideInput
 } from '@/lib/types/admin-catalog'
 
@@ -216,9 +222,17 @@ export async function getAdminCatalogProductDetail(
 
   if (!product) return null
 
-  // Zengin veri katalogda tutulmaz; onaylanmış product_part_links üzerinden
-  // public.part_* tablolarından okunur.
-  const enrichment = await getPartEnrichment(product.id)
+  // Görsel/özellik iki kaynaktan gelir: admin'in elle girdiği catalog.product_*
+  // satırları ve onaylanmış product_part_links üzerinden public.part_*'tan
+  // devralınanlar. Araç uyumluluğu yalnız devralınır (part_vehicle_types).
+  const partIds = await getConfirmedPartIds(product.id)
+  const [images, properties, vehicleCount] = await Promise.all([
+    loadProductImages(product.id, product.primary_image_url, partIds),
+    loadProductProperties(product.id, partIds),
+    partIds.length
+      ? db.part_vehicle_types.count({ where: { part_id: { in: partIds } } })
+      : Promise.resolve(0)
+  ])
 
   const override = product.product_overrides
   const categoryOverrideId = override?.category_override_id ?? null
@@ -266,9 +280,11 @@ export async function getAdminCatalogProductDetail(
       source: o.source
     })),
     eans: product.product_eans.map((e) => ({ code: e.code, source: e.source })),
-    imageCount: enrichment.images.length,
-    propertyCount: enrichment.properties.length,
-    vehicleCount: enrichment.vehicleCount,
+    images,
+    properties,
+    imageCount: images.length,
+    propertyCount: properties.length,
+    vehicleCount,
     override: override
       ? {
           sellingPriceOverride: decimalToNumber(override.selling_price_override),
@@ -355,6 +371,8 @@ export async function updateCatalogProductOverride(
 
   // Recompute the rollup so the locked override price / stock cache is fresh.
   await refreshSingleProductRollup(productId)
+  // Arama indeksi de yeni adı/fiyatı görsün (Meili kapalıysa no-op).
+  await syncProductSearchDocument(productId)
 
   revalidateCatalogAdmin(product.slug)
 
@@ -560,6 +578,319 @@ export async function removeCatalogProductEan(
     message: 'EAN kaldırıldı.',
     eans: await loadProductEans(product.productId)
   }
+}
+
+// ----------------------------------------------------------------------------
+// Manuel görsel + teknik özellik
+//
+// İki katman birlikte gösterilir:
+//   • catalog.product_images / product_properties → admin'in elle girdiği,
+//     silinebilir satırlar (source='MANUAL'); sync bunlara dokunmaz.
+//   • public.part_images / part_properties        → onaylı product_part_links
+//     üzerinden devralınan TecDoc verisi; salt-okunur (id'siz döner).
+// Aynı URL / aynı key iki katmanda da varsa manuel satır kazanır.
+// ----------------------------------------------------------------------------
+
+const IMAGE_TAKE = 60
+const PROPERTY_TAKE = 120
+
+async function loadProductImages(
+  productId: bigint,
+  primaryImageUrl: string | null,
+  partIds: bigint[]
+): Promise<AdminCatalogImage[]> {
+  const [own, inherited] = await Promise.all([
+    db.product_images.findMany({
+      where: { product_id: productId },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      take: IMAGE_TAKE,
+      select: { id: true, url: true, thumb: true, position: true, source: true }
+    }),
+    partIds.length
+      ? db.part_images.findMany({
+          where: { part_id: { in: partIds } },
+          orderBy: { id: 'asc' },
+          take: IMAGE_TAKE,
+          select: { image: true, thumb: true }
+        })
+      : Promise.resolve([])
+  ])
+
+  const seen = new Set<string>()
+  const images: AdminCatalogImage[] = []
+
+  for (const row of own) {
+    if (!row.url || seen.has(row.url)) continue
+    seen.add(row.url)
+    images.push({
+      id: row.id.toString(),
+      url: row.url,
+      thumb: row.thumb,
+      position: row.position,
+      source: row.source,
+      isPrimary: row.url === primaryImageUrl
+    })
+  }
+  for (const row of inherited) {
+    if (!row.image || seen.has(row.image)) continue
+    seen.add(row.image)
+    images.push({
+      id: null,
+      url: row.image,
+      thumb: row.thumb,
+      position: 0,
+      source: 'PARTS',
+      isPrimary: row.image === primaryImageUrl
+    })
+  }
+
+  return images
+}
+
+async function loadProductProperties(
+  productId: bigint,
+  partIds: bigint[]
+): Promise<AdminCatalogProperty[]> {
+  const [own, inherited] = await Promise.all([
+    db.product_properties.findMany({
+      where: { product_id: productId },
+      orderBy: { key: 'asc' },
+      take: PROPERTY_TAKE,
+      select: { id: true, key: true, value: true, source: true }
+    }),
+    partIds.length
+      ? db.part_properties.findMany({
+          where: { part_id: { in: partIds } },
+          orderBy: { key: 'asc' },
+          take: PROPERTY_TAKE,
+          select: { key: true, value: true }
+        })
+      : Promise.resolve([])
+  ])
+
+  const seen = new Set<string>()
+  const properties: AdminCatalogProperty[] = []
+
+  for (const row of own) {
+    const key = row.key.trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    properties.push({ id: row.id.toString(), key, value: row.value, source: row.source })
+  }
+  for (const row of inherited) {
+    const key = row.key?.trim()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    properties.push({ id: null, key, value: row.value, source: 'PARTS' })
+  }
+
+  return properties
+}
+
+/** Mutasyon dönüşü için ürünün güncel görsel listesi + birincil görsel. */
+async function imageResult(
+  productId: bigint,
+  message: string
+): Promise<MutateProductImageResult> {
+  const [product, partIds] = await Promise.all([
+    db.products.findUnique({
+      where: { id: productId },
+      select: { primary_image_url: true }
+    }),
+    getConfirmedPartIds(productId)
+  ])
+  const primaryImageUrl = product?.primary_image_url ?? null
+  return {
+    success: true,
+    message,
+    images: await loadProductImages(productId, primaryImageUrl, partIds),
+    primaryImageUrl
+  }
+}
+
+/** Mutasyon dönüşü için ürünün güncel özellik listesi. */
+async function propertyResult(
+  productId: bigint,
+  message: string
+): Promise<MutateProductPropertyResult> {
+  const partIds = await getConfirmedPartIds(productId)
+  return {
+    success: true,
+    message,
+    properties: await loadProductProperties(productId, partIds)
+  }
+}
+
+/**
+ * Manuel görsel ekler. URL bu noktada zaten kalıcı bir adrestir — dosya
+ * yükleme/harici indirme API route'unda (app/api/admin/catalog/products/[id]/
+ * images) yapılır ve storage'a yazıldıktan sonra buraya düşer.
+ *
+ * Ürünün henüz birincil görseli yoksa ilk manuel görsel birincil yapılır;
+ * vitrin kartları ve Meilisearch dokümanı products.primary_image_url okur.
+ */
+export async function addCatalogProductImage(input: {
+  id: string
+  url: string
+  thumb?: string | null
+}): Promise<MutateProductImageResult> {
+  await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) {
+    return { success: false, message: 'Ürün bulunamadı.', images: [], primaryImageUrl: null }
+  }
+
+  const url = input.url.trim()
+  if (!url) {
+    const current = await imageResult(product.productId, '')
+    return { ...current, success: false, message: 'Geçerli bir görsel adresi gerekli.' }
+  }
+
+  await db.$transaction(async (tx) => {
+    const [{ next_position: nextPosition }] = await tx.$queryRaw<
+      Array<{ next_position: number }>
+    >(Prisma.sql`
+      SELECT COALESCE(MAX(position), -1) + 1 AS next_position
+      FROM catalog.product_images WHERE product_id = ${product.productId}
+    `)
+
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO catalog.product_images (product_id, url, thumb, position, source)
+      VALUES (${product.productId}, ${url}, ${input.thumb?.trim() || null}, ${nextPosition}, 'MANUAL')
+      ON CONFLICT (product_id, url) DO NOTHING
+    `)
+
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE catalog.products SET primary_image_url = ${url}
+      WHERE id = ${product.productId} AND primary_image_url IS NULL
+    `)
+  })
+
+  revalidateCatalogAdmin(product.slug)
+  return imageResult(product.productId, 'Görsel eklendi.')
+}
+
+/**
+ * Manuel bir görseli siler. Devralınan (PARTS) görsellerin id'si olmadığı için
+ * buraya hiç gelmez. Silinen görsel birincil ise birincil, kalan ilk manuel
+ * görsele düşer (yoksa temizlenir).
+ */
+export async function removeCatalogProductImage(input: {
+  id: string
+  imageId: string
+}): Promise<MutateProductImageResult> {
+  await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) {
+    return { success: false, message: 'Ürün bulunamadı.', images: [], primaryImageUrl: null }
+  }
+
+  let imageId: bigint
+  try {
+    imageId = BigInt(input.imageId)
+  } catch {
+    const current = await imageResult(product.productId, '')
+    return { ...current, success: false, message: 'Geçersiz görsel kimliği.' }
+  }
+
+  await db.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<Array<{ url: string }>>(Prisma.sql`
+      DELETE FROM catalog.product_images
+      WHERE id = ${imageId} AND product_id = ${product.productId} AND source = 'MANUAL'
+      RETURNING url
+    `)
+    if (!rows.length) return
+
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE catalog.products p
+      SET primary_image_url = (
+        SELECT i.url FROM catalog.product_images i
+        WHERE i.product_id = p.id ORDER BY i.position, i.id LIMIT 1
+      )
+      WHERE p.id = ${product.productId} AND p.primary_image_url = ${rows[0].url}
+    `)
+  })
+
+  revalidateCatalogAdmin(product.slug)
+  return imageResult(product.productId, 'Görsel kaldırıldı.')
+}
+
+/** Birincil görseli seçer (devralınan görseller de seçilebilir). */
+export async function setCatalogProductPrimaryImage(input: {
+  id: string
+  url: string
+}): Promise<MutateProductImageResult> {
+  await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) {
+    return { success: false, message: 'Ürün bulunamadı.', images: [], primaryImageUrl: null }
+  }
+
+  const url = input.url.trim()
+  if (!url) {
+    const current = await imageResult(product.productId, '')
+    return { ...current, success: false, message: 'Geçerli bir görsel adresi gerekli.' }
+  }
+
+  await db.products.update({
+    where: { id: product.productId },
+    data: { primary_image_url: url }
+  })
+
+  revalidateCatalogAdmin(product.slug)
+  return imageResult(product.productId, 'Birincil görsel güncellendi.')
+}
+
+/**
+ * Manuel teknik özellik ekler/günceller (ör. «Genişlik (mm)» → «120»).
+ * Anahtar ürün başına tekildir; aynı anahtar tekrar girilirse değeri güncellenir
+ * ve devralınan TecDoc değerinin önüne geçer.
+ */
+export async function upsertCatalogProductProperty(
+  input: MutateProductPropertyInput
+): Promise<MutateProductPropertyResult> {
+  await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) return { success: false, message: 'Ürün bulunamadı.', properties: [] }
+
+  const key = input.key.trim()
+  const value = input.value?.trim() ?? ''
+  if (!key || !value) {
+    const current = await propertyResult(product.productId, '')
+    return { ...current, success: false, message: 'Özellik adı ve değeri zorunludur.' }
+  }
+
+  await db.$executeRaw(Prisma.sql`
+    INSERT INTO catalog.product_properties (product_id, key, value, source)
+    VALUES (${product.productId}, ${key}, ${value}, 'MANUAL')
+    ON CONFLICT (product_id, key)
+    DO UPDATE SET value = EXCLUDED.value, source = 'MANUAL'
+  `)
+
+  revalidateCatalogAdmin(product.slug)
+  return propertyResult(product.productId, 'Özellik kaydedildi.')
+}
+
+/** Manuel bir özelliği siler; devralınan TecDoc değeri varsa yeniden görünür. */
+export async function removeCatalogProductProperty(
+  input: MutateProductPropertyInput
+): Promise<MutateProductPropertyResult> {
+  await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) return { success: false, message: 'Ürün bulunamadı.', properties: [] }
+
+  await db.$executeRaw(Prisma.sql`
+    DELETE FROM catalog.product_properties
+    WHERE product_id = ${product.productId} AND key = ${input.key.trim()} AND source = 'MANUAL'
+  `)
+
+  revalidateCatalogAdmin(product.slug)
+  return propertyResult(product.productId, 'Özellik kaldırıldı.')
 }
 
 // ---------------------------------------------------------------------------
