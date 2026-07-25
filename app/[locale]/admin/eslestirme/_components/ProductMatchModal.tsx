@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Check, ExternalLink, Link2Off, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -220,7 +220,15 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
     }
   }, [row, onChanged, openDetail])
 
-  const linkedProductId = row?.canonicalProductId ?? createdProductId
+  // Modal kapanırken üst bileşen `row`'u null'a çeker, ama Radix kapanış
+  // animasyonu boyunca içerik hâlâ mount'lu kalır. Son satırı tutup onu
+  // gösteriyoruz: hem render çökmüyor hem de içerik animasyon sırasında
+  // "Ürün seçilmedi."ye düşmüyor.
+  const lastRowRef = useRef<SupplierProductRow | null>(null)
+  if (row) lastRowRef.current = row
+  const activeRow = row ?? lastRowRef.current
+
+  const linkedProductId = activeRow?.canonicalProductId ?? createdProductId
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -236,16 +244,20 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 pb-5 pt-4">
           <div className="rounded-md border border-border bg-muted/30 p-3">
-            {row ? (
+            {activeRow ? (
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground">{row.name || row.sku}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {PRODUCT_LIST_SUPPLIER_LABELS[row.supplier]}
-                  {row.brandName ? ` · ${row.brandName}` : ''} · SKU: {row.sku}
-                  {row.partNo ? ` · part: ${row.partNo}` : ''}
+                <p className="truncate text-sm font-medium text-foreground">
+                  {activeRow.name || activeRow.sku}
                 </p>
-                {row.oem ? (
-                  <p className="mt-1 truncate text-[11px] text-muted-foreground">OEM: {row.oem}</p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {PRODUCT_LIST_SUPPLIER_LABELS[activeRow.supplier]}
+                  {activeRow.brandName ? ` · ${activeRow.brandName}` : ''} · SKU: {activeRow.sku}
+                  {activeRow.partNo ? ` · part: ${activeRow.partNo}` : ''}
+                </p>
+                {activeRow.oem ? (
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                    OEM: {activeRow.oem}
+                  </p>
                 ) : null}
               </div>
             ) : (
@@ -258,9 +270,9 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
                   Şu an bağlı olduğu kanonik ürün:
-                  {row?.canonicalNameOverridden ? ' (özel ad)' : ''}
+                  {activeRow?.canonicalNameOverridden ? ' (özel ad)' : ''}
                 </p>
-                {row?.coverage ? <CoverageBadge coverage={row.coverage} /> : null}
+                {activeRow?.coverage ? <CoverageBadge coverage={activeRow.coverage} /> : null}
               </div>
               {linkedProductId ? (
                 <CanonicalDetailButton
@@ -302,7 +314,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                     <span>
                       Aynı part numarasını taşıyan kanonik ürün zaten var
                       {cands.conflict.blockingSku
-                        ? ` ve ${PRODUCT_LIST_SUPPLIER_LABELS[row!.supplier]} teklifi «${cands.conflict.blockingSku}» satırında dolu`
+                        ? ` ve ${activeRow ? PRODUCT_LIST_SUPPLIER_LABELS[activeRow.supplier] : 'tedarikçi'} teklifi «${cands.conflict.blockingSku}» satırında dolu`
                         : ''}
                       . Bu satırı bağlayamayız; ürünü düzenlemek için üstüne tıklayın.
                     </span>
@@ -384,7 +396,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                   size="sm"
                   className="w-full"
                   onClick={() => void createCanonical()}
-                  disabled={creating || !row}
+                  disabled={creating || !activeRow}
                 >
                   {creating ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
