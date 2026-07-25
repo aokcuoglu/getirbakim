@@ -416,8 +416,9 @@ async function loadProductEans(
  * Manuel OEM / çapraz referans ekler (source='MANUAL'). Girdi virgül/newline ile
  * ayrılmış birden çok «MARKA KOD» kaydı olabilir (ör. "DAF 1812163, SCANIA
  * 2043169"); her kayıt public.part_oens biçiminde (ayrı oem_brand + biçimli code
- * + eşleştirme için code_norm) saklanır. code_norm, enrich-from-parts'ın
- * part_oens.code ile kurduğu join'i besler.
+ * + eşleştirme için code_norm) saklanır. code_norm, tedarikçi satırlarını
+ * kanonik ürüne bağlayan OEM örtüşmesini besler (match-supplier-rows.ts
+ * rung 2a/2b).
  */
 export async function addCatalogProductOem(
   input: MutateProductCodeInput
