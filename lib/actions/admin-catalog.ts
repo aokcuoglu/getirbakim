@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
@@ -8,10 +8,8 @@ import { refreshSingleProductRollup } from '@/lib/catalog/refresh-product-rollup
 import { getConfirmedPartIds } from '@/lib/catalog/part-enrichment'
 import { collectValidGtins, isValidGtin } from '@/lib/catalog/gtin'
 import { syncProductSearchDocument } from '@/lib/search/sync-product-document'
-import {
-  getCatalogEnrichmentCoverage,
-  type CatalogEnrichmentCoverage
-} from '@/lib/admin/catalog-enrichment-stats'
+import { ENRICHMENT_COVERAGE_TAG } from '@/lib/admin/catalog-enrichment-stats'
+import { OEM_BRAND_COVERAGE_TAG } from '@/lib/admin/oem-brand-coverage'
 import {
   buildCatalogPrice,
   catalogProductHref,
@@ -50,6 +48,20 @@ function normalizeCode(value: string): string {
 
 function priceIncVat(exVat: number | null): number | null {
   return exVat == null ? null : Number((exVat * (1 + CATALOG_VAT_RATE)).toFixed(2))
+}
+
+/**
+ * Zenginleştirme kapsam sayımlarını bayat bırakmaz.
+ *
+ * Kapsam artık gerçekten önbellekleniyor (5 dk), dolayısıyla onay/ret sonrası
+ * tag'i düşürmezsek admin kendi yaptığı işi tabloda göremezdi.
+ *
+ * revalidateTag değil updateTag: revalidateTag'in profilli biçimi
+ * stale-while-revalidate yapıyor ve action kendi yazdığını okuyamıyor.
+ */
+function revalidateEnrichmentCoverage() {
+  updateTag(ENRICHMENT_COVERAGE_TAG)
+  updateTag(OEM_BRAND_COVERAGE_TAG)
 }
 
 function revalidateCatalogAdmin(slug?: string | null) {
@@ -1004,11 +1016,11 @@ export async function removeCatalogProductProperty(
 // Zenginleştirme kapsaması ve product_part_links onay kuyruğu
 // ---------------------------------------------------------------------------
 
-/** Katalog zenginleştirme kapsama özeti (önbellekli, ~5dk). */
-export async function getEnrichmentCoverage(): Promise<CatalogEnrichmentCoverage> {
-  await requireAdminAuth()
-  return getCatalogEnrichmentCoverage()
-}
+// Kapsam özetleri bilerek server action DEĞİL: Next, action gövdesinde data
+// cache'i no-store'a zorluyor (önbellek hiç tutmuyordu) ve action'lar istemcide
+// kuyruğa alındığı için panellerin süresi paralel değil toplam oluyordu.
+// Artık GET route handler üzerinden okunuyorlar:
+//   app/api/admin/eslestirme/enrichment/{coverage,oem-coverage}
 
 export interface CandidateLinkRow {
   linkId: string
@@ -1104,6 +1116,7 @@ export async function reviewProductPartLink(input: {
   }
 
   revalidateCatalogAdmin()
+  revalidateEnrichmentCoverage()
   return {
     success: true,
     message: input.decision === 'APPROVE' ? 'Eşleşme onaylandı.' : 'Eşleşme reddedildi.'
@@ -1119,70 +1132,10 @@ export async function reviewProductPartLink(input: {
 // ayrı bir toplu iş beklemeye gerek yok.
 // ---------------------------------------------------------------------------
 
-export interface OemCoverageBrandRow {
-  brandId: number
-  brand: string
-  /** Markayı kapsayan kaynak; null = kapsayan kaynak yok, elle araştırılmalı. */
-  sourceSite: string | null
-  /** Kapsam nereden biliniyor: 'archive' | 'search' | 'builtin'. */
-  resolvedBy: string | null
-  products: number
-  /** OEM'i olmayan ürün sayısı — elle iş yükünün ölçüsü. */
-  missingOem: number
-  /** Bu markada web kaynağından gelmiş, bekleyen öneri sayısı. */
-  pendingSuggestions: number
-}
-
-/**
- * Marka bazında OEM kaynak kapsamı.
- *
- * Ayrım işin bölünmesini belirler: kapsanan markalar scraper'a bırakılır,
- * KAPSANMAYANLARIN OEM'i elle araştırılmalı. Sıralama OEM'siz ürün sayısına
- * göre — en çok emek isteyen marka en üstte.
- */
-export async function getOemBrandCoverage(input?: {
-  covered?: boolean | null
-}): Promise<OemCoverageBrandRow[]> {
-  await requireAdminAuth()
-  const covered = input?.covered ?? null
-
-  const rows = await db.$queryRaw<Record<string, unknown>[]>`
-    select b.id, b.brand, c.source_site, c.resolved_by,
-           count(p.id) as products,
-           count(p.id) filter (
-             where not exists (
-               select 1 from catalog.product_oems o
-               where o.product_id = p.id and o.source <> 'PART_NO'
-             )
-           ) as missing_oem,
-           (
-             select count(*) from catalog.product_ref_suggestions s
-             join catalog.products sp on sp.id = s.product_id
-             where sp.brand_id = b.id and s.status = 'PENDING'
-           ) as pending_suggestions
-    from catalog.brands b
-    left join catalog.oem_brand_coverage c on c.brand_id = b.id
-    left join catalog.products p on p.brand_id = b.id and p.status = 'ACTIVE'
-    where (
-      ${covered}::boolean is null
-      or (${covered}::boolean = true and c.source_site is not null)
-      or (${covered}::boolean = false and c.source_site is null)
-    )
-    group by b.id, b.brand, c.source_site, c.resolved_by
-    having count(p.id) > 0
-    order by missing_oem desc, b.brand
-  `
-
-  return rows.map((r) => ({
-    brandId: Number(r.id),
-    brand: String(r.brand ?? ''),
-    sourceSite: r.source_site ? String(r.source_site) : null,
-    resolvedBy: r.resolved_by ? String(r.resolved_by) : null,
-    products: Number(r.products ?? 0),
-    missingOem: Number(r.missing_oem ?? 0),
-    pendingSuggestions: Number(r.pending_suggestions ?? 0)
-  }))
-}
+// OemCoverageBrandRow tipi ve sorgusu lib/admin/oem-brand-coverage.ts'e taşındı
+// (önbellek server action içinde tutmuyordu — bkz. yukarıdaki not). 'use server'
+// dosyası yalnızca async fonksiyon dışa aktarabildiği için buradan re-export
+// edilmiyor; istemci tipi doğrudan o modülden `import type` ile alır.
 
 export interface RefSuggestionRow {
   id: string
@@ -1327,6 +1280,7 @@ export async function reviewRefSuggestions(input: {
       where id in (${Prisma.join(ids)}) and status = 'PENDING'
     `)
     revalidateCatalogAdmin()
+    revalidateEnrichmentCoverage()
     return {
       success: true,
       message: `${Number(n)} öneri reddedildi.`,
@@ -1408,6 +1362,7 @@ export async function reviewRefSuggestions(input: {
   for (const slug of new Set(rows.map((r) => r.slug))) {
     revalidateCatalogAdmin(slug)
   }
+  revalidateEnrichmentCoverage()
 
   return {
     success: true,

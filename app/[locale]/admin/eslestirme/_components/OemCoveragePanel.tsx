@@ -5,7 +5,8 @@ import { ChevronDown, ChevronUp, Loader2, RefreshCw, Search } from 'lucide-react
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { getOemBrandCoverage, type OemCoverageBrandRow } from '@/lib/actions/admin-catalog'
+import { toast } from 'sonner'
+import type { OemCoverageBrandRow } from '@/lib/admin/oem-brand-coverage'
 
 const tr = (n: number) => n.toLocaleString('tr-TR')
 
@@ -50,6 +51,9 @@ export interface OemCoveragePanelProps {
  *
  * Tüm markalar tek seferde çekilir (~600 satır), filtre/arama istemcide çalışır:
  * her sekme değişiminde sunucuya gitmenin anlamı yok.
+ *
+ * Veri server action ile değil GET ile çekilir: action'lar istemcide kuyruğa
+ * alındığı için bu panel kapsam kartlarının arkasında sıra beklerdi.
  */
 export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePanelProps) {
   const [rows, setRows] = useState<OemCoverageBrandRow[]>([])
@@ -58,14 +62,24 @@ export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePa
   const [expanded, setExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true)
     try {
-      const next = await getOemBrandCoverage({ covered: null })
+      const res = await fetch(
+        `/api/admin/eslestirme/enrichment/oem-coverage${fresh ? '?fresh=1' : ''}`
+      )
+      const data = await res.json()
+      if (!res.ok || data?.error) {
+        toast.error(data?.error?.message || 'Kaynak kapsamı yüklenemedi.')
+        return
+      }
+      const next = (data.rows ?? []) as OemCoverageBrandRow[]
       setRows(next)
       // Kuyruk boşken "Bekleyen öneri" sekmesi boş tablo gösterirdi; işin
       // gerçekten olduğu yere düş.
       if (!next.some((r) => r.pendingSuggestions > 0)) setFilter('uncovered')
+    } catch {
+      toast.error('Kaynak kapsamı yüklenirken hata oluştu.')
     } finally {
       setLoading(false)
     }
@@ -153,7 +167,7 @@ export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePa
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void load()}
+          onClick={() => void load(true)}
           disabled={loading}
           className="h-8"
         >
