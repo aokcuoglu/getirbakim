@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
-import { normCodeSql } from './catalog-sql'
+import { gtinDigitsSql, normCodeSql, validGtinSql } from './catalog-sql'
 
 export interface IngestOemsStats {
   dinamik: number
@@ -70,18 +70,32 @@ export async function ingestSupplierOems(): Promise<IngestOemsStats> {
   return { dinamik, basbug }
 }
 
-/** Dinamik barcodes → catalog.product_eans. */
+/**
+ * Dinamik barcodes → catalog.product_eans.
+ *
+ * The supplier's barcode fields are not reliably barcodes: measured against
+ * production, 468.665 raw values contained part numbers ("10PK1342"),
+ * brand+part concatenations ("ABA-10PK1342") and 23.105 products carrying the
+ * literal code "0". They were inserted unchecked, so they surfaced on the
+ * storefront as EANs and entered the search index. Only 282.158 of those values
+ * are real barcodes.
+ *
+ * Every value is therefore validated as a GTIN, and stored reduced to its
+ * digits so the same barcode written with or without separators does not land
+ * twice. See validGtinSql / lib/catalog/gtin.ts for the rule.
+ */
 export async function ingestSupplierEans(): Promise<number> {
+  const digits = gtinDigitsSql(Prisma.sql`barcode`)
   const inserted = await db.$executeRaw(Prisma.sql`
     INSERT INTO catalog.product_eans (product_id, code, source)
-    SELECT DISTINCT ON (po.product_id, TRIM(barcode))
+    SELECT DISTINCT ON (po.product_id, ${digits})
       po.product_id,
-      TRIM(barcode),
+      ${digits},
       'DNMK'
     FROM catalog.product_offers po
     JOIN catalog.supplier_dinamik_products dp ON dp.id = po.dinamik_product_id
     CROSS JOIN LATERAL unnest(ARRAY[dp.barcode_1, dp.barcode_2, dp.barcode_3]) AS barcode
-    WHERE NULLIF(TRIM(COALESCE(barcode, '')), '') IS NOT NULL
+    WHERE ${validGtinSql(Prisma.sql`barcode`)}
     ON CONFLICT (product_id, code) DO NOTHING
   `)
 
