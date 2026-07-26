@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3001",
+    "dev:tunnel": "bash scripts/dev-tunnel.sh",
     "dev:deps": "docker volume create getirbakim-postgres-data 2>/dev/null; docker volume create getirbakim-meili-data 2>/dev/null; docker compose -f docker-compose.local.yml up -d postgres meilisearch",
     "dev:deps:stop": "docker compose -f docker-compose.local.yml down",
     "build": "prisma generate && next build",
