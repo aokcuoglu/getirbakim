@@ -1,12 +1,30 @@
 'use server'
 
 import { db } from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import { uploadFile, uploadImageFromUrl } from '@/lib/storage'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 const CATEGORIES_CACHE_TTL_MS = 60 * 1000
-type CategoryRow = Awaited<ReturnType<typeof db.part_categories.findMany>>[number]
+
+// Derive the row type from the columns actually selected, not from the whole
+// model — otherwise every column added to part_categories (e.g. the archive's
+// trodo_category_id) silently breaks this type against a query that never
+// selected it.
+const CATEGORY_SELECT = {
+  id: true,
+  name: true,
+  name_tr: true,
+  is_active: true,
+  parent_id: true,
+  url_key: true,
+  is_main_nav: true,
+  has_childs: true,
+  image: true
+} as const
+
+type CategoryRow = Prisma.part_categoriesGetPayload<{ select: typeof CATEGORY_SELECT }>
 type CategoryTree = CategoryRow & { children: CategoryTree[] }
 type GetCategoriesSuccess = {
   success: true
@@ -48,17 +66,7 @@ export async function getCategories(): Promise<GetCategoriesSuccess | GetCategor
     }
 
     const categories = await db.part_categories.findMany({
-      select: {
-        id: true,
-        name: true,
-        name_tr: true,
-        is_active: true,
-        parent_id: true,
-        url_key: true,
-        is_main_nav: true,
-        has_childs: true,
-        image: true
-      },
+      select: CATEGORY_SELECT,
       orderBy: { id: 'asc' }
     })
 
