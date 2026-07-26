@@ -126,6 +126,23 @@ export interface AdminCatalogProductDetail {
   updatedAt: string
 }
 
+/**
+ * Eşleştirme modalindeki hızlı düzenleme paneli için minimal ürün görünümü.
+ * Detay sheet'inin aksine görsel/özellik/araç sayımı yüklemez — o sorgular
+ * (özellikle part_vehicle_types count'u) modal içi düzenleme için fazla ağır.
+ */
+export interface CatalogProductQuickEdit {
+  id: string
+  partNo: string
+  brandName: string
+  /** Override uygulanmış görünen ad. */
+  name: string
+  /** Ürünün ham adı — override alanının placeholder'ı. */
+  baseName: string
+  nameOverride: string | null
+  oems: Array<{ code: string; brand: string | null; source: string }>
+}
+
 export interface UpdateCatalogOverrideInput {
   id: string
   status?: CatalogProductStatus

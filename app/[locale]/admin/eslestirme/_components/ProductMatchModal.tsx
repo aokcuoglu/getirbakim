@@ -12,13 +12,23 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   PRODUCT_LIST_SUPPLIER_LABELS,
   type ManualCandidatesResult,
   type ManualSimilarCandidate,
   type SupplierProductRow
 } from '@/lib/admin/product-match-shared'
+import {
+  addCatalogProductOem,
+  getCatalogProductQuickEdit,
+  removeCatalogProductOem,
+  setCatalogProductNameOverride
+} from '@/lib/actions/admin-catalog'
+import type { CatalogProductQuickEdit } from '@/lib/types/admin-catalog'
 import { CatalogProductDetailSheet } from '@/app/[locale]/admin/products/_components/CatalogProductDetailSheet'
+import { CodeEditor } from '@/app/[locale]/admin/products/_components/ProductCodeEditor'
 import { CoverageBadge } from './CoverageBadge'
 
 interface ProductMatchModalProps {
@@ -81,6 +91,22 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
   // Kanonik ürün detay sheet'i (eşleştirme modalinin üzerine açılır).
   const [detailProductId, setDetailProductId] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  // Bağlı kanonik ürünün hızlı düzenleme paneli (OEM havuzu + ad override).
+  // Sık yapılan iki düzenleme burada; detay sheet'ini açmak gerekmiyor.
+  const [quick, setQuick] = useState<CatalogProductQuickEdit | null>(null)
+  const [quickLoading, setQuickLoading] = useState(false)
+  const [nameOverride, setNameOverride] = useState('')
+  const [savingName, setSavingName] = useState(false)
+
+  // Modal kapanırken üst bileşen `row`'u null'a çeker, ama Radix kapanış
+  // animasyonu boyunca içerik hâlâ mount'lu kalır. Son satırı tutup onu
+  // gösteriyoruz: hem render çökmüyor hem de içerik animasyon sırasında
+  // "Ürün seçilmedi."ye düşmüyor.
+  const lastRowRef = useRef<SupplierProductRow | null>(null)
+  if (row) lastRowRef.current = row
+  const activeRow = row ?? lastRowRef.current
+
+  const linkedProductId = activeRow?.canonicalProductId ?? createdProductId
 
   const openDetail = useCallback((productId: string) => {
     setDetailProductId(productId)
@@ -126,8 +152,57 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
       setCreatedProductId(null)
       setDetailOpen(false)
       setDetailProductId(null)
+      setQuick(null)
+      setNameOverride('')
     }
   }, [open, row, loadCandidates])
+
+  /** Bağlı kanonik ürünün ad + OEM havuzunu getirir (dar sorgu). */
+  const loadQuick = useCallback(async (productId: string) => {
+    setQuickLoading(true)
+    try {
+      const data = await getCatalogProductQuickEdit(productId)
+      setQuick(data)
+      setNameOverride(data?.nameOverride ?? '')
+    } catch {
+      toast.error('Ürün bilgileri yüklenemedi.')
+    } finally {
+      setQuickLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open || !matched || !linkedProductId) {
+      if (!matched) setQuick(null)
+      return
+    }
+    void loadQuick(linkedProductId)
+  }, [open, matched, linkedProductId, loadQuick])
+
+  const saveName = useCallback(async () => {
+    if (!linkedProductId || !quick) return
+    setSavingName(true)
+    try {
+      const trimmed = nameOverride.trim()
+      const res = await setCatalogProductNameOverride({
+        id: linkedProductId,
+        nameOverride: trimmed || null
+      })
+      if (!res.success) {
+        toast.error(res.message)
+        return
+      }
+      toast.success(res.message)
+      const resolved = trimmed || quick.baseName
+      setQuick({ ...quick, nameOverride: trimmed || null, name: resolved })
+      setCurrentName(resolved)
+      onChanged?.()
+    } catch {
+      toast.error('Ad kaydedilirken hata oluştu.')
+    } finally {
+      setSavingName(false)
+    }
+  }, [linkedProductId, quick, nameOverride, onChanged])
 
   const unlink = useCallback(async () => {
     if (!row) return
@@ -220,16 +295,6 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
     }
   }, [row, onChanged, openDetail])
 
-  // Modal kapanırken üst bileşen `row`'u null'a çeker, ama Radix kapanış
-  // animasyonu boyunca içerik hâlâ mount'lu kalır. Son satırı tutup onu
-  // gösteriyoruz: hem render çökmüyor hem de içerik animasyon sırasında
-  // "Ürün seçilmedi."ye düşmüyor.
-  const lastRowRef = useRef<SupplierProductRow | null>(null)
-  if (row) lastRowRef.current = row
-  const activeRow = row ?? lastRowRef.current
-
-  const linkedProductId = activeRow?.canonicalProductId ?? createdProductId
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] w-full flex-col overflow-hidden p-0 sm:max-w-lg">
@@ -299,7 +364,105 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                 Bağlantıyı kaldır ve yeniden eşleştir
               </Button>
             </div>
-          ) : (
+          ) : null}
+
+          {/*
+            Hızlı düzenleme: eşleştirme sırasında en sık gereken iki alan
+            (OEM havuzu + ad override) burada. Detay sheet'i tam düzenleme
+            için hâlâ duruyor — ürün adına tıklayınca açılır.
+          */}
+          {matched && linkedProductId ? (
+            <div className="space-y-4 rounded-md border border-border p-3">
+              {quickLoading && !quick ? (
+                <p className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Ürün bilgileri yükleniyor…
+                </p>
+              ) : !quick ? (
+                <p className="py-2 text-center text-xs text-muted-foreground">
+                  Ürün bilgileri getirilemedi.
+                </p>
+              ) : (
+                <>
+                  <CodeEditor
+                    title="OEM / Çapraz Referans"
+                    codes={quick.oems.map((o) => ({
+                      code: o.code,
+                      source: o.source,
+                      extra: o.brand
+                    }))}
+                    placeholder="DAF 1812163, MERCEDES-BENZ 0019934196"
+                    hint="Virgülle ayırın; her numara «MARKA KOD» biçiminde. Marka opsiyonel."
+                    listClassName="max-h-32"
+                    onAdd={async (code) => {
+                      const res = await addCatalogProductOem({ id: quick.id, code })
+                      if (!res.success) {
+                        toast.error(res.message)
+                        return false
+                      }
+                      setQuick({ ...quick, oems: res.oems })
+                      toast.success(res.message)
+                      onChanged?.()
+                      return true
+                    }}
+                    onRemove={async (item) => {
+                      const res = await removeCatalogProductOem({
+                        id: quick.id,
+                        code: item.code,
+                        brand: item.extra ?? ''
+                      })
+                      if (!res.success) {
+                        toast.error(res.message)
+                        return
+                      }
+                      setQuick({ ...quick, oems: res.oems })
+                      toast.success(res.message)
+                      onChanged?.()
+                    }}
+                  />
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="match-name-override" className="text-sm font-semibold">
+                      İsim override
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="match-name-override"
+                        value={nameOverride}
+                        onChange={(e) => setNameOverride(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            void saveName()
+                          }
+                        }}
+                        placeholder={quick.baseName}
+                        className="h-8 text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveName()}
+                        disabled={savingName || nameOverride.trim() === (quick.nameOverride ?? '')}
+                        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-muted disabled:opacity-50"
+                      >
+                        {savingName ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5" />
+                        )}
+                        Kaydet
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Boş bırakırsanız ürünün ham adı kullanılır: {quick.baseName}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {!matched ? (
             <>
               {/*
                 Eşleşmeyen satırların büyük çoğunluğu "anahtarı kapılmış"
@@ -407,7 +570,7 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
                 </Button>
               </div>
             </>
-          )}
+          ) : null}
         </div>
       </DialogContent>
 
@@ -415,7 +578,13 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
         productId={detailProductId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
-        onSaved={() => onChanged?.()}
+        onSaved={() => {
+          onChanged?.()
+          // Detay sheet'i bağlı ürünü düzenlediyse modaldeki panel de tazelensin.
+          if (detailProductId && detailProductId === linkedProductId) {
+            void loadQuick(detailProductId)
+          }
+        }}
       />
     </Dialog>
   )

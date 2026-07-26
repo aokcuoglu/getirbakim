@@ -27,6 +27,7 @@ import type {
   AdminCatalogListResult,
   AdminCatalogProductDetail,
   AdminCatalogProperty,
+  CatalogProductQuickEdit,
   CatalogProductStatus,
   MutateProductCodeInput,
   MutateProductEanResult,
@@ -300,6 +301,94 @@ export async function getAdminCatalogProductDetail(
         }
       : null,
     updatedAt: product.updated_at.toISOString()
+  }
+}
+
+/**
+ * Eşleştirme modalinin hızlı düzenleme paneli için ürünün yalnız ad + OEM
+ * havuzunu getirir. Detay sheet'ini açmak (görsel/özellik/uyumlu araç sayımı)
+ * bu iş için gereksiz maliyetli olduğundan ayrı ve dar bir sorgu kullanır.
+ */
+export async function getCatalogProductQuickEdit(
+  id: string
+): Promise<CatalogProductQuickEdit | null> {
+  await requireAdminAuth()
+
+  let productId: bigint
+  try {
+    productId = BigInt(id)
+  } catch {
+    return null
+  }
+
+  const product = await db.products.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      part_no: true,
+      name: true,
+      brand: { select: { brand: true } },
+      product_overrides: { select: { name_override: true } },
+      product_oems: {
+        orderBy: { id: 'asc' },
+        take: 600,
+        select: { code: true, oem_brand: true, source: true }
+      }
+    }
+  })
+  if (!product) return null
+
+  const nameOverride = product.product_overrides?.name_override ?? null
+
+  return {
+    id: product.id.toString(),
+    partNo: product.part_no,
+    brandName: product.brand.brand,
+    name: resolveCatalogName(product.name, nameOverride),
+    baseName: product.name,
+    nameOverride,
+    oems: product.product_oems.map((o) => ({
+      code: o.code,
+      brand: o.oem_brand || null,
+      source: o.source
+    }))
+  }
+}
+
+/**
+ * Yalnız ad override'ını yazar; fiyat/kilit/not alanlarına dokunmaz.
+ * (updateCatalogProductOverride tüm override satırını baştan yazdığı için
+ * modalden gelen kısmi düzenlemede kullanılamaz.)
+ */
+export async function setCatalogProductNameOverride(input: {
+  id: string
+  nameOverride: string | null
+}): Promise<AdminCatalogActionResult> {
+  const auth = await requireAdminAuth()
+
+  const product = await findProductForCode(input.id)
+  if (!product) return { success: false, message: 'Ürün bulunamadı.' }
+
+  const nameOverride = input.nameOverride?.trim() || null
+  const editor = auth.user.email ?? auth.user.id
+
+  await db.product_overrides.upsert({
+    where: { product_id: product.productId },
+    create: {
+      product_id: product.productId,
+      name_override: nameOverride,
+      updated_by: editor
+    },
+    update: { name_override: nameOverride, updated_by: editor }
+  })
+
+  // Arama indeksi yeni adı görsün (Meili kapalıysa no-op).
+  await syncProductSearchDocument(product.productId)
+  revalidateCatalogAdmin(product.slug)
+
+  return {
+    success: true,
+    message: nameOverride ? 'Ürün adı güncellendi.' : 'Ad override kaldırıldı.'
   }
 }
 
