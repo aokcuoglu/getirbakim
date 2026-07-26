@@ -7,14 +7,18 @@
  * kodlardan doğrulandı. Arşiv 140 marka içerdiği için katalogdaki 633 markanın
  * yalnız bir bölümünü kapsar.
  *
- * Arşivde olmayan markalar `.data/repxpert/brand-ids.json` dosyasından gelir:
+ * Arşivde olmayan markalar `data/repxpert-brand-ids.json` dosyasından gelir:
  * bunlar sitenin arama ucundan öğrenilip (ya da elle) eklenir. Dosya ARŞİVİ
  * EZER — arşiv donmuş bir kesittir, elle doğrulanmış değer ondan üstündür.
+ *
+ * Dosya neden repoda (`.data/` altında değil): scraper yalnız geliştirici
+ * makinesinde koşmuyor, sunucuda da koşuyor. Harita orada da gerekli ve
+ * yeniden keşfi bine yakın istek demek — kod gibi sürümlenip deploy edilmeli.
  */
 import { readFile } from 'node:fs/promises'
 import { db } from '../../db'
 
-export const BRAND_ID_OVERRIDES_PATH = '.data/repxpert/brand-ids.json'
+export const BRAND_ID_OVERRIDES_PATH = 'data/repxpert-brand-ids.json'
 
 export interface BrandIdMap {
   brandIds: Record<string, number>

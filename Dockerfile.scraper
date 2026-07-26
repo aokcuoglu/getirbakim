@@ -1,0 +1,33 @@
+# REPXPERT scraper — sunucuda GÖRÜNÜR tarayıcı çalıştırmak için.
+#
+# Neden ayrı imaj: uygulama imajında tarayıcı yok ve olmamalı (Next standalone
+# çıktısı yalnız uygulamanın import ettiklerini taşır). Scraper ise Chromium'un
+# tamamını ve sistem bağımlılıklarını istiyor.
+#
+# Neden Xvfb: bot koruması `headless` Chromium'u parmak izinden tanıyıp ana
+# sayfada "Access denied" veriyor. Sunucuda ekran olmadığı için tarayıcı sanal
+# bir X ekranına açılır — böylece GERÇEKTEN headful çalışır.
+#
+# Playwright imajının etiketi package.json'daki playwright sürümüyle AYNI
+# olmalı; uyuşmazsa Playwright indirdiği tarayıcıyı bulamaz.
+FROM mcr.microsoft.com/playwright:v1.57.0-noble
+
+# Bun: repo bun ile çalışıyor (script'ler, TS doğrudan koşuyor).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip xvfb \
+  && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+WORKDIR /app
+
+# Bağımlılıklar önce: kaynak değişince katman yeniden kurulmasın.
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile
+
+COPY . .
+RUN bunx prisma generate
+
+# Ekran yoksa xvfb-run bir tane uydurur; scraper her zaman headful açılır.
+ENTRYPOINT ["xvfb-run", "-a", "--server-args=-screen 0 1440x900x24"]
+CMD ["bun", "scripts/scrape-product-oems.ts", "--repxpert", "--help"]
