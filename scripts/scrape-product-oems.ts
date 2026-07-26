@@ -8,12 +8,16 @@
  * Kaynaklar lib/catalog/oem-sources/ altındaki adapter'lardır; her adapter
  * yalnız kapsadığı markaları bildirir, script hedefleri ona göre seçer.
  *   · bilstein group partsfinder — febi / SWAG / Blue Print (ücretsiz, resmi)
+ *   · TecAlliance kataloğu — MAHLE / KNECHT
+ *   · REPXPERT (--repxpert) — TecDoc'un tamamı, ürün başına tek istek; gerçek
+ *     tarayıcı oturumu açar (bot koruması), bu yüzden açıkça istenmelidir
  *   · web aramalı model (--llm) — marka bağımsız, ÜCRETLİ, ürün başına çağrı
  *
  * Kullanım:
  *   bun scripts/scrape-product-oems.ts --brand=FEBI --limit=20 --dry-run
  *   bun scripts/scrape-product-oems.ts --brand=FEBI --limit=2000
  *   bun scripts/scrape-product-oems.ts --all --concurrency=3
+ *   bun scripts/scrape-product-oems.ts --repxpert --brand=VALEO --limit=200
  *   bun scripts/scrape-product-oems.ts --brand=ABA --llm --limit=10 --dry-run
  *   bun scripts/scrape-product-oems.ts --list-sources
  *
@@ -31,6 +35,10 @@
  *                     koşu sonunda harcanan token/arama özeti yazılır)
  *   --llm-model=X    model kimliği (varsayılan claude-opus-5)
  *   --llm-effort=X   low | medium | high (varsayılan low)
+ *   --repxpert       REPXPERT kaynağını aç (tarayıcı oturumu açılır)
+ *   --repxpert-headless  tarayıcıyı gizli aç (UYARI: bot korumasına takılıyor)
+ *   --repxpert-interval=MS  istekler arası ALT SINIR (varsayılan 1000 ≈ 1/sn);
+ *                    --concurrency ne olursa olsun bu tempo aşılmaz
  *
  * Yeniden çalıştırma ucuzdur: önerisi olan ürünler SQL'de, sorgulanıp sonuç
  * çıkmayanlar checkpoint dosyasında (.data/scrape/<site>.attempted) elenir.
@@ -44,6 +52,11 @@ import { Prisma } from '@prisma/client'
 import { db } from '../lib/db'
 import { createOemSources } from '../lib/catalog/oem-sources'
 import type { LlmWebSource, OemLookup, OemSource } from '../lib/catalog/oem-sources'
+import {
+  createRepxpertBrowserTransport,
+  type RepxpertBrowserTransport
+} from '../lib/catalog/oem-sources/repxpert-browser'
+import { loadRepxpertBrandIds } from '../lib/catalog/oem-sources/repxpert-brands'
 import { createBrandResolver } from '../lib/catalog/oem-sources/oem-brand-vocab'
 import {
   insertSuggestions,
@@ -338,9 +351,18 @@ function parseArgs(argv: string[]) {
     useCheckpoint: !flag('no-checkpoint'),
     llm: flag('llm'),
     llmModel: value('llm-model'),
-    llmEffort: value('llm-effort')
+    llmEffort: value('llm-effort'),
+    repxpert: flag('repxpert'),
+    repxpertHeadless: flag('repxpert-headless'),
+    repxpertIntervalMs: num('repxpert-interval', 1000)
   }
 }
+
+/**
+ * Açık tarayıcı; koşu nasıl biterse bitsin (hata dahil) kapatılmalı, yoksa
+ * süreç asılı kalır.
+ */
+let openBrowser: RepxpertBrowserTransport | null = null
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
@@ -352,13 +374,33 @@ async function main() {
     process.exit(1)
   }
 
+  // REPXPERT tarayıcı açar; koşu nasıl biterse bitsin kapatılmalı.
+  let repxpertTransport: RepxpertBrowserTransport | null = null
+  let repxpertBrandIds: Record<string, number> | null = null
+  if (args.repxpert) {
+    const { brandIds, fromArchive, fromOverrides } = await loadRepxpertBrandIds()
+    console.log(
+      `[scrape] repxpert marka haritası: ${Object.keys(brandIds).length} marka (arşiv ${fromArchive} · dosya ${fromOverrides})`
+    )
+    repxpertTransport = openBrowser = await createRepxpertBrowserTransport({
+      headless: args.repxpertHeadless,
+      minIntervalMs: args.repxpertIntervalMs
+    })
+    console.log(`[scrape] repxpert ${await repxpertTransport.describeSession()}`)
+    repxpertBrandIds = brandIds
+  }
+
   const sources = await createOemSources({
     llm: args.llm
       ? {
           model: args.llmModel,
           effort: (args.llmEffort as 'low' | 'medium' | 'high' | undefined) ?? 'low'
         }
-      : false
+      : false,
+    repxpert:
+      repxpertTransport && repxpertBrandIds
+        ? { transport: repxpertTransport, brandIds: repxpertBrandIds }
+        : false
   })
 
   if (args.listSources) {
@@ -428,9 +470,13 @@ async function main() {
 }
 
 main()
-  .then(() => db.$disconnect())
+  .then(async () => {
+    await openBrowser?.close()
+    await db.$disconnect()
+  })
   .catch(async (e) => {
     console.error(e)
+    await openBrowser?.close()
     await db.$disconnect()
     process.exit(1)
   })

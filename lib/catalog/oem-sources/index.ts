@@ -8,11 +8,13 @@
  */
 import { createBilsteinSource } from './bilstein'
 import type { LlmWebOptions, LlmWebSource } from './llm-web'
+import { createRepxpertSource, type RepxpertTransport } from './repxpert'
 import { createTecDocCatalogSource } from './tecdoc-catalog'
 import type { OemSource } from './types'
 
 export type { OemLookup, OemSource, SourcedOem } from './types'
 export type { LlmWebSource, LlmWebUsage } from './llm-web'
+export type { RepxpertTransport } from './repxpert'
 
 export interface SourceRegistryOptions {
   /**
@@ -20,12 +22,24 @@ export interface SourceRegistryOptions {
    * ücretli bir model çağrısı demektir, sessizce açılmamalı.
    */
   llm?: LlmWebOptions | false
+  /**
+   * REPXPERT kaynağı. Varsayılan KAPALI: gerçek bir tarayıcı oturumu açmayı
+   * gerektirir (bot koruması), bunu her koşuda yapmak gereksiz.
+   *
+   * Marka kapsamını çağıran belirler — harita veritabanından/dosyadan gelir
+   * (bkz. repxpert-brands.ts), adapter'ın kendisi veriyi bilmez.
+   */
+  repxpert?: { transport: RepxpertTransport; brandIds: Record<string, number> } | false
 }
 
 export async function createOemSources(
   options: SourceRegistryOptions = {}
 ): Promise<OemSource[]> {
   const sources: OemSource[] = [createBilsteinSource(), createTecDocCatalogSource()]
+  // Üreticinin KENDİ kataloğundan sonra gelir: aynı marka ikisinde de varsa
+  // üreticinin yayını daha günceldir. REPXPERT'in değeri kapsamda — kendi
+  // kataloğuna erişemediğimiz yüzlerce markayı o taşıyor.
+  if (options.repxpert) sources.push(createRepxpertSource(options.repxpert))
   if (options.llm) {
     // Yüklemesi ertelenir: `@anthropic-ai/sdk` yalnız bu kaynağın bağımlılığı ve
     // prod imajına GİRMİYOR — Next standalone çıktısı yalnız uygulamanın import
