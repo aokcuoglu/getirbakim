@@ -131,7 +131,9 @@ verify)
   FAIL=0
   while IFS='=' read -r table expected; do
     [[ -z "${table}" ]] && continue
-    actual=$(ssh "${SSH_HOST}" "docker exec -i ${PROD_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -tAc 'SELECT count(*) FROM ${table}'" | tr -d '[:space:]')
+    # ssh -n: without it ssh reads the loop's stdin and swallows the rest of
+    # expected.txt, so only the first table ever gets checked.
+    actual=$(ssh -n "${SSH_HOST}" "docker exec -i ${PROD_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -tAc 'SELECT count(*) FROM ${table}'" | tr -d '[:space:]')
     if [[ "${expected}" == "${actual}" ]]; then
       printf '  %-38s %-12s OK\n' "${table}" "${actual}"
     else
