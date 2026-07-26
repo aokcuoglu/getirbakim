@@ -29,7 +29,8 @@ async function main() {
     locale: 'tr-TR'
   })
   const page = context.pages()[0] ?? (await context.newPage())
-  await page.goto(`${ORIGIN}/tr/login`, { waitUntil: 'domcontentloaded' })
+  // Giriş sayfası dil önekli değil — /tr/login çalışmıyor.
+  await page.goto(`${ORIGIN}/login`, { waitUntil: 'domcontentloaded' })
 
   console.log('[repxpert-login] Açılan pencerede REPXPERT hesabınızla giriş yapın.')
   console.log('[repxpert-login] Giriş algılanınca pencere kendiliğinden kapanacak.')
