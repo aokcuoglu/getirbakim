@@ -1,6 +1,8 @@
 /**
  * Katalog markalarının TecDoc marka id'sini REPXPERT arama ucundan öğrenir ve
- * `.data/repxpert/brand-ids.json` dosyasına yazar.
+ * `data/repxpert-brand-ids.json` dosyasına yazar. Dosya repoda izlenir: harita
+ * sunucuda da gerekli ve yeniden keşfi bine yakın istek demek — kod gibi
+ * sürümlenip deploy edilir, koşudan sonra commit'lenmeli.
  *
  * Neden gerekli: OEM çekimi ürün kodunu `<markaId>:<parçaNo>` üzerinden kuruyor
  * (bkz. repxpert.ts). Marka id'sinin bilinen kaynağı yerel TecDoc arşivi ve o

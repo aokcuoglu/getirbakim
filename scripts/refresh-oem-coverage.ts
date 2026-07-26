@@ -4,7 +4,7 @@
  *
  * Neden materyalize ediliyor da canlı hesaplanmıyor: kapsamın bir bölümü yerel
  * TecDoc arşivinden (`public.part_brands`) ve yerel dosyadan
- * (`.data/repxpert/brand-ids.json`) türüyor; ikisi de prod'da yok. Tabloya
+ * (`data/repxpert-brand-ids.json`) türüyor; arşiv prod'da olmayabilir. Tabloya
  * yazılmazsa admin paneli prod'da kapsamı hiç gösteremezdi.
  *
  * Kapsayan kaynak, sürücünün seçtiğiyle AYNI sırayla belirlenir (bkz.

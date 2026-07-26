@@ -1,0 +1,51 @@
+# REPXPERT scraper — AYRI compose projesi, bilerek.
+#
+# Ana projeye konsaydı her deploy onu da öldürürdü: `scripts/vps-deploy.sh`
+# önce `docker compose down --remove-orphans` çalıştırıyor ve bu, profile'a
+# alınmış servisleri de kapsar. Süpürme günler sürdüğü için araya giren bir
+# deploy'un koşuyu düşürmesi kabul edilemez — kendi projesinde durur, deploy
+# ona dokunmaz.
+#
+# Ağ dışarıdan gelir: uygulamanın postgres'ine `postgres:5432` adıyla
+# ulaşabilmek için ana projenin ağına konuk olur.
+#
+# Kullanım (VPS'te /opt/getirbakim içinden):
+#   docker compose -f docker-compose.scraper.yml --env-file .env.production build
+#   docker compose -f docker-compose.scraper.yml --env-file .env.production up -d
+#   docker compose -f docker-compose.scraper.yml logs -f
+#   docker compose -f docker-compose.scraper.yml down
+#
+# Ön koşul: `.data/repxpert/profile` altında GİRİŞ YAPILMIŞ bir tarayıcı
+# profili bulunmalı (servis anonim oturuma TecDoc'u kapatıyor).
+
+name: getirbakim-scraper
+
+services:
+  repxpert:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
+    container_name: getirbakim-repxpert-scraper
+    # Süpürme bitince 0 ile çıkar ve yeniden başlatılmaz; yalnız çökerse döner.
+    restart: on-failure:3
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      # Playwright imajı tarayıcıları root'un altına kuruyor.
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    # Chromium paylaşımlı bellek ister; varsayılan 64 MB'de sekme çöker.
+    shm_size: 1gb
+    volumes:
+      # Oturum profili + checkpoint burada yaşar: kap yeniden kurulsa da
+      # koşu kaldığı yerden devam etsin.
+      - ./.data:/app/.data
+    networks:
+      - app-network
+    command:
+      - bun
+      - scripts/repxpert-sweep.ts
+
+networks:
+  app-network:
+    external: true
+    name: getirbakim_app-network
