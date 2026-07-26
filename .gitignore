@@ -122,3 +122,6 @@ scripts/output/*.pid
 
 # Web tarama çıktıları (harvest-brand-refs.ts) — türetilebilir veri, repoya girmez
 .data/
+
+# scripts/load-tecdoc-to-prod.sh çalışma dizini — yüz milyonlarca satırlık dump, türetilebilir
+tecdoc-load/
