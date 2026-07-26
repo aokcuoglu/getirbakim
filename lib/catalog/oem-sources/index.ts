@@ -7,7 +7,7 @@
  * hem de çıkarımsaldır — kataloğu olan bir markayı ona sormanın anlamı yok.
  */
 import { createBilsteinSource } from './bilstein'
-import { createLlmWebSource, type LlmWebOptions, type LlmWebSource } from './llm-web'
+import type { LlmWebOptions, LlmWebSource } from './llm-web'
 import { createTecDocCatalogSource } from './tecdoc-catalog'
 import type { OemSource } from './types'
 
@@ -22,9 +22,19 @@ export interface SourceRegistryOptions {
   llm?: LlmWebOptions | false
 }
 
-export function createOemSources(options: SourceRegistryOptions = {}): OemSource[] {
+export async function createOemSources(
+  options: SourceRegistryOptions = {}
+): Promise<OemSource[]> {
   const sources: OemSource[] = [createBilsteinSource(), createTecDocCatalogSource()]
-  if (options.llm) sources.push(createLlmWebSource(options.llm))
+  if (options.llm) {
+    // Yüklemesi ertelenir: `@anthropic-ai/sdk` yalnız bu kaynağın bağımlılığı ve
+    // prod imajına GİRMİYOR — Next standalone çıktısı yalnız uygulamanın import
+    // ettiklerini izler, `scripts/` build'in parçası değil. Üstte statik import
+    // olduğunda `--llm` kapalıyken bile scraper'ın tamamı
+    // "Cannot find module '@anthropic-ai/sdk'" ile çöküyordu.
+    const { createLlmWebSource } = await import('./llm-web')
+    sources.push(createLlmWebSource(options.llm))
+  }
   return sources
 }
 

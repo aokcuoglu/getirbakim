@@ -352,7 +352,7 @@ async function main() {
     process.exit(1)
   }
 
-  const sources = createOemSources({
+  const sources = await createOemSources({
     llm: args.llm
       ? {
           model: args.llmModel,
