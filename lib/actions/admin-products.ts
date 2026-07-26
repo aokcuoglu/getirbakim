@@ -199,7 +199,7 @@ interface NewProductImportPreparedRow {
   name: string
   brandId: number
   categoryId: number
-  partNo?: bigint | null
+  partNo?: string | null
   price?: number | null
   inBasket: boolean
   pricingInventory?: Prisma.part_pricing_inventoryUncheckedCreateInput
@@ -3005,6 +3005,18 @@ export async function importAdminNewProductsCsv(
     }
   }
 
+  // parts.part_no is TEXT — roughly a third of TecDoc part numbers are
+  // alphanumeric ("10PK1342"), so it cannot be parsed as a number.
+  const parseOptionalPartNo = (
+    value: unknown
+  ): { value: string | null | undefined; error: string | null } => {
+    if (value == null || value === '') return { value: undefined, error: null }
+    const textValue = String(value).trim()
+    if (!textValue) return { value: undefined, error: null }
+    if (textValue.toLowerCase() === 'null') return { value: null, error: null }
+    return { value: textValue, error: null }
+  }
+
   const parseStringArrayColumn = (
     value: unknown,
     field: string
@@ -3480,7 +3492,7 @@ export async function importAdminNewProductsCsv(
       continue
     }
 
-    const partNoResult = parseOptionalBigInt(row.part_no, 'part_no')
+    const partNoResult = parseOptionalPartNo(row.part_no)
     if (partNoResult.error) {
       previewRows.push({
         row: rowNo,

@@ -173,18 +173,22 @@ model part_brands {
 }
 
 model part_categories {
-  id          Int        @id
-  name        String
-  is_active   Boolean    @default(true)
-  has_childs  Boolean    @default(false)
-  parent_id   Int?
-  name_tr     String?
-  url_key     String?
-  is_main_nav Boolean    @default(false)
-  image       String?    @db.Text
-  parts       parts[]
-  products    products[]
+  id                Int        @id
+  name              String
+  is_active         Boolean    @default(true)
+  has_childs        Boolean    @default(false)
+  parent_id         Int?
+  name_tr           String?
+  url_key           String?
+  is_main_nav       Boolean    @default(false)
+  image             String?    @db.Text
+  // Legacy id carried over from the original import; read by nothing today, but
+  // present in the archive so the datamodel has to declare it.
+  trodo_category_id BigInt?
+  parts             parts[]
+  products          products[]
 
+  @@index([trodo_category_id], map: "idx_part_categories_trodo_category_id")
   @@index([name])
   @@index([name_tr])
   @@index([is_active])
@@ -298,17 +302,28 @@ model part_vehicle_types {
 }
 
 model parts {
-  id                    BigInt                  @id
-  tecdoc_article_id     BigInt?
-  name                  String
-  part_no               BigInt?
-  article_link_id       BigInt
-  price                 Decimal?                @db.Decimal(10, 2)
-  in_basket             Boolean                 @default(false)
-  brand_id              Int
-  category_id           Int
-  created_at            DateTime                @default(now()) @db.Timestamp(6)
-  updated_at            DateTime                @default(now()) @db.Timestamp(6)
+  id                BigInt   @id
+  tecdoc_article_id BigInt?
+  name              String
+  // TEXT, not BIGINT: ~32% of TecDoc part numbers are alphanumeric ("10PK1342",
+  // "WP6118"), so a numeric column would reject a third of the archive.
+  part_no           String?
+  article_link_id   BigInt
+  price             Decimal? @db.Decimal(10, 2)
+  in_basket         Boolean  @default(false)
+  brand_id          Int
+  category_id       Int
+  created_at        DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @default(now()) @db.Timestamp(6)
+
+  // Bookkeeping for the parts2web archive sync. Present only where the TecDoc
+  // archive lives; empty in every other environment.
+  p2w_sync_version           Int       @default(1)
+  p2w_last_seen_at           DateTime? @db.Timestamp(6)
+  p2w_last_seen_run_id       BigInt?
+  p2w_article_info_synced_at DateTime? @db.Timestamp(6)
+  p2w_article_info_run_id    BigInt?
+
   order_items           order_items[]
   part_cross_references part_cross_references[]
   customer_requests     customer_requests[]
@@ -333,6 +348,19 @@ model parts {
   @@index([category_id, brand_id])
   @@index([category_id, brand_id, updated_at])
   @@index([category_id, price])
+  @@index([created_at])
+  @@index([name])
+  @@index([part_no])
+  // Descending variants, hand-built for the archive's "newest first" scans. Kept
+  // in the datamodel so `migrate diff` stops proposing to drop them.
+  @@index([updated_at(sort: Desc)], map: "idx_parts_updated_at")
+  @@index([category_id, updated_at(sort: Desc)], map: "idx_parts_category_updated_at")
+  @@index([category_id, brand_id, updated_at(sort: Desc)], map: "idx_parts_category_brand_updated_at")
+  @@index([part_no, updated_at(sort: Desc)], map: "idx_parts_part_no_text_updated_at")
+  @@index([p2w_last_seen_at], map: "idx_parts_p2w_last_seen_at")
+  @@index([p2w_last_seen_run_id], map: "idx_parts_p2w_last_seen_run_id")
+  @@index([p2w_article_info_synced_at], map: "idx_parts_p2w_article_info_synced_at")
+  @@index([p2w_article_info_run_id], map: "idx_parts_p2w_article_info_run_id")
   @@schema("public")
 }
 
@@ -458,7 +486,6 @@ model ptdrk_products {
   updated_at      DateTime? @default(now()) @db.Timestamp(6)
 
   ptdrk_brands       ptdrk_brands         @relation(fields: [ptdrk_brands_id], references: [id], onDelete: Cascade)
-  brand_mappings     brand_mappings[]
   product_ptdrk_refs product_ptdrk_refs[]
 
   @@index([ptdrk_brands_id])
@@ -679,7 +706,7 @@ model supplier_basbug_products {
   is_passive       Boolean   @default(false)
   passive_at       DateTime? @db.Timestamptz(6)
 
-  brand                    supplier_basbug_brands        @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  brand                    supplier_basbug_brands         @relation(fields: [brand_id], references: [id], onDelete: Restrict)
   cost_history             supplier_basbug_cost_history[]
   product_offers           product_offers[]
   product_match_candidates product_match_candidates[]
@@ -736,9 +763,9 @@ model supplier_basbug_cost_history {
 // Source brand mappings live in brand_mappings.
 
 model brands {
-  id       Int     @id @default(autoincrement())
-  brand    String  @unique
-  logo_url String?
+  id           Int     @id @default(autoincrement())
+  brand        String  @unique
+  logo_url     String?
   /// Vitrin marka sayfası URL'i. ParcaTedarik kaldırılmadan önce onun
   /// url_key'inden türetilip kalıcılaştırıldı; boşsa brand'den slugify edilir.
   slug         String? @unique
@@ -765,12 +792,10 @@ model brand_mappings {
   mapping_status   String  @default("PENDING") // PENDING | APPROVED | IGNORED
   match_method     String?
 
-  brand            brands                   @relation(fields: [brand_id], references: [id], onDelete: Cascade)
-  dinamik_brand    supplier_dinamik_brands? @relation(fields: [dinamik_brand_id], references: [id], onDelete: Cascade)
-  ptdrk_brand      ptdrk_brands?            @relation(fields: [ptdrk_brand_id], references: [id], onDelete: Cascade)
-  basbug_brand     supplier_basbug_brands?  @relation(fields: [basbug_brand_id], references: [id], onDelete: Cascade)
-  ptdrkProducts    ptdrk_products?          @relation(fields: [ptdrk_productsId], references: [id])
-  ptdrk_productsId Int?
+  brand         brands                   @relation(fields: [brand_id], references: [id], onDelete: Cascade)
+  dinamik_brand supplier_dinamik_brands? @relation(fields: [dinamik_brand_id], references: [id], onDelete: Cascade)
+  ptdrk_brand   ptdrk_brands?            @relation(fields: [ptdrk_brand_id], references: [id], onDelete: Cascade)
+  basbug_brand  supplier_basbug_brands?  @relation(fields: [basbug_brand_id], references: [id], onDelete: Cascade)
 
   @@unique([brand_id, dinamik_brand_id, ptdrk_brand_id, basbug_brand_id], name: "uq_brand_mappings_suppliers")
   @@index([brand_id], name: "idx_brand_mappings_brand")
@@ -826,17 +851,17 @@ model products {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  brand                 brands                  @relation(fields: [brand_id], references: [id], onDelete: Restrict)
-  category              part_categories?        @relation(fields: [category_id], references: [id], onDelete: SetNull)
-  primary_part          parts?                  @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
-  product_offers        product_offers[]
-  product_oems          product_oems[]
-  product_eans          product_eans[]
-  product_images        product_images[]
-  product_properties    product_properties[]
-  product_vehicle_types product_vehicle_types[]
-  product_part_links    product_part_links[]
-  product_overrides     product_overrides?
+  brand                    brands                     @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  category                 part_categories?           @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  primary_part             parts?                     @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
+  product_offers           product_offers[]
+  product_oems             product_oems[]
+  product_eans             product_eans[]
+  product_images           product_images[]
+  product_properties       product_properties[]
+  product_vehicle_types    product_vehicle_types[]
+  product_part_links       product_part_links[]
+  product_overrides        product_overrides?
   product_match_candidates product_match_candidates[]
   product_ptdrk_refs       product_ptdrk_refs[]
   product_ref_suggestions  product_ref_suggestions[]
@@ -1080,8 +1105,8 @@ model product_ref_suggestions {
   product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, kind, value_norm, oem_brand], map: "uq_ref_suggestions_product_kind_value")
-  @@index([status, kind])
-  @@index([product_id])
+  @@index([status, kind], map: "idx_ref_suggestions_status_kind")
+  @@index([product_id], map: "idx_ref_suggestions_product")
   @@schema("catalog")
 }
 
