@@ -14,7 +14,7 @@ FROM mcr.microsoft.com/playwright:v1.57.0-noble
 
 # Bun: repo bun ile çalışıyor (script'ler, TS doğrudan koşuyor).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl unzip xvfb \
+  && apt-get install -y --no-install-recommends curl unzip xvfb x11-utils \
   && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
@@ -22,12 +22,40 @@ ENV PATH="/root/.bun/bin:${PATH}"
 WORKDIR /app
 
 # Bağımlılıklar önce: kaynak değişince katman yeniden kurulmasın.
-COPY package.json bun.lock* ./
+# Şema ve prisma.config.ts de bu adımda gelmeli — postinstall `prisma generate`
+# çalıştırıyor ve şemayı bulamazsa kurulum çöker (ana Dockerfile da böyle yapıyor).
+COPY package.json bun.lock ./
+COPY prisma/schema.prisma prisma/schema.prisma
+COPY prisma.config.ts prisma.config.ts
+
+# prisma.config.ts DATABASE_URL'i yükleme anında çözüyor; build'de gerçek
+# bağlantı yok, sahte değer yeter (ana Dockerfile da aynısını yapıyor).
+# Tarayıcılar imajda zaten kurulu — Playwright'ın tekrar indirmesi 400 MB israf.
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 RUN bun install --frozen-lockfile
+
+# Tarayıcıyı KURULAN playwright sürümüne göre indir.
+#
+# Taban imajın tarayıcısı etiketiyle sabit (v1.57.0 → chromium-1208), oysa
+# package.json `^1.57.0` diyor ve `bun install` daha yenisini çözebiliyor —
+# nitekim 1.58.2 geldi ve Playwright "Executable doesn't exist" ile çöktü.
+# Doğru tarayıcıyı kurulumdan sonra indirmek bu bağı tümden koparır: taban imaj
+# yalnız sistem kütüphanelerini sağlar, sürüm sürüklenmesi kendi kendini onarır.
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 bunx playwright install chromium
 
 COPY . .
 RUN bunx prisma generate
 
-# Ekran yoksa xvfb-run bir tane uydurur; scraper her zaman headful açılır.
-ENTRYPOINT ["xvfb-run", "-a", "--server-args=-screen 0 1440x900x24"]
-CMD ["bun", "scripts/scrape-product-oems.ts", "--repxpert", "--help"]
+# Xvfb ELLE başlatılır, `xvfb-run` ile DEĞİL.
+#
+# xvfb-run bu imajda asılı kalıyor: sanal ekranı açıyor ama verilen komutu hiç
+# çalıştırmıyor — kapta yalnız Xvfb ve xvfb-run kalıyor, çıktı üretilmiyor, kap
+# saatlerce öylece duruyor. Aynı davranış tek başına da doğrulandı; Xvfb'yi
+# başlatıp DISPLAY'i elle vermek sorunsuz çalışıyor.
+COPY docker-entrypoint-scraper.sh /usr/local/bin/scraper-entrypoint
+RUN chmod +x /usr/local/bin/scraper-entrypoint
+ENTRYPOINT ["scraper-entrypoint"]
+CMD ["bun", "scripts/repxpert-sweep.ts", "--plan-only"]
