@@ -35,10 +35,16 @@ import {
   stripVendorCodes
 } from '../lib/catalog/seo-name'
 import { inferVehicleMakers, sameMakerFamily } from '../lib/catalog/vehicle-makers'
+import {
+  insertSuggestions,
+  SUGGESTION_KIND_NAME,
+  SUGGESTION_KIND_OEM,
+  type SuggestionRow
+} from '../lib/catalog/ref-suggestions'
 import type { HarvestedRef } from './harvest-brand-refs'
 
-const KIND_OEM = 'OEM'
-const KIND_NAME = 'NAME'
+const KIND_OEM = SUGGESTION_KIND_OEM
+const KIND_NAME = SUGGESTION_KIND_NAME
 const APPLIED_SOURCE = 'WEB'
 const ACTOR = 'harvest-script'
 
@@ -47,18 +53,6 @@ interface CatalogProduct {
   part_no: string
   part_no_norm: string
   name: string
-}
-
-interface SuggestionRow {
-  productId: bigint
-  kind: string
-  value: string
-  valueNorm: string
-  oemBrand: string
-  confidence: string
-  sourceSite: string
-  sourceUrl: string | null
-  evidence: string | null
 }
 
 async function loadBrandProducts(brand: string): Promise<Map<string, CatalogProduct>> {
@@ -189,25 +183,6 @@ function buildNameSuggestion(
   }
 }
 
-async function insertSuggestions(rows: SuggestionRow[], dryRun: boolean): Promise<number> {
-  if (rows.length === 0 || dryRun) return 0
-  let inserted = 0
-  const CHUNK = 500
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const values = rows.slice(i, i + CHUNK).map(
-      (r) => Prisma.sql`(${r.productId}, ${r.kind}, ${r.value}, ${r.valueNorm}, ${r.oemBrand},
-        ${r.confidence}, ${r.sourceSite}, ${r.sourceUrl}, ${r.evidence})`
-    )
-    inserted += await db.$executeRaw(Prisma.sql`
-      insert into catalog.product_ref_suggestions
-        (product_id, kind, value, value_norm, oem_brand, confidence, source_site, source_url, evidence)
-      values ${Prisma.join(values)}
-      on conflict (product_id, kind, value_norm, oem_brand) do nothing
-    `)
-  }
-  return inserted
-}
-
 // ---------------------------------------------------------------------------
 
 async function runIngest(opts: {
@@ -299,7 +274,7 @@ async function runIngest(opts: {
   }
 
   const all = limit ? [...oemRows, ...nameRows].slice(0, limit) : [...oemRows, ...nameRows]
-  const inserted = await insertSuggestions(all, dryRun)
+  const inserted = dryRun ? 0 : await insertSuggestions(all)
 
   console.log(`[ingest] OEM önerisi: ${oemRows.length} · NAME önerisi: ${nameRows.length}`)
   console.log(`[ingest] atlanan: ${JSON.stringify(skipped)}`)

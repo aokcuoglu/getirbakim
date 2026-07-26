@@ -84,6 +84,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
     "@next/bundle-analyzer": "^16.1.3",
     "@tailwindcss/postcss": "^4.1.17",
     "@types/bcryptjs": "^3.0.0",
