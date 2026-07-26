@@ -90,22 +90,31 @@ export async function createRepxpertBrowserTransport(
   // Playwright yalnız bu taşımanın bağımlılığı; scraper'ın geri kalanı ve
   // uygulama onu import etmesin diye yükleme ertelenir.
   const { chromium } = await import('playwright')
-  const context: BrowserContext = await chromium.launchPersistentContext(userDataDir, {
-    headless,
-    viewport: { width: 1440, height: 900 },
-    locale: 'tr-TR'
-  })
-  const page: Page = context.pages()[0] ?? (await context.newPage())
 
-  // Sensör betiğinin çalışıp çerezleri kurması için siteyi bir kez aç.
-  await page.goto(HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
-  if ((await page.title()).includes(BLOCK_MARKER)) {
-    await context.close()
-    throw new RepxpertBlockedError()
+  // launch() atar; TS akışı fonksiyon üzerinden göremediği için kesin atama.
+  let context!: BrowserContext
+  let page!: Page
+
+  async function launch(): Promise<void> {
+    context = await chromium.launchPersistentContext(userDataDir, {
+      headless,
+      viewport: { width: 1440, height: 900 },
+      locale: 'tr-TR'
+    })
+    page = context.pages()[0] ?? (await context.newPage())
+
+    // Sensör betiğinin çalışıp çerezleri kurması için siteyi bir kez aç.
+    await page.goto(HOME, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
+    if ((await page.title()).includes(BLOCK_MARKER)) {
+      await context.close()
+      throw new RepxpertBlockedError()
+    }
+    await page.waitForFunction((key) => localStorage.getItem(key) !== null, TOKEN_KEY, {
+      timeout: timeoutMs
+    })
   }
-  await page.waitForFunction((key) => localStorage.getItem(key) !== null, TOKEN_KEY, {
-    timeout: timeoutMs
-  })
+
+  await launch()
 
   let nextAllowedAt = 0
 
@@ -115,10 +124,23 @@ export async function createRepxpertBrowserTransport(
     nextAllowedAt = Date.now() + minIntervalMs
   }
 
-  /** Sayfanın içinden tek istek. Yetki durumunu YORUMLAMAZ, olduğu gibi döner. */
-  async function rawGet(path: string): Promise<{ status: number; body: unknown }> {
-    await pace()
-    const result = await page.evaluate(
+  /**
+   * Tarayıcı gitti mi. Günlerce süren koşuda pencerenin kapanması (uyku, elle
+   * kapatma, çökme) gerçek bir olay; ayırt edilmezse KALAN BÜTÜN ÜRÜNLER
+   * ardı ardına hata verir ve koşu sessizce boşa döner.
+   */
+  function isBrowserGone(error: unknown): boolean {
+    const message = (error as Error)?.message ?? ''
+    return (
+      message.includes('has been closed') ||
+      message.includes('Target closed') ||
+      message.includes('Target page, context or browser has been closed') ||
+      message.includes('browser has disconnected')
+    )
+  }
+
+  async function evaluateFetch(path: string): Promise<{ status: number; text: string }> {
+    return page.evaluate(
       async ([target, key]) => {
         const raw = localStorage.getItem(key as string)
         const token = raw ? JSON.parse(raw)?.token?.access_token : null
@@ -132,6 +154,24 @@ export async function createRepxpertBrowserTransport(
       },
       [path, TOKEN_KEY] as const
     )
+  }
+
+  /** Sayfanın içinden tek istek. Yetki durumunu YORUMLAMAZ, olduğu gibi döner. */
+  async function rawGet(path: string): Promise<{ status: number; body: unknown }> {
+    await pace()
+
+    let result: { status: number; text: string }
+    try {
+      result = await evaluateFetch(path)
+    } catch (error) {
+      if (!isBrowserGone(error)) throw error
+      // Pencere kapanmış: profili yeniden aç ve isteği BİR kez tekrarla.
+      // Oturum profilde olduğu için yeniden giriş gerekmez.
+      console.warn('[repxpert] tarayıcı kapanmış, oturum yeniden açılıyor')
+      await context.close().catch(() => {})
+      await launch()
+      result = await evaluateFetch(path)
+    }
 
     if (result.text.includes(BLOCK_MARKER)) throw new RepxpertBlockedError()
     // 400 "ürün yok" yanıtı gövdesizdir; JSON.parse'a sokulmamalı.
