@@ -6,6 +6,7 @@ import { db } from '@/lib/db'
 import { requireAdminAuth } from '@/lib/admin-auth'
 import { refreshSingleProductRollup } from '@/lib/catalog/refresh-product-rollups'
 import { getConfirmedPartIds } from '@/lib/catalog/part-enrichment'
+import { collectValidGtins, isValidGtin } from '@/lib/catalog/gtin'
 import { syncProductSearchDocument } from '@/lib/search/sync-product-document'
 import {
   getCatalogEnrichmentCoverage,
@@ -621,18 +622,24 @@ export async function addCatalogProductEan(
   const product = await findProductForCode(input.id)
   if (!product) return { success: false, message: 'Ürün bulunamadı.', eans: [] }
 
-  const codes = Array.from(
-    new Set(
-      input.code
-        .split(/[,\n;]+/)
-        .map((c) => c.trim())
-        .filter((c) => c.length >= 3)
-    )
-  )
+  // Girilen değer GERÇEKTEN barkod olmalı. Uzunluk denetimi yetmiyordu:
+  // tedarikçi aktarımı bu tabloyu parça numaralarıyla doldurmuştu ve elle
+  // giriş de aynı kapıyı açık bırakıyordu. Reddedilenler tek tek bildirilir —
+  // sessizce yutulursa yazan kişi eklendi sanır.
+  const entered = input.code
+    .split(/[,\n;]+/)
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0)
+  const codes = collectValidGtins(entered)
+  const rejected = entered.filter((c) => !isValidGtin(c))
+
   if (codes.length === 0) {
     return {
       success: false,
-      message: 'Geçerli bir EAN / barkod girin (en az 3 karakter).',
+      message:
+        rejected.length > 0
+          ? `Geçerli barkod değil: ${rejected.slice(0, 3).join(', ')}. EAN-8/UPC-12/EAN-13/ITF-14 bekleniyor.`
+          : 'Geçerli bir EAN / barkod girin.',
       eans: await loadProductEans(product.productId)
     }
   }
@@ -646,9 +653,13 @@ export async function addCatalogProductEan(
 
   revalidateCatalogAdmin(product.slug)
   const n = Number(inserted)
+  const eklendi = n > 0 ? `${n} EAN eklendi.` : 'Yeni EAN eklenmedi (zaten mevcut).'
   return {
     success: true,
-    message: n > 0 ? `${n} EAN eklendi.` : 'Yeni EAN eklenmedi (zaten mevcut).',
+    message:
+      rejected.length > 0
+        ? `${eklendi} ${rejected.length} değer geçerli barkod olmadığı için atlandı: ${rejected.slice(0, 3).join(', ')}`
+        : eklendi,
     eans: await loadProductEans(product.productId)
   }
 }
