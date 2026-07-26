@@ -8,6 +8,7 @@
  */
 import { createBilsteinSource } from './bilstein'
 import { createLlmWebSource, type LlmWebOptions, type LlmWebSource } from './llm-web'
+import { createTecDocCatalogSource } from './tecdoc-catalog'
 import type { OemSource } from './types'
 
 export type { OemLookup, OemSource, SourcedOem } from './types'
@@ -22,7 +23,7 @@ export interface SourceRegistryOptions {
 }
 
 export function createOemSources(options: SourceRegistryOptions = {}): OemSource[] {
-  const sources: OemSource[] = [createBilsteinSource()]
+  const sources: OemSource[] = [createBilsteinSource(), createTecDocCatalogSource()]
   if (options.llm) sources.push(createLlmWebSource(options.llm))
   return sources
 }
