@@ -774,6 +774,7 @@ model brands {
 
   brand_mappings brand_mappings[]
   products       products[]
+  oem_coverage   oem_brand_coverage?
 
   @@index([brand], name: "idx_brands_match_brand")
   @@schema("catalog")
@@ -1107,6 +1108,35 @@ model product_ref_suggestions {
   @@unique([product_id, kind, value_norm, oem_brand], map: "uq_ref_suggestions_product_kind_value")
   @@index([status, kind], map: "idx_ref_suggestions_status_kind")
   @@index([product_id], map: "idx_ref_suggestions_product")
+  @@schema("catalog")
+}
+
+/// Hangi markanın OEM'ini hangi web kaynağından çekebiliyoruz.
+///
+/// Neden tablo: kapsam bilgisi bugüne kadar yerel dosyalarda ve kod
+/// sabitlerinde duruyordu, dolayısıyla admin panelinde görünmüyordu. Oysa
+/// asıl karar bu: kapsanan markalar scraper'a bırakılır, KAPSANMAYANLAR elle
+/// araştırılır. İkisini ayırt edemeyen bir panel yanlış işe yönlendirir.
+///
+/// Ayrıca taşınabilir olmalı: TecDoc marka id'lerinin bir bölümü yerel arşivden
+/// (public.part_brands) türetiliyor ve o arşiv prod'da yok — kapsam canlı
+/// hesaplanamaz, materyalize edilmesi gerekir.
+///
+/// `scripts/refresh-oem-coverage.ts` yazar; kaynak adapter'ları okumaz.
+model oem_brand_coverage {
+  brand_id Int @id
+  /// Markayı kapsayan kaynağın site kimliği; null = kapsayan kaynak YOK,
+  /// yani bu markanın OEM'i elle araştırılmalı.
+  source_site String?
+  /// REPXPERT ürün kodunu kuran TecDoc tedarikçi numarası (yalnız o kaynakta).
+  tecdoc_brand_id Int?
+  /// Kapsamın nereden bilindiği: 'archive' | 'search' | 'builtin'.
+  resolved_by String?
+  checked_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  brand brands @relation(fields: [brand_id], references: [id], onDelete: Cascade)
+
+  @@index([source_site], map: "idx_oem_brand_coverage_source")
   @@schema("catalog")
 }
 

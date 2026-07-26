@@ -12,6 +12,7 @@ import {
   type CandidateLinkRow
 } from '@/lib/actions/admin-catalog'
 import type { CatalogEnrichmentCoverage } from '@/lib/admin/catalog-enrichment-stats'
+import { OemCoveragePanel } from './OemCoveragePanel'
 import { WebSuggestionsPanel } from './WebSuggestionsPanel'
 
 const tr = (n: number) => n.toLocaleString('tr-TR')
@@ -288,6 +289,10 @@ export function EnrichmentTab() {
           akar: <code className="rounded bg-muted px-1 py-0.5">bun scripts/derive-oems-from-part-links.ts</code>
         </p>
       </section>
+
+      {/* Kapsam önce gelir: hangi markanın beklemeye, hangisinin elle işe
+          gideceği belli olmadan öneri kuyruğuna bakmanın sırası yok. */}
+      <OemCoveragePanel />
 
       <WebSuggestionsPanel />
     </div>
