@@ -25,6 +25,19 @@ if [ -e "${PROFILE_DIR}/SingletonLock" ]; then
   rm -f "${PROFILE_DIR}/SingletonLock" "${PROFILE_DIR}/SingletonSocket" "${PROFILE_DIR}/SingletonCookie"
 fi
 
+# Bayat X kilidini temizle.
+#
+# Kap yeniden BAŞLATILDIĞINDA (yeniden yaratılmadığında) /tmp korunur ve önceki
+# koşunun bıraktığı kilit Xvfb'yi "Server is already active for display 99" ile
+# öldürür. Yani tam da yeniden başlatmanın kurtarması gereken durumda —
+# veritabanı kesintisi, çökme — kurtarma yolu kapanıyordu.
+#
+# Kap açılışında bu görüntüde çalışan bir X sunucusu olamaz, silmek güvenli.
+if [ -e "/tmp/.X${DISPLAY_NUM}-lock" ]; then
+  echo "[entrypoint] bayat X kilidi temizleniyor: /tmp/.X${DISPLAY_NUM}-lock"
+  rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
+fi
+
 Xvfb ":${DISPLAY_NUM}" -screen 0 "${SCREEN}" >/tmp/xvfb.log 2>&1 &
 XVFB_PID=$!
 

@@ -36,7 +36,13 @@ services:
       dockerfile: Dockerfile.scraper
     container_name: getirbakim-repxpert-scraper
     # Süpürme bitince 0 ile çıkar ve yeniden başlatılmaz; yalnız çökerse döner.
-    restart: on-failure:3
+    #
+    # Deneme sayısı SINIRSIZ, bilerek: koşu günlerce sürüyor ve bu sürede
+    # veritabanı en az bir kez yeniden kuruluyor (her deploy postgres'i
+    # değiştiriyor). Prisma o anda ECONNREFUSED ile ölüyor ve tek çare yeniden
+    # başlamak. Üç denemelik sınır, art arda iki deploy'da tükenip süpürmeyi
+    # sessizce bitiriyordu.
+    restart: on-failure
     env_file: .env.production
     environment:
       NODE_ENV: production
