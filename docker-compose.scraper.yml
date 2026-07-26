@@ -6,8 +6,17 @@
 # deploy'un koşuyu düşürmesi kabul edilemez — kendi projesinde durur, deploy
 # ona dokunmaz.
 #
-# Ağ dışarıdan gelir: uygulamanın postgres'ine `postgres:5432` adıyla
-# ulaşabilmek için ana projenin ağına konuk olur.
+# Ağ: ana projenin ağına KONUK OLMUYOR, host ağını kullanıyor.
+#
+# Konuk olmayı denedik ve yetmedi: deploy'un `docker compose down` adımı ana
+# projenin ağını da siliyor, ağ yeniden kurulduğunda yeni bir kimlikle geliyor
+# ve süpürme kabı ağsız kalıyor — yani ayrı projede durmak tek başına
+# korumuyordu. Host ağında böyle bir bağ yok.
+#
+# postgres adı `extra_hosts` ile 127.0.0.1'e bağlanıyor: prod postgres zaten
+# loopback'e yayımlı (127.0.0.1:5432). Böylece .env.production'daki
+# `postgres:5432` adresi olduğu gibi çalışır, ikinci bir bağlantı dizesi
+# tanımlamaya ve parolayı bir yere daha yazmaya gerek kalmaz.
 #
 # Kullanım (VPS'te /opt/getirbakim içinden):
 #   docker compose -f docker-compose.scraper.yml --env-file .env.production build
@@ -39,13 +48,9 @@ services:
       # Oturum profili + checkpoint burada yaşar: kap yeniden kurulsa da
       # koşu kaldığı yerden devam etsin.
       - ./.data:/app/.data
-    networks:
-      - app-network
+    network_mode: host
+    extra_hosts:
+      - 'postgres:127.0.0.1'
     command:
       - bun
       - scripts/repxpert-sweep.ts
-
-networks:
-  app-network:
-    external: true
-    name: getirbakim_app-network
