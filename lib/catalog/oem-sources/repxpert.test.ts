@@ -6,6 +6,7 @@ import {
   parseOeNumbers,
   type RepxpertTransport
 } from './repxpert'
+import { searchPath } from './repxpert-search'
 
 // Servisin gerçek yanıtından kısaltılmış örnek (DELPHI TL427 → SEAT).
 const PAYLOAD = {
@@ -106,7 +107,12 @@ describe('createRepxpertSource', () => {
 
   it('400/404 sonuçsuz sorgudur — hata değil', async () => {
     const path = oeNumbersPath('Ext-TA-ODk6WVlZ')
-    const { transport } = transportFor({ [path]: { status: 400 } })
+    // Kod tutmayınca yazılış farkı olabilir diye aramaya bakılır; o da boşsa
+    // sonuç yoktur.
+    const { transport } = transportFor({
+      [path]: { status: 400 },
+      [searchPath('YYY')]: { status: 200, body: { products: [] } }
+    })
     const source = createRepxpertSource({ transport, brandIds })
 
     const result = await source.lookup('DELPHI', 'YYY')
@@ -135,5 +141,102 @@ describe('createRepxpertSource', () => {
     const { transport } = transportFor({})
     const source = createRepxpertSource({ transport, brandIds })
     expect((await messageOf(source.lookup('KRAFTVOLL', '123'))).includes('kapsamıyor')).toBe(true)
+  })
+})
+
+/**
+ * Katalogdaki numara TecDoc'taki YAZILIŞLA tutmadığında (BOSCH "0445110274" ↔
+ * "0 445 110 274") doğrudan kod 400 döner. Bu markaların tamamı sessizce boş
+ * dönüyordu; arama ucu doğru yazılışı ve kodu veriyor.
+ */
+describe('createRepxpertSource · yazılış tutmadığında arama yedeği', () => {
+  const brandIds = { BOSCH: 30, VICTORREINZ: 9 }
+  /** Boşluklu yazılan numaranın kendi kaydı — kendi numarası OEM sayılmamalı. */
+  const BOSCH_OES = {
+    oenumbers: [
+      {
+        manufacturer: { name: 'VW' },
+        numbers: [{ number: '03L 130 277 J' }, { number: '0 445 110 274' }]
+      }
+    ]
+  }
+  const SEARCH_PAYLOAD = {
+    products: [
+      {
+        code: 'Ext-TA-MzA6MCA0NDUgMTEwIDI3NA',
+        brand: { name: 'BOSCH' },
+        catalogArticleNumber: '0 445 110 274'
+      }
+    ]
+  }
+
+  it('doğrudan kod 400 dönünce aramadan bulduğu kodla OEM"leri çeker', async () => {
+    const direct = oeNumbersPath(encodeProductCode(30, '0445110274'))
+    const search = searchPath('0445110274')
+    const viaSearch = oeNumbersPath('Ext-TA-MzA6MCA0NDUgMTEwIDI3NA')
+    const { transport, calls } = transportFor({
+      [direct]: { status: 400 },
+      [search]: { status: 200, body: SEARCH_PAYLOAD },
+      [viaSearch]: { status: 200, body: BOSCH_OES }
+    })
+    const source = createRepxpertSource({ transport, brandIds })
+
+    const result = await source.lookup('BOSCH', '0445110274')
+
+    expect(calls).toEqual([direct, search, viaSearch])
+    expect(result.matched).toBe(true)
+    // Ürünün kendi numarası ("0 445 110 274") elenir, geriye OEM kalır.
+    expect(result.oems).toEqual([{ brand: 'VW', code: '03L 130 277 J' }])
+    // Kanıt adresi gerçekten bakılan ürünü göstermeli.
+    expect(result.sourceUrl.endsWith('Ext-TA-MzA6MCA0NDUgMTEwIDI3NA')).toBe(true)
+  })
+
+  it('marka önekli numarayı aramaya gitmeden düzeltir', async () => {
+    const raw = oeNumbersPath(encodeProductCode(9, 'REINZ 01-31555-01'))
+    const stripped = oeNumbersPath(encodeProductCode(9, '01-31555-01'))
+    const { transport, calls } = transportFor({
+      [raw]: { status: 400 },
+      [stripped]: { status: 200, body: PAYLOAD }
+    })
+    const source = createRepxpertSource({ transport, brandIds })
+
+    const result = await source.lookup('VICTORREINZ', 'REINZ 01-31555-01')
+
+    expect(calls).toEqual([raw, stripped])
+    expect(result.matched).toBe(true)
+  })
+
+  it('aramada da bulunamazsa sonuçsuz sorgudur — hata değil', async () => {
+    const direct = oeNumbersPath(encodeProductCode(30, '0445110274'))
+    const { transport } = transportFor({
+      [direct]: { status: 400 },
+      [searchPath('0445110274')]: { status: 200, body: { products: [] } }
+    })
+    const source = createRepxpertSource({ transport, brandIds })
+
+    const result = await source.lookup('BOSCH', '0445110274')
+    expect(result.matched).toBe(false)
+    expect(result.oems).toEqual([])
+  })
+
+  it('bir markada arama işe yaradıysa sonraki üründe doğrudan kodu denemez', async () => {
+    const first = oeNumbersPath(encodeProductCode(30, '0445110274'))
+    const second = searchPath('0281006187')
+    const { transport, calls } = transportFor({
+      [first]: { status: 400 },
+      [searchPath('0445110274')]: { status: 200, body: SEARCH_PAYLOAD },
+      [oeNumbersPath('Ext-TA-MzA6MCA0NDUgMTEwIDI3NA')]: { status: 200, body: BOSCH_OES },
+      [second]: { status: 200, body: { products: [] } },
+      // Arama boş dönerse doğrudan kod yine denenir — o da tutmaz.
+      [oeNumbersPath(encodeProductCode(30, '0281006187'))]: { status: 400 }
+    })
+    const source = createRepxpertSource({ transport, brandIds })
+
+    await source.lookup('BOSCH', '0445110274')
+    calls.length = 0
+    await source.lookup('BOSCH', '0281006187')
+
+    // Doğrudan kod bu markada çalışmıyor; ikinci üründe boşuna denenmemeli.
+    expect(calls[0]).toBe(second)
   })
 })

@@ -30,11 +30,38 @@ import { loadRepxpertBrandIds } from '../lib/catalog/oem-sources/repxpert-brands
 
 const REPXPERT_SITE = 'repxpert.com.tr'
 
+/**
+ * Veritabanı ayağa kalkana kadar bekler.
+ *
+ * Süpürme günlerce koşuyor ve bu sürede her deploy postgres'i yeniden kuruyor.
+ * Kap o anda ilk sorguda ECONNREFUSED ile ölüyor, `restart: on-failure` hemen
+ * yeniden başlatıyor ve bu saniyede birkaç kez tekrarlanıyordu: bir kesintide
+ * 39 yeniden başlatma, her birinde Xvfb + profil kilidi temizliği. Beklemek
+ * hem gürültüyü hem de kilit yarışını ortadan kaldırıyor.
+ *
+ * Süre dolarsa yine çıkılır — uzun kesintide kararı compose'un yeniden
+ * başlatma politikası versin.
+ */
+async function waitForDb(attempts = 30, delayMs = 5000): Promise<void> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await db.$queryRaw`select 1`
+      return
+    } catch (e) {
+      if (attempt === attempts) throw e
+      if (attempt === 1) console.log('[sweep] veritabanı hazır değil, bekleniyor…')
+      await new Promise((r) => setTimeout(r, delayMs))
+    }
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2)
   const planOnly = argv.includes('--plan-only')
   // Sürücüye olduğu gibi geçilecek bayraklar (--limit, --dry-run, --retry …).
   const passthrough = argv.filter((a) => a !== '--plan-only')
+
+  await waitForDb()
 
   const { brandIds } = await loadRepxpertBrandIds()
   const sources = await createOemSources({

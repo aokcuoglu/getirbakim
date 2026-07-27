@@ -77,6 +77,70 @@ interface SearchProduct {
   catalogArticleNumber?: string | null
 }
 
+/**
+ * Numaranın başındaki marka adını atar.
+ *
+ * Katalogda bazı markalar numarayı marka önekiyle tutuyor
+ * ("REINZ 01-31555-01"), TecDoc'taki makale numarası ise yalnız "01-31555-01".
+ * Önek atılmazsa ne ürün kodu kurulabilir ne de arama sonucu eşleşir.
+ *
+ * Yalnız GERÇEKTEN marka olan önek atılır: baştaki harf öbeği marka adının
+ * başı ya da sonu olacak ("REINZ" ⊂ "VICTORREINZ", "FEBI" ⊂ "FEBI BILSTEIN").
+ * Rakamla başlayan numaralara dokunulmaz — HELLA'nın "1ND010377-071"indeki
+ * "1ND" marka değil, numaranın kendisidir.
+ */
+export function stripBrandPrefix(catalogBrand: string, partNo: string): string {
+  const trimmed = partNo.trim()
+  const match = /^([A-Za-z]{3,})[\s-]+(.+)$/.exec(trimmed)
+  if (!match) return trimmed
+
+  const prefix = brandKey(match[1])
+  const brand = brandKey(catalogBrand)
+  if (!brand.startsWith(prefix) && !brand.endsWith(prefix)) return trimmed
+
+  // Geriye numara olarak okunabilecek bir şey kalmalı; yoksa önek sanılan şey
+  // numaranın kendisidir ("ELRING SET").
+  const rest = match[2].trim()
+  if (rest.length < 3 || !/\d/.test(rest)) return trimmed
+  return rest
+}
+
+/**
+ * Arama yanıtından, sorulan ürünün sitedeki KODUNU çıkarır.
+ *
+ * Neden gerekli: ürün kodu numaranın TecDoc'taki yazılışından kuruluyor
+ * (bkz. repxpert.ts) ama katalog numarayı sıkıştırılmış tutuyor
+ * ("0445110274" ↔ "0 445 110 274"). Yazılışı tahmin etmek yerine siteye
+ * sorulur; arama yanıtı hem doğru yazılışı hem kodu veriyor.
+ *
+ * Kabul koşulu `learnBrandId` ile aynı katılıkta: numara birebir (normalize)
+ * eşleşecek, marka adı tutacak ve tek bir kod kalacak. Belirsizlikte null —
+ * yanlış kod, başka bir ürünün OEM'lerini bu ürüne yazardı.
+ */
+export function findArticleCode(
+  payload: unknown,
+  catalogBrand: string,
+  partNo: string
+): string | null {
+  const products = (payload as { products?: SearchProduct[] } | null)?.products
+  if (!Array.isArray(products)) return null
+
+  const wanted = normalizeOem(stripBrandPrefix(catalogBrand, partNo))
+  if (!wanted) return null
+
+  const codes = new Set<string>()
+  for (const product of products) {
+    const code = product?.code?.trim()
+    const siteBrand = product?.brand?.name?.trim()
+    if (!code || !siteBrand) continue
+    if (normalizeOem(product?.catalogArticleNumber ?? '') !== wanted) continue
+    if (!brandNamesAgree(catalogBrand, siteBrand)) continue
+    codes.add(code)
+  }
+
+  return codes.size === 1 ? [...codes][0] : null
+}
+
 export interface BrandIdCandidate {
   brandId: number
   siteBrand: string
