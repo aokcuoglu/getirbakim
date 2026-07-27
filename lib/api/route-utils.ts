@@ -55,6 +55,44 @@ export function attachStandardHeaders(
   return response
 }
 
+/**
+ * Prisma'nın "veritabanına ulaşamadım" hataları: sunucu kapalı (P1001/P1002),
+ * bağlantı düştü (P1017) ya da havuz doldu (P2024).
+ *
+ * Bunları 500'den ayırmaya değer: local dev prod DB'ye SSH tüneliyle bağlanıyor
+ * ve tünel düştüğünde tek görünen belirti "yüklenemedi" oluyordu. Ayrı bir kod +
+ * mesaj, hatayı kodda aramak yerine tüneli kontrol etmeye yönlendirir.
+ */
+const DB_UNREACHABLE_CODES = new Set(['P1001', 'P1002', 'P1017', 'P2024'])
+
+export function isDatabaseUnreachable(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null | undefined)?.code
+  return typeof code === 'string' && DB_UNREACHABLE_CODES.has(code)
+}
+
+/**
+ * Yakalanan hatayı standart JSON gövdesine çevirir. Handler'ın TAMAMI (auth
+ * dahil) bunun kapsamında olmalı: try'ın dışında kalan bir throw Next'ten gövdesiz
+ * bir 500 döndürür, istemcinin `res.json()`'ı da onda patlayıp gerçek sebebi
+ * yutar.
+ */
+export function unexpectedErrorResponse(
+  error: unknown,
+  context: ApiContext,
+  fallbackMessage: string
+): NextResponse {
+  if (isDatabaseUnreachable(error)) {
+    return errorResponse({
+      status: 503,
+      code: 'DATABASE_UNAVAILABLE',
+      message: 'Veritabanına ulaşılamıyor. (Local dev: SSH tüneli kapalı olabilir.)',
+      context
+    })
+  }
+
+  return errorResponse({ status: 500, code: 'INTERNAL_ERROR', message: fallbackMessage, context })
+}
+
 export function errorResponse(input: ErrorResponseInput): NextResponse {
   const body: Record<string, unknown> = {
     error: {

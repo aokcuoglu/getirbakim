@@ -59,8 +59,14 @@ export interface CatalogEnrichmentCoverage {
 const num = (v: unknown): number => Number(v ?? 0)
 
 async function loadCatalogEnrichmentCoverage(): Promise<CatalogEnrichmentCoverage> {
-  const [totalsRow, enrichRow, breakdown, brands] = await Promise.all([
-    db.$queryRaw<Record<string, bigint>[]>`
+  const [brandRows, enrichRow, breakdown] = await Promise.all([
+    // Toplamlar ve marka kırılımı TEK sorgu: ikisi de aynı iki CTE'yi (1,08M
+    // ürün üzerinde link/OEM daraltması) kuruyordu, yani iş iki kez yapılıyordu.
+    // `grouping sets` ile toplam satırı marka satırlarının yanında geliyor —
+    // ~2 sn kazanç, ve havuzdan bir bağlantı daha az isteniyor. Sonuncusu asıl
+    // mesele: dört sorgu aynı anda bağlantı isteyince, aynı istekteki auth
+    // sorgusu havuzda sıraya giriyor ve connectionTimeoutMillis'e takılabiliyordu.
+    db.$queryRaw<Record<string, string | bigint | null>[]>`
       with link_flags as (
         select product_id,
                bool_or(status = 'CONFIRMED') as has_confirmed,
@@ -71,6 +77,8 @@ async function loadCatalogEnrichmentCoverage(): Promise<CatalogEnrichmentCoverag
         select distinct product_id from catalog.product_oems
       )
       select
+        b.brand as brand,
+        grouping(b.brand) as is_total,
         count(*) as active_products,
         count(*) filter (where l.has_confirmed) as confirmed_linked,
         count(*) filter (
@@ -79,9 +87,13 @@ async function loadCatalogEnrichmentCoverage(): Promise<CatalogEnrichmentCoverag
         count(*) filter (where l.product_id is null) as unlinked,
         count(*) filter (where o.product_id is not null) as with_oem
       from catalog.products p
+      left join catalog.brands b on b.id = p.brand_id
       left join link_flags l on l.product_id = p.id
       left join oem_products o on o.product_id = p.id
       where p.status = 'ACTIVE'
+      group by grouping sets ((b.brand), ())
+      order by grouping(b.brand) desc, (count(*) - count(*) filter (where l.has_confirmed)) desc
+      limit 26
     `,
     // part_* tarafında EXISTS'i link başına değil PARÇA başına çalıştırıyoruz:
     // aynı parçaya bağlı birden çok ürün varsa dev tabloları bir kez yokluyoruz.
@@ -111,36 +123,12 @@ async function loadCatalogEnrichmentCoverage(): Promise<CatalogEnrichmentCoverag
       group by 1, 2
       order by 3 desc
     `,
-    db.$queryRaw<Record<string, string | bigint>[]>`
-      with link_flags as (
-        select product_id,
-               bool_or(status = 'CONFIRMED') as has_confirmed,
-               bool_or(status = 'CANDIDATE') as has_candidate
-        from catalog.product_part_links
-        group by product_id
-      ), oem_products as (
-        select distinct product_id from catalog.product_oems
-      )
-      select b.brand,
-        count(*) as active_products,
-        count(*) filter (where l.has_confirmed) as confirmed_linked,
-        count(*) filter (
-          where not coalesce(l.has_confirmed, false) and coalesce(l.has_candidate, false)
-        ) as candidate_only,
-        count(*) filter (where o.product_id is not null) as with_oem
-      from catalog.products p
-      join catalog.brands b on b.id = p.brand_id
-      left join link_flags l on l.product_id = p.id
-      left join oem_products o on o.product_id = p.id
-      where p.status = 'ACTIVE'
-      group by b.brand
-      order by (count(*) - count(*) filter (where l.has_confirmed)) desc
-      limit 25
-    `,
   ])
 
-  const t = totalsRow[0] ?? {}
+  // `is_total = 1` satırı grouping sets'in toplam satırı; kalanlar marka kırılımı.
+  const t = brandRows.find((r) => num(r.is_total) === 1) ?? {}
   const e = enrichRow[0] ?? {}
+  const brands = brandRows.filter((r) => num(r.is_total) === 0)
 
   return {
     totals: {
@@ -161,7 +149,7 @@ async function loadCatalogEnrichmentCoverage(): Promise<CatalogEnrichmentCoverag
       products: num(r.products),
     })),
     topGapBrands: brands.map((r) => ({
-      brand: String(r.brand),
+      brand: String(r.brand ?? '—'),
       activeProducts: num(r.active_products),
       confirmedLinked: num(r.confirmed_linked),
       candidateOnly: num(r.candidate_only),

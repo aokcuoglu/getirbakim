@@ -89,6 +89,7 @@ const TILES: { key: keyof EnrichmentTotals; label: string; tone?: 'success' | 'w
  */
 export function EnrichmentTab() {
   const [coverage, setCoverage] = useState<CatalogEnrichmentCoverage | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [brand, setBrand] = useState<string | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -99,14 +100,22 @@ export function EnrichmentTab() {
       const res = await fetch(
         `/api/admin/eslestirme/enrichment/coverage${fresh ? '?fresh=1' : ''}`
       )
-      const data = await res.json()
+      // Gövde JSON olmayabilir (Next'in gövdesiz 500'ü gibi); parse hatası gerçek
+      // sebebi yutmasın diye ayrı yakalanır.
+      const data = await res.json().catch(() => null)
       if (!res.ok || data?.error) {
-        toast.error(data?.error?.message || 'Kapsama verisi yüklenemedi.')
+        const message =
+          data?.error?.message || `Kapsama verisi yüklenemedi. (HTTP ${res.status})`
+        setError(message)
+        toast.error(message)
         return
       }
+      setError(null)
       setCoverage(data as CatalogEnrichmentCoverage)
     } catch {
-      toast.error('Kapsama verisi yüklenemedi.')
+      const message = 'Kapsama verisi yüklenemedi: sunucuya ulaşılamadı.'
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -150,22 +159,41 @@ export function EnrichmentTab() {
         </Button>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {TILES.map((tile) =>
-          t ? (
-            <StatTile
-              key={tile.key}
-              label={tile.label}
-              value={t[tile.key]}
-              total={t.activeProducts}
-              tone={tile.tone}
-              onClick={() => setDetailOpen(true)}
-            />
-          ) : (
-            <StatTileSkeleton key={tile.key} />
-          )
-        )}
-      </div>
+      {/* Hata iskeletle gösterilemez: kartlar sonsuza kadar "yükleniyor" gibi
+          durur, toast da kaybolur. Sebep sayılarla aynı yerde kalsın. */}
+      {error && !t ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <p className="text-sm font-medium text-foreground">Kapsam hesaplanamadı</p>
+          <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => void load(true)}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Tekrar dene
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {TILES.map((tile) =>
+            t ? (
+              <StatTile
+                key={tile.key}
+                label={tile.label}
+                value={t[tile.key]}
+                total={t.activeProducts}
+                tone={tile.tone}
+                onClick={() => setDetailOpen(true)}
+              />
+            ) : (
+              <StatTileSkeleton key={tile.key} />
+            )
+          )}
+        </div>
+      )}
 
       {coverage && (
         <CoverageDetailDialog
