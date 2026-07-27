@@ -221,31 +221,59 @@ export async function parseJsonBody<T>(
 }
 
 /**
- * Combined admin auth + rate-limit + ADMIN role check.
+ * Combined rate-limit + admin auth + ADMIN role check.
  *
- * Replaces the 4-6 line boilerplate repeated across 30+ admin API routes:
+ * Replaces the 4-6 line boilerplate repeated across 25+ admin API routes:
  *   const auth = await getAdminAuth()
  *   const { context, limitedResponse } = withApiContext(request, {...})
  *   if (limitedResponse) return limitedResponse
  *   if (!auth?.user) return errorResponse({ status: 401, code: 'UNAUTHENTICATED', ... })
  *   if (auth.user.role !== 'ADMIN') return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', ... })
  *
+ * getAdminAuth de veritabanına gidiyor, yani atabilir. Elle yazılan biçimde bu
+ * çağrı handler'ın try'ından önce durduğu için throw eden auth Next'ten GÖVDESİZ
+ * bir 500 döndürüyordu; istemcinin `res.json()`'ı da onda patlayıp gerçek sebebi
+ * yutuyordu (zenginleştirme sekmesindeki "Kapsama verisi yüklenemedi." buydu).
+ * Burada auth kendi try'ı içinde: hata da standart JSON gövdesiyle dönüyor.
+ *
+ * Sıralama da elle yazılan biçimden farklı — hız sınırı auth'tan ÖNCE bakılıyor,
+ * yani sınırı aşan istek için DB'ye hiç gidilmiyor.
+ *
+ * `context` her dalda dolu döner; handler'ın kendi catch'i onu kullanabilsin diye.
+ *
  * Usage:
- *   const guard = await requireAdmin(request, { keyPrefix: 'admin:products', limit: 60, windowMs: 60_000 })
- *   if (guard.response) return guard.response
- *   // guard.context and guard.auth are now guaranteed non-null
+ *   const { response, context, auth } = await requireAdmin(request, {
+ *     keyPrefix: 'admin:products', limit: 60, windowMs: 60_000
+ *   })
+ *   if (response) return response
+ *   try { ... } catch (error) { return unexpectedErrorResponse(error, context, '...') }
  */
 export async function requireAdmin(
   request: NextRequest,
   rateLimit: RateLimitOptions
 ): Promise<
-  | { response: NextResponse; context: null; auth: null }
-  | { response: null; context: ApiContext; auth: NonNullable<Awaited<ReturnType<typeof getAdminAuth>>> }
+  | { response: NextResponse; context: ApiContext; auth: null }
+  | {
+      response: null
+      context: ApiContext
+      auth: NonNullable<Awaited<ReturnType<typeof getAdminAuth>>>
+    }
 > {
   const { context, limitedResponse } = withApiContext(request, rateLimit)
-  if (limitedResponse) return { response: limitedResponse, context: null, auth: null }
+  if (limitedResponse) return { response: limitedResponse, context, auth: null }
 
-  const auth = await getAdminAuth()
+  let auth: Awaited<ReturnType<typeof getAdminAuth>>
+  try {
+    auth = await getAdminAuth()
+  } catch (error) {
+    console.error('[requireAdmin] Auth lookup failed:', error)
+    return {
+      response: unexpectedErrorResponse(error, context, 'Oturum doğrulanırken hata oluştu.'),
+      context,
+      auth: null
+    }
+  }
+
   if (!auth?.user) {
     return {
       response: errorResponse({
@@ -254,7 +282,7 @@ export async function requireAdmin(
         message: 'Authentication required.',
         context
       }),
-      context: null,
+      context,
       auth: null
     }
   }
@@ -267,7 +295,7 @@ export async function requireAdmin(
         message: 'Admin access required.',
         context
       }),
-      context: null,
+      context,
       auth: null
     }
   }
