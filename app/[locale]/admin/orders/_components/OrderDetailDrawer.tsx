@@ -115,7 +115,7 @@ export function OrderDetailDrawer({
                   <thead className="bg-muted">
                     <tr>
                       <th className="px-3 py-2">Ürün</th>
-                      <th className="px-3 py-2">Article Link ID</th>
+                      <th className="px-3 py-2">Parça No</th>
                       <th className="px-3 py-2">Adet</th>
                       <th className="px-3 py-2">Fiyat</th>
                       <th className="px-3 py-2">Toplam</th>
@@ -126,9 +126,9 @@ export function OrderDetailDrawer({
                       <tr key={item.id} className="border-t border-border">
                         <td className="px-3 py-2">
                           <div className="font-medium text-foreground">{item.productName}</div>
-                          <div className="text-[11px] text-muted-foreground">Part ID: {item.partId}</div>
+                          <div className="text-[11px] text-muted-foreground">Ürün ID: {item.productId}</div>
                         </td>
-                        <td className="px-3 py-2">{item.articleLinkId}</td>
+                        <td className="px-3 py-2">{item.partNo}</td>
                         <td className="px-3 py-2">{item.quantity}</td>
                         <td className="px-3 py-2">
                           {item.price.toLocaleString('tr-TR', {

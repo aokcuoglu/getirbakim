@@ -58,15 +58,26 @@ model models {
   @@schema("public")
 }
 
+/// Sipariş satırı KATALOG ürününe bağlanır, public.parts'a değil.
+///
+/// Sattığımız şey Dinamik/Başbuğ ürünlerinin kanonik katalog kaydı; public.parts
+/// zenginleştirme arşivi. İki tablonun id uzayları da örtüşmüyor (aynı id iki
+/// farklı ürün demek), bu yüzden eski `part_id` FK'siyle sepetten gelen katalog
+/// id'si hiç kaydedilemiyordu.
+///
+/// `product_name` anlık kopya: ürün adı sonradan değişse ya da katalogdan düşse
+/// bile siparişin ne için verildiği okunabilir kalmalı.
 model order_items {
-  id       Int     @id @default(autoincrement())
-  order_id Int
-  part_id  BigInt
-  quantity Int
-  price    Decimal @db.Decimal(10, 2)
-  orders   orders  @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  parts    parts   @relation(fields: [part_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id           Int      @id @default(autoincrement())
+  order_id     Int
+  product_id   BigInt
+  product_name String
+  quantity     Int
+  price        Decimal  @db.Decimal(10, 2)
+  orders       orders   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  product      products @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([product_id])
   @@schema("public")
 }
 
@@ -324,7 +335,6 @@ model parts {
   p2w_article_info_synced_at DateTime? @db.Timestamp(6)
   p2w_article_info_run_id    BigInt?
 
-  order_items           order_items[]
   part_cross_references part_cross_references[]
   customer_requests     customer_requests[]
   part_documents        part_documents[]
@@ -863,6 +873,8 @@ model products {
   product_vehicle_types    product_vehicle_types[]
   product_part_links       product_part_links[]
   product_overrides        product_overrides?
+  order_items              order_items[]
+  stock_reservations       stock_reservations[]
   product_match_candidates product_match_candidates[]
   product_ptdrk_refs       product_ptdrk_refs[]
   product_ref_suggestions  product_ref_suggestions[]
@@ -1124,15 +1136,15 @@ model product_ref_suggestions {
 ///
 /// `scripts/refresh-oem-coverage.ts` yazar; kaynak adapter'ları okumaz.
 model oem_brand_coverage {
-  brand_id Int @id
+  brand_id        Int      @id
   /// Markayı kapsayan kaynağın site kimliği; null = kapsayan kaynak YOK,
   /// yani bu markanın OEM'i elle araştırılmalı.
-  source_site String?
+  source_site     String?
   /// REPXPERT ürün kodunu kuran TecDoc tedarikçi numarası (yalnız o kaynakta).
   tecdoc_brand_id Int?
   /// Kapsamın nereden bilindiği: 'archive' | 'search' | 'builtin'.
-  resolved_by String?
-  checked_at  DateTime @default(now()) @db.Timestamptz(6)
+  resolved_by     String?
+  checked_at      DateTime @default(now()) @db.Timestamptz(6)
 
   brand brands @relation(fields: [brand_id], references: [id], onDelete: Cascade)
 
@@ -1141,6 +1153,35 @@ model oem_brand_coverage {
 }
 
 // Admin overrides for a canonical product.
+
+/// Ödeme penceresi boyunca stok tutma.
+///
+/// Neden sayaç değil satır: `products` üzerinde bir `reserved_stock_qty` sayacı
+/// tutulsaydı, ödeme webhook'u hiç gelmediğinde ya da süreç ortada çöktüğünde
+/// sayaç sızar ve o stok kalıcı olarak kilitli kalırdı — kendini düzeltemez.
+/// Süreli satır ise `expires_at` geçince kendiliğinden sayılmaz olur; hiçbir
+/// temizlik işinin doğru çalışmasına bağlı değil.
+///
+/// Müsait stok = products.total_stock_qty − (ACTIVE ve süresi geçmemiş rezervlerin
+/// toplamı). Stok tedarikçinin olduğu için rezerv yalnızca çifte satışı önler;
+/// ödeme sonuçlandığında (başarılı ya da başarısız) satır RELEASED'a çekilir ve
+/// stoğun gerçeği bir sonraki tedarikçi senkronundan gelir.
+model stock_reservations {
+  id         BigInt   @id @default(autoincrement())
+  order_id   Int
+  product_id BigInt
+  quantity   Int
+  /// ACTIVE | RELEASED
+  status     String   @default("ACTIVE")
+  expires_at DateTime @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([product_id, status, expires_at])
+  @@schema("catalog")
+}
 
 model product_overrides {
   product_id             BigInt   @id

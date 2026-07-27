@@ -22,6 +22,10 @@ function buildCodResultUrl(locale: string, orderId: number, baseUrl?: string): s
 }
 
 const checkoutItemSchema = z.object({
+  // Sepet tarihsel olarak `partId` diyor ve bu ad localStorage'a (shop-cart:v2)
+  // yazılmış durumda — yeniden adlandırmak mevcut sepetleri düşürürdü. Taşıdığı
+  // değer catalog.products.id; sunucu sınırında bir kez `productId`'ye çevriliyor
+  // ve aşağısı yalnızca onu konuşuyor.
   partId: z.number().int().positive(),
   quantity: z.number().int().min(1).max(20)
 })
@@ -123,7 +127,11 @@ export async function createCheckoutOrder(
   try {
     const requestHeaders = await headers()
     const requestOrigin = getRequestOrigin(requestHeaders)
-    const prepared = await prepareCheckoutLines(data.items)
+    const orderItems = data.items.map((item) => ({
+      productId: item.partId,
+      quantity: item.quantity
+    }))
+    const prepared = await prepareCheckoutLines(orderItems)
 
     if (prepared.issues.length > 0 || prepared.lines.length === 0) {
       return {
@@ -137,7 +145,7 @@ export async function createCheckoutOrder(
     const draft = await createOrderDraft({
       userId: user?.id ?? null,
       guestEmail,
-      items: data.items,
+      items: orderItems,
       shippingAddress: data.shippingAddress,
       shippingMethod: data.shippingMethod,
       paymentMethod: data.paymentMethod,

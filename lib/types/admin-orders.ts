@@ -61,11 +61,11 @@ export interface AdminOrderDetail {
   } | null
   items: Array<{
     id: number
-    partId: string
+    productId: string
     quantity: number
     price: number
     productName: string
-    articleLinkId: string
+    partNo: string
   }>
   summary: {
     itemsTotal: number

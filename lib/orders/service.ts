@@ -1,7 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { createOrderStatusNotification, createUserNotifications } from '@/lib/notifications/server'
-import { resolveRealPriceExVat } from '@/lib/pricing/public-pricing'
 import {
   canAdminManageOrderStatus,
   CheckoutPaymentMethod,
@@ -20,31 +19,37 @@ import {
   toVatIncludedDecimal
 } from '@/lib/orders/types'
 
-type CheckoutPartRecord = {
+/**
+ * Checkout katalogtan okur, public.parts'tan değil.
+ *
+ * Sattığımız şey Dinamik/Başbuğ ürünlerinin kanonik katalog kaydı; parts
+ * zenginleştirme arşivi. Sepet zaten `catalog.products.id` taşıyor
+ * (CatalogProductDetail), eski hâlde ise burada parts'ta aranıyordu — iki id
+ * uzayı örtüşmediği için aynı sayı bambaşka bir ürüne denk geliyordu.
+ */
+type CheckoutProductRecord = {
   id: bigint
   name: string
-  price: Prisma.Decimal | null
-  part_categories: { name: string } | null
-  part_pricing_inventory: {
-    supplier_stock_qty: number | null
-    reserved_stock_qty: number | null
-    supplier_price: Prisma.Decimal | null
-    computed_selling_price_ex_vat: Prisma.Decimal | null
-  } | null
-  part_admin_overrides: {
-    lock_price: boolean | null
+  min_selling_price_try: Prisma.Decimal | null
+  total_stock_qty: number
+  category: { name: string } | null
+  product_overrides: {
+    lock_price: boolean
     selling_price_override: Prisma.Decimal | null
   } | null
 }
 
+/** Rezervin ödeme penceresini kapsayacak kadar yaşaması yeter. */
+const RESERVATION_TTL_MINUTES = 30
+
 export type CheckoutIssue = {
-  partId: number
+  productId: number
   reason: 'NOT_FOUND' | 'PRICE_UNAVAILABLE' | 'OUT_OF_STOCK'
   message: string
 }
 
 export interface PreparedCheckoutLine {
-  partId: number
+  productId: number
   name: string
   quantity: number
   unitPrice: Prisma.Decimal
@@ -56,7 +61,7 @@ export interface PreparedCheckoutLine {
 export interface CreateOrderDraftInput {
   userId: string | null
   guestEmail: string | null
-  items: Array<{ partId: number; quantity: number }>
+  items: Array<{ productId: number; quantity: number }>
   shippingAddress: ShippingAddressInput
   shippingMethod: CheckoutShippingMethod
   paymentMethod: CheckoutPaymentMethod
@@ -91,9 +96,10 @@ export interface OrderPaymentView {
 
 export interface OrderLineView {
   id: number
-  partId: string
+  productId: string
   productName: string
-  articleLinkId: string
+  /** Katalogdaki parça numarası; ürün silinmişse '-'. */
+  partNo: string
   quantity: number
   price: number
   lineTotal: number
@@ -125,96 +131,116 @@ export interface OrderView {
   latestPayment: OrderPaymentView | null
 }
 
-export function resolveDisplayUnitPrice(part: CheckoutPartRecord): Prisma.Decimal | null {
-  const base = resolveRealPriceExVat(part)
-  return toVatIncludedDecimal(base)
+/** Kilitli admin fiyatı varsa o, yoksa katalogdaki en düşük satış fiyatı. */
+export function resolveDisplayUnitPrice(
+  product: CheckoutProductRecord
+): Prisma.Decimal | null {
+  const override = product.product_overrides
+  const base =
+    override?.lock_price && override.selling_price_override
+      ? override.selling_price_override
+      : product.min_selling_price_try
+  return toVatIncludedDecimal(base ?? null)
+}
+
+/**
+ * Ürün başına, süresi geçmemiş ACTIVE rezervlerin toplamı.
+ *
+ * Süresi geçenler sorguya hiç girmiyor: rezerv sayaç değil satır olduğu için
+ * serbest bırakma adımı hiç çalışmasa bile stok kendiliğinden geri geliyor.
+ */
+async function getReservedQuantities(
+  productIds: bigint[]
+): Promise<Map<string, number>> {
+  if (productIds.length === 0) return new Map()
+
+  const rows = await db.stock_reservations.groupBy({
+    by: ['product_id'],
+    where: {
+      product_id: { in: productIds },
+      status: 'ACTIVE',
+      expires_at: { gt: new Date() }
+    },
+    _sum: { quantity: true }
+  })
+
+  return new Map(rows.map((r) => [r.product_id.toString(), r._sum.quantity ?? 0]))
 }
 
 export async function prepareCheckoutLines(
-  items: Array<{ partId: number; quantity: number }>
+  items: Array<{ productId: number; quantity: number }>
 ): Promise<{ issues: CheckoutIssue[]; lines: PreparedCheckoutLine[] }> {
-  const uniquePartIds = Array.from(new Set(items.map((item) => item.partId)))
+  const uniqueIds = Array.from(new Set(items.map((item) => item.productId))).map((id) =>
+    BigInt(id)
+  )
 
-  const parts = await db.parts.findMany({
-    where: {
-      id: {
-        in: uniquePartIds.map((id) => BigInt(id))
-      }
-    },
-    select: {
-      id: true,
-      name: true,
-      price: true,
-      part_categories: {
-        select: {
-          name: true
-        }
-      },
-      part_pricing_inventory: {
-        select: {
-          supplier_stock_qty: true,
-          reserved_stock_qty: true,
-          supplier_price: true,
-          computed_selling_price_ex_vat: true
-        }
-      },
-      part_admin_overrides: {
-        select: {
-          lock_price: true,
-          selling_price_override: true
+  const [products, reservedByProduct] = await Promise.all([
+    db.products.findMany({
+      where: { id: { in: uniqueIds }, status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        min_selling_price_try: true,
+        total_stock_qty: true,
+        category: { select: { name: true } },
+        product_overrides: {
+          select: { lock_price: true, selling_price_override: true }
         }
       }
-    }
-  })
+    }),
+    getReservedQuantities(uniqueIds)
+  ])
 
-  const byId = new Map(parts.map((part) => [Number(part.id), part]))
+  const byId = new Map(products.map((product) => [Number(product.id), product]))
   const issues: CheckoutIssue[] = []
   const lines: PreparedCheckoutLine[] = []
 
   for (const item of items) {
-    const part = byId.get(item.partId)
-    if (!part) {
+    const product = byId.get(item.productId)
+    if (!product) {
       issues.push({
-        partId: item.partId,
+        productId: item.productId,
         reason: 'NOT_FOUND',
-        message: `Part ${item.partId} could not be found.`
+        message: `Product ${item.productId} could not be found.`
       })
       continue
     }
 
-    const unitPrice = resolveDisplayUnitPrice(part)
+    const unitPrice = resolveDisplayUnitPrice(product)
     if (!unitPrice) {
       issues.push({
-        partId: item.partId,
+        productId: item.productId,
         reason: 'PRICE_UNAVAILABLE',
-        message: `Part ${item.partId} has no valid checkout price.`
+        message: `Product ${item.productId} has no valid checkout price.`
       })
       continue
     }
 
-    const inventory = part.part_pricing_inventory
-    const stockQty = inventory?.supplier_stock_qty ?? 0
-    const reservedQty = inventory?.reserved_stock_qty ?? 0
+    // Stoğu 0 görünen ürün engellenmiyor: stok tedarikçinin ve senkron aralıklı,
+    // "0" çoğu zaman "bilmiyoruz" demek. Eski davranış da böyleydi; rezerv
+    // yalnızca elimizde sayı VARKEN çifte satışı önlemek için var.
+    const stockQty = product.total_stock_qty ?? 0
+    const reservedQty = reservedByProduct.get(product.id.toString()) ?? 0
     const hasLiveStock = stockQty > 0
     const available = Math.max(stockQty - reservedQty, 0)
 
     if (hasLiveStock && available < item.quantity) {
       issues.push({
-        partId: item.partId,
+        productId: item.productId,
         reason: 'OUT_OF_STOCK',
-        message: `Part ${item.partId} does not have enough stock for quantity ${item.quantity}.`
+        message: `Product ${item.productId} does not have enough stock for quantity ${item.quantity}.`
       })
       continue
     }
 
     lines.push({
-      partId: item.partId,
-      name: part.name,
+      productId: item.productId,
+      name: product.name,
       quantity: item.quantity,
       unitPrice,
       lineTotal: unitPrice.mul(item.quantity).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP),
       hasLiveStock,
-      categoryName: part.part_categories?.name || null
+      categoryName: product.category?.name || null
     })
   }
 
@@ -290,22 +316,28 @@ export async function createOrderDraft(
     await tx.order_items.createMany({
       data: lines.map((item) => ({
         order_id: order.id,
-        part_id: BigInt(item.partId),
+        product_id: BigInt(item.productId),
+        // Ad anlık kopyalanır: ürün sonradan yeniden adlandırılsa ya da
+        // katalogdan düşse bile sipariş neyin sipariş edildiğini anlatmalı.
+        product_name: item.name,
         quantity: item.quantity,
         price: item.unitPrice
       }))
     })
 
-    for (const item of lines) {
-      if (!item.hasLiveStock) continue
-
-      await tx.part_pricing_inventory.updateMany({
-        where: { part_id: BigInt(item.partId) },
-        data: {
-          reserved_stock_qty: {
-            increment: item.quantity
-          }
-        }
+    // Stoğu bilinen satırlar için ödeme penceresi boyunca rezerv aç. Süresi
+    // dolunca satır kendiliğinden sayılmaz olur; serbest bırakma adımının
+    // çalışmasına bağlı değiliz.
+    const reservedLines = lines.filter((item) => item.hasLiveStock)
+    if (reservedLines.length > 0) {
+      const expiresAt = new Date(Date.now() + RESERVATION_TTL_MINUTES * 60_000)
+      await tx.stock_reservations.createMany({
+        data: reservedLines.map((item) => ({
+          order_id: order.id,
+          product_id: BigInt(item.productId),
+          quantity: item.quantity,
+          expires_at: expiresAt
+        }))
       })
     }
 
@@ -333,13 +365,7 @@ export async function releaseReservedStockForOrder(
     where: { id: orderId },
     select: {
       id: true,
-      stock_released_at: true,
-      order_items: {
-        select: {
-          part_id: true,
-          quantity: true
-        }
-      }
+      stock_released_at: true
     }
   })
 
@@ -347,14 +373,12 @@ export async function releaseReservedStockForOrder(
     return false
   }
 
-  for (const item of order.order_items) {
-    // Clamp reserved stock at zero while releasing inventory for failed/cancelled flows.
-    await tx.$executeRaw`
-      UPDATE part_pricing_inventory
-      SET reserved_stock_qty = GREATEST(COALESCE(reserved_stock_qty, 0) - ${item.quantity}, 0)
-      WHERE part_id = ${item.part_id}
-    `
-  }
+  // Sayaç düşürmek yerine satırı kapat: idempotent (ikinci çağrı hiçbir şeyi
+  // eksiye götürmez) ve zaten süresi geçmiş rezervler için de zararsız.
+  await tx.stock_reservations.updateMany({
+    where: { order_id: orderId, status: 'ACTIVE' },
+    data: { status: 'RELEASED' }
+  })
 
   await tx.orders.update({
     where: { id: orderId },
@@ -660,12 +684,12 @@ function mapOrderRow(
     } | null
     order_items: Array<{
       id: number
-      part_id: bigint
+      product_id: bigint
+      product_name: string
       quantity: number
       price: Prisma.Decimal
-      parts: {
-        name: string
-        article_link_id: bigint
+      product: {
+        part_no: string
       } | null
     }>
     order_payments: Array<{
@@ -685,9 +709,10 @@ function mapOrderRow(
 ): OrderView {
   const items = order.order_items.map((item) => ({
     id: item.id,
-    partId: item.part_id.toString(),
-    productName: item.parts?.name || 'Unknown Product',
-    articleLinkId: item.parts?.article_link_id?.toString() || '-',
+    productId: item.product_id.toString(),
+    // Sipariş anındaki ad; ürün sonradan yeniden adlandırılsa da sipariş değişmez.
+    productName: item.product_name,
+    partNo: item.product?.part_no || '-',
     quantity: item.quantity,
     price: decimalToNumber(item.price),
     lineTotal: decimalToNumber(item.price) * item.quantity
@@ -732,10 +757,9 @@ export async function getOrderById(orderId: number): Promise<OrderView | null> {
       },
       order_items: {
         include: {
-          parts: {
+          product: {
             select: {
-              name: true,
-              article_link_id: true
+              part_no: true
             }
           }
         }
@@ -769,10 +793,9 @@ export async function getOrdersForUser(userId: string): Promise<OrderView[]> {
       },
       order_items: {
         include: {
-          parts: {
+          product: {
             select: {
-              name: true,
-              article_link_id: true
+              part_no: true
             }
           }
         }
@@ -807,10 +830,9 @@ export async function getOrderForUser(
       },
       order_items: {
         include: {
-          parts: {
+          product: {
             select: {
-              name: true,
-              article_link_id: true
+              part_no: true
             }
           }
         }
@@ -854,10 +876,9 @@ export async function lookupGuestOrder(
       },
       order_items: {
         include: {
-          parts: {
+          product: {
             select: {
-              name: true,
-              article_link_id: true
+              part_no: true
             }
           }
         }
