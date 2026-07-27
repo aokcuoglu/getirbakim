@@ -16,10 +16,9 @@ import {
 interface StatsCardsProps {
   metrics: {
     totalProducts: number
-    lowStockCount: number
-    zeroPriceCount: number
-    syncErrorCount: number
-    failedSyncRate: number
+    outOfStockCount: number
+    unpricedCount: number
+    unenrichedCount: number
   }
 }
 
@@ -88,29 +87,27 @@ export function StatsCards({ metrics }: StatsCardsProps) {
         variant="default"
       />
       <StatsCard
-        title="Düşük Stok"
-        value={metrics.lowStockCount.toLocaleString('tr-TR')}
-        subtitle={metrics.lowStockCount > 0 ? 'İnceleme gerekli' : 'Normal'}
+        title="Stokta Yok"
+        value={metrics.outOfStockCount.toLocaleString('tr-TR')}
+        subtitle={metrics.outOfStockCount > 0 ? 'Sipariş alınamaz' : 'Tamamı stokta'}
         icon={AlertTriangle}
-        variant={metrics.lowStockCount > 0 ? 'warning' : 'default'}
+        variant={metrics.outOfStockCount > 0 ? 'warning' : 'default'}
       />
       <StatsCard
-        title="Sıfır Fiyat"
-        value={metrics.zeroPriceCount.toLocaleString('tr-TR')}
-        subtitle={metrics.zeroPriceCount > 0 ? 'Müdahale gerekli' : 'Normal'}
+        title="Fiyatsız"
+        value={metrics.unpricedCount.toLocaleString('tr-TR')}
+        subtitle={metrics.unpricedCount > 0 ? 'Satılamaz' : 'Tamamı fiyatlı'}
         icon={CircleDollarSign}
-        variant={metrics.zeroPriceCount > 0 ? 'danger' : 'default'}
+        variant={metrics.unpricedCount > 0 ? 'danger' : 'default'}
       />
       <StatsCard
-        title="Senkron Hata Oranı"
-        value={`%${metrics.failedSyncRate.toFixed(2)}`}
+        title="Zenginleşmemiş"
+        value={metrics.unenrichedCount.toLocaleString('tr-TR')}
         subtitle={
-          metrics.syncErrorCount > 0
-            ? `${metrics.syncErrorCount} hata`
-            : 'Hata yok'
+          metrics.unenrichedCount > 0 ? "parts'a bağlanmadı" : 'Tamamı bağlı'
         }
         icon={ShieldAlert}
-        variant={metrics.syncErrorCount > 0 ? 'danger' : 'default'}
+        variant={metrics.unenrichedCount > 0 ? 'warning' : 'default'}
       />
     </div>
   )

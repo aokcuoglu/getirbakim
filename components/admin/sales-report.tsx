@@ -9,7 +9,6 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import { AlertCircle } from 'lucide-react'
 import {
   AdminCard,
   AdminCardContent,
@@ -17,7 +16,6 @@ import {
   AdminCardHeader,
   AdminCardTitle
 } from '@/components/admin/admin-card'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 
 interface SalesReportProps {
   salesSeries: Array<{
@@ -25,10 +23,9 @@ interface SalesReportProps {
     revenue: number
     orders: number
   }>
-  failedSyncRate: number
 }
 
-export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
+export function SalesReport({ salesSeries }: SalesReportProps) {
   const totalRevenue = salesSeries.reduce((sum, item) => sum + item.revenue, 0)
   const totalOrders = salesSeries.reduce((sum, item) => sum + item.orders, 0)
 
@@ -40,14 +37,6 @@ export function SalesReport({ salesSeries, failedSyncRate }: SalesReportProps) {
             <AdminCardTitle>Satış Grafiği</AdminCardTitle>
             <AdminCardDescription>Son 6 ay performansı</AdminCardDescription>
           </div>
-          {failedSyncRate > 0 && (
-            <Alert className="max-w-xs border-border py-2">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                Sync hata oranı: %{failedSyncRate.toFixed(2)}
-              </AlertDescription>
-            </Alert>
-          )}
         </div>
       </AdminCardHeader>
       <AdminCardContent>
