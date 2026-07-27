@@ -6,26 +6,31 @@ import {
   unexpectedErrorResponse,
   withApiContext
 } from '@/lib/api/route-utils'
-import { getOemBrandCoverageRows } from '@/lib/admin/oem-brand-coverage'
+import { getCatalogEnrichmentCoverage } from '@/lib/admin/catalog-enrichment-stats'
 
 /**
- * Marka bazında OEM kaynak kapsamı — gerekçesi kardeş `coverage` route'uyla
- * aynı: önbelleğin tutması ve panellerin paralel yüklenmesi için GET.
+ * Zenginleştirme kapsam özeti.
  *
- * Tüm markalar tek seferde döner (~630 satır); filtre/arama istemcide.
+ * Server action değil route handler olmasının iki nedeni var: (1) Next, action
+ * gövdesinde data cache'i no-store'a zorluyor, unstable_cache hiç tutmuyordu;
+ * (2) action'lar istemcide kuyruğa alındığı için sekmedeki üç panel sırayla
+ * bekliyordu. Düz GET'ler paralel gider.
+ *
+ * `?fresh=1` önbelleği atlar — "Yenile" düğmesi bunu kullanır.
  */
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   const { context, limitedResponse } = withApiContext(request, {
-    keyPrefix: 'eslestirme:enrichment:oem-coverage',
+    keyPrefix: 'eslestirme:enrichment:coverage',
     limit: 60,
     windowMs: 60_000
   })
   if (limitedResponse) return limitedResponse
 
-  // Auth da DB'ye gidiyor; kardeş `coverage` route'undaki gibi try'ın içinde.
+  // getAdminAuth de veritabanına gidiyor, yani o da patlayabilir — try'ın DIŞINDA
+  // çağrılırsa istemci gövdesiz bir 500 alır ve gerçek sebebi asla göremez.
   try {
     const auth = await getAdminAuth()
     if (!auth?.user) {
@@ -46,9 +51,9 @@ export async function GET(request: NextRequest) {
     }
 
     const fresh = request.nextUrl.searchParams.get('fresh') === '1'
-    return successResponse({ rows: await getOemBrandCoverageRows({ fresh }) }, context)
+    return successResponse(await getCatalogEnrichmentCoverage({ fresh }), context)
   } catch (error) {
-    console.error('[eslestirme:enrichment:oem-coverage] Error:', error)
-    return unexpectedErrorResponse(error, context, 'Kaynak kapsamı yüklenirken hata oluştu.')
+    console.error('[eslestirme:enrichment:coverage] Error:', error)
+    return unexpectedErrorResponse(error, context, 'Kapsama verisi yüklenirken hata oluştu.')
   }
 }

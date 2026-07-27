@@ -13,14 +13,18 @@ node_modules
 .pnp.js
 
 # Testing
-coverage
+# Köke sabitli: çıplak `coverage` deseni HERHANGİ bir dizindeki `coverage`
+# klasörünü yutuyordu ve app/api/.../enrichment/coverage/route.ts hiç commit
+# edilmedi — sekme prod'da 404 alıp "Kapsama verisi yüklenemedi." diyordu.
+/coverage/
 
 # Next.js
 /.next/
 /out/
 
 # Production
-build
+# Aynı tuzak: çıplak `build` da her yerdeki `build` dizinini yutar.
+/build/
 
 # Misc
 .DS_Store

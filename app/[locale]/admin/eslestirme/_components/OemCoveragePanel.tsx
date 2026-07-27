@@ -68,9 +68,10 @@ export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePa
       const res = await fetch(
         `/api/admin/eslestirme/enrichment/oem-coverage${fresh ? '?fresh=1' : ''}`
       )
-      const data = await res.json()
+      // Gövde JSON olmayabilir (gövdesiz 500 gibi) — parse hatası sebebi yutmasın.
+      const data = await res.json().catch(() => null)
       if (!res.ok || data?.error) {
-        toast.error(data?.error?.message || 'Kaynak kapsamı yüklenemedi.')
+        toast.error(data?.error?.message || `Kaynak kapsamı yüklenemedi. (HTTP ${res.status})`)
         return
       }
       const next = (data.rows ?? []) as OemCoverageBrandRow[]
