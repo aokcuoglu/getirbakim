@@ -1,10 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import {
-  errorResponse,
-  successResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 import {
   isProductListCoverage,
   isProductListStatus,
@@ -16,20 +11,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'eslestirme:products:list',
     limit: 120,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-
-  if (!auth?.user) {
-    return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
-  }
+  if (response) return response
 
   try {
     const sp = request.nextUrl.searchParams

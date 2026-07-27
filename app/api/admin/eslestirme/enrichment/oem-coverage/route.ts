@@ -1,11 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import {
-  errorResponse,
-  successResponse,
-  unexpectedErrorResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { requireAdmin, successResponse, unexpectedErrorResponse } from '@/lib/api/route-utils'
 import { getOemBrandCoverageRows } from '@/lib/admin/oem-brand-coverage'
 
 /**
@@ -18,33 +12,14 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'eslestirme:enrichment:oem-coverage',
     limit: 60,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
+  if (response) return response
 
-  // Auth da DB'ye gidiyor; kardeş `coverage` route'undaki gibi try'ın içinde.
   try {
-    const auth = await getAdminAuth()
-    if (!auth?.user) {
-      return errorResponse({
-        status: 401,
-        code: 'UNAUTHENTICATED',
-        message: 'Authentication required.',
-        context
-      })
-    }
-    if (auth.user.role !== 'ADMIN') {
-      return errorResponse({
-        status: 403,
-        code: 'ADMIN_REQUIRED',
-        message: 'Admin access required.',
-        context
-      })
-    }
-
     const fresh = request.nextUrl.searchParams.get('fresh') === '1'
     return successResponse({ rows: await getOemBrandCoverageRows({ fresh }) }, context)
   } catch (error) {

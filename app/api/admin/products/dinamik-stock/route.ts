@@ -1,37 +1,14 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
 import { getStockBySku } from '@/lib/suppliers/dinamik-client'
-import {
-  errorResponse,
-  successResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 
 export async function POST(request: NextRequest) {
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'api:admin-dinamik-stock',
     limit: 60,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-
-  const auth = await getAdminAuth()
-  if (!auth?.user) {
-    return errorResponse({
-      status: 401,
-      code: 'UNAUTHENTICATED',
-      message: 'Authentication required.',
-      context
-    })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({
-      status: 403,
-      code: 'ADMIN_REQUIRED',
-      message: 'Admin access required.',
-      context
-    })
-  }
+  if (response) return response
 
   try {
     const body = await request.json()

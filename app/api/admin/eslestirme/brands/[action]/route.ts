@@ -1,10 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import {
-  errorResponse,
-  successResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 import {
   isSupplierKey,
   linkSupplierBrandToCanonical,
@@ -19,20 +14,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ action: string }> }
 ) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'eslestirme:brands:action',
     limit: 100,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-
-  if (!auth?.user) {
-    return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
-  }
+  if (response) return response
 
   const { action } = await params
   if (!VALID_ACTIONS.includes(action as (typeof VALID_ACTIONS)[number])) {

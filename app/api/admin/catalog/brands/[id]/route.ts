@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 import { revalidateAdminCatalogPaths } from '@/lib/admin/revalidate-catalog-paths'
 import {
   deleteCanonicalBrand,
@@ -17,19 +16,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'admin:catalog:brands:update',
     limit: 60,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-  if (!auth?.user) {
-    return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
-  }
+  if (response) return response
 
   const { id: idStr } = await params
   const id = parseId(idStr)
@@ -62,19 +54,12 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'admin:catalog:brands:delete',
     limit: 30,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-  if (!auth?.user) {
-    return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
-  }
+  if (response) return response
 
   const { id: idStr } = await params
   const id = parseId(idStr)

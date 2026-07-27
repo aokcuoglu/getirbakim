@@ -1,10 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import {
-  errorResponse,
-  successResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 import {
   isProductListSupplier,
   parseSupplierProductId,
@@ -15,20 +10,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'eslestirme:products:manual:unlink',
     limit: 120,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-
-  if (!auth?.user) {
-    return errorResponse({ status: 401, code: 'UNAUTHENTICATED', message: 'Authentication required.', context })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({ status: 403, code: 'ADMIN_REQUIRED', message: 'Admin access required.', context })
-  }
+  if (response) return response
 
   try {
     const body = await request.json().catch(() => ({}))

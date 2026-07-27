@@ -1,32 +1,14 @@
 import { NextRequest } from 'next/server'
 import { listApprovedDbrandsForAdmin } from '@/lib/admin/approved-dnbrd-catalog'
-import { getAdminAuth } from '@/lib/admin-auth'
-import { errorResponse, successResponse, withApiContext } from '@/lib/api/route-utils'
+import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 
 export async function GET(request: NextRequest) {
-  const auth = await getAdminAuth()
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'admin:catalog:brands',
     limit: 120,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
-  if (!auth?.user) {
-    return errorResponse({
-      status: 401,
-      code: 'UNAUTHENTICATED',
-      message: 'Authentication required.',
-      context
-    })
-  }
-  if (auth.user.role !== 'ADMIN') {
-    return errorResponse({
-      status: 403,
-      code: 'ADMIN_REQUIRED',
-      message: 'Admin access required.',
-      context
-    })
-  }
+  if (response) return response
 
   const url = new URL(request.url)
   const logoStatus = url.searchParams.get('logoStatus') ?? 'all'

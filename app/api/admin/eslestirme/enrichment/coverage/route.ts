@@ -1,11 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAdminAuth } from '@/lib/admin-auth'
-import {
-  errorResponse,
-  successResponse,
-  unexpectedErrorResponse,
-  withApiContext
-} from '@/lib/api/route-utils'
+import { requireAdmin, successResponse, unexpectedErrorResponse } from '@/lib/api/route-utils'
 import { getCatalogEnrichmentCoverage } from '@/lib/admin/catalog-enrichment-stats'
 
 /**
@@ -22,34 +16,14 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const { context, limitedResponse } = withApiContext(request, {
+  const { response, context } = await requireAdmin(request, {
     keyPrefix: 'eslestirme:enrichment:coverage',
     limit: 60,
     windowMs: 60_000
   })
-  if (limitedResponse) return limitedResponse
+  if (response) return response
 
-  // getAdminAuth de veritabanına gidiyor, yani o da patlayabilir — try'ın DIŞINDA
-  // çağrılırsa istemci gövdesiz bir 500 alır ve gerçek sebebi asla göremez.
   try {
-    const auth = await getAdminAuth()
-    if (!auth?.user) {
-      return errorResponse({
-        status: 401,
-        code: 'UNAUTHENTICATED',
-        message: 'Authentication required.',
-        context
-      })
-    }
-    if (auth.user.role !== 'ADMIN') {
-      return errorResponse({
-        status: 403,
-        code: 'ADMIN_REQUIRED',
-        message: 'Admin access required.',
-        context
-      })
-    }
-
     const fresh = request.nextUrl.searchParams.get('fresh') === '1'
     return successResponse(await getCatalogEnrichmentCoverage({ fresh }), context)
   } catch (error) {
