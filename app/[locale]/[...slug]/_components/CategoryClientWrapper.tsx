@@ -3,7 +3,7 @@
 import type { TrodoCategoryWithHierarchy } from '@/lib/actions/getPartCategories'
 import { useCategorySearch } from '@/hooks/use-category-search'
 import { CategoryContent } from './CategoryContent'
-import type { PartWithDetails } from '@/lib/actions/getPartsForVehicle'
+import type { PartWithDetails } from '@/lib/types/part-card'
 import type { SearchHit } from '@/lib/types/search'
 import { SearchSidebar } from '@/components/search/SearchSidebar'
 import { CategoryNavigation } from '@/components/search/CategoryNavigation'

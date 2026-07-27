@@ -1,7 +1,7 @@
 'use client'
 
 import type { TrodoCategoryWithHierarchy } from '@/lib/actions/getPartCategories'
-import type { PartWithDetails } from '@/lib/actions/getPartsForVehicle'
+import type { PartWithDetails } from '@/lib/types/part-card'
 import Image from 'next/image'
 import { ProductCard } from './ProductCard'
 import { GridProductCard } from './GridProductCard'
