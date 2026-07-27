@@ -47,7 +47,8 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 config({ path: '.env' })
 
-import { appendFile, mkdir, readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { Prisma } from '@prisma/client'
 import { db } from '../lib/db'
 import { createOemSources } from '../lib/catalog/oem-sources'
@@ -139,18 +140,51 @@ async function loadTargets(site: string, brand: string, limit: number | null): P
 
 const checkpointPath = (site: string) => `${CHECKPOINT_DIR}/${site}.attempted`
 
+/**
+ * Checkpoint sürümü — "sorulmuş, sonuç yok" kaydının NE ANLAMA GELDİĞİ.
+ *
+ * Sürüm neden gerekli: kaynağın sorma biçimi düzeldiğinde eski kayıtlar yalan
+ * söylemeye başlıyor. REPXPERT'te ürün kodu numaranın TecDoc'taki yazılışından
+ * kuruluyordu ve katalog numarayı sıkıştırılmış tuttuğu için BOSCH/SWAG/HELLA
+ * gibi markaların tamamı "sonuç yok" diye işaretlendi — 42 bin ürün, kaynakta
+ * hepsi varken. Arama yedeği eklenince bu kayıtların hükmü kalmadı; sürüm
+ * değişince dosya kenara alınır ve o ürünler yeniden sorulur.
+ *
+ * Sürümü YALNIZ kaynağın kapsamını genişleten değişikliklerde artırın.
+ */
+const CHECKPOINT_VERSION = 'v2-arama-yedegi'
+const CHECKPOINT_HEADER = `# ${CHECKPOINT_VERSION}`
+
 async function loadCheckpoint(site: string): Promise<Set<string>> {
+  let text: string
   try {
-    const text = await readFile(checkpointPath(site), 'utf8')
-    return new Set(text.split('\n').filter((line) => line.trim().length > 0))
+    text = await readFile(checkpointPath(site), 'utf8')
   } catch {
     return new Set()
   }
+
+  const lines = text.split('\n')
+  if (lines[0]?.trim() !== CHECKPOINT_HEADER) {
+    // Eski sürüm: silinmez, kenara alınır — hangi ürünlerin neden yeniden
+    // sorulduğu sonradan bakılabilsin.
+    const backup = `${checkpointPath(site)}.eski`
+    await rename(checkpointPath(site), backup)
+    console.warn(
+      `[scrape] ${site}: checkpoint eski sürümde (beklenen ${CHECKPOINT_VERSION}) →` +
+        ` ${backup} olarak kenara alındı, ${lines.length - 1} ürün yeniden sorulacak.`
+    )
+    return new Set()
+  }
+
+  return new Set(lines.slice(1).filter((line) => line.trim().length > 0))
 }
 
 async function appendCheckpoint(site: string, ids: string[]): Promise<void> {
   if (ids.length === 0) return
   await mkdir(CHECKPOINT_DIR, { recursive: true })
+  if (!existsSync(checkpointPath(site))) {
+    await writeFile(checkpointPath(site), CHECKPOINT_HEADER + '\n', 'utf8')
+  }
   await appendFile(checkpointPath(site), ids.join('\n') + '\n', 'utf8')
 }
 
@@ -270,13 +304,30 @@ async function runBrand(opts: RunOptions): Promise<Stats> {
   const pending: SuggestionRow[] = []
   const attempted: string[] = []
   let cursor = 0
+  let abandoned = false
 
-  const flush = async () => {
+  /**
+   * Marka kaynakta gerçekten aranabiliyor mu.
+   *
+   * İlk HEALTH_PROBE sorguda tek bir eşleşme bile çıkmadıysa sorun tek tek
+   * ürünlerde değil, markanın kendisindedir (numara biçimi, marka id'si,
+   * kapsam). Bu durumda devam etmek iki zarar veriyordu: saatler boşa gidiyor
+   * ve daha kötüsü, ürünler "sorulmuş, sonuç yok" diye checkpoint'e yazılıp
+   * bir daha hiç sorulmuyordu. Bu yüzden marka bırakılır ve HİÇBİR ŞEY
+   * işaretlenmez — düzeltme geldiğinde tümü yeniden sorulabilsin.
+   */
+  const HEALTH_PROBE = 300
+  const provenBlind = () => stats.matched === 0 && stats.queried >= HEALTH_PROBE
+
+  const flush = async (force = false) => {
     if (pending.length > 0 && !dryRun) {
       stats.inserted += await insertSuggestions(pending.splice(0))
     } else {
       pending.length = 0
     }
+    // Marka kendini kanıtlayana kadar checkpoint yazılmaz: kanıtlayamazsa
+    // yazılanlar geri alınamayacak yanlış kayıtlar olurdu.
+    if (!force && stats.matched === 0) return
     if (attempted.length > 0 && !dryRun) {
       await appendCheckpoint(source.site, attempted.splice(0))
     } else {
@@ -285,7 +336,7 @@ async function runBrand(opts: RunOptions): Promise<Stats> {
   }
 
   const worker = async () => {
-    while (cursor < queue.length) {
+    while (cursor < queue.length && !abandoned) {
       const target = queue[cursor++]
       const at = cursor
       try {
@@ -318,13 +369,30 @@ async function runBrand(opts: RunOptions): Promise<Stats> {
           `[scrape] ${brand} ${at}/${queue.length} · eşleşen ${stats.matched} · OEM'li ${stats.withOem} · hata ${stats.failed}`
         )
       }
-      if (pending.length >= FLUSH_EVERY) await flush()
+      if (provenBlind()) {
+        abandoned = true
+        break
+      }
+      if (pending.length >= FLUSH_EVERY || attempted.length >= FLUSH_EVERY) await flush()
       if (opts.delayMs > 0) await sleep(opts.delayMs)
     }
   }
 
   await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, worker))
-  await flush()
+
+  if (abandoned) {
+    // Toplananlar atılır; yazılmış öneri varsa (olmamalı) yine de kaydedilir.
+    attempted.length = 0
+    await flush()
+    console.warn(
+      `[scrape] ${brand}: ilk ${stats.queried} sorguda tek eşleşme yok — marka BIRAKILDI,` +
+        ` checkpoint yazılmadı. Marka id'si ya da numara biçimi kaynakla tutmuyor olabilir.`
+    )
+    return stats
+  }
+  // Marka hiç eşleşme vermeden bittiyse (kuyruk denemeden kısaysa) kayıt yine
+  // yazılır: küçük markalarda "sonuç yok" gerçekten sonuç yok demektir.
+  await flush(true)
   return stats
 }
 
