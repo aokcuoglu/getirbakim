@@ -222,6 +222,7 @@ export async function listApprovedDbrandsForAdmin(
       FROM catalog.brand_mappings m
       LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
       LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
+      LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
       WHERE m.brand_id IN (${Prisma.join(canonicalIds)})
       ORDER BY m.id
     `
@@ -317,6 +318,7 @@ export async function getApprovedDbrandsMatchById(
     FROM catalog.brand_mappings m
     LEFT JOIN catalog.supplier_dinamik_brands d ON d.id = m.dinamik_brand_id
     LEFT JOIN catalog.supplier_basbug_brands bs ON bs.id = m.basbug_brand_id
+    LEFT JOIN catalog.ptdrk_brands pt ON pt.id = m.ptdrk_brand_id
     WHERE m.brand_id = ${matchId}
     ORDER BY m.id
   `)
