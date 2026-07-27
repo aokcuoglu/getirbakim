@@ -14,15 +14,9 @@ export async function AdminDashboardContent() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <SalesReport
-            salesSeries={data.salesSeries}
-            failedSyncRate={data.metrics.failedSyncRate}
-          />
+          <SalesReport salesSeries={data.salesSeries} />
         </div>
-        <DashboardAlerts
-          alerts={data.alerts}
-          failedSyncRate={data.metrics.failedSyncRate}
-        />
+        <DashboardAlerts alerts={data.alerts} />
       </div>
 
       <QuickActions />

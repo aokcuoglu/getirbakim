@@ -55,10 +55,6 @@ const STOCK_STATUS_SQL = Prisma.sql`
   END
 `
 
-function dedupNameKeySql(columnSql: Prisma.Sql) {
-  return Prisma.sql`lower(regexp_replace(TRIM(BOTH FROM replace(${columnSql}, chr(160), ' ')), '\\s+', ' ', 'g'))`
-}
-
 interface AdminProductRawRow {
   id: string
   id_numeric: bigint
@@ -637,125 +633,6 @@ function buildSortSql(filters: Required<AdminProductFilters>) {
     : Prisma.sql`ORDER BY ${sortMap[sortBy]} ${direction}, d.id_numeric DESC`
 }
 
-function buildDedupProductsCtes(whereSql: Prisma.Sql) {
-  return Prisma.sql`
-    WITH base AS (
-      SELECT
-        p.id::text AS id,
-        p.id AS id_numeric,
-        p.article_link_id::text AS article_link_id,
-        p.name,
-        ${dedupNameKeySql(Prisma.sql`p.name`)} AS name_key,
-        p.brand_id,
-        p.category_id,
-        b.name AS brand_name,
-        c.name AS category_name,
-        i.supplier_price::text AS supplier_price,
-        ${SELLING_PRICE_SQL}::text AS selling_price,
-        ${SELLING_PRICE_SQL} AS selling_price_numeric,
-        COALESCE(i.supplier_stock_qty, 0) AS supplier_stock_qty,
-        COALESCE(i.reserved_stock_qty, 0) AS reserved_stock_qty,
-        COALESCE(i.min_stock_level, 3) AS min_stock_level,
-        GREATEST(COALESCE(i.supplier_stock_qty, 0) - COALESCE(i.reserved_stock_qty, 0), 0) AS available_stock_qty,
-        ${STOCK_STATUS_SQL} AS stock_status,
-        COALESCE(i.sync_status, 'OK') AS sync_status,
-        i.last_synced_at,
-        COALESCE(o.is_visible, TRUE) AS is_visible,
-        COALESCE(o.lock_price, FALSE) AS lock_price,
-        COALESCE(o.lock_visibility, FALSE) AS lock_visibility,
-        o.note,
-        p.created_at,
-        p.updated_at
-      FROM parts p
-      LEFT JOIN part_brands b ON b.id = p.brand_id
-      LEFT JOIN part_categories c ON c.id = p.category_id
-      LEFT JOIN part_pricing_inventory i ON i.part_id = p.id
-      LEFT JOIN part_admin_overrides o ON o.part_id = p.id
-      ${whereSql}
-    ),
-    counts AS (
-      SELECT
-        base.name_key,
-        base.brand_id,
-        base.category_id,
-        COUNT(*)::int AS variant_count
-      FROM base
-      GROUP BY base.name_key, base.brand_id, base.category_id
-    ),
-    latest AS (
-      SELECT DISTINCT ON (base.name_key, base.brand_id, base.category_id)
-        base.name_key,
-        base.brand_id,
-        base.category_id,
-        base.id,
-        base.id_numeric,
-        base.article_link_id,
-        base.name,
-        base.brand_name,
-        base.category_name,
-        base.supplier_price,
-        base.selling_price,
-        base.selling_price_numeric,
-        base.supplier_stock_qty,
-        base.reserved_stock_qty,
-        base.min_stock_level,
-        base.available_stock_qty,
-        base.stock_status,
-        base.sync_status,
-        base.last_synced_at,
-        base.is_visible,
-        base.lock_price,
-        base.lock_visibility,
-        base.note,
-        base.created_at,
-        base.updated_at
-      FROM base
-      ORDER BY
-        base.name_key,
-        base.brand_id,
-        base.category_id,
-        CASE WHEN base.selling_price_numeric > 0 THEN 1 ELSE 0 END DESC,
-        base.supplier_stock_qty DESC,
-        base.updated_at DESC,
-        base.id_numeric DESC
-    )
-  `
-}
-
-function buildDedupProductsSelect() {
-  return Prisma.sql`
-    SELECT
-      l.id,
-      l.id_numeric,
-      l.article_link_id,
-      l.name,
-      c.variant_count,
-      l.brand_name,
-      l.category_name,
-      l.supplier_price,
-      l.selling_price,
-      l.selling_price_numeric,
-      l.supplier_stock_qty,
-      l.reserved_stock_qty,
-      l.min_stock_level,
-      l.available_stock_qty,
-      l.stock_status,
-      l.sync_status,
-      l.last_synced_at,
-      l.is_visible,
-      l.lock_price,
-      l.lock_visibility,
-      l.note,
-      l.created_at,
-      l.updated_at
-    FROM latest l
-    JOIN counts c
-      ON c.name_key = l.name_key
-      AND c.brand_id = l.brand_id
-      AND c.category_id = l.category_id
-  `
-}
-
 function buildBaseProductsSelect(
   filters: Required<AdminProductFilters>,
   whereSql: Prisma.Sql
@@ -904,74 +781,6 @@ async function queryAdminProductsTotal(
   `)
 
   return rows[0]?.total ?? 0
-}
-
-async function queryAdminProductsSearchMeta(
-  filters: Required<AdminProductFilters>
-): Promise<AdminProductSearchMeta> {
-  if (!filters.q) {
-    return {
-      normalizedQuery: '',
-      primaryMatchPartId: null,
-      primaryMatchStrength: null
-    }
-  }
-
-  const whereSql = buildWhereSql(filters)
-  const baseSelect = buildBaseProductsSelect(filters, whereSql)
-  const rows = await db.$queryRaw<SearchMetaRow[]>(Prisma.sql`
-    SELECT d.id, d.match_rank
-    FROM (
-      ${baseSelect}
-    ) d
-    WHERE d.match_rank <= 1
-    ORDER BY d.match_rank ASC, d.updated_at DESC, d.id_numeric DESC
-    LIMIT 2
-  `)
-
-  if (rows.length !== 1) {
-    return {
-      normalizedQuery: filters.q.trim().toLowerCase(),
-      primaryMatchPartId: null,
-      primaryMatchStrength: null
-    }
-  }
-
-  return {
-    normalizedQuery: filters.q.trim().toLowerCase(),
-    primaryMatchPartId: rows[0].id,
-    primaryMatchStrength: rows[0].match_rank === 0 ? 'exact' : 'prefix'
-  }
-}
-
-async function queryAdminProductOptions(): Promise<AdminProductOptions> {
-  const [brands, categories] = await Promise.all([
-    db.part_brands.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' }
-    }),
-    db.part_categories.findMany({
-      select: { id: true, name: true, parent_id: true },
-      orderBy: { name: 'asc' }
-    })
-  ])
-
-  const categoryById = new Map(
-    categories.map((category) => [category.id, category])
-  )
-  const formattedCategories = categories
-    .map((category) => {
-      const parentName = category.parent_id
-        ? categoryById.get(category.parent_id)?.name
-        : null
-      return {
-        id: category.id,
-        name: parentName ? `${parentName}/${category.name}` : category.name
-      }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
-
-  return { brands, categories: formattedCategories }
 }
 
 function buildCsvCell(value: string | number | boolean | null): string {
@@ -1172,53 +981,6 @@ export async function getAdminProductKpis(
   const filters = normalizeFilters(input)
   const metrics = await queryAdminProductsMetrics(filters)
   return mapAdminMetricsRow(metrics)
-}
-
-export async function getAdminProductOptions(): Promise<AdminProductOptions> {
-  await requireAdminAuth()
-  return queryAdminProductOptions()
-}
-
-export async function getAdminProductsWorkbench(
-  input: AdminProductFilters = {}
-): Promise<AdminProductsWorkbenchResult> {
-  await requireAdminAuth()
-
-  const filters = normalizeFilters(input)
-  const offset = (filters.page - 1) * filters.limit
-  const [rows, total, metrics, searchMeta] = await Promise.all([
-    queryAdminProductsRows(filters, { limit: filters.limit, offset }),
-    queryAdminProductsTotal(filters),
-    queryAdminProductsMetrics(filters),
-    queryAdminProductsSearchMeta(filters)
-  ])
-
-  return {
-    filters,
-    products: rows.map(mapProductRow),
-    pagination: {
-      page: filters.page,
-      limit: filters.limit,
-      total,
-      pages: Math.max(Math.ceil(total / filters.limit), 1)
-    },
-    kpis: mapAdminMetricsRow(metrics),
-    searchMeta
-  }
-}
-
-export async function getAdminProducts(
-  input: AdminProductFilters = {}
-): Promise<AdminProductsResult> {
-  const [workbench, options] = await Promise.all([
-    getAdminProductsWorkbench(input),
-    getAdminProductOptions()
-  ])
-
-  return {
-    ...workbench,
-    options
-  }
 }
 
 export async function getAdminDinamikProducts(
@@ -2034,308 +1796,6 @@ export async function createAdminProductFromTemplate(input: {
     message: `Ürün şablondan oluşturuldu (#${createdPartId}).`,
     data: { partId: createdPartId }
   }
-}
-
-export async function getAdminProductDetail(
-  partId: string
-): Promise<{ success: boolean; message?: string; data?: AdminProductDetail }> {
-  await requireAdminAuth()
-
-  let parsedPartId: bigint
-  try {
-    parsedPartId = BigInt(partId)
-  } catch {
-    return { success: false, message: 'Geçersiz ürün kimliği.' }
-  }
-
-  const product = await db.parts.findUnique({
-    where: { id: parsedPartId },
-    include: {
-      part_brands: { select: { name: true } },
-      part_categories: { select: { name: true } },
-      part_pricing_inventory: {
-        include: {
-          supplier_providers: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              config: true
-            }
-          },
-          supplier_products: {
-            select: {
-              id: true,
-              raw_json: true
-            }
-          }
-        }
-      },
-      part_admin_overrides: true,
-      part_supplier_offers: {
-        include: {
-          supplier_providers: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              config: true
-            }
-          },
-          supplier_products: {
-            select: {
-              id: true,
-              supplier_sku: true,
-              supplier_name: true,
-              raw_json: true
-            }
-          }
-        },
-        orderBy: [{ supplier_stock_qty: 'desc' }, { updated_at: 'desc' }],
-        take: 20
-      },
-      part_eans: { select: { code: true }, take: 30 },
-      part_oens: { select: { brand: true, code: true }, take: 50 },
-      part_cross_references: {
-        select: { brand_name: true, article_number: true },
-        take: 50
-      },
-      part_properties: { select: { key: true, value: true }, take: 100 },
-      part_documents: {
-        select: {
-          id: true,
-          doc_file_name: true,
-          doc_type_name: true,
-          doc_url: true
-        },
-        take: 50
-      },
-      part_images: { select: { image: true }, take: 20 }
-    }
-  })
-
-  if (!product) {
-    return { success: false, message: 'Ürün bulunamadı.' }
-  }
-
-  const [recentSyncRuns, variants] = await Promise.all([
-    (db as any).supplier_sync_runs
-      ? (db as any).supplier_sync_runs.findMany({
-          orderBy: { started_at: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            status: true,
-            started_at: true,
-            ended_at: true,
-            total_count: true,
-            success_count: true,
-            failed_count: true,
-            error_summary: true,
-            supplier_providers: {
-              select: {
-                code: true
-              }
-            }
-          }
-        })
-      : Promise.resolve([]),
-    db.$queryRaw<VariantRow[]>(Prisma.sql`
-      WITH target AS (
-        SELECT
-          ${dedupNameKeySql(Prisma.sql`p.name`)} AS name_key,
-          p.brand_id,
-          p.category_id
-        FROM parts p
-        WHERE p.id = ${parsedPartId}
-      )
-      SELECT
-        p.id::text AS id,
-        p.article_link_id::text AS article_link_id,
-        p.name,
-        COALESCE(i.supplier_stock_qty, 0) AS supplier_stock_qty,
-        COALESCE(i.sync_status, 'OK') AS sync_status,
-        COALESCE(o.is_visible, TRUE) AS is_visible,
-        p.updated_at
-      FROM parts p
-      JOIN target t
-        ON t.brand_id = p.brand_id
-        AND t.category_id = p.category_id
-        AND ${dedupNameKeySql(Prisma.sql`p.name`)} = t.name_key
-      LEFT JOIN part_pricing_inventory i ON i.part_id = p.id
-      LEFT JOIN part_admin_overrides o ON o.part_id = p.id
-      ORDER BY p.updated_at DESC, p.id DESC
-      LIMIT 100
-    `)
-  ])
-
-  const supplierPrice = toNullableNumber(
-    product.part_pricing_inventory?.supplier_price?.toString()
-  )
-  const overridePrice = toNullableNumber(
-    product.part_admin_overrides?.selling_price_override?.toString()
-  )
-
-  const lockPrice = product.part_admin_overrides?.lock_price ?? false
-  const sellingPrice =
-    lockPrice && overridePrice != null
-      ? overridePrice
-      : (supplierPrice ?? toNullableNumber(product.price?.toString()) ?? 0)
-
-  const stockQty = product.part_pricing_inventory?.supplier_stock_qty ?? 0
-  const minStock = product.part_pricing_inventory?.min_stock_level ?? 3
-
-  const supplierOffers: SupplierOffer[] = product.part_supplier_offers.map(
-    (offer) => {
-      const policy = resolvePricingPolicyFromProviderConfig(
-        offer.supplier_providers.config
-      )
-      const campaignRate = Number(offer.campaign_rate?.toString() || 0)
-      const calculation = calculateSellingPrice({
-        supplierPrice: toNullableNumber(offer.supplier_price?.toString()),
-        campaignRate,
-        policy
-      })
-
-      return {
-        providerId: offer.provider_id,
-        providerCode: offer.supplier_providers.code,
-        providerName: offer.supplier_providers.name,
-        supplierProductId: offer.supplier_product_id,
-        supplierSku: offer.supplier_products.supplier_sku,
-        supplierName: offer.supplier_products.supplier_name,
-        supplierPrice: toNullableNumber(offer.supplier_price?.toString()),
-        supplierStockQty: offer.supplier_stock_qty,
-        currency: offer.currency,
-        campaignRate,
-        standardDiscountRate: policy.standardDiscountRate,
-        marginRate: policy.marginRate,
-        computedNetCost: calculation.netCostExVat,
-        computedSellingPrice: calculation.sellingExVat,
-        regionalStock: parseDinamikRegionalStock(
-          offer.supplier_products.raw_json
-        ),
-        lastSyncedAt: formatDate(offer.last_synced_at),
-        isActive: offer.is_active
-      }
-    }
-  )
-
-  const selectedRegionalStock = parseDinamikRegionalStock(
-    product.part_pricing_inventory?.supplier_products?.raw_json
-  )
-
-  const sourceProvider = product.part_pricing_inventory?.supplier_providers
-    ? {
-        id: product.part_pricing_inventory.supplier_providers.id,
-        code: product.part_pricing_inventory.supplier_providers.code,
-        name: product.part_pricing_inventory.supplier_providers.name
-      }
-    : null
-
-  const selectionReason = product.part_admin_overrides?.lock_price
-    ? 'Manuel fiyat kilidi aktif, satış fiyatı override korunuyor.'
-    : sourceProvider
-      ? `Öncelik/fallback politikasına göre ${sourceProvider.name} aktif kaynak seçildi.`
-      : 'Aktif sağlayıcı teklifi bulunamadı.'
-
-  const detail: AdminProductDetail = {
-    id: product.id.toString(),
-    articleLinkId: product.article_link_id.toString(),
-    name: product.name,
-    brand: product.part_brands?.name ?? null,
-    category: product.part_categories?.name ?? null,
-    brandId: product.brand_id ?? null,
-    categoryId: product.category_id ?? null,
-    inBasket: product.in_basket,
-    computedCostExVat: toNullableNumber(
-      product.part_pricing_inventory?.computed_cost_ex_vat?.toString()
-    ),
-    supplierPrice,
-    sellingPrice,
-    supplierStockQty: stockQty,
-    reservedStockQty: product.part_pricing_inventory?.reserved_stock_qty ?? 0,
-    minStockLevel: minStock,
-    availableStockQty: Math.max(
-      stockQty - (product.part_pricing_inventory?.reserved_stock_qty ?? 0),
-      0
-    ),
-    stockStatus:
-      stockQty <= 0
-        ? 'OUT_OF_STOCK'
-        : stockQty <= minStock
-          ? 'LOW_STOCK'
-          : 'IN_STOCK',
-    syncStatus:
-      (product.part_pricing_inventory?.sync_status as
-        | 'OK'
-        | 'PENDING'
-        | 'ERROR'
-        | null) ?? 'OK',
-    lastSyncedAt: formatDate(product.part_pricing_inventory?.last_synced_at),
-    isVisible: product.part_admin_overrides?.is_visible ?? true,
-    lockPrice,
-    lockVisibility: product.part_admin_overrides?.lock_visibility ?? false,
-    note: product.part_admin_overrides?.note ?? null,
-    createdAt: product.created_at.toISOString(),
-    updatedAt: product.updated_at.toISOString(),
-    eans: product.part_eans.map((item) => item.code),
-    oemReferences: product.part_oens.map((item) => ({
-      brand: item.brand,
-      code: item.code
-    })),
-    crossReferences: product.part_cross_references.map((item) => ({
-      brand: item.brand_name,
-      articleNumber: item.article_number
-    })),
-    properties: product.part_properties.map((item) => ({
-      key: item.key,
-      value: item.value
-    })),
-    documents: product.part_documents.map((item) => ({
-      id: item.id,
-      name: item.doc_file_name,
-      type: item.doc_type_name,
-      url: item.doc_url
-    })),
-    imageUrls: product.part_images
-      .map((item) => item.image)
-      .filter((item): item is string => Boolean(item)),
-    recentSyncRuns: recentSyncRuns.map((item) => ({
-      id: item.id,
-      source: item.supplier_providers.code,
-      status: item.status,
-      startedAt: item.started_at.toISOString(),
-      endedAt: formatDate(item.ended_at),
-      totalCount: item.total_count,
-      successCount: item.success_count,
-      failedCount: item.failed_count,
-      errorSummary: item.error_summary
-    })),
-    variants: variants.map((item) => ({
-      id: item.id,
-      articleLinkId: item.article_link_id,
-      name: item.name,
-      supplierStockQty: item.supplier_stock_qty,
-      syncStatus: (item.sync_status || 'OK') as 'OK' | 'PENDING' | 'ERROR',
-      isVisible: item.is_visible,
-      updatedAt: item.updated_at.toISOString()
-    })),
-    supplierSummary: {
-      sourceProvider,
-      sourceSupplierProductId:
-        product.part_pricing_inventory?.source_supplier_product_id ?? null,
-      currency: product.part_pricing_inventory?.currency ?? 'TRY',
-      policyAppliedAt: formatDate(
-        product.part_pricing_inventory?.last_policy_at
-      ),
-      selectionReason,
-      selectedRegionalStock,
-      offers: supplierOffers
-    }
-  }
-
-  return { success: true, data: detail }
 }
 
 export async function updateAdminProductInline(input: {
@@ -4373,42 +3833,31 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   await requireAdminAuth()
 
   const [
-    metricsRows,
-    syncRateRows,
+    totalProducts,
+    outOfStockCount,
+    unpricedCount,
+    unenrichedCount,
     monthlySalesRows,
     recentOrders
   ] = await Promise.all([
-    db.$queryRaw<DashboardMetricsRow[]>(Prisma.sql`
-        SELECT
-          COUNT(*)::int AS total_products,
-          SUM(
-            CASE
-              WHEN COALESCE(i.supplier_stock_qty, 0) > 0
-                AND COALESCE(i.supplier_stock_qty, 0) <= COALESCE(i.min_stock_level, 3)
-                THEN 1
-              ELSE 0
-            END
-          )::int AS low_stock_count,
-          SUM(CASE WHEN ${SELLING_PRICE_SQL} <= 0 THEN 1 ELSE 0 END)::int AS zero_price_count,
-          SUM(CASE WHEN COALESCE(i.sync_status, 'OK') = 'ERROR' THEN 1 ELSE 0 END)::int AS sync_error_count
-        FROM parts p
-        LEFT JOIN part_pricing_inventory i ON i.part_id = p.id
-        LEFT JOIN part_admin_overrides o ON o.part_id = p.id
-      `).catch(() => [{
-        total_products: 0,
-        low_stock_count: 0,
-        zero_price_count: 0,
-        sync_error_count: 0
-      }]),
-    db.$queryRaw<Array<{ failed_rate: string }>>(Prisma.sql`
-        SELECT
-          CASE
-            WHEN COALESCE(SUM(total_count), 0) = 0 THEN 0
-            ELSE ROUND((COALESCE(SUM(failed_count), 0)::numeric / NULLIF(SUM(total_count), 0)::numeric) * 100, 2)
-          END::text AS failed_rate
-        FROM supplier_sync_runs
-        WHERE started_at >= NOW() - INTERVAL '30 days'
-      `).catch(() => [{ failed_rate: '0' }]),
+    // Sayımlar catalog.products üzerinden: sattığımız şey Dinamik/Başbuğ
+    // ürünlerinin kanonik katalog kaydı. Eski sorgu public.parts +
+    // part_pricing_inventory'ye bakıyordu; o tablolar bu veritabanında YOK, sorgu
+    // `.catch` ile yutuluyor ve panel dört metriği de hep 0 gösteriyordu — yani
+    // "sorun yok" gibi okunuyordu.
+    db.products.count(),
+    db.products.count({ where: { in_stock: false, status: 'ACTIVE' } }),
+    db.products.count({ where: { min_selling_price_try: null, status: 'ACTIVE' } }),
+    // Zenginleştirme ölçütü onaylı part bağlantısı — Eşleştirme sekmesindeki
+    // "parts'a bağlı" ile aynı kaynak. `primary_part_id` (cache kolonu) bu
+    // veritabanında hiç doldurulmuyor, ona bakmak her ürünü zenginleşmemiş
+    // gösterirdi.
+    db.products.count({
+      where: {
+        status: 'ACTIVE',
+        product_part_links: { none: { status: 'CONFIRMED' } }
+      }
+    }),
     db.$queryRaw<
       Array<{ month_label: string; revenue: string; orders_count: number }>
     >(
@@ -4437,69 +3886,42 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     })
   ])
 
-  const latestSync = (db as any).supplier_sync_runs
-    ? await (db as any).supplier_sync_runs.findFirst({
-        orderBy: { started_at: 'desc' },
-        select: {
-          status: true,
-          failed_count: true,
-          total_count: true
-        }
-      })
-    : null
-
-  const metrics = metricsRows[0] ?? {
-    total_products: 0,
-    low_stock_count: 0,
-    zero_price_count: 0,
-    sync_error_count: 0
-  }
-
-  const failedSyncRate = toNumber(syncRateRows[0]?.failed_rate, 0)
-
   const salesSeries = monthlySalesRows.map((row) => ({
     month: row.month_label,
     revenue: toNumber(row.revenue, 0),
     orders: row.orders_count
   }))
 
+  // Uyarılar satılabilirliğin önündeki engeller: fiyatsız ürün satılamaz,
+  // stoksuz ürün sipariş alamaz, zenginleşmemiş ürün (parts'a bağlı değil)
+  // görselsiz/özelliksiz listelenir.
   const alerts: AdminDashboardData['alerts'] = [
     {
-      id: 'low_stock',
-      label: 'Düşük stoklu ürün',
-      value: metrics.low_stock_count,
-      severity:
-        metrics.low_stock_count > 100
-          ? 'high'
-          : metrics.low_stock_count > 20
-            ? 'medium'
-            : 'low'
+      id: 'out_of_stock',
+      label: 'Stokta olmayan ürün',
+      value: outOfStockCount,
+      severity: outOfStockCount > totalProducts / 2 ? 'high' : 'medium'
     },
     {
-      id: 'zero_price',
-      label: 'Sıfır fiyatlı ürün',
-      value: metrics.zero_price_count,
-      severity: metrics.zero_price_count > 0 ? 'high' : 'low'
+      id: 'unpriced',
+      label: 'Fiyatsız ürün',
+      value: unpricedCount,
+      severity: unpricedCount > 0 ? 'high' : 'low'
     },
     {
-      id: 'sync_error',
-      label: 'Senkron hata kaydı',
-      value: metrics.sync_error_count,
-      severity:
-        (latestSync?.status || 'SUCCESS') === 'FAILED' ||
-        metrics.sync_error_count > 0
-          ? 'high'
-          : 'low'
+      id: 'unenriched',
+      label: "Zenginleşmemiş ürün (parts'a bağlı değil)",
+      value: unenrichedCount,
+      severity: unenrichedCount > totalProducts / 2 ? 'high' : 'medium'
     }
   ]
 
   return {
     metrics: {
-      totalProducts: metrics.total_products,
-      lowStockCount: metrics.low_stock_count,
-      zeroPriceCount: metrics.zero_price_count,
-      syncErrorCount: metrics.sync_error_count,
-      failedSyncRate
+      totalProducts,
+      outOfStockCount,
+      unpricedCount,
+      unenrichedCount
     },
     salesSeries,
     recentOrders: recentOrders.map((order) => ({

@@ -198,12 +198,13 @@ export interface AdminDinamikProductsResult {
 }
 
 export interface AdminDashboardData {
+  /** Sayımlar catalog.products üzerinden — sattığımız kanonik ürün kaydı. */
   metrics: {
     totalProducts: number
-    lowStockCount: number
-    zeroPriceCount: number
-    syncErrorCount: number
-    failedSyncRate: number
+    outOfStockCount: number
+    unpricedCount: number
+    /** primary_part_id boş: public.part_* arşivinden zenginleştirilmemiş. */
+    unenrichedCount: number
   }
   salesSeries: Array<{
     month: string
