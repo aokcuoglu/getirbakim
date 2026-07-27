@@ -36,7 +36,7 @@ export function OrderDetailView({ order }: { order: OrderView }) {
                 <div className="min-w-0">
                   <p className="font-medium text-foreground">{item.productName}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t('partId')}: {item.partId} | {t('articleLinkId')}: {item.articleLinkId}
+                    {t('productId')}: {item.productId} | {t('partNo')}: {item.partNo}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {item.quantity} x{' '}

@@ -62,9 +62,17 @@ docker exec "${PG_CONTAINER}" psql -U postgres -c \
 docker exec "${PG_CONTAINER}" psql -U postgres -c "DROP DATABASE IF EXISTS ${SHADOW_DB};" >/dev/null
 docker exec "${PG_CONTAINER}" psql -U postgres -c "CREATE DATABASE ${SHADOW_DB};" >/dev/null
 
-PG_PASS="$(env_value .env.local DATABASE_URL | sed -E 's#^postgresql://[^:]+:([^@]*)@.*#\1#')"
+# The shadow lives in the LOCAL container, so its password must come from the
+# local compose file — not from .env.local's DATABASE_URL. That DSN now points at
+# production through the SSH tunnel, so reading the password from it handed the
+# production credentials to the local server and every run died with P1000.
+PG_PASS="$(env_value .env.local LOCAL_POSTGRES_PASSWORD)"
 if [[ -z "${PG_PASS}" ]]; then
-  echo "FATAL: could not read the local postgres password from .env.local" >&2
+  PG_PASS="$(sed -nE 's/.*POSTGRES_PASSWORD: \$\{LOCAL_POSTGRES_PASSWORD:-([^}]*)\}.*/\1/p' docker-compose.local.yml | head -1)"
+fi
+if [[ -z "${PG_PASS}" ]]; then
+  echo "FATAL: could not determine the local postgres password" >&2
+  echo "  Set LOCAL_POSTGRES_PASSWORD in .env.local, or check docker-compose.local.yml" >&2
   exit 1
 fi
 SHADOW_URL="postgresql://postgres:${PG_PASS}@${SHADOW_HOST}:${SHADOW_PORT}/${SHADOW_DB}"
