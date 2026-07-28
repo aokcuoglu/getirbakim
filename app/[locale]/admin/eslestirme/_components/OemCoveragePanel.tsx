@@ -14,7 +14,22 @@ const tr = (n: number) => n.toLocaleString('tr-TR')
 const SOURCE_LABEL: Record<string, string> = {
   'repxpert.com.tr': 'REPXPERT',
   'partsfinder.bilsteingroup.com': 'bilstein',
-  'tecalliance-catalog': 'TecAlliance'
+  'tecalliance-catalog': 'TecAlliance',
+  'tecdoc-archive': 'tecdoc-archive'
+}
+
+/**
+ * Markanın OEM'siz ürünlerinden ne kadarının önerisi var.
+ *
+ * Neden gerekli: kapsam tablosu ikili — kaynak ya markayı kapsar ya kapsamaz.
+ * Ama part_no'su zaten OEM olan markalarda (PSA, THAL, ORIJINAL) kaynak
+ * ürünlerin yalnız bir kısmına yetişiyor: PSA'nın 65.609 OEM'siz ürününden
+ * 6.751'i. Bunu "kapsanan" göstermek de "elle" göstermek de yanlış olur —
+ * biri kalan 59 bin ürünü gizler, diğeri çalışan kaynağı yok sayar.
+ */
+function coverageRatio(missingOem: number, pendingProducts: number): number | null {
+  if (missingOem <= 0 || pendingProducts <= 0) return null
+  return Math.min(100, Math.round((pendingProducts / missingOem) * 100))
 }
 
 /** Kapsamın nereden bilindiği — arama sonucu elle düzeltilebilir, arşiv sabittir. */
@@ -221,6 +236,7 @@ export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePa
               <tbody>
                 {shown.map((r) => {
                   const active = selectedBrand === r.brand
+                  const partialRatio = coverageRatio(r.missingOem, r.pendingProducts)
                   return (
                     <tr
                       key={r.brandId}
@@ -241,6 +257,33 @@ export function OemCoveragePanel({ selectedBrand, onSelectBrand }: OemCoveragePa
                                 {RESOLVED_LABEL[r.resolvedBy] ?? r.resolvedBy}
                               </span>
                             ) : null}
+                            {/* Kapsanan markada da oran gösterilir: kaynak
+                                markayı destekliyor olsa bile süpürme takılmış
+                                olabilir (bir markada 13.774 OEM'siz üründen
+                                yalnız 65'i işlenmişti). Oran olmadan bu durum
+                                "kapsanan" rozetinin arkasında görünmez kalır. */}
+                            {partialRatio !== null ? (
+                              <span
+                                className="text-[11px] tabular-nums text-muted-foreground"
+                                title={`${tr(r.pendingProducts)} / ${tr(r.missingOem)} OEM'siz ürün kapsandı`}
+                              >
+                                · %{partialRatio}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : partialRatio !== null && r.suggestionSource ? (
+                          // Kapsam tablosunda kaynak yok ama kuyruğa yazan bir
+                          // kaynak var: kısmi kapsam. Oran olmadan gösterilirse
+                          // "bu marka çözüldü" sanılır.
+                          <span className="flex items-center gap-1.5">
+                            <Badge
+                              variant="outline"
+                              className="border-sky-500/25 bg-sky-500/15 text-sky-600 dark:text-sky-400"
+                              title={`${tr(r.pendingProducts)} / ${tr(r.missingOem)} OEM'siz ürün kapsandı`}
+                            >
+                              {SOURCE_LABEL[r.suggestionSource] ?? r.suggestionSource} · %{partialRatio}
+                            </Badge>
+                            <span className="text-[11px] text-muted-foreground">kısmi</span>
                           </span>
                         ) : (
                           <Badge variant="outline" className="border-amber-500/25 bg-amber-500/15 text-amber-600 dark:text-amber-400">

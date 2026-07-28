@@ -30,6 +30,19 @@ export interface OemCoverageBrandRow {
   missingOem: number
   /** Bu markada web kaynağından gelmiş, bekleyen öneri sayısı. */
   pendingSuggestions: number
+  /**
+   * Bekleyen önerisi olan AYRI ürün sayısı. `pendingSuggestions` satır sayar
+   * (bir ürüne 3 araç markası için 3 satır açılabilir), bu ise ürün sayar —
+   * kapsam oranının payı budur, satır sayısı değil.
+   */
+  pendingProducts: number
+  /**
+   * Önerileri üreten baskın kaynak. `sourceSite` markanın TAMAMINI kapsayan
+   * bir adapter varsa doludur; burası ise kuyruğa fiilen yazmış kaynağı
+   * söyler — `sourceSite` null olduğu hâlde bir kaynak ürünlerin bir kısmını
+   * kapsıyor olabilir (part_no'su zaten OEM olan orijinal parça markaları).
+   */
+  suggestionSource: string | null
 }
 
 async function loadOemBrandCoverage(): Promise<OemCoverageBrandRow[]> {
@@ -47,7 +60,12 @@ async function loadOemBrandCoverage(): Promise<OemCoverageBrandRow[]> {
       where p.status = 'ACTIVE'
       group by p.brand_id
     ), brand_pending as (
-      select sp.brand_id, count(*) as pending_suggestions
+      select sp.brand_id,
+             count(*) as pending_suggestions,
+             count(distinct s.product_id) as pending_products,
+             -- Kuyruğa fiilen yazmış baskın kaynak; bir markada birden çok
+             -- kaynak olabilir, en çok satır yazan temsil eder.
+             mode() within group (order by s.source_site) as suggestion_source
       from catalog.product_ref_suggestions s
       join catalog.products sp on sp.id = s.product_id
       where s.status = 'PENDING'
@@ -55,7 +73,9 @@ async function loadOemBrandCoverage(): Promise<OemCoverageBrandRow[]> {
     )
     select b.id, b.brand, c.source_site, c.resolved_by,
            t.products, t.missing_oem,
-           coalesce(pnd.pending_suggestions, 0) as pending_suggestions
+           coalesce(pnd.pending_suggestions, 0) as pending_suggestions,
+           coalesce(pnd.pending_products, 0) as pending_products,
+           pnd.suggestion_source
     from brand_totals t
     join catalog.brands b on b.id = t.brand_id
     left join catalog.oem_brand_coverage c on c.brand_id = b.id
@@ -70,7 +90,9 @@ async function loadOemBrandCoverage(): Promise<OemCoverageBrandRow[]> {
     resolvedBy: r.resolved_by ? String(r.resolved_by) : null,
     products: Number(r.products ?? 0),
     missingOem: Number(r.missing_oem ?? 0),
-    pendingSuggestions: Number(r.pending_suggestions ?? 0)
+    pendingSuggestions: Number(r.pending_suggestions ?? 0),
+    pendingProducts: Number(r.pending_products ?? 0),
+    suggestionSource: r.suggestion_source ? String(r.suggestion_source) : null
   }))
 }
 
