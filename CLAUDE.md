@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project overview
 
 Automotive spare parts e-commerce platform with multi-locale support (Turkish/English). Key concerns: product search, vehicle compatibility, supplier integrations, pricing/stock sync, and order management.
@@ -10,33 +8,24 @@ See `AGENTS.md` for detailed working principles, domain guidance, and engineerin
 
 ---
 
-## Commands
+## Banned commands
+
+`prisma migrate dev`, `prisma migrate reset` and `prisma db push` must never run
+against any database in this project — local included, local especially. Local
+`public` holds a 129 GB TecDoc archive (`part_vehicle_types` alone ~931M rows) that
+exists in no other environment and in no backup; these commands drop whatever does
+not match the datamodel.
 
 ```bash
-bun run dev:deps       # Start Postgres + Meilisearch in Docker (infra only)
-bun run dev            # Start dev server (port 3001) — app runs outside Docker
-bun run build          # prisma generate + next build
-bun run lint           # TypeScript typecheck + unsafe raw SQL check
-bun run typecheck      # TypeScript only
-bun run test           # Run Bun tests
-bun run db:generate    # Regenerate Prisma client after schema changes
-bun run db:pull        # Pull schema from live DB
+bun run db:target                  # which database am I pointed at?
+bun run db:diff:check              # is the target in sync with schema.prisma?
+bun run db:migration:new <name>    # author a migration via a throwaway shadow DB
+bun run db:migrate                 # prisma migrate deploy
 ```
 
-No Jest/Vitest config — tests use Bun's built-in test runner (`bun test`).
-
----
-
-## Stack
-
-- **Framework**: Next.js (App Router), React 19, TypeScript — package manager is **Bun**
-- **Database**: PostgreSQL via Prisma 7 with `adapter-pg`; multi-schema (`public` + `trodo`)
-- **Auth**: NextAuth.js v5 (Credentials provider, bcryptjs, JWT sessions)
-- **Search**: Meilisearch (optional, feature-flagged via `MEILI_ENABLED`); falls back to Prisma SQL
-- **Cache**: Upstash Redis + Next.js `unstable_cache`
-- **Payments**: Tami (Turkish payment processor)
-- **i18n**: `next-intl`, routes prefixed `/:locale` (default: `tr`), messages in `/messages/{en,tr}.json`
-- **UI**: Radix UI + shadcn/ui + Tailwind CSS 4
+`scripts/db-guard.sh` rejects the three commands, but only when it is invoked — it
+is not a hook, so nothing intercepts a bare `bunx prisma …`. Full rationale in
+`AGENTS.md` → Banned commands.
 
 ---
 
@@ -48,11 +37,13 @@ Server actions in `lib/actions/` are the primary data-fetching layer — they qu
 
 ### Product data model
 
-Products exist in the **internal catalog** (`parts` table), which is the source of truth for display. These are reconciled via OEM code cross-references (`part_oens`). Pricing is computed from supplier cost + markup policy, stored in `part_pricing_inventory`.
+Products exist in the **internal catalog** (`parts` table), which is the source of truth for display. These are reconciled via OEM code cross-references (`part_oens`). Pricing is computed from supplier cost + markup policy.
+
+Note: `part_pricing_inventory` is referenced by `lib/pricing/public-pricing.ts` and `lib/actions/admin-products.ts` but does **not** exist in `prisma/schema.prisma` — those code paths are broken. Treat the persisted-pricing layer as unbuilt, not as something you can query.
 
 ### Vehicle compatibility
 
-Vehicle hierarchy: Make → Model → Engine/Variant. Part-to-vehicle relationships live in `part_vehicle_types` (cross-schema: `public` ↔ `trodo`). Compatibility is checked at search time and on product detail pages.
+Vehicle hierarchy: Make → Model → Engine/Variant. Part-to-vehicle relationships live in `part_vehicle_types` (`public` schema, joining `parts` ↔ `vehicle_types`). Compatibility is checked at search time and on product detail pages.
 
 ### Search
 
@@ -60,23 +51,7 @@ Vehicle hierarchy: Make → Model → Engine/Variant. Part-to-vehicle relationsh
 
 ### Supplier sync
 
-Triggered by cron endpoints (`app/api/internal/suppliers/`) or manually via admin UI. Sync flow: fetch catalog → normalize → OEM-match → update `part_pricing_inventory`. Concurrency is tunable via env vars (`DINAMIK_BRAND_CONCURRENCY`, etc.).
-
-### Key directories
-
-```
-app/[locale]/           # All user-facing routes
-app/api/                # Webhooks, cron, search API
-lib/actions/            # Server actions (data fetching + mutations)
-lib/suppliers/          # Supplier integration clients + sync logic
-lib/pricing/            # Markup/VAT calculation
-lib/search/             # Meilisearch catalog indexing
-lib/types/              # Shared domain types
-components/             # React components (ui/, account/, search/, etc.)
-hooks/                  # Client-side React hooks
-prisma/schema.prisma    # 46 models, ~900 lines
-messages/               # i18n translation files
-```
+Triggered by cron endpoints (`app/api/internal/suppliers/`) or manually via admin UI. Sync flow: fetch catalog → normalize → OEM-match → update pricing/stock. Concurrency is tunable via env vars (`DINAMIK_BRAND_CONCURRENCY`, etc.).
 
 ### Client vs server boundaries
 
