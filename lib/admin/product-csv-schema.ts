@@ -23,6 +23,7 @@ export const PRODUCT_CSV_READONLY_COLUMNS = [
   'supplier_oem',
   'matched',
   'coverage',
+  'variant_of_product_id',
   'canonical_base_name',
   'canonical_part_no',
   'oems_readonly'
@@ -51,6 +52,7 @@ export const PRODUCT_CSV_COLUMNS = [
   'supplier_oem',
   'matched',
   'coverage',
+  'variant_of_product_id',
   'canonical_product_id',
   'canonical_base_name',
   'canonical_part_no',
@@ -74,6 +76,8 @@ export const PRODUCT_CSV_COLUMN_HELP: Record<ProductCsvColumn, string> = {
   supplier_oem: 'Salt okunur — tedarikçi satırının ham OEM alanı.',
   matched: 'Salt okunur — satır kanonik ürüne bağlı mı.',
   coverage: 'Salt okunur — kanonik ürünün tedarikçi kapsamı.',
+  variant_of_product_id:
+    'Salt okunur — doluysa satır ALTERNATİF VARYANTTIR: parçası bu id’li kanonik ürün olarak zaten katalogta ve bu tedarikçiden bağlı (tedarikçi aynı parçayı ikinci bir stok koduyla listelemiş). `matched` HAYIR olsa bile eksik bir şey yoktur; bir kanonik ürün bir tedarikçiden tek offer taşıyabildiği için bu satır bağlanamaz.',
   canonical_product_id:
     'DÜZENLENEBİLİR — bağlanacak kanonik ürün id’si. Boş bırakılırsa mevcut eşleşme KOPARILIR; farklı bir id yazılırsa satır o ürüne taşınır.',
   canonical_base_name: 'Salt okunur — kanonik ürünün asıl adı (products.name).',
