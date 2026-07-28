@@ -465,21 +465,21 @@ export function ProductMatchModal({ row, open, onOpenChange, onChanged }: Produc
           {!matched ? (
             <>
               {/*
-                Eşleşmeyen satırların büyük çoğunluğu "anahtarı kapılmış"
-                durumundadır: aynı part_no'lu kanonik ürün var ve bu
-                tedarikçiden offer'ı dolu. O ürün aday listesinden elendiği
-                için ekran boş görünür — asıl hedefi burada gösteriyoruz.
+                Aynı part_no'lu kanonik ürün varsa admin'in aradığı hedef
+                genelde odur. Çok-offer'a geçtikten sonra o ürünün bu
+                tedarikçiden offer'ı olması bağlamayı ENGELLEMİYOR (aday
+                listesinde de görünür); burada sadece kısayol olarak duruyor.
               */}
               {cands?.conflict ? (
-                <div className="space-y-2 rounded-md border border-warning/30 bg-warning/10 p-3">
+                <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
                   <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
                     <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-warning" />
                     <span>
                       Aynı part numarasını taşıyan kanonik ürün zaten var
                       {cands.conflict.blockingSku
-                        ? ` ve ${activeRow ? PRODUCT_LIST_SUPPLIER_LABELS[activeRow.supplier] : 'tedarikçi'} teklifi «${cands.conflict.blockingSku}» satırında dolu`
+                        ? ` ve ${activeRow ? PRODUCT_LIST_SUPPLIER_LABELS[activeRow.supplier] : 'tedarikçi'} tarafında «${cands.conflict.blockingSku}» satırı bağlı`
                         : ''}
-                      . Bu satırı bağlayamayız; ürünü düzenlemek için üstüne tıklayın.
+                      . Bu satırı da aynı ürüne bağlayabilirsiniz; ürünü düzenlemek için üstüne tıklayın.
                     </span>
                   </p>
                   <CanonicalDetailButton

@@ -55,12 +55,12 @@ type CoverageSource = {
  * Satır bazlı sayım bu varyantları "eşleşmeyen" gösteriyordu — oysa ürün
  * kataloğa girmiş ve satılabilir durumdadır.
  *
- * Sayım offer'ı olmayan satırlar üzerinden yürür (Dinamik'te ~8 bin), çünkü
- * offer'lı satırların grubu zaten kendi kanonik ürünüdür — böylece normalize
- * anahtar 860 bin satır yerine yalnız bağlanmamışlar için hesaplanır:
- *   - linked      → offer'ı olan satır = kapsanmış kanonik ürün
- *   - variantRows → grubunun kanonik ürünü bu tedarikçiden zaten offer'lı olan
- *                   bağlanmamış satır (alternatif varyant, eksik ürün değil)
+ * Sayım offer'ı olmayan satırlar üzerinden yürür, çünkü offer'lı satırların
+ * grubu zaten kendi kanonik ürünüdür — böylece normalize anahtar 1,18M ham
+ * satır yerine yalnız bağlanmamışlar için hesaplanır:
+ *   - linked      → offer taşıyan AYRI kanonik ürün sayısı
+ *   - variantRows → aynı ürün+tedarikçi altındaki fazladan offer'lar (alternatif
+ *                   varyant) + bağlanamamış ama grubu kapsanmış satırlar
  *   - gapGroups   → geriye kalan gerçek boşluklar, ayrı ürün olarak sayılır
  *                   (kodsuz satır gruplanamaz; her biri kendi başına boşluktur)
  */
@@ -93,7 +93,11 @@ function coverageSql(src: CoverageSource): Prisma.Sql {
       FROM unlinked u
     ),
     linked AS (
-      SELECT COUNT(*)::bigint AS n
+      -- Bir üründe aynı tedarikçiden birden çok offer olabilir: kapsanan ÜRÜN
+      -- sayısı distinct product_id, fazlalıklar varyant olarak raporlanır.
+      SELECT
+        COUNT(DISTINCT po.product_id)::bigint AS products,
+        COUNT(*)::bigint AS offer_rows
       FROM ${src.from}
       JOIN catalog.brand_mappings bm
         ON ${src.brandJoin}
@@ -102,14 +106,17 @@ function coverageSql(src: CoverageSource): Prisma.Sql {
       WHERE ${src.isPassive} = false
     )
     SELECT
-      (SELECT n FROM linked) AS linked,
-      (SELECT COUNT(*) FROM classified WHERE covered)::bigint AS variant_rows,
+      (SELECT products FROM linked) AS linked,
+      (
+        (SELECT offer_rows - products FROM linked)
+        + (SELECT COUNT(*) FROM classified WHERE covered)
+      )::bigint AS variant_rows,
       (
         SELECT COUNT(DISTINCT (brand_id, key_norm, CASE WHEN key_norm IS NULL THEN row_id END))
         FROM classified
         WHERE NOT covered
       )::bigint AS gap_groups,
-      ((SELECT n FROM linked) + (SELECT COUNT(*) FROM classified))::bigint AS raw_rows
+      ((SELECT offer_rows FROM linked) + (SELECT COUNT(*) FROM classified))::bigint AS raw_rows
   `
 }
 

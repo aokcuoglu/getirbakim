@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
+import { bestOffersSql } from './best-offer'
 
 export interface RollupStats {
   rollupsUpdated: number
@@ -9,20 +10,24 @@ export interface RollupStats {
 /**
  * Recompute the offer rollup cache on catalog.products
  * (min_selling_price_try / total_stock_qty / in_stock / offer_count).
+ * Tedarikçi başına yalnız EN İYİ offer sayılır (bkz best-offer.ts) — aynı
+ * tedarikçinin aynı parça için ikinci listesi fiyatı düşürmez, stoğu iki kez
+ * saydırmaz, ama bağlı satır stoksuz kalınca devri kendiliğinden alır.
  * A locked product_overrides.selling_price_override wins over MIN(offer).
  * updated_at is bumped only on real change so the Meilisearch watermark
  * does not churn on no-op syncs. Also fills missing SEO slugs.
  */
 export async function refreshProductRollups(): Promise<RollupStats> {
   const rollupsUpdated = await db.$executeRaw(Prisma.sql`
-    WITH agg AS (
+    WITH best AS (${bestOffersSql()}),
+    agg AS (
       SELECT
         p.id,
-        MIN(po.selling_price_try) FILTER (WHERE po.is_active) AS min_sell,
-        COALESCE(SUM(po.stock_qty) FILTER (WHERE po.is_active), 0)::int AS total_stock,
-        COUNT(po.id) FILTER (WHERE po.is_active)::int AS offer_count
+        MIN(b.selling_price_try) AS min_sell,
+        COALESCE(SUM(b.stock_qty), 0)::int AS total_stock,
+        COUNT(b.id)::int AS offer_count
       FROM catalog.products p
-      LEFT JOIN catalog.product_offers po ON po.product_id = p.id
+      LEFT JOIN best b ON b.product_id = p.id
       GROUP BY p.id
     ),
     eff AS (
@@ -89,14 +94,15 @@ export async function refreshProductRollupsForIds(productIds: bigint[]): Promise
   for (let i = 0; i < productIds.length; i += 1_000) {
     const part = productIds.slice(i, i + 1_000)
     await db.$executeRaw(Prisma.sql`
-      WITH agg AS (
+      WITH best AS (${bestOffersSql(Prisma.sql`po.product_id IN (${Prisma.join(part)})`)}),
+      agg AS (
         SELECT
           p.id,
-          MIN(po.selling_price_try) FILTER (WHERE po.is_active) AS min_sell,
-          COALESCE(SUM(po.stock_qty) FILTER (WHERE po.is_active), 0)::int AS total_stock,
-          COUNT(po.id) FILTER (WHERE po.is_active)::int AS offer_count
+          MIN(b.selling_price_try) AS min_sell,
+          COALESCE(SUM(b.stock_qty), 0)::int AS total_stock,
+          COUNT(b.id)::int AS offer_count
         FROM catalog.products p
-        LEFT JOIN catalog.product_offers po ON po.product_id = p.id
+        LEFT JOIN best b ON b.product_id = p.id
         WHERE p.id IN (${Prisma.join(part)})
         GROUP BY p.id
       ),
@@ -127,13 +133,13 @@ export async function refreshProductRollupsForIds(productIds: bigint[]): Promise
 
 export async function refreshSingleProductRollup(productId: bigint): Promise<void> {
   await db.$executeRaw(Prisma.sql`
-    WITH agg AS (
+    WITH best AS (${bestOffersSql(Prisma.sql`po.product_id = ${productId}`)}),
+    agg AS (
       SELECT
-        MIN(po.selling_price_try) FILTER (WHERE po.is_active) AS min_sell,
-        COALESCE(SUM(po.stock_qty) FILTER (WHERE po.is_active), 0)::int AS total_stock,
-        COUNT(po.id) FILTER (WHERE po.is_active)::int AS offer_count
-      FROM catalog.product_offers po
-      WHERE po.product_id = ${productId}
+        MIN(b.selling_price_try) AS min_sell,
+        COALESCE(SUM(b.stock_qty), 0)::int AS total_stock,
+        COUNT(b.id)::int AS offer_count
+      FROM best b
     ),
     eff AS (
       SELECT

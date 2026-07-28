@@ -171,19 +171,18 @@ export type ManualSimilarCandidate = {
 }
 
 /**
- * Eşleşmeyen bir satırın neden bağlanamadığını açıklayan çakışma kaydı.
+ * Satırın part_no anahtarını taşıyan kanonik ürün (varsa) — modalda kısayol.
  *
- * Bir ham satır, aynı marka altında aynı part_no_norm'a sahip kanonik ürün
- * ZATEN varsa ve o ürünün bu tedarikçiden bir offer'ı varsa sonsuza kadar
- * bağlanmadan kalır: matcher yeni ürün açamaz (uq brand+part_no_norm) ve
- * offer da ekleyemez (uq product+supplier_code). Aday listesi de bu ürünü
- * elediği için ekran boş görünür — admin'e asıl hedefi bu kayıt gösterir.
+ * Eskiden bu bir ÇIKMAZDI: matcher yeni ürün açamaz (uq brand+part_no_norm),
+ * offer da ekleyemezdi (uq product+supplier_code). Çok-offer'a geçtikten sonra
+ * (uq product+supplier+sku) böyle satırlar da bağlanabiliyor; kayıt yalnız
+ * "aradığın ürün muhtemelen bu" demek için duruyor.
  */
 export type UnmatchedRowConflict = {
   productId: string
   name: string
   partNo: string
-  /** Bu ürünü aynı tedarikçiden tutan mevcut offer'ın SKU'su (yoksa null). */
+  /** Bu ürüne aynı tedarikçiden bağlı mevcut offer'ın SKU'su (yoksa null). */
   blockingSku: string | null
 }
 

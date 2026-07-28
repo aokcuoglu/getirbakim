@@ -80,7 +80,7 @@ export async function runCatalogSyncPipeline(options?: {
   const unlinked = await countUnlinkedSupplierRows()
   if (unlinked.dinamik > 0 || unlinked.basbug > 0) {
     log(
-      `[catalog-sync] unlinked raw rows (duplicate keys within brand): dinamik=${unlinked.dinamik}, basbug=${unlinked.basbug}`
+      `[catalog-sync] unlinked raw rows (no usable code / ambiguous): dinamik=${unlinked.dinamik}, basbug=${unlinked.basbug}`
     )
   }
 

@@ -298,8 +298,23 @@ async function loadProductStates(ids: bigint[]): Promise<Map<string, ProductStat
         od.dinamik_product_id AS dinamik_row, ob.basbug_product_id AS basbug_row
       FROM catalog.products p
       LEFT JOIN catalog.product_overrides ov ON ov.product_id = p.id
-      LEFT JOIN catalog.product_offers od ON od.product_id = p.id AND od.supplier_code = 'dinamik'
-      LEFT JOIN catalog.product_offers ob ON ob.product_id = p.id AND ob.supplier_code = 'basbug'
+      -- Bir üründe aynı tedarikçiden birden çok offer olabilir; içe aktarma
+      -- hangi ham satırı güncelleyeceğini bilmek zorunda, o yüzden rollup'la
+      -- aynı "en iyi offer" kuralı (aktif → stoklu → en ucuz) uygulanır.
+      LEFT JOIN LATERAL (
+        SELECT po.dinamik_product_id
+        FROM catalog.product_offers po
+        WHERE po.product_id = p.id AND po.supplier_code = 'dinamik'
+        ORDER BY po.is_active DESC, (po.stock_qty > 0) DESC, po.selling_price_try ASC NULLS LAST, po.id
+        LIMIT 1
+      ) od ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT po.basbug_product_id
+        FROM catalog.product_offers po
+        WHERE po.product_id = p.id AND po.supplier_code = 'basbug'
+        ORDER BY po.is_active DESC, (po.stock_qty > 0) DESC, po.selling_price_try ASC NULLS LAST, po.id
+        LIMIT 1
+      ) ob ON TRUE
       WHERE p.id IN (${Prisma.join(part)})
     `)
     for (const r of rows) {
