@@ -63,6 +63,7 @@ type ExportRow = {
   oems_readonly: string | null
   has_dinamik: boolean
   has_basbug: boolean
+  variant_product_id: bigint | null
 }
 
 /** Numeric kolonlar sürücüye göre string/Decimal/number dönebilir; hepsini karşıla. */
@@ -122,7 +123,8 @@ async function fetchBatch(
     coverageFilter,
     oemFilter,
     hasDinamik,
-    hasBasbug
+    hasBasbug,
+    variantProductId
   } = buildProductListFilters(input, supplier)
 
   // OEM'ler iki kovaya ayrılır: MANUAL/WEB satırları admin'in sahibi olduğu
@@ -141,7 +143,10 @@ async function fetchBatch(
       ov.name_override, ov.selling_price_override, ov.lock_price, ov.note,
       om.v AS oems_manual, orr.v AS oems_readonly,
       ${hasDinamik} AS has_dinamik,
-      ${hasBasbug} AS has_basbug
+      ${hasBasbug} AS has_basbug,
+      -- matched=HAYIR olan satırın parçası aslında katalogta mı: doluysa satır
+      -- alternatif varyanttır, dosyayı okuyan onu "eksik" sanmasın.
+      ${variantProductId} AS variant_product_id
     FROM ${cfg.prodTable} sp
     JOIN ${cfg.brandTable} sb ON sb.id = sp.${cfg.brandIdCol}
     LEFT JOIN ${cfg.matchTable} m ON m.${cfg.matchFk} = sp.id
@@ -196,6 +201,7 @@ function toCsvValues(supplier: string, row: ExportRow): string[] {
     row.oem ?? '',
     formatCsvBoolean(row.matched),
     coverageLabel(row),
+    row.variant_product_id == null ? '' : row.variant_product_id.toString(),
     row.canonical_id == null ? '' : row.canonical_id.toString(),
     row.canonical_base_name ?? '',
     row.canonical_part_no ?? '',
