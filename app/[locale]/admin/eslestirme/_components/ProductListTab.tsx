@@ -11,12 +11,16 @@ import { AdminTableToolbar } from '@/components/admin/data-table/admin-table-too
 import { DataTable } from '@/components/admin/data-table/data-table'
 import {
   PRODUCT_LIST_COVERAGE_LABELS,
+  PRODUCT_LIST_OEM_LABELS,
+  PRODUCT_LIST_STATUS_LABELS,
   PRODUCT_LIST_SUPPLIERS,
   PRODUCT_LIST_SUPPLIER_LABELS,
+  PRODUCT_LIST_UNMATCHED_KINDS,
   type ProductListCoverage,
+  type ProductListOem,
   type ProductListResult,
   type ProductListStatus,
-  type ProductListSupplier,
+  type ProductListSupplierFilter,
   type ProductMatchCoverage,
   type SupplierProductRow
 } from '@/lib/admin/product-match-shared'
@@ -26,9 +30,11 @@ import { BrandFilterModal } from './BrandFilterModal'
 import { ProductCsvImportDialog } from './ProductCsvImportDialog'
 
 type Filters = {
-  supplier: ProductListSupplier
+  /** 'all' = hiçbir firma seçili değil → iki tedarikçinin ürünleri birlikte. */
+  supplier: ProductListSupplierFilter
   status: ProductListStatus
   coverage: ProductListCoverage
+  oem: ProductListOem
   q: string
   brandId: number | null
   page: number
@@ -44,11 +50,20 @@ const EMPTY: ProductListResult = {
 /**
  * Firma bazlı geçerli kapsam seçenekleri. Dinamik satırları eşleşince kanonik
  * ürünün mutlaka bir Dinamik offer'ı olur → "Yalnız Başbuğ" imkânsız (boş döner);
- * Başbuğ için tersi.
+ * Başbuğ için tersi. Firma seçilmediğinde her iki tarafın satırları listelendiği
+ * için üç seçenek de anlamlıdır.
  */
-const COVERAGE_OPTIONS: Record<ProductListSupplier, ProductMatchCoverage[]> = {
+const COVERAGE_OPTIONS: Record<ProductListSupplierFilter, ProductMatchCoverage[]> = {
+  all: ['both', 'dinamik', 'basbug'],
   dinamik: ['both', 'dinamik'],
   basbug: ['both', 'basbug']
+}
+
+/** Marka seçicisinin "hangi filtreler daraltıyor" özetinde kullanılan durum adları. */
+const STATUS_SUMMARY_LABELS: Record<Exclude<ProductListStatus, 'all'>, string> = {
+  matched: 'Eşleşen',
+  unmatched: 'Eşleşmeyen',
+  ...PRODUCT_LIST_STATUS_LABELS
 }
 
 /** Sunucu tarafındaki filtreler — export ve liste AYNI parametreleri kullanır. */
@@ -57,6 +72,7 @@ function buildFilterParams(f: Filters) {
   p.set('supplier', f.supplier)
   if (f.status !== 'all') p.set('status', f.status)
   if (f.coverage !== 'all') p.set('coverage', f.coverage)
+  if (f.oem !== 'all') p.set('oem', f.oem)
   if (f.q) p.set('q', f.q)
   if (f.brandId != null) p.set('brandId', String(f.brandId))
   return p
@@ -85,6 +101,7 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     supplier: 'dinamik',
     status: 'all',
     coverage: 'all',
+    oem: 'all',
     q: '',
     brandId: null,
     page: 1,
@@ -138,6 +155,23 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     setModalOpen(true)
   }, [])
 
+  /**
+   * Alternatif varyant satırından, offer'ı gerçekten tutan kardeş satıra atlar.
+   * Kardeş satır çoğu zaman farklı yazılışta olduğu için (WPO-901 / WPO901)
+   * arama kutusunda bulunamaz — blokçu SKU'yu arama terimi yaparız. Durum
+   * filtresi 'all'a çekilir, yoksa hedef satır (eşleşmiş) kendi filtresinin
+   * dışında kalırdı.
+   */
+  const onVariantJump = useCallback(
+    (row: SupplierProductRow) => {
+      const sku = row.variantOf?.blockingSku
+      if (!sku) return
+      setSearchValue(sku)
+      applyFilters({ q: sku, status: 'all', page: 1 })
+    },
+    [applyFilters]
+  )
+
   // Modal açıkken de (ör. isim override kaydedildiğinde) tablo tazelenir ve
   // açık modalin satır snapshot'ı taze veriyle değiştirilir — yoksa modal eski
   // kanonik adı göstermeye devam eder.
@@ -184,17 +218,42 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
     }
   }, [])
 
-  const columns = createProductListColumns({ onMatch })
+  const columns = createProductListColumns({ onMatch, onVariantJump })
 
-  const statusChips: { key: ProductListStatus; label: string }[] = [
-    { key: 'matched', label: 'Eşleşen' },
-    { key: 'unmatched', label: 'Eşleşmeyen' }
+  // 'variant' ve 'gap' eşleşmeyenlerin alt kümesi: ana chip ikisinde de aktif
+  // kalır, daraltma chip'leri yalnız o dal seçiliyken görünür.
+  const unmatchedActive =
+    filters.status === 'unmatched' || filters.status === 'variant' || filters.status === 'gap'
+
+  const statusChips: { key: ProductListStatus; label: string; active: boolean }[] = [
+    { key: 'matched', label: 'Eşleşen', active: filters.status === 'matched' },
+    { key: 'unmatched', label: 'Eşleşmeyen', active: unmatchedActive }
   ]
 
   const coverageChips = COVERAGE_OPTIONS[filters.supplier].map((key) => ({
     key,
     label: PRODUCT_LIST_COVERAGE_LABELS[key]
   }))
+
+  const oemChips: { key: Exclude<ProductListOem, 'all'>; label: string }[] = [
+    { key: 'without', label: PRODUCT_LIST_OEM_LABELS.without },
+    { key: 'with', label: PRODUCT_LIST_OEM_LABELS.with }
+  ]
+
+  // Marka seçeneklerini üreten filtreler = tablonun filtreleri EKSİ markanın
+  // kendisi (yoksa seçici zaten seçili markaya iner).
+  const brandOptionParams = buildFilterParams({ ...filters, brandId: null }).toString()
+
+  const activeFilterSummary =
+    [
+      filters.supplier !== 'all' ? PRODUCT_LIST_SUPPLIER_LABELS[filters.supplier] : null,
+      filters.status !== 'all' ? STATUS_SUMMARY_LABELS[filters.status] : null,
+      filters.coverage !== 'all' ? PRODUCT_LIST_COVERAGE_LABELS[filters.coverage] : null,
+      filters.oem !== 'all' ? PRODUCT_LIST_OEM_LABELS[filters.oem] : null,
+      filters.q ? `"${filters.q}"` : null
+    ]
+      .filter(Boolean)
+      .join(' · ') || null
 
   return (
     <div className="space-y-4">
@@ -213,18 +272,25 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
               key={key}
               active={filters.supplier === key}
               onClick={() => {
-                if (filters.supplier === key) return
+                // Diğer chip'ler gibi seçili olana tekrar tıklamak seçimi kaldırır
+                // → 'all': iki tedarikçinin ürünleri tek tabloda listelenir.
+                const supplier: ProductListSupplierFilter = filters.supplier === key ? 'all' : key
                 // Yeni firmada geçersiz kalan kapsam filtresini sıfırla.
-                const coverage = COVERAGE_OPTIONS[key].includes(
+                const coverage = COVERAGE_OPTIONS[supplier].includes(
                   filters.coverage as ProductMatchCoverage
                 )
                   ? filters.coverage
                   : 'all'
-                applyFilters({ supplier: key, coverage, page: 1 })
+                applyFilters({ supplier, coverage, page: 1 })
               }}
               label={PRODUCT_LIST_SUPPLIER_LABELS[key]}
             />
           ))}
+          {filters.supplier === 'all' && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              Firma seçili değil — tüm ürünler
+            </span>
+          )}
         </div>
 
         <AdminTableToolbar
@@ -272,23 +338,50 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
           onReset={() => {
             setSearchValue('')
             setBrandName(null)
-            applyFilters({ status: 'all', coverage: 'all', q: '', brandId: null, page: 1 })
+            applyFilters({
+              status: 'all',
+              coverage: 'all',
+              oem: 'all',
+              q: '',
+              brandId: null,
+              page: 1
+            })
           }}
           className="mt-3"
         >
           {statusChips.map((chip) => (
             <AdminFilterChip
               key={chip.key}
-              active={filters.status === chip.key}
+              active={chip.active}
               onClick={() =>
                 applyFilters({
-                  status: filters.status === chip.key ? 'all' : chip.key,
+                  status: chip.active ? 'all' : chip.key,
                   page: 1
                 })
               }
               label={chip.label}
             />
           ))}
+
+          {unmatchedActive &&
+            PRODUCT_LIST_UNMATCHED_KINDS.map((kind) => (
+              <AdminFilterChip
+                key={kind}
+                active={filters.status === kind}
+                onClick={() =>
+                  applyFilters({
+                    status: filters.status === kind ? 'unmatched' : kind,
+                    page: 1
+                  })
+                }
+                label={PRODUCT_LIST_STATUS_LABELS[kind]}
+                title={
+                  kind === 'gap'
+                    ? 'Bu parça bu tedarikçiden hiç bağlanamamış — doldurulacak gerçek boşluk'
+                    : 'Parçası katalogta zaten kapsanmış, ikinci stok kodu olarak gelen satır'
+                }
+              />
+            ))}
 
           <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
 
@@ -303,6 +396,23 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
                 })
               }
               label={chip.label}
+            />
+          ))}
+
+          <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+
+          {oemChips.map((chip) => (
+            <AdminFilterChip
+              key={chip.key}
+              active={filters.oem === chip.key}
+              onClick={() =>
+                applyFilters({
+                  oem: filters.oem === chip.key ? 'all' : chip.key,
+                  page: 1
+                })
+              }
+              label={chip.label}
+              title="Bağlı kanonik ürünün OEM kodu var mı — yalnız eşleşmiş satırlara uygulanır"
             />
           ))}
 
@@ -372,6 +482,8 @@ export function ProductListTab({ onMatched }: { onMatched?: () => void }) {
       <BrandFilterModal
         open={brandModalOpen}
         onOpenChange={setBrandModalOpen}
+        filterParams={brandOptionParams}
+        filterSummary={activeFilterSummary}
         onSelect={(brand) => {
           setBrandName(brand?.brandName ?? null)
           applyFilters({ brandId: brand?.brandId ?? null, page: 1 })

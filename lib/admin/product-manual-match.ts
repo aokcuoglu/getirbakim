@@ -53,6 +53,10 @@ export function isProductListSupplier(value: unknown): value is ProductListSuppl
  * Marka seçicisi: APPROVED eşleşmesi olan TÜM kanonik markalar + her birinin
  * altındaki offer'ı olmayan aktif dinamik/başbuğ ham satır sayısı.
  *
+ * Manuel eşleştirme çalışma alanı içindir. Ürün listesindeki marka filtresi
+ * ekrandaki diğer filtrelere uymak zorunda olduğu için oradan DEĞİL,
+ * `listProductListBrandOptions`'tan beslenir.
+ *
  * Sayımlar tek geçişte (GROUP BY) hesaplanır; böylece tüm markalar eşleşmemiş
  * sayısına göre sıralanır (eskiden ada göre kırpılıp yalnız ilk N marka
  * görünüyordu). q verilirse marka adında ILIKE ile filtrelenir.
@@ -64,6 +68,12 @@ export async function listManualMatchBrands(
 ): Promise<ManualMatchBrand[]> {
   const like = q?.trim() ? `%${q.trim()}%` : null
 
+  const approvedMapping = Prisma.sql`
+    EXISTS (
+      SELECT 1 FROM catalog.brand_mappings bm
+      WHERE bm.brand_id = b.id AND bm.mapping_status = 'APPROVED'
+    )`
+
   // Filtre için hafif yol: eşleşmemiş sayımı hesaplamaz (o tarama ~200ms sürer,
   // 1M+ offer'a karşı anti-join). Marka seçici bu bilgiye ihtiyaç duymaz.
   if (!withCounts) {
@@ -71,10 +81,7 @@ export async function listManualMatchBrands(
     const lite = await db.$queryRaw<Array<{ brand_id: number; brand_name: string }>>(Prisma.sql`
       SELECT b.id AS brand_id, b.brand AS brand_name
       FROM catalog.brands b
-      WHERE EXISTS (
-        SELECT 1 FROM catalog.brand_mappings bm
-        WHERE bm.brand_id = b.id AND bm.mapping_status = 'APPROVED'
-      )
+      WHERE ${approvedMapping}
       ${liteFilter}
       ORDER BY b.brand ASC
       LIMIT ${limit}
@@ -108,10 +115,7 @@ export async function listManualMatchBrands(
     SELECT b.id AS brand_id, b.brand AS brand_name, COALESCE(a.unlinked, 0)::bigint AS unlinked
     FROM catalog.brands b
     LEFT JOIN agg a ON a.brand_id = b.id
-    WHERE EXISTS (
-      SELECT 1 FROM catalog.brand_mappings bm
-      WHERE bm.brand_id = b.id AND bm.mapping_status = 'APPROVED'
-    )
+    WHERE ${approvedMapping}
     ${filter}
     ORDER BY b.brand ASC
     LIMIT ${limit}

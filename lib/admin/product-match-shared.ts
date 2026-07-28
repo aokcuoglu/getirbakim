@@ -26,6 +26,26 @@ export const PRODUCT_LIST_SUPPLIER_LABELS: Record<ProductListSupplier, string> =
 }
 
 /**
+ * Ürün listesi firma filtresi. 'all' = hiçbir firma seçili değil → iki
+ * tedarikçinin ham satırları tek tabloda (UNION) listelenir.
+ */
+export type ProductListSupplierFilter = ProductListSupplier | 'all'
+
+/**
+ * Ürün listesindeki marka filtresinin bir seçeneği: tabloda GERÇEKTEN satırı
+ * olan kanonik marka.
+ *
+ * `rowCount`, ekrandaki DİĞER filtreler (firma/durum/kapsam/OEM/arama)
+ * uygulandıktan sonra o markanın altında kalan ham satır sayısıdır — seçmeden
+ * önce "burada ne var" sorusunu cevaplar.
+ */
+export type ProductListBrandOption = {
+  brandId: number
+  brandName: string
+  rowCount: number
+}
+
+/**
  * Bir tedarikçinin onaylı markaları altındaki ürün kapsama sayıları.
  *
  * Sayım birimi HAM SATIR DEĞİL, ayrı üründür: (kanonik marka, normalize
@@ -194,7 +214,24 @@ export type ListManualRowsResult = {
 
 /* ── Ürün listesi (eşleşen/eşleşmeyen komple tablo) ───────────────────────── */
 
-export type ProductListStatus = 'all' | 'matched' | 'unmatched'
+/**
+ * Ürün listesi durum filtresi.
+ *
+ * 'gap' ve 'variant', 'unmatched'ın (offer'ı olmayan satırlar) ayrık iki alt
+ * kümesidir — `unmatched = gap + variant`:
+ *   - 'variant' → grubunun kanonik ürünü bu tedarikçiden ZATEN kapsanmış;
+ *                 satır eksik ürün değil, aynı parçanın ikinci stok kodu
+ *   - 'gap'     → gerçek boşluk: bu parça bu tedarikçiden hiç bağlanamamış
+ */
+export type ProductListStatus = 'all' | 'matched' | 'unmatched' | 'variant' | 'gap'
+
+/** 'unmatched' seçiliyken gösterilen daraltma seçenekleri. */
+export const PRODUCT_LIST_UNMATCHED_KINDS = ['gap', 'variant'] as const
+
+export const PRODUCT_LIST_STATUS_LABELS: Record<'variant' | 'gap', string> = {
+  variant: 'Alternatif varyant',
+  gap: 'Gerçek boşluk'
+}
 
 /**
  * Eşleşen kanonik ürünün offer kapsamı: iki tedarikçili mi yoksa tek mi.
@@ -214,6 +251,23 @@ export const PRODUCT_LIST_COVERAGE_LABELS: Record<ProductMatchCoverage, string> 
   basbug: 'Yalnız Başbuğ'
 }
 
+/**
+ * OEM durumu filtresi — bağlı kanonik ürünün `catalog.product_oems` kaydı var mı.
+ *
+ * Kaynak ayrımı yapılmaz: PART_NO'dan türetilmiş kod da OEM sayılır, çünkü
+ * ekranın sorusu "bu ürüne elle OEM girmem gerekiyor mu".
+ *
+ * Kapsam filtresi gibi yalnız EŞLEŞMİŞ satırlara uygulanır: kanonik ürünü
+ * olmayan ham satıra OEM yazılamaz (modal da izin vermez), dolayısıyla
+ * "OEM'i yok" listesine girmesi admin'i yapılamayacak işe götürürdü.
+ */
+export type ProductListOem = 'all' | 'with' | 'without'
+
+export const PRODUCT_LIST_OEM_LABELS: Record<Exclude<ProductListOem, 'all'>, string> = {
+  without: "OEM'i yok",
+  with: "OEM'i var"
+}
+
 /** Tablo satırı: bir tedarikçi ham ürünü + eşleşme durumu. */
 export type SupplierProductRow = {
   supplier: ProductListSupplier
@@ -230,8 +284,28 @@ export type SupplierProductRow = {
   canonicalName: string | null
   /** Ad admin tarafından override edilmiş mi (tabloda rozetle gösterilir). */
   canonicalNameOverridden: boolean
+  /**
+   * Bağlı kanonik ürünün OEM kodu sayısı; eşleşmemiş satırda null (kanonik ürün
+   * yok, dolayısıyla "0 OEM" demek yanlış olurdu).
+   */
+  oemCount: number | null
   /** Bağlı kanonik ürünün tedarikçi offer kapsamı (badge için). */
   coverage: ProductMatchCoverage | null
+  /**
+   * Satırın offer'ı yok AMA grubunun kanonik ürünü bu tedarikçiden zaten
+   * kapsanmış → alternatif varyant (bkz. ProductListStatus). Eşleşmiş ya da
+   * gerçekten boşta olan satırlarda null.
+   */
+  variantOf: VariantOwner | null
+}
+
+/** Alternatif varyant satırının bağlı olduğu — ve onu bloklayan — kanonik ürün. */
+export type VariantOwner = {
+  productId: string
+  /** Kanonik gösterim adı (name_override varsa o). */
+  name: string | null
+  /** Bu ürünü aynı tedarikçiden tutan mevcut offer'ın SKU'su. */
+  blockingSku: string | null
 }
 
 export type ProductListSummary = {

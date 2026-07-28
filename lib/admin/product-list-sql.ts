@@ -1,8 +1,12 @@
 import { Prisma } from '@prisma/client'
+import { normCodeSql } from '@/lib/catalog/catalog-sql'
+import { PRODUCT_LIST_SUPPLIERS } from './product-match-shared'
 import type {
   ProductListCoverage,
+  ProductListOem,
   ProductListStatus,
-  ProductListSupplier
+  ProductListSupplier,
+  ProductListSupplierFilter
 } from './product-match-shared'
 
 /**
@@ -60,17 +64,29 @@ export const PRODUCT_LIST_CONFIG: Record<ProductListSupplier, ProductListCfg> = 
 }
 
 export type ProductListFilterInput = {
-  supplier: ProductListSupplier
+  /** 'all' → firma seçimi yok; iki tedarikçi de listelenir. */
+  supplier: ProductListSupplierFilter
   status?: ProductListStatus
   coverage?: ProductListCoverage
+  oem?: ProductListOem
   q?: string
   brandId?: number
+}
+
+/**
+ * Filtrenin kapsadığı somut tedarikçiler. Kolon haritası tedarikçiye özel
+ * olduğu için SQL her zaman TEK tedarikçi üzerinden kurulur; 'all' seçiminde
+ * çağıran bu listeyi dolaşıp parçaları UNION ALL ile birleştirir.
+ */
+export function resolveListSuppliers(supplier: ProductListSupplierFilter): ProductListSupplier[] {
+  return supplier === 'all' ? PRODUCT_LIST_SUPPLIERS : [supplier]
 }
 
 export type ProductListFilters = {
   cfg: ProductListCfg
   status: ProductListStatus
   coverage: ProductListCoverage
+  oem: ProductListOem
   /** Pasif ham satırları eler. */
   passiveFilter: Prisma.Sql
   /** Ana kural: yalnız APPROVED marka altındaki satırlar (+ marka filtresi). */
@@ -80,15 +96,36 @@ export type ProductListFilters = {
   statusFilter: Prisma.Sql
   /** `m` alias'ı gerektirir. */
   coverageFilter: Prisma.Sql
+  /** OEM durumu filtresi; `m` alias'ı gerektirir. */
+  oemFilter: Prisma.Sql
   /** Bağlı kanonik ürünün offer kapsamı — badge/filtre için ortak ifadeler. */
   hasDinamik: Prisma.Sql
   hasBasbug: Prisma.Sql
+  /**
+   * Satırın eşleştirme anahtarı — matcher'ın kullandığı ifadenin `sp` alias'lı
+   * hâli (bkz. DINAMIK_MATCH_KEY_SQL / BASBUG_MATCH_KEY_SQL).
+   */
+  matchKey: Prisma.Sql
+  /**
+   * Bu satırın grubunu çoktan kapmış kanonik ürünün id'si (yoksa NULL) —
+   * "alternatif varyant" rozetinin kaynağı. Yalnız offer'ı OLMAYAN satırlar
+   * için hesaplanır; `m` alias'ı gerektirir.
+   */
+  variantProductId: Prisma.Sql
 }
 
-export function buildProductListFilters(input: ProductListFilterInput): ProductListFilters {
-  const cfg = PRODUCT_LIST_CONFIG[input.supplier]
+/**
+ * `supplier` parametresi somut tedarikçidir (input.supplier 'all' olabilir);
+ * çağıran `resolveListSuppliers` ile dolaşır.
+ */
+export function buildProductListFilters(
+  input: ProductListFilterInput,
+  supplier: ProductListSupplier
+): ProductListFilters {
+  const cfg = PRODUCT_LIST_CONFIG[supplier]
   const status = input.status ?? 'all'
   const coverage = input.coverage ?? 'all'
+  const oem = input.oem ?? 'all'
   const like = input.q?.trim() ? `%${input.q.trim()}%` : null
 
   const passiveFilter = cfg.passive ? Prisma.sql`AND sp.is_passive = false` : Prisma.empty
@@ -106,12 +143,47 @@ export function buildProductListFilters(input: ProductListFilterInput): ProductL
     ? Prisma.sql`AND (sp.${cfg.skuCol} ILIKE ${like} OR sp.${cfg.nameCol} ILIKE ${like} OR sp.part_no ILIKE ${like} OR sp.${cfg.oemCol} ILIKE ${like})`
     : Prisma.empty
 
+  // Eşleştirme anahtarı matcher'la birebir aynı olmak ZORUNDA: burada tire'yi
+  // eleyip orada elememek, "alternatif varyant"ı gerçek boşluk gibi gösterir.
+  const matchKey = normCodeSql(Prisma.sql`COALESCE(sp.part_no, sp.${cfg.skuCol})`)
+
+  /**
+   * Offer'ı olmayan satırın grubunu çoktan kapmış kanonik ürün.
+   *
+   * `uq_offers_product_supplier` gereği bir kanonik ürün bir tedarikçiden tek
+   * offer taşır; tedarikçi aynı parçayı iki stok koduyla listelediğinde
+   * ("AIS WPO-901" / "AIS WPO901" → ikisi de WPO901) yalnız biri bağlanır,
+   * diğeri sonsuza kadar bağlanmadan kalır. Bu satır EKSİK ÜRÜN DEĞİLDİR —
+   * ürün kataloğa girmiş ve satılabilir durumdadır. Kapsama paneli bunu zaten
+   * `variantRows` olarak sayıyor (product-match.ts); liste de aynı ayrımı
+   * yapsın diye ifade burada.
+   */
+  const variantProductId = Prisma.sql`(
+    SELECT vp.id
+    FROM catalog.brand_mappings vbm
+    JOIN catalog.products vp
+      ON vp.brand_id = vbm.brand_id
+      AND vp.part_no_norm = ${matchKey}
+    JOIN catalog.product_offers vpo
+      ON vpo.product_id = vp.id AND vpo.supplier_code = ${supplier}
+    WHERE vbm.${cfg.mapFk} = sp.${cfg.brandIdCol}
+      AND vbm.mapping_status = 'APPROVED'
+      AND m.id IS NULL
+    LIMIT 1
+  )`
+
   const statusFilter =
     status === 'matched'
       ? Prisma.sql`AND m.id IS NOT NULL`
       : status === 'unmatched'
         ? Prisma.sql`AND m.id IS NULL`
-        : Prisma.empty
+        : // 'variant' / 'gap': eşleşmeyenlerin iki alt kümesi. Ayrım, satırın
+          // kanonik ürünü zaten bu tedarikçiden kapsanmış mı sorusudur.
+          status === 'variant'
+          ? Prisma.sql`AND m.id IS NULL AND ${variantProductId} IS NOT NULL`
+          : status === 'gap'
+            ? Prisma.sql`AND m.id IS NULL AND ${variantProductId} IS NULL`
+            : Prisma.empty
 
   const hasDinamik = Prisma.sql`EXISTS (
     SELECT 1 FROM catalog.product_offers po
@@ -132,16 +204,40 @@ export function buildProductListFilters(input: ProductListFilterInput): ProductL
           ? Prisma.sql`AND ${hasBasbug} AND NOT ${hasDinamik}`
           : Prisma.empty
 
+  // OEM varlığı kanonik ürün üzerinden sorulur. `m.product_id IS NOT NULL`
+  // şartı şart: eşleşmemiş satırda NOT EXISTS kendiliğinden TRUE döner ve
+  // "OEM'i yok" listesi, OEM yazılamayan bağlanmamış satırlarla dolardı.
+  //
+  // Correlated NOT EXISTS bilerek seçildi: uq_product_oems_product_code_brand
+  // üzerinden satır başına index araması yapar, marka filtresi varken (asıl
+  // kullanım) sayfa+sayım prod'da <1 sn. Ön-toplanmış `SELECT DISTINCT
+  // product_id` + anti-join yalnız MARKASIZ sayımda kazandırıyor (12 sn → 3,5
+  // sn) ama 33,9M satırlık product_oems'i her sorguda materyalize ettiği için
+  // marka filtreli hâli yavaşlatırdı; `NOT IN (...)` ise felaket (dakikalarca).
+  const hasOem = Prisma.sql`EXISTS (
+    SELECT 1 FROM catalog.product_oems o WHERE o.product_id = m.product_id
+  )`
+  const oemFilter =
+    oem === 'without'
+      ? Prisma.sql`AND m.product_id IS NOT NULL AND NOT ${hasOem}`
+      : oem === 'with'
+        ? Prisma.sql`AND m.product_id IS NOT NULL AND ${hasOem}`
+        : Prisma.empty
+
   return {
     cfg,
     status,
     coverage,
+    oem,
     passiveFilter,
     approvedBrand,
     qFilter,
     statusFilter,
     coverageFilter,
+    oemFilter,
     hasDinamik,
-    hasBasbug
+    hasBasbug,
+    matchKey,
+    variantProductId
   }
 }

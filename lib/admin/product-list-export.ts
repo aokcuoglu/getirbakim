@@ -8,7 +8,12 @@ import {
   formatCsvNumber
 } from './csv'
 import { PRODUCT_CSV_COLUMNS } from './product-csv-schema'
-import { buildProductListFilters, type ProductListFilterInput } from './product-list-sql'
+import {
+  buildProductListFilters,
+  resolveListSuppliers,
+  type ProductListFilterInput
+} from './product-list-sql'
+import type { ProductListSupplier } from './product-match-shared'
 
 /**
  * "Ürün Listesi" tablosunun CSV export'u (SERVER-only).
@@ -69,25 +74,43 @@ function toNumber(value: unknown): number | null {
 
 /** Filtreye uyan toplam satır sayısı (export'u başlatmadan önceki eşik kontrolü). */
 export async function countProductListExportRows(input: ProductListFilterInput): Promise<number> {
-  const { cfg, passiveFilter, approvedBrand, qFilter, statusFilter, coverageFilter } =
-    buildProductListFilters(input)
-
   const [row] = await db.$queryRaw<Array<{ c: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS c
-    FROM ${cfg.prodTable} sp
-    LEFT JOIN ${cfg.matchTable} m ON m.${cfg.matchFk} = sp.id
-    WHERE true
-    ${passiveFilter}
-    ${approvedBrand}
-    ${qFilter}
-    ${statusFilter}
-    ${coverageFilter}
+    SELECT COALESCE(SUM(t.c), 0)::bigint AS c
+    FROM (
+      ${Prisma.join(
+        resolveListSuppliers(input.supplier).map((supplier) => {
+          const {
+            cfg,
+            passiveFilter,
+            approvedBrand,
+            qFilter,
+            statusFilter,
+            coverageFilter,
+            oemFilter
+          } = buildProductListFilters(input, supplier)
+          return Prisma.sql`
+            SELECT COUNT(*)::bigint AS c
+            FROM ${cfg.prodTable} sp
+            LEFT JOIN ${cfg.matchTable} m ON m.${cfg.matchFk} = sp.id
+            WHERE true
+            ${passiveFilter}
+            ${approvedBrand}
+            ${qFilter}
+            ${statusFilter}
+            ${coverageFilter}
+            ${oemFilter}
+          `
+        }),
+        ' UNION ALL '
+      )}
+    ) t
   `)
   return Number(row?.c ?? 0)
 }
 
 async function fetchBatch(
   input: ProductListFilterInput,
+  supplier: ProductListSupplier,
   afterId: bigint
 ): Promise<ExportRow[]> {
   const {
@@ -97,9 +120,10 @@ async function fetchBatch(
     qFilter,
     statusFilter,
     coverageFilter,
+    oemFilter,
     hasDinamik,
     hasBasbug
-  } = buildProductListFilters(input)
+  } = buildProductListFilters(input, supplier)
 
   // OEM'ler iki kovaya ayrılır: MANUAL/WEB satırları admin'in sahibi olduğu
   // (ve import'un uzlaştıracağı) küme; DNMK/BSBG/PARTS satırları sync'in yeniden
@@ -147,6 +171,7 @@ async function fetchBatch(
     ${qFilter}
     ${statusFilter}
     ${coverageFilter}
+    ${oemFilter}
     ORDER BY sp.id
     LIMIT ${BATCH}
   `)
@@ -193,21 +218,27 @@ export async function* streamProductListCsv(
 ): AsyncGenerator<string> {
   yield CSV_BOM + csvLine([...PRODUCT_CSV_COLUMNS], delimiter)
 
-  let afterId = BigInt(0)
   let emitted = 0
-  for (;;) {
-    const rows = await fetchBatch(input, afterId)
-    if (rows.length === 0) break
+  // Keyset anahtarı sp.id; iki tedarikçinin id'leri çakıştığı için firma
+  // seçilmediğinde tek bir birleşik akış değil, tedarikçi tedarikçi sıralı
+  // akış üretilir (satırın firması zaten ilk sütunda).
+  for (const supplier of resolveListSuppliers(input.supplier)) {
+    let afterId = BigInt(0)
+    for (;;) {
+      const rows = await fetchBatch(input, supplier, afterId)
+      if (rows.length === 0) break
 
-    let chunk = ''
-    for (const row of rows) {
-      chunk += csvLine(toCsvValues(input.supplier, row), delimiter)
-      emitted++
+      let chunk = ''
+      for (const row of rows) {
+        chunk += csvLine(toCsvValues(supplier, row), delimiter)
+        emitted++
+      }
+      yield chunk
+
+      afterId = rows[rows.length - 1]!.sid
+      if (rows.length < BATCH || emitted >= PRODUCT_CSV_EXPORT_MAX_ROWS) break
     }
-    yield chunk
-
-    afterId = rows[rows.length - 1]!.sid
-    if (rows.length < BATCH || emitted >= PRODUCT_CSV_EXPORT_MAX_ROWS) break
+    if (emitted >= PRODUCT_CSV_EXPORT_MAX_ROWS) break
   }
 }
 
@@ -216,6 +247,7 @@ export function buildExportFilename(input: ProductListFilterInput, stamp: string
   const parts = ['eslestirme', input.supplier]
   if (input.status && input.status !== 'all') parts.push(input.status)
   if (input.coverage && input.coverage !== 'all') parts.push(`kapsam-${input.coverage}`)
+  if (input.oem && input.oem !== 'all') parts.push(`oem-${input.oem}`)
   if (input.brandId != null) parts.push(`marka-${input.brandId}`)
   parts.push(stamp)
   return `${parts.join('_')}.csv`
