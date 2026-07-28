@@ -12,38 +12,56 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import type { ManualMatchBrand } from '@/lib/admin/product-match-shared'
+import type { ProductListBrandOption } from '@/lib/admin/product-match-shared'
 
 interface BrandFilterModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (brand: { brandId: number; brandName: string } | null) => void
+  /**
+   * Tablonun aktif filtreleri (marka hariç), serialize edilmiş query string.
+   * Seçenekler bu filtrelerden geçen satırlardan türetilir — seçildiğinde tabloyu
+   * boşaltacak bir markayı listelemek admin'i kör aramaya sokuyordu.
+   */
+  filterParams: string
+  /** Filtrelerin daralttığını anlatan açıklama satırı. */
+  filterSummary: string | null
 }
 
-export function BrandFilterModal({ open, onOpenChange, onSelect }: BrandFilterModalProps) {
+export function BrandFilterModal({
+  open,
+  onOpenChange,
+  onSelect,
+  filterParams,
+  filterSummary
+}: BrandFilterModalProps) {
   const [query, setQuery] = useState('')
-  const [brands, setBrands] = useState<ManualMatchBrand[]>([])
+  const [brands, setBrands] = useState<ProductListBrandOption[]>([])
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async (q: string) => {
-    setLoading(true)
-    try {
-      // lite=1 → eşleşmemiş sayımı hesaplanmaz (hızlı; filtre için gerekmez).
-      const params = new URLSearchParams({ view: 'brands', limit: '1000', lite: '1' })
-      if (q.trim()) params.set('q', q.trim())
-      const res = await fetch(`/api/admin/eslestirme/products/manual?${params}`)
-      const data = await res.json()
-      if (!res.ok || data.error) {
-        toast.error(data?.error?.message || 'Markalar yüklenemedi.')
-        return
+  const load = useCallback(
+    async (q: string) => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams(filterParams)
+        params.set('limit', '1000')
+        // Marka adı araması `brandQ`; `q` tablonun ürün aramasıdır ve filtreden gelir.
+        if (q.trim()) params.set('brandQ', q.trim())
+        const res = await fetch(`/api/admin/eslestirme/products/brands?${params}`)
+        const data = await res.json()
+        if (!res.ok || data.error) {
+          toast.error(data?.error?.message || 'Markalar yüklenemedi.')
+          return
+        }
+        setBrands(data.brands ?? [])
+      } catch {
+        toast.error('Markalar yüklenirken hata oluştu.')
+      } finally {
+        setLoading(false)
       }
-      setBrands(data.brands ?? [])
-    } catch {
-      toast.error('Markalar yüklenirken hata oluştu.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    },
+    [filterParams]
+  )
 
   useEffect(() => {
     if (!open) {
@@ -67,6 +85,9 @@ export function BrandFilterModal({ open, onOpenChange, onSelect }: BrandFilterMo
           <DialogTitle className="text-base">Markaya Göre Filtrele</DialogTitle>
           <DialogDescription className="text-xs">
             Bir marka seçin; liste yalnız o markanın ürünlerini gösterir.
+            {filterSummary
+              ? ` Yalnız aktif filtrelere (${filterSummary}) uyan markalar ve satır sayıları listeleniyor.`
+              : ' Yanındaki sayı, o markanın altındaki satır sayısıdır.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,7 +121,11 @@ export function BrandFilterModal({ open, onOpenChange, onSelect }: BrandFilterMo
 
           <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
             {brands.length === 0 && !loading ? (
-              <p className="px-3 py-6 text-center text-xs text-muted-foreground">Marka bulunamadı.</p>
+              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                {filterSummary
+                  ? 'Aktif filtrelere uyan marka yok.'
+                  : 'Marka bulunamadı.'}
+              </p>
             ) : (
               <ul className="divide-y divide-border">
                 {brands.map((b) => (
@@ -111,9 +136,14 @@ export function BrandFilterModal({ open, onOpenChange, onSelect }: BrandFilterMo
                         onSelect({ brandId: b.brandId, brandName: b.brandName })
                         onOpenChange(false)
                       }}
-                      className="flex w-full items-center px-3 py-2 text-left transition-colors hover:bg-accent/50"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50"
                     >
-                      <span className="truncate text-sm font-medium text-foreground">{b.brandName}</span>
+                      <span className="flex-1 truncate text-sm font-medium text-foreground">
+                        {b.brandName}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {b.rowCount.toLocaleString('tr-TR')}
+                      </span>
                     </button>
                   </li>
                 ))}

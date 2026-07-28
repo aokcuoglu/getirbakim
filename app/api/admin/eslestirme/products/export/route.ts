@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { errorResponse, requireAdmin, successResponse } from '@/lib/api/route-utils'
 import {
   isProductListCoverage,
+  isProductListOem,
   isProductListStatus,
-  isProductListSupplier
+  isProductListSupplierFilter
 } from '@/lib/admin/product-list'
 import {
   buildExportFilename,
@@ -35,12 +36,14 @@ export async function GET(request: NextRequest) {
     const supplierRaw = sp.get('supplier') ?? 'dinamik'
     const statusRaw = sp.get('status') ?? 'all'
     const coverageRaw = sp.get('coverage') ?? 'all'
+    const oemRaw = sp.get('oem') ?? 'all'
     const brandIdRaw = parseInt(sp.get('brandId') ?? '', 10)
 
     const input: ProductListFilterInput = {
-      supplier: isProductListSupplier(supplierRaw) ? supplierRaw : 'dinamik',
+      supplier: isProductListSupplierFilter(supplierRaw) ? supplierRaw : 'dinamik',
       status: isProductListStatus(statusRaw) ? statusRaw : 'all',
       coverage: isProductListCoverage(coverageRaw) ? coverageRaw : 'all',
+      oem: isProductListOem(oemRaw) ? oemRaw : 'all',
       q: sp.get('q') ?? undefined,
       brandId: Number.isNaN(brandIdRaw) ? undefined : brandIdRaw
     }

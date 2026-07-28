@@ -10,13 +10,16 @@ interface AdminFilterChipProps {
   label: string
   active?: boolean
   onClick: () => void
+  /** Etiketin tek başına anlatamadığı filtre semantiği için hover açıklaması. */
+  title?: string
 }
 
-export function AdminFilterChip({ label, active, onClick }: AdminFilterChipProps) {
+export function AdminFilterChip({ label, active, onClick, title }: AdminFilterChipProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
         active
