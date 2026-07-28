@@ -287,8 +287,9 @@ async function loadSourceNameKey(
 
 /**
  * Satırın part_no anahtarını çoktan kapmış kanonik ürün (varsa) + o ürünü aynı
- * tedarikçiden tutan offer'ın SKU'su. Eşleşmeyen satırların ezici çoğunluğu
- * burada takılı olduğu için modal bunu doğrudan gösterir.
+ * tedarikçiden tutan offer'ın SKU'su. Çok-offer'a geçtikten sonra bu bir ENGEL
+ * DEĞİL, kısayol: hedef ürün aday listesinde de var, ama admin'in aradığı ürün
+ * genelde tam olarak bu olduğu için modal onu ayrıca öne çıkarır.
  */
 async function findKeyConflict(
   supplier: ProductListSupplier,
@@ -358,10 +359,9 @@ export async function searchSimilarCandidates(input: {
     FROM catalog.products p
     ${canonicalOverrideJoin('p', 'ov')}
     WHERE p.brand_id = ${src.brandId}
-      AND NOT EXISTS (
-        SELECT 1 FROM catalog.product_offers po
-        WHERE po.product_id = p.id AND po.supplier_code = ${input.supplier}
-      )
+      -- Bu tedarikçiden offer'ı olan ürünler artık ELENMİYOR: bir üründe aynı
+      -- tedarikçiden birden çok offer olabiliyor (mükerrer stok kodu aileleri).
+      -- Hangi tedarikçilerin bağlı olduğu existingSuppliers rozetinde görünür.
       AND ${score} > 0
     ORDER BY score DESC, p.id
     LIMIT ${limit}
@@ -553,19 +553,17 @@ export async function manualLinkSupplierRow(input: {
     `)
     if (linked) return { ok: false as const, reason: 'ALREADY_LINKED' as const }
 
-    // Hedef ürünün bu tedarikçiden zaten offer'ı var mı? (unique product_id+supplier_code)
-    const [conflict] = await tx.$queryRaw<Array<{ one: number }>>(Prisma.sql`
-      SELECT 1 AS one FROM catalog.product_offers
-      WHERE product_id = ${productId} AND supplier_code = ${supplier} LIMIT 1
-    `)
-    if (conflict) return { ok: false as const, reason: 'SUPPLIER_CONFLICT' as const }
-
+    // Hedef ürünün bu tedarikçiden başka offer'ı olması ARTIK engel değil —
+    // aynı parça ikinci bir stok kodu ailesiyle listelenebiliyor. Tek kalan
+    // kısıt uq_offers_product_supplier_sku: aynı ürüne aynı SKU iki kez
+    // giremez. Ön kontrol yerine ekleme sonucuna bakıyoruz.
     if (supplier === SUPPLIER_DINAMIK) {
-      await tx.$executeRaw(Prisma.sql`
+      const inserted = await tx.$executeRaw(Prisma.sql`
         INSERT INTO catalog.product_offers (product_id, supplier_code, dinamik_product_id, supplier_sku)
         VALUES (${productId}, ${SUPPLIER_DINAMIK}, ${supplierProductId}, ${src.sku})
         ON CONFLICT DO NOTHING
       `)
+      if (Number(inserted) === 0) return { ok: false as const, reason: 'SUPPLIER_CONFLICT' as const }
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO catalog.product_match_candidates
           (product_id, supplier_code, dinamik_product_id, match_method, matched_code, confidence, status, reviewed_at, reviewed_by)
@@ -582,11 +580,12 @@ export async function manualLinkSupplierRow(input: {
         WHERE dinamik_product_id = ${supplierProductId} AND status = 'PENDING' AND product_id <> ${productId}
       `)
     } else {
-      await tx.$executeRaw(Prisma.sql`
+      const inserted = await tx.$executeRaw(Prisma.sql`
         INSERT INTO catalog.product_offers (product_id, supplier_code, basbug_product_id, supplier_sku)
         VALUES (${productId}, ${SUPPLIER_BASBUG}, ${supplierProductId}, ${src.sku})
         ON CONFLICT DO NOTHING
       `)
+      if (Number(inserted) === 0) return { ok: false as const, reason: 'SUPPLIER_CONFLICT' as const }
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO catalog.product_match_candidates
           (product_id, supplier_code, basbug_product_id, match_method, matched_code, confidence, status, reviewed_at, reviewed_by)

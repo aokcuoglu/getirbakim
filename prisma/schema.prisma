@@ -927,7 +927,13 @@ model product_offers {
   dinamik_product supplier_dinamik_products? @relation(fields: [dinamik_product_id], references: [id], onDelete: Cascade)
   basbug_product  supplier_basbug_products?  @relation(fields: [basbug_product_id], references: [id], onDelete: Cascade)
 
-  @@unique([product_id, supplier_code], map: "uq_offers_product_supplier")
+  // Bir ürünün bir tedarikçiden BİRDEN ÇOK offer'ı olabilir: tedarikçi aynı
+  // parçayı ikinci bir stok kodu ailesiyle listeliyor ("PSA 0209GN" /
+  // "PSA-E 0209.GN"), hepsi tek kanonik ürüne düşer. Hepsi bağlanır; fiyat/stok
+  // rollup'ı tedarikçi başına EN İYİ offer'ı seçer (aktif → stoklu → en ucuz),
+  // bkz lib/catalog/refresh-product-rollups.ts.
+  @@unique([product_id, supplier_code, supplier_sku], map: "uq_offers_product_supplier_sku")
+  @@index([product_id, supplier_code])
   @@index([supplier_code, is_active])
   @@index([supplier_code, last_synced_at])
   @@index([is_active, stock_qty])

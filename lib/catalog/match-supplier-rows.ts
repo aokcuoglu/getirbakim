@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { normCodeSql, SUPPLIER_BASBUG, SUPPLIER_DINAMIK } from './catalog-sql'
 import { hasNameOverrideSql } from './canonical-name-sql'
+import { bestOffersSql } from './best-offer'
 
 export interface MatchSupplierStats {
   productsCreated: number
@@ -29,9 +30,14 @@ const bsbgKey = BASBUG_MATCH_KEY_SQL
  *
  * Idempotent and additive: rows that already have an offer are skipped.
  * Only rows under an APPROVED brand mapping participate. Matching key is
- * the normalized part_no (falling back to stock_code). Duplicate keys within
- * a brand keep only the first row (stable ROW_NUMBER order); the rest stay
- * unlinked and are surfaced via countUnlinkedSupplierRows().
+ * the normalized part_no (falling back to stock_code).
+ *
+ * Duplicate keys within a brand (the supplier listing one part under a second
+ * stock-code family — "PSA 0209GN" / "PSA-E 0209.GN") collapse onto ONE
+ * canonical product but every row still gets its own offer. Which of them
+ * drives price/stock is decided at read time by the rollup (active → in stock →
+ * cheapest), so a row going out of stock hands over to its sibling on the next
+ * refresh instead of leaving the product stranded on a dead listing.
  */
 export async function matchDinamikSupplierRows(): Promise<MatchSupplierStats> {
   const stats: MatchSupplierStats = {
@@ -70,70 +76,46 @@ export async function matchDinamikSupplierRows(): Promise<MatchSupplierStats> {
     ON CONFLICT (brand_id, part_no_norm) DO NOTHING
   `)
 
-  // Tie-break among duplicate raw rows collapsing into one product: prefer a
-  // sellable row (in stock, then cheapest) over the arbitrary oldest id, so the
-  // single linked offer reflects live availability/price rather than row order.
+  // Her ham satır kendi offer'ını alır — mükerrer anahtarlar da dahil. Aynı
+  // ürün+tedarikçi altında AYNI SKU iki kez gelirse (iki dinamik markası tek
+  // kanonik markaya bağlıysa mümkün) uq_offers_product_supplier_sku ilkini
+  // tutar, ON CONFLICT gerisini sessizce eler.
   stats.offersLinked = await db.$executeRaw(Prisma.sql`
-    WITH candidates AS (
-      SELECT
-        p.id AS product_id,
-        dp.id AS dnmk_id,
-        dp.stock_code,
-        ROW_NUMBER() OVER (
-          PARTITION BY p.id
-          ORDER BY (COALESCE(dc.stock_qty, 0) > 0) DESC, dc.price ASC NULLS LAST, dp.id
-        ) AS rn
-      FROM catalog.supplier_dinamik_products dp
-      JOIN catalog.brand_mappings bm
-        ON bm.dinamik_brand_id = dp.brand_id
-        AND bm.mapping_status = 'APPROVED'
-      JOIN catalog.products p
-        ON p.brand_id = bm.brand_id
-        AND p.part_no_norm = ${dnmkKey}
-      LEFT JOIN catalog.supplier_dinamik_cost dc ON dc.product_id = dp.id
-      WHERE dp.is_passive = false
-        AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id
-        )
-    )
     INSERT INTO catalog.product_offers (product_id, supplier_code, dinamik_product_id, supplier_sku)
-    SELECT product_id, ${SUPPLIER_DINAMIK}, dnmk_id, stock_code
-    FROM candidates
-    WHERE rn = 1
+    SELECT p.id, ${SUPPLIER_DINAMIK}, dp.id, dp.stock_code
+    FROM catalog.supplier_dinamik_products dp
+    JOIN catalog.brand_mappings bm
+      ON bm.dinamik_brand_id = dp.brand_id
+      AND bm.mapping_status = 'APPROVED'
+    JOIN catalog.products p
+      ON p.brand_id = bm.brand_id
+      AND p.part_no_norm = ${dnmkKey}
+    WHERE dp.is_passive = false
+      AND NOT EXISTS (
+        SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id
+      )
     ON CONFLICT DO NOTHING
   `)
 
   return stats
 }
 
+/** Anahtar merdiveni: her ham satır kendi offer'ını alır (mükerrerler dahil). */
 async function linkBasbugOffersByKey(): Promise<number> {
   return db.$executeRaw(Prisma.sql`
-    WITH candidates AS (
-      SELECT
-        p.id AS product_id,
-        bp.id AS bsbg_id,
-        bp.malzeme_no,
-        -- Başbuğ stock is uniformly 0 (not yet ingested), so cheapest list price
-        -- is the meaningful tie-break among duplicate rows; id breaks true ties.
-        ROW_NUMBER() OVER (
-          PARTITION BY p.id ORDER BY bp.liste_fiyati ASC NULLS LAST, bp.id
-        ) AS rn
-      FROM catalog.supplier_basbug_products bp
-      JOIN catalog.brand_mappings bm
-        ON bm.basbug_brand_id = bp.brand_id
-        AND bm.mapping_status = 'APPROVED'
-      JOIN catalog.products p
-        ON p.brand_id = bm.brand_id
-        AND p.part_no_norm = ${bsbgKey}
-      WHERE bp.is_passive = false
-        AND NOT EXISTS (
-          SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
-        )
-    )
     INSERT INTO catalog.product_offers (product_id, supplier_code, basbug_product_id, supplier_sku)
-    SELECT product_id, ${SUPPLIER_BASBUG}, bsbg_id, malzeme_no
-    FROM candidates
-    WHERE rn = 1
+    SELECT p.id, ${SUPPLIER_BASBUG}, bp.id, bp.malzeme_no
+    FROM catalog.supplier_basbug_products bp
+    JOIN catalog.brand_mappings bm
+      ON bm.basbug_brand_id = bp.brand_id
+      AND bm.mapping_status = 'APPROVED'
+    JOIN catalog.products p
+      ON p.brand_id = bm.brand_id
+      AND p.part_no_norm = ${bsbgKey}
+    WHERE bp.is_passive = false
+      AND NOT EXISTS (
+        SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id
+      )
     ON CONFLICT DO NOTHING
   `)
 }
@@ -145,6 +127,12 @@ async function linkBasbugOffersByKey(): Promise<number> {
  *  1. normalized part_no (falling back to malzeme_no) → existing product
  *  2. unique OEM overlap (bsbg oem_no tokens ∩ product_oems) within the brand
  *  3. create a new product from the row's own key, then link
+ *
+ * Rung 1 links every matching row (a product may carry several Başbuğ offers).
+ * Rung 2 deliberately does NOT: an OEM overlap is a weaker signal than a code
+ * match, so it only fills a product that has no Başbuğ offer yet and takes one
+ * row per product. Piling rows onto an already-served product on OEM evidence
+ * alone is how unrelated parts would get merged.
  */
 export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
   const stats: MatchSupplierStats = {
@@ -302,13 +290,15 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
   // so re-runs are no-ops. Admin'in name_override girdiği ürünlere hiç
   // dokunulmaz — override zaten gösterimde kazanır, ama ham adı da
   // oynatmayıp gereksiz rollup/index churn'ünü önlüyoruz.
+  // Ad kaynağı, ürünün Başbuğ tarafındaki EN İYİ offer'ı — bir üründe birden
+  // çok Başbuğ offer'ı olabildiği için kaynak sabitlenmezse ad her koşuda iki
+  // varyantın açıklaması arasında gidip gelir (ve her seferinde Meili reindex).
   stats.namesUpgraded = await db.$executeRaw(Prisma.sql`
     UPDATE catalog.products p
     SET name = bp.aciklama
-    FROM catalog.product_offers po
-    JOIN catalog.supplier_basbug_products bp ON bp.id = po.basbug_product_id
-    WHERE po.product_id = p.id
-      AND po.supplier_code = ${SUPPLIER_BASBUG}
+    FROM (${bestOffersSql(Prisma.sql`po.supplier_code = ${SUPPLIER_BASBUG}`)}) b
+    JOIN catalog.supplier_basbug_products bp ON bp.id = b.basbug_product_id
+    WHERE b.product_id = p.id
       AND NULLIF(bp.aciklama, '') IS NOT NULL
       AND p.name IS DISTINCT FROM bp.aciklama
       AND NOT ${hasNameOverrideSql('p')}
