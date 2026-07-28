@@ -12,8 +12,17 @@ export interface MatchSupplierStats {
   pendingCandidates: number
 }
 
-const dnmkKey = normCodeSql(Prisma.sql`COALESCE(dp.part_no, dp.stock_code)`)
-const bsbgKey = normCodeSql(Prisma.sql`COALESCE(bp.part_no, bp.malzeme_no)`)
+/**
+ * Eşleştirme anahtarı: ham satırı bir kanonik ürüne bağlayan normalize kod.
+ * Kapsama sayımı da (getProductMatchOverview) bu ifadeyi kullanır — anahtar
+ * burada değişirse sayım kendiliğinden takip etsin diye dışa açık.
+ * Tablo takma adları sabit: dinamik `dp`, başbuğ `bp`.
+ */
+export const DINAMIK_MATCH_KEY_SQL = normCodeSql(Prisma.sql`COALESCE(dp.part_no, dp.stock_code)`)
+export const BASBUG_MATCH_KEY_SQL = normCodeSql(Prisma.sql`COALESCE(bp.part_no, bp.malzeme_no)`)
+
+const dnmkKey = DINAMIK_MATCH_KEY_SQL
+const bsbgKey = BASBUG_MATCH_KEY_SQL
 
 /**
  * Attach Dinamik raw rows (catalog.supplier_dinamik_products) to the canonical catalog.

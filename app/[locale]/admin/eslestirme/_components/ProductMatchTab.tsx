@@ -42,10 +42,26 @@ function SupplierCoverageCard({ cov }: { cov: SupplierCoverage }) {
           <span className="font-semibold text-success">{cov.linked.toLocaleString('tr-TR')}</span> eşleşen
         </span>
         <span>
-          <span className="font-semibold text-warning">{cov.unlinked.toLocaleString('tr-TR')}</span> kalan
+          <span className={`font-semibold ${cov.unlinked > 0 ? 'text-warning' : ''}`}>
+            {cov.unlinked.toLocaleString('tr-TR')}
+          </span>{' '}
+          kalan
         </span>
-        <span>{cov.total.toLocaleString('tr-TR')} toplam</span>
+        <span>{cov.total.toLocaleString('tr-TR')} ürün</span>
       </div>
+      {cov.variantRows > 0 && (
+        <p
+          className="mt-1.5 text-[11px] text-muted-foreground"
+          title={
+            'Tedarikçi aynı parçayı birden çok stok koduyla listeliyor (ör. "PSA 0209GN" ve ' +
+            '"PSA-E 0209.GN"). Hepsi tek kanonik ürüne düşer; stoklu/en ucuz olan offer olur, ' +
+            'kalanı alternatif olarak bekler. Eksik ürün değildir.'
+          }
+        >
+          + {cov.variantRows.toLocaleString('tr-TR')} alternatif varyant satırı ·{' '}
+          {cov.rawRows.toLocaleString('tr-TR')} ham satır
+        </p>
+      )}
     </div>
   )
 }

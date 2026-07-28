@@ -25,15 +25,29 @@ export const PRODUCT_LIST_SUPPLIER_LABELS: Record<ProductListSupplier, string> =
   basbug: 'Başbuğ'
 }
 
-/** Bir tedarikçinin onaylı markaları altındaki ürün kapsama sayıları. */
+/**
+ * Bir tedarikçinin onaylı markaları altındaki ürün kapsama sayıları.
+ *
+ * Sayım birimi HAM SATIR DEĞİL, ayrı üründür: (kanonik marka, normalize
+ * part_no) grubu. Tedarikçiler aynı parçayı birden çok stok kodu ailesiyle
+ * listeliyor (ör. "PSA 0209GN" ve "PSA-E 0209.GN"); bunlar tek kanonik ürüne
+ * denk gelir ve `uq_offers_product_supplier` gereği yalnız biri offer olur.
+ * Satır bazlı sayım bu varyantları "eşleşmeyen" gösteriyordu — oysa ürün
+ * kataloğa girmiş ve satılabilir durumdadır. Gerçek boşluk, hiçbir satırı
+ * bağlanamamış gruptur.
+ */
 export type SupplierCoverage = {
   supplier: ProductListSupplier
-  /** Onaylı marka altındaki aktif ham satır sayısı. */
+  /** Onaylı marka altındaki ayrı ürün (marka + normalize part_no) sayısı. */
   total: number
-  /** Bunlardan kanonik ürüne bağlanmış (eşleşmiş) olanlar. */
+  /** Kanonik ürüne bağlanmış ayrı ürün sayısı. */
   linked: number
-  /** Henüz bağlanmamış (eşleşmeyen) satırlar. */
+  /** Hiçbir satırı bağlanamamış ayrı ürün — gerçek boşluk. */
   unlinked: number
+  /** Bağlı bir ürünün altındaki, offer'ı olmayan alternatif ham satır sayısı. */
+  variantRows: number
+  /** Onaylı marka altındaki toplam aktif ham satır (bilgi amaçlı). */
+  rawRows: number
 }
 
 export type ProductMatchOverview = {
