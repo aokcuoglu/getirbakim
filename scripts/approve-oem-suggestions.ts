@@ -23,18 +23,30 @@
  * ürünün kendi part_no'sunu zaten reddeder, dolayısıyla tecdoc-archive
  * önerilerini uygulayamaz.
  *
+ * MARKA BAZLI HATA — neden --exclude-brand var: yanlışlık kaynağa değil
+ * MARKAYA bağlı çıkabiliyor. MEDIUM kümesinde 200 öneri ölçüldüğünde
+ * (2026-07-28) yanlış oranı SWAG'da %23, FORMPART %7, DELPHI %2, VALEO %0 idi.
+ * SWAG'da hata rastgele değil sistematik: katalog kodu sıkıştırılmış
+ * (`10919769`), TecDoc'ta ise boşluklu yazılıyor — yanlış yazılışla yapılan
+ * arama YANLIŞ ÜRÜNÜ buluyor ve onun OEM'leri bizim ürüne yazılıyor
+ * (VW Crafter rulmanına McCormick traktör numarası). Aynı tuzak
+ * HELLA/VICTORREINZ/BOSCH için de bildirilmişti. Böyle bir marka bulunca
+ * kaynağın tamamını çöpe atmak yerine o markayı hariç tut.
+ *
  * Kullanım:
  *   bun scripts/approve-oem-suggestions.ts --dry-run
  *   bun scripts/approve-oem-suggestions.ts --source=tecdoc-archive --limit=1000
  *   bun scripts/approve-oem-suggestions.ts --all
+ *   bun scripts/approve-oem-suggestions.ts --all --confidence=MEDIUM --exclude-brand=SWAG
  *
  * Bayraklar:
- *   --source=X       yalnız bu kaynak (birden çok kez verilebilir)
- *   --confidence=X   varsayılan HIGH
- *   --limit=N        en fazla N öneri satırı
- *   --batch=N        toplu yazma boyu (varsayılan 5000)
- *   --all            kaynak filtresi olmadan hepsi
- *   --dry-run        hiçbir şey yazma, ne olacağını göster
+ *   --source=X        yalnız bu kaynak (birden çok kez verilebilir)
+ *   --confidence=X    varsayılan HIGH
+ *   --exclude-brand=X bu katalog markasını atla (birden çok kez verilebilir)
+ *   --limit=N         en fazla N öneri satırı
+ *   --batch=N         toplu yazma boyu (varsayılan 5000)
+ *   --all             kaynak filtresi olmadan hepsi
+ *   --dry-run         hiçbir şey yazma, ne olacağını göster
  *
  * Uygulanan satırlar `status='APPLIED'`, `reviewed_by='bulk-approve'` olur.
  * Yeniden çalıştırmak güvenli: APPLIED satırlar bir daha seçilmez, çakışan
@@ -52,6 +64,7 @@ const flag = (n: string) => args.find((a) => a.startsWith(`--${n}=`))?.split('='
 const flagAll = (n: string) => args.filter((a) => a.startsWith(`--${n}=`)).map((a) => a.split('=')[1])
 
 const SOURCES = flagAll('source')
+const EXCLUDE_BRANDS = flagAll('exclude-brand')
 const CONFIDENCE = flag('confidence') ?? 'HIGH'
 const LIMIT = flag('limit') ? Number(flag('limit')) : null
 const BATCH = Number(flag('batch') ?? 5000)
@@ -84,10 +97,15 @@ async function main(): Promise<void> {
     Prisma.sql`s.confidence = ${CONFIDENCE}`
   ]
   if (!ALL) where.push(Prisma.sql`s.source_site = any(${SOURCES})`)
+  if (EXCLUDE_BRANDS.length > 0) {
+    where.push(Prisma.sql`b.brand <> all(${EXCLUDE_BRANDS})`)
+  }
 
   const rows = await db.$queryRaw<Row[]>`
     select s.id, s.product_id, s.value, s.value_norm, s.oem_brand, s.source_site
     from catalog.product_ref_suggestions s
+    join catalog.products p on p.id = s.product_id
+    join catalog.brands b on b.id = p.brand_id
     where ${Prisma.join(where, ' and ')}
     order by s.id
     ${LIMIT ? Prisma.sql`limit ${LIMIT}` : Prisma.empty}
@@ -103,7 +121,11 @@ async function main(): Promise<void> {
   for (const r of rows) bySource.set(r.source_site, (bySource.get(r.source_site) ?? 0) + 1)
   const products = new Set(rows.map((r) => r.product_id.toString()))
 
-  console.log(`${rows.length.toLocaleString('tr-TR')} öneri satırı · ${products.size.toLocaleString('tr-TR')} ürün · güven ${CONFIDENCE}${DRY_RUN ? ' [DRY-RUN]' : ''}`)
+  console.log(
+    `${rows.length.toLocaleString('tr-TR')} öneri satırı · ${products.size.toLocaleString('tr-TR')} ürün · güven ${CONFIDENCE}` +
+      (EXCLUDE_BRANDS.length > 0 ? ` · hariç: ${EXCLUDE_BRANDS.join(', ')}` : '') +
+      (DRY_RUN ? ' [DRY-RUN]' : '')
+  )
   for (const [site, n] of [...bySource].sort((a, b) => b[1] - a[1])) {
     console.log(`  ${site.padEnd(20)} ${n.toLocaleString('tr-TR').padStart(9)} → source='${sourceFor(site)}'`)
   }
