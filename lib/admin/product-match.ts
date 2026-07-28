@@ -3,8 +3,11 @@ import { Prisma } from '@prisma/client'
 import {
   matchDinamikSupplierRows,
   matchBasbugSupplierRows,
-  countUnlinkedSupplierRows
+  countUnlinkedSupplierRows,
+  DINAMIK_MATCH_KEY_SQL,
+  BASBUG_MATCH_KEY_SQL
 } from '@/lib/catalog/match-supplier-rows'
+import { SUPPLIER_BASBUG, SUPPLIER_DINAMIK } from '@/lib/catalog/catalog-sql'
 import { ingestDinamikOems, ingestBasbugOems } from '@/lib/catalog/ingest-oems'
 import { refreshProductRollups } from '@/lib/catalog/refresh-product-rollups'
 import type {
@@ -20,46 +23,130 @@ export type {
   MatchStats
 } from './product-match-shared'
 
+type CoverageRow = {
+  linked: bigint
+  gap_groups: bigint
+  variant_rows: bigint
+  raw_rows: bigint
+}
+
+type CoverageSource = {
+  /** Ham tablo + takma ad; takma ad `keySql` ile aynı olmalı (dp / bp). */
+  from: Prisma.Sql
+  /** brand_mappings ↔ ham tablo marka bağı. */
+  brandJoin: Prisma.Sql
+  /** product_offers'daki ham satır kolonu (po.dinamik_product_id gibi). */
+  offerRowCol: Prisma.Sql
+  /** Ham satır kimliği (dp.id / bp.id). */
+  rowId: Prisma.Sql
+  /** Ham satırın pasiflik kolonu (dp.is_passive / bp.is_passive). */
+  isPassive: Prisma.Sql
+  /** Eşleştirme anahtarı — matcher'ın kullandığı ifadenin aynısı. */
+  keySql: Prisma.Sql
+  supplierCode: string
+}
+
+/**
+ * Kapsama sayımı: birim HAM SATIR DEĞİL, ayrı üründür.
+ *
+ * Tedarikçi aynı parçayı birden çok stok kodu ailesiyle listeliyor
+ * ("PSA 0209GN" / "PSA-E 0209.GN" / "PGT 0209GN"); hepsi tek kanonik ürüne
+ * düşer ve `uq_offers_product_supplier` gereği yalnız biri offer olabilir.
+ * Satır bazlı sayım bu varyantları "eşleşmeyen" gösteriyordu — oysa ürün
+ * kataloğa girmiş ve satılabilir durumdadır.
+ *
+ * Sayım offer'ı olmayan satırlar üzerinden yürür (Dinamik'te ~8 bin), çünkü
+ * offer'lı satırların grubu zaten kendi kanonik ürünüdür — böylece normalize
+ * anahtar 860 bin satır yerine yalnız bağlanmamışlar için hesaplanır:
+ *   - linked      → offer'ı olan satır = kapsanmış kanonik ürün
+ *   - variantRows → grubunun kanonik ürünü bu tedarikçiden zaten offer'lı olan
+ *                   bağlanmamış satır (alternatif varyant, eksik ürün değil)
+ *   - gapGroups   → geriye kalan gerçek boşluklar, ayrı ürün olarak sayılır
+ *                   (kodsuz satır gruplanamaz; her biri kendi başına boşluktur)
+ */
+function coverageSql(src: CoverageSource): Prisma.Sql {
+  return Prisma.sql`
+    WITH unlinked AS (
+      SELECT bm.brand_id, ${src.keySql} AS key_norm, ${src.rowId} AS row_id
+      FROM ${src.from}
+      JOIN catalog.brand_mappings bm
+        ON ${src.brandJoin}
+        AND bm.mapping_status = 'APPROVED'
+      WHERE ${src.isPassive} = false
+        AND NOT EXISTS (
+          SELECT 1 FROM catalog.product_offers po WHERE ${src.offerRowCol} = ${src.rowId}
+        )
+    ),
+    classified AS (
+      SELECT
+        u.brand_id,
+        u.key_norm,
+        u.row_id,
+        EXISTS (
+          SELECT 1
+          FROM catalog.products p
+          JOIN catalog.product_offers po
+            ON po.product_id = p.id
+            AND po.supplier_code = ${src.supplierCode}
+          WHERE p.brand_id = u.brand_id AND p.part_no_norm = u.key_norm
+        ) AS covered
+      FROM unlinked u
+    ),
+    linked AS (
+      SELECT COUNT(*)::bigint AS n
+      FROM ${src.from}
+      JOIN catalog.brand_mappings bm
+        ON ${src.brandJoin}
+        AND bm.mapping_status = 'APPROVED'
+      JOIN catalog.product_offers po ON ${src.offerRowCol} = ${src.rowId}
+      WHERE ${src.isPassive} = false
+    )
+    SELECT
+      (SELECT n FROM linked) AS linked,
+      (SELECT COUNT(*) FROM classified WHERE covered)::bigint AS variant_rows,
+      (
+        SELECT COUNT(DISTINCT (brand_id, key_norm, CASE WHEN key_norm IS NULL THEN row_id END))
+        FROM classified
+        WHERE NOT covered
+      )::bigint AS gap_groups,
+      ((SELECT n FROM linked) + (SELECT COUNT(*) FROM classified))::bigint AS raw_rows
+  `
+}
+
 /**
  * Ürün eşleştirme kapsama paneli verisi.
  *
- * Her tedarikçi (dinamik/başbuğ) için onaylı marka altındaki aktif ham satır
- * sayısı (total), offer'a bağlanmış (linked) ve bağlanmamış (unlinked) sayıları;
+ * Her tedarikçi (dinamik/başbuğ) için onaylı marka altındaki ayrı ürün sayısı
+ * (total), kanonik ürüne bağlanmış (linked) ve hiç bağlanamamış (unlinked)
+ * ürünler, bağlı ürünlerin altındaki alternatif ham satırlar (variantRows);
  * ayrıca kanonik ürün ve toplam offer sayısı.
  */
 export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
-  // Fan-out'u önlemek için marka-onayı kontrolü JOIN yerine EXISTS ile.
-  const [dinamik] = await db.$queryRaw<Array<{ total: bigint; linked: bigint }>>(Prisma.sql`
-    SELECT
-      COUNT(*)::bigint AS total,
-      COUNT(*) FILTER (
-        WHERE EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.dinamik_product_id = dp.id)
-      )::bigint AS linked
-    FROM catalog.supplier_dinamik_products dp
-    WHERE dp.is_passive = false
-      AND EXISTS (
-        SELECT 1 FROM catalog.brand_mappings bm
-        WHERE bm.dinamik_brand_id = dp.brand_id AND bm.mapping_status = 'APPROVED'
-      )
-  `)
-
-  const [basbug] = await db.$queryRaw<Array<{ total: bigint; linked: bigint }>>(Prisma.sql`
-    SELECT
-      COUNT(*)::bigint AS total,
-      COUNT(*) FILTER (
-        WHERE EXISTS (SELECT 1 FROM catalog.product_offers po WHERE po.basbug_product_id = bp.id)
-      )::bigint AS linked
-    FROM catalog.supplier_basbug_products bp
-    WHERE bp.is_passive = false
-      AND EXISTS (
-        SELECT 1 FROM catalog.brand_mappings bm
-        WHERE bm.basbug_brand_id = bp.brand_id AND bm.mapping_status = 'APPROVED'
-      )
-  `)
-
-  const [totals] = await db.$queryRaw<
-    Array<{ products: bigint; offers: bigint; dual: bigint; pending: bigint }>
-  >(Prisma.sql`
+  const [[dinamik], [basbug], [totals]] = await Promise.all([
+    db.$queryRaw<CoverageRow[]>(
+      coverageSql({
+        from: Prisma.sql`catalog.supplier_dinamik_products dp`,
+        brandJoin: Prisma.sql`bm.dinamik_brand_id = dp.brand_id`,
+        offerRowCol: Prisma.sql`po.dinamik_product_id`,
+        rowId: Prisma.sql`dp.id`,
+        isPassive: Prisma.sql`dp.is_passive`,
+        keySql: DINAMIK_MATCH_KEY_SQL,
+        supplierCode: SUPPLIER_DINAMIK
+      })
+    ),
+    db.$queryRaw<CoverageRow[]>(
+      coverageSql({
+        from: Prisma.sql`catalog.supplier_basbug_products bp`,
+        brandJoin: Prisma.sql`bm.basbug_brand_id = bp.brand_id`,
+        offerRowCol: Prisma.sql`po.basbug_product_id`,
+        rowId: Prisma.sql`bp.id`,
+        isPassive: Prisma.sql`bp.is_passive`,
+        keySql: BASBUG_MATCH_KEY_SQL,
+        supplierCode: SUPPLIER_BASBUG
+      })
+    ),
+    db.$queryRaw<Array<{ products: bigint; offers: bigint; dual: bigint; pending: bigint }>>(
+      Prisma.sql`
     SELECT
       (SELECT COUNT(*) FROM catalog.products)::bigint AS products,
       (SELECT COUNT(*) FROM catalog.product_offers)::bigint AS offers,
@@ -76,12 +163,20 @@ export async function getProductMatchOverview(): Promise<ProductMatchOverview> {
         FROM catalog.product_match_candidates
         WHERE status = 'PENDING'
       )::bigint AS pending
-  `)
+      `
+    )
+  ])
 
-  const cov = (row: { total: bigint; linked: bigint } | undefined) => {
-    const total = Number(row?.total ?? 0)
+  const cov = (row: CoverageRow | undefined) => {
     const linked = Number(row?.linked ?? 0)
-    return { total, linked, unlinked: Math.max(0, total - linked) }
+    const unlinked = Number(row?.gap_groups ?? 0)
+    return {
+      total: linked + unlinked,
+      linked,
+      unlinked,
+      variantRows: Number(row?.variant_rows ?? 0),
+      rawRows: Number(row?.raw_rows ?? 0)
+    }
   }
 
   return {
