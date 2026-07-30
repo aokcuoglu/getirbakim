@@ -29,9 +29,22 @@ async function main() {
   const health = await client.health()
   console.log(`[meili-setup] Meilisearch health: ${health.status}`)
 
-  console.log(`[meili-setup] Creating/updating index "${INDEX_NAME}" with primary key "id"`)
-  const task = await client.createIndex(INDEX_NAME, { primaryKey: 'id' })
-  console.log(`[meili-setup] Create index task: ${task.taskUid}`)
+  // The index almost always exists already. Calling createIndex anyway enqueues a
+  // task that Meili completes with status 'failed' (index_already_exists), which
+  // read as a broken setup in every rerun's output. Ask first, create only if missing.
+  let createTaskUid: number | null = null
+  const exists = await client
+    .getIndex(INDEX_NAME)
+    .then(() => true)
+    .catch(() => false)
+  if (exists) {
+    console.log(`[meili-setup] Index "${INDEX_NAME}" already exists — skipping create.`)
+  } else {
+    console.log(`[meili-setup] Creating index "${INDEX_NAME}" with primary key "id"`)
+    const task = await client.createIndex(INDEX_NAME, { primaryKey: 'id' })
+    createTaskUid = task.taskUid
+    console.log(`[meili-setup] Create index task: ${task.taskUid}`)
+  }
 
   const index = client.index(INDEX_NAME)
 
@@ -125,7 +138,7 @@ async function main() {
 
   console.log('[meili-setup] Waiting for all tasks to complete...')
   const taskUids = [
-    task.taskUid,
+    createTaskUid,
     searchableTask.taskUid,
     filterableTask.taskUid,
     sortableTask.taskUid,
@@ -133,12 +146,18 @@ async function main() {
     typoTask.taskUid,
     paginationTask.taskUid,
     synonymTask.taskUid
-  ]
+  ].filter((uid): uid is number => uid !== null)
+
+  // An attribute change rebuilds the whole index; on the ~1M document catalog that
+  // runs for minutes, and the old 60s ceiling gave up on it every time. Meili would
+  // still finish in the background, but the script reported 'processing' and moved
+  // on — so a genuinely stuck task looked exactly like a slow one.
+  const maxWait = 900_000
+  let failed = 0
 
   for (const uid of taskUids) {
     let result: any
     let elapsed = 0
-    const maxWait = 60_000
     const interval = 500
     while (elapsed < maxWait) {
       result = await client.tasks.getTask(uid)
@@ -146,13 +165,24 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, interval))
       elapsed += interval
     }
-    if (!result) {
-      console.error(`[meili-setup] Task ${uid} timed out`)
+    if (!result || (result.status !== 'succeeded' && result.status !== 'failed')) {
+      console.error(
+        `[meili-setup] Task ${uid} still ${result?.status ?? 'unknown'} after ${maxWait / 1000}s — ` +
+          'Meili keeps working on it, but do not trust search results until it settles.'
+      )
     } else if (result.status === 'failed') {
+      failed++
       console.error(`[meili-setup] Task ${uid} failed:`, result.error || 'unknown error')
     } else {
       console.log(`[meili-setup] Task ${uid}: ${result.status}`)
     }
+  }
+
+  // Exit non-zero so catalog-reindex.sh stops before the backfill: indexing a
+  // million documents against a half-configured index only hides the problem.
+  if (failed > 0) {
+    console.error(`[meili-setup] ${failed} task(s) failed — index is not fully configured.`)
+    process.exit(1)
   }
 
   console.log('[meili-setup] Setup complete.')
