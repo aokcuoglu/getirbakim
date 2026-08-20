@@ -29,8 +29,7 @@ import type {
   AdminProductsWorkbenchResult,
   AdminSortBy,
   AdminSortOrder,
-  PartTechnicalReferenceInput,
-  SupplierOffer
+  PartTechnicalReferenceInput
 } from '@/lib/types/admin-products'
 
 const DEFAULT_LIMIT = 20

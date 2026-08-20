@@ -11,6 +11,7 @@ declare module 'bun:test' {
     toBeNull(): void
     toEqual(expected: unknown): void
     toHaveLength(expected: number): void
+    toContain(expected: unknown): void
     toHaveBeenCalledWith(...args: unknown[]): void
     not: Matcher<T>
     resolves: PromiseMatchers

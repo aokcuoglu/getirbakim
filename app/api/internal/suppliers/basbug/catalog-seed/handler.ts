@@ -6,8 +6,11 @@ type BasbugCatalogSeedRunner = (input: {
   limitGroups?: number
 }) => Promise<{
   status: string
-  runId: number
-  providerId: number
+  // `runId`/`providerId` ZORUNLU DEĞİL: `runBasbugCatalogSeedJob` bu alanları
+  // döndürmüyor (lib/suppliers/sync-basbug.ts `BasbugCatalogSeedResult`).
+  // Yanıt gövdesi değişmiyor — `undefined` alan JSON'a zaten yazılmıyor.
+  runId?: number
+  providerId?: number
   groupCount: number
   totalCount: number
   successCount: number
