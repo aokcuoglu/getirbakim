@@ -16,11 +16,11 @@ const bodySchema = z.object({
 export async function POST(request: NextRequest) {
   const guard = partnerGuard(request, 'api:partner:order-quotes:create')
   if (!('partner' in guard)) return guard
-  const { context } = guard
+  const { context, partner } = guard
   try {
     const parsed = bodySchema.safeParse(await request.json())
     if (!parsed.success) return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Invalid quote request.', context })
-    return successResponse({ quote: await quotePartnerOffer(parsed.data.selectedOfferId, parsed.data.quantity) }, context)
+    return successResponse({ quote: await quotePartnerOffer(partner.code, parsed.data.selectedOfferId, parsed.data.quantity) }, context)
   } catch (error) {
     if (error instanceof PartnerOrderError) {
       return errorResponse({ status: error.status, code: error.code, message: error.message, details: error.details, context })

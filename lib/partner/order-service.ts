@@ -5,7 +5,8 @@ import { db } from '@/lib/db'
 import {
   assertOfferFresh, calculateBindingUnitPrice, cancellationOutcome, decodeOfferId,
   fingerprintOrderRequest, PartnerOrderError, resolvePartnerOrderPolicy,
-  type PartnerOrderStatus, PARTNER_ORDER_POLICY_ENV
+  assertQuoteConfirmationCurrent, signQuoteConfirmation, verifyQuoteConfirmation,
+  type PartnerOrderStatus, PARTNER_ORDER_POLICY_ENV, PARTNER_QUOTE_SIGNING_SECRET_ENV
 } from './order-contract'
 import { buildPartnerOrderEvent, shouldExpirePartnerOrder } from './webhook-contract'
 
@@ -14,6 +15,7 @@ export interface CreatePartnerOrderInput {
   selectedOfferId: string
   quantity: number
   expectedUnitNetKurus: number
+  confirmationToken: string
 }
 
 const orderInclude = {
@@ -102,7 +104,7 @@ export async function getPartnerOrder(partnerId: string, id: string) {
   return toPartnerOrderDto(order)
 }
 
-export async function quotePartnerOffer(selectedOfferId: string, quantity: number) {
+export async function quotePartnerOffer(partnerId: string, selectedOfferId: string, quantity: number) {
   const offerId = decodeOfferId(selectedOfferId)
   if (!offerId) throw new PartnerOrderError('OFFER_UNAVAILABLE', 'Selected offer is unavailable.', 409)
   const policy = resolvePartnerOrderPolicy(process.env[PARTNER_ORDER_POLICY_ENV])
@@ -120,13 +122,19 @@ export async function quotePartnerOffer(selectedOfferId: string, quantity: numbe
   const multiplier = new Prisma.Decimal(quantity)
   const freshnessDeadline = offer.priced_at.getTime() + policy.offerMaxAgeSeconds * 1000
   const quoteDeadline = Math.min(freshnessDeadline, now.getTime() + policy.reservationTtlSeconds * 1000)
+  const expiresAt = new Date(quoteDeadline).toISOString()
+  const unitNetKurus = amountToKurus(unit.net)
+  const confirmationToken = signQuoteConfirmation({
+    version: 1, partnerId, selectedOfferId, quantity, unitNetKurus,
+    policyVersion: policy.version, offerPricedAt: offer.priced_at.toISOString(),
+    offerLastSyncedAt: offer.last_synced_at.toISOString(), expiresAt
+  }, process.env[PARTNER_QUOTE_SIGNING_SECRET_ENV])
   return {
     selectedOfferId, quantity,
     bindingNetKurus: amountToKurus(unit.net.mul(multiplier)),
     bindingVatKurus: amountToKurus(unit.vat.mul(multiplier)),
     bindingGrossKurus: amountToKurus(unit.gross.mul(multiplier)),
-    unitNetKurus: amountToKurus(unit.net), currency: 'TRY', policyVersion: policy.version,
-    expiresAt: new Date(quoteDeadline).toISOString()
+    unitNetKurus, currency: 'TRY', policyVersion: policy.version, expiresAt, confirmationToken
   }
 }
 
@@ -163,9 +171,8 @@ export async function createPartnerOrder(partnerId: string, input: CreatePartner
   const fingerprint = fingerprintOrderRequest({
     selectedOfferId: input.selectedOfferId,
     quantity: input.quantity,
-    expectedUnitNetKurus: input.expectedUnitNetKurus
+    expectedUnitNetKurus: input.expectedUnitNetKurus, confirmationToken: input.confirmationToken
   })
-
   const replay = await db.partner_orders.findUnique({
     where: { partner_id_idempotency_key: { partner_id: partnerId, idempotency_key: input.idempotencyKey } },
     include: orderInclude
@@ -176,6 +183,7 @@ export async function createPartnerOrder(partnerId: string, input: CreatePartner
     }
     return { order: await getPartnerOrder(partnerId, replay.id), replayed: true }
   }
+  const confirmation = verifyQuoteConfirmation(input.confirmationToken, process.env[PARTNER_QUOTE_SIGNING_SECRET_ENV])
 
   try {
     const order = await db.$transaction(async (tx) => {
@@ -205,6 +213,11 @@ export async function createPartnerOrder(partnerId: string, input: CreatePartner
           currency: 'TRY', policyVersion: policy.version
         })
       }
+      assertQuoteConfirmationCurrent({
+        confirmation, partnerId, selectedOfferId: input.selectedOfferId, quantity: input.quantity,
+        unitNetKurus: actualUnitNetKurus, policyVersion: policy.version,
+        offerPricedAt: offer.priced_at, offerLastSyncedAt: offer.last_synced_at, now
+      })
 
       const reserved = await tx.partner_stock_reservations.aggregate({
         where: { selected_offer_id: offer.id, OR: [{ status: 'COMMITTED' }, { status: 'ACTIVE', expires_at: { gt: now } }] },

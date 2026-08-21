@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client'
 import {
   assertOfferFresh, assertPartnerOrderTransition, calculateBindingUnitPrice, cancellationOutcome,
   decodeOfferId, encodeOfferId, fingerprintOrderRequest, PartnerOrderError,
-  resolvePartnerOrderPolicy
+  resolvePartnerOrderPolicy, assertQuoteConfirmationCurrent,
+  signQuoteConfirmation, verifyQuoteConfirmation
 } from './order-contract'
 
 const policy = resolvePartnerOrderPolicy(JSON.stringify({
@@ -32,6 +33,30 @@ describe('partner order contract', () => {
     const first = fingerprintOrderRequest({ offer: 'offer_1', quantity: 1 })
     expect(fingerprintOrderRequest({ offer: 'offer_1', quantity: 1 })).toBe(first)
     expect(fingerprintOrderRequest({ offer: 'offer_1', quantity: 2 })).not.toBe(first)
+  })
+
+  it('signs an opaque exact quote confirmation and rejects tampering', () => {
+    const confirmation = quoteConfirmation()
+    const token = signQuoteConfirmation(confirmation, 's'.repeat(32))
+    expect(verifyQuoteConfirmation(token, 's'.repeat(32))).toEqual(confirmation)
+    expect(captureCode(() => verifyQuoteConfirmation(`${token.slice(0, -1)}x`, 's'.repeat(32)))).toBe('QUOTE_CHANGED')
+    expect(captureCode(() => signQuoteConfirmation(confirmation, 'short'))).toBe('QUOTE_CONFIGURATION_UNAVAILABLE')
+  })
+
+  it('accepts only the exact unexpired partner, offer, price, policy and freshness snapshot', () => {
+    const confirmation = quoteConfirmation()
+    const current = {
+      confirmation, partnerId: 'bakimx', selectedOfferId: 'offer_1', quantity: 2,
+      unitNetKurus: 12500, policyVersion: 'stage2a-v1',
+      offerPricedAt: new Date('2026-08-21T10:00:00.000Z'),
+      offerLastSyncedAt: new Date('2026-08-21T10:01:00.000Z'),
+      now: new Date('2026-08-21T10:05:00.000Z')
+    }
+    assertQuoteConfirmationCurrent(current)
+    expect(captureCode(() => assertQuoteConfirmationCurrent({ ...current, unitNetKurus: 12501 }))).toBe('QUOTE_CHANGED')
+    expect(captureCode(() => assertQuoteConfirmationCurrent({ ...current, policyVersion: 'stage2a-v2' }))).toBe('QUOTE_CHANGED')
+    expect(captureCode(() => assertQuoteConfirmationCurrent({ ...current, offerLastSyncedAt: new Date('2026-08-21T10:02:00.000Z') }))).toBe('QUOTE_CHANGED')
+    expect(captureCode(() => assertQuoteConfirmationCurrent({ ...current, now: new Date(confirmation.expiresAt) }))).toBe('QUOTE_EXPIRED')
   })
 
   it('rejects stale, inconsistent and future supplier timestamps', () => {
@@ -64,5 +89,14 @@ describe('partner order contract', () => {
 function captureCode(fn: () => unknown): string | null {
   try { fn(); return null } catch (error) {
     return error instanceof PartnerOrderError ? error.code : 'unexpected'
+  }
+}
+
+function quoteConfirmation() {
+  return {
+    version: 1 as const, partnerId: 'bakimx', selectedOfferId: 'offer_1', quantity: 2,
+    unitNetKurus: 12500, policyVersion: 'stage2a-v1',
+    offerPricedAt: '2026-08-21T10:00:00.000Z', offerLastSyncedAt: '2026-08-21T10:01:00.000Z',
+    expiresAt: '2026-08-21T10:15:00.000Z'
   }
 }
