@@ -74,7 +74,7 @@ export async function uploadImageFromUrl(
   }
 }
 
-export { getPublicUrl, getStoragePublicUrl, extractFilenameFromUrl } from './url'
+export { getPublicUrl, getStoragePublicUrl, extractFilenameFromPath } from './url'
 
 export async function fileExists(
   storagePath: string,

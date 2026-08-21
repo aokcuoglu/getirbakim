@@ -49,7 +49,7 @@ function buildDirectTunnelAgent(target: { host: string; port: number }): Agent {
           ...opts,
           hostname: target.host,
           host: target.host,
-          port: target.port,
+          port: String(target.port),
           servername,
         },
         callback

@@ -20,6 +20,14 @@ export interface AdminProductFilters {
   limit?: number
   brandId?: number | null
   categoryId?: number | null
+  /**
+   * Tedarikçi (sağlayıcı) filtresi — `part_supplier_offers.provider_id`.
+   *
+   * Filtre `buildAdminProductConditions` içinde ÇALIŞIYOR ama arayüzde hiç
+   * tanımlanmamıştı; `brandId`/`categoryId` ile aynı şekilde yazıldı. Yalnız
+   * tip eklendi, sorgu davranışı değişmedi.
+   */
+  providerId?: number | null
   stockStatus?: AdminStockFilter
   visibility?: AdminVisibilityFilter
   syncStatus?: AdminSyncFilter
@@ -225,4 +233,22 @@ export interface AdminDashboardData {
     value: number
     severity: 'high' | 'medium' | 'low'
   }>
+}
+/**
+ * `updateAdminProductTechnicalDetail` girdisi (lib/actions/admin-products.ts).
+ *
+ * Tip daha önce hiç tanımlanmamıştı — eylem, var olmayan bir dışa aktarımı
+ * içeri alıyordu ve bu, `tsc` altında kalite kapısını kırmanın yanında eylemin
+ * gövdesindeki her satırı da örtük `any` yapıyordu. Alanlar eylemin GERÇEKTEN
+ * okuduğu şekilden türetildi; davranış değişmedi.
+ *
+ * Alanların hepsi isteğe bağlı: eylem her birini `|| []` ile okuyor, yani
+ * gönderilmeyen bir bölüm "boşalt" değil "dokunma" anlamına gelmiyor —
+ * ilgili satırlar her durumda silinip yeniden yazılıyor.
+ */
+export interface PartTechnicalReferenceInput {
+  eans?: string[]
+  oemReferences?: Array<{ brand: string | null; code: string | null }>
+  crossReferences?: Array<{ brand: string | null; articleNumber: string | null }>
+  properties?: Array<{ key: string | null; value: string | null }>
 }
