@@ -8,6 +8,7 @@ import { getPartnerProductById } from '@/lib/partner/catalog-query'
 import { resolvePartnerDiscountBps, PARTNER_DISCOUNT_ENV } from '@/lib/partner/b2b-pricing'
 import { toPartnerProductDto } from '@/lib/partner/dto'
 import { partnerGuard } from '@/lib/partner/guard'
+import { parsePartnerVehicleTypeId } from '@/lib/partner/input'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,7 +38,13 @@ export async function GET(
       })
     }
 
-    const row = await getPartnerProductById(BigInt(id))
+    const parsedVehicleTypeId = parsePartnerVehicleTypeId(request.nextUrl.searchParams.get('vehicleTypeId'))
+    if (!parsedVehicleTypeId.valid) {
+      return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Invalid vehicleTypeId.', context })
+    }
+    const vehicleTypeId = parsedVehicleTypeId.value
+
+    const row = await getPartnerProductById(BigInt(id), vehicleTypeId)
     if (!row) {
       return errorResponse({
         status: 404,
@@ -48,7 +55,7 @@ export async function GET(
     }
 
     const discountBps = resolvePartnerDiscountBps(process.env[PARTNER_DISCOUNT_ENV])
-    return successResponse({ product: toPartnerProductDto(row, { discountBps }) }, context)
+    return successResponse({ product: toPartnerProductDto(row, { discountBps, vehicleTypeId }) }, context)
   } catch (error) {
     console.error('[partner/v1/products/:id]', error instanceof Error ? error.message : error)
     return unexpectedErrorResponse(error, context, 'Partner product lookup failed.')

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { successResponse, unexpectedErrorResponse } from '@/lib/api/route-utils'
+import { errorResponse } from '@/lib/api/route-utils'
 import {
   clampPartnerLimit,
   searchPartnerProducts,
@@ -8,6 +9,7 @@ import {
 import { resolvePartnerDiscountBps, PARTNER_DISCOUNT_ENV } from '@/lib/partner/b2b-pricing'
 import { toPartnerProductDto } from '@/lib/partner/dto'
 import { partnerGuard } from '@/lib/partner/guard'
+import { parsePartnerVehicleTypeId } from '@/lib/partner/input'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -30,17 +32,23 @@ export async function GET(request: NextRequest) {
 
   try {
     const params = request.nextUrl.searchParams
+    const parsedVehicleTypeId = parsePartnerVehicleTypeId(params.get('vehicleTypeId'))
+    if (!parsedVehicleTypeId.valid) {
+      return errorResponse({ status: 400, code: 'VALIDATION_ERROR', message: 'Invalid vehicleTypeId.', context })
+    }
+    const vehicleTypeId = parsedVehicleTypeId.value
     const { rows, source } = await searchPartnerProducts({
       q: params.get('q'),
       oem: params.get('oem'),
-      limit: clampPartnerLimit(params.get('limit'))
+      limit: clampPartnerLimit(params.get('limit')),
+      vehicleTypeId
     })
 
     const discountBps = resolvePartnerDiscountBps(process.env[PARTNER_DISCOUNT_ENV])
 
     return successResponse(
       {
-        products: rows.map((row) => toPartnerProductDto(row, { discountBps })),
+        products: rows.map((row) => toPartnerProductDto(row, { discountBps, vehicleTypeId })),
         source,
         minQueryLength: PARTNER_MIN_QUERY_LENGTH
       },

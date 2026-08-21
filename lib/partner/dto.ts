@@ -16,17 +16,28 @@ import { resolvePartnerPrice, type PartnerPriceView } from './b2b-pricing'
  * "partnerin görmesinde sakınca var mı" olmalı.
  */
 export interface PartnerProductDto {
+  contractVersion: '1.1'
+  /** Immutable `catalog.products.id`; use this instead of display/manufacturer codes. */
+  sourceProductId: string
   id: string
   /** Kanonik parça numarası (görüntü biçimi). */
   partNo: string
+  /** Separator/case-independent manufacturer part identity. */
+  manufacturerPartNumber: { value: string; normalized: string }
   name: string
   brandName: string
   categoryName: string | null
   oemNumbers: string[]
+  references: { type: 'OEM'; value: string; normalized: string; brand: string | null }[]
+  exactFitment: {
+    requestedVehicleTypeId: number | null
+    status: 'CONFIRMED' | 'NOT_CONFIRMED' | 'NOT_REQUESTED'
+    matchedVehicleTypeIds: number[]
+  }
   imageUrl: string | null
   /** Vitrin liste fiyatı — kuruş, KDV hariç. */
   listPriceKurus: number | null
-  /** Partner alış fiyatı — kuruş, KDV hariç. Sipariş bu fiyattan kurulur. */
+  /** GetirBakım-owned informational B2B sale price; non-binding, kuruş/KDV hariç. */
   b2bPriceKurus: number | null
   discountBps: number
   vatRateBps: number
@@ -47,13 +58,15 @@ export interface PartnerProductDto {
 export interface PartnerProductRow {
   id: bigint
   part_no: string
+  part_no_norm: string
   name: string
   primary_image_url: string | null
   min_selling_price_try: Prisma.Decimal | null
   total_stock_qty: number
   brand: { brand: string; display_name: string | null }
   category: { name: string; name_tr: string | null } | null
-  product_oems: { code: string }[]
+  product_oems: { code: string; code_norm: string; oem_brand: string }[]
+  product_vehicle_types: { vehicle_type_id: number }[]
   product_overrides: {
     name_override: string | null
     selling_price_override: Prisma.Decimal | null
@@ -109,7 +122,7 @@ function resolveLastSyncedAt(row: PartnerProductRow): string | null {
 
 export function toPartnerProductDto(
   row: PartnerProductRow,
-  options: { discountBps: number }
+  options: { discountBps: number; vehicleTypeId?: number | null }
 ): PartnerProductDto {
   const price: PartnerPriceView = resolvePartnerPrice({
     sellingPriceExVat: resolveSellingPrice(row),
@@ -118,14 +131,35 @@ export function toPartnerProductDto(
   })
 
   const stockQty = Math.max(row.total_stock_qty, 0)
+  const requestedVehicleTypeId = options.vehicleTypeId ?? null
+  const matchedVehicleTypeIds = row.product_vehicle_types.map((fitment) => fitment.vehicle_type_id)
+  const exactFitmentStatus: PartnerProductDto['exactFitment']['status'] = requestedVehicleTypeId == null
+    ? 'NOT_REQUESTED'
+    : matchedVehicleTypeIds.includes(requestedVehicleTypeId)
+      ? 'CONFIRMED'
+      : 'NOT_CONFIRMED'
 
   return {
+    contractVersion: '1.1',
+    sourceProductId: row.id.toString(),
     id: row.id.toString(),
     partNo: row.part_no,
+    manufacturerPartNumber: { value: row.part_no, normalized: row.part_no_norm },
     name: resolveCatalogName(row.name, row.product_overrides?.name_override),
     brandName: brandLabel(row.brand),
     categoryName: row.category?.name_tr?.trim() || row.category?.name || null,
     oemNumbers: row.product_oems.map((o) => o.code),
+    references: row.product_oems.map((o) => ({
+      type: 'OEM',
+      value: o.code,
+      normalized: o.code_norm,
+      brand: o.oem_brand.trim() || null
+    })),
+    exactFitment: {
+      requestedVehicleTypeId,
+      status: exactFitmentStatus,
+      matchedVehicleTypeIds
+    },
     imageUrl: row.primary_image_url,
     listPriceKurus: price.listPriceKurus,
     b2bPriceKurus: price.b2bPriceKurus,

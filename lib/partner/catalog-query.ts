@@ -24,16 +24,23 @@ export function clampPartnerLimit(raw: string | null): number {
  * satırlarla sınırlı: pasif bir offer'ın maliyeti fiyat tabanını yanlış
  * çeker, `last_synced_at`'i de olmayan bir stoğu taze gösterir.
  */
-const PARTNER_PRODUCT_SELECT = {
+function partnerProductSelect(vehicleTypeId: number | null) {
+  return {
   id: true,
   part_no: true,
+  part_no_norm: true,
   name: true,
   primary_image_url: true,
   min_selling_price_try: true,
   total_stock_qty: true,
   brand: { select: { brand: true, display_name: true } },
   category: { select: { name: true, name_tr: true } },
-  product_oems: { select: { code: true }, take: 12 },
+  product_oems: { select: { code: true, code_norm: true, oem_brand: true }, take: 12 },
+  product_vehicle_types: {
+    where: vehicleTypeId == null ? { vehicle_type_id: -1 } : { vehicle_type_id: vehicleTypeId },
+    select: { vehicle_type_id: true },
+    take: 1
+  },
   product_overrides: {
     select: { name_override: true, selling_price_override: true, lock_price: true }
   },
@@ -41,24 +48,31 @@ const PARTNER_PRODUCT_SELECT = {
     where: { is_active: true },
     select: { net_cost_try: true, last_synced_at: true }
   }
-} as const
+  } as const
+}
 
 /** Partnere yalnız yayında olan ürünler görünür. */
 const PARTNER_VISIBLE = { status: 'ACTIVE' } as const
 
-export async function getPartnerProductById(id: bigint): Promise<PartnerProductRow | null> {
+export async function getPartnerProductById(
+  id: bigint,
+  vehicleTypeId: number | null = null
+): Promise<PartnerProductRow | null> {
   return db.products.findFirst({
     where: { id, ...PARTNER_VISIBLE },
-    select: PARTNER_PRODUCT_SELECT
+    select: partnerProductSelect(vehicleTypeId)
   })
 }
 
-async function loadProductsPreservingOrder(ids: bigint[]): Promise<PartnerProductRow[]> {
+async function loadProductsPreservingOrder(
+  ids: bigint[],
+  vehicleTypeId: number | null
+): Promise<PartnerProductRow[]> {
   if (ids.length === 0) return []
 
   const rows = await db.products.findMany({
     where: { id: { in: ids }, ...PARTNER_VISIBLE },
-    select: PARTNER_PRODUCT_SELECT
+    select: partnerProductSelect(vehicleTypeId)
   })
 
   // Meili'nin alaka sırası korunmalı — `findMany` sırayı garanti etmez.
@@ -71,7 +85,11 @@ async function loadProductsPreservingOrder(ids: bigint[]): Promise<PartnerProduc
  * metin aramaz; bu yüzden bu dal Meili'ye HİÇ uğramaz, doğrudan indeksli
  * `product_oems.code_norm` üzerinden gider.
  */
-async function searchByOem(oem: string, limit: number): Promise<PartnerProductRow[]> {
+async function searchByOem(
+  oem: string,
+  limit: number,
+  vehicleTypeId: number | null
+): Promise<PartnerProductRow[]> {
   const codeNorm = normalizeOem(oem)
   if (!codeNorm) return []
 
@@ -85,14 +103,18 @@ async function searchByOem(oem: string, limit: number): Promise<PartnerProductRo
     .slice(0, limit)
     .map((id) => BigInt(id))
 
-  return loadProductsPreservingOrder(ids)
+  return loadProductsPreservingOrder(ids, vehicleTypeId)
 }
 
 /**
  * Meili kapalı ya da erişilemez olduğunda kullanılan Postgres dalı.
  * `part_no_norm` indekslidir; ad araması ona ek olarak yapılır.
  */
-async function searchByPrismaFallback(q: string, limit: number): Promise<PartnerProductRow[]> {
+async function searchByPrismaFallback(
+  q: string,
+  limit: number,
+  vehicleTypeId: number | null
+): Promise<PartnerProductRow[]> {
   const partNoNorm = normalizeCode(q)
 
   const rows = await db.products.findMany({
@@ -103,7 +125,7 @@ async function searchByPrismaFallback(q: string, limit: number): Promise<Partner
         { name: { contains: q, mode: 'insensitive' as const } }
       ]
     },
-    select: PARTNER_PRODUCT_SELECT,
+    select: partnerProductSelect(vehicleTypeId),
     orderBy: [{ in_stock: 'desc' as const }, { updated_at: 'desc' as const }],
     take: limit
   })
@@ -130,9 +152,10 @@ export async function searchPartnerProducts(input: {
   q: string | null
   oem: string | null
   limit: number
+  vehicleTypeId: number | null
 }): Promise<PartnerSearchResult> {
   if (input.oem) {
-    return { rows: await searchByOem(input.oem, input.limit), source: 'oem' }
+    return { rows: await searchByOem(input.oem, input.limit, input.vehicleTypeId), source: 'oem' }
   }
 
   const q = (input.q ?? '').trim()
@@ -154,12 +177,12 @@ export async function searchPartnerProducts(input: {
         .filter((id): id is string => !!id && /^\d+$/.test(id))
         .map((id) => BigInt(id))
 
-      return { rows: await loadProductsPreservingOrder(ids), source: 'meilisearch' }
+      return { rows: await loadProductsPreservingOrder(ids, input.vehicleTypeId), source: 'meilisearch' }
     } catch (error) {
       // Meili'nin düşmesi partner aramasını düşürmemeli — Postgres'e in.
       if (!isMeiliUnavailableError(error)) throw error
     }
   }
 
-  return { rows: await searchByPrismaFallback(q, input.limit), source: 'database' }
+  return { rows: await searchByPrismaFallback(q, input.limit, input.vehicleTypeId), source: 'database' }
 }
