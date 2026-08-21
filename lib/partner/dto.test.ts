@@ -59,6 +59,7 @@ describe('toPartnerProductDto', () => {
     expect(dto.availability).toBe('IN_STOCK')
     expect(dto.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
     expect(dto.offers).toEqual([{
+      selectedOfferId: 'offer_1',
       supplierDisplayName: 'Dinamik Otomotiv',
       informationalPriceKurus: 20000,
       currency: 'TRY',
