@@ -17,9 +17,9 @@ export const dynamic = 'force-dynamic'
 /**
  * Partner katalog araması — `GET /api/partner/v1/products` (BAK-183).
  *
- * `?oem=` verilirse OEM koduyla tam eşleşme aranır (B2B'nin asıl yolu);
- * verilmezse `?q=` ile serbest metin araması yapılır. `?limit=` sunucuda
- * kırpılır.
+ * `?partNo=` verilirse normalize edilmiş üretici parça numarasıyla tam
+ * eşleşme, `?oem=` verilirse OEM koduyla tam eşleşme aranır; aksi
+ * halde `?q=` ile serbest metin araması yapılır. `?limit=` sunucuda kırpılır.
  *
  * Yanıttaki fiyatlar KDV HARİÇ ve kuruştur: `listPriceKurus` vitrin fiyatı,
  * `b2bPriceKurus` partnerin ödeyeceği fiyat (bkz. lib/partner/b2b-pricing.ts).
@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
     const { rows, source } = await searchPartnerProducts({
       q: params.get('q'),
       oem: params.get('oem'),
+      partNo: params.get('partNo'),
       limit: clampPartnerLimit(params.get('limit')),
       vehicleTypeId
     })
