@@ -9,9 +9,13 @@ function unauthorizedResponse() {
 
 export async function handleBasbugRateSyncRequest(
   request: NextRequest,
+  // `runId` ZORUNLU DEĞİL: `runBasbugRateSyncJob` bu alanı hiç döndürmüyor
+  // (lib/suppliers/sync-basbug.ts `BasbugRateSyncResult`). Zorunlu yazıldığında
+  // tip, çalışma zamanında olmayan bir alanı vaat ediyordu. Yanıt gövdesi
+  // değişmiyor — `undefined` alan JSON'a zaten yazılmıyor.
   runSync: () => Promise<{
     status: string
-    runId: number
+    runId?: number
     fetched: number
     upserted: number
   }>,
