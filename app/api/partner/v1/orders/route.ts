@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic'
 const bodySchema = z.object({
   selectedOfferId: z.string().min(1).max(64),
   quantity: z.number().int().positive().max(100),
-  expectedUnitNetKurus: z.number().int().positive()
+  expectedUnitNetKurus: z.number().int().positive(),
+  confirmationToken: z.string().min(1).max(4096)
 }).strict()
 
 export async function POST(request: NextRequest) {

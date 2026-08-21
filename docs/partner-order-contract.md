@@ -2,13 +2,20 @@
 
 Catalog prices are informational. A partner must select the opaque
 `offers[].selectedOfferId`, request `POST /api/partner/v1/order-quotes`, then send
-the returned `unitNetKurus` as `expectedUnitNetKurus` to
+the returned `unitNetKurus` as `expectedUnitNetKurus` and its opaque
+`confirmationToken` to
 `POST /api/partner/v1/orders` with an `Idempotency-Key` header.
 
 The server derives partner identity only from the API key. Request bodies are
 strict and do not accept a partner identity. The order response exposes only the
 binding net, VAT, gross, currency, opaque policy version, and expiry; supplier
 cost and commercial policy inputs are never returned.
+
+The confirmation token is HMAC-signed with the deployment-owned
+`PARTNER_QUOTE_SIGNING_SECRET` and binds the authenticated partner, offer,
+quantity, unit binding price, policy version, supplier pricing/sync timestamps,
+and quote expiry. Order creation atomically rejects an expired token or any
+price-, policy-, or freshness-only mismatch with a reconfirmation conflict.
 
 Creation locks and revalidates the selected active offer, its currency, cost,
 freshness, and available stock. It then creates the `REQUESTED` order and its

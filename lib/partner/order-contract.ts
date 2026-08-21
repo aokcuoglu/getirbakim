@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 
 export const PARTNER_ORDER_POLICY_ENV = 'PARTNER_ORDER_POLICY_JSON'
+export const PARTNER_QUOTE_SIGNING_SECRET_ENV = 'PARTNER_QUOTE_SIGNING_SECRET'
 export const PARTNER_ORDER_STATUSES = [
   'REQUESTED', 'CONFIRMED', 'REJECTED', 'RESERVATION_EXPIRED',
   'CANCELLED', 'SHIPPED', 'COMPLETED'
@@ -22,11 +23,64 @@ export type PartnerOrderPolicy = z.infer<typeof policySchema>
 export class PartnerOrderError extends Error {
   constructor(
     public readonly code: 'POLICY_UNAVAILABLE' | 'OFFER_UNAVAILABLE' | 'OFFER_EXPIRED' |
-      'PRICE_CHANGED' | 'IDEMPOTENCY_CONFLICT' | 'ORDER_NOT_FOUND' | 'INVALID_TRANSITION',
+      'PRICE_CHANGED' | 'QUOTE_CHANGED' | 'QUOTE_EXPIRED' | 'QUOTE_CONFIGURATION_UNAVAILABLE' |
+      'IDEMPOTENCY_CONFLICT' | 'ORDER_NOT_FOUND' | 'INVALID_TRANSITION',
     message: string,
     public readonly status: number,
     public readonly details?: Record<string, unknown>
   ) { super(message) }
+}
+
+const quoteConfirmationSchema = z.object({
+  version: z.literal(1), partnerId: z.string().trim().min(1).max(64),
+  selectedOfferId: z.string().min(1).max(64), quantity: z.number().int().positive().max(100),
+  unitNetKurus: z.number().int().positive(), policyVersion: z.string().trim().min(1).max(64),
+  offerPricedAt: z.string().datetime(), offerLastSyncedAt: z.string().datetime(),
+  expiresAt: z.string().datetime()
+}).strict()
+export type QuoteConfirmation = z.infer<typeof quoteConfirmationSchema>
+
+function quoteSigningSecret(raw: string | null | undefined): string {
+  const secret = raw?.trim()
+  if (!secret || secret.length < 32) {
+    throw new PartnerOrderError('QUOTE_CONFIGURATION_UNAVAILABLE', 'Partner quote confirmation is unavailable.', 503)
+  }
+  return secret
+}
+
+export function signQuoteConfirmation(confirmation: QuoteConfirmation, rawSecret: string | null | undefined): string {
+  const payload = Buffer.from(JSON.stringify(quoteConfirmationSchema.parse(confirmation)), 'utf8').toString('base64url')
+  const signature = createHmac('sha256', quoteSigningSecret(rawSecret)).update(payload, 'ascii').digest('base64url')
+  return `${payload}.${signature}`
+}
+
+export function verifyQuoteConfirmation(token: string, rawSecret: string | null | undefined): QuoteConfirmation {
+  const [payload, suppliedSignature, extra] = token.split('.')
+  if (!payload || !suppliedSignature || extra) throw new PartnerOrderError('QUOTE_CHANGED', 'Binding quote must be confirmed again.', 409)
+  const expected = createHmac('sha256', quoteSigningSecret(rawSecret)).update(payload, 'ascii').digest()
+  const supplied = Buffer.from(suppliedSignature, 'base64url')
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+    throw new PartnerOrderError('QUOTE_CHANGED', 'Binding quote must be confirmed again.', 409)
+  }
+  try { return quoteConfirmationSchema.parse(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))) }
+  catch { throw new PartnerOrderError('QUOTE_CHANGED', 'Binding quote must be confirmed again.', 409) }
+}
+
+export function assertQuoteConfirmationCurrent(input: {
+  confirmation: QuoteConfirmation; partnerId: string; selectedOfferId: string; quantity: number
+  unitNetKurus: number; policyVersion: string; offerPricedAt: Date; offerLastSyncedAt: Date; now: Date
+}) {
+  const { confirmation } = input
+  if (new Date(confirmation.expiresAt).getTime() <= input.now.getTime()) {
+    throw new PartnerOrderError('QUOTE_EXPIRED', 'Binding quote expired and must be confirmed again.', 409)
+  }
+  if (confirmation.partnerId !== input.partnerId || confirmation.selectedOfferId !== input.selectedOfferId ||
+      confirmation.quantity !== input.quantity || confirmation.unitNetKurus !== input.unitNetKurus ||
+      confirmation.policyVersion !== input.policyVersion ||
+      confirmation.offerPricedAt !== input.offerPricedAt.toISOString() ||
+      confirmation.offerLastSyncedAt !== input.offerLastSyncedAt.toISOString()) {
+    throw new PartnerOrderError('QUOTE_CHANGED', 'Binding quote changed and must be confirmed again.', 409)
+  }
 }
 
 export function resolvePartnerOrderPolicy(raw: string | null | undefined): PartnerOrderPolicy {
