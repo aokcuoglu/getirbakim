@@ -2,6 +2,21 @@ import { describe, expect, it } from 'bun:test'
 import { Prisma } from '@prisma/client'
 import { toPartnerProductDto, type PartnerProductRow } from './dto'
 
+type OfferRow = PartnerProductRow['product_offers'][number]
+
+function offer(overrides: Partial<OfferRow> = {}): OfferRow {
+  return {
+    id: BigInt(1),
+    supplier_code: 'dinamik',
+    selling_price_try: new Prisma.Decimal('200.00'),
+    net_cost_try: new Prisma.Decimal('120.00'),
+    stock_qty: 7,
+    last_synced_at: new Date('2026-08-19T10:00:00Z'),
+    supplier: { name: 'Dinamik Otomotiv' },
+    ...overrides
+  }
+}
+
 function row(overrides: Partial<PartnerProductRow> = {}): PartnerProductRow {
   return {
     id: BigInt(42),
@@ -19,12 +34,7 @@ function row(overrides: Partial<PartnerProductRow> = {}): PartnerProductRow {
     ],
     product_vehicle_types: [{ vehicle_type_id: 16573 }],
     product_overrides: null,
-    product_offers: [
-      {
-        net_cost_try: new Prisma.Decimal('120.00'),
-        last_synced_at: new Date('2026-08-19T10:00:00Z')
-      }
-    ],
+    product_offers: [offer()],
     ...overrides
   }
 }
@@ -34,7 +44,7 @@ describe('toPartnerProductDto', () => {
     const dto = toPartnerProductDto(row(), { discountBps: 1000 })
     expect(dto.id).toBe('42')
     expect(dto.sourceProductId).toBe('42')
-    expect(dto.contractVersion).toBe('1.1')
+    expect(dto.contractVersion).toBe('1.2')
     expect(dto.manufacturerPartNumber).toEqual({ value: 'GDB1330', normalized: 'GDB1330' })
     expect(dto.references[0]).toEqual({ type: 'OEM', value: '77362261', normalized: '77362261', brand: 'FIAT' })
     expect(dto.exactFitment.status).toBe('NOT_REQUESTED')
@@ -48,6 +58,15 @@ describe('toPartnerProductDto', () => {
     expect(dto.stockQty).toBe(7)
     expect(dto.availability).toBe('IN_STOCK')
     expect(dto.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
+    expect(dto.offers).toEqual([{
+      supplierDisplayName: 'Dinamik Otomotiv',
+      informationalPriceKurus: 20000,
+      currency: 'TRY',
+      vatRateBps: 2000,
+      availability: 'IN_STOCK',
+      stockQty: 7,
+      lastSyncedAt: '2026-08-19T10:00:00.000Z'
+    }])
   })
 
   it('confirms only the exact requested vehicle type id', () => {
@@ -115,8 +134,8 @@ describe('toPartnerProductDto', () => {
     const dto = toPartnerProductDto(
       row({
         product_offers: [
-          { net_cost_try: new Prisma.Decimal('180.00'), last_synced_at: new Date('2026-08-18T00:00:00Z') },
-          { net_cost_try: new Prisma.Decimal('160.00'), last_synced_at: new Date('2026-08-20T00:00:00Z') }
+          offer({ id: BigInt(1), net_cost_try: new Prisma.Decimal('180.00'), last_synced_at: new Date('2026-08-18T00:00:00Z') }),
+          offer({ id: BigInt(2), net_cost_try: new Prisma.Decimal('160.00'), last_synced_at: new Date('2026-08-20T00:00:00Z') })
         ]
       }),
       { discountBps: 5000 }
@@ -152,5 +171,62 @@ describe('toPartnerProductDto', () => {
       { discountBps: 0 }
     )
     expect(dto.categoryName).toBe('Brake Pads')
+  })
+
+  it('keeps one canonical best offer per supplier', () => {
+    const dto = toPartnerProductDto(row({
+      product_offers: [
+        offer({ id: BigInt(1), selling_price_try: new Prisma.Decimal('100.00'), stock_qty: 0 }),
+        offer({ id: BigInt(2), selling_price_try: new Prisma.Decimal('130.00'), stock_qty: 2 }),
+        offer({ id: BigInt(3), selling_price_try: new Prisma.Decimal('120.00'), stock_qty: 1 }),
+        offer({
+          id: BigInt(4),
+          supplier_code: 'other',
+          supplier: { name: 'Other Supplier' },
+          selling_price_try: new Prisma.Decimal('90.00'),
+          stock_qty: 3
+        })
+      ]
+    }), { discountBps: 0 })
+
+    expect(dto.offers).toHaveLength(2)
+    const dinamik = dto.offers.find((item) => item.supplierDisplayName === 'Dinamik Otomotiv')
+    expect(dinamik?.informationalPriceKurus).toBe(12000)
+    expect(dinamik?.stockQty).toBe(1)
+  })
+
+  it('uses the approved zero-bps per-offer presentation price', () => {
+    const dto = toPartnerProductDto(row({
+      product_offers: [offer({
+        selling_price_try: new Prisma.Decimal('995.30'),
+        net_cost_try: new Prisma.Decimal('600.00')
+      })]
+    }), { discountBps: 5000 })
+
+    expect(dto.offers[0]?.informationalPriceKurus).toBe(99530)
+  })
+
+  it('does not claim Başbuğ stock until its stock feed is reliable', () => {
+    const dto = toPartnerProductDto(row({
+      product_offers: [offer({
+        supplier_code: 'basbug',
+        supplier: { name: 'Başbuğ' },
+        stock_qty: 99
+      })]
+    }), { discountBps: 0 })
+
+    expect(dto.offers[0]?.availability).toBe('UNKNOWN')
+    expect(dto.offers[0]?.stockQty).toBeNull()
+  })
+
+  it('does not leak offer internals', () => {
+    const json = JSON.stringify(toPartnerProductDto(row(), { discountBps: 0 }))
+    for (const banned of [
+      'supplier_code', 'supplierCode', 'supplierSku', 'net_cost_try', 'netCost',
+      'list_price', 'cost_try', 'margin', 'campaign', 'pricing_policy',
+      'stock_breakdown', 'provenance'
+    ]) {
+      expect(json).not.toContain(banned)
+    }
   })
 })

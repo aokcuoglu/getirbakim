@@ -8,6 +8,7 @@ import {
   isMeiliEnabled
 } from '@/lib/search/meilisearch-client'
 import type { PartnerProductRow } from './dto'
+import { buildPartnerPartNoFilter } from './input'
 
 export const PARTNER_MIN_QUERY_LENGTH = 2
 export const PARTNER_DEFAULT_LIMIT = 20
@@ -45,8 +46,16 @@ function partnerProductSelect(vehicleTypeId: number | null) {
     select: { name_override: true, selling_price_override: true, lock_price: true }
   },
   product_offers: {
-    where: { is_active: true },
-    select: { net_cost_try: true, last_synced_at: true }
+    where: { is_active: true, supplier: { is: { is_active: true } } },
+    select: {
+      id: true,
+      supplier_code: true,
+      selling_price_try: true,
+      net_cost_try: true,
+      stock_qty: true,
+      last_synced_at: true,
+      supplier: { select: { name: true } }
+    }
   }
   } as const
 }
@@ -107,6 +116,27 @@ async function searchByOem(
 }
 
 /**
+ * Üretici parça numarasıyla tam eşleşme. `part_no_norm` marka genelinde
+ * unique değildir; bu nedenle tek ürün varsayılmaz ve bounded `0..N` sonuç
+ * döner. Serbest metin/Meili yolu bu dalda kasıtlı olarak kullanılmaz.
+ */
+async function searchByPartNo(
+  partNo: string,
+  limit: number,
+  vehicleTypeId: number | null
+): Promise<PartnerProductRow[]> {
+  const where = buildPartnerPartNoFilter(partNo)
+  if (!where) return []
+
+  return db.products.findMany({
+    where,
+    select: partnerProductSelect(vehicleTypeId),
+    orderBy: { id: 'asc' },
+    take: limit
+  })
+}
+
+/**
  * Meili kapalı ya da erişilemez olduğunda kullanılan Postgres dalı.
  * `part_no_norm` indekslidir; ad araması ona ek olarak yapılır.
  */
@@ -136,7 +166,7 @@ async function searchByPrismaFallback(
 export interface PartnerSearchResult {
   rows: PartnerProductRow[]
   /** Hangi dal cevapladı — sorun ayıklamak için yanıtta taşınır. */
-  source: 'oem' | 'meilisearch' | 'database'
+  source: 'part_no' | 'oem' | 'meilisearch' | 'database'
 }
 
 /**
@@ -151,9 +181,17 @@ export interface PartnerSearchResult {
 export async function searchPartnerProducts(input: {
   q: string | null
   oem: string | null
+  partNo?: string | null
   limit: number
   vehicleTypeId: number | null
 }): Promise<PartnerSearchResult> {
+  if (input.partNo) {
+    return {
+      rows: await searchByPartNo(input.partNo, input.limit, input.vehicleTypeId),
+      source: 'part_no'
+    }
+  }
+
   if (input.oem) {
     return { rows: await searchByOem(input.oem, input.limit, input.vehicleTypeId), source: 'oem' }
   }

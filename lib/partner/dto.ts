@@ -6,6 +6,20 @@ import {
 } from '@/lib/catalog/store-view'
 import { resolvePartnerPrice, type PartnerPriceView } from './b2b-pricing'
 
+export type PartnerOfferAvailability = 'IN_STOCK' | 'SUPPLYABLE' | 'UNKNOWN'
+
+export interface PartnerOfferDto {
+  supplierDisplayName: string
+  /** GetirBakım-owned, informational/non-binding B2B price; kuruş, ex-VAT. */
+  informationalPriceKurus: number | null
+  currency: 'TRY'
+  vatRateBps: 2000
+  availability: PartnerOfferAvailability
+  /** Null means the supplier's stock feed is not reliable enough to present. */
+  stockQty: number | null
+  lastSyncedAt: string | null
+}
+
 /**
  * Partner API'nin DIŞA AÇIK veri sözleşmesi (BAK-183).
  *
@@ -16,7 +30,7 @@ import { resolvePartnerPrice, type PartnerPriceView } from './b2b-pricing'
  * "partnerin görmesinde sakınca var mı" olmalı.
  */
 export interface PartnerProductDto {
-  contractVersion: '1.1'
+  contractVersion: '1.2'
   /** Immutable `catalog.products.id`; use this instead of display/manufacturer codes. */
   sourceProductId: string
   id: string
@@ -52,6 +66,8 @@ export interface PartnerProductDto {
    * kullanıcıya göstermek zorunda (BAK-183 kabul kriteri).
    */
   lastSyncedAt: string | null
+  /** One canonical active offer per active supplier; internal fields are excluded. */
+  offers: PartnerOfferDto[]
 }
 
 /** DTO'yu üretmek için gereken EN DAR satır — route'un `select`'i bunu karşılar. */
@@ -73,9 +89,73 @@ export interface PartnerProductRow {
     lock_price: boolean
   } | null
   product_offers: {
+    id: bigint
+    supplier_code: string
+    selling_price_try: Prisma.Decimal | null
     net_cost_try: Prisma.Decimal | null
+    stock_qty: number
     last_synced_at: Date
+    supplier: { name: string }
   }[]
+}
+
+function compareOffers(
+  left: PartnerProductRow['product_offers'][number],
+  right: PartnerProductRow['product_offers'][number]
+): number {
+  const stockOrder = Number(right.stock_qty > 0) - Number(left.stock_qty > 0)
+  if (stockOrder !== 0) return stockOrder
+
+  if (left.selling_price_try == null) {
+    if (right.selling_price_try != null) return 1
+  } else if (right.selling_price_try == null) {
+    return -1
+  } else {
+    const priceOrder = left.selling_price_try.comparedTo(right.selling_price_try)
+    if (priceOrder !== 0) return priceOrder
+  }
+
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+}
+
+function toPartnerOffers(row: PartnerProductRow): PartnerOfferDto[] {
+  const bestBySupplier = new Map<string, PartnerProductRow['product_offers'][number]>()
+  for (const offer of row.product_offers) {
+    const current = bestBySupplier.get(offer.supplier_code)
+    if (!current || compareOffers(offer, current) < 0) {
+      bestBySupplier.set(offer.supplier_code, offer)
+    }
+  }
+
+  return [...bestBySupplier.values()]
+    .sort((left, right) => left.supplier.name.localeCompare(right.supplier.name, 'tr'))
+    .map((offer) => {
+      const price = resolvePartnerPrice({
+        sellingPriceExVat: offer.selling_price_try,
+        netCostExVat: offer.net_cost_try,
+        discountBps: 0
+      })
+      const hasPrice = price.b2bPriceKurus != null && price.b2bPriceKurus > 0
+      // Başbuğ StokGetir ingestion'ı henüz bağlı değil; DB'deki 0 gerçek
+      // stok yokluğu değil, bu yüzden miktar veya availability iddiası yapma.
+      const hasReliableStock = offer.supplier_code !== 'basbug'
+      const stockQty = hasReliableStock ? Math.max(offer.stock_qty, 0) : null
+      const availability: PartnerOfferAvailability = !hasReliableStock || !hasPrice
+        ? 'UNKNOWN'
+        : stockQty! > 0
+          ? 'IN_STOCK'
+          : 'SUPPLYABLE'
+
+      return {
+        supplierDisplayName: offer.supplier.name,
+        informationalPriceKurus: price.b2bPriceKurus,
+        currency: 'TRY',
+        vatRateBps: 2000,
+        availability,
+        stockQty,
+        lastSyncedAt: offer.last_synced_at.toISOString()
+      }
+    })
 }
 
 /** Görünen marka adı — `display_name` varsa o kazanır (vitrinle aynı kural). */
@@ -140,7 +220,7 @@ export function toPartnerProductDto(
       : 'NOT_CONFIRMED'
 
   return {
-    contractVersion: '1.1',
+    contractVersion: '1.2',
     sourceProductId: row.id.toString(),
     id: row.id.toString(),
     partNo: row.part_no,
@@ -171,6 +251,7 @@ export function toPartnerProductDto(
       hasPrice: price.b2bPriceKurus != null && price.b2bPriceKurus > 0,
       totalStockQty: stockQty
     }),
-    lastSyncedAt: resolveLastSyncedAt(row)
+    lastSyncedAt: resolveLastSyncedAt(row),
+    offers: toPartnerOffers(row)
   }
 }
