@@ -72,6 +72,15 @@ internal_check "app:3000/api/health" "/api/health" 200 15 1
 internal_check "app:3000/tr" "/tr" 200 30 3
 internal_check "app:3000/en" "/en" 200 30 3
 
+echo ""
+echo "--- Authenticated partner contract (redacted assertions only) ---"
+if docker compose --env-file .env.production exec -T app bun scripts/partner-contract-smoke.ts; then
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL  partner contract smoke"
+  FAIL=$((FAIL + 1))
+fi
+
 if [[ -n "${DOMAIN}" ]]; then
   echo ""
   echo "--- External HTTPS checks (${DOMAIN}) ---"

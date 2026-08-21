@@ -98,6 +98,7 @@ COPY --from=builder /app/lib/pricing/public-pricing.ts /app/lib/pricing/public-p
 COPY --from=builder /app/lib/pricing/calculate-selling-price.ts /app/lib/pricing/calculate-selling-price.ts
 COPY --from=builder /app/lib/db.ts /app/lib/db.ts
 COPY --from=builder /app/lib/matching/code-normalization.ts /app/lib/matching/code-normalization.ts
+COPY --from=builder /app/lib/partner/auth.ts /app/lib/partner/auth.ts
 COPY --from=builder /app/prisma/schema.prisma /app/prisma/schema.prisma
 COPY --from=builder /app/package.json /app/package.json
 
