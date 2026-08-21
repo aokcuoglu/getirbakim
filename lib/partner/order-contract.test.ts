@@ -43,7 +43,15 @@ describe('partner order contract', () => {
 
   it('enforces canonical transition ordering', () => {
     assertPartnerOrderTransition('REQUESTED', 'CONFIRMED')
+    assertPartnerOrderTransition('REQUESTED', 'REJECTED')
+    assertPartnerOrderTransition('REQUESTED', 'RESERVATION_EXPIRED')
+    assertPartnerOrderTransition('REQUESTED', 'CANCELLED')
+    assertPartnerOrderTransition('CONFIRMED', 'SHIPPED')
+    assertPartnerOrderTransition('CONFIRMED', 'CANCELLED')
+    assertPartnerOrderTransition('SHIPPED', 'COMPLETED')
     expect(captureCode(() => assertPartnerOrderTransition('COMPLETED', 'REQUESTED'))).toBe('INVALID_TRANSITION')
+    expect(captureCode(() => assertPartnerOrderTransition('CONFIRMED', 'REJECTED'))).toBe('INVALID_TRANSITION')
+    expect(captureCode(() => assertPartnerOrderTransition('CANCELLED', 'SHIPPED'))).toBe('INVALID_TRANSITION')
   })
 
   it('turns confirmed cancellation into a request, not a state change', () => {
