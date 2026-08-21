@@ -6,13 +6,18 @@ function row(overrides: Partial<PartnerProductRow> = {}): PartnerProductRow {
   return {
     id: BigInt(42),
     part_no: 'GDB1330',
+    part_no_norm: 'GDB1330',
     name: 'Fren Balatası Ön',
     primary_image_url: 'https://cdn.example/1.jpg',
     min_selling_price_try: new Prisma.Decimal('200.00'),
     total_stock_qty: 7,
     brand: { brand: 'TRW', display_name: null },
     category: { name: 'Brake Pads', name_tr: 'Fren Balatası' },
-    product_oems: [{ code: '77362261' }, { code: '9948080' }],
+    product_oems: [
+      { code: '77362261', code_norm: '77362261', oem_brand: 'FIAT' },
+      { code: '9948080', code_norm: '9948080', oem_brand: '' }
+    ],
+    product_vehicle_types: [{ vehicle_type_id: 16573 }],
     product_overrides: null,
     product_offers: [
       {
@@ -28,6 +33,11 @@ describe('toPartnerProductDto', () => {
   it('maps a catalog row to the partner contract', () => {
     const dto = toPartnerProductDto(row(), { discountBps: 1000 })
     expect(dto.id).toBe('42')
+    expect(dto.sourceProductId).toBe('42')
+    expect(dto.contractVersion).toBe('1.1')
+    expect(dto.manufacturerPartNumber).toEqual({ value: 'GDB1330', normalized: 'GDB1330' })
+    expect(dto.references[0]).toEqual({ type: 'OEM', value: '77362261', normalized: '77362261', brand: 'FIAT' })
+    expect(dto.exactFitment.status).toBe('NOT_REQUESTED')
     expect(dto.partNo).toBe('GDB1330')
     expect(dto.name).toBe('Fren Balatası Ön')
     expect(dto.brandName).toBe('TRW')
@@ -38,6 +48,22 @@ describe('toPartnerProductDto', () => {
     expect(dto.stockQty).toBe(7)
     expect(dto.availability).toBe('IN_STOCK')
     expect(dto.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
+  })
+
+  it('confirms only the exact requested vehicle type id', () => {
+    expect(toPartnerProductDto(row(), { discountBps: 0, vehicleTypeId: 16573 }).exactFitment).toEqual({
+      requestedVehicleTypeId: 16573,
+      status: 'CONFIRMED',
+      matchedVehicleTypeIds: [16573]
+    })
+    expect(toPartnerProductDto(row({ product_vehicle_types: [] }), {
+      discountBps: 0,
+      vehicleTypeId: 99999
+    }).exactFitment).toEqual({
+      requestedVehicleTypeId: 99999,
+      status: 'NOT_CONFIRMED',
+      matchedVehicleTypeIds: []
+    })
   })
 
   it('never leaks internal cost or supplier fields', () => {
