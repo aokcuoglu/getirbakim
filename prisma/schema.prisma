@@ -1214,10 +1214,40 @@ model partner_orders {
 
   items        partner_order_items[]
   reservations partner_stock_reservations[]
+  events       partner_order_events[]
 
   @@unique([partner_id, idempotency_key], map: "uq_partner_orders_idempotency")
   @@index([partner_id, created_at])
   @@index([status, binding_expires_at])
+  @@schema("catalog")
+}
+
+/// Immutable transactional outbox for partner order projections. Delivery
+/// state is mutable; raw_body is not regenerated so retries sign identical bytes.
+model partner_order_events {
+  id               String    @id @default(uuid()) @db.Uuid
+  partner_id       String
+  order_id         String    @db.Uuid
+  order_version    Int
+  event_type       String
+  contract_version String
+  raw_body         String
+  attempt_count    Int       @default(0)
+  next_attempt_at  DateTime  @default(now()) @db.Timestamptz(6)
+  locked_at        DateTime? @db.Timestamptz(6)
+  locked_by        String?
+  delivered_at     DateTime? @db.Timestamptz(6)
+  dead_lettered_at DateTime? @db.Timestamptz(6)
+  last_http_status Int?
+  last_error       String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  order partner_orders @relation(fields: [order_id], references: [id], onDelete: Restrict)
+
+  @@unique([order_id, order_version, event_type], map: "uq_partner_order_events_version")
+  @@index([partner_id, created_at])
+  @@index([next_attempt_at])
   @@schema("catalog")
 }
 

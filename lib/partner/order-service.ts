@@ -1,4 +1,5 @@
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import {
@@ -6,6 +7,7 @@ import {
   fingerprintOrderRequest, PartnerOrderError, resolvePartnerOrderPolicy,
   type PartnerOrderStatus, PARTNER_ORDER_POLICY_ENV
 } from './order-contract'
+import { buildPartnerOrderEvent, shouldExpirePartnerOrder } from './webhook-contract'
 
 export interface CreatePartnerOrderInput {
   idempotencyKey: string
@@ -23,7 +25,7 @@ type PartnerOrderRow = Prisma.partner_ordersGetPayload<{ include: typeof orderIn
 
 function amountToKurus(value: Prisma.Decimal): number { return value.mul(100).toNumber() }
 
-function toOrderDto(order: PartnerOrderRow) {
+export function toPartnerOrderDto(order: PartnerOrderRow) {
   return {
     contractVersion: '1.0' as const,
     id: order.id,
@@ -51,6 +53,36 @@ function toOrderDto(order: PartnerOrderRow) {
   }
 }
 
+async function enqueueOrderEvent(tx: Prisma.TransactionClient, order: PartnerOrderRow) {
+  const id = randomUUID()
+  const event = buildPartnerOrderEvent({
+    eventId: id, occurredAt: order.updated_at, partnerId: order.partner_id,
+    order: toPartnerOrderDto(order)
+  })
+  await tx.partner_order_events.create({
+    data: {
+      id,
+      partner_id: order.partner_id,
+      order_id: order.id,
+      order_version: order.version,
+      event_type: event.eventType,
+      contract_version: event.contractVersion,
+      raw_body: event.rawBody
+    }
+  })
+}
+
+async function expireLockedOrder(tx: Prisma.TransactionClient, order: PartnerOrderRow) {
+  await tx.partner_stock_reservations.updateMany({
+    where: { order_id: order.id, status: 'ACTIVE' }, data: { status: 'RELEASED' }
+  })
+  const expired = await tx.partner_orders.update({
+    where: { id: order.id }, data: { status: 'RESERVATION_EXPIRED', version: { increment: 1 } }, include: orderInclude
+  })
+  await enqueueOrderEvent(tx, expired)
+  return expired
+}
+
 async function findOwnedOrder(partnerId: string, id: string) {
   return db.partner_orders.findFirst({ where: { id, partner_id: partnerId }, include: orderInclude })
 }
@@ -58,21 +90,16 @@ async function findOwnedOrder(partnerId: string, id: string) {
 export async function getPartnerOrder(partnerId: string, id: string) {
   let order = await findOwnedOrder(partnerId, id)
   if (!order) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
-  if (order.status === 'REQUESTED' && order.binding_expires_at <= new Date()) {
+  if (shouldExpirePartnerOrder(order.status, order.binding_expires_at, new Date())) {
     order = await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "catalog"."partner_orders" WHERE "id" = ${id}::uuid FOR UPDATE`
       const current = await tx.partner_orders.findFirst({ where: { id, partner_id: partnerId }, include: orderInclude })
       if (!current) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
-      if (current.status !== 'REQUESTED' || current.binding_expires_at > new Date()) return current
-      await tx.partner_stock_reservations.updateMany({
-        where: { order_id: id, status: 'ACTIVE' }, data: { status: 'RELEASED' }
-      })
-      return tx.partner_orders.update({
-        where: { id }, data: { status: 'RESERVATION_EXPIRED', version: { increment: 1 } }, include: orderInclude
-      })
+      if (!shouldExpirePartnerOrder(current.status, current.binding_expires_at, new Date())) return current
+      return expireLockedOrder(tx, current)
     })
   }
-  return toOrderDto(order)
+  return toPartnerOrderDto(order)
 }
 
 export async function quotePartnerOffer(selectedOfferId: string, quantity: number) {
@@ -109,7 +136,7 @@ export async function confirmPartnerOrder(partnerId: string, id: string, expecte
     await tx.$queryRaw`SELECT "id" FROM "catalog"."partner_orders" WHERE "id" = ${id}::uuid FOR UPDATE`
     const order = await tx.partner_orders.findFirst({ where: { id, partner_id: partnerId }, include: orderInclude })
     if (!order) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
-    if (order.status === 'CONFIRMED') return toOrderDto(order)
+    if (order.status === 'CONFIRMED') return toPartnerOrderDto(order)
     if (order.status !== 'REQUESTED' || order.version !== expectedVersion) {
       throw new PartnerOrderError('INVALID_TRANSITION', 'Order transition is not allowed.', 409)
     }
@@ -118,15 +145,14 @@ export async function confirmPartnerOrder(partnerId: string, id: string, expecte
       where: { order_id: id, status: 'ACTIVE', expires_at: { gt: now } }
     })
     if (active !== order.items.length) {
-      await tx.partner_stock_reservations.updateMany({ where: { order_id: id, status: 'ACTIVE' }, data: { status: 'RELEASED' } })
-      const expired = await tx.partner_orders.update({ where: { id }, data: { status: 'RESERVATION_EXPIRED', version: { increment: 1 } }, include: orderInclude })
-      return toOrderDto(expired)
+      return toPartnerOrderDto(await expireLockedOrder(tx, order))
     }
     await tx.partner_stock_reservations.updateMany({ where: { order_id: id, status: 'ACTIVE' }, data: { status: 'COMMITTED' } })
     const updated = await tx.partner_orders.update({
       where: { id }, data: { status: 'CONFIRMED', version: { increment: 1 } }, include: orderInclude
     })
-    return toOrderDto(updated)
+    await enqueueOrderEvent(tx, updated)
+    return toPartnerOrderDto(updated)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 
@@ -206,9 +232,10 @@ export async function createPartnerOrder(partnerId: string, input: CreatePartner
         },
         include: orderInclude
       })
+      await enqueueOrderEvent(tx, created)
       return created
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    return { order: toOrderDto(order), replayed: false }
+    return { order: toPartnerOrderDto(order), replayed: false }
   } catch (error) {
     if (error instanceof PartnerOrderError) throw error
     if ((error as { code?: string }).code === 'P2002') {
@@ -232,21 +259,44 @@ export async function cancelPartnerOrder(partnerId: string, id: string) {
     await tx.$queryRaw`SELECT "id" FROM "catalog"."partner_orders" WHERE "id" = ${id}::uuid FOR UPDATE`
     const order = await tx.partner_orders.findFirst({ where: { id, partner_id: partnerId }, include: orderInclude })
     if (!order) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
-    if (order.status === 'REQUESTED' && order.binding_expires_at <= new Date()) {
-      await tx.partner_stock_reservations.updateMany({ where: { order_id: id, status: 'ACTIVE' }, data: { status: 'RELEASED' } })
-      const expired = await tx.partner_orders.update({ where: { id }, data: { status: 'RESERVATION_EXPIRED', version: { increment: 1 } }, include: orderInclude })
-      return toOrderDto(expired)
+    if (shouldExpirePartnerOrder(order.status, order.binding_expires_at, new Date())) {
+      return toPartnerOrderDto(await expireLockedOrder(tx, order))
     }
     const outcome = cancellationOutcome(order.status as PartnerOrderStatus)
-    if (outcome === 'NOOP') return toOrderDto(order)
+    if (outcome === 'NOOP') return toPartnerOrderDto(order)
     if (outcome === 'REQUEST') {
+      if (order.cancellation_requested_at) return toPartnerOrderDto(order)
       const updated = await tx.partner_orders.update({
-        where: { id }, data: { cancellation_requested_at: order.cancellation_requested_at ?? new Date(), version: { increment: order.cancellation_requested_at ? 0 : 1 } }, include: orderInclude
+        where: { id }, data: { cancellation_requested_at: new Date(), version: { increment: 1 } }, include: orderInclude
       })
-      return toOrderDto(updated)
+      await enqueueOrderEvent(tx, updated)
+      return toPartnerOrderDto(updated)
     }
     await tx.partner_stock_reservations.updateMany({ where: { order_id: id, status: 'ACTIVE' }, data: { status: 'RELEASED' } })
     const updated = await tx.partner_orders.update({ where: { id }, data: { status: 'CANCELLED', version: { increment: 1 } }, include: orderInclude })
-    return toOrderDto(updated)
+    await enqueueOrderEvent(tx, updated)
+    return toPartnerOrderDto(updated)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
+/** Bounded operations sweep; each candidate is rechecked under its order lock. */
+export async function expirePartnerOrders(limit = 100): Promise<number> {
+  const candidates = await db.partner_orders.findMany({
+    where: { status: 'REQUESTED', binding_expires_at: { lte: new Date() } },
+    select: { id: true, partner_id: true }, orderBy: { binding_expires_at: 'asc' }, take: limit
+  })
+  let expiredCount = 0
+  for (const candidate of candidates) {
+    const expired = await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "catalog"."partner_orders" WHERE "id" = ${candidate.id}::uuid FOR UPDATE`
+      const current = await tx.partner_orders.findFirst({
+        where: { id: candidate.id, partner_id: candidate.partner_id }, include: orderInclude
+      })
+      if (!current || !shouldExpirePartnerOrder(current.status, current.binding_expires_at, new Date())) return false
+      await expireLockedOrder(tx, current)
+      return true
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    if (expired) expiredCount += 1
+  }
+  return expiredCount
 }
