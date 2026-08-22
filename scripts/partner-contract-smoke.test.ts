@@ -10,6 +10,7 @@ function response() {
       manufacturerPartNumber: { value: '103803', normalized: '103803' },
       exactFitment: { requestedVehicleTypeId: null, status: 'NOT_REQUESTED', matchedVehicleTypeIds: [] },
       offers: [{
+        selectedOfferId: 'offer_1',
         supplierDisplayName: 'Presentation Name',
         informationalPriceKurus: 99530,
         currency: 'TRY',
@@ -33,6 +34,18 @@ describe('partner contract smoke validation', () => {
   it('detects confidential keys recursively', () => {
     expect(findBannedKeys({ products: [{ offers: [{ netCostTry: 10, supplierCode: 'x' }] }] }).sort())
       .toEqual(['netCostTry', 'supplierCode'])
+  })
+
+  it('requires a non-empty selected offer id', () => {
+    const payload = response()
+    payload.products[0].offers[0].selectedOfferId = ''
+    let message = ''
+    try {
+      validateExactResponse(payload)
+    } catch (error) {
+      message = error instanceof Error ? error.message : ''
+    }
+    expect(message).toBe('FAIL selected_offer_id')
   })
 
   it('rejects fields outside the offer presentation allowlist', () => {

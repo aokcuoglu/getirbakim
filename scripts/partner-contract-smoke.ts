@@ -7,6 +7,7 @@ const OFFER_KEYS = [
   'currency',
   'informationalPriceKurus',
   'lastSyncedAt',
+  'selectedOfferId',
   'stockQty',
   'supplierDisplayName',
   'vatRateBps'
@@ -73,6 +74,7 @@ export function validateExactResponse(value: unknown): {
     for (const offer of product.offers as unknown[]) {
       assert('offer_shape', isRecord(offer))
       assert('offer_allowlist_only', Object.keys(offer).sort().join(',') === [...OFFER_KEYS].sort().join(','))
+      assert('selected_offer_id', typeof offer.selectedOfferId === 'string' && offer.selectedOfferId.length > 0)
       assert('safe_supplier_display_name', typeof offer.supplierDisplayName === 'string' && offer.supplierDisplayName.trim().length > 0)
       assert('informational_price_allowlist', offer.informationalPriceKurus === null || (typeof offer.informationalPriceKurus === 'number' && Number.isInteger(offer.informationalPriceKurus) && offer.informationalPriceKurus > 0))
       assert('offer_currency_try', offer.currency === 'TRY')
