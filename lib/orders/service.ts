@@ -284,6 +284,33 @@ export async function createOrderDraft(
   const initialStatuses = getInitialOrderStatuses(input.paymentMethod)
 
   const createdOrder = await db.$transaction(async (tx) => {
+    // Consumer and partner checkout share the product row as their inventory
+    // serialization boundary. Revalidate after acquiring it; the earlier
+    // preparation is presentation/price validation, not a stock guarantee.
+    const requestedByProduct = new Map<bigint, number>()
+    for (const line of lines.filter((item) => item.hasLiveStock)) {
+      const productId = BigInt(line.productId)
+      requestedByProduct.set(productId, (requestedByProduct.get(productId) ?? 0) + line.quantity)
+    }
+    const lockedProductIds = [...requestedByProduct.keys()].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+    if (lockedProductIds.length > 0) {
+      await tx.$queryRaw`SELECT "id" FROM "catalog"."products" WHERE "id" IN (${Prisma.join(lockedProductIds)}) ORDER BY "id" FOR UPDATE`
+      const now = new Date()
+      for (const productId of lockedProductIds) {
+        const [product, consumerReserved, partnerReserved] = await Promise.all([
+          tx.products.findUnique({ where: { id: productId }, select: { total_stock_qty: true } }),
+          tx.stock_reservations.aggregate({
+            where: { product_id: productId, status: 'ACTIVE', expires_at: { gt: now } }, _sum: { quantity: true }
+          }),
+          tx.partner_stock_reservations.aggregate({
+            where: { product_id: productId, OR: [{ status: 'COMMITTED' }, { status: 'ACTIVE', expires_at: { gt: now } }] }, _sum: { quantity: true }
+          })
+        ])
+        const available = Math.max((product?.total_stock_qty ?? 0) - (consumerReserved._sum.quantity ?? 0) - (partnerReserved._sum.quantity ?? 0), 0)
+        if (available < requestedByProduct.get(productId)!) throw new Error('CHECKOUT_ITEMS_INVALID')
+      }
+    }
+
     const order = await tx.orders.create({
       data: {
         user_id: input.userId,
