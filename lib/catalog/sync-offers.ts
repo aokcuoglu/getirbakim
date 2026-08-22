@@ -47,6 +47,7 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
         dc.stock_qty,
         dc.campaign_rate,
         dc.regional_stock,
+        dc.last_seen_at AS source_priced_at,
         ROUND(
           (
             dc.price
@@ -81,7 +82,9 @@ export async function refreshDinamikOffers(): Promise<RefreshOffersStats> {
       stock_qty = COALESCE(src.stock_qty, 0),
       stock_breakdown = src.regional_stock,
       is_active = NOT src.is_passive,
-      priced_at = NOW(),
+      -- Transactional freshness belongs to the exact supplier cost snapshot.
+      -- Re-running this projection must not make an unchanged snapshot fresh.
+      priced_at = src.source_priced_at,
       last_synced_at = NOW(),
       updated_at = NOW()
     FROM src
@@ -114,6 +117,7 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
         bp.id AS bsbg_id,
         bp.is_passive,
         bp.liste_fiyati,
+        bp.last_seen_at AS source_priced_at,
         cur.currency,
         CASE WHEN cur.currency = 'TRY' THEN NULL ELSE r.satis END AS fx_rate,
         CASE WHEN cur.currency = 'TRY' THEN NULL ELSE r.tarih END AS fx_date,
@@ -161,7 +165,8 @@ export async function refreshBasbugOffers(): Promise<RefreshOffersStats> {
         )
       END,
       is_active = NOT src.is_passive,
-      priced_at = NOW(),
+      -- Keep projection time (last_synced_at) separate from source freshness.
+      priced_at = src.source_priced_at,
       last_synced_at = NOW(),
       updated_at = NOW()
     FROM src
