@@ -196,60 +196,6 @@ if [[ "${MIGRATE_RC}" -ne 0 ]]; then
       echo "       inspect the output above before retrying."
       exit 1
     fi
-  elif echo "${MIGRATE_OUTPUT}" | grep -q "P3018"; then
-    # P3018 = a previous migration is marked failed in _prisma_migrations, so
-    # `migrate deploy` refuses to apply anything until it is resolved. This most
-    # commonly happens after a squashed `init` migration tries `CREATE TABLE` on
-    # a prod schema that already had those tables (built outside Prisma via
-    # v0-init.sql), fails with 42P07 "relation already exists", and is recorded
-    # as failed. The schema already matches the squashed migration (it was
-    # generated FROM that schema), so the failed row just needs to be marked
-    # applied. We resolve every migration in prisma/migrations as applied, then
-    # retry deploy. A pre-migrate backup exists, so this is recoverable.
-    echo ">>> P3018: a migration is marked failed — resolving as applied and retrying..."
-    MIGRATION_NAMES=$(ls -1 prisma/migrations/ 2>/dev/null | grep -E '^[0-9]' || echo "")
-    if [[ -z "${MIGRATION_NAMES}" ]]; then
-      echo "FATAL: no migrations found in prisma/migrations/ — cannot auto-resolve."
-      exit 1
-    fi
-    # First drop any failed rows (resolve --applied won't clear a 'failed' state;
-    # it only inserts/updates a non-existent or 'rolled-back' row).
-    for m in ${MIGRATION_NAMES}; do
-      docker exec -i "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" \
-        -c "DELETE FROM _prisma_migrations WHERE migration_name='${m}' AND finished_at IS NULL;" >/dev/null 2>&1 || true
-    done
-    RESOLVE_LIST="${MIGRATION_NAMES}"
-    RESOLVE_RC=0
-    RESOLVE_OUTPUT=$(docker run --rm \
-      --network getirbakim_app-network \
-      -v "$PWD:/repo" -w /repo \
-      -e DIRECT_URL="${DATABASE_URL}" \
-      -e DATABASE_URL="${DATABASE_URL}" \
-      -e RESOLVE_LIST="${RESOLVE_LIST}" \
-      oven/bun:1 \
-      sh -c 'set -e; bun install --frozen-lockfile >/dev/null 2>&1; for m in $RESOLVE_LIST; do echo ">>> resolve --applied $m"; bunx prisma migrate resolve --applied "$m"; done' 2>&1) || RESOLVE_RC=$?
-    echo "  ${RESOLVE_OUTPUT//$'\n'/$'\n'  }"
-    if [[ "${RESOLVE_RC}" -ne 0 ]]; then
-      echo "FATAL: migrate resolve failed (rc=${RESOLVE_RC}) — aborting deploy."
-      echo "       A pre-migrate backup was taken. Inspect the output above and retry."
-      exit 1
-    fi
-    echo ">>> Retrying migrate deploy after resolve..."
-    RETRY_RC=0
-    RETRY_OUTPUT=$(docker run --rm \
-      --network getirbakim_app-network \
-      -v "$PWD:/repo" -w /repo \
-      -e DIRECT_URL="${DATABASE_URL}" \
-      -e DATABASE_URL="${DATABASE_URL}" \
-      oven/bun:1 \
-      sh -c "bun install --frozen-lockfile && bunx prisma migrate deploy" 2>&1) || RETRY_RC=$?
-    echo "  ${RETRY_OUTPUT//$'\n'/$'\n'  }"
-    if [[ "${RETRY_RC}" -ne 0 ]]; then
-      echo "FATAL: migrate deploy still failing after resolve (rc=${RETRY_RC}) — aborting."
-      echo "       A pre-migrate backup was taken. Inspect the output above and retry."
-      exit 1
-    fi
-    echo "  Prisma migrations OK (after P3018 auto-resolve)"
   else
     # Abort loudly: a failed/partial migration must not be reported as a green
     # deploy (that is how a broken schema previously reached production unnoticed).
