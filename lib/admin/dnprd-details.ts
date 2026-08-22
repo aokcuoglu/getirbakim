@@ -124,7 +124,12 @@ export async function batchUpsertDproductDetails(
         campaign_rate = EXCLUDED.campaign_rate,
         regional_stock = EXCLUDED.regional_stock,
         raw = EXCLUDED.raw,
-        last_seen_at = NOW(),
+        -- A stock-only refresh may retain the previous price via COALESCE, but
+        -- it must not make that retained price transactionally fresh.
+        last_seen_at = CASE
+          WHEN EXCLUDED.price IS NOT NULL THEN NOW()
+          ELSE catalog.supplier_dinamik_cost.last_seen_at
+        END,
         updated_at = NOW()
     `)
     upserted += Number(count)
