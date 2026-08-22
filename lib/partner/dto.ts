@@ -96,6 +96,7 @@ export interface PartnerProductRow {
     selling_price_try: Prisma.Decimal | null
     net_cost_try: Prisma.Decimal | null
     stock_qty: number
+    priced_at: Date | null
     last_synced_at: Date
     supplier: { name: string }
   }[]
@@ -156,7 +157,10 @@ function toPartnerOffers(row: PartnerProductRow): PartnerOfferDto[] {
         vatRateBps: 2000,
         availability,
         stockQty,
-        lastSyncedAt: offer.last_synced_at.toISOString()
+        // The binding gate ages `priced_at`, so the informational timestamp must
+        // describe that same authoritative supplier snapshot. `last_synced_at`
+        // is only projection time and may make unchanged source data look fresh.
+        lastSyncedAt: (offer.priced_at ?? offer.last_synced_at).toISOString()
       }
     })
 }
@@ -194,11 +198,12 @@ function resolveNetCost(row: PartnerProductRow): Prisma.Decimal | null {
   return lowest
 }
 
-/** En SON senkron anı — birden çok offer'da en tazesi ürünün tazeliğidir. */
+/** En son authoritative fiyat snapshot'ı; projection zamanı yalnız legacy fallback. */
 function resolveLastSyncedAt(row: PartnerProductRow): string | null {
   let latest: Date | null = null
   for (const offer of row.product_offers) {
-    if (latest == null || offer.last_synced_at > latest) latest = offer.last_synced_at
+    const freshness = offer.priced_at ?? offer.last_synced_at
+    if (latest == null || freshness > latest) latest = freshness
   }
   return latest ? latest.toISOString() : null
 }

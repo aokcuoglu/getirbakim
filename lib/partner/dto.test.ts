@@ -11,6 +11,7 @@ function offer(overrides: Partial<OfferRow> = {}): OfferRow {
     selling_price_try: new Prisma.Decimal('200.00'),
     net_cost_try: new Prisma.Decimal('120.00'),
     stock_qty: 7,
+    priced_at: new Date('2026-08-19T09:55:00Z'),
     last_synced_at: new Date('2026-08-19T10:00:00Z'),
     supplier: { name: 'Dinamik Otomotiv' },
     ...overrides
@@ -57,7 +58,7 @@ describe('toPartnerProductDto', () => {
     expect(dto.b2bPriceKurus).toBe(18000)
     expect(dto.stockQty).toBe(7)
     expect(dto.availability).toBe('IN_STOCK')
-    expect(dto.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
+    expect(dto.lastSyncedAt).toBe('2026-08-19T09:55:00.000Z')
     expect(dto.offers).toEqual([{
       selectedOfferId: 'offer_1',
       supplierDisplayName: 'Dinamik Otomotiv',
@@ -66,7 +67,7 @@ describe('toPartnerProductDto', () => {
       vatRateBps: 2000,
       availability: 'IN_STOCK',
       stockQty: 7,
-      lastSyncedAt: '2026-08-19T10:00:00.000Z'
+      lastSyncedAt: '2026-08-19T09:55:00.000Z'
     }])
   })
 
@@ -135,15 +136,21 @@ describe('toPartnerProductDto', () => {
     const dto = toPartnerProductDto(
       row({
         product_offers: [
-          offer({ id: BigInt(1), net_cost_try: new Prisma.Decimal('180.00'), last_synced_at: new Date('2026-08-18T00:00:00Z') }),
-          offer({ id: BigInt(2), net_cost_try: new Prisma.Decimal('160.00'), last_synced_at: new Date('2026-08-20T00:00:00Z') })
+          offer({ id: BigInt(1), net_cost_try: new Prisma.Decimal('180.00'), priced_at: new Date('2026-08-18T00:00:00Z'), last_synced_at: new Date('2026-08-21T00:00:00Z') }),
+          offer({ id: BigInt(2), net_cost_try: new Prisma.Decimal('160.00'), priced_at: new Date('2026-08-20T00:00:00Z'), last_synced_at: new Date('2026-08-21T00:00:00Z') })
         ]
       }),
       { discountBps: 5000 }
     )
     expect(dto.b2bPriceKurus).toBe(16000)
-    // En TAZE senkron anı raporlanır.
+    // En taze authoritative fiyat snapshot'ı raporlanır; projection zamanı değil.
     expect(dto.lastSyncedAt).toBe('2026-08-20T00:00:00.000Z')
+  })
+
+  it('falls back to projection time only when a legacy offer has no priced_at', () => {
+    const dto = toPartnerProductDto(row({ product_offers: [offer({ priced_at: null })] }), { discountBps: 0 })
+    expect(dto.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
+    expect(dto.offers[0]?.lastSyncedAt).toBe('2026-08-19T10:00:00.000Z')
   })
 
   it('reports a priced product with no stock as supplyable, not unavailable', () => {
