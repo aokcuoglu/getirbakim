@@ -53,6 +53,7 @@ function partnerProductSelect(vehicleTypeId: number | null) {
       selling_price_try: true,
       net_cost_try: true,
       stock_qty: true,
+      priced_at: true,
       last_synced_at: true,
       supplier: { select: { name: true } }
     }
