@@ -5,13 +5,6 @@ import { Download, Upload, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
-import {
   bulkUpdateAdminProducts,
   exportAdminNewProductsCsvTemplate,
   exportAdminProductsCsv,
@@ -39,11 +32,7 @@ export function ProductsBulkActions({
 }: ProductsBulkActionsProps) {
   const [isPending, startTransition] = useTransition()
   const [priceInput, setPriceInput] = useState('')
-  const [visibility, setVisibility] = useState<'unchanged' | 'visible' | 'hidden'>(
-    'unchanged'
-  )
   const [lockPrice, setLockPrice] = useState(true)
-  const [lockVisibility, setLockVisibility] = useState(true)
 
   const updateFileInputRef = useRef<HTMLInputElement>(null)
   const [updatePreviewRows, setUpdatePreviewRows] = useState<AdminImportPreviewRow[]>(
@@ -72,9 +61,8 @@ export function ProductsBulkActions({
 
   const bulkDisabled = useMemo(() => {
     const hasPrice = priceInput.trim().length > 0
-    const hasVisibility = visibility !== 'unchanged'
-    return !hasSelection || (!hasPrice && !hasVisibility)
-  }, [hasSelection, priceInput, visibility])
+    return !hasSelection || !hasPrice
+  }, [hasSelection, priceInput])
 
   const downloadCsvFile = (csv: string, filename: string) => {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -125,9 +113,7 @@ export function ProductsBulkActions({
       const payload: {
         partIds: string[]
         sellingPriceOverride?: number | null
-        isVisible?: boolean
         lockPrice?: boolean
-        lockVisibility?: boolean
       } = {
         partIds: selectedIds
       }
@@ -140,11 +126,6 @@ export function ProductsBulkActions({
         }
         payload.sellingPriceOverride = parsed
         payload.lockPrice = lockPrice
-      }
-
-      if (visibility !== 'unchanged') {
-        payload.isVisible = visibility === 'visible'
-        payload.lockVisibility = lockVisibility
       }
 
       const result = await bulkUpdateAdminProducts(payload)
@@ -215,7 +196,7 @@ export function ProductsBulkActions({
           </h3>
           <p className="text-xs text-muted-foreground">
             {mode === 'full'
-              ? 'Seçili ürünlerde fiyat/görünürlük güncellemesi yapın.'
+              ? 'Seçili ürünlerde fiyat override güncellemesi yapın.'
               : 'Filtreye göre ürünleri dışa aktarın veya CSV ile içe alın.'}
           </p>
         </div>
@@ -238,8 +219,8 @@ export function ProductsBulkActions({
       </div>
 
       {mode === 'full' ? (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
-          <div className="xl:col-span-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
               Satış fiyatı override (TRY)
             </label>
@@ -259,36 +240,7 @@ export function ProductsBulkActions({
             </label>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              Görünürlük
-            </label>
-            <Select
-              value={visibility}
-              onValueChange={(value) =>
-                setVisibility(value as 'unchanged' | 'visible' | 'hidden')
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Değiştirme" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unchanged">Değiştirme</SelectItem>
-                <SelectItem value="visible">Görünür</SelectItem>
-                <SelectItem value="hidden">Gizli</SelectItem>
-              </SelectContent>
-            </Select>
-            <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={lockVisibility}
-                onChange={(event) => setLockVisibility(event.target.checked)}
-              />
-              Görünürlük kilidi uygula
-            </label>
-          </div>
-
-          <div className="xl:col-span-2 flex items-end gap-2">
+          <div className="flex items-end gap-2">
             <Button
               type="button"
               onClick={handleBulkApply}
@@ -312,7 +264,7 @@ export function ProductsBulkActions({
         </h4>
         <p className="mt-1 text-xs text-muted-foreground">
           Desteklenen kolonlar: `part_id`, `article_link_id`,
-          `is_visible`, `min_stock_level`.
+          `selling_price_override`, `lock_price`.
         </p>
 
         <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">

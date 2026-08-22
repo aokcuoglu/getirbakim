@@ -1,11 +1,8 @@
 export type AdminStockFilter =
   | 'all'
   | 'in_stock'
-  | 'low_stock'
   | 'out_of_stock'
   | 'zero_price'
-export type AdminVisibilityFilter = 'all' | 'visible' | 'hidden'
-export type AdminSyncFilter = 'all' | 'OK' | 'PENDING' | 'ERROR'
 export type AdminSortBy =
   | 'created_at'
   | 'name'
@@ -20,17 +17,7 @@ export interface AdminProductFilters {
   limit?: number
   brandId?: number | null
   categoryId?: number | null
-  /**
-   * Tedarikçi (sağlayıcı) filtresi — `part_supplier_offers.provider_id`.
-   *
-   * Filtre `buildAdminProductConditions` içinde ÇALIŞIYOR ama arayüzde hiç
-   * tanımlanmamıştı; `brandId`/`categoryId` ile aynı şekilde yazıldı. Yalnız
-   * tip eklendi, sorgu davranışı değişmedi.
-   */
-  providerId?: number | null
   stockStatus?: AdminStockFilter
-  visibility?: AdminVisibilityFilter
-  syncStatus?: AdminSyncFilter
   sortBy?: AdminSortBy
   sortOrder?: AdminSortOrder
 }
@@ -45,15 +32,10 @@ export interface AdminProductListItem {
   supplierPrice: number | null
   sellingPrice: number
   supplierStockQty: number
-  reservedStockQty: number
-  minStockLevel: number
   availableStockQty: number
   stockStatus: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'
-  syncStatus: 'OK' | 'PENDING' | 'ERROR'
   lastSyncedAt: string | null
-  isVisible: boolean
   lockPrice: boolean
-  lockVisibility: boolean
   note: string | null
   createdAt: string
   updatedAt: string
@@ -92,8 +74,6 @@ export interface AdminProductDetail extends AdminProductListItem {
     articleLinkId: string
     name: string
     supplierStockQty: number
-    syncStatus: 'OK' | 'PENDING' | 'ERROR'
-    isVisible: boolean
     updatedAt: string
   }>
 }
@@ -101,9 +81,7 @@ export interface AdminProductDetail extends AdminProductListItem {
 export interface AdminBulkUpdateInput {
   partIds: string[]
   sellingPriceOverride?: number | null
-  isVisible?: boolean
   lockPrice?: boolean
-  lockVisibility?: boolean
 }
 
 export interface AdminImportPreviewRow {
@@ -125,9 +103,7 @@ export interface AdminNewImportPreviewRow {
 
 export interface AdminProductKpis {
   totalProducts: number
-  lowStockCount: number
   zeroPriceCount: number
-  syncErrorCount: number
 }
 
 export interface AdminProductSearchMeta {
