@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -1133,6 +1134,19 @@ model product_ref_suggestions {
   @@schema("catalog")
 }
 
+model rpa_lookup_log {
+  product_id  BigInt   @id
+  status      String   @default("EMPTY")
+  oem_count   Int      @default(0)
+  attempts    Int      @default(1)
+  source_site String   @default("rpa-claude")
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([status], map: "idx_rpa_lookup_log_status")
+  @@schema("catalog")
+}
+
 /// Hangi markanın OEM'ini hangi web kaynağından çekebiliyoruz.
 ///
 /// Neden tablo: kapsam bilgisi bugüne kadar yerel dosyalarda ve kod
@@ -1247,7 +1261,7 @@ model partner_order_events {
 
   @@unique([order_id, order_version, event_type], map: "uq_partner_order_events_version")
   @@index([partner_id, created_at])
-  @@index([next_attempt_at])
+  @@index([next_attempt_at], map: "partner_order_events_due_idx", where: raw("((delivered_at IS NULL) AND (dead_lettered_at IS NULL))"))
   @@schema("catalog")
 }
 
@@ -1288,7 +1302,7 @@ model partner_stock_reservations {
 
   @@unique([order_id], map: "uq_partner_reservations_order")
   @@index([order_id, status])
-  @@index([selected_offer_id, status, expires_at])
+  @@index([selected_offer_id, status, expires_at], map: "partner_stock_reservations_selected_offer_id_status_expires_at_")
   @@schema("catalog")
 }
 
