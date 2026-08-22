@@ -8,8 +8,6 @@ export default async function AdminProductToolsPage(props: {
     brand?: string
     category?: string
     stockStatus?: string
-    visibility?: string
-    syncStatus?: string
     sortBy?: string
     sortOrder?: string
   }>
@@ -33,12 +31,9 @@ export default async function AdminProductToolsPage(props: {
             stockStatus: searchParams.stockStatus as
               | 'all'
               | 'in_stock'
-              | 'low_stock'
               | 'out_of_stock'
               | 'zero_price'
               | undefined,
-            visibility: searchParams.visibility as 'all' | 'visible' | 'hidden' | undefined,
-            syncStatus: searchParams.syncStatus as 'all' | 'OK' | 'PENDING' | 'ERROR' | undefined,
             sortBy: searchParams.sortBy as
               | 'created_at'
               | 'name'

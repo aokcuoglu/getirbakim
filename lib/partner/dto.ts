@@ -9,6 +9,8 @@ import { resolvePartnerPrice, type PartnerPriceView } from './b2b-pricing'
 export type PartnerOfferAvailability = 'IN_STOCK' | 'SUPPLYABLE' | 'UNKNOWN'
 
 export interface PartnerOfferDto {
+  /** Opaque, stable offer identity required when an order is created. */
+  selectedOfferId: string
   supplierDisplayName: string
   /** GetirBakım-owned, informational/non-binding B2B price; kuruş, ex-VAT. */
   informationalPriceKurus: number | null
@@ -147,6 +149,7 @@ function toPartnerOffers(row: PartnerProductRow): PartnerOfferDto[] {
           : 'SUPPLYABLE'
 
       return {
+        selectedOfferId: `offer_${offer.id.toString(36)}`,
         supplierDisplayName: offer.supplier.name,
         informationalPriceKurus: price.b2bPriceKurus,
         currency: 'TRY',

@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -862,22 +863,24 @@ model products {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  brand                    brands                     @relation(fields: [brand_id], references: [id], onDelete: Restrict)
-  category                 part_categories?           @relation(fields: [category_id], references: [id], onDelete: SetNull)
-  primary_part             parts?                     @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
-  product_offers           product_offers[]
-  product_oems             product_oems[]
-  product_eans             product_eans[]
-  product_images           product_images[]
-  product_properties       product_properties[]
-  product_vehicle_types    product_vehicle_types[]
-  product_part_links       product_part_links[]
-  product_overrides        product_overrides?
-  order_items              order_items[]
-  stock_reservations       stock_reservations[]
-  product_match_candidates product_match_candidates[]
-  product_ptdrk_refs       product_ptdrk_refs[]
-  product_ref_suggestions  product_ref_suggestions[]
+  brand                      brands                       @relation(fields: [brand_id], references: [id], onDelete: Restrict)
+  category                   part_categories?             @relation(fields: [category_id], references: [id], onDelete: SetNull)
+  primary_part               parts?                       @relation(fields: [primary_part_id], references: [id], onDelete: SetNull)
+  product_offers             product_offers[]
+  product_oems               product_oems[]
+  product_eans               product_eans[]
+  product_images             product_images[]
+  product_properties         product_properties[]
+  product_vehicle_types      product_vehicle_types[]
+  product_part_links         product_part_links[]
+  product_overrides          product_overrides?
+  order_items                order_items[]
+  stock_reservations         stock_reservations[]
+  partner_order_items        partner_order_items[]
+  partner_stock_reservations partner_stock_reservations[]
+  product_match_candidates   product_match_candidates[]
+  product_ptdrk_refs         product_ptdrk_refs[]
+  product_ref_suggestions    product_ref_suggestions[]
 
   @@unique([brand_id, part_no_norm], map: "uq_products_brand_partno_norm")
   @@index([part_no_norm])
@@ -922,10 +925,12 @@ model product_offers {
   created_at     DateTime  @default(now()) @db.Timestamptz(6)
   updated_at     DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  product         products                   @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  supplier        suppliers                  @relation(fields: [supplier_code], references: [code], onDelete: Restrict)
-  dinamik_product supplier_dinamik_products? @relation(fields: [dinamik_product_id], references: [id], onDelete: Cascade)
-  basbug_product  supplier_basbug_products?  @relation(fields: [basbug_product_id], references: [id], onDelete: Cascade)
+  product                    products                     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  supplier                   suppliers                    @relation(fields: [supplier_code], references: [code], onDelete: Restrict)
+  dinamik_product            supplier_dinamik_products?   @relation(fields: [dinamik_product_id], references: [id], onDelete: Cascade)
+  basbug_product             supplier_basbug_products?    @relation(fields: [basbug_product_id], references: [id], onDelete: Cascade)
+  partner_order_items        partner_order_items[]
+  partner_stock_reservations partner_stock_reservations[]
 
   // Bir ürünün bir tedarikçiden BİRDEN ÇOK offer'ı olabilir: tedarikçi aynı
   // parçayı ikinci bir stok kodu ailesiyle listeliyor ("PSA 0209GN" /
@@ -1129,6 +1134,19 @@ model product_ref_suggestions {
   @@schema("catalog")
 }
 
+model rpa_lookup_log {
+  product_id  BigInt   @id
+  status      String   @default("EMPTY")
+  oem_count   Int      @default(0)
+  attempts    Int      @default(1)
+  source_site String   @default("rpa-claude")
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([status], map: "idx_rpa_lookup_log_status")
+  @@schema("catalog")
+}
+
 /// Hangi markanın OEM'ini hangi web kaynağından çekebiliyoruz.
 ///
 /// Neden tablo: kapsam bilgisi bugüne kadar yerel dosyalarda ve kod
@@ -1186,6 +1204,105 @@ model stock_reservations {
 
   @@index([order_id])
   @@index([product_id, status, expires_at])
+  @@schema("catalog")
+}
+
+/// Partner orders are separate from consumer checkout: there is no B2C
+/// payment session and ownership comes exclusively from partner auth.
+model partner_orders {
+  id                        String    @id @default(uuid()) @db.Uuid
+  partner_id                String
+  idempotency_key           String
+  request_fingerprint       String
+  status                    String    @default("REQUESTED")
+  version                   Int       @default(1)
+  currency                  String
+  binding_net_amount        Decimal   @db.Decimal(12, 2)
+  binding_vat_amount        Decimal   @db.Decimal(12, 2)
+  binding_gross_amount      Decimal   @db.Decimal(12, 2)
+  pricing_policy_version    String
+  binding_expires_at        DateTime  @db.Timestamptz(6)
+  cancellation_requested_at DateTime? @db.Timestamptz(6)
+  created_at                DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  items        partner_order_items[]
+  reservations partner_stock_reservations[]
+  events       partner_order_events[]
+
+  @@unique([partner_id, idempotency_key], map: "uq_partner_orders_idempotency")
+  @@index([partner_id, created_at])
+  @@index([status, binding_expires_at])
+  @@schema("catalog")
+}
+
+/// Immutable transactional outbox for partner order projections. Delivery
+/// state is mutable; raw_body is not regenerated so retries sign identical bytes.
+model partner_order_events {
+  id               String    @id @default(uuid()) @db.Uuid
+  partner_id       String
+  order_id         String    @db.Uuid
+  order_version    Int
+  event_type       String
+  contract_version String
+  raw_body         String
+  attempt_count    Int       @default(0)
+  next_attempt_at  DateTime  @default(now()) @db.Timestamptz(6)
+  locked_at        DateTime? @db.Timestamptz(6)
+  locked_by        String?
+  delivered_at     DateTime? @db.Timestamptz(6)
+  dead_lettered_at DateTime? @db.Timestamptz(6)
+  last_http_status Int?
+  last_error       String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  order partner_orders @relation(fields: [order_id], references: [id], onDelete: Restrict)
+
+  @@unique([order_id, order_version, event_type], map: "uq_partner_order_events_version")
+  @@index([partner_id, created_at])
+  @@index([next_attempt_at], map: "partner_order_events_due_idx", where: raw("((delivered_at IS NULL) AND (dead_lettered_at IS NULL))"))
+  @@schema("catalog")
+}
+
+model partner_order_items {
+  id                BigInt  @id @default(autoincrement())
+  order_id          String  @db.Uuid
+  product_id        BigInt
+  selected_offer_id BigInt
+  quantity          Int
+  unit_net_amount   Decimal @db.Decimal(12, 2)
+  unit_vat_amount   Decimal @db.Decimal(12, 2)
+  unit_gross_amount Decimal @db.Decimal(12, 2)
+
+  order          partner_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product        products       @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  selected_offer product_offers @relation(fields: [selected_offer_id], references: [id], onDelete: Restrict)
+
+  @@unique([order_id], map: "uq_partner_order_items_order")
+  @@index([order_id])
+  @@index([product_id])
+  @@index([selected_offer_id])
+  @@schema("catalog")
+}
+
+model partner_stock_reservations {
+  id                BigInt   @id @default(autoincrement())
+  order_id          String   @db.Uuid
+  product_id        BigInt
+  selected_offer_id BigInt
+  quantity          Int
+  status            String   @default("ACTIVE")
+  expires_at        DateTime @db.Timestamptz(6)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+
+  order          partner_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product        products       @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  selected_offer product_offers @relation(fields: [selected_offer_id], references: [id], onDelete: Restrict)
+
+  @@unique([order_id], map: "uq_partner_reservations_order")
+  @@index([order_id, status])
+  @@index([selected_offer_id, status, expires_at], map: "partner_stock_reservations_selected_offer_id_status_expires_at_")
   @@schema("catalog")
 }
 

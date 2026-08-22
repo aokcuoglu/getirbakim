@@ -42,14 +42,13 @@ const SELLING_PRICE_SQL = Prisma.sql`
     WHEN COALESCE(o.lock_price, FALSE) = TRUE
       AND o.selling_price_override IS NOT NULL
       THEN o.selling_price_override
-    ELSE COALESCE(i.computed_selling_price_ex_vat, i.supplier_price, p.price, 0)
+    ELSE COALESCE(p.min_selling_price_try, 0)
   END
 `
 
 const STOCK_STATUS_SQL = Prisma.sql`
   CASE
-    WHEN COALESCE(i.supplier_stock_qty, 0) <= 0 THEN 'OUT_OF_STOCK'
-    WHEN COALESCE(i.supplier_stock_qty, 0) <= COALESCE(i.min_stock_level, 3) THEN 'LOW_STOCK'
+    WHEN COALESCE(p.total_stock_qty, 0) <= 0 THEN 'OUT_OF_STOCK'
     ELSE 'IN_STOCK'
   END
 `
@@ -66,15 +65,10 @@ interface AdminProductRawRow {
   supplier_price: string | null
   selling_price: string
   supplier_stock_qty: number | null
-  reserved_stock_qty: number | null
-  min_stock_level: number | null
   available_stock_qty: number
   stock_status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK'
-  sync_status: 'OK' | 'PENDING' | 'ERROR' | null
   last_synced_at: Date | null
-  is_visible: boolean | null
   lock_price: boolean | null
-  lock_visibility: boolean | null
   note: string | null
   created_at: Date
   updated_at: Date
@@ -87,21 +81,9 @@ interface AdminProductPagedRow extends AdminProductRawRow {
   sync_error_count?: number
 }
 
-interface VariantRow {
-  id: string
-  article_link_id: string
-  name: string
-  supplier_stock_qty: number
-  sync_status: 'OK' | 'PENDING' | 'ERROR'
-  is_visible: boolean
-  updated_at: Date
-}
-
 interface DashboardMetricsRow {
   total_products: number
-  low_stock_count: number
   zero_price_count: number
-  sync_error_count: number
 }
 
 interface CountRow {
@@ -197,8 +179,11 @@ interface NewProductImportPreparedRow {
   partNo?: string | null
   price?: number | null
   inBasket: boolean
-  pricingInventory?: Prisma.part_pricing_inventoryUncheckedCreateInput
-  adminOverrides?: Prisma.part_admin_overridesUncheckedCreateInput
+  adminOverride?: {
+    sellingPriceOverride?: number | null
+    lockPrice?: boolean
+    note?: string
+  }
   technical: NewProductImportTechnicalRows
 }
 
@@ -243,10 +228,7 @@ function normalizeFilters(
     limit,
     brandId: input.brandId ?? null,
     categoryId: input.categoryId ?? null,
-    providerId: input.providerId ?? null,
     stockStatus: input.stockStatus || 'all',
-    visibility: input.visibility || 'all',
-    syncStatus: input.syncStatus || 'all',
     sortBy: normalizeSortBy(input.sortBy),
     sortOrder: normalizeSortOrder(input.sortOrder)
   }
@@ -366,15 +348,10 @@ function mapProductRow(row: AdminProductRawRow): AdminProductListItem {
     supplierPrice: toNullableNumber(row.supplier_price),
     sellingPrice: toNumber(row.selling_price, 0),
     supplierStockQty: row.supplier_stock_qty ?? 0,
-    reservedStockQty: row.reserved_stock_qty ?? 0,
-    minStockLevel: row.min_stock_level ?? 3,
     availableStockQty: row.available_stock_qty,
     stockStatus: row.stock_status,
-    syncStatus: (row.sync_status || 'OK') as 'OK' | 'PENDING' | 'ERROR',
     lastSyncedAt: formatDate(row.last_synced_at),
-    isVisible: row.is_visible ?? true,
     lockPrice: row.lock_price ?? false,
-    lockVisibility: row.lock_visibility ?? false,
     note: row.note,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString()
@@ -435,92 +412,60 @@ function buildAdminProductSearchClauses(query: string) {
 
   const exactClause = Prisma.sql`(
     CAST(p.id AS TEXT) = ${raw}
-    OR CAST(p.article_link_id AS TEXT) = ${raw}
-    OR lower(COALESCE(CAST(p.part_no AS TEXT), '')) = ${normalized}
+    OR lower(p.part_no) = ${normalized}
     OR EXISTS (
       SELECT 1
-      FROM part_oens po
-      WHERE po.part_id = p.id
-        AND lower(po.code) = ${normalized}
+      FROM catalog.product_oems po
+      WHERE po.product_id = p.id AND lower(po.code) = ${normalized}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_supplier_offers pso
-      JOIN supplier_products sp ON sp.id = pso.supplier_product_id
-      WHERE pso.part_id = p.id
-        AND lower(sp.supplier_sku) = ${normalized}
+      FROM catalog.product_offers pso
+      WHERE pso.product_id = p.id AND lower(pso.supplier_sku) = ${normalized}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_eans pe
-      WHERE pe.part_id = p.id
-        AND lower(pe.code) = ${normalized}
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM part_cross_references pcr
-      WHERE pcr.part_id = p.id
-        AND lower(pcr.article_number) = ${normalized}
+      FROM catalog.product_eans pe
+      WHERE pe.product_id = p.id AND lower(pe.code) = ${normalized}
     )
   )`
 
   const prefixClause = Prisma.sql`(
     CAST(p.id AS TEXT) LIKE ${prefix}
-    OR CAST(p.article_link_id AS TEXT) LIKE ${prefix}
-    OR lower(COALESCE(CAST(p.part_no AS TEXT), '')) LIKE ${normalizedPrefix}
+    OR lower(p.part_no) LIKE ${normalizedPrefix}
     OR EXISTS (
       SELECT 1
-      FROM part_oens po
-      WHERE po.part_id = p.id
-        AND lower(po.code) LIKE ${normalizedPrefix}
+      FROM catalog.product_oems po
+      WHERE po.product_id = p.id AND lower(po.code) LIKE ${normalizedPrefix}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_supplier_offers pso
-      JOIN supplier_products sp ON sp.id = pso.supplier_product_id
-      WHERE pso.part_id = p.id
-        AND lower(sp.supplier_sku) LIKE ${normalizedPrefix}
+      FROM catalog.product_offers pso
+      WHERE pso.product_id = p.id AND lower(pso.supplier_sku) LIKE ${normalizedPrefix}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_eans pe
-      WHERE pe.part_id = p.id
-        AND lower(pe.code) LIKE ${normalizedPrefix}
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM part_cross_references pcr
-      WHERE pcr.part_id = p.id
-        AND lower(pcr.article_number) LIKE ${normalizedPrefix}
+      FROM catalog.product_eans pe
+      WHERE pe.product_id = p.id AND lower(pe.code) LIKE ${normalizedPrefix}
     )
   )`
 
   const fuzzyCodeClause = Prisma.sql`(
-    lower(COALESCE(CAST(p.part_no AS TEXT), '')) LIKE ${`%${normalized}%`}
+    lower(p.part_no) LIKE ${`%${normalized}%`}
     OR EXISTS (
       SELECT 1
-      FROM part_oens po
-      WHERE po.part_id = p.id
-        AND po.code ILIKE ${contains}
+      FROM catalog.product_oems po
+      WHERE po.product_id = p.id AND po.code ILIKE ${contains}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_supplier_offers pso
-      JOIN supplier_products sp ON sp.id = pso.supplier_product_id
-      WHERE pso.part_id = p.id
-        AND sp.supplier_sku ILIKE ${contains}
+      FROM catalog.product_offers pso
+      WHERE pso.product_id = p.id AND pso.supplier_sku ILIKE ${contains}
     )
     OR EXISTS (
       SELECT 1
-      FROM part_eans pe
-      WHERE pe.part_id = p.id
-        AND pe.code ILIKE ${contains}
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM part_cross_references pcr
-      WHERE pcr.part_id = p.id
-        AND pcr.article_number ILIKE ${contains}
+      FROM catalog.product_eans pe
+      WHERE pe.product_id = p.id AND pe.code ILIKE ${contains}
     )
   )`
 
@@ -575,39 +520,12 @@ function buildWhereSql(filters: Required<AdminProductFilters>) {
     conditions.push(Prisma.sql`p.category_id = ${filters.categoryId}`)
   }
 
-  if (filters.providerId) {
-    conditions.push(Prisma.sql`
-      EXISTS (
-        SELECT 1 FROM part_supplier_offers o2
-        WHERE o2.part_id = p.id 
-          AND o2.provider_id = ${filters.providerId}
-          AND o2.is_active = true
-      )
-    `)
-  }
-
-  if (filters.visibility === 'visible') {
-    conditions.push(Prisma.sql`COALESCE(o.is_visible, TRUE) = TRUE`)
-  } else if (filters.visibility === 'hidden') {
-    conditions.push(Prisma.sql`COALESCE(o.is_visible, TRUE) = FALSE`)
-  }
-
-  if (filters.syncStatus !== 'all') {
-    conditions.push(
-      Prisma.sql`COALESCE(i.sync_status, 'OK') = ${filters.syncStatus}`
-    )
-  }
-
   if (filters.stockStatus === 'in_stock') {
     conditions.push(
-      Prisma.sql`COALESCE(i.supplier_stock_qty, 0) > COALESCE(i.min_stock_level, 3)`
-    )
-  } else if (filters.stockStatus === 'low_stock') {
-    conditions.push(
-      Prisma.sql`COALESCE(i.supplier_stock_qty, 0) > 0 AND COALESCE(i.supplier_stock_qty, 0) <= COALESCE(i.min_stock_level, 3)`
+      Prisma.sql`COALESCE(p.total_stock_qty, 0) > 0`
     )
   } else if (filters.stockStatus === 'out_of_stock') {
-    conditions.push(Prisma.sql`COALESCE(i.supplier_stock_qty, 0) <= 0`)
+    conditions.push(Prisma.sql`COALESCE(p.total_stock_qty, 0) <= 0`)
   } else if (filters.stockStatus === 'zero_price') {
     conditions.push(Prisma.sql`${SELLING_PRICE_SQL} <= 0`)
   }
@@ -640,33 +558,33 @@ function buildBaseProductsSelect(
     SELECT
       p.id::text AS id,
       p.id AS id_numeric,
-      p.article_link_id::text AS article_link_id,
+      COALESCE(pp.article_link_id, p.id)::text AS article_link_id,
       p.name,
       ${buildMatchRankSql(filters.q)} AS match_rank,
       1::int AS variant_count,
       b.name AS brand_name,
       c.name AS category_name,
-      i.supplier_price::text AS supplier_price,
+      NULL::text AS supplier_price,
       ${SELLING_PRICE_SQL}::text AS selling_price,
       ${SELLING_PRICE_SQL} AS selling_price_numeric,
-      COALESCE(i.supplier_stock_qty, 0) AS supplier_stock_qty,
-      COALESCE(i.reserved_stock_qty, 0) AS reserved_stock_qty,
-      COALESCE(i.min_stock_level, 3) AS min_stock_level,
-      GREATEST(COALESCE(i.supplier_stock_qty, 0) - COALESCE(i.reserved_stock_qty, 0), 0) AS available_stock_qty,
+      COALESCE(p.total_stock_qty, 0) AS supplier_stock_qty,
+      COALESCE(p.total_stock_qty, 0) AS available_stock_qty,
       ${STOCK_STATUS_SQL} AS stock_status,
-      COALESCE(i.sync_status, 'OK') AS sync_status,
-      i.last_synced_at,
-      COALESCE(o.is_visible, TRUE) AS is_visible,
+      offer_sync.last_synced_at,
       COALESCE(o.lock_price, FALSE) AS lock_price,
-      COALESCE(o.lock_visibility, FALSE) AS lock_visibility,
       o.note,
       p.created_at,
       p.updated_at
-    FROM parts p
-    LEFT JOIN part_brands b ON b.id = p.brand_id
+    FROM catalog.products p
+    LEFT JOIN catalog.brands b ON b.id = p.brand_id
     LEFT JOIN part_categories c ON c.id = p.category_id
-    LEFT JOIN part_pricing_inventory i ON i.part_id = p.id
-    LEFT JOIN part_admin_overrides o ON o.part_id = p.id
+    LEFT JOIN parts pp ON pp.id = p.primary_part_id
+    LEFT JOIN catalog.product_overrides o ON o.product_id = p.id
+    LEFT JOIN LATERAL (
+      SELECT MAX(po.last_synced_at) AS last_synced_at
+      FROM catalog.product_offers po
+      WHERE po.product_id = p.id AND po.is_active = TRUE
+    ) offer_sync ON TRUE
     ${whereSql}
   `
 }
@@ -698,15 +616,10 @@ async function queryAdminProductsRows(
       d.selling_price,
       d.selling_price_numeric,
       d.supplier_stock_qty,
-      d.reserved_stock_qty,
-      d.min_stock_level,
       d.available_stock_qty,
       d.stock_status,
-      d.sync_status,
       d.last_synced_at,
-      d.is_visible,
       d.lock_price,
-      d.lock_visibility,
       d.note,
       d.created_at,
       d.updated_at
@@ -731,24 +644,9 @@ async function queryAdminProductsMetrics(
     SELECT
       COUNT(*)::int AS total_products,
       COALESCE(
-        SUM(
-          CASE
-            WHEN d.supplier_stock_qty > 0
-              AND d.supplier_stock_qty <= d.min_stock_level
-              THEN 1
-            ELSE 0
-          END
-        ),
-        0
-      )::int AS low_stock_count,
-      COALESCE(
         SUM(CASE WHEN d.selling_price_numeric <= 0 THEN 1 ELSE 0 END),
         0
-      )::int AS zero_price_count,
-      COALESCE(
-        SUM(CASE WHEN COALESCE(d.sync_status, 'OK') = 'ERROR' THEN 1 ELSE 0 END),
-        0
-      )::int AS sync_error_count
+      )::int AS zero_price_count
     FROM (
       ${baseSelect}
     ) d
@@ -757,9 +655,7 @@ async function queryAdminProductsMetrics(
   return (
     rows[0] ?? {
       total_products: 0,
-      low_stock_count: 0,
-      zero_price_count: 0,
-      sync_error_count: 0
+      zero_price_count: 0
     }
   )
 }
@@ -943,9 +839,7 @@ async function fetchNewProductTemplatePart(
 function mapAdminMetricsRow(metrics: DashboardMetricsRow): AdminProductKpis {
   return {
     totalProducts: metrics.total_products ?? 0,
-    lowStockCount: metrics.low_stock_count ?? 0,
-    zeroPriceCount: metrics.zero_price_count ?? 0,
-    syncErrorCount: metrics.sync_error_count ?? 0
+    zeroPriceCount: metrics.zero_price_count ?? 0
   }
 }
 
@@ -1211,27 +1105,9 @@ export async function createAdminPartFromDinamik(input: {
     })
     createdPartId = createdPart.id.toString()
 
-    if (supplierPrice != null) {
-      await db.part_pricing_inventory.upsert({
-        where: { part_id: createdPart.id },
-        update: {
-          supplier_price: new Prisma.Decimal(supplierPrice),
-          currency: 'TRY',
-          sync_status: 'PENDING',
-          last_synced_at: new Date()
-        },
-        create: {
-          part_id: createdPart.id,
-          supplier_price: new Prisma.Decimal(supplierPrice),
-          supplier_stock_qty: 0,
-          reserved_stock_qty: 0,
-          min_stock_level: 3,
-          currency: 'TRY',
-          sync_status: 'PENDING',
-          last_synced_at: new Date()
-        }
-      })
-    }
+    // A legacy part has no supplier provenance, so it cannot truthfully create
+    // a canonical product_offer. Supplier pricing is intentionally not copied.
+    void supplierPrice
   } catch (error) {
     const message =
       error instanceof Error
@@ -1394,20 +1270,8 @@ export async function createAdminPartFromTemplate(input: {
         }
       })
 
-      if (supplierPrice != null) {
-        await tx.part_pricing_inventory.create({
-          data: {
-            part_id: partId,
-            supplier_price: new Prisma.Decimal(supplierPrice),
-            supplier_stock_qty: 0,
-            reserved_stock_qty: 0,
-            min_stock_level: 3,
-            currency: 'TRY',
-            sync_status: 'PENDING',
-            last_synced_at: new Date()
-          }
-        })
-      }
+      // No canonical offer is created without supplier provenance.
+      void supplierPrice
 
       if (templatePart.part_oens.length > 0) {
         await tx.part_oens.createMany({
@@ -1797,12 +1661,22 @@ export async function createAdminProductFromTemplate(input: {
   }
 }
 
+async function canonicalProductExists(productId: bigint): Promise<boolean> {
+  const product = await db.products.findUnique({
+    where: { id: productId },
+    select: { id: true }
+  })
+  return Boolean(product)
+}
+
+function isInvalidSellingPrice(value: number | null | undefined): boolean {
+  return typeof value === 'number' && (!Number.isFinite(value) || value < 0)
+}
+
 export async function updateAdminProductInline(input: {
   partId: string
   sellingPriceOverride?: number | null
-  isVisible?: boolean
   lockPrice?: boolean
-  lockVisibility?: boolean
 }): Promise<{ success: boolean; message: string }> {
   const userId = await getAdminUserId()
 
@@ -1813,23 +1687,18 @@ export async function updateAdminProductInline(input: {
     return { success: false, message: 'Geçersiz ürün kimliği.' }
   }
 
-  const updateData: Prisma.part_admin_overridesUncheckedUpdateInput = {
+  if (!(await canonicalProductExists(parsedPartId))) {
+    return { success: false, message: 'Kanonik ürün bulunamadı.' }
+  }
+  if (isInvalidSellingPrice(input.sellingPriceOverride)) {
+    return { success: false, message: 'Satış fiyatı negatif olamaz.' }
+  }
+  const productId = parsedPartId
+
+  const updateData: Prisma.product_overridesUncheckedUpdateInput = { updated_by: userId }
+  const createData: Prisma.product_overridesUncheckedCreateInput = {
+    product_id: productId,
     updated_by: userId
-  }
-
-  const createData: Prisma.part_admin_overridesUncheckedCreateInput = {
-    part_id: parsedPartId,
-    updated_by: userId
-  }
-
-  if (typeof input.isVisible === 'boolean') {
-    updateData.is_visible = input.isVisible
-    createData.is_visible = input.isVisible
-  }
-
-  if (typeof input.lockVisibility === 'boolean') {
-    updateData.lock_visibility = input.lockVisibility
-    createData.lock_visibility = input.lockVisibility
   }
 
   if (typeof input.lockPrice === 'boolean') {
@@ -1842,8 +1711,8 @@ export async function updateAdminProductInline(input: {
     createData.selling_price_override = input.sellingPriceOverride
   }
 
-  await db.part_admin_overrides.upsert({
-    where: { part_id: parsedPartId },
+  await db.product_overrides.upsert({
+    where: { product_id: productId },
     update: updateData,
     create: createData
   })
@@ -1856,11 +1725,7 @@ export async function updateAdminProductInline(input: {
 export async function updateAdminProductDetail(input: {
   partId: string
   sellingPriceOverride?: number | null
-  isVisible?: boolean
   lockPrice?: boolean
-  lockVisibility?: boolean
-  minStockLevel?: number
-  reservedStockQty?: number
   note?: string | null
 }): Promise<{ success: boolean; message: string }> {
   const userId = await getAdminUserId()
@@ -1872,13 +1737,21 @@ export async function updateAdminProductDetail(input: {
     return { success: false, message: 'Geçersiz ürün kimliği.' }
   }
 
+  if (!(await canonicalProductExists(parsedPartId))) {
+    return { success: false, message: 'Kanonik ürün bulunamadı.' }
+  }
+  if (isInvalidSellingPrice(input.sellingPriceOverride)) {
+    return { success: false, message: 'Satış fiyatı negatif olamaz.' }
+  }
+  const productId = parsedPartId
+
   await db.$transaction(async (tx) => {
-    const overridesUpdate: Prisma.part_admin_overridesUncheckedUpdateInput = {
+    const overridesUpdate: Prisma.product_overridesUncheckedUpdateInput = {
       updated_by: userId
     }
 
-    const overridesCreate: Prisma.part_admin_overridesUncheckedCreateInput = {
-      part_id: parsedPartId,
+    const overridesCreate: Prisma.product_overridesUncheckedCreateInput = {
+      product_id: productId,
       updated_by: userId
     }
 
@@ -1887,19 +1760,9 @@ export async function updateAdminProductDetail(input: {
       overridesCreate.selling_price_override = input.sellingPriceOverride
     }
 
-    if (typeof input.isVisible === 'boolean') {
-      overridesUpdate.is_visible = input.isVisible
-      overridesCreate.is_visible = input.isVisible
-    }
-
     if (typeof input.lockPrice === 'boolean') {
       overridesUpdate.lock_price = input.lockPrice
       overridesCreate.lock_price = input.lockPrice
-    }
-
-    if (typeof input.lockVisibility === 'boolean') {
-      overridesUpdate.lock_visibility = input.lockVisibility
-      overridesCreate.lock_visibility = input.lockVisibility
     }
 
     if (input.note !== undefined) {
@@ -1907,35 +1770,12 @@ export async function updateAdminProductDetail(input: {
       overridesCreate.note = input.note
     }
 
-    await tx.part_admin_overrides.upsert({
-      where: { part_id: parsedPartId },
+    await tx.product_overrides.upsert({
+      where: { product_id: productId },
       update: overridesUpdate,
       create: overridesCreate
     })
 
-    const inventoryUpdate: Prisma.part_pricing_inventoryUncheckedUpdateInput =
-      {}
-    const inventoryCreate: Prisma.part_pricing_inventoryUncheckedCreateInput = {
-      part_id: parsedPartId
-    }
-
-    if (input.minStockLevel !== undefined) {
-      inventoryUpdate.min_stock_level = Math.max(0, input.minStockLevel)
-      inventoryCreate.min_stock_level = Math.max(0, input.minStockLevel)
-    }
-
-    if (input.reservedStockQty !== undefined) {
-      inventoryUpdate.reserved_stock_qty = Math.max(0, input.reservedStockQty)
-      inventoryCreate.reserved_stock_qty = Math.max(0, input.reservedStockQty)
-    }
-
-    if (Object.keys(inventoryUpdate).length > 0) {
-      await tx.part_pricing_inventory.upsert({
-        where: { part_id: parsedPartId },
-        update: inventoryUpdate,
-        create: inventoryCreate
-      })
-    }
   })
 
   revalidateAdminPaths()
@@ -2094,9 +1934,7 @@ export async function bulkUpdateAdminProducts(
 
   const hasAnyField =
     input.sellingPriceOverride !== undefined ||
-    input.isVisible !== undefined ||
-    input.lockPrice !== undefined ||
-    input.lockVisibility !== undefined
+    input.lockPrice !== undefined
 
   if (!hasAnyField) {
     return {
@@ -2106,13 +1944,24 @@ export async function bulkUpdateAdminProducts(
     }
   }
 
+  if (isInvalidSellingPrice(input.sellingPriceOverride)) {
+    return { success: false, message: 'Satış fiyatı negatif olamaz.', affected: 0 }
+  }
+
+  const productIds = Array.from(new Set(partIds.map((id) => id.toString()))).map(BigInt)
+  const existingCount = await db.products.count({ where: { id: { in: productIds } } })
+  if (existingCount !== productIds.length) {
+    return { success: false, message: 'Bir veya daha fazla kanonik ürün bulunamadı.', affected: 0 }
+  }
+
   await db.$transaction(async (tx) => {
-    for (const partId of partIds) {
-      const updateData: Prisma.part_admin_overridesUncheckedUpdateInput = {
+    for (const productId of productIds) {
+
+      const updateData: Prisma.product_overridesUncheckedUpdateInput = {
         updated_by: userId
       }
-      const createData: Prisma.part_admin_overridesUncheckedCreateInput = {
-        part_id: partId,
+      const createData: Prisma.product_overridesUncheckedCreateInput = {
+        product_id: productId,
         updated_by: userId
       }
 
@@ -2121,23 +1970,13 @@ export async function bulkUpdateAdminProducts(
         createData.selling_price_override = input.sellingPriceOverride
       }
 
-      if (input.isVisible !== undefined) {
-        updateData.is_visible = input.isVisible
-        createData.is_visible = input.isVisible
-      }
-
       if (input.lockPrice !== undefined) {
         updateData.lock_price = input.lockPrice
         createData.lock_price = input.lockPrice
       }
 
-      if (input.lockVisibility !== undefined) {
-        updateData.lock_visibility = input.lockVisibility
-        createData.lock_visibility = input.lockVisibility
-      }
-
-      await tx.part_admin_overrides.upsert({
-        where: { part_id: partId },
+      await tx.product_overrides.upsert({
+        where: { product_id: productId },
         update: updateData,
         create: createData
       })
@@ -2149,7 +1988,7 @@ export async function bulkUpdateAdminProducts(
   return {
     success: true,
     message: 'Toplu güncelleme tamamlandı.',
-    affected: partIds.length
+    affected: productIds.length
   }
 }
 
@@ -2182,13 +2021,8 @@ export async function exportAdminProductsCsv(
     'supplier_price',
     'selling_price',
     'supplier_stock_qty',
-    'reserved_stock_qty',
-    'min_stock_level',
     'stock_status',
-    'sync_status',
-    'is_visible',
     'lock_price',
-    'lock_visibility',
     'last_synced_at'
   ]
 
@@ -2205,13 +2039,8 @@ export async function exportAdminProductsCsv(
         row.supplier_price,
         row.selling_price,
         row.supplier_stock_qty,
-        row.reserved_stock_qty,
-        row.min_stock_level,
         row.stock_status,
-        row.sync_status || 'OK',
-        row.is_visible ?? true,
         row.lock_price ?? false,
-        row.lock_visibility ?? false,
         row.last_synced_at ? row.last_synced_at.toISOString() : ''
       ]
         .map((item) => buildCsvCell(item as string | number | boolean | null))
@@ -2248,13 +2077,8 @@ export async function exportAdminNewProductsCsvTemplate(): Promise<{
     'in_basket',
     'supplier_price',
     'supplier_stock_qty',
-    'reserved_stock_qty',
-    'min_stock_level',
     'currency',
-    'sync_status',
-    'is_visible',
     'lock_price',
-    'lock_visibility',
     'note',
     'part_infos_json',
     'part_oens_json',
@@ -2287,13 +2111,8 @@ export async function exportAdminNewProductsCsvTemplate(): Promise<{
     in_basket: sampleTemplate?.in_basket ?? false,
     supplier_price: '',
     supplier_stock_qty: '',
-    reserved_stock_qty: '',
-    min_stock_level: '',
     currency: 'TRY',
-    sync_status: 'PENDING',
-    is_visible: '',
     lock_price: '',
-    lock_visibility: '',
     note: '',
     part_infos_json: technicalRows ? JSON.stringify(technicalRows.infos) : '[]',
     part_oens_json: technicalRows ? JSON.stringify(technicalRows.oens) : '[]',
@@ -2351,7 +2170,7 @@ export async function importAdminNewProductsCsv(
   }
   rows: AdminNewImportPreviewRow[]
 }> {
-  const userId = await getAdminUserId()
+  await requireAdminAuth()
 
   if (!file || file.size === 0) {
     return {
@@ -2990,45 +2809,6 @@ export async function importAdminNewProductsCsv(
       continue
     }
 
-    const reservedStockResult = parseNumberValue(row.reserved_stock_qty)
-    if (reservedStockResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: partIdText,
-        articleLinkId: articleLinkText,
-        templatePartId: templatePartId.toString(),
-        status: 'ERROR',
-        message: `reserved_stock_qty: ${reservedStockResult.error}`
-      })
-      continue
-    }
-
-    const minStockResult = parseNumberValue(row.min_stock_level)
-    if (minStockResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: partIdText,
-        articleLinkId: articleLinkText,
-        templatePartId: templatePartId.toString(),
-        status: 'ERROR',
-        message: `min_stock_level: ${minStockResult.error}`
-      })
-      continue
-    }
-
-    const visibleResult = parseBooleanValue(row.is_visible)
-    if (visibleResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: partIdText,
-        articleLinkId: articleLinkText,
-        templatePartId: templatePartId.toString(),
-        status: 'ERROR',
-        message: `is_visible: ${visibleResult.error}`
-      })
-      continue
-    }
-
     const lockPriceResult = parseBooleanValue(row.lock_price)
     if (lockPriceResult.error) {
       previewRows.push({
@@ -3038,19 +2818,6 @@ export async function importAdminNewProductsCsv(
         templatePartId: templatePartId.toString(),
         status: 'ERROR',
         message: `lock_price: ${lockPriceResult.error}`
-      })
-      continue
-    }
-
-    const lockVisibilityResult = parseBooleanValue(row.lock_visibility)
-    if (lockVisibilityResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: partIdText,
-        articleLinkId: articleLinkText,
-        templatePartId: templatePartId.toString(),
-        status: 'ERROR',
-        message: `lock_visibility: ${lockVisibilityResult.error}`
       })
       continue
     }
@@ -3222,67 +2989,21 @@ export async function importAdminNewProductsCsv(
       technicalRows.documents = parsedDocuments.value
     }
 
-    const hasPricingInput =
+    const hasUnprovenOfferInput =
       supplierPriceResult.value !== undefined ||
       supplierStockResult.value !== undefined ||
-      reservedStockResult.value !== undefined ||
-      minStockResult.value !== undefined ||
-      normalizeTextValue(row.currency) !== null ||
-      normalizeTextValue(row.sync_status) !== null
-
-    let pricingInventory:
-      | Prisma.part_pricing_inventoryUncheckedCreateInput
-      | undefined
-    if (hasPricingInput) {
-      const supplierPrice =
-        supplierPriceResult.value === undefined
-          ? null
-          : supplierPriceResult.value == null
-            ? null
-            : new Prisma.Decimal(supplierPriceResult.value)
-      pricingInventory = {
-        part_id: generatedPartId,
-        supplier_price: supplierPrice,
-        supplier_stock_qty: Math.max(
-          0,
-          Math.trunc(supplierStockResult.value ?? 0)
-        ),
-        reserved_stock_qty: Math.max(
-          0,
-          Math.trunc(reservedStockResult.value ?? 0)
-        ),
-        min_stock_level: Math.max(0, Math.trunc(minStockResult.value ?? 3)),
-        currency: normalizeTextValue(row.currency) || 'TRY',
-        sync_status: normalizeTextValue(row.sync_status) || 'PENDING',
-        last_synced_at: new Date()
-      }
-    }
-
+      normalizeTextValue(row.currency) !== null
     const note = normalizeTextValue(row.note)
-    const hasOverrideInput =
-      visibleResult.value !== undefined ||
-      lockPriceResult.value !== undefined ||
-      lockVisibilityResult.value !== undefined ||
-      note !== null
-
-    let adminOverrides: Prisma.part_admin_overridesUncheckedCreateInput | undefined
-    if (hasOverrideInput) {
-      adminOverrides = {
-        part_id: generatedPartId,
-        updated_by: userId
-      }
-      if (visibleResult.value !== undefined) {
-        adminOverrides.is_visible = visibleResult.value
-      }
-      if (lockPriceResult.value !== undefined) {
-        adminOverrides.lock_price = lockPriceResult.value
-      }
-      if (lockVisibilityResult.value !== undefined) {
-        adminOverrides.lock_visibility = lockVisibilityResult.value
-      }
-      if (note) {
-        adminOverrides.note = note
-      }
+    if (hasUnprovenOfferInput || lockPriceResult.value !== undefined || note !== null) {
+      previewRows.push({
+        row: rowNo,
+        partId: partIdText,
+        articleLinkId: articleLinkText,
+        templatePartId: templatePartId.toString(),
+        status: 'ERROR',
+        message: 'Tedarikçi kaynağı veya kanonik ürün olmadan teklif/override oluşturulamaz.'
+      })
+      continue
     }
 
     preparedRows.push({
@@ -3306,8 +3027,6 @@ export async function importAdminNewProductsCsv(
         inBasketResult.value !== undefined
           ? inBasketResult.value
           : templatePart.in_basket,
-      pricingInventory,
-      adminOverrides,
       technical: technicalRows
     })
 
@@ -3360,18 +3079,6 @@ export async function importAdminNewProductsCsv(
               in_basket: prepared.inBasket
             }
           })
-
-          if (prepared.pricingInventory) {
-            await tx.part_pricing_inventory.create({
-              data: prepared.pricingInventory
-            })
-          }
-
-          if (prepared.adminOverrides) {
-            await tx.part_admin_overrides.create({
-              data: prepared.adminOverrides
-            })
-          }
 
           if (prepared.technical.infos.length > 0) {
             await tx.part_infos.createMany({
@@ -3562,11 +3269,9 @@ export async function importAdminProductsCsv(
   const previewRows: AdminImportPreviewRow[] = []
   const preparedUpdates: Array<{
     rowIndex: number
-    partId: bigint
-    overrides: Prisma.part_admin_overridesUncheckedCreateInput
-    overrideUpdate: Prisma.part_admin_overridesUncheckedUpdateInput
-    inventory?: Prisma.part_pricing_inventoryUncheckedCreateInput
-    inventoryUpdate?: Prisma.part_pricing_inventoryUncheckedUpdateInput
+    productId: bigint
+    overrides: Prisma.product_overridesUncheckedCreateInput
+    overrideUpdate: Prisma.product_overridesUncheckedUpdateInput
   }> = []
 
   for (let i = 0; i < records.length; i++) {
@@ -3587,13 +3292,13 @@ export async function importAdminProductsCsv(
       continue
     }
 
-    let product: { id: bigint; article_link_id: bigint } | null = null
+    let product: { id: bigint; primary_part: { article_link_id: bigint } | null } | null = null
 
     if (partIdRaw) {
       try {
-        product = await db.parts.findUnique({
+        product = await db.products.findUnique({
           where: { id: BigInt(partIdRaw) },
-          select: { id: true, article_link_id: true }
+          select: { id: true, primary_part: { select: { article_link_id: true } } }
         })
       } catch {
         product = null
@@ -3602,9 +3307,9 @@ export async function importAdminProductsCsv(
 
     if (!product && articleLinkIdRaw) {
       try {
-        product = await db.parts.findFirst({
-          where: { article_link_id: BigInt(articleLinkIdRaw) },
-          select: { id: true, article_link_id: true }
+        product = await db.products.findFirst({
+          where: { primary_part: { article_link_id: BigInt(articleLinkIdRaw) } },
+          select: { id: true, primary_part: { select: { article_link_id: true } } }
         })
       } catch {
         product = null
@@ -3622,38 +3327,27 @@ export async function importAdminProductsCsv(
       continue
     }
 
+    const canonicalProductId = product.id
+    const productArticleLinkId = product.primary_part?.article_link_id.toString() ?? null
+
     const priceResult = parseNumberValue(row.selling_price_override)
     if (priceResult.error) {
       previewRows.push({
         row: rowNo,
         partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
+        articleLinkId: productArticleLinkId,
         status: 'ERROR',
         message: priceResult.error
       })
       continue
     }
-
-    const minStockResult = parseNumberValue(row.min_stock_level)
-    if (minStockResult.error) {
+    if (isInvalidSellingPrice(priceResult.value)) {
       previewRows.push({
         row: rowNo,
         partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
+        articleLinkId: productArticleLinkId,
         status: 'ERROR',
-        message: minStockResult.error
-      })
-      continue
-    }
-
-    const visibleResult = parseBooleanValue(row.is_visible)
-    if (visibleResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
-        status: 'ERROR',
-        message: visibleResult.error
+        message: 'Satış fiyatı negatif olamaz.'
       })
       continue
     }
@@ -3663,49 +3357,34 @@ export async function importAdminProductsCsv(
       previewRows.push({
         row: rowNo,
         partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
+        articleLinkId: productArticleLinkId,
         status: 'ERROR',
         message: lockPriceResult.error
       })
       continue
     }
 
-    const lockVisibilityResult = parseBooleanValue(row.lock_visibility)
-    if (lockVisibilityResult.error) {
-      previewRows.push({
-        row: rowNo,
-        partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
-        status: 'ERROR',
-        message: lockVisibilityResult.error
-      })
-      continue
-    }
-
     const hasUpdateField =
       priceResult.value !== undefined ||
-      minStockResult.value !== undefined ||
-      visibleResult.value !== undefined ||
-      lockPriceResult.value !== undefined ||
-      lockVisibilityResult.value !== undefined
+      lockPriceResult.value !== undefined
 
     if (!hasUpdateField) {
       previewRows.push({
         row: rowNo,
         partId: product.id.toString(),
-        articleLinkId: product.article_link_id.toString(),
+        articleLinkId: productArticleLinkId,
         status: 'SKIPPED',
         message: 'Güncellenecek alan bulunamadı.'
       })
       continue
     }
 
-    const overrideCreate: Prisma.part_admin_overridesUncheckedCreateInput = {
-      part_id: product.id,
+    const overrideCreate: Prisma.product_overridesUncheckedCreateInput = {
+      product_id: canonicalProductId,
       updated_by: userId
     }
 
-    const overrideUpdate: Prisma.part_admin_overridesUncheckedUpdateInput = {
+    const overrideUpdate: Prisma.product_overridesUncheckedUpdateInput = {
       updated_by: userId
     }
 
@@ -3718,56 +3397,22 @@ export async function importAdminProductsCsv(
       }
     }
 
-    if (visibleResult.value !== undefined) {
-      overrideCreate.is_visible = visibleResult.value
-      overrideUpdate.is_visible = visibleResult.value
-      if (lockVisibilityResult.value === undefined) {
-        overrideCreate.lock_visibility = true
-        overrideUpdate.lock_visibility = true
-      }
-    }
-
     if (lockPriceResult.value !== undefined) {
       overrideCreate.lock_price = lockPriceResult.value
       overrideUpdate.lock_price = lockPriceResult.value
     }
 
-    if (lockVisibilityResult.value !== undefined) {
-      overrideCreate.lock_visibility = lockVisibilityResult.value
-      overrideUpdate.lock_visibility = lockVisibilityResult.value
-    }
-
-    let inventoryCreate:
-      | Prisma.part_pricing_inventoryUncheckedCreateInput
-      | undefined
-    let inventoryUpdate:
-      | Prisma.part_pricing_inventoryUncheckedUpdateInput
-      | undefined
-
-    if (minStockResult.value !== undefined) {
-      const safeMin = Math.max(0, Math.trunc(minStockResult.value ?? 0))
-      inventoryCreate = {
-        part_id: product.id,
-        min_stock_level: safeMin
-      }
-      inventoryUpdate = {
-        min_stock_level: safeMin
-      }
-    }
-
     preparedUpdates.push({
       rowIndex: previewRows.length,
-      partId: product.id,
+      productId: canonicalProductId,
       overrides: overrideCreate,
-      overrideUpdate,
-      inventory: inventoryCreate,
-      inventoryUpdate
+      overrideUpdate
     })
 
     previewRows.push({
       row: rowNo,
       partId: product.id.toString(),
-      articleLinkId: product.article_link_id.toString(),
+      articleLinkId: productArticleLinkId,
       status: 'READY',
       message: 'Uygulamaya hazır.'
     })
@@ -3778,19 +3423,12 @@ export async function importAdminProductsCsv(
   if (mode === 'apply') {
     await db.$transaction(async (tx) => {
       for (const prepared of preparedUpdates) {
-        await tx.part_admin_overrides.upsert({
-          where: { part_id: prepared.partId },
+        await tx.product_overrides.upsert({
+          where: { product_id: prepared.productId },
           update: prepared.overrideUpdate,
           create: prepared.overrides
         })
 
-        if (prepared.inventory && prepared.inventoryUpdate) {
-          await tx.part_pricing_inventory.upsert({
-            where: { part_id: prepared.partId },
-            update: prepared.inventoryUpdate,
-            create: prepared.inventory
-          })
-        }
 
         const current = previewRows[prepared.rowIndex]
         previewRows[prepared.rowIndex] = {
