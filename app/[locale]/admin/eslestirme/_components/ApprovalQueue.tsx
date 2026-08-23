@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { DataTablePagination } from '@/components/admin/data-table/data-table-pagination'
 import {
   getCandidateProductPartLinks,
+  getRefSuggestionIds,
   getRefSuggestionSummary,
   getRefSuggestions,
   reviewProductPartLink,
@@ -20,6 +21,8 @@ import {
 } from '@/lib/actions/admin-catalog'
 
 const tr = (n: number) => n.toLocaleString('tr-TR')
+/** reviewRefSuggestions batch üst sınırıyla aynı — 'use server' dosyasından const export edilemez. */
+const SELECT_ALL_LIMIT = 1000
 
 const CONFIDENCE_STYLE: Record<string, string> = {
   HIGH: 'border-emerald-500/25 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
@@ -64,10 +67,17 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
+  const [selectingAll, setSelectingAll] = useState(false)
+  /** Filtreye uyan toplu seçim yapıldıysa true — sayfa değişince seçim korunur. */
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false)
+
+  const clearSelection = useCallback(() => {
+    setSelected(new Set())
+    setAllMatchingSelected(false)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
-    setSelected(new Set())
     try {
       // Öneri sayıları sekme rozetlerinde durur; hangi sekmede olursak olalım çekilir.
       const summaryPromise = getRefSuggestionSummary(brand)
@@ -117,17 +127,19 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
     void load()
   }, [load])
 
-  // Marka filtresi dışarıdan değişince sayfa/arama eski kalmasın.
+  // Marka filtresi dışarıdan değişince sayfa/arama/seçim eski kalmasın.
   useEffect(() => {
     setPage(1)
     setSearchValue('')
     setQuery('')
     setIsSearchPending(false)
-  }, [brand])
+    clearSelection()
+  }, [brand, clearSelection])
 
   const onSearch = useDebouncedCallback((term: string) => {
     setQuery(term.trim())
     setPage(1)
+    clearSelection()
   }, 300)
 
   const changeMode = (next: Mode) => {
@@ -136,6 +148,7 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
     setSearchValue('')
     setQuery('')
     setIsSearchPending(false)
+    clearSelection()
   }
 
   const reviewLink = (linkId: string, decision: 'APPROVE' | 'REJECT') => {
@@ -161,7 +174,7 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
           return
         }
         toast.success(res.message)
-        setSelected(new Set())
+        clearSelection()
         await load()
         void getRefSuggestionSummary(brand).then(setSummary).catch(() => undefined)
       } catch {
@@ -175,10 +188,53 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      setAllMatchingSelected(false)
       return next
     })
 
-  const allSelected = suggestions.length > 0 && selected.size === suggestions.length
+  const pageIds = suggestions.map((r) => r.id)
+  const pageAllSelected =
+    pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const selectableTotal = Math.min(total, SELECT_ALL_LIMIT)
+
+  const togglePageSelection = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (pageAllSelected) {
+        for (const id of pageIds) next.delete(id)
+      } else {
+        for (const id of pageIds) next.add(id)
+      }
+      return next
+    })
+    setAllMatchingSelected(false)
+  }
+
+  const selectAllMatching = async () => {
+    if (allMatchingSelected && selected.size > 0) {
+      clearSelection()
+      return
+    }
+    setSelectingAll(true)
+    try {
+      const result = await getRefSuggestionIds({
+        brand,
+        kind: mode === 'LINK' ? null : mode,
+        status: 'PENDING',
+        q: query || null,
+        limit: SELECT_ALL_LIMIT
+      })
+      setSelected(new Set(result.ids))
+      setAllMatchingSelected(true)
+      if (result.capped) {
+        toast.message(`Filtreye ${tr(result.total)} kayıt uyuyor; ilk ${tr(result.ids.length)} seçildi.`)
+      }
+    } catch {
+      toast.error('Toplu seçim yüklenemedi.')
+    } finally {
+      setSelectingAll(false)
+    }
+  }
 
   const tabs = useMemo(
     () =>
@@ -201,100 +257,143 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
 
   return (
     <section className="rounded-lg border border-border bg-card">
-      <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
-        <div className="mr-auto">
-          {/* mb: çip satır yüksekliğini aşıyor, alttaki açıklamaya değiyordu. */}
-          <h3 className="mb-1.5 flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
-            Onay kuyruğu
-            {brand ? (
-              <button
-                type="button"
-                onClick={onClearBrand}
-                title="Marka filtresini kaldır"
-                className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary"
+      <div className="space-y-3 border-b border-border p-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            {/* mb: çip satır yüksekliğini aşıyor, alttaki açıklamaya değiyordu. */}
+            <h3 className="mb-1.5 flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+              Onay kuyruğu
+              {brand ? (
+                <button
+                  type="button"
+                  onClick={onClearBrand}
+                  title="Marka filtresini kaldır"
+                  className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary"
+                >
+                  {brand}
+                  <X className="size-3" />
+                </button>
+              ) : (
+                <span className="text-xs font-normal text-muted-foreground">tüm markalar</span>
+              )}
+            </h3>
+            <p className="max-w-2xl text-xs text-muted-foreground">
+              {mode === 'LINK'
+                ? 'Onay anında resim/özellik/araç uyumluluğu görünür olur.'
+                : "Onay = uygulama: OEM source='WEB' ile yazılır, ad isim override alanına geçer."}{' '}
+              <span className="whitespace-nowrap">Sayfa başına {PAGE_SIZE} kayıt.</span>
+            </p>
+          </div>
+
+          {/* Kontroller tek grup: dar ekranda alta iner, kendi içinde hizalı kalır. */}
+          <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:w-auto xl:justify-end">
+            <div className="flex shrink-0 rounded-md border border-border p-0.5">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => changeMode(t.key)}
+                  className={`whitespace-nowrap rounded px-2.5 py-1 text-xs font-semibold transition sm:px-3 ${
+                    mode === t.key
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t.label}
+                  {t.count == null ? '' : ` (${tr(t.count)})`}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+              <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none lg:w-72">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchValue}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setSearchValue(next)
+                    setIsSearchPending(true)
+                    onSearch(next)
+                  }}
+                  placeholder={searchPlaceholder}
+                  className="h-8 w-full pl-7 pr-8 text-xs"
+                  aria-label="Onay kuyruğunda ara"
+                />
+                {(isSearchPending || loading) && (
+                  <Loader2 className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0"
+                onClick={() => {
+                  clearSelection()
+                  void load()
+                }}
+                disabled={loading}
               >
-                {brand}
-                <X className="size-3" />
-              </button>
-            ) : (
-              <span className="text-xs font-normal text-muted-foreground">tüm markalar</span>
-            )}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {mode === 'LINK'
-              ? 'Onay anında resim/özellik/araç uyumluluğu görünür olur.'
-              : "Onay = uygulama: OEM source='WEB' ile yazılır, ad isim override alanına geçer."}{' '}
-            Sayfa başına {PAGE_SIZE} kayıt.
-          </p>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
-
-        <div className="flex rounded-md border border-border p-0.5">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => changeMode(t.key)}
-              className={`rounded px-3 py-1 text-xs font-semibold transition ${
-                mode === t.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {t.label}
-              {t.count == null ? '' : ` (${tr(t.count)})`}
-            </button>
-          ))}
-        </div>
-
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchValue}
-            onChange={(e) => {
-              const next = e.target.value
-              setSearchValue(next)
-              setIsSearchPending(true)
-              onSearch(next)
-            }}
-            placeholder={searchPlaceholder}
-            className="h-8 w-56 pl-7 pr-8 text-xs sm:w-72"
-            aria-label="Onay kuyruğunda ara"
-          />
-          {(isSearchPending || loading) && (
-            <Loader2 className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
-          )}
-        </div>
-
-        <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-        </Button>
       </div>
 
-      {mode !== 'LINK' && rowCount > 0 && (
+      {mode !== 'LINK' && (rowCount > 0 || selected.size > 0) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
           <span className="text-xs text-muted-foreground">
             Uygulanmış:{' '}
             {tr(mode === 'OEM' ? (summary?.appliedOem ?? 0) : (summary?.appliedName ?? 0))} ·
             Reddedilmiş: {tr(summary?.rejected ?? 0)}
+            {selected.size > 0 ? (
+              <>
+                {' '}
+                · Seçili: <span className="font-semibold text-foreground">{tr(selected.size)}</span>
+                {allMatchingSelected && total > SELECT_ALL_LIMIT
+                  ? ` (ilk ${tr(SELECT_ALL_LIMIT)})`
+                  : null}
+              </>
+            ) : null}
           </span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex flex-wrap items-center gap-1">
             <Button
               size="sm"
               variant="outline"
-              disabled={pending}
-              onClick={() =>
-                setSelected(allSelected ? new Set() : new Set(suggestions.map((r) => r.id)))
-              }
+              disabled={pending || selectingAll || pageIds.length === 0}
+              onClick={togglePageSelection}
             >
-              {allSelected ? 'Seçimi bırak' : `Sayfadakileri seç (${tr(suggestions.length)})`}
+              {pageAllSelected ? 'Sayfa seçimini bırak' : `Sayfadakileri seç (${tr(pageIds.length)})`}
             </Button>
             <Button
               size="sm"
-              disabled={pending || selected.size === 0}
+              variant="outline"
+              disabled={pending || selectingAll || total === 0}
+              onClick={() => void selectAllMatching()}
+              title={
+                total > SELECT_ALL_LIMIT
+                  ? `Filtreye uyan ${tr(total)} kayıttan ilk ${tr(SELECT_ALL_LIMIT)} seçilir (onay batch limiti).`
+                  : 'Mevcut filtreye uyan tüm bekleyenleri seç'
+              }
+            >
+              {selectingAll ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : allMatchingSelected && selected.size > 0 ? (
+                'Seçimi bırak'
+              ) : total > SELECT_ALL_LIMIT ? (
+                `İlk ${tr(SELECT_ALL_LIMIT)}'ini seç`
+              ) : (
+                `Tümünü seç (${tr(selectableTotal)})`
+              )}
+            </Button>
+            <Button
+              size="sm"
+              disabled={pending || selectingAll || selected.size === 0}
               onClick={() => reviewSuggestions([...selected], 'APPROVE')}
             >
               {pending ? (
@@ -307,7 +406,7 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
             <Button
               size="sm"
               variant="outline"
-              disabled={pending || selected.size === 0}
+              disabled={pending || selectingAll || selected.size === 0}
               onClick={() => reviewSuggestions([...selected], 'REJECT')}
             >
               <X className="h-4 w-4" />

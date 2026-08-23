@@ -38,7 +38,7 @@ import type {
 
 const DEFAULT_LIMIT = 25
 const STATUSES: CatalogProductStatus[] = ['ACTIVE', 'DRAFT', 'HIDDEN', 'ARCHIVED']
-/** Tek server action çağrısında incelenebilecek en fazla web önerisi. */
+/** Tek server action çağrısında incelenebilecek / toplu seçilebilecek en fazla web önerisi. */
 const MAX_REVIEW_BATCH = 1000
 
 function normalizeCode(value: string): string {
@@ -1235,6 +1235,18 @@ export async function getRefSuggestionSummary(brand?: string | null): Promise<Re
   }
 }
 
+function refSuggestionSearchFilter(like: string | null): Prisma.Sql {
+  if (!like) return Prisma.empty
+  return Prisma.sql`and (
+      b.brand ilike ${like} escape '\\'
+      or p.part_no ilike ${like} escape '\\'
+      or ${canonicalNameSql('p', 'o')} ilike ${like} escape '\\'
+      or s.value ilike ${like} escape '\\'
+      or coalesce(s.oem_brand, '') ilike ${like} escape '\\'
+      or coalesce(s.evidence, '') ilike ${like} escape '\\'
+    )`
+}
+
 /** İncelenecek önerileri listeler (varsayılan: bekleyenler). */
 export async function getRefSuggestions(input?: {
   brand?: string | null
@@ -1252,18 +1264,7 @@ export async function getRefSuggestions(input?: {
   const brand = input?.brand?.trim() || null
   const kind = input?.kind ?? null
   const status = input?.status?.trim() || 'PENDING'
-  const like = likePattern(input?.q)
-
-  const searchFilter = like
-    ? Prisma.sql`and (
-        b.brand ilike ${like} escape '\\'
-        or p.part_no ilike ${like} escape '\\'
-        or ${canonicalNameSql('p', 'o')} ilike ${like} escape '\\'
-        or s.value ilike ${like} escape '\\'
-        or coalesce(s.oem_brand, '') ilike ${like} escape '\\'
-        or coalesce(s.evidence, '') ilike ${like} escape '\\'
-      )`
-    : Prisma.empty
+  const searchFilter = refSuggestionSearchFilter(likePattern(input?.q))
 
   const [countRows, rows] = await Promise.all([
     db.$queryRaw<{ n: bigint }[]>`
@@ -1317,6 +1318,60 @@ export async function getRefSuggestions(input?: {
     limit,
     total,
     pages: Math.max(1, Math.ceil(total / limit))
+  }
+}
+
+/**
+ * Filtreye uyan öneri id'lerini döner — toplu seçim için.
+ * Satır gövdesi çekilmez; üst sınır MAX_REVIEW_BATCH (onay batch limiti).
+ */
+export async function getRefSuggestionIds(input?: {
+  brand?: string | null
+  kind?: 'OEM' | 'NAME' | null
+  status?: string | null
+  q?: string | null
+  limit?: number
+}): Promise<{ ids: string[]; total: number; capped: boolean }> {
+  await requireAdminAuth()
+
+  const limit = Math.min(Math.max(input?.limit ?? MAX_REVIEW_BATCH, 1), MAX_REVIEW_BATCH)
+  const brand = input?.brand?.trim() || null
+  const kind = input?.kind ?? null
+  const status = input?.status?.trim() || 'PENDING'
+  const searchFilter = refSuggestionSearchFilter(likePattern(input?.q))
+
+  const [countRows, idRows] = await Promise.all([
+    db.$queryRaw<{ n: bigint }[]>`
+      select count(*)::bigint as n
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+    `,
+    db.$queryRaw<{ id: bigint }[]>`
+      select s.id
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+      order by p.part_no, s.kind, s.id
+      limit ${limit}
+    `
+  ])
+
+  const total = Number(countRows[0]?.n ?? 0)
+  return {
+    ids: idRows.map((r) => String(r.id)),
+    total,
+    capped: total > limit
   }
 }
 
