@@ -1,10 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
-import { Check, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react'
+import { Check, ExternalLink, Loader2, RefreshCw, Search, X } from 'lucide-react'
+import { useDebouncedCallback } from 'use-debounce'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { DataTablePagination } from '@/components/admin/data-table/data-table-pagination'
 import {
   getCandidateProductPartLinks,
   getRefSuggestionSummary,
@@ -55,6 +58,12 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [pending, startTransition] = useTransition()
+  const [searchValue, setSearchValue] = useState('')
+  const [query, setQuery] = useState('')
+  const [isSearchPending, setIsSearchPending] = useState(false)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [pages, setPages] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -63,30 +72,71 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
       // Öneri sayıları sekme rozetlerinde durur; hangi sekmede olursak olalım çekilir.
       const summaryPromise = getRefSuggestionSummary(brand)
       if (mode === 'LINK') {
-        const [sum, rows] = await Promise.all([
+        const [sum, result] = await Promise.all([
           summaryPromise,
-          getCandidateProductPartLinks({ brand, limit: PAGE_SIZE })
+          getCandidateProductPartLinks({ brand, q: query || null, page, limit: PAGE_SIZE })
         ])
         setSummary(sum)
-        setLinks(rows)
+        setLinks(result.rows)
+        setTotal(result.total)
+        setPages(result.pages)
+        if (result.pages > 0 && page > result.pages) {
+          setPage(result.pages)
+          return
+        }
       } else {
-        const [sum, rows] = await Promise.all([
+        const [sum, result] = await Promise.all([
           summaryPromise,
-          getRefSuggestions({ brand, kind: mode, status: 'PENDING', limit: 200 })
+          getRefSuggestions({
+            brand,
+            kind: mode,
+            status: 'PENDING',
+            q: query || null,
+            page,
+            limit: PAGE_SIZE
+          })
         ])
         setSummary(sum)
-        setSuggestions(rows)
+        setSuggestions(result.rows)
+        setTotal(result.total)
+        setPages(result.pages)
+        if (result.pages > 0 && page > result.pages) {
+          setPage(result.pages)
+          return
+        }
       }
     } catch {
       toast.error('Onay kuyruğu yüklenemedi.')
     } finally {
       setLoading(false)
+      setIsSearchPending(false)
     }
-  }, [brand, mode])
+  }, [brand, mode, page, query])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // Marka filtresi dışarıdan değişince sayfa/arama eski kalmasın.
+  useEffect(() => {
+    setPage(1)
+    setSearchValue('')
+    setQuery('')
+    setIsSearchPending(false)
+  }, [brand])
+
+  const onSearch = useDebouncedCallback((term: string) => {
+    setQuery(term.trim())
+    setPage(1)
+  }, 300)
+
+  const changeMode = (next: Mode) => {
+    setMode(next)
+    setPage(1)
+    setSearchValue('')
+    setQuery('')
+    setIsSearchPending(false)
+  }
 
   const reviewLink = (linkId: string, decision: 'APPROVE' | 'REJECT') => {
     startTransition(async () => {
@@ -97,22 +147,26 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
       }
       toast.success(res.message)
       setLinks((prev) => prev.filter((c) => c.linkId !== linkId))
+      setTotal((prev) => Math.max(0, prev - 1))
     })
   }
 
   const reviewSuggestions = (ids: string[], decision: 'APPROVE' | 'REJECT') => {
     if (ids.length === 0) return
     startTransition(async () => {
-      const res = await reviewRefSuggestions({ ids, decision })
-      if (!res.success) {
-        toast.error(res.message)
-        return
+      try {
+        const res = await reviewRefSuggestions({ ids, decision })
+        if (!res.success) {
+          toast.error(res.message)
+          return
+        }
+        toast.success(res.message)
+        setSelected(new Set())
+        await load()
+        void getRefSuggestionSummary(brand).then(setSummary).catch(() => undefined)
+      } catch {
+        toast.error('Öneriler işlenirken bir hata oluştu.')
       }
-      toast.success(res.message)
-      const done = new Set(ids)
-      setSuggestions((prev) => prev.filter((r) => !done.has(r.id)))
-      setSelected(new Set())
-      void getRefSuggestionSummary(brand).then(setSummary).catch(() => undefined)
     })
   }
 
@@ -140,6 +194,10 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
   )
 
   const rowCount = mode === 'LINK' ? links.length : suggestions.length
+  const searchPlaceholder =
+    mode === 'LINK'
+      ? 'Marka / parça no / ürün / eşleşen kod ara…'
+      : 'Marka / parça no / ürün / öneri ara…'
 
   return (
     <section className="rounded-lg border border-border bg-card">
@@ -164,8 +222,9 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
           </h3>
           <p className="text-xs text-muted-foreground">
             {mode === 'LINK'
-              ? `Onay anında resim/özellik/araç uyumluluğu görünür olur. İlk ${PAGE_SIZE} kayıt.`
-              : "Onay = uygulama: OEM source='WEB' ile yazılır, ad isim override alanına geçer. İlk 200 kayıt."}
+              ? 'Onay anında resim/özellik/araç uyumluluğu görünür olur.'
+              : "Onay = uygulama: OEM source='WEB' ile yazılır, ad isim override alanına geçer."}{' '}
+            Sayfa başına {PAGE_SIZE} kayıt.
           </p>
         </div>
 
@@ -174,7 +233,7 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
             <button
               key={t.key}
               type="button"
-              onClick={() => setMode(t.key)}
+              onClick={() => changeMode(t.key)}
               className={`rounded px-3 py-1 text-xs font-semibold transition ${
                 mode === t.key
                   ? 'bg-primary text-primary-foreground'
@@ -185,6 +244,25 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
               {t.count == null ? '' : ` (${tr(t.count)})`}
             </button>
           ))}
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchValue}
+            onChange={(e) => {
+              const next = e.target.value
+              setSearchValue(next)
+              setIsSearchPending(true)
+              onSearch(next)
+            }}
+            placeholder={searchPlaceholder}
+            className="h-8 w-56 pl-7 pr-8 text-xs sm:w-72"
+            aria-label="Onay kuyruğunda ara"
+          />
+          {(isSearchPending || loading) && (
+            <Loader2 className="absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
         </div>
 
         <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
@@ -212,7 +290,7 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
                 setSelected(allSelected ? new Set() : new Set(suggestions.map((r) => r.id)))
               }
             >
-              {allSelected ? 'Seçimi bırak' : `Tümünü seç (${tr(suggestions.length)})`}
+              {allSelected ? 'Seçimi bırak' : `Sayfadakileri seç (${tr(suggestions.length)})`}
             </Button>
             <Button
               size="sm"
@@ -245,7 +323,11 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
         </div>
       ) : rowCount === 0 ? (
         <p className="p-8 text-center text-sm text-muted-foreground">
-          {brand ? `${brand} markasında bekleyen kayıt yok.` : 'Bekleyen kayıt yok.'}
+          {query
+            ? `"${query}" için sonuç yok.`
+            : brand
+              ? `${brand} markasında bekleyen kayıt yok.`
+              : 'Bekleyen kayıt yok.'}
         </p>
       ) : mode === 'LINK' ? (
         <div className="overflow-x-auto">
@@ -399,6 +481,22 @@ export function ApprovalQueue({ brand, onClearBrand, pendingLinks }: ApprovalQue
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && total > 0 && (
+        <div className="border-t border-border px-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-2 pt-2 text-xs text-muted-foreground">
+            <span>
+              {tr(total)} kayıt (sayfa {page} / {pages})
+            </span>
+          </div>
+          <DataTablePagination
+            totalRows={total}
+            page={page}
+            pages={pages}
+            onPageChange={setPage}
+          />
         </div>
       )}
     </section>
