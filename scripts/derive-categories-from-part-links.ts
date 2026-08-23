@@ -2,8 +2,8 @@
  * catalog.products.category_id'yi onaylı product_part_links üzerinden doldurur.
  *
  * Neden: katalogdaki 1.085.367 aktif ürünün HİÇBİRİNİN kategorisi yoktu. Kategori
- * sayfaları bu yüzden yalnızca Meilisearch'ün kategori ADI ile eşleştirme
- * yedeğinden ürün bulabiliyordu — kırılgan ve düşük kapsamlı. Kategori bilgisi
+ * sayfaları bu yüzden kategori adı eşleştirmesine düşüyordu — kırılgan ve
+ * düşük kapsamlı. Kategori bilgisi
  * TecDoc arşivinde (public.parts.category_id) zaten var; onaylı eşleşmesi olan
  * ürün onu devralabilir.
  *

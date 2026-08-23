@@ -292,7 +292,7 @@ export async function matchBasbugSupplierRows(): Promise<MatchSupplierStats> {
   // oynatmayıp gereksiz rollup/index churn'ünü önlüyoruz.
   // Ad kaynağı, ürünün Başbuğ tarafındaki EN İYİ offer'ı — bir üründe birden
   // çok Başbuğ offer'ı olabildiği için kaynak sabitlenmezse ad her koşuda iki
-  // varyantın açıklaması arasında gidip gelir (ve her seferinde Meili reindex).
+  // varyantın açıklaması arasında gidip gelir.
   stats.namesUpgraded = await db.$executeRaw(Prisma.sql`
     UPDATE catalog.products p
     SET name = bp.aciklama

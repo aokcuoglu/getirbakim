@@ -73,23 +73,16 @@ fi
 echo ">>> Removing any old containers..."
 docker rm -f getirbakim-app 2>/dev/null || true
 docker rm -f getirbakim-nginx 2>/dev/null || true
-docker rm -f getirbakim-meilisearch 2>/dev/null || true
 docker rm -f getirbakim-postgres 2>/dev/null || true
 docker rm -f getirbakim-v2-app 2>/dev/null || true
-docker rm -f getirbakim-v2-meilisearch 2>/dev/null || true
 
 # Remove old docker volumes if starting fresh (WARNING: destroys data)
 read -p "Remove old Docker volumes too? (THIS DELETES ALL DATA) [y/N] " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo "  Removing old volumes..."
-  docker volume rm getirbakim_meili_data 2>/dev/null || true
-  docker volume rm meili_data 2>/dev/null || true
-  docker volume rm meili_data_local 2>/dev/null || true
-  docker volume rm getirbakim-meili-data 2>/dev/null || true
   docker volume rm postgres_data 2>/dev/null || true
   docker volume rm getirbakim-postgres-data 2>/dev/null || true
-  docker volume rm getirbakim_v2_meili_data 2>/dev/null || true
   docker compose --env-file .env.production down --remove-orphans -v 2>/dev/null || true
 else
   echo "  Keeping existing volumes."
@@ -105,7 +98,6 @@ if [[ -f ".env.production" ]]; then
   echo "  REQUIRED values to set:"
   echo "    POSTGRES_PASSWORD  — strong random password (openssl rand -base64 32)"
   echo "    AUTH_SECRET        — openssl rand -base64 32"
-  echo "    MEILI_MASTER_KEY   — openssl rand -hex 32"
   echo "    NEXT_PUBLIC_SITE_URL — https://getirbakim.com"
   echo "    NEXT_PUBLIC_APP_URL  — https://getirbakim.com"
   echo "    TAMI_*             — production payment keys"

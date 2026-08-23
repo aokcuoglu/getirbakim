@@ -1,12 +1,6 @@
 import 'server-only'
 import { db } from '@/lib/db'
 import { normalizeCode, normalizeOem } from '@/lib/matching/code-normalization'
-import { isMeiliUnavailableError } from '@/lib/meilisearch'
-import {
-  getMeiliClient,
-  getProductsIndexName,
-  isMeiliEnabled
-} from '@/lib/search/meilisearch-client'
 import type { PartnerProductRow } from './dto'
 import { buildPartnerPartNoFilter } from './input'
 
@@ -85,15 +79,13 @@ async function loadProductsPreservingOrder(
     select: partnerProductSelect(vehicleTypeId)
   })
 
-  // Meili'nin alaka sırası korunmalı — `findMany` sırayı garanti etmez.
   const byId = new Map(rows.map((row) => [row.id.toString(), row]))
   return ids.map((id) => byId.get(id.toString())).filter((row): row is PartnerProductRow => !!row)
 }
 
 /**
  * OEM koduyla arama — B2B'nin asıl yolu. Atölye elindeki koda bakar, serbest
- * metin aramaz; bu yüzden bu dal Meili'ye HİÇ uğramaz, doğrudan indeksli
- * `product_oems.code_norm` üzerinden gider.
+ * metin aramaz; indeksli `product_oems.code_norm` üzerinden gider.
  */
 async function searchByOem(
   oem: string,
@@ -119,7 +111,7 @@ async function searchByOem(
 /**
  * Üretici parça numarasıyla tam eşleşme. `part_no_norm` marka genelinde
  * unique değildir; bu nedenle tek ürün varsayılmaz ve bounded `0..N` sonuç
- * döner. Serbest metin/Meili yolu bu dalda kasıtlı olarak kullanılmaz.
+ * döner. Serbest metin yolu bu dalda kasıtlı olarak kullanılmaz.
  */
 async function searchByPartNo(
   partNo: string,
@@ -138,10 +130,9 @@ async function searchByPartNo(
 }
 
 /**
- * Meili kapalı ya da erişilemez olduğunda kullanılan Postgres dalı.
- * `part_no_norm` indekslidir; ad araması ona ek olarak yapılır.
+ * Serbest metin: `part_no_norm` öneki + ad içerir.
  */
-async function searchByPrismaFallback(
+async function searchByText(
   q: string,
   limit: number,
   vehicleTypeId: number | null
@@ -167,17 +158,12 @@ async function searchByPrismaFallback(
 export interface PartnerSearchResult {
   rows: PartnerProductRow[]
   /** Hangi dal cevapladı — sorun ayıklamak için yanıtta taşınır. */
-  source: 'part_no' | 'oem' | 'meilisearch' | 'database'
+  source: 'part_no' | 'oem' | 'database'
 }
 
 /**
- * Partner araması.
- *
- * FİYAT/STOK MEİLİ'DEN OKUNMAZ: indeks vitrin fiyatını taşır ve sync arasında
- * bayatlar. Meili yalnız ALAKA SIRASINI üretir (hangi ürünler, hangi sırayla);
- * fiyat ve stok her zaman `catalog.products` + `product_offers` rollup'ından
- * yeniden okunur. Aksi hâlde partnere indeksteki eski fiyattan söz vermiş
- * olurduk.
+ * Partner araması. Fiyat/stok her zaman `catalog.products` + `product_offers`
+ * rollup'ından okunur.
  */
 export async function searchPartnerProducts(input: {
   q: string | null
@@ -202,26 +188,5 @@ export async function searchPartnerProducts(input: {
     return { rows: [], source: 'database' }
   }
 
-  if (isMeiliEnabled()) {
-    try {
-      const index = getMeiliClient().index(getProductsIndexName())
-      const hits = await index.search(q, {
-        filter: 'documentType = "canonical_part"',
-        limit: input.limit,
-        attributesToRetrieve: ['id']
-      })
-
-      const ids = (hits.hits as { id?: unknown }[])
-        .map((hit) => (typeof hit.id === 'string' ? hit.id : null))
-        .filter((id): id is string => !!id && /^\d+$/.test(id))
-        .map((id) => BigInt(id))
-
-      return { rows: await loadProductsPreservingOrder(ids, input.vehicleTypeId), source: 'meilisearch' }
-    } catch (error) {
-      // Meili'nin düşmesi partner aramasını düşürmemeli — Postgres'e in.
-      if (!isMeiliUnavailableError(error)) throw error
-    }
-  }
-
-  return { rows: await searchByPrismaFallback(q, input.limit, input.vehicleTypeId), source: 'database' }
+  return { rows: await searchByText(q, input.limit, input.vehicleTypeId), source: 'database' }
 }

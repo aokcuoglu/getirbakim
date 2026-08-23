@@ -23,8 +23,6 @@ COPY . .
 # NEXT_PUBLIC_* vars must be available at build time
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_APP_URL
-ARG NEXT_PUBLIC_MEILI_HOST
-ARG NEXT_PUBLIC_MEILI_SEARCH_KEY
 ARG NEXT_PUBLIC_ENABLE_COOKIEYES
 ARG NEXT_PUBLIC_COOKIEYES_CLIENT_ID
 ARG NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS
@@ -38,8 +36,6 @@ ARG SENTRY_PROJECT
 
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_MEILI_HOST=$NEXT_PUBLIC_MEILI_HOST
-ENV NEXT_PUBLIC_MEILI_SEARCH_KEY=$NEXT_PUBLIC_MEILI_SEARCH_KEY
 ENV NEXT_PUBLIC_ENABLE_COOKIEYES=$NEXT_PUBLIC_ENABLE_COOKIEYES
 ENV NEXT_PUBLIC_COOKIEYES_CLIENT_ID=$NEXT_PUBLIC_COOKIEYES_CLIENT_ID
 ENV NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS=$NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS
@@ -109,7 +105,6 @@ COPY --from=builder /app/node_modules/@prisma/client-runtime-utils/ /app/node_mo
 COPY --from=builder /app/node_modules/@prisma/adapter-pg/ /app/node_modules/@prisma/adapter-pg/
 COPY --from=builder /app/node_modules/@prisma/driver-adapter-utils/ /app/node_modules/@prisma/driver-adapter-utils/
 COPY --from=builder /app/node_modules/@prisma/debug/ /app/node_modules/@prisma/debug/
-COPY --from=builder /app/node_modules/meilisearch/ /app/node_modules/meilisearch/
 COPY --from=builder /app/node_modules/dotenv/ /app/node_modules/dotenv/
 COPY --from=builder /app/node_modules/pg/ /app/node_modules/pg/
 COPY --from=builder /app/node_modules/postgres/ /app/node_modules/postgres/

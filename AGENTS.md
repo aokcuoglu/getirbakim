@@ -310,7 +310,7 @@ A full Docker build (`docker compose -f docker-compose.local.yml up -d --build`)
 For routine development:
 
 ```bash
-# Terminal 1: Start dependencies (PostgreSQL + Meilisearch) in Docker
+# Terminal 1: Start dependencies (PostgreSQL) in Docker
 bun run dev:deps
 
 # Terminal 2: Start Next.js dev server with HMR

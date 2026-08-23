@@ -94,7 +94,6 @@ if [[ ! -f ".env.production" ]]; then
   echo "  Required values to set:"
   echo "    POSTGRES_PASSWORD  — strong random password"
   echo "    AUTH_SECRET        — openssl rand -base64 32"
-  echo "    MEILI_MASTER_KEY   — openssl rand -hex 32"
   echo "    TAMI_*             — production payment keys"
   echo "    DINAMIK_*          — supplier API keys"
   echo "    NEXT_PUBLIC_SITE_URL — https://${DOMAIN}"

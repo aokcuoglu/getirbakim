@@ -81,7 +81,6 @@ docker network inspect edge >/dev/null 2>&1 || docker network create edge
 
 echo ">>> Removing any stale containers..."
 docker rm -f getirbakim-app 2>/dev/null || true
-docker rm -f getirbakim-meilisearch 2>/dev/null || true
 docker rm -f getirbakim-postgres 2>/dev/null || true
 
 
@@ -219,7 +218,6 @@ else
   echo "  v0 schema tables OK"
 fi
 
-wait_for_healthy "getirbakim-meilisearch" 120 || echo "WARN: meilisearch not healthy, continuing anyway..."
 wait_for_healthy "getirbakim-app" 90 || { echo "FATAL: app not healthy, aborting"; exit 1; }
 # No nginx here — public traffic is served by the standalone edge unit. The
 # public health check near the end (via ${DOMAIN}) exercises the edge path.
@@ -231,10 +229,8 @@ docker compose --env-file "${ENV_FILE}" ps
 echo ""
 echo ">>> Container health checks..."
 APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-app 2>/dev/null || echo "unknown")
-MEILI_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-meilisearch 2>/dev/null || echo "unknown")
 PG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' getirbakim-postgres 2>/dev/null || echo "unknown")
 echo "  app:        ${APP_HEALTH}"
-echo "  meilisearch: ${MEILI_HEALTH}"
 echo "  postgres:   ${PG_HEALTH}"
 
 # Verify app health endpoint via Docker internal network

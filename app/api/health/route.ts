@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-import { isMeiliEnabled, checkMeiliHealth } from '@/lib/search/meilisearch-client'
-
 export const dynamic = 'force-dynamic'
 
 const HEALTH_DB_TIMEOUT_MS = 8000
@@ -43,16 +41,6 @@ export async function GET() {
   }
 
   checks.redis = 'disabled'
-
-  const meiliEnabled = isMeiliEnabled()
-  if (meiliEnabled) {
-    const meiliStart = Date.now()
-    const meiliHealth = await checkMeiliHealth()
-    timings.meili = Date.now() - meiliStart
-    checks.meilisearch = meiliHealth.reachable ? `ok (${meiliHealth.status})` : `unreachable: ${meiliHealth.error}`
-  } else {
-    checks.meilisearch = 'disabled'
-  }
 
   const indexingAllowed = process.env.NEXT_PUBLIC_ALLOW_INDEXING?.trim().toLowerCase() === 'true'
   checks.indexing = indexingAllowed ? 'allowed' : 'blocked'

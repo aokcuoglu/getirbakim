@@ -31,11 +31,6 @@ This repository must not contain real credentials, API keys, or secrets in track
 - All supplier API keys (`DINAMIK_APIKEY`, `DINAMIK_SECRETKEY`, `SETA_XAPIKEY`, `SETA_SECRETKEY`, etc.) must stay in `.env` files or CI secrets.
 - Proxy credentials in `DINAMIK_PROXY_URL` are sensitive — do not log or commit them.
 
-### Meilisearch
-
-- `MEILI_MASTER_KEY` and `MEILI_ADMIN_KEY` are admin-level keys and must not be committed.
-- `NEXT_PUBLIC_MEILI_SEARCH_KEY` is a public search-only key and is safe for the browser.
-
 ### GHCR private container images
 
 - Docker images are hosted on GitHub Container Registry (ghcr.io) and may require authentication.

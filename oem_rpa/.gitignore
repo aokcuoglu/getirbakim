@@ -1,0 +1,6 @@
+config.yaml
+.chrome_profile/
+review.csv
+__pycache__/
+*.pyc
+.venv/
