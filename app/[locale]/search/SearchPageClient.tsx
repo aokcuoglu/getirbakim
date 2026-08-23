@@ -4,7 +4,7 @@
  * Search Page Client Component
  *
  * Faceted search page matching category page layout.
- * Uses Meilisearch for performance, CategoryContent-style UI.
+ * Storefront search with CategoryContent-style UI.
  */
 
 import { useState } from 'react'

@@ -7,7 +7,6 @@ import { requireAdminAuth } from '@/lib/admin-auth'
 import { refreshSingleProductRollup } from '@/lib/catalog/refresh-product-rollups'
 import { getConfirmedPartIds } from '@/lib/catalog/part-enrichment'
 import { collectValidGtins, isValidGtin } from '@/lib/catalog/gtin'
-import { syncProductSearchDocument } from '@/lib/search/sync-product-document'
 import { ENRICHMENT_COVERAGE_TAG } from '@/lib/admin/catalog-enrichment-stats'
 import { OEM_BRAND_COVERAGE_TAG } from '@/lib/admin/oem-brand-coverage'
 import {
@@ -39,8 +38,8 @@ import type {
 
 const DEFAULT_LIMIT = 25
 const STATUSES: CatalogProductStatus[] = ['ACTIVE', 'DRAFT', 'HIDDEN', 'ARCHIVED']
-/** Tek server action çağrısında incelenebilecek en fazla web önerisi. */
-const MAX_REVIEW_BATCH = 300
+/** Tek server action çağrısında incelenebilecek / toplu seçilebilecek en fazla web önerisi. */
+const MAX_REVIEW_BATCH = 1000
 
 function normalizeCode(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -395,8 +394,6 @@ export async function setCatalogProductNameOverride(input: {
     update: { name_override: nameOverride, updated_by: editor }
   })
 
-  // Arama indeksi yeni adı görsün (Meili kapalıysa no-op).
-  await syncProductSearchDocument(product.productId)
   revalidateCatalogAdmin(product.slug)
 
   return {
@@ -474,10 +471,7 @@ export async function updateCatalogProductOverride(
     }
   })
 
-  // Recompute the rollup so the locked override price / stock cache is fresh.
   await refreshSingleProductRollup(productId)
-  // Arama indeksi de yeni adı/fiyatı görsün (Meili kapalıysa no-op).
-  await syncProductSearchDocument(productId)
 
   revalidateCatalogAdmin(product.slug)
 
@@ -846,7 +840,7 @@ async function propertyResult(
  * images) yapılır ve storage'a yazıldıktan sonra buraya düşer.
  *
  * Ürünün henüz birincil görseli yoksa ilk manuel görsel birincil yapılır;
- * vitrin kartları ve Meilisearch dokümanı products.primary_image_url okur.
+ * vitrin kartları products.primary_image_url okur.
  */
 export async function addCatalogProductImage(input: {
   id: string
@@ -1036,45 +1030,97 @@ export interface CandidateLinkRow {
   oemCount: number
 }
 
+export interface ApprovalQueuePage<T> {
+  rows: T[]
+  page: number
+  limit: number
+  total: number
+  pages: number
+}
+
+function likePattern(q: string | null | undefined): string | null {
+  const trimmed = q?.trim()
+  if (!trimmed) return null
+  return `%${trimmed.replace(/[%_\\]/g, '\\$&')}%`
+}
+
 /** Onay bekleyen (CANDIDATE) link'leri listeler. */
 export async function getCandidateProductPartLinks(input?: {
   brand?: string | null
+  q?: string | null
+  page?: number
   limit?: number
-}): Promise<CandidateLinkRow[]> {
+}): Promise<ApprovalQueuePage<CandidateLinkRow>> {
   await requireAdminAuth()
 
   const limit = Math.min(Math.max(input?.limit ?? 50, 1), 200)
+  const page = Math.max(input?.page ?? 1, 1)
+  const offset = (page - 1) * limit
   const brand = input?.brand?.trim() || null
+  const like = likePattern(input?.q)
 
-  const rows = await db.$queryRaw<Record<string, unknown>[]>`
-    select l.id as link_id, l.product_id, l.match_method, l.matched_code, l.confidence,
-           p.part_no, p.name as product_name, cb.brand as brand_name,
-           pt.name as part_name, pb.name as part_brand_name,
-           (select count(*) from part_oens o where o.part_id = l.part_id) as oem_count
-    from catalog.product_part_links l
-    join catalog.products p on p.id = l.product_id
-    join catalog.brands cb on cb.id = p.brand_id
-    join parts pt on pt.id = l.part_id
-    left join part_brands pb on pb.id = pt.brand_id
-    where l.status = 'CANDIDATE'
-      and (${brand}::text is null or cb.brand = ${brand}::text)
-    order by l.id
-    limit ${limit}
-  `
+  const searchFilter = like
+    ? Prisma.sql`and (
+        cb.brand ilike ${like} escape '\\'
+        or p.part_no ilike ${like} escape '\\'
+        or p.name ilike ${like} escape '\\'
+        or pt.name ilike ${like} escape '\\'
+        or coalesce(pb.name, '') ilike ${like} escape '\\'
+        or coalesce(l.matched_code, '') ilike ${like} escape '\\'
+      )`
+    : Prisma.empty
 
-  return rows.map((r) => ({
-    linkId: String(r.link_id),
-    productId: String(r.product_id),
-    partNo: String(r.part_no ?? ''),
-    productName: String(r.product_name ?? ''),
-    brandName: String(r.brand_name ?? ''),
-    matchMethod: String(r.match_method ?? ''),
-    matchedCode: r.matched_code ? String(r.matched_code) : null,
-    confidence: r.confidence == null ? null : Number(r.confidence),
-    partName: String(r.part_name ?? ''),
-    partBrandName: String(r.part_brand_name ?? ''),
-    oemCount: Number(r.oem_count ?? 0)
-  }))
+  const [countRows, rows] = await Promise.all([
+    db.$queryRaw<{ n: bigint }[]>`
+      select count(*)::bigint as n
+      from catalog.product_part_links l
+      join catalog.products p on p.id = l.product_id
+      join catalog.brands cb on cb.id = p.brand_id
+      join parts pt on pt.id = l.part_id
+      left join part_brands pb on pb.id = pt.brand_id
+      where l.status = 'CANDIDATE'
+        and (${brand}::text is null or cb.brand = ${brand}::text)
+        ${searchFilter}
+    `,
+    db.$queryRaw<Record<string, unknown>[]>`
+      select l.id as link_id, l.product_id, l.match_method, l.matched_code, l.confidence,
+             p.part_no, p.name as product_name, cb.brand as brand_name,
+             pt.name as part_name, pb.name as part_brand_name,
+             (select count(*) from part_oens o where o.part_id = l.part_id) as oem_count
+      from catalog.product_part_links l
+      join catalog.products p on p.id = l.product_id
+      join catalog.brands cb on cb.id = p.brand_id
+      join parts pt on pt.id = l.part_id
+      left join part_brands pb on pb.id = pt.brand_id
+      where l.status = 'CANDIDATE'
+        and (${brand}::text is null or cb.brand = ${brand}::text)
+        ${searchFilter}
+      order by l.id
+      limit ${limit} offset ${offset}
+    `
+  ])
+
+  const total = Number(countRows[0]?.n ?? 0)
+
+  return {
+    rows: rows.map((r) => ({
+      linkId: String(r.link_id),
+      productId: String(r.product_id),
+      partNo: String(r.part_no ?? ''),
+      productName: String(r.product_name ?? ''),
+      brandName: String(r.brand_name ?? ''),
+      matchMethod: String(r.match_method ?? ''),
+      matchedCode: r.matched_code ? String(r.matched_code) : null,
+      confidence: r.confidence == null ? null : Number(r.confidence),
+      partName: String(r.part_name ?? ''),
+      partBrandName: String(r.part_brand_name ?? ''),
+      oemCount: Number(r.oem_count ?? 0)
+    })),
+    page,
+    limit,
+    total,
+    pages: Math.max(1, Math.ceil(total / limit))
+  }
 }
 
 export interface ReviewLinkResult {
@@ -1189,51 +1235,144 @@ export async function getRefSuggestionSummary(brand?: string | null): Promise<Re
   }
 }
 
+function refSuggestionSearchFilter(like: string | null): Prisma.Sql {
+  if (!like) return Prisma.empty
+  return Prisma.sql`and (
+      b.brand ilike ${like} escape '\\'
+      or p.part_no ilike ${like} escape '\\'
+      or ${canonicalNameSql('p', 'o')} ilike ${like} escape '\\'
+      or s.value ilike ${like} escape '\\'
+      or coalesce(s.oem_brand, '') ilike ${like} escape '\\'
+      or coalesce(s.evidence, '') ilike ${like} escape '\\'
+    )`
+}
+
 /** İncelenecek önerileri listeler (varsayılan: bekleyenler). */
 export async function getRefSuggestions(input?: {
   brand?: string | null
   kind?: 'OEM' | 'NAME' | null
   status?: string | null
+  q?: string | null
+  page?: number
   limit?: number
-}): Promise<RefSuggestionRow[]> {
+}): Promise<ApprovalQueuePage<RefSuggestionRow>> {
   await requireAdminAuth()
 
-  const limit = Math.min(Math.max(input?.limit ?? 100, 1), 500)
+  const limit = Math.min(Math.max(input?.limit ?? 50, 1), 200)
+  const page = Math.max(input?.page ?? 1, 1)
+  const offset = (page - 1) * limit
   const brand = input?.brand?.trim() || null
   const kind = input?.kind ?? null
   const status = input?.status?.trim() || 'PENDING'
+  const searchFilter = refSuggestionSearchFilter(likePattern(input?.q))
 
-  const rows = await db.$queryRaw<Record<string, unknown>[]>`
-    select s.id, s.product_id, s.kind, s.value, s.oem_brand, s.confidence,
-           s.source_site, s.source_url, s.evidence, s.status,
-           b.brand as brand_name, p.part_no,
-           ${canonicalNameSql('p', 'o')} as current_name
-    from catalog.product_ref_suggestions s
-    join catalog.products p on p.id = s.product_id
-    join catalog.brands b on b.id = p.brand_id
-    ${canonicalOverrideJoin('p', 'o')}
-    where s.status = ${status}
-      and (${brand}::text is null or b.brand = ${brand}::text)
-      and (${kind}::text is null or s.kind = ${kind}::text)
-    order by p.part_no, s.kind, s.id
-    limit ${limit}
-  `
+  const [countRows, rows] = await Promise.all([
+    db.$queryRaw<{ n: bigint }[]>`
+      select count(*)::bigint as n
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+    `,
+    db.$queryRaw<Record<string, unknown>[]>`
+      select s.id, s.product_id, s.kind, s.value, s.oem_brand, s.confidence,
+             s.source_site, s.source_url, s.evidence, s.status,
+             b.brand as brand_name, p.part_no,
+             ${canonicalNameSql('p', 'o')} as current_name
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+      order by p.part_no, s.kind, s.id
+      limit ${limit} offset ${offset}
+    `
+  ])
 
-  return rows.map((r) => ({
-    id: String(r.id),
-    productId: String(r.product_id),
-    kind: String(r.kind) as 'OEM' | 'NAME',
-    value: String(r.value ?? ''),
-    oemBrand: r.oem_brand ? String(r.oem_brand) : null,
-    confidence: String(r.confidence ?? 'MEDIUM'),
-    sourceSite: String(r.source_site ?? ''),
-    sourceUrl: r.source_url ? String(r.source_url) : null,
-    evidence: r.evidence ? String(r.evidence) : null,
-    status: String(r.status ?? ''),
-    brandName: String(r.brand_name ?? ''),
-    partNo: String(r.part_no ?? ''),
-    currentName: String(r.current_name ?? '')
-  }))
+  const total = Number(countRows[0]?.n ?? 0)
+
+  return {
+    rows: rows.map((r) => ({
+      id: String(r.id),
+      productId: String(r.product_id),
+      kind: String(r.kind) as 'OEM' | 'NAME',
+      value: String(r.value ?? ''),
+      oemBrand: r.oem_brand ? String(r.oem_brand) : null,
+      confidence: String(r.confidence ?? 'MEDIUM'),
+      sourceSite: String(r.source_site ?? ''),
+      sourceUrl: r.source_url ? String(r.source_url) : null,
+      evidence: r.evidence ? String(r.evidence) : null,
+      status: String(r.status ?? ''),
+      brandName: String(r.brand_name ?? ''),
+      partNo: String(r.part_no ?? ''),
+      currentName: String(r.current_name ?? '')
+    })),
+    page,
+    limit,
+    total,
+    pages: Math.max(1, Math.ceil(total / limit))
+  }
+}
+
+/**
+ * Filtreye uyan öneri id'lerini döner — toplu seçim için.
+ * Satır gövdesi çekilmez; üst sınır MAX_REVIEW_BATCH (onay batch limiti).
+ */
+export async function getRefSuggestionIds(input?: {
+  brand?: string | null
+  kind?: 'OEM' | 'NAME' | null
+  status?: string | null
+  q?: string | null
+  limit?: number
+}): Promise<{ ids: string[]; total: number; capped: boolean }> {
+  await requireAdminAuth()
+
+  const limit = Math.min(Math.max(input?.limit ?? MAX_REVIEW_BATCH, 1), MAX_REVIEW_BATCH)
+  const brand = input?.brand?.trim() || null
+  const kind = input?.kind ?? null
+  const status = input?.status?.trim() || 'PENDING'
+  const searchFilter = refSuggestionSearchFilter(likePattern(input?.q))
+
+  const [countRows, idRows] = await Promise.all([
+    db.$queryRaw<{ n: bigint }[]>`
+      select count(*)::bigint as n
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+    `,
+    db.$queryRaw<{ id: bigint }[]>`
+      select s.id
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      join catalog.brands b on b.id = p.brand_id
+      ${canonicalOverrideJoin('p', 'o')}
+      where s.status = ${status}
+        and (${brand}::text is null or b.brand = ${brand}::text)
+        and (${kind}::text is null or s.kind = ${kind}::text)
+        ${searchFilter}
+      order by p.part_no, s.kind, s.id
+      limit ${limit}
+    `
+  ])
+
+  const total = Number(countRows[0]?.n ?? 0)
+  return {
+    ids: idRows.map((r) => String(r.id)),
+    total,
+    capped: total > limit
+  }
 }
 
 export interface ReviewRefSuggestionResult {
@@ -1303,6 +1442,7 @@ export async function reviewRefSuggestions(input: {
     from catalog.product_ref_suggestions s
     join catalog.products p on p.id = s.product_id
     where s.id in (${Prisma.join(ids)}) and s.status = 'PENDING'
+    order by s.id
   `)
   if (rows.length === 0) {
     return { success: false, message: 'Öneri bulunamadı ya da zaten incelenmiş.', appliedIds: [] }
@@ -1310,8 +1450,33 @@ export async function reviewRefSuggestions(input: {
 
   const oemRows = rows.filter((r) => r.kind === 'OEM')
   const nameRows = rows.filter((r) => r.kind === 'NAME')
+  const chosenNameByProduct = new Map<bigint, (typeof nameRows)[number]>()
+  for (const row of nameRows) {
+    const current = chosenNameByProduct.get(row.product_id)
+    if (!current || row.id < current.id) chosenNameByProduct.set(row.product_id, row)
+  }
+  const chosenNameRows = [...chosenNameByProduct.values()].sort((a, b) =>
+    a.product_id < b.product_id ? -1 : a.product_id > b.product_id ? 1 : 0
+  )
+  const appliedRows = [...oemRows, ...chosenNameRows]
 
   await db.$transaction(async (tx) => {
+    const lockedRows = await tx.$queryRaw<typeof rows>(Prisma.sql`
+      select s.id, s.product_id, s.kind, s.value, s.value_norm, s.oem_brand, p.slug
+      from catalog.product_ref_suggestions s
+      join catalog.products p on p.id = s.product_id
+      where s.id in (${Prisma.join(rows.map((r) => r.id))}) and s.status = 'PENDING'
+      order by s.id
+      for update of s
+    `)
+    const rowPayload = (r: (typeof rows)[number]) =>
+      [r.id.toString(), r.product_id.toString(), r.kind, r.value, r.value_norm, r.oem_brand, r.slug]
+    if (
+      lockedRows.length !== rows.length ||
+      lockedRows.some((r, index) => JSON.stringify(rowPayload(r)) !== JSON.stringify(rowPayload(rows[index])))
+    ) {
+      throw new Error('Öneriler işlem sırasında değişti; lütfen listeyi yenileyip tekrar deneyin.')
+    }
     if (oemRows.length > 0) {
       const values = oemRows.map(
         (r) =>
@@ -1324,41 +1489,51 @@ export async function reviewRefSuggestions(input: {
       `)
     }
 
-    for (const r of nameRows) {
-      await tx.$executeRaw(Prisma.sql`
+    if (nameRows.length > 0) {
+      // Bir üründe birden çok seçili NAME varsa liste/inceleme sırasına uygun
+      // en düşük suggestion id deterministik olarak kazanır.
+      const values = chosenNameRows.map(
+        (r) => Prisma.sql`(${r.product_id}, ${r.value}, ${reviewer})`
+      )
+      const nameWriteCount = await tx.$executeRaw(Prisma.sql`
         insert into catalog.product_overrides (product_id, name_override, updated_by)
-        values (${r.product_id}, ${r.value}, ${reviewer})
+        values ${Prisma.join(values)}
         on conflict (product_id) do update
           set name_override = excluded.name_override,
               updated_by = excluded.updated_by,
               updated_at = current_timestamp
+        where catalog.product_overrides.name_override is null
+           or btrim(catalog.product_overrides.name_override) = ''
       `)
+      if (Number(nameWriteCount) !== chosenNameRows.length) {
+        throw new Error(
+          'Bir veya daha fazla üründe manuel ad override mevcut ya da işlem sırasında değişti; işlem geri alındı.'
+        )
+      }
       // Aynı ürüne ait diğer bekleyen ad önerileri anlamsızlaşır.
+      const productIds = chosenNameRows.map((r) => r.product_id)
+      const chosenIds = chosenNameRows.map((r) => r.id)
       await tx.$executeRaw(Prisma.sql`
         update catalog.product_ref_suggestions
         set status = 'REJECTED', reviewed_at = now(), reviewed_by = ${reviewer}
-        where product_id = ${r.product_id} and kind = 'NAME' and status = 'PENDING'
-          and id <> ${r.id}
+        where product_id in (${Prisma.join(productIds)})
+          and kind = 'NAME' and status = 'PENDING'
+          and id not in (${Prisma.join(chosenIds)})
       `)
     }
 
-    await tx.$executeRaw(Prisma.sql`
+    const appliedCount = await tx.$executeRaw(Prisma.sql`
       update catalog.product_ref_suggestions
       set status = 'APPLIED', reviewed_at = now(), reviewed_by = ${reviewer},
           applied_at = now()
-      where id in (${Prisma.join(rows.map((r) => r.id))})
+      where id in (${Prisma.join(appliedRows.map((r) => r.id))})
+        and status = 'PENDING'
     `)
-  })
+    if (Number(appliedCount) !== appliedRows.length) {
+      throw new Error('Uygulanan öneri sayısı değişti; işlem geri alındı.')
+    }
+  }, { timeout: 30_000, maxWait: 10_000 })
 
-  // Arama dokümanı hem adı hem OEM havuzunu taşıyor → dokunulan ürünleri tazele.
-  // Meili çağrıları sıralı yapılırsa toplu onay dakikalar sürer; 8'li gruplar hem
-  // hızlı hem de Meili'yi boğmayacak kadar ölçülü.
-  const touched = [...new Set(rows.map((r) => r.product_id.toString()))]
-  for (let i = 0; i < touched.length; i += 8) {
-    await Promise.all(
-      touched.slice(i, i + 8).map((id) => syncProductSearchDocument(BigInt(id)))
-    )
-  }
   for (const slug of new Set(rows.map((r) => r.slug))) {
     revalidateCatalogAdmin(slug)
   }
@@ -1366,7 +1541,7 @@ export async function reviewRefSuggestions(input: {
 
   return {
     success: true,
-    message: `${oemRows.length} OEM · ${nameRows.length} ad önerisi uygulandı.`,
-    appliedIds: rows.map((r) => r.id.toString())
+    message: `${oemRows.length} OEM · ${chosenNameRows.length} ad önerisi uygulandı.`,
+    appliedIds: appliedRows.map((r) => r.id.toString())
   }
 }

@@ -3,14 +3,14 @@
 # Architecture:
 #   Cloudflare → edge-nginx (:80/:443, TLS — the standalone neutral `edge` unit,
 #   shared with the co-hosted bakimx project) → this app (:3000) via the external
-#   `edge` network. Meilisearch / PostgreSQL / Squid stay private on app-network.
+#   `edge` network. PostgreSQL / Squid stay private on app-network.
 #
 #   This stack runs NO nginx of its own. The edge lives in the `edge/` unit and is
 #   owned by neither product; this app just attaches to the `edge` network with
 #   the alias `getirbakim-app`. See edge/README.md for the edge + migration.
 #
 # Properties:
-#   - App / Meilisearch / PostgreSQL / Squid have NO public port binding
+#   - App / PostgreSQL / Squid have NO public port binding
 #   - App is reachable publicly only through edge-nginx over the `edge` network
 #   - All services have healthchecks; resource limits prevent OOM kills
 #   - TLS certs: host certbot; deploy-hook reloads edge-nginx (see edge/README.md)
@@ -39,8 +39,6 @@ services:
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_MEILI_HOST: ${NEXT_PUBLIC_MEILI_HOST:-}
-        NEXT_PUBLIC_MEILI_SEARCH_KEY: ${NEXT_PUBLIC_MEILI_SEARCH_KEY:-}
         NEXT_PUBLIC_ENABLE_COOKIEYES: ${NEXT_PUBLIC_ENABLE_COOKIEYES:-false}
         NEXT_PUBLIC_COOKIEYES_CLIENT_ID: ${NEXT_PUBLIC_COOKIEYES_CLIENT_ID:-}
         NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS: ${NEXT_PUBLIC_COOKIEYES_ALLOWED_HOSTS:-}
@@ -55,10 +53,6 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_BUILD_VERSION: ${NEXT_PUBLIC_BUILD_VERSION:-dev}
-      MEILI_ENABLED: ${MEILI_ENABLED:-false}
-      MEILI_HOST: ${MEILI_HOST:-http://meilisearch:7700}
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-}
-      MEILI_INDEX_PRODUCTS: ${MEILI_INDEX_PRODUCTS:-products}
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}
       DIRECT_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-getirbakim}
       DATABASE_POOL_MAX: "10"
@@ -66,12 +60,10 @@ services:
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       AUTH_URL: ${AUTH_URL:-https://getirbakim.com}
     depends_on:
-      meilisearch:
-        condition: service_healthy
       postgres:
         condition: service_healthy
     networks:
-      # Private stack network (db / meili / squid).
+      # Private stack network (db / squid).
       app-network:
       # Shared neutral edge network — the edge nginx proxies to this alias.
       edge:
@@ -98,42 +90,6 @@ services:
           memory: 1G
         reservations:
           memory: 256M
-
-  # ── Meilisearch (self-hosted, internal network only) ───────────────────
-  meilisearch:
-    image: getmeili/meilisearch:v1.12
-    container_name: getirbakim-meilisearch
-    restart: unless-stopped
-    environment:
-      MEILI_ENV: production
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
-      MEILI_NO_ANALYTICS: "true"
-    volumes:
-      - meili_data:/meili_data
-    networks:
-      - app-network
-    # NO port binding — internal Docker network only.
-    # App communicates via http://meilisearch:7700
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:7700/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
-    deploy:
-      resources:
-        limits:
-          # Indexing the ~1M-doc catalog peaks well above 512M; the container
-          # was OOM-killed (exit 137) mid-backfill. VPS has 7.8G / no swap, so
-          # 3G leaves headroom alongside app (1G) + postgres.
-          memory: 3G
-        reservations:
-          memory: 512M
 
   # ── Squid Forward Proxy (Dinamik API egress — IP whitelist) ────────────
   # The Dinamik supplier API whitelists the VPS IP. The app reaches it via
@@ -216,5 +172,4 @@ networks:
     name: edge
 
 volumes:
-  meili_data:
   postgres_data:

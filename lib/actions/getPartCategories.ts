@@ -466,7 +466,7 @@ export const getPartCategoryByUrlKey = cache(
     // Sort siblings by name
     siblings = sortCategoriesByName(siblings, 'en') // Default to en, but could be passed in
 
-    // Category ids for this category (for Meilisearch)
+    // Category ids for this category
     const searchIds = [targetCategory.id]
 
     const result: PartCategoryWithHierarchy = {

@@ -47,16 +47,6 @@ Controls the maximum number of concurrent database connections the PrismaPg adap
 
 The `PG_POOL_MAX` env var is also accepted as a fallback alias.
 
-### Meilisearch
-
-| Variable | Scope | Required | Description |
-|----------|-------|----------|-------------|
-| `MEILI_ENABLED` | Server | Yes | Enable/disable Meilisearch integration |
-| `MEILI_HOST` | Server | Yes | Internal Meilisearch host URL |
-| `MEILI_MASTER_KEY` | Server | Yes | Admin master key — never commit |
-| `NEXT_PUBLIC_MEILI_HOST` | Public | Yes | Public Meilisearch host URL |
-| `NEXT_PUBLIC_MEILI_SEARCH_KEY` | Public | Yes | Search-only key (safe for browser) |
-
 ### Upstash Redis
 
 | Variable | Scope | Required | Description |
@@ -150,7 +140,6 @@ The `PG_POOL_MAX` env var is also accepted as a fallback alias.
 These must NEVER be exposed to the browser:
 
 - `DATABASE_URL`, `DIRECT_URL`
-- `MEILI_MASTER_KEY`
 - `UPSTASH_REDIS_REST_TOKEN`
 - `TAMI_SECRET_KEY`, `TAMI_JWK_KID`, `TAMI_JWK_K`
 - `DINAMIK_APIKEY`, `DINAMIK_SECRETKEY`, `DINAMIK_PROXY_URL`
@@ -164,8 +153,6 @@ These are embedded at build time and visible in the browser:
 
 - `NEXT_PUBLIC_SITE_URL`
 - `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_MEILI_HOST`
-- `NEXT_PUBLIC_MEILI_SEARCH_KEY`
 - `NEXT_PUBLIC_BUILD_VERSION`
 - `NEXT_PUBLIC_ENABLE_COOKIEYES`
 - `NEXT_PUBLIC_COOKIEYES_CLIENT_ID`

@@ -77,48 +77,45 @@ function normalizeFilters(input: SupplierBrandMatchFilters) {
   return { q: (input.q ?? '').trim(), status, page, limit }
 }
 
-/** LATERAL alt-sorgu: bir tedarikçi markasının en uygun tek eşleşmesini seçer. */
-function bestMappingLateral(cfg: SupplierConfig): Prisma.Sql {
+/** Tedarikçi markası başına en uygun tek eşleşme (DISTINCT ON). */
+function bestMappingJoin(cfg: SupplierConfig): Prisma.Sql {
   return Prisma.sql`
-    LEFT JOIN LATERAL (
-      SELECT
+    LEFT JOIN (
+      SELECT DISTINCT ON (m.${cfg.fkCol})
+        m.${cfg.fkCol} AS supplier_brand_id,
         m.id AS mapping_id,
         m.brand_id AS canonical_id,
-        cb.brand AS canonical_name,
         m.mapping_status,
         m.match_method
       FROM catalog.brand_mappings m
-      JOIN catalog.brands cb ON cb.id = m.brand_id
-      WHERE m.${cfg.fkCol} = sb.${cfg.idCol}
+      WHERE m.${cfg.fkCol} IS NOT NULL
       ORDER BY
+        m.${cfg.fkCol},
         CASE m.mapping_status
           WHEN 'APPROVED' THEN 0
           WHEN 'PENDING' THEN 1
           ELSE 2
         END,
         m.id
-      LIMIT 1
-    ) mm ON TRUE
+    ) mm ON mm.supplier_brand_id = sb.${cfg.idCol}
+    LEFT JOIN catalog.brands cb ON cb.id = mm.canonical_id
   `
 }
 
-function buildWhere(
-  filters: ReturnType<typeof normalizeFilters>,
-  cfg: SupplierConfig
-): Prisma.Sql {
+function buildWhere(filters: ReturnType<typeof normalizeFilters>): Prisma.Sql {
   const clauses: Prisma.Sql[] = []
 
   if (filters.q) {
     const pattern = `%${filters.q.replace(/[%_\\]/g, '\\$&')}%`
-    clauses.push(Prisma.sql`sb.${cfg.nameCol} ILIKE ${pattern}`)
+    clauses.push(Prisma.sql`supplier_name ILIKE ${pattern}`)
   }
 
   if (filters.status === 'matched') {
-    clauses.push(Prisma.sql`mm.mapping_status = 'APPROVED'`)
+    clauses.push(Prisma.sql`mapping_status = 'APPROVED'`)
   } else if (filters.status === 'pending') {
-    clauses.push(Prisma.sql`mm.mapping_status = 'PENDING'`)
+    clauses.push(Prisma.sql`mapping_status = 'PENDING'`)
   } else if (filters.status === 'unmatched') {
-    clauses.push(Prisma.sql`mm.mapping_id IS NULL`)
+    clauses.push(Prisma.sql`mapping_id IS NULL`)
   }
 
   if (clauses.length === 0) return Prisma.sql`TRUE`
@@ -131,56 +128,80 @@ export async function listSupplierBrandsForMatching(
   const cfg = SUPPLIER_CONFIG[input.supplier]
   const filters = normalizeFilters(input)
   const offset = (filters.page - 1) * filters.limit
-  const lateral = bestMappingLateral(cfg)
-  const where = buildWhere(filters, cfg)
+  const mappingJoin = bestMappingJoin(cfg)
+  const where = buildWhere(filters)
 
-  const countRows = await db.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS count
-    FROM ${cfg.table} sb
-    ${lateral}
-    WHERE ${where}
-  `)
-  const total = Number(countRows[0]?.count ?? 0)
-
-  // Özet (KPI) her zaman filtresiz — filtre uygulanınca kartlar değişmesin.
-  const summaryRows = await db.$queryRaw<
-    Array<{ total: number; matched: number; pending: number; unmatched: number }>
-  >(Prisma.sql`
-    SELECT
-      COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE mm.mapping_status = 'APPROVED')::int AS matched,
-      COUNT(*) FILTER (WHERE mm.mapping_status = 'PENDING')::int AS pending,
-      COUNT(*) FILTER (WHERE mm.mapping_id IS NULL)::int AS unmatched
-    FROM ${cfg.table} sb
-    ${lateral}
-  `)
-  const summary = summaryRows[0] ?? { total: 0, matched: 0, pending: 0, unmatched: 0 }
-
-  const rows = await db.$queryRaw<
+  // Tek round-trip: KPI (filtresiz) + sayfa sayısı + satırlar.
+  const packed = await db.$queryRaw<
     Array<{
-      supplier_id: string
-      supplier_name: string
-      mapping_id: number | null
-      canonical_id: number | null
-      canonical_name: string | null
-      mapping_status: string | null
-      match_method: string | null
+      total: number
+      summary_total: number
+      matched: number
+      pending: number
+      unmatched: number
+      rows: Array<{
+        supplier_id: string
+        supplier_name: string
+        mapping_id: number | null
+        canonical_id: number | null
+        canonical_name: string | null
+        mapping_status: string | null
+        match_method: string | null
+      }> | null
     }>
   >(Prisma.sql`
+    WITH joined AS (
+      SELECT
+        sb.${cfg.idCol}::text AS supplier_id,
+        sb.${cfg.nameCol} AS supplier_name,
+        mm.mapping_id,
+        mm.canonical_id,
+        cb.brand AS canonical_name,
+        mm.mapping_status,
+        mm.match_method
+      FROM ${cfg.table} sb
+      ${mappingJoin}
+    ),
+    filtered AS (
+      SELECT * FROM joined
+      WHERE ${where}
+    ),
+    summary AS (
+      SELECT
+        COUNT(*)::int AS summary_total,
+        COUNT(*) FILTER (WHERE mapping_status = 'APPROVED')::int AS matched,
+        COUNT(*) FILTER (WHERE mapping_status = 'PENDING')::int AS pending,
+        COUNT(*) FILTER (WHERE mapping_id IS NULL)::int AS unmatched
+      FROM joined
+    )
     SELECT
-      sb.${cfg.idCol}::text AS supplier_id,
-      sb.${cfg.nameCol} AS supplier_name,
-      mm.mapping_id,
-      mm.canonical_id,
-      mm.canonical_name,
-      mm.mapping_status,
-      mm.match_method
-    FROM ${cfg.table} sb
-    ${lateral}
-    WHERE ${where}
-    ORDER BY sb.${cfg.nameCol} ASC
-    LIMIT ${filters.limit} OFFSET ${offset}
+      (SELECT COUNT(*)::int FROM filtered) AS total,
+      s.summary_total,
+      s.matched,
+      s.pending,
+      s.unmatched,
+      (
+        SELECT COALESCE(json_agg(t), '[]'::json)
+        FROM (
+          SELECT
+            supplier_id,
+            supplier_name,
+            mapping_id,
+            canonical_id,
+            canonical_name,
+            mapping_status,
+            match_method
+          FROM filtered
+          ORDER BY supplier_name ASC
+          LIMIT ${filters.limit} OFFSET ${offset}
+        ) t
+      ) AS rows
+    FROM summary s
   `)
+
+  const pack = packed[0]
+  const total = Number(pack?.total ?? 0)
+  const rows = pack?.rows ?? []
 
   return {
     supplier: input.supplier,
@@ -200,10 +221,10 @@ export async function listSupplierBrandsForMatching(
       pages: Math.max(1, Math.ceil(total / filters.limit))
     },
     summary: {
-      total: Number(summary.total),
-      matched: Number(summary.matched),
-      pending: Number(summary.pending),
-      unmatched: Number(summary.unmatched)
+      total: Number(pack?.summary_total ?? 0),
+      matched: Number(pack?.matched ?? 0),
+      pending: Number(pack?.pending ?? 0),
+      unmatched: Number(pack?.unmatched ?? 0)
     },
     filters: { q: filters.q, status: filters.status }
   }

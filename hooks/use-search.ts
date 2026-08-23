@@ -4,7 +4,7 @@
  * useSearch Hook
  *
  * Production-ready faceted search hook with disjunctive faceting.
- * Uses Meilisearch multi-search API for proper facet counts.
+ * Faceted search via /api/search (PostgreSQL).
  *
  * Key features:
  * - URL sync via useSearchParams
@@ -110,53 +110,6 @@ function filtersToURLParams(filters: SearchFilters): URLSearchParams {
   if (filters.page > 1) params.set(PARAM_KEYS.PAGE, String(filters.page))
 
   return params
-}
-
-// ============================================================================
-// Filter Building Helpers
-// ============================================================================
-
-function buildMeilisearchFilter(
-  filters: SearchFilters,
-  excludeFacet?: 'brandName' | 'categoryName'
-): string {
-  const conditions: string[] = []
-
-  // Brand filter (skip if we're calculating brand facet distribution)
-  if (filters.brands.length > 0 && excludeFacet !== 'brandName') {
-    const brandNames = filters.brands.map((b) => `"${b}"`).join(', ')
-    conditions.push(`brandName IN [${brandNames}]`)
-  }
-
-  // Category filter (skip if we're calculating category facet distribution)
-  if (filters.categories.length > 0 && excludeFacet !== 'categoryName') {
-    const categoryNames = filters.categories.map((c) => `"${c}"`).join(', ')
-    conditions.push(`categoryName IN [${categoryNames}]`)
-  }
-
-  // Price filters
-  if (filters.minPrice !== undefined) {
-    conditions.push(`price >= ${filters.minPrice}`)
-  }
-  if (filters.maxPrice !== undefined) {
-    conditions.push(`price <= ${filters.maxPrice}`)
-  }
-
-  return conditions.join(' AND ')
-}
-
-function getMeiliSort(sort: SearchFilters['sort']): string[] {
-  switch (sort) {
-    case 'price-asc':
-      return ['price:asc']
-    case 'price-desc':
-      return ['price:desc']
-    case 'name':
-      return ['name:asc']
-    case 'popularity':
-    default:
-      return []
-  }
 }
 
 // ============================================================================

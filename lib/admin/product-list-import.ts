@@ -2,7 +2,6 @@ import { db } from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import { parseOemEntries } from '@/lib/matching/code-normalization'
 import { refreshProductRollupsForIds } from '@/lib/catalog/refresh-product-rollups'
-import { syncProductSearchDocuments } from '@/lib/search/sync-product-document'
 import {
   detectCsvDelimiter,
   iterateCsvRows,
@@ -981,10 +980,8 @@ export async function runProductCsvImport(input: {
     }
   }
 
-  // 4) Fiyat/stok rollup'ı ve arama dokümanı tazelensin.
   const touchedIds = Array.from(touched).map((v) => BigInt(v))
   await refreshProductRollupsForIds(touchedIds)
-  await syncProductSearchDocuments(touchedIds)
 
   return {
     ...base,

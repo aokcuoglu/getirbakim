@@ -47,7 +47,7 @@ Vehicle hierarchy: Make → Model → Engine/Variant. Part-to-vehicle relationsh
 
 ### Search
 
-`lib/actions/search.ts` handles search. When Meilisearch is enabled, queries go there; otherwise it falls back to Prisma. Client hook: `hooks/use-search.ts`. Facets cover brand, category, price range, and OEM compatibility.
+Storefront search is PostgreSQL (`/api/search` → `lib/search/catalog-search.ts`). Client hook: `hooks/use-search.ts`. Facets cover brand, category, and price. Exact OEM/SKU queries hit `part_no_norm` and `product_oems`.
 
 ### Supplier sync
 

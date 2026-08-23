@@ -171,8 +171,7 @@ function buildOrderBy(
 }
 
 /**
- * Prisma fallback for category listing, sourced from the `catalog` schema.
- * Used when Meilisearch is unavailable/empty. Category browse is limited to
+ * Category listing from the `catalog` schema. Category browse is limited to
  * catalog products that carry a category (sparse until enrichment expands);
  * uncategorized products remain reachable via search and brand pages.
  */

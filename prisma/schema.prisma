@@ -1134,14 +1134,18 @@ model product_ref_suggestions {
   @@schema("catalog")
 }
 
+// RPA (Google AI Modu) deneme kaydi: bir ürün SORGULANDI mı? (boş sonuç dahil)
+// Amaç: OEM bulunamayan ürünleri her çalışmada tekrar Google'a sormamak.
+// select_query bu tabloda olan product_id'leri eler. status='EMPTY' satırları
+// silinerek ileride yeniden denenebilir.
 model rpa_lookup_log {
   product_id  BigInt   @id
-  status      String   @default("EMPTY")
+  status      String   @default("EMPTY") // FOUND | EMPTY | ERROR
   oem_count   Int      @default(0)
   attempts    Int      @default(1)
   source_site String   @default("rpa-claude")
   created_at  DateTime @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   @@index([status], map: "idx_rpa_lookup_log_status")
   @@schema("catalog")

@@ -3,7 +3,7 @@
 ## Recommended: Hybrid Local Dev (App Outside Docker)
 
 The local development workflow runs the Next.js app **outside Docker** with only
-the backing services (Postgres + Meilisearch) in containers. This gives you faster
+the backing services (Postgres) in containers. This gives you faster
 hot reload, lower battery usage, and better macOS filesystem performance while
 keeping production parity intact. It mirrors the bakimx local setup.
 
@@ -19,17 +19,14 @@ keeping production parity intact. It mirrors the bakimx local setup.
 │  │  localhost:3001   │    │  127.0.0.1:54322       │  │
 │  │                  │    └────────────────────────┘  │
 │  │                  │                                │
-│  │                  │    ┌────────────────────────┐  │
-│  │                  │───▶│  Docker: Meilisearch     │  │
-│  └─────────────────┘    │  127.0.0.1:7700          │  │
-│                         └────────────────────────┘  │
+│  └─────────────────┘                                 │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### Quick Start
 
 ```bash
-# 1. Start Postgres + Meilisearch in Docker (creates data volumes if needed)
+# 1. Start Postgres in Docker (creates data volumes if needed)
 bun run dev:deps
 
 # 2. Wait for services to be healthy (~5 seconds)
@@ -41,9 +38,6 @@ bun run dev
 # 4. Verify everything works
 curl -s http://localhost:3001/api/health | jq .status
 # "ok"
-
-curl -s http://127.0.0.1:7700/health | jq .status
-# "available"
 ```
 
 ### Environment Setup
@@ -53,10 +47,6 @@ values for local dev. The committed `.env.local` already contains:
 
 ```env
 # .env.local — local dev overrides
-
-# Meilisearch: use localhost (not Docker DNS) when app runs outside Docker
-MEILI_HOST=http://127.0.0.1:7700
-MEILI_MASTER_KEY=...
 
 # App URL for local dev (bun run dev → next dev -p 3001)
 NEXT_PUBLIC_SITE_URL=http://localhost:3001
@@ -78,20 +68,9 @@ Next.js loads env files in this order (later files override earlier):
 | Problem | Solution |
 |---------|----------|
 | Docker rebuilds are slow (minutes) | `bun run dev` = instant hot reload |
-| Docker on macOS drains battery | Only Postgres + Meilisearch run in Docker |
+| Docker on macOS drains battery | Only Postgres runs in Docker |
 | macOS filesystem performance in Docker | App reads/writes on native FS |
 | Full Docker stack is overkill for feature work | Two infra containers, app native |
-
-### Meilisearch Setup (First Time Only)
-
-```bash
-# Infra already started via `bun run dev:deps`
-# Create and configure the search index
-bun run search:setup
-
-# (Optional) Full reindex
-bun run search:reindex
-```
 
 ---
 
@@ -101,7 +80,6 @@ bun run search:reindex
 |---------|--------------|-------|
 | App (`bun run dev`) | http://localhost:3001 | `next dev -p 3001`, runs on the host |
 | Postgres | `127.0.0.1:54322` | Container listens on 5432 |
-| Meilisearch | `127.0.0.1:7700` | Bound to localhost only |
 | Production (VPS) | app :3000 internal | Docker; Nginx proxies :80/:443 |
 
 Production still runs the app in Docker (`docker-compose.yml` on the VPS, built from
@@ -121,24 +99,15 @@ Admin routes require a NextAuth session with `users.role = ADMIN`.
 
 ## Common Issues
 
-### Meilisearch / Postgres connection refused
+### Postgres connection refused
 
 ```
-Error: connect ECONNREFUSED 127.0.0.1:7700   (or :54322)
+Error: connect ECONNREFUSED 127.0.0.1:54322
 ```
 
 Start the infra:
 ```bash
 bun run dev:deps
-```
-
-### MEILI_HOST pointing to Docker DNS
-
-If you see `http://meilisearch:7700` in your app logs but the app isn't running in
-Docker, confirm `.env.local` has:
-
-```env
-MEILI_HOST=http://127.0.0.1:7700
 ```
 
 ### Port 3001 already in use
@@ -155,8 +124,8 @@ bun run dev -- -p 3002
 Error: external volume "getirbakim-postgres-data" not found
 ```
 
-`bun run dev:deps` creates the `getirbakim-postgres-data` and `getirbakim-meili-data`
-volumes before starting. Always start infra with that script, not a bare
+`bun run dev:deps` creates the `getirbakim-postgres-data` volume before starting.
+Always start infra with that script, not a bare
 `docker compose up`.
 
 ### Database connection pool exhaustion
@@ -173,8 +142,7 @@ DATABASE_POOL_MAX=2
 bun run dev:deps:stop
 ```
 
-The `postgres_data_local` and `meili_data_local` volumes are external and persist
-across restarts, so your data and search index survive.
+The `postgres_data_local` volume is external and persists across restarts.
 
 ---
 
@@ -183,8 +151,5 @@ across restarts, so your data and search index survive.
 | Script | Command | Description |
 |--------|---------|-------------|
 | `dev` | `next dev -p 3001` | Local Next.js dev server (port 3001) |
-| `dev:deps` | `docker compose -f docker-compose.local.yml up -d postgres meilisearch` | Start Postgres + Meilisearch |
+| `dev:deps` | `docker compose -f docker-compose.local.yml up -d postgres` | Start Postgres |
 | `dev:deps:stop` | `docker compose -f docker-compose.local.yml down` | Stop local infra |
-| `search:setup` | `bun scripts/meili-setup.ts` | Create/configure search index |
-| `meili:start` | `docker compose -f docker-compose.meili.yml up -d` | Start standalone Meilisearch (alt) |
-| `meili:stop` | `docker compose -f docker-compose.meili.yml down` | Stop standalone Meilisearch |

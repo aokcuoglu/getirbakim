@@ -2,7 +2,7 @@
  * Kategori listesinin ürün kartı sözleşmesi.
  *
  * Adı `parts`tan geliyor: veri eskiden public.parts'tan okunuyordu. Bugün
- * kaynak katalog/Meilisearch ve CategoryClientWrapper arama sonucunu bu şekle
+ * kaynak katalog ve CategoryClientWrapper arama sonucunu bu şekle
  * çeviriyor — tip, üreticisi olan `getPartsForVehicle` ölü kod olarak silindikten
  * sonra tek başına kaldığı için buraya taşındı.
  */

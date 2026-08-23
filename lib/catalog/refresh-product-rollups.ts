@@ -14,7 +14,7 @@ export interface RollupStats {
  * tedarikçinin aynı parça için ikinci listesi fiyatı düşürmez, stoğu iki kez
  * saydırmaz, ama bağlı satır stoksuz kalınca devri kendiliğinden alır.
  * A locked product_overrides.selling_price_override wins over MIN(offer).
- * updated_at is bumped only on real change so the Meilisearch watermark
+ * updated_at is bumped only on real change so downstream caches
  * does not churn on no-op syncs. Also fills missing SEO slugs.
  */
 export async function refreshProductRollups(): Promise<RollupStats> {

@@ -1,7 +1,7 @@
 # Local Docker Runtime (Infra Only)
 
 > The Next.js app **no longer runs in Docker locally**. `docker-compose.local.yml`
-> now provides only the backing services — **Postgres + Meilisearch** — and the
+> now provides only the backing services — **Postgres** — and the
 > app runs natively via `bun run dev` on **http://localhost:3001**. This mirrors
 > the bakimx local setup (only infra in Docker, app native for fast HMR).
 >
@@ -16,7 +16,7 @@
 ## Quick Start
 
 ```bash
-# 1. Start Postgres + Meilisearch in Docker (creates the data volumes if missing)
+# 1. Start Postgres in Docker (creates the data volumes if missing)
 bun run dev:deps
 
 # 2. Start the Next.js dev server (port 3001)
@@ -26,8 +26,8 @@ bun run dev
 curl -s http://localhost:3001/api/health | jq
 ```
 
-The app runs at **http://localhost:3001**. `database` and `meilisearch` in the
-health payload confirm the app reached the dockerized services.
+The app runs at **http://localhost:3001**. `database` in the health payload
+confirms the app reached Postgres.
 
 ## Ports
 
@@ -35,14 +35,12 @@ health payload confirm the app reached the dockerized services.
 |---------|--------------|--------|
 | App (`bun run dev`) | http://localhost:3001 | `next dev -p 3001`, runs on the host (not Docker) |
 | Postgres | `127.0.0.1:54322` | Container listens on 5432, published to 54322 |
-| Meilisearch | `127.0.0.1:7700` | Bound to localhost only |
 
 `.env.local` already points the host-side app at these:
 
 ```env
 DATABASE_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
 DIRECT_URL=postgresql://postgres:local-dev-postgres-password@127.0.0.1:54322/getirbakim
-MEILI_HOST=http://127.0.0.1:7700
 NEXT_PUBLIC_SITE_URL=http://localhost:3001
 NEXT_PUBLIC_APP_URL=http://localhost:3001
 ```
@@ -57,7 +55,7 @@ you are redirected to `/tr/login?redirect=...`.
 
 | Action | Command |
 |--------|---------|
-| Start infra (postgres + meili) | `bun run dev:deps` |
+| Start infra (postgres) | `bun run dev:deps` |
 | Stop infra | `bun run dev:deps:stop` |
 | Start app | `bun run dev` |
 | Infra logs | `docker compose -f docker-compose.local.yml logs -f` |
@@ -75,7 +73,7 @@ Expected:
 ```json
 {
   "status": "ok",
-  "checks": { "database": "ok", "meilisearch": "ok (available)", "siteUrl": "http://localhost:3001" }
+  "checks": { "database": "ok", "siteUrl": "http://localhost:3001" }
 }
 ```
 
@@ -129,8 +127,8 @@ Or change the port in the `dev` script (`next dev -p <port>`).
 Error: external volume "getirbakim-postgres-data" not found
 ```
 
-`bun run dev:deps` creates the `getirbakim-postgres-data` and
-`getirbakim-meili-data` volumes before starting. Run it (not a bare
+`bun run dev:deps` creates the `getirbakim-postgres-data` volume before starting.
+Run it (not a bare
 `docker compose up`) so the volumes exist.
 
 ### PrismaPg prepared statement errors
