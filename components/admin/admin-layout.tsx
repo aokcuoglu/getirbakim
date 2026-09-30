@@ -45,6 +45,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       '/admin/products',
       '/admin/brands',
       '/admin/orders',
+      '/admin/partner-orders',
       '/admin/customers',
       '/admin/categories',
       '/admin/requests',

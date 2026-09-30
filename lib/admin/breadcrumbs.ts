@@ -11,6 +11,7 @@ const ADMIN_ROUTE_LABELS: Record<string, string> = {
   '/admin/products/tools': 'Araçlar',
   '/admin/brands': 'Markalar',
   '/admin/orders': 'Siparişler',
+  '/admin/partner-orders': 'Partner Siparişleri',
   '/admin/customers': 'Müşteriler',
   '/admin/categories': 'Kategoriler',
   '/admin/categories/new': 'Yeni Kategori',

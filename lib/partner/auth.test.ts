@@ -3,6 +3,7 @@ import {
   extractBearerToken,
   parsePartnerKeys,
   resolvePartner,
+  resolveScopedPartner,
   MIN_PARTNER_KEY_LENGTH
 } from './auth'
 
@@ -40,6 +41,19 @@ describe('parsePartnerKeys', () => {
 
   it('lets the first definition win when a key is listed twice', () => {
     expect(parsePartnerKeys(`first:${KEY},second:${KEY}`).get(KEY)).toBe('first')
+  })
+})
+
+describe('partner scope', () => {
+  it('keeps a catalog credential out of every binding order endpoint', () => {
+    const catalog = `bakimx:${KEY}`
+    const orders = `bakimx:${OTHER_KEY}`
+    expect(resolveScopedPartner(`Bearer ${KEY}`, 'catalog', catalog, orders)).toEqual({ code: 'bakimx' })
+    expect(resolveScopedPartner(`Bearer ${KEY}`, 'orders', catalog, orders)).toBeNull()
+    expect(resolveScopedPartner(`Bearer ${OTHER_KEY}`, 'orders', catalog, orders)).toEqual({ code: 'bakimx' })
+    expect(resolveScopedPartner(`Bearer ${OTHER_KEY}`, 'catalog', catalog, orders)).toBeNull()
+    expect(resolveScopedPartner(`Bearer ${KEY}`, 'orders', catalog, undefined)).toBeNull()
+    expect(resolveScopedPartner(`Bearer ${KEY}`, 'orders', catalog, catalog)).toBeNull()
   })
 })
 

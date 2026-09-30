@@ -358,6 +358,12 @@ export function Sidebar({
           active: pathname.startsWith('/admin/orders')
         },
         {
+          icon: Truck,
+          label: 'Partner Siparişleri',
+          href: '/admin/partner-orders',
+          active: pathname.startsWith('/admin/partner-orders')
+        },
+        {
           icon: Users,
           label: 'Müşteriler',
           href: '/admin/customers',

@@ -9,6 +9,7 @@ import {
   type PartnerOrderStatus, PARTNER_ORDER_POLICY_ENV, PARTNER_QUOTE_SIGNING_SECRET_ENV
 } from './order-contract'
 import { buildPartnerOrderEvent, shouldExpirePartnerOrder } from './webhook-contract'
+import { resolveOperatorTransition, type PartnerOperatorAction } from './operator-contract'
 
 export interface CreatePartnerOrderInput {
   idempotencyKey: string
@@ -19,7 +20,12 @@ export interface CreatePartnerOrderInput {
 }
 
 const orderInclude = {
-  items: { select: { product_id: true, selected_offer_id: true, quantity: true, unit_net_amount: true, unit_vat_amount: true, unit_gross_amount: true } },
+  items: { select: {
+    product_id: true, selected_offer_id: true, quantity: true,
+    unit_net_amount: true, unit_vat_amount: true, unit_gross_amount: true,
+    product: { select: { name: true, part_no: true } },
+    selected_offer: { select: { supplier: { select: { name: true } } } }
+  } },
   reservations: { select: { status: true, expires_at: true }, orderBy: { id: 'asc' as const } }
 } as const
 
@@ -102,6 +108,15 @@ export async function getPartnerOrder(partnerId: string, id: string) {
     })
   }
   return toPartnerOrderDto(order)
+}
+
+export async function getPartnerOrderByIdempotencyKey(partnerId: string, key: string) {
+  const order = await db.partner_orders.findUnique({
+    where: { partner_id_idempotency_key: { partner_id: partnerId, idempotency_key: key } },
+    select: { id: true }
+  })
+  if (!order) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
+  return getPartnerOrder(partnerId, order.id)
 }
 
 export async function quotePartnerOffer(partnerId: string, selectedOfferId: string, quantity: number) {
@@ -312,4 +327,113 @@ export async function expirePartnerOrders(limit = 100): Promise<number> {
     if (expired) expiredCount += 1
   }
   return expiredCount
+}
+
+export async function listPartnerOrdersForOperator(limit = 100) {
+  const take = Math.min(Math.max(limit, 1), 100)
+  const now = new Date()
+  const [priorityOrders, overdueOrders, recentOrders, actions] = await Promise.all([
+    db.partner_orders.findMany({
+      where: { OR: [
+        { status: 'REQUESTED', binding_expires_at: { gt: now } },
+        { status: 'CONFIRMED', cancellation_requested_at: { not: null } }
+      ] },
+      include: orderInclude,
+      orderBy: { binding_expires_at: 'asc' },
+      take
+    }),
+    db.partner_orders.findMany({
+      where: { status: 'REQUESTED', binding_expires_at: { lte: now } },
+      include: orderInclude,
+      orderBy: { binding_expires_at: 'asc' },
+      take: 20
+    }),
+    db.partner_orders.findMany({
+      include: orderInclude,
+      orderBy: { created_at: 'desc' },
+      take
+    }),
+    db.partner_order_actions.findMany({ orderBy: { created_at: 'desc' }, take: 100 })
+  ])
+  const orders = [...new Map([...priorityOrders, ...overdueOrders, ...recentOrders].map((order) => [order.id, order])).values()]
+  return {
+    orders: orders.map((order) => ({
+      partnerId: order.partner_id,
+      ...toPartnerOrderDto(order),
+      reservationStatus: order.reservations[0]?.status ?? null,
+      productName: order.items[0]?.product.name ?? null,
+      partNo: order.items[0]?.product.part_no ?? null,
+      supplierName: order.items[0]?.selected_offer.supplier.name ?? null
+    })),
+    actions: actions.map((action) => ({
+      id: action.id, orderId: action.order_id, actorId: action.actor_id,
+      action: action.action, fromStatus: action.from_status, toStatus: action.to_status,
+      orderVersion: action.order_version, reason: action.reason,
+      createdAt: action.created_at.toISOString()
+    }))
+  }
+}
+
+export async function operatePartnerOrder(input: {
+  id: string
+  expectedVersion: number
+  action: PartnerOperatorAction
+  actorId: string
+  reason: string | null
+}) {
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "catalog"."partner_orders" WHERE "id" = ${input.id}::uuid FOR UPDATE`
+    const order = await tx.partner_orders.findUnique({ where: { id: input.id }, include: orderInclude })
+    if (!order) throw new PartnerOrderError('ORDER_NOT_FOUND', 'Order not found.', 404)
+    if (order.items.length !== 1) throw new PartnerOrderError('INVALID_TRANSITION', 'Order item is missing.', 409)
+    if (order.version !== input.expectedVersion) {
+      throw new PartnerOrderError('INVALID_TRANSITION', 'Order version changed. Refresh before acting.', 409)
+    }
+    const now = new Date()
+    if (shouldExpirePartnerOrder(order.status, order.binding_expires_at, now)) {
+      return toPartnerOrderDto(await expireLockedOrder(tx, order))
+    }
+    const transition = resolveOperatorTransition({
+      status: order.status as PartnerOrderStatus,
+      action: input.action,
+      cancellationRequested: order.cancellation_requested_at != null,
+      expired: false,
+      reason: input.reason
+    })
+    if (input.action === 'CONFIRM') {
+      const active = await tx.partner_stock_reservations.count({
+        where: { order_id: order.id, status: 'ACTIVE', expires_at: { gt: now } }
+      })
+      if (active !== order.items.length) return toPartnerOrderDto(await expireLockedOrder(tx, order))
+    }
+    if (order.status === 'CONFIRMED' || order.status === 'SHIPPED') {
+      const committed = await tx.partner_stock_reservations.count({ where: { order_id: order.id, status: 'COMMITTED' } })
+      if (committed !== order.items.length) throw new PartnerOrderError('INVALID_TRANSITION', 'Committed reservation is missing.', 409)
+    }
+    if (transition.reservation) {
+      const currentStatus = transition.reservation === 'COMMITTED' ? 'ACTIVE'
+        : order.status === 'REQUESTED' ? 'ACTIVE' : 'COMMITTED'
+      const changed = await tx.partner_stock_reservations.updateMany({
+        where: { order_id: order.id, status: currentStatus },
+        data: { status: transition.reservation }
+      })
+      if (changed.count !== order.items.length) throw new PartnerOrderError('INVALID_TRANSITION', 'Reservation changed. Refresh before acting.', 409)
+    }
+    const updated = await tx.partner_orders.update({
+      where: { id: order.id },
+      data: {
+        status: transition.status,
+        cancellation_requested_at: input.action === 'DECLINE_CANCELLATION' ? null : undefined,
+        version: { increment: 1 }
+      },
+      include: orderInclude
+    })
+    await tx.partner_order_actions.create({ data: {
+      actor_id: input.actorId, order_id: order.id, action: input.action,
+      from_status: order.status, to_status: transition.status,
+      order_version: updated.version, reason: input.reason?.trim() || null
+    } })
+    await enqueueOrderEvent(tx, updated)
+    return toPartnerOrderDto(updated)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }

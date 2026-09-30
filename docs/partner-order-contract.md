@@ -11,6 +11,12 @@ strict and do not accept a partner identity. The order response exposes only the
 binding net, VAT, gross, currency, opaque policy version, and expiry; supplier
 cost and commercial policy inputs are never returned.
 
+Catalog calls use `PARTNER_API_KEYS`; binding quote and order calls use the
+separate `PARTNER_ORDER_API_KEYS` partnerCode:key list. An unset order key list
+rejects every order call, including reads and cancellations.
+The two lists must use different secrets even for the same partner code; a
+credential present in the catalog list is denied order authority.
+
 The confirmation token is HMAC-signed with the deployment-owned
 `PARTNER_QUOTE_SIGNING_SECRET` and binds the authenticated partner, offer,
 quantity, unit binding price, policy version, supplier pricing/sync timestamps,
@@ -28,6 +34,10 @@ checkout record.
 request `RESERVATION_EXPIRED`. `DELETE` cancels a `REQUESTED` order and releases
 its reservation idempotently. After `CONFIRMED`, `DELETE` records a cancellation
 request without directly changing order status.
+`GET /api/partner/v1/orders/by-key/:key` resolves an uncertain create by the
+same idempotency key, under the same tenant and order credential. It returns
+`{order}` or `ORDER_NOT_FOUND` (404), so the caller can reconcile after a
+network failure without retaining the quote confirmation token.
 
 Canonical status order is `REQUESTED`, `CONFIRMED`, `REJECTED`,
 `RESERVATION_EXPIRED`, `CANCELLED`, `SHIPPED`, `COMPLETED`. Confirmation is an
@@ -35,6 +45,16 @@ internal fulfilment operation and succeeds only while the existing reservation
 is still `ACTIVE`; confirmation changes it to durable `COMMITTED` inventory so
 the quote TTL cannot make confirmed stock sellable again. An expired reservation
 is never revived.
+
+GetirBakım admins manage requests at `/admin/partner-orders`. Every decision
+requires the displayed order version and records the authenticated operator,
+time, transition, and reason in `partner_order_actions`. Rejection and accepted
+cancellation release inventory atomically; confirmation commits a live hold.
+A confirmed cancellation request must be accepted or declined before shipment.
+Shipment and completion preserve the committed hold, since releasing it before
+the supplier stock feed reflects fulfillment would make stock sellable twice.
+The existing operations endpoint expires pending requests and retries webhook
+outbox events; its delivery, expiry, and cancellation counts appear in the queue.
 
 `PARTNER_ORDER_POLICY_JSON` is deployment-owned and required. Its shape is
 documented in `.env.example`; this change intentionally supplies no production

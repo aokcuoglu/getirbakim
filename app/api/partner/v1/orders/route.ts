@@ -16,7 +16,7 @@ const bodySchema = z.object({
 }).strict()
 
 export async function POST(request: NextRequest) {
-  const guard = partnerGuard(request, 'api:partner:orders:create')
+  const guard = partnerGuard(request, 'api:partner:orders:create', 'orders')
   if (!('partner' in guard)) return guard
   const { context, partner } = guard
   try {
