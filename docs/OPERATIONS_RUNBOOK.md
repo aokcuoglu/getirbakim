@@ -1,5 +1,22 @@
 # Operations Runbook
 
+## Partner order pilot
+
+Use `/admin/partner-orders` to process live BakımX requests before their binding
+deadline, respond to cancellation requests, and inspect overdue requests and
+failed webhook deliveries. The count cards cover the full database; each queue
+bucket shows only its earliest 100 rows (20 overdue rows). Run the protected
+`POST /api/internal/partner-orders/operations` job to expire due requests and
+retry webhook delivery. Investigate dead-lettered webhooks before relying on
+BakımX's displayed status.
+
+`COMPLETED` partner orders keep `COMMITTED` reservations. This is deliberate:
+the supplier feed can remain stale after shipment, and releasing the hold then
+could sell the same unit again. Track the “Tamamlanmış stok hold” count. Before
+customer launch, agree with the supplier on how to prove each fulfillment is
+reflected in a newer stock snapshot, and add an audited release operation using
+that proof. There is no safe automatic or manual SQL release in this pilot.
+
 ## Healthcheck
 
 ### Application Health

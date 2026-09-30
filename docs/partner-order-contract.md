@@ -55,6 +55,18 @@ Shipment and completion preserve the committed hold, since releasing it before
 the supplier stock feed reflects fulfillment would make stock sellable twice.
 The existing operations endpoint expires pending requests and retries webhook
 outbox events; its delivery, expiry, and cancellation counts appear in the queue.
+The queue gives live requests and cancellation decisions separate 100-row caps,
+plus 20 overdue requests and 100 recent orders; the count cards reveal any
+backlog beyond those visible rows.
+
+`COMPLETED` orders deliberately retain `COMMITTED` holds. The supplier owns
+physical stock, and an automatic release on shipment or completion could sell
+the same unit twice while its stock feed still reports the pre-fulfillment
+quantity. The queue reports completed committed holds. Before customer launch,
+operations must agree on a supplier feed reconciliation contract that proves a
+fulfilled unit has been reflected in refreshed supplier stock, then implement
+an audited hold-release action against that proof. Until then, keep the pilot
+in development and review growing holds; do not release them by ad-hoc SQL.
 
 `PARTNER_ORDER_POLICY_JSON` is deployment-owned and required. Its shape is
 documented in `.env.example`; this change intentionally supplies no production

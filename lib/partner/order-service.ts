@@ -10,6 +10,7 @@ import {
 } from './order-contract'
 import { buildPartnerOrderEvent, shouldExpirePartnerOrder } from './webhook-contract'
 import { resolveOperatorTransition, type PartnerOperatorAction } from './operator-contract'
+import { mergeOperatorQueue, operatorQueuePlan } from './operator-queue'
 
 export interface CreatePartnerOrderInput {
   idempotencyKey: string
@@ -330,32 +331,27 @@ export async function expirePartnerOrders(limit = 100): Promise<number> {
 }
 
 export async function listPartnerOrdersForOperator(limit = 100) {
-  const take = Math.min(Math.max(limit, 1), 100)
-  const now = new Date()
-  const [priorityOrders, overdueOrders, recentOrders, actions] = await Promise.all([
+  const plan = operatorQueuePlan(new Date(), limit)
+  const [pendingOrders, cancellationOrders, overdueOrders, recentOrders, actions] = await Promise.all([
     db.partner_orders.findMany({
-      where: { OR: [
-        { status: 'REQUESTED', binding_expires_at: { gt: now } },
-        { status: 'CONFIRMED', cancellation_requested_at: { not: null } }
-      ] },
+      ...plan.pending,
       include: orderInclude,
-      orderBy: { binding_expires_at: 'asc' },
-      take
     }),
     db.partner_orders.findMany({
-      where: { status: 'REQUESTED', binding_expires_at: { lte: now } },
+      ...plan.cancellations,
       include: orderInclude,
-      orderBy: { binding_expires_at: 'asc' },
-      take: 20
     }),
     db.partner_orders.findMany({
-      include: orderInclude,
-      orderBy: { created_at: 'desc' },
-      take
+      ...plan.overdue,
+      include: orderInclude
+    }),
+    db.partner_orders.findMany({
+      ...plan.recent,
+      include: orderInclude
     }),
     db.partner_order_actions.findMany({ orderBy: { created_at: 'desc' }, take: 100 })
   ])
-  const orders = [...new Map([...priorityOrders, ...overdueOrders, ...recentOrders].map((order) => [order.id, order])).values()]
+  const orders = mergeOperatorQueue(pendingOrders, cancellationOrders, overdueOrders, recentOrders)
   return {
     orders: orders.map((order) => ({
       partnerId: order.partner_id,

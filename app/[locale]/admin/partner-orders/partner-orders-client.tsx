@@ -56,9 +56,9 @@ export function PartnerOrdersClient({ initialData }: { initialData: Data }) {
   }
 
   return <div className="space-y-6">
-    <div className="grid gap-3 sm:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-4 xl:grid-cols-7">
       {Object.entries(data.stats).map(([key, value]) => <div key={key} className="rounded-lg border bg-card p-3 text-sm">
-        <div className="text-muted-foreground">{({ pendingDelivery: 'Bekleyen webhook', overdueDelivery: 'Geciken webhook', deadLettered: 'Başarısız webhook', overdueReservation: 'Süresi dolan talep', cancellationRequested: 'İptal talebi' } as Record<string, string>)[key] ?? key}</div>
+        <div className="text-muted-foreground">{({ pendingDelivery: 'Bekleyen webhook', overdueDelivery: 'Geciken webhook', deadLettered: 'Başarısız webhook', pendingRequest: 'Bekleyen talep', overdueReservation: 'Süresi dolan talep', cancellationRequested: 'İptal talebi', completedCommitted: 'Tamamlanmış stok hold' } as Record<string, string>)[key] ?? key}</div>
         <div className="text-2xl font-semibold">{value}</div>
       </div>)}
     </div>
