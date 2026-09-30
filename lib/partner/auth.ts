@@ -15,6 +15,20 @@ import { createHash, timingSafeEqual } from 'node:crypto'
  */
 
 export const PARTNER_KEYS_ENV = 'PARTNER_API_KEYS'
+/** Separate, fail-closed credentials for binding quotes and order operations. */
+export const PARTNER_ORDER_KEYS_ENV = 'PARTNER_ORDER_API_KEYS'
+
+export function resolveScopedPartner(
+  authorizationHeader: string | null | undefined,
+  scope: 'catalog' | 'orders',
+  catalogKeys: string | null | undefined,
+  orderKeys: string | null | undefined
+): PartnerIdentity | null {
+  if (scope === 'catalog') return resolvePartner(authorizationHeader, catalogKeys)
+  // An accidentally reused read credential never gains write authority.
+  if (resolvePartner(authorizationHeader, catalogKeys)) return null
+  return resolvePartner(authorizationHeader, orderKeys)
+}
 
 /** En kısa kabul edilebilir anahtar. Kısa/boş bir değer yanlışlıkla girilmiş
  *  sayılır ve HİÇ yüklenmez — yoksa `PARTNER_API_KEYS="bakimx:"` gibi bir yazım

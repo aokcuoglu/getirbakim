@@ -1233,10 +1233,30 @@ model partner_orders {
   items        partner_order_items[]
   reservations partner_stock_reservations[]
   events       partner_order_events[]
+  actions      partner_order_actions[]
 
   @@unique([partner_id, idempotency_key], map: "uq_partner_orders_idempotency")
   @@index([partner_id, created_at])
   @@index([status, binding_expires_at])
+  @@schema("catalog")
+}
+
+/// Immutable audit of authenticated admin decisions on partner orders.
+model partner_order_actions {
+  id            String   @id @default(uuid()) @db.Uuid
+  order_id      String   @db.Uuid
+  actor_id      String
+  action        String
+  from_status   String
+  to_status     String
+  order_version Int
+  reason        String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  order partner_orders @relation(fields: [order_id], references: [id], onDelete: Restrict)
+
+  @@unique([order_id, order_version], map: "uq_partner_order_actions_version")
+  @@index([created_at])
   @@schema("catalog")
 }
 

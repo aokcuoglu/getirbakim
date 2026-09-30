@@ -9,7 +9,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 async function run(request: NextRequest, id: string, action: 'read' | 'cancel') {
-  const guard = partnerGuard(request, `api:partner:orders:${action}`)
+  const guard = partnerGuard(request, `api:partner:orders:${action}`, 'orders')
   if (!('partner' in guard)) return guard
   const { context, partner } = guard
   try {

@@ -16,14 +16,16 @@ function boundedInt(raw: string | undefined, fallback: number, max: number) {
 
 export async function getPartnerOrderOperationsStats() {
   const now = new Date()
-  const [pendingDelivery, overdueDelivery, deadLettered, overdueReservation, cancellationRequested] = await Promise.all([
+  const [pendingDelivery, overdueDelivery, deadLettered, pendingRequest, overdueReservation, cancellationRequested, completedCommitted] = await Promise.all([
     db.partner_order_events.count({ where: { delivered_at: null, dead_lettered_at: null } }),
     db.partner_order_events.count({ where: { delivered_at: null, dead_lettered_at: null, next_attempt_at: { lt: now } } }),
     db.partner_order_events.count({ where: { dead_lettered_at: { not: null } } }),
+    db.partner_orders.count({ where: { status: 'REQUESTED', binding_expires_at: { gt: now } } }),
     db.partner_orders.count({ where: { status: 'REQUESTED', binding_expires_at: { lte: now } } }),
-    db.partner_orders.count({ where: { status: 'CONFIRMED', cancellation_requested_at: { not: null } } })
+    db.partner_orders.count({ where: { status: 'CONFIRMED', cancellation_requested_at: { not: null } } }),
+    db.partner_stock_reservations.count({ where: { status: 'COMMITTED', order: { status: 'COMPLETED' } } })
   ])
-  return { pendingDelivery, overdueDelivery, deadLettered, overdueReservation, cancellationRequested }
+  return { pendingDelivery, overdueDelivery, deadLettered, pendingRequest, overdueReservation, cancellationRequested, completedCommitted }
 }
 
 export async function dispatchPartnerOrderWebhooks() {

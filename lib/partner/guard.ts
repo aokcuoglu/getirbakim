@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { errorResponse, withApiContext } from '@/lib/api/route-utils'
-import { resolvePartner, PARTNER_KEYS_ENV, type PartnerIdentity } from './auth'
+import { resolveScopedPartner, PARTNER_KEYS_ENV, PARTNER_ORDER_KEYS_ENV, type PartnerIdentity } from './auth'
 
 type ApiContext = ReturnType<typeof withApiContext>['context']
 
@@ -21,7 +21,8 @@ export interface PartnerGuardPass {
  */
 export function partnerGuard(
   request: NextRequest,
-  keyPrefix: string
+  keyPrefix: string,
+  scope: 'catalog' | 'orders' = 'catalog'
 ): NextResponse | PartnerGuardPass {
   const { context, limitedResponse } = withApiContext(request, {
     keyPrefix,
@@ -30,9 +31,11 @@ export function partnerGuard(
   })
   if (limitedResponse) return limitedResponse
 
-  const partner = resolvePartner(
+  const partner = resolveScopedPartner(
     request.headers.get('authorization'),
-    process.env[PARTNER_KEYS_ENV]
+    scope,
+    process.env[PARTNER_KEYS_ENV],
+    process.env[PARTNER_ORDER_KEYS_ENV]
   )
   if (!partner) {
     return errorResponse({
