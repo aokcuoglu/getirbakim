@@ -13,9 +13,9 @@ compose=(docker compose --env-file .env.production -f deploy/production.compose.
 mkdir -p .local/backups
 chmod 700 .local .local/backups
 backup=".local/backups/production-$(date -u +%Y%m%dT%H%M%SZ)-${BUILD_VERSION}.dump"
-"${compose[@]}" exec -T postgres pg_dump -U getirbakim_app -d getirbakim -Fc > "${backup}.partial"
+"${compose[@]}" exec -T postgres pg_dump -U getirbakim_app -d getirbakim -Fc </dev/null > "${backup}.partial"
 chmod 600 "${backup}.partial"; mv "${backup}.partial" "$backup"
-"${compose[@]}" run --rm --no-deps operations node --import tsx scripts/setup.ts
+"${compose[@]}" run -T --rm --no-deps operations node --import tsx scripts/setup.ts </dev/null
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 app
 "${compose[@]}" exec -T app node --input-type=module <<'JS'
 for (const path of ['/api/health','/','/katalog','/giris','/robots.txt']) {

@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, chmod } from "node:fs/promises";
 import { resolve, dirname, sep } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -28,6 +28,7 @@ try {
     });
     child.on("error", fail); child.on("close", code => code === 0 ? ok() : fail(new Error(`Database export failed (exit ${code}); credentials omitted`)));
   });
+  await chmod(`${out}/database.dump`, 0o600);
   await client.query("COMMIT");
   const media: { key: string; bytes: number; sha256: string; contentType: string }[] = [];
   const root = resolve(out, "media");
