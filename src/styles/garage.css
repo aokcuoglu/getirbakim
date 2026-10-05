@@ -1,0 +1,40 @@
+/* garage: single owner for these surfaces; responsive and scoped variants below. */
+
+.garage-layout {
+  display: grid;
+  grid-template-columns: 1fr 440px;
+  gap: 70px;
+  max-width: 1020px;
+  margin: 0 auto
+}
+.garage-illustration {
+  width: 190px;
+  height: 150px;
+  color: #8ea9bf;
+  margin-top: 20px;
+  margin-bottom: 20px
+}
+.garage-layout .muted {
+  max-width: 440px;
+  font-size: 11px
+}
+@media (max-width:1000px) {
+.garage-layout {
+  gap: 35px;
+  grid-template-columns: 1fr 1fr
+}
+}
+@media (max-width:850px) {
+.garage-layout {
+  grid-template-columns: 1fr 1fr
+}
+}
+@media (max-width:600px) {
+.garage-layout {
+  grid-template-columns: 1fr;
+  gap: 24px
+}
+.garage-illustration {
+  display: none
+}
+}

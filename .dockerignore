@@ -1,29 +1,11 @@
+.git
+.github
 node_modules
 .next
-.git
-.gitignore
-.env
-.env.*
+.local
+.env*
 !.env.example
-.env.bak-*
-*.pem
-*.key
-*.p12
-*.pfx
-id_rsa
-id_ed25519
-.claude
-.vscode
-data
-# İstisna: marka haritası kod gibi davranır. Scraper imajı onsuz açıldığında
-# yalnız arşivden gelen 61 markayı görür, aramadan öğrenilen 48'i kaybeder.
-!data/repxpert-brand-ids.json
-docs
-logs
-dumps
-data.ms
-.venv*
-*.md
-!README.md
-!scripts
-!scripts/**
+artifacts
+*.log
+*.tsbuildinfo
+.DS_Store

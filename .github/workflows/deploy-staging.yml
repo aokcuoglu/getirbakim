@@ -1,0 +1,60 @@
+name: Deploy new system staging
+on:
+  push:
+    branches: [next-system]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: getirbakim-v2-staging
+  cancel-in-progress: false
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/next-system'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and build isolated staging images
+        env:
+          BUILD_VERSION: ${{ github.sha }}
+        run: |
+          cp deploy/staging.env.example .env.staging
+          sed -i 's/=$/=ci-only-placeholder/' .env.staging
+          export BUILD_VERSION="${GITHUB_SHA:0:12}"
+          docker compose --env-file .env.staging -f deploy/staging.compose.yml build app operations
+          docker save "getirbakim-v2-app:$BUILD_VERSION" "getirbakim-v2-operations:$BUILD_VERSION" | gzip > /tmp/staging-images.tar.gz
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Transfer and deploy staging only
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/staging_key "$VPS_USER@$VPS_HOST" 'test -f /opt/getirbakim-v2/.env.staging && mkdir -p /opt/getirbakim-v2/.local/images'
+          scp -i ~/.ssh/staging_key /tmp/staging-images.tar.gz "$VPS_USER@$VPS_HOST:/opt/getirbakim-v2/.local/images/$GITHUB_SHA.tar.gz"
+          ssh -i ~/.ssh/staging_key "$VPS_USER@$VPS_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/getirbakim-v2
+          test "$(git remote get-url origin)" = 'https://github.com/aokcuoglu/getirbakim.git'
+          test -z "$(git status --porcelain --untracked-files=normal)"
+          git fetch origin "$1"
+          test "$(git rev-parse FETCH_HEAD)" = "$1"
+          git checkout --detach "$1"
+          gzip -dc ".local/images/$1.tar.gz" | docker load >/dev/null
+          DEPLOY_SHA="$1" STAGING_DETACHED_RELEASE=1 STAGING_IMAGES_READY=1 bash scripts/deploy-staging.sh
+          rm -- ".local/images/$1.tar.gz"
+          REMOTE
+      - name: Remove temporary SSH key
+        if: always()
+        run: rm -f ~/.ssh/staging_key

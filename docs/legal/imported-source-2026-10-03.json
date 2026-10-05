@@ -1,0 +1,2926 @@
+{
+  "iletisim": {
+    "title": "Iletisim",
+    "sourceUrl": "https://getirbakim.com/iletisim",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Musteri hizmetleri, acik adres, kurumsal bilgiler ve resmi tebligat kanallari bu sayfada yer alir.",
+    "sections": [
+      {
+        "title": "Musteri Hizmetleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: 0216 387 00 78"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "WhatsApp Destek: +90 535 835 57 75"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Calisma Saatleri: 09:00 - 17:30"
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Siparis, teslimat, iade ve odeme sorulari icin destek alinabilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Yogun donemlerde geri donus suresi uzayabilir; tum talepler kayit altina alinir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sikayetlerin daha hizli sonuclanmasi icin siparis numarasi paylasilmasi onerilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Acik Adres ve Iade Noktasi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Merkez Adres: Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iade adresi, merkez adres ile aynidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kurumsal Bilgiler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Unvan: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ticaret Sicil No: 64972-5"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSIS No: 0357042224900019"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi/No: KARTAL VERGI DAIRESI / 3570422249"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Resmi Tebligat ve KVKK Basvuru Kanali",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Resmi kurum yazismalari, ihtar ve KVKK kapsamindaki basvurular icin bu kanal kullanilabilir."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "teslimat-ve-iade": {
+    "title": "Teslimat ve Iade Kosullari",
+    "sourceUrl": "https://getirbakim.com/teslimat-ve-iade",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Siparisin hazirlanmasindan teslimata, iade talebinden geri odeme asamasina kadar tum surecler bu metinde adim adim aciklanir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Siparis Hazirlama ve Kargolama",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparisler, odeme onayi sonrasinda depoda toplama-kontrol-paketleme asamalarindan gecirilir ve anlasmali kargo firmasina teslim edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ayni sipariste birden fazla urun bulunmasi halinde parcali sevkiyat yapilabilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Sureleri ve Kapsam",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Standart teslimat hedef suresi 1-3 is gunu, hizli teslimat hedef suresi ertesi is gunu olarak belirlenmistir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Belirli kampanya donemlerinde 1500 TRY ve uzeri siparislerde ucretsiz kargo uygulanabilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Teslimat sureleri tahmini surelerdir; resmi tatil, hava kosullari ve bolgesel yogunluklar sureyi etkileyebilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Adresin eksik/yanlis beyan edilmesi durumunda teslimat gecikebilir veya iade donusu olusabilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kargo takibi, siparis paneli veya bilgilendirme mesajlari uzerinden saglanir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Aninda Kontrol",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Paket teslim alinirken dis ambalaj hasari, urun adedi ve fatura/irsaliye kontrolu yapilmalidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Gorunur hasar halinde kargo gorevlisi esliginde tutanak tutulmasi, sonrasindaki iade ve hasar talepleri icin onemlidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Iade Talebi Sartlari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iade talepleri urun teslim tarihinden itibaren en gec 14 gun icinde olusturulmalidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Urunlerin tekrar satisa uygun, eksiksiz ve orijinal aksesuar/ambalajlari ile birlikte gonderilmesi beklenir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kisisellestirilmis veya araca ozel tedarik edilen urunlerde iade hakki mevzuattaki istisnalara tabi olabilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Montaj gormus, kullanim izi bulunan veya hasarli urunlerde iade reddedilebilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Hijyen sebebiyle iadesi uygun olmayan urunlerde yasal sinirlamalar uygulanir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakki Kapsaminda Iade Adimlari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, 14 gunluk cayma suresi icinde destek kanallarimizdan bildirim yaparak iade surecini baslatabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Onayli iade talebinde urun kargo kodu ile gonderilir ve depoya ulasim sonrasi teknik/operasyonel kontrol yapilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iade talebinde siparis numarasi ve iade nedeni belirtilmelidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kargo teslim fisinin saklanmasi tavsiye edilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iade sonucu e-posta veya panel uzerinden kullaniciya bildirilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Geri Odeme Sureci",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iadesi onaylanan urunlerde geri odeme, odemenin yapildigi araca mevzuatta belirtilen surelerde baslatilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Banka/kart kurumu kaynakli yansima sureleri satici kontrolu disinda oldugundan hesaba gecis tarihi farklilik gosterebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Degisim ve Destek",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Uygun durumlarda urun degisimi, stok mevcudiyeti ve operasyon uygunlugu dahilinde saglanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iletisim: 0216 387 00 78 - ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "mesafeli-satis-sozlesmesi": {
+    "title": "Mesafeli Satis Sozlesmesi",
+    "sourceUrl": "https://getirbakim.com/mesafeli-satis-sozlesmesi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Bu sozlesme, internet sitesi uzerinden verilen siparislerde taraflarin hak ve yukumluluklerini 6502 sayili Kanun ve ilgili mevzuat kapsaminda duzenler.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hukuki Dayanak ve Kapsam",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sozlesme, 6502 sayili Tuketicinin Korunmasi Hakkinda Kanun ve Mesafeli Sozlesmeler Yonetmeligi kapsaminda, elektronik ortamda kurulan satis sozlesmeleri icin uygulanir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Platform, pazar yeri, web sitesi veya mobil uygulama uzerinden kurulan tum mesafeli satis islemlerinde bu metin temel hukuki cerceveyi olusturur."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Taraf Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satici: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSIS: 0357042224900019 | Vergi Dairesi/No: KARTAL VERGI DAIRESI / 3570422249"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iletisim: 0216 387 00 78 - ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, siparis ekraninda beyan ettigi ad-soyad, iletisim ve teslimat bilgileri ile sozlesmenin diger tarafidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Sozlesmenin Kurulmasi ve Siparis Akisi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, urunleri sepetine ekleyip odeme adimina ilerledikten sonra on bilgilendirme formu ve bu sozlesmeyi onaylayarak siparisi tamamlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparisin olusmasi, odemenin basariyla alinmasi ve siparis onay mesajinin aliciya iletilmesi ile kesinlesir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sepet icerigi, birim fiyat, kargo ucreti ve toplam tutar siparis oncesinde acikca gosterilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sistemsel hata nedeniyle olusan acik fiyat/stok uyumsuzluklarinda siparis teyidi yeniden degerlendirilebilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Siparis kayitlari, mevzuata uygun surelerle saklanir ve talep halinde yetkili mercilere sunulabilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Fiyatlandirma, Odeme ve Fatura",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satis fiyatlari urun detay ve odeme ekraninda KDV dahil/haric bilgisi ile birlikte gosterilir. Kampanya, kupon ve kargo indirimleri siparis aninda uygulanan kosullara tabidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Odeme, secilen yonteme gore guvenli odeme altyapisi uzerinden tahsil edilir. Kart bilgileri is yerinde tutulmaz, yetkili odeme saglayicilari uzerinden islenir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Fatura, e-fatura/e-arsiv mevzuatina uygun olarak alici bilgileri ile duzenlenir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat ve Ifa",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparisler stok ve operasyon durumuna gore genel olarak 1-3 is gunu, hizli teslimat seceneginde ertesi is gunu icinde kargoya verilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Teslimat yalnizca sipariste belirtilen adrese ve kargo prosedurlerine uygun sekilde yapilir. Alici teslimatta paket dis hasar kontrolunu yapmakla yukumludur."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Resmi tatil, olaganustu hava kosullari, operasyonel yogunluk gibi hallerde teslim suresi degisebilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Urunun tesliminin imkansizlastigi hallerde alici bilgilendirilir ve tahsil edilen tutar mevzuata uygun surede iade edilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kismi sevkiyat gereken siparislerde aliciya parcali teslimat bilgilendirmesi yapilabilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakki, Iade ve Istisnalar",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, urunu teslim aldigi tarihten itibaren 14 gun icinde cayma hakkini kullanabilir. Cayma bildirimi kalici veri saklayicisi ile iletilebilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma halinde iade kosullari, urunun niteligine gore degisir; hijyen, tek kullanim, montaj ve kisisellestirme gibi durumlarda yasal istisnalar uygulanabilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iade edilecek urunler, tekrar satisa uygun durumda ve varsa tum aksesuarlari ile gonderilmelidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Araca ozel siparis edilen, kullanilmis veya hasarlanmis urunlerde iade talebi sinirli olabilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iade nakliye masrafinin kim tarafindan karsilanacagi, siparis oncesi bilgilendirme metninde acikca belirtilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ayipli Mal, Garanti ve Sorumluluk",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, urunde ayip oldugunu dusundugu hallerde urunu teslim aldigi andan itibaren makul surede saticiya bildirmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ayipli mal talepleri, urunun teknik incelemesi sonrasinda mevzuat kapsaminda onarim, degisim, bedel indirimi veya sozlesmeden donme secenekleriyle sonuclandirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Mucbir Sebep ve Uyusmazlik Cozumu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Taraflarin kontrolu disinda gelisen yangin, deprem, salgin, savas, ulasim ve altyapi kesintileri gibi mucbir sebep hallerinde ifa gecikebilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Uyusmazlik halinde, ilgili yilin parasal sinirlari dahilinde Tuketici Hakem Heyetleri ve Tuketici Mahkemeleri yetkilidir."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "on-bilgilendirme-formu": {
+    "title": "On Bilgilendirme Formu",
+    "sourceUrl": "https://getirbakim.com/on-bilgilendirme-formu",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Siparis oncesinde aliciya sunulmasi gereken temel bilgiler, odeme ve teslimat kosullari ile cayma hakki bu formda aciklanir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Satici ve Iletisim Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Unvan: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSIS: 0357042224900019 | Ticaret Sicil No: 64972-5"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi/No: KARTAL VERGI DAIRESI / 3570422249"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iletisim: 0216 387 00 78 - ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Acik Adres: Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Urun/Hizmet Temel Nitelikleri ve Toplam Bedel",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparise konu urunlerin teknik ozellikleri, marka/model bilgisi, adet ve birim fiyat bilgisi urun ve sepet ekraninda gosterilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Odeme oncesinde ara toplam, kargo bedeli, varsa indirimler ve odenecek genel toplam aliciya acikca sunulur."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Fiyatlara KDV dahildir veya mevzuata uygun sekilde ayrica belirtilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kampanya kosullari stok, sure ve kanal bazli olarak degisebilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kur farki veya tedarikci kaynakli fiyat degisimi siparis olusmadan once ekrana yansitilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Odeme Yontemleri ve Guvenlik",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sistem, kredi karti, taksitli odeme, havale/EFT veya kapida odeme gibi secenekler sunabilir. Sunulan secenekler odeme adiminda goruntulenir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Odeme islemleri, PCI DSS standartlarina uyumlu odeme hizmet saglayicilari araciligiyla gerceklestirilir; kart verileri satici sisteminde saklanmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Standart teslimat hedef suresi 1-3 is gunu, hizli teslimat hedef suresi ertesi is gunu olarak planlanir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Belirli kampanyalarda 1500 TRY ve uzeri sepetlerde ucretsiz kargo uygulanabilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Teslimat suresi, odeme onayi ve urunun depodan cikis zamanina gore hesaplanir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Alicinin eksik/hatali adres bildirmesi kaynakli gecikmelerden satici sorumlu tutulamaz."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Mucbir sebep veya lojistik kesinti hallerinde yeni teslimat tarihi bilgilendirmesi yapilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakki ve Iade Bilgisi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, teslim tarihinden itibaren 14 gun icinde cayma hakkini kullanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iade sureci, urun tipi ve yasal istisnalar dikkate alinarak en gec 14 gunluk operasyonel surec icinde sonuclandirilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Cayma hakki kapsaminda urun iadesi icin siparis numarasi ile talep olusturulmasi gerekir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Koruyucu unsurlari acilmis, montajlanmis veya tekrar satilamayacak urunlerde yasal istisnalar uygulanabilir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iade onayi sonrasinda geri odeme, alicinin odeme aracina mevzuata uygun surede yapilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Sikayet ve Basvuru Kanallari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Musteri hizmetleri: 0216 387 00 78 - ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP iletisim: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, uyusmazlik halinde ilgili yilin parasal sinirlari dahilinde Tuketici Hakem Heyetine veya Tuketici Mahkemesine basvurabilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Onay Beyani",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alici, siparisi tamamlamadan once bu formda yer alan tum maddeleri okuyup anladigini ve elektronik ortamda onay verdigini kabul eder."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satici, on bilgilendirme metnini ve onay kaydini mevzuat kapsaminda saklar."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "uyelik-ve-kullanim-kosullari": {
+    "title": "Uyelik ve Kullanim Kosullari",
+    "sourceUrl": "https://getirbakim.com/uyelik-ve-kullanim-kosullari",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Platformun kullanimi, uyelik hesap yonetimi, yasak faaliyetler ve taraf sorumluluklari bu kosullar ile duzenlenir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kapsam ve Kabul",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siteye uye olan veya uyelik olmaksizin hizmetlerden yararlanan her kullanici bu metindeki kosullari kabul etmis sayilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satici, yasal yukumlulukler ve operasyonel ihtiyaclar dogrultusunda kosullari guncelleyebilir; guncel metin yayinlandigi andan itibaren yururluge girer."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Uyelik Hesabi ve Bilgi Dogrulugu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kullanicinin paylastigi ad, soyad, iletisim ve adres bilgileri dogru ve guncel olmalidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap guvenliginin saglanmasi, sifrenin korunmasi ve hesaptan yapilan islemlerin takibi kullanicinin sorumlulugundadir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kullanim Kurallari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Platform yalnizca hukuka uygun amaclarla kullanilabilir. Sistem guvenligini tehdit eden, diger kullanicilari zarara ugratan veya haksiz menfaat saglayan islem ve girisimler yasaktir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kullanici, olusturdugu icerik ve paylastigi bilgilerin hukuka uygunlugundan dogrudan sorumludur."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sahte hesap acma veya baskasi adina islem yapma yasaktir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Robot, scraper, bot ve benzeri yontemlerle sistem kaynaklarini asiri tuketme yasaktir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Fiyat/indirim aciklarini kotuye kullanma girisimleri siparis iptaline konu olabilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Siparis, Stok ve Fiyat Politikasi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Urun fiyati, stok durumu ve teslimat bilgileri dinamik olarak guncellenebilir. Sepete eklenen urunun fiyati, siparis anindaki guncel deger uzerinden kesinlesir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Acik yazim hatasi, teknik ariza veya tedarik kaynakli stok tutarsizligi hallerinde siparis teyidi yeniden degerlendirilebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Fikri Mulkiyet ve Icerik Kullanimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitedeki marka, logo, metin, gorsel, yazilim ve tasarim unsurlarinin tum fikri mulkiyet haklari hak sahiplerine aittir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Onceden yazili izin olmaksizin iceriklerin kopyalanmasi, cogaltilmasi, dagitilmasi veya ticari kullanimi yasaktir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hesap Kisitlama, Askiya Alma ve Fesih",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kosullara aykiri davranis, supheli islem, guvenlik riski veya hukuki yukumluluk doguran hallerde hesap gecici ya da kalici olarak kisitlanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Uyelik sonlandirma talepleri ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine iletilebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Sorumluluk Siniri ve Uyusmazlik",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Mucbir sebep, ucuncu taraf servis kesintisi, internet altyapisi sorunlari gibi satici kontrolu disi hallerde dogabilecek dolayli zararlardan satici sorumlu tutulamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Uyusmazliklarda Turk hukuku uygulanir; ilgili yilin parasal sinirlari dahilinde Tuketici Hakem Heyeti ve Tuketici Mahkemeleri yetkilidir."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "gizlilik-politikasi": {
+    "title": "Gizlilik Politikasi",
+    "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Kisisel verilerin toplanmasi, islenmesi, aktarimi, saklanmasi ve haklarinizin kullanimi bu politika kapsaminda aciklanir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kapsam ve Veri Sorumlusu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "ERGUL ENERJI SAN TIC LTD STI, bu internet sitesi ve bagli uygulamalar kapsaminda veri sorumlusu sifatini tasir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Politika; ziyaretciler, uyeler, musteriler, tedarikciler ve iletisim formlari uzerinden veri ileten tum kisileri kapsar."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Islenen Veri Kategorileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hizmetin niteligine gore asagidaki veri kategorileri islenebilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kimlik bilgileri: ad, soyad, unvan bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Iletisim bilgileri: e-posta, telefon, adres bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Musteri islem bilgileri: siparis gecmisi, iade kayitlari, odeme durumu."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Islem guvenligi verileri: IP adresi, log kayitlari, oturum hareketleri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Talep/sikayet verileri: cagrimerkezi, form ve destek kayitlari."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Veri Toplama Yontemleri ve Amaclari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Veriler; uyelik formlari, siparis ekranlari, cerezler, cagri merkezi, e-posta yazismalari ve teknik loglar araciligiyla toplanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Toplanan veriler; siparis ifasi, odeme ve teslimat operasyonu, musteri destegi, dolandiricilik onleme, finans/muhasebe ve yasal yukumluluklerin yerine getirilmesi amaclariyla islenir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hukuki Sebepler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Veri isleme faaliyetleri; sozlesmenin kurulmasi/ifasi, hukuki yukumluluklerin yerine getirilmesi, mesru menfaat ve acik riza hukuki sebeplerine dayanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Acik riza gerektiren hallerde kullaniciya secim imkani sunulur; riza geri cekildiginde ilgili islem faaliyetleri durdurulur."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Veri Aktarimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kisisel veriler; odeme kuruluslari, kargo firmalari, teknik altyapi saglayicilari, bagimsiz denetim/muhasebe partnerleri ve yetkili kamu kurumlariyla mevzuata uygun sinirlar dahilinde paylasilabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yurt disi aktarim gerektiren senaryolarda KVKK ve ikincil duzenlemelere uygun guvence mekanizmalari uygulanir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Saklama Sureleri ve Imha",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Veriler, isleme amacinin gerektirdigi sure boyunca ve ilgili mevzuatta ongorulen zorunlu saklama sureleri kadar tutulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Saklama suresi dolan veriler, periyodik imha politikalari kapsaminda silinir, yok edilir veya anonim hale getirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Guvenlik Tedbirleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yetkisiz erisim, veri kaybi ve degisikligi onlemek icin teknik ve idari tedbirler uygulanir; erisim yetkileri gorev bazli olarak sinirlandirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sistem guvenligi surekli izlenir; risk tespiti halinde olay yonetimi ve gerekli bildirim mekanizmalari devreye alinabilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Haklariniz ve Basvuru Yontemi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ilgili kisi olarak KVKK kapsamindaki haklarinizi kullanmak icin veri sorumlusuna basvurabilirsiniz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Basvurularinizi ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " e-posta adresine veya ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              },
+              " KEP adresine iletebilirsiniz."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Verinizin islenip islenmedigini ogrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Isleme amacini ve aktarim alicilarini ogrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Eksik/yanlis verinin duzeltilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanuni sartlarda silme/yok etme talep etme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanuna aykiri isleme nedeniyle zararin giderilmesini talep etme."
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "kvkk-aydinlatma-metni": {
+    "title": "KVKK Aydinlatma Metni",
+    "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "6698 sayili Kisisel Verilerin Korunmasi Kanunu kapsaminda veri isleme faaliyetleri, hukuki sebepler ve ilgili kisi haklari bu metinde aciklanir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Veri Sorumlusu Kimligi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "ERGUL ENERJI SAN TIC LTD STI, KVKK kapsaminda veri sorumlusu sifatini tasir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Iletisim: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " | 0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Islenen Kisisel Veri Kategorileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Faaliyet kapsamina gore islenebilecek baslica veri kategorileri asagidadir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kimlik ve iletisim bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Musteri islem, siparis ve iade bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Odeme ve finansal islem kayitlari (kart numarasi haric)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Islem guvenligi, log ve cihaz kayitlari."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Talep/sikayet ve destek gorusme kayitlari."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Veri Isleme Amaclari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparislerin alinmasi, odeme ve teslimat operasyonlarinin yurutulmesi, iade sureclerinin yonetimi, muhasebe/finans kayitlarinin tutulmasi ve musteri memnuniyetinin saglanmasi temel amaclardir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Dolandiriciligi onleme, bilgi guvenligi, sistem suistimallerinin tespiti ve hukuki yukumluluklerin yerine getirilmesi de isleme amaclari arasindadir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hukuki Sebepler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Veriler; sozlesmenin kurulmasi veya ifasi, hukuki yukumluluklerin yerine getirilmesi, mesru menfaat ve acik riza hukuki sebepleriyle islenebilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Acik riza gerektiren ozel senaryolarda ilgili kisiye acik secim sunulur ve riza tercihi kayit altina alinir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Aktarim Yapilan Alici Gruplari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kisisel veriler; odeme kuruluslari, kargo/lojistik firmalari, teknik altyapi saglayicilari, bagimsiz denetim ve mali musavirlik partnerleri ile yetkili kamu kurumlarina aktarilabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Aktarimlar yalnizca isleme amaci ile sinirli, olculu ve mevzuata uygun sekilde gerceklestirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Saklama Sureleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kisisel veriler, ilgili mevzuatta ongorulen sureler ve isleme amacinin gerektirdigi zorunlu sure boyunca saklanir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Saklama suresi dolan veriler periyodik imha surecleri ile silinir, yok edilir veya anonimlestirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ilgili Kisi Haklari",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KVKK madde 11 kapsaminda ilgili kisi, veri sorumlusuna basvurarak haklarini kullanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Basvurularinizi ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " veya ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              },
+              " uzerinden iletebilirsiniz."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Veri islenip islenmedigini ogrenme ve bilgi talep etme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Isleme amacini ve aktarim alicilarini ogrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Eksik/yanlis verilerin duzeltilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanuni sartlar dahilinde silme/yok etme talep etme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanuna aykiri isleme nedeniyle zararin giderilmesini isteme."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Basvuru Usulu ve Cevaplama Suresi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Basvurular, kimlik dogrulayici bilgi ve belgelerle birlikte yazili veya Kurulca belirlenen yontemlerle iletilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Talepler, niteligine gore en kisa surede ve en gec mevzuatta belirtilen sure icinde sonuclandirilir."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  },
+  "cerez-politikasi": {
+    "title": "Cerez Politikasi",
+    "sourceUrl": "https://getirbakim.com/cerez-politikasi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-03-12",
+    "description": "Sitemizde kullanilan cerez turleri, hukuki dayanaklari ve tercih yonetim mekanizmalari bu politika ile aciklanir.",
+    "sections": [
+      {
+        "title": "Onemli Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin operasyonel taslak olarak hazirlanmistir ve canliya alinmadan once hukuk danismani tarafindan kontrol edilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitede siparis onayi esnasinda gosterilen guncel metin surumu esas alinmali, metin degisiklikleri tarih bilgisi ile kayit altinda tutulmalidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cerez Nedir?",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cerezler, ziyaret ettiginiz internet siteleri tarafindan tarayicinizda saklanan kucuk metin dosyalaridir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cerezler sayesinde oturum devamliligi saglanir, tercih hatirlanir ve hizmet kalitesi olcumlenebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kullandigimiz Cerez Kategorileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Islevsel ihtiyac ve kullanici tercihine gore asagidaki cerez kategorileri kullanilabilir."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Zorunlu cerezler: guvenli giris, sepet, odeme ve temel site fonksiyonlari icin gereklidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Islevsel cerezler: dil/bolge gibi tercihlerin hatirlanmasini saglar."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Analitik cerezler: trafik, performans ve sayfa kullanim olcumleri yapar."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Pazarlama cerezleri: ilgi alanina gore kampanya ve reklam icerigi gostermek icin kullanilabilir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hukuki Dayanak ve Acik Riza",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Zorunlu cerezler mesru menfaat ve hizmetin ifasi kapsaminda kullanilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Zorunlu olmayan cerezler, acik rizaniz alinmadan aktif edilmez; tercihleriniz dilediginiz zaman guncellenebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Tercihlerin Yonetimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cerez tercihlerinizi banner uzerinden Tumunu Kabul Et, Tumunu Reddet veya Tercihleri Yonet secenekleri ile belirleyebilirsiniz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Site alt bilgisindeki Cerez Ayarlari baglantisindan tercihleriniz sonradan yeniden acilabilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ucuncu Taraf Cerezler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Odeme, analiz, reklam ve performans servisleri kapsaminda ucuncu taraf cerezler kullanilabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ucuncu taraf servisler kendi gizlilik politikalarina tabi olup veri isleme surecleri ilgili saglayicinin sorumlulugundadir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Saklama Sureleri ve Guncelleme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cerezler oturumluk veya kalici surelerle saklanabilir; saklama suresi cerezin amacina ve teknik gereksinimlerine gore degisir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Politika guncellemeleri bu sayfada yayinlanir; onemli degisikliklerde kullanicilar banner veya ek bilgilendirmelerle haberdar edilir."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Unvan",
+              ": "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon",
+              ": "
+            ]
+          },
+          "0216 387 00 78"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp",
+              ": "
+            ]
+          },
+          "+90 535 835 57 75"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP",
+              ": "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Acik Adres",
+              ": "
+            ]
+          },
+          "Esentepe Mahallesi Kartal Oto Sanayi Sitesi C1 Blok No:25 Kartal / Istanbul / Turkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi Dairesi / No",
+              ": "
+            ]
+          },
+          "KARTAL VERGI DAIRESI",
+          " / ",
+          "3570422249"
+        ]
+      }
+    ]
+  }
+}
