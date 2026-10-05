@@ -1,0 +1,71 @@
+import {z} from 'zod';
+import {enrichmentDataSchema,matchesSupplierPart,manufacturerBrandKey} from '../store/enrichment-contract';
+import type {SourceQueue} from './source-queue';
+export const productSchema=z.object({entity_id:z.union([z.string(),z.number()]),manufacturer:z.string().min(1),tecdoc_sku:z.string().min(1),url_key:z.string().nullish(),url_path:z.string().nullish(),media:z.object({src:z.string().nullish()}).passthrough().nullish()}).passthrough();
+const labelSchema=z.object({name:z.string(),kw_ps:z.string(),year:z.string(),ccm:z.union([z.string(),z.number()]),engine:z.array(z.string()).optional(),engine_fuel:z.string().optional()}).passthrough();
+const modelSchema=z.object({value:z.union([z.string(),z.number()]),label:z.object({name:z.string()})}).passthrough();
+const engineSchema=z.object({value:z.union([z.string(),z.number()]),label:labelSchema,fuel:z.string().optional()}).passthrough();
+const relationshipsSchema=z.object({oe_numbers:z.record(z.string(),z.array(z.object({oem:z.union([z.string(),z.number()]),value:z.string()}))).nullable(),attributes:z.object({criteria:z.array(z.object({label:z.string(),value:z.union([z.string(),z.number()]).nullable()}))}),vehicle_ids:z.array(z.union([z.string(),z.number()])).nullable().transform(v=>v||[]),vehicle_list:z.union([z.array(z.never()).length(0).transform(()=>({list:{}})),z.object({list:z.record(z.string(),z.object({automaker_id:z.union([z.string(),z.number()]),automaker_label:z.object({name:z.string()}),model_list:z.array(z.object({value_id:z.union([z.string(),z.number()])}))}))})])});
+export type SourceProduct=z.infer<typeof productSchema>;
+export type SourceView=z.infer<typeof relationshipsSchema>;
+export function sourcePartQuery(brand:string,code:string){
+ // Strip only prefixes accepted by the shared exact-match contract.
+ const rest=code.trim().split(/\s+/).slice(1).join(' ');
+ return rest&&matchesSupplierPart(brand,code,brand,rest)?rest:code;
+}
+export function parseView(raw:unknown){return z.array(z.object({relationships:relationshipsSchema})).min(1).parse(raw)[0].relationships;}
+export function parseProduct(raw:unknown){return z.array(z.object({attributes:productSchema})).min(1).parse(raw)[0].attributes;}
+export function searchPath(query:string){return '/rest/V1/catalogsearch/result/0?q='+encodeURIComponent(query)+'&product_list_order=_score&product_list_dir=desc&is_ajax=true&customer_group_id=undefined&currency=EUR&list-type=list&country=IE';}
+export function parseSearch(raw:unknown){return z.array(z.object({products:z.array(productSchema),pagination:z.unknown().optional()})).min(1).parse(raw)[0];}
+export function parseEngine(model:string,raw:unknown){
+ const engine=engineSchema.parse(raw),label=engine.label;
+ const power=/^\s*([\d.]+)kW\/([\d.]+)PS\s*$/.exec(label.kw_ps),dates=label.year.split('-'),cc=/^\d+/.exec(String(label.ccm));
+ if(!power||!cc||dates.length!==2)throw Error('Malformed source vehicle label');
+ return enrichmentDataSchema.shape.vehicles.element.parse({model,engineAndCodes:(label.name+' '+(label.engine||[]).join('; ')).trim(),fuel:label.engine_fuel||engine.fuel||'',kw:Number(power[1]),ps:Number(power[2]),cc:Number(cc[0]),from:dates[0],to:dates[1]==='0/0'?null:dates[1]});
+}
+export async function collectVehicles(queue:SourceQueue,view:SourceView){
+ const ids=new Set(view.vehicle_ids.map(String)),covered=new Set<string>(),models:string[]=[],vehicles=[],invalid:unknown[]=[];
+ for(const make of Object.values(view.vehicle_list.list)){
+  covered.add(String(make.automaker_id));
+  for(const group of make.model_list){
+   covered.add(String(group.value_id));
+   const raw=await queue.get('www.trodo.com','/rest/V1/vehicle/models/1/'+group.value_id);
+   const rows=z.array(z.object({relationships:z.object({data:z.array(modelSchema)})})).min(1).parse(raw)[0].relationships.data;
+   for(const model of rows.filter(m=>ids.has(String(m.value)))){
+    covered.add(String(model.value));const name=make.automaker_label.name+' '+model.label.name.trim();models.push(name);
+    const types=await queue.get('www.trodo.com','/rest/V1/vehicle/type/1/'+model.value);
+    const engines=z.array(z.object({relationships:z.object({data:z.array(engineSchema)})})).min(1).parse(types)[0].relationships.data;
+    for(const engine of engines.filter(e=>ids.has(String(e.value)))){
+     try{vehicles.push(parseEngine(name,engine));covered.add(String(engine.value));}
+     catch(error){invalid.push({id:engine.value,raw:engine,error:String(error)});}
+    }
+   }
+  }
+ }
+ return {vehicles,vehicleModels:[...new Set(models)],coverage:{expected:ids.size,covered:[...ids].filter(id=>covered.has(id)).length,unresolved:[...ids].filter(id=>!covered.has(id)),invalid}};
+}
+export function normalizeData(view:SourceView,vehicle:Awaited<ReturnType<typeof collectVehicles>>){
+ const oemNumbers:Record<string,string[]>={},crossReferences:Record<string,string[]>={};
+ for(const [brand,refs] of Object.entries(view.oe_numbers||{}))for(const ref of refs){
+  if(!['0','1'].includes(String(ref.oem)))throw Error('Unrecognized OEM/reference marker');
+  const values=(String(ref.oem)==='1'?oemNumbers:crossReferences)[brand]??=[];
+  if(!values.includes(ref.value))values.push(ref.value);
+ }
+ return enrichmentDataSchema.parse({specifications:view.attributes.criteria.filter(a=>a.label&&a.value!==null&&String(a.value)).map(a=>[a.label,String(a.value)]),oemNumbers,crossReferences,vehicles:vehicle.vehicles,vehicleModels:vehicle.vehicleModels});
+}
+export function chooseExact(brand:string,code:string,products:SourceProduct[]){
+ const found=products.filter(p=>matchesSupplierPart(brand,code,p.manufacturer,p.tecdoc_sku));
+ return found.length===1?found[0]:null;
+}
+export function imagePath(product:SourceProduct){
+ if(!product.media?.src)return null;
+ const path='/media/m2_catalog_cache/1440x1440'+product.media.src;
+ if(!path.startsWith('/media/m2_catalog_cache/1440x1440%2F')&&!path.startsWith('/media/m2_catalog_cache/1440x1440/'))return null;
+ return path;
+}
+export function safeProductSlug(product:SourceProduct){
+ const slug=product.url_key||product.url_path;
+ if(!slug||!/^\/?[a-z0-9][a-z0-9-]+$/.test(slug))throw Error('Invalid product slug');
+ return slug.replace(/^\//,'');
+}
+export {manufacturerBrandKey};

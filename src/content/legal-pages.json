@@ -1,0 +1,4346 @@
+{
+  "iletisim": {
+    "title": "İletişim",
+    "sourceUrl": "https://getirbakim.com/iletisim",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Müşteri hizmetleri, şirket kimlik bilgileri, iletişim adresleri ve başvuru kanalları.",
+    "sections": [
+      {
+        "title": "Müşteri Hizmetleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "WhatsApp: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "https://wa.me/905358355775"
+                },
+                "children": [
+                  "+90 535 835 57 75"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Çalışma saatleri: 09.00–17.30."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün, hesap ve site kullanımıyla ilgili sorularınızı bu kanallardan iletebilirsiniz. Varsa sipariş numaranızı paylaşmanız talebinizin bulunmasını kolaylaştırır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Adres ve İade Noktası",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade adresi şirketin yukarıda belirtilen adresidir. İade işlemlerindeki bildirim ve gönderim koşulları Teslimat ve İade sayfasında açıklanmıştır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Satıcı Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: 0357042224900019 · Ticaret sicili numarası: 64972-5"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi: Kartal Vergi Dairesi · Vergi numarası: 3570422249"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Resmî Yazışmalar ve KVKK Başvuruları",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kişisel verilerinize ilişkin başvurularınızı KVKK Aydınlatma Metninde açıklanan yöntemlerle iletebilirsiniz. WhatsApp ve telefon kanalları, kanunen yazılı veya belirli bir yöntemle yapılması gereken başvuruların yerine geçmez."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "teslimat-ve-iade": {
+    "title": "Teslimat ve İade Koşulları",
+    "sourceUrl": "https://getirbakim.com/teslimat-ve-iade",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Teslimat süreleri, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme ve ayıplı mal hakları.",
+    "sections": [
+      {
+        "title": "Kapsam ve Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin, tüketicinin emredici mevzuattan doğan haklarını sınırlandırmaz. Genel metnin yayımlanması, tek başına sipariş verildiği veya sözleşmenin onaylandığı anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metindeki tüketici hakları, ticari veya mesleki olmayan amaçlarla alışveriş yapan gerçek veya tüzel kişiler için geçerlidir. Ticari veya mesleki amaçla yapılan servis alımlarında ilgili ticaret ve borçlar hukuku hükümleri ile taraflar arasında kurulan sözleşme uygulanır. Bir hesabın servis hesabı olarak tanımlanması, tek başına işlemin hukuki niteliğini belirlemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Siparişin Hazırlanması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünler, siparişe özgü olarak açıklanan ödeme ve tedarik koşullarına göre hazırlanır ve taşıyıcıya teslim edilir. Parçalı gönderi yapılacaksa alıcıya bilgi verilir; parçalı sevkiyat kanuni teslimat süresini uzatmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Süresi ve Satıcının Sorumluluğu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş, satıcıya ulaştığı tarihten itibaren sipariş öncesinde taahhüt edilen süre içinde yerine getirilir. Tüketicinin isteğine veya kişisel ihtiyaçlarına göre hazırlanan mallar dışında, mal satışlarında bu süre 30 günü aşamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kargoya verme süresi ile alıcıya teslim süresi farklıdır. Teslimat seçenekleri, tahmini süreler, teslimat adresi ve kargo bedeli siparişe özgü ön bilgilendirmede açıklanır. Ücretsiz veya hızlı kargo yalnızca koşulları açıkça duyurulan bir seçenek sunulduğunda uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcının belirlediği taşıyıcıyla yapılan gönderilerde ürün tüketiciye veya tüketicinin taşıyıcı dışında belirlediği üçüncü kişiye teslim edilene kadar oluşan kayıp ve hasarlardan satıcı sorumludur. Tüketicinin kendi seçtiği farklı bir taşıyıcıyı talep etmesi hâlinde Mesafeli Sözleşmeler Yönetmeliği’nin 17. maddesi uygulanır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Gecikme ve İfanın İmkânsızlaşması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Taahhüt edilen sürede teslimat yapılmazsa tüketici sözleşmeyi feshedebilir. Fesih bildirimi satıcıya ulaştıktan sonra teslimat giderleri dâhil tahsil edilen tüm bedeller, 14 gün içinde kanuni faiziyle birlikte iade edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İfanın gerçekten imkânsızlaşması durumunda satıcı, durumu öğrendiği tarihten itibaren üç gün içinde tüketiciye yazılı olarak veya kalıcı veri saklayıcısıyla bilgi verir. Tahsil edilen bedeller ve teslimat giderleri, bildirim tarihinden itibaren en geç 14 gün içinde geri ödenir. Ürünün stokta bulunmaması, tek başına ifanın imkânsızlaşması sayılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Olağan kargo yoğunluğu veya tedarik gecikmesi, tüketicinin kanuni haklarını ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkı ve Bildirim",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, ürünü kendisinin veya taşıyıcı dışında belirlediği üçüncü kişinin teslim aldığı tarihten itibaren 14 gün içinde gerekçe göstermeden ve cezai şart ödemeden sözleşmeden cayabilir. Sözleşmenin kurulmasından ürünün teslimine kadar da cayma hakkı kullanılabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tek siparişte ayrı ayrı teslim edilen ürünlerde süre, son ürünün; birden çok parçadan oluşan ürünlerde son parçanın tüketiciye veya belirlediği üçüncü kişiye tesliminden itibaren hesaplanır. Cayma hakkına ilişkin gerekli bilgilendirme yapılmamışsa tüketici normal 14 günlük süreyle bağlı değildir; hak, normal sürenin bitiminden bir yıl sonra sona erer. Bu bir yıllık süre içinde gerekli bilgilendirme yapılırsa 14 günlük süre bilgilendirmenin yapıldığı gün başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma bildiriminizi ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine, KEP adresimize veya şirket adresine yazılı olarak iletebilirsiniz. Yalnızca telefonla yapılan görüşme yerine, bildirimin yazılı ya da kalıcı veri saklayıcısı üzerinden iletilmesi gerekir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkı, satıcının onayına veya iade gerekçesi bildirilmesine bağlı değildir. İşlemin bulunmasını kolaylaştırmak için sipariş numaranızı paylaşabilirsiniz; sipariş numarasının bulunmaması tek başına hakkın kullanılmasını engellemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Örnek Cayma Bildirimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Aşağıdaki örneği yazılı bildirim için kullanabilirsiniz. Bu örneğin kullanılması zorunlu değildir; sözleşmeden cayma kararınızı süresinde ve açıkça bildirmeniz yeterlidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin gönderileceği satıcı: ERGUL ENERJI SAN TIC LTD STI · info@ergulenerji.com"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin konusu: Aşağıda bilgileri bulunan ürünlerin satışına ilişkin sözleşmeden cayma hakkımı kullanıyorum."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş tarihi / varsa sipariş numarası: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün veya ürünler: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Teslim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin adı, soyadı ve adresi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İmza: … (Yalnızca kâğıt üzerinde yapılan bildirimlerde.)"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürünün Geri Gönderilmesi ve İade Giderleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı ürünü kendisinin geri alacağını bildirmedikçe tüketici, cayma bildirimini yönelttiği tarihten itibaren 14 gün içinde ürünü satıcıya veya yetkilendirdiği kişiye geri gönderir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında tüketiciden iade gideri alınmaz. Taşıyıcı belirtilmemişse herhangi bir taşıyıcıyla yapılan iadenin gideri tüketiciye yüklenemez. Belirtilen taşıyıcının tüketicinin bulunduğu yerde şubesi yoksa satıcı, ürünü tüketiciden ilave ücret istemeden aldırır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade gönderisinin izlenebilmesi için kargo teslim belgesinin saklanması önerilir. İade adresi: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bedel İadesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında satıcı, ürünün bu taşıyıcıya teslim edildiği tarihten itibaren 14 gün içinde teslimat giderleri dâhil tahsil edilen tüm bedelleri geri öder. Farklı bir taşıyıcı kullanıldığında bu süre, ürünün satıcıya ulaştığı tarihte başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün teslim edilmeden cayılması durumunda 14 günlük geri ödeme süresi, cayma bildiriminin satıcıya ulaştığı tarihten itibaren başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Geri ödeme, satın alma sırasında kullanılan ödeme aracına uygun biçimde, tek seferde ve tüketiciye gider veya ek yükümlülük getirilmeden yapılır. Bankanın işlem süreci satıcının yasal sürede geri ödeme yükümlülüğünü ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkının İstisnaları ve Ürünün İncelenmesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkının istisnaları, yalnızca Mesafeli Sözleşmeler Yönetmeliği’nin 15. maddesinde belirtilen koşullar gerçekleştiğinde uygulanır. Ürüne uygulanabilecek istisna, sipariş kurulmadan önce ürünün niteliği ve ilgili hüküm belirtilerek açıklanır."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tüketicinin özel isteği veya kişisel ihtiyacına göre hazırlanan ürünlerde ilgili istisna uygulanabilir. Standart bir yedek parçanın belirli bir araçla uyumlu olması veya tedarikçiden özel olarak getirilmesi, tek başına kişiselleştirilmiş ürün sayılması için yeterli değildir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Koruyucu unsurları açılan ürünlerde sağlık veya hijyen istisnası, yalnızca iadesi bu nedenlerle uygun olmayan mallar için uygulanır. Her ambalajın açılması otomatik olarak bu istisnaya girmez."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tanıtma ve kullanma kılavuzunda satıcı veya yetkili servis tarafından kurulacağı ya da monte edileceği belirtilen mallarda, bu kurulum veya montaj yapılmışsa Yönetmeliğin 15. maddesinin birinci fıkrasının (k) bendi uygulanır. Her montaj işlemi bu kapsamda değildir."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ambalajın açılmış olması veya ürünün tekrar satışa sunulabilir olmaması tek başına genel bir ret gerekçesi değildir. Tüketici, cayma süresinde ürünü işleyişine, teknik özelliklerine ve kullanım talimatlarına uygun biçimde kullandığında oluşan değişikliklerden sorumlu tutulmaz. Bunun dışındaki kullanım ve hasar iddiaları somut olay ve mevzuat uyarınca değerlendirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade sırasında ürünün mevcut aksesuarları ve belgeleri de gönderilmelidir. Bu açıklamalar, ayıplı mala ilişkin hakları ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ayıplı Mal ve Seçimlik Haklar",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünün ayıplı olması hâlinde tüketici, 6502 sayılı Kanun’un 11. maddesinde düzenlenen sözleşmeden dönme, ayıp oranında bedel indirimi, ücretsiz onarım veya ayıpsız misliyle değiştirme haklarından kanuni koşullara uygun olanını seçebilir. Teknik inceleme, bu seçimin satıcı tarafından tek taraflı olarak değiştirilmesine dayanak oluşturmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ayıplı mala ilişkin haklar, 14 günlük cayma süresinden ayrıdır. Daha uzun bir süre öngörülmedikçe ayıplı maldan sorumluluk teslimden itibaren iki yıllık zamanaşımına tabidir; ağır kusur veya hileyle gizlenen ayıplarda zamanaşımı hükümleri uygulanmaz. Seçimlik hakkın yerine getirilmesi için gereken giderler ilgili yükümlü tarafından karşılanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Paketin ve ürünün teslim sırasında kontrol edilmesi, görünür hasarın fotoğraflanması ve mümkünse tutanak tutulması önerilir. Tutanak tutulmamış olması veya ambalajın açılması, tüketicinin ayıplı mala ilişkin kanuni haklarını kendiliğinden ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Şikâyet ve Uyuşmazlıkların Çözümü",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yazılı başvurular için KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, başvuru yılındaki parasal sınırlar ve görev kuralları çerçevesinde tüketici hakem heyetine veya tüketici mahkemesine başvurabilir. Tüketici mahkemesinde dava açılmadan önce, kanunda belirtilen istisnalar dışında dava şartı arabuluculuk hükümleri uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin yerleşim yerindeki yetkili mercilere başvuru hakkı saklıdır. Şirketin bulunduğu yerdeki mahkemeler tek yetkili merci olarak belirlenmez."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "mesafeli-satis-sozlesmesi": {
+    "title": "Mesafeli Satış Sözleşmesi",
+    "sourceUrl": "https://getirbakim.com/mesafeli-satis-sozlesmesi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Tüketiciyle kurulacak mesafeli satış sözleşmesinin genel hükümleri ve tarafların hakları.",
+    "sections": [
+      {
+        "title": "Kapsam ve Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin, tüketicinin emredici mevzuattan doğan haklarını sınırlandırmaz. Genel metnin yayımlanması, tek başına sipariş verildiği veya sözleşmenin onaylandığı anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metindeki tüketici hakları, ticari veya mesleki olmayan amaçlarla alışveriş yapan gerçek veya tüzel kişiler için geçerlidir. Ticari veya mesleki amaçla yapılan servis alımlarında ilgili ticaret ve borçlar hukuku hükümleri ile taraflar arasında kurulan sözleşme uygulanır. Bir hesabın servis hesabı olarak tanımlanması, tek başına işlemin hukuki niteliğini belirlemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Satıcı Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: 0357042224900019 · Ticaret sicili numarası: 64972-5"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi: Kartal Vergi Dairesi · Vergi numarası: 3570422249"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Alıcı ve Sözleşmenin Konusu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Alıcı, siparişe özgü sözleşmede adı veya unvanı, iletişim bilgileri, teslimat ve fatura adresleri belirtilen kişidir. Bu sözleşmenin konusu, sipariş özetindeki ürünlerin satışı ve teslimidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici işlemlerinde 6502 sayılı Tüketicinin Korunması Hakkında Kanun, Mesafeli Sözleşmeler Yönetmeliği ve ilgili mevzuat uygulanır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Sözleşmenin Kurulması ve Kayıtlar",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satış hizmeti açıldığında alıcıya, ödeme yükümlülüğü doğuran sipariş işleminden önce siparişe özgü ön bilgilendirme ve sözleşme sunulur. Ön bilgilendirmenin edinildiği teyit edilir; sipariş işleminin ödeme yükümlülüğü doğurduğu açıkça belirtilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sepete ürün eklenmesi sözleşmenin kurulması veya siparişin kabulü anlamına gelmez. Sözleşmenin kurulma ve ödeme koşulları, kullanılan satış akışında açıkça gösterilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siparişe özgü sözleşme ve ön bilgilendirme, alıcının saklayıp sonradan değiştirilmeden erişebileceği bir yöntemle iletilir. Bilgilendirme, cayma, teslimat ve diğer yükümlülüklere ilişkin kayıtlar Yönetmeliğin 20. maddesine göre üç yıl saklanır; daha uzun saklamayı gerektiren diğer kanuni yükümlülükler saklıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürün Bilgileri, Toplam Bedel ve Ödeme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünün adı, marka ve kodu, temel teknik özellikleri, adedi, birim fiyatı ve tüm vergiler dâhil satış bedeli siparişe özgü olarak gösterilir. Kargo ve diğer ek giderler ile indirimler, ödenecek toplam tutarda açıkça belirtilir. Önceden açıklanmayan ek giderler tüketiciye yüklenemez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Henüz aktif olmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Satış hizmeti açıldığında ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Süresi ve Satıcının Sorumluluğu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş, satıcıya ulaştığı tarihten itibaren sipariş öncesinde taahhüt edilen süre içinde yerine getirilir. Tüketicinin isteğine veya kişisel ihtiyaçlarına göre hazırlanan mallar dışında, mal satışlarında bu süre 30 günü aşamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kargoya verme süresi ile alıcıya teslim süresi farklıdır. Teslimat seçenekleri, tahmini süreler, teslimat adresi ve kargo bedeli siparişe özgü ön bilgilendirmede açıklanır. Ücretsiz veya hızlı kargo yalnızca koşulları açıkça duyurulan bir seçenek sunulduğunda uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcının belirlediği taşıyıcıyla yapılan gönderilerde ürün tüketiciye veya tüketicinin taşıyıcı dışında belirlediği üçüncü kişiye teslim edilene kadar oluşan kayıp ve hasarlardan satıcı sorumludur. Tüketicinin kendi seçtiği farklı bir taşıyıcıyı talep etmesi hâlinde Mesafeli Sözleşmeler Yönetmeliği’nin 17. maddesi uygulanır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Gecikme ve İfanın İmkânsızlaşması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Taahhüt edilen sürede teslimat yapılmazsa tüketici sözleşmeyi feshedebilir. Fesih bildirimi satıcıya ulaştıktan sonra teslimat giderleri dâhil tahsil edilen tüm bedeller, 14 gün içinde kanuni faiziyle birlikte iade edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İfanın gerçekten imkânsızlaşması durumunda satıcı, durumu öğrendiği tarihten itibaren üç gün içinde tüketiciye yazılı olarak veya kalıcı veri saklayıcısıyla bilgi verir. Tahsil edilen bedeller ve teslimat giderleri, bildirim tarihinden itibaren en geç 14 gün içinde geri ödenir. Ürünün stokta bulunmaması, tek başına ifanın imkânsızlaşması sayılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Olağan kargo yoğunluğu veya tedarik gecikmesi, tüketicinin kanuni haklarını ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkı ve Bildirim",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, ürünü kendisinin veya taşıyıcı dışında belirlediği üçüncü kişinin teslim aldığı tarihten itibaren 14 gün içinde gerekçe göstermeden ve cezai şart ödemeden sözleşmeden cayabilir. Sözleşmenin kurulmasından ürünün teslimine kadar da cayma hakkı kullanılabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tek siparişte ayrı ayrı teslim edilen ürünlerde süre, son ürünün; birden çok parçadan oluşan ürünlerde son parçanın tüketiciye veya belirlediği üçüncü kişiye tesliminden itibaren hesaplanır. Cayma hakkına ilişkin gerekli bilgilendirme yapılmamışsa tüketici normal 14 günlük süreyle bağlı değildir; hak, normal sürenin bitiminden bir yıl sonra sona erer. Bu bir yıllık süre içinde gerekli bilgilendirme yapılırsa 14 günlük süre bilgilendirmenin yapıldığı gün başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma bildiriminizi ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine, KEP adresimize veya şirket adresine yazılı olarak iletebilirsiniz. Yalnızca telefonla yapılan görüşme yerine, bildirimin yazılı ya da kalıcı veri saklayıcısı üzerinden iletilmesi gerekir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkı, satıcının onayına veya iade gerekçesi bildirilmesine bağlı değildir. İşlemin bulunmasını kolaylaştırmak için sipariş numaranızı paylaşabilirsiniz; sipariş numarasının bulunmaması tek başına hakkın kullanılmasını engellemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Örnek Cayma Bildirimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Aşağıdaki örneği yazılı bildirim için kullanabilirsiniz. Bu örneğin kullanılması zorunlu değildir; sözleşmeden cayma kararınızı süresinde ve açıkça bildirmeniz yeterlidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin gönderileceği satıcı: ERGUL ENERJI SAN TIC LTD STI · info@ergulenerji.com"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin konusu: Aşağıda bilgileri bulunan ürünlerin satışına ilişkin sözleşmeden cayma hakkımı kullanıyorum."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş tarihi / varsa sipariş numarası: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün veya ürünler: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Teslim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin adı, soyadı ve adresi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İmza: … (Yalnızca kâğıt üzerinde yapılan bildirimlerde.)"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürünün Geri Gönderilmesi ve İade Giderleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı ürünü kendisinin geri alacağını bildirmedikçe tüketici, cayma bildirimini yönelttiği tarihten itibaren 14 gün içinde ürünü satıcıya veya yetkilendirdiği kişiye geri gönderir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında tüketiciden iade gideri alınmaz. Taşıyıcı belirtilmemişse herhangi bir taşıyıcıyla yapılan iadenin gideri tüketiciye yüklenemez. Belirtilen taşıyıcının tüketicinin bulunduğu yerde şubesi yoksa satıcı, ürünü tüketiciden ilave ücret istemeden aldırır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade gönderisinin izlenebilmesi için kargo teslim belgesinin saklanması önerilir. İade adresi: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bedel İadesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında satıcı, ürünün bu taşıyıcıya teslim edildiği tarihten itibaren 14 gün içinde teslimat giderleri dâhil tahsil edilen tüm bedelleri geri öder. Farklı bir taşıyıcı kullanıldığında bu süre, ürünün satıcıya ulaştığı tarihte başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün teslim edilmeden cayılması durumunda 14 günlük geri ödeme süresi, cayma bildiriminin satıcıya ulaştığı tarihten itibaren başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Geri ödeme, satın alma sırasında kullanılan ödeme aracına uygun biçimde, tek seferde ve tüketiciye gider veya ek yükümlülük getirilmeden yapılır. Bankanın işlem süreci satıcının yasal sürede geri ödeme yükümlülüğünü ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkının İstisnaları ve Ürünün İncelenmesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkının istisnaları, yalnızca Mesafeli Sözleşmeler Yönetmeliği’nin 15. maddesinde belirtilen koşullar gerçekleştiğinde uygulanır. Ürüne uygulanabilecek istisna, sipariş kurulmadan önce ürünün niteliği ve ilgili hüküm belirtilerek açıklanır."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tüketicinin özel isteği veya kişisel ihtiyacına göre hazırlanan ürünlerde ilgili istisna uygulanabilir. Standart bir yedek parçanın belirli bir araçla uyumlu olması veya tedarikçiden özel olarak getirilmesi, tek başına kişiselleştirilmiş ürün sayılması için yeterli değildir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Koruyucu unsurları açılan ürünlerde sağlık veya hijyen istisnası, yalnızca iadesi bu nedenlerle uygun olmayan mallar için uygulanır. Her ambalajın açılması otomatik olarak bu istisnaya girmez."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tanıtma ve kullanma kılavuzunda satıcı veya yetkili servis tarafından kurulacağı ya da monte edileceği belirtilen mallarda, bu kurulum veya montaj yapılmışsa Yönetmeliğin 15. maddesinin birinci fıkrasının (k) bendi uygulanır. Her montaj işlemi bu kapsamda değildir."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ambalajın açılmış olması veya ürünün tekrar satışa sunulabilir olmaması tek başına genel bir ret gerekçesi değildir. Tüketici, cayma süresinde ürünü işleyişine, teknik özelliklerine ve kullanım talimatlarına uygun biçimde kullandığında oluşan değişikliklerden sorumlu tutulmaz. Bunun dışındaki kullanım ve hasar iddiaları somut olay ve mevzuat uyarınca değerlendirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade sırasında ürünün mevcut aksesuarları ve belgeleri de gönderilmelidir. Bu açıklamalar, ayıplı mala ilişkin hakları ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ayıplı Mal ve Seçimlik Haklar",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünün ayıplı olması hâlinde tüketici, 6502 sayılı Kanun’un 11. maddesinde düzenlenen sözleşmeden dönme, ayıp oranında bedel indirimi, ücretsiz onarım veya ayıpsız misliyle değiştirme haklarından kanuni koşullara uygun olanını seçebilir. Teknik inceleme, bu seçimin satıcı tarafından tek taraflı olarak değiştirilmesine dayanak oluşturmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ayıplı mala ilişkin haklar, 14 günlük cayma süresinden ayrıdır. Daha uzun bir süre öngörülmedikçe ayıplı maldan sorumluluk teslimden itibaren iki yıllık zamanaşımına tabidir; ağır kusur veya hileyle gizlenen ayıplarda zamanaşımı hükümleri uygulanmaz. Seçimlik hakkın yerine getirilmesi için gereken giderler ilgili yükümlü tarafından karşılanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Paketin ve ürünün teslim sırasında kontrol edilmesi, görünür hasarın fotoğraflanması ve mümkünse tutanak tutulması önerilir. Tutanak tutulmamış olması veya ambalajın açılması, tüketicinin ayıplı mala ilişkin kanuni haklarını kendiliğinden ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Mücbir Sebep ve Emredici Hükümler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tarafların kontrolü dışındaki olaylar, somut olayın koşulları ve ilgili mevzuat uyarınca değerlendirilir. Mücbir sebep açıklaması, tüketicinin fesih, cayma, bedel iadesi ve diğer kanuni haklarının genel olarak kaldırılması anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metnin herhangi bir hükmü tüketicinin emredici mevzuattan doğan haklarına aykırı biçimde yorumlanamaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Şikâyet ve Uyuşmazlıkların Çözümü",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yazılı başvurular için KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, başvuru yılındaki parasal sınırlar ve görev kuralları çerçevesinde tüketici hakem heyetine veya tüketici mahkemesine başvurabilir. Tüketici mahkemesinde dava açılmadan önce, kanunda belirtilen istisnalar dışında dava şartı arabuluculuk hükümleri uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin yerleşim yerindeki yetkili mercilere başvuru hakkı saklıdır. Şirketin bulunduğu yerdeki mahkemeler tek yetkili merci olarak belirlenmez."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "on-bilgilendirme-formu": {
+    "title": "Ön Bilgilendirme Formu",
+    "sourceUrl": "https://getirbakim.com/on-bilgilendirme-formu",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Satış hizmeti açıldığında sipariş öncesinde sunulacak bilgilerin kapsamı ve tüketici hakları.",
+    "sections": [
+      {
+        "title": "Kapsam ve Bilgilendirme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metin, tüketicinin emredici mevzuattan doğan haklarını sınırlandırmaz. Genel metnin yayımlanması, tek başına sipariş verildiği veya sözleşmenin onaylandığı anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metindeki tüketici hakları, ticari veya mesleki olmayan amaçlarla alışveriş yapan gerçek veya tüzel kişiler için geçerlidir. Ticari veya mesleki amaçla yapılan servis alımlarında ilgili ticaret ve borçlar hukuku hükümleri ile taraflar arasında kurulan sözleşme uygulanır. Bir hesabın servis hesabı olarak tanımlanması, tek başına işlemin hukuki niteliğini belirlemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Satıcı Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı: ERGUL ENERJI SAN TIC LTD STI"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: 0357042224900019 · Ticaret sicili numarası: 64972-5"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi: Kartal Vergi Dairesi · Vergi numarası: 3570422249"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Siparişe Özgü Bilgiler",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sayfa genel bilgilendirme metnidir; belirli bir sipariş için doldurulmuş ön bilgilendirme formu değildir. Sipariş kurulmadan önce aşağıdaki bilgiler ilgili siparişle birlikte sunulur."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Alıcının iletişim bilgileri ile teslimat ve fatura adresleri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Ürünlerin temel nitelikleri, kodları, adetleri ve tüm vergiler dâhil bedelleri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "İndirimler, kargo ve diğer ek giderler ile ödenecek toplam tutar."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sunulan ödeme yöntemi, taahhüt edilen teslimat süresi ve teslimat koşulları."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Cayma bildirimi yöntemi, iade taşıyıcısı, iade adresi ve uygulanıyorsa kanuni cayma istisnası."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürün Bilgileri, Toplam Bedel ve Ödeme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünün adı, marka ve kodu, temel teknik özellikleri, adedi, birim fiyatı ve tüm vergiler dâhil satış bedeli siparişe özgü olarak gösterilir. Kargo ve diğer ek giderler ile indirimler, ödenecek toplam tutarda açıkça belirtilir. Önceden açıklanmayan ek giderler tüketiciye yüklenemez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Henüz aktif olmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Satış hizmeti açıldığında ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Teslimat Süresi ve Satıcının Sorumluluğu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş, satıcıya ulaştığı tarihten itibaren sipariş öncesinde taahhüt edilen süre içinde yerine getirilir. Tüketicinin isteğine veya kişisel ihtiyaçlarına göre hazırlanan mallar dışında, mal satışlarında bu süre 30 günü aşamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kargoya verme süresi ile alıcıya teslim süresi farklıdır. Teslimat seçenekleri, tahmini süreler, teslimat adresi ve kargo bedeli siparişe özgü ön bilgilendirmede açıklanır. Ücretsiz veya hızlı kargo yalnızca koşulları açıkça duyurulan bir seçenek sunulduğunda uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcının belirlediği taşıyıcıyla yapılan gönderilerde ürün tüketiciye veya tüketicinin taşıyıcı dışında belirlediği üçüncü kişiye teslim edilene kadar oluşan kayıp ve hasarlardan satıcı sorumludur. Tüketicinin kendi seçtiği farklı bir taşıyıcıyı talep etmesi hâlinde Mesafeli Sözleşmeler Yönetmeliği’nin 17. maddesi uygulanır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Gecikme ve İfanın İmkânsızlaşması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Taahhüt edilen sürede teslimat yapılmazsa tüketici sözleşmeyi feshedebilir. Fesih bildirimi satıcıya ulaştıktan sonra teslimat giderleri dâhil tahsil edilen tüm bedeller, 14 gün içinde kanuni faiziyle birlikte iade edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İfanın gerçekten imkânsızlaşması durumunda satıcı, durumu öğrendiği tarihten itibaren üç gün içinde tüketiciye yazılı olarak veya kalıcı veri saklayıcısıyla bilgi verir. Tahsil edilen bedeller ve teslimat giderleri, bildirim tarihinden itibaren en geç 14 gün içinde geri ödenir. Ürünün stokta bulunmaması, tek başına ifanın imkânsızlaşması sayılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Olağan kargo yoğunluğu veya tedarik gecikmesi, tüketicinin kanuni haklarını ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkı ve Bildirim",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, ürünü kendisinin veya taşıyıcı dışında belirlediği üçüncü kişinin teslim aldığı tarihten itibaren 14 gün içinde gerekçe göstermeden ve cezai şart ödemeden sözleşmeden cayabilir. Sözleşmenin kurulmasından ürünün teslimine kadar da cayma hakkı kullanılabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tek siparişte ayrı ayrı teslim edilen ürünlerde süre, son ürünün; birden çok parçadan oluşan ürünlerde son parçanın tüketiciye veya belirlediği üçüncü kişiye tesliminden itibaren hesaplanır. Cayma hakkına ilişkin gerekli bilgilendirme yapılmamışsa tüketici normal 14 günlük süreyle bağlı değildir; hak, normal sürenin bitiminden bir yıl sonra sona erer. Bu bir yıllık süre içinde gerekli bilgilendirme yapılırsa 14 günlük süre bilgilendirmenin yapıldığı gün başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma bildiriminizi ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine, KEP adresimize veya şirket adresine yazılı olarak iletebilirsiniz. Yalnızca telefonla yapılan görüşme yerine, bildirimin yazılı ya da kalıcı veri saklayıcısı üzerinden iletilmesi gerekir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkı, satıcının onayına veya iade gerekçesi bildirilmesine bağlı değildir. İşlemin bulunmasını kolaylaştırmak için sipariş numaranızı paylaşabilirsiniz; sipariş numarasının bulunmaması tek başına hakkın kullanılmasını engellemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Örnek Cayma Bildirimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Aşağıdaki örneği yazılı bildirim için kullanabilirsiniz. Bu örneğin kullanılması zorunlu değildir; sözleşmeden cayma kararınızı süresinde ve açıkça bildirmeniz yeterlidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin gönderileceği satıcı: ERGUL ENERJI SAN TIC LTD STI · info@ergulenerji.com"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirimin konusu: Aşağıda bilgileri bulunan ürünlerin satışına ilişkin sözleşmeden cayma hakkımı kullanıyorum."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sipariş tarihi / varsa sipariş numarası: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün veya ürünler: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Teslim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin adı, soyadı ve adresi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim tarihi: …"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İmza: … (Yalnızca kâğıt üzerinde yapılan bildirimlerde.)"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürünün Geri Gönderilmesi ve İade Giderleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satıcı ürünü kendisinin geri alacağını bildirmedikçe tüketici, cayma bildirimini yönelttiği tarihten itibaren 14 gün içinde ürünü satıcıya veya yetkilendirdiği kişiye geri gönderir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında tüketiciden iade gideri alınmaz. Taşıyıcı belirtilmemişse herhangi bir taşıyıcıyla yapılan iadenin gideri tüketiciye yüklenemez. Belirtilen taşıyıcının tüketicinin bulunduğu yerde şubesi yoksa satıcı, ürünü tüketiciden ilave ücret istemeden aldırır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade gönderisinin izlenebilmesi için kargo teslim belgesinin saklanması önerilir. İade adresi: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bedel İadesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade için ön bilgilendirmede belirtilen taşıyıcı kullanıldığında satıcı, ürünün bu taşıyıcıya teslim edildiği tarihten itibaren 14 gün içinde teslimat giderleri dâhil tahsil edilen tüm bedelleri geri öder. Farklı bir taşıyıcı kullanıldığında bu süre, ürünün satıcıya ulaştığı tarihte başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürün teslim edilmeden cayılması durumunda 14 günlük geri ödeme süresi, cayma bildiriminin satıcıya ulaştığı tarihten itibaren başlar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Geri ödeme, satın alma sırasında kullanılan ödeme aracına uygun biçimde, tek seferde ve tüketiciye gider veya ek yükümlülük getirilmeden yapılır. Bankanın işlem süreci satıcının yasal sürede geri ödeme yükümlülüğünü ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Cayma Hakkının İstisnaları ve Ürünün İncelenmesi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Cayma hakkının istisnaları, yalnızca Mesafeli Sözleşmeler Yönetmeliği’nin 15. maddesinde belirtilen koşullar gerçekleştiğinde uygulanır. Ürüne uygulanabilecek istisna, sipariş kurulmadan önce ürünün niteliği ve ilgili hüküm belirtilerek açıklanır."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tüketicinin özel isteği veya kişisel ihtiyacına göre hazırlanan ürünlerde ilgili istisna uygulanabilir. Standart bir yedek parçanın belirli bir araçla uyumlu olması veya tedarikçiden özel olarak getirilmesi, tek başına kişiselleştirilmiş ürün sayılması için yeterli değildir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Koruyucu unsurları açılan ürünlerde sağlık veya hijyen istisnası, yalnızca iadesi bu nedenlerle uygun olmayan mallar için uygulanır. Her ambalajın açılması otomatik olarak bu istisnaya girmez."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Tanıtma ve kullanma kılavuzunda satıcı veya yetkili servis tarafından kurulacağı ya da monte edileceği belirtilen mallarda, bu kurulum veya montaj yapılmışsa Yönetmeliğin 15. maddesinin birinci fıkrasının (k) bendi uygulanır. Her montaj işlemi bu kapsamda değildir."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ambalajın açılmış olması veya ürünün tekrar satışa sunulabilir olmaması tek başına genel bir ret gerekçesi değildir. Tüketici, cayma süresinde ürünü işleyişine, teknik özelliklerine ve kullanım talimatlarına uygun biçimde kullandığında oluşan değişikliklerden sorumlu tutulmaz. Bunun dışındaki kullanım ve hasar iddiaları somut olay ve mevzuat uyarınca değerlendirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "İade sırasında ürünün mevcut aksesuarları ve belgeleri de gönderilmelidir. Bu açıklamalar, ayıplı mala ilişkin hakları ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ayıplı Mal ve Seçimlik Haklar",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ürünün ayıplı olması hâlinde tüketici, 6502 sayılı Kanun’un 11. maddesinde düzenlenen sözleşmeden dönme, ayıp oranında bedel indirimi, ücretsiz onarım veya ayıpsız misliyle değiştirme haklarından kanuni koşullara uygun olanını seçebilir. Teknik inceleme, bu seçimin satıcı tarafından tek taraflı olarak değiştirilmesine dayanak oluşturmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ayıplı mala ilişkin haklar, 14 günlük cayma süresinden ayrıdır. Daha uzun bir süre öngörülmedikçe ayıplı maldan sorumluluk teslimden itibaren iki yıllık zamanaşımına tabidir; ağır kusur veya hileyle gizlenen ayıplarda zamanaşımı hükümleri uygulanmaz. Seçimlik hakkın yerine getirilmesi için gereken giderler ilgili yükümlü tarafından karşılanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Paketin ve ürünün teslim sırasında kontrol edilmesi, görünür hasarın fotoğraflanması ve mümkünse tutanak tutulması önerilir. Tutanak tutulmamış olması veya ambalajın açılması, tüketicinin ayıplı mala ilişkin kanuni haklarını kendiliğinden ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Şikâyet ve Uyuşmazlıkların Çözümü",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yazılı başvurular için KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, başvuru yılındaki parasal sınırlar ve görev kuralları çerçevesinde tüketici hakem heyetine veya tüketici mahkemesine başvurabilir. Tüketici mahkemesinde dava açılmadan önce, kanunda belirtilen istisnalar dışında dava şartı arabuluculuk hükümleri uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin yerleşim yerindeki yetkili mercilere başvuru hakkı saklıdır. Şirketin bulunduğu yerdeki mahkemeler tek yetkili merci olarak belirlenmez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bilgilendirmenin Teyidi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, sipariş vermeden önce siparişe özgü bilgileri inceleyebilir ve hatalı bilgileri düzeltebilir. Ön bilgilendirmenin edinildiği uygun yöntemle teyit edilir. Siparişin ödeme yükümlülüğü doğurduğu ayrıca açıkça bildirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ön bilgilendirmenin teyidi, kişisel verilerin tüm amaçlarla işlenmesine veya pazarlama iletilerine verilmiş açık rıza anlamına gelmez. Cayma ve diğer kanuni haklardan vazgeçildiği biçiminde yorumlanamaz."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "uyelik-ve-kullanim-kosullari": {
+    "title": "Üyelik ve Kullanım Koşulları",
+    "sourceUrl": "https://getirbakim.com/uyelik-ve-kullanim-kosullari",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Site kullanımı, servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
+    "sections": [
+      {
+        "title": "Kapsam ve Kabul",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Getirbakim, araç sahipleri ve profesyonel servisler için yedek parça ve bakım ürünlerinin incelenebildiği bir internet sitesidir. Bu koşullar site kullanımına ilişkindir; siparişe özgü satış sözleşmesinin yerine geçmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siteyi ziyaret etmek, kişisel verilerin tüm amaçlarla işlenmesine, pazarlama iletilerine veya gelecekteki sözleşme değişikliklerine sınırsız onay vermek anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu metindeki tüketici hakları, ticari veya mesleki olmayan amaçlarla alışveriş yapan gerçek veya tüzel kişiler için geçerlidir. Ticari veya mesleki amaçla yapılan servis alımlarında ilgili ticaret ve borçlar hukuku hükümleri ile taraflar arasında kurulan sözleşme uygulanır. Bir hesabın servis hesabı olarak tanımlanması, tek başına işlemin hukuki niteliğini belirlemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hesaplar ve Bilgilerin Doğruluğu",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sürümde servis hesapları, Getirbakim yönetiminin onayıyla oluşturulur. Açık üyelik kaydı, sosyal hesapla giriş ve şifre yenileme hizmetleri henüz etkin değildir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kullanıcı, kendi yetkisi kapsamında doğru ve güncel bilgi verir; giriş bilgilerini korur ve yetkisiz erişim şüphesini bildirir. Bu yükümlülükler, şirketin bilgi güvenliği ve kişisel veri koruma sorumluluğunu ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kullanım Kuralları",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sistem güvenliğini ihlal eden, hizmeti engelleyen, yetkisiz erişim sağlayan veya üçüncü kişilerin haklarını ihlal eden işlemler yasaktır. Başkası adına yetkisiz işlem yapılamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Otomatik araçlarla sisteme aşırı yük bindirilmesi ve güvenlik önlemlerinin aşılması yasaktır. Hukuka uygun kullanım ve kanunun izin verdiği işlemler saklıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Ürün, Fiyat ve Stok Bilgileri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Katalog bilgileri güncellenebilir. Sepet oluşturmak fiyatı sabitlemez ve satın alma yükümlülüğü doğurmaz. Tüketiciye uygulanacak fiyat, tüm vergiler ve giderlerle birlikte sipariş kurulmadan önce açıkça gösterilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kurulmuş bir sözleşmenin fiyatı tek taraflı olarak değiştirilemez. Teknik hata veya stok sorunu, kanuni haklar saklı tutularak değerlendirilir; stok yokluğu tek başına ifanın imkânsızlaşması sayılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "OEM kodu ve araç özelliklerinin karşılaştırılması uygun ürün seçimini kolaylaştırır. Bu öneri, ürün hakkında doğru bilgi verme yükümlülüğünü veya ayıplı mala ilişkin hakları ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Fikrî Mülkiyet ve İçerik Kullanımı",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Marka, logo, görsel, metin, yazılım ve tasarımlar üzerindeki haklar ilgili hak sahiplerine aittir. Hak sahibinin izni veya kanuni dayanak olmadan içerikler çoğaltılamaz, dağıtılamaz ya da ticari amaçla kullanılamaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kanunun izin verdiği alıntı ve diğer kullanım hâlleri saklıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hesabın Kısıtlanması ve Sonlandırılması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Güvenlik ihlali veya hukuka aykırı kullanım durumunda gerekli ve ölçülü erişim tedbirleri alınabilir. Hukuken mümkün olduğu ölçüde kullanıcıya tedbirin nedeni ve başvuru yolu bildirilir. Hesabın kısıtlanması, mevcut siparişten doğan hakları ortadan kaldırmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap kapatma talepleri ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine iletilebilir. Hesabın kapatılması, hukuken saklanması gereken kayıtların derhâl silinmesi anlamına gelmez; kişisel veri başvuruları ayrı değerlendirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Koşulların Değişmesi ve Sorumluluk",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Değişiklikler güncelleme tarihiyle yayımlanır. Sonradan yapılan değişiklikler, kurulmuş sözleşmelere tüketici aleyhine geriye dönük olarak uygulanmaz. Kanunen onay gereken işlemler için ayrıca onay alınır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Şirketin kusurundan doğan veya emredici mevzuatla düzenlenen sorumluluklar genel bir sorumsuzluk kaydıyla kaldırılamaz. Kesinti ve mücbir sebep hâlleri ilgili mevzuata göre değerlendirilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Şikâyet ve Uyuşmazlıkların Çözümü",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yazılı başvurular için KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketici, başvuru yılındaki parasal sınırlar ve görev kuralları çerçevesinde tüketici hakem heyetine veya tüketici mahkemesine başvurabilir. Tüketici mahkemesinde dava açılmadan önce, kanunda belirtilen istisnalar dışında dava şartı arabuluculuk hükümleri uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tüketicinin yerleşim yerindeki yetkili mercilere başvuru hakkı saklıdır. Şirketin bulunduğu yerdeki mahkemeler tek yetkili merci olarak belirlenmez."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "gizlilik-politikasi": {
+    "title": "Gizlilik Politikası",
+    "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
+    "sections": [
+      {
+        "title": "Veri Sorumlusunun Kimliği",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "ERGUL ENERJI SAN TIC LTD STI; Getirbakim internet sitesi kapsamında kişisel verilerin işlenmesinden sorumlu tüzel kişidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Politikanın Kapsamı",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu politika site ziyaretçileri, servis hesabı kullanıcıları ve şirketle iletişime geçen kişiler için hazırlanmıştır. Veri işleme faaliyetlerinin ayrıntıları KVKK Aydınlatma Metninde açıklanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sürümde sipariş, ödeme, açık üyelik kaydı ve pazarlama gönderimi hizmetleri etkin değildir. Henüz sunulmayan hizmetler için veri toplandığı veya paylaşım yapıldığı varsayılmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Mevcut Hizmetlerde İşlenen Veriler",
+        "blocks": [
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Servis hesabı için ad veya servis unvanı, e-posta adresi, hesap rolü, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sepetteki ürün ve adet bilgileri ile ziyaretçi sepetini ilişkilendiren belirtecin özeti."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Garaj işlevinde kullanıcının kaydettiği araç markası, modeli ve yılı."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Çerez tercihleri ve bu tercihlerin kaydedildiği zaman; teknik istek ve oturum bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "İletişim kanallarına başvurduğunuzda paylaştığınız iletişim bilgileri ve talep içeriği."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Şu anda internet sitesinde sipariş veya ödeme alınmamaktadır. Site üzerinden sipariş, ödeme kartı veya teslimat adresi verisi toplanmaz. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Verilerin Toplanma Yöntemi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siteye yapılan teknik istekler ile giriş ve oturum işlemleri elektronik sistemlerde işlenir. E-posta, telefon, WhatsApp veya yazılı iletişim yoluyla ilettiğiniz bilgiler, ilgili talebin ele alınması sırasında elde edilir. İletişim için bir üçüncü taraf uygulama kullanmanız hâlinde o uygulamanın veri işleme koşulları ayrıca geçerlidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "İşleme Amaçları ve Hukuki Sebepler",
+        "blocks": [
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Giriş denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Taleplerin değerlendirilmesi ve bir uyuşmazlıkta hakların korunması: ilgili talebin niteliğine göre KVKK madde 5/2(c) veya 5/2(e)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanunen gerekli kayıtların tutulması ve yetkili mercilere yanıt verilmesi: ilgili yükümlülük bulunduğunda KVKK madde 5/2(a) veya 5/2(ç)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Bu sitede şu anda analitik veya reklam entegrasyonu etkin değildir."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu aydınlatma metninin okunması açık rıza verilmesi anlamına gelmez. Açık rıza gereken bir işlem, hizmet koşullarının kabulüne bağlanamaz. Açık rıza geri alınabilir; geri alma, önceden hukuka uygun yapılan işlemleri geriye dönük olarak hukuka aykırı hâle getirmez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Verilerin Aktarılması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sürüm henüz yayımlanmamıştır ve yerel çalışma ortamında bulunmaktadır. Mevcut durumda şirket tarafından bir e-posta, ödeme veya kargo hizmet sağlayıcısına kişisel veri aktarımı yapılmamaktadır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kanuni bir yükümlülük veya bir hakkın korunması için gerekli olması hâlinde yetkili kamu kurumlarına ve yargı mercilerine, ilgili talebin kapsamıyla sınırlı veri aktarımı yapılabilir. Bu aktarımlar KVKK madde 8 kapsamında, ilgili işleme şartına dayanılarak değerlendirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yeni bir hizmet sağlayıcısı kullanılmadan önce hangi verilerin, hangi amaçla ve hangi alıcı grubuna aktarılacağı açıklanmalı; gerekli hukuki dayanak ve veri güvenliği düzenlemeleri sağlanmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Yurt Dışına Aktarım",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Mevcut yerel sürüm için Amazon Web Services (AWS) üzerinde barındırma veya bu hizmet kapsamında yurt dışına veri aktarımı başlamamıştır. İleride AWS’nin Almanya, Frankfurt bölgesinde barındırma planlanmaktadır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Almanya’daki sunucularda kişisel veri saklanması, KVKK bakımından yurt dışına aktarım niteliğindedir. Bu hizmet devreye alınmadan önce aktarılacak veriler, alıcı ve hizmetin kapsamı açıklanmalı; KVKK madde 9 uyarınca uygulanabilir işleme şartı ile yeterlilik kararı veya uygun güvence mekanizması sağlanmalıdır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Standart sözleşme uygun güvence olarak kullanılacaksa Kurumun yayımladığı, tarafların rollerine uygun sözleşme seçilmeli ve imzalar tamamlandıktan sonra beş iş günü içinde Kuruma bildirilmelidir. Sağlayıcının genel hizmet sözleşmesi, tek başına bu standart sözleşmenin yerine geçmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Henüz belirlenip uygulanmış bir aktarım mekanizması bulunmadığından bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Saklama ve Silme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kişisel veriler yalnızca işleme amacı için gerekli süre boyunca veya uygulanabilir kanuni saklama yükümlülüğü kapsamında tutulmalıdır. İşleme şartlarının tamamı ortadan kalktığında KVKK madde 7 ve ilgili yönetmelik uyarınca silme, yok etme veya anonimleştirme işlemi uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tarayıcıdaki oturum çerezinin süresi 30 dakika, ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Bu yerel sürümde çerez ve tercih süreleri dışında sunucu kayıtları için tamamlanmış bir saklama ve imha takvimi bulunmamaktadır; şirket bu takvimi fiilî veri envanterine göre belirlemekle yükümlüdür."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Veri Güvenliği",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum ve ziyaretçi sepeti belirteçleri sunucuda özetlenerek tutulur; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu önlemler şirketin KVKK madde 12 kapsamındaki teknik ve idari tedbir alma, denetim ve veri ihlali hâlinde gerekli bildirimleri yapma yükümlülüklerinin yerine geçmez. Kullanıcı güvenlik şüphesini iletişim kanallarından bildirebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "KVKK Kapsamındaki Haklarınız",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KVKK madde 11 uyarınca, kendinizle ilgili olarak aşağıdaki talepleri veri sorumlusuna yöneltebilirsiniz."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kişisel verinizin işlenip işlenmediğini öğrenme ve işlenmişse buna ilişkin bilgi isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "İşleme amacını ve verilerin bu amaca uygun kullanılıp kullanılmadığını öğrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Verilerinizin yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri öğrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Eksik veya yanlış işlenen kişisel verilerinizin düzeltilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "KVKK madde 7 koşulları çerçevesinde kişisel verilerinizin silinmesini veya yok edilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Düzeltme, silme veya yok etme işlemlerinin verilerin aktarıldığı üçüncü kişilere bildirilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Verilerin yalnızca otomatik sistemlerle analiz edilmesi sonucunda aleyhinize ortaya çıkan bir sonuca itiraz etme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Hukuka aykırı veri işleme nedeniyle uğradığınız zararın giderilmesini talep etme."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Başvuru Yöntemi ve Cevap Süresi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurunuzu şirket adresine yazılı olarak, ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              },
+              " KEP adresine veya daha önce şirkete bildirdiğiniz ve sistemde kayıtlı bulunan e-posta adresinizi kullanarak ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine iletebilirsiniz. Güvenli elektronik imza ve mobil imza dâhil Tebliğde belirtilen diğer yöntemler de geçerlidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvuruda ad, soyad, yazılı başvurularda imza, Türkiye Cumhuriyeti vatandaşları için T.C. kimlik numarası, yabancılar için uyruk ve pasaport veya varsa kimlik numarası, tebligat adresi, varsa bildirim e-posta adresi ile telefon/faks bilgileri ve talep konusu bulunmalıdır. Talebe ilişkin bilgi ve belgeler eklenir. Kimliğin doğrulanması için gereğinden fazla veri istenmemelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurular niteliğine göre en kısa sürede ve en geç 30 gün içinde sonuçlandırılır; yanıt yazılı veya elektronik ortamda iletilir. İşlem kural olarak ücretsizdir. Ek maliyet doğarsa yalnızca Kurulca belirlenen tarifedeki ücret alınabilir; hata veri sorumlusundan kaynaklanıyorsa alınan ücret iade edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurunun reddedilmesi, yanıtın yetersiz bulunması veya süresinde yanıt verilmemesi durumunda, yanıtı öğrendiğiniz tarihten itibaren 30 gün ve her durumda başvuru tarihinden itibaren 60 gün içinde Kişisel Verileri Koruma Kuruluna şikâyette bulunabilirsiniz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Politika Değişiklikleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Güncellemeler tarih bilgisiyle yayımlanır. Yeni veya farklı bir veri işleme amacı için veri elde edilmeden önce ayrıca aydınlatma yapılır; açık rıza gerekiyorsa bu rıza ayrı alınır. Politika değişikliği, geçmişte verilen rızanın kapsamını kendiliğinden genişletmez."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "kvkk-aydinlatma-metni": {
+    "title": "KVKK Aydınlatma Metni",
+    "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
+    "sections": [
+      {
+        "title": "Veri Sorumlusunun Kimliği",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "ERGUL ENERJI SAN TIC LTD STI; Getirbakim internet sitesi kapsamında kişisel verilerin işlenmesinden sorumlu tüzel kişidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Mevcut Hizmetlerde İşlenen Veriler",
+        "blocks": [
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Servis hesabı için ad veya servis unvanı, e-posta adresi, hesap rolü, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Sepetteki ürün ve adet bilgileri ile ziyaretçi sepetini ilişkilendiren belirtecin özeti."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Garaj işlevinde kullanıcının kaydettiği araç markası, modeli ve yılı."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Çerez tercihleri ve bu tercihlerin kaydedildiği zaman; teknik istek ve oturum bilgileri."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "İletişim kanallarına başvurduğunuzda paylaştığınız iletişim bilgileri ve talep içeriği."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Şu anda internet sitesinde sipariş veya ödeme alınmamaktadır. Site üzerinden sipariş, ödeme kartı veya teslimat adresi verisi toplanmaz. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Verilerin Toplanma Yöntemi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Siteye yapılan teknik istekler ile giriş ve oturum işlemleri elektronik sistemlerde işlenir. E-posta, telefon, WhatsApp veya yazılı iletişim yoluyla ilettiğiniz bilgiler, ilgili talebin ele alınması sırasında elde edilir. İletişim için bir üçüncü taraf uygulama kullanmanız hâlinde o uygulamanın veri işleme koşulları ayrıca geçerlidir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "İşleme Amaçları ve Hukuki Sebepler",
+        "blocks": [
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Giriş denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Taleplerin değerlendirilmesi ve bir uyuşmazlıkta hakların korunması: ilgili talebin niteliğine göre KVKK madde 5/2(c) veya 5/2(e)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kanunen gerekli kayıtların tutulması ve yetkili mercilere yanıt verilmesi: ilgili yükümlülük bulunduğunda KVKK madde 5/2(a) veya 5/2(ç)."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Bu sitede şu anda analitik veya reklam entegrasyonu etkin değildir."
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu aydınlatma metninin okunması açık rıza verilmesi anlamına gelmez. Açık rıza gereken bir işlem, hizmet koşullarının kabulüne bağlanamaz. Açık rıza geri alınabilir; geri alma, önceden hukuka uygun yapılan işlemleri geriye dönük olarak hukuka aykırı hâle getirmez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Verilerin Aktarılması",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu sürüm henüz yayımlanmamıştır ve yerel çalışma ortamında bulunmaktadır. Mevcut durumda şirket tarafından bir e-posta, ödeme veya kargo hizmet sağlayıcısına kişisel veri aktarımı yapılmamaktadır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kanuni bir yükümlülük veya bir hakkın korunması için gerekli olması hâlinde yetkili kamu kurumlarına ve yargı mercilerine, ilgili talebin kapsamıyla sınırlı veri aktarımı yapılabilir. Bu aktarımlar KVKK madde 8 kapsamında, ilgili işleme şartına dayanılarak değerlendirilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Yeni bir hizmet sağlayıcısı kullanılmadan önce hangi verilerin, hangi amaçla ve hangi alıcı grubuna aktarılacağı açıklanmalı; gerekli hukuki dayanak ve veri güvenliği düzenlemeleri sağlanmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Yurt Dışına Aktarım",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Mevcut yerel sürüm için Amazon Web Services (AWS) üzerinde barındırma veya bu hizmet kapsamında yurt dışına veri aktarımı başlamamıştır. İleride AWS’nin Almanya, Frankfurt bölgesinde barındırma planlanmaktadır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Almanya’daki sunucularda kişisel veri saklanması, KVKK bakımından yurt dışına aktarım niteliğindedir. Bu hizmet devreye alınmadan önce aktarılacak veriler, alıcı ve hizmetin kapsamı açıklanmalı; KVKK madde 9 uyarınca uygulanabilir işleme şartı ile yeterlilik kararı veya uygun güvence mekanizması sağlanmalıdır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Standart sözleşme uygun güvence olarak kullanılacaksa Kurumun yayımladığı, tarafların rollerine uygun sözleşme seçilmeli ve imzalar tamamlandıktan sonra beş iş günü içinde Kuruma bildirilmelidir. Sağlayıcının genel hizmet sözleşmesi, tek başına bu standart sözleşmenin yerine geçmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Henüz belirlenip uygulanmış bir aktarım mekanizması bulunmadığından bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Saklama ve Silme",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kişisel veriler yalnızca işleme amacı için gerekli süre boyunca veya uygulanabilir kanuni saklama yükümlülüğü kapsamında tutulmalıdır. İşleme şartlarının tamamı ortadan kalktığında KVKK madde 7 ve ilgili yönetmelik uyarınca silme, yok etme veya anonimleştirme işlemi uygulanır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tarayıcıdaki oturum çerezinin süresi 30 dakika, ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Bu yerel sürümde çerez ve tercih süreleri dışında sunucu kayıtları için tamamlanmış bir saklama ve imha takvimi bulunmamaktadır; şirket bu takvimi fiilî veri envanterine göre belirlemekle yükümlüdür."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "KVKK Kapsamındaki Haklarınız",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KVKK madde 11 uyarınca, kendinizle ilgili olarak aşağıdaki talepleri veri sorumlusuna yöneltebilirsiniz."
+            ]
+          },
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kişisel verinizin işlenip işlenmediğini öğrenme ve işlenmişse buna ilişkin bilgi isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "İşleme amacını ve verilerin bu amaca uygun kullanılıp kullanılmadığını öğrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Verilerinizin yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri öğrenme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Eksik veya yanlış işlenen kişisel verilerinizin düzeltilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "KVKK madde 7 koşulları çerçevesinde kişisel verilerinizin silinmesini veya yok edilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Düzeltme, silme veya yok etme işlemlerinin verilerin aktarıldığı üçüncü kişilere bildirilmesini isteme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Verilerin yalnızca otomatik sistemlerle analiz edilmesi sonucunda aleyhinize ortaya çıkan bir sonuca itiraz etme."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Hukuka aykırı veri işleme nedeniyle uğradığınız zararın giderilmesini talep etme."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Başvuru Yöntemi ve Cevap Süresi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurunuzu şirket adresine yazılı olarak, ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              },
+              " KEP adresine veya daha önce şirkete bildirdiğiniz ve sistemde kayıtlı bulunan e-posta adresinizi kullanarak ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine iletebilirsiniz. Güvenli elektronik imza ve mobil imza dâhil Tebliğde belirtilen diğer yöntemler de geçerlidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvuruda ad, soyad, yazılı başvurularda imza, Türkiye Cumhuriyeti vatandaşları için T.C. kimlik numarası, yabancılar için uyruk ve pasaport veya varsa kimlik numarası, tebligat adresi, varsa bildirim e-posta adresi ile telefon/faks bilgileri ve talep konusu bulunmalıdır. Talebe ilişkin bilgi ve belgeler eklenir. Kimliğin doğrulanması için gereğinden fazla veri istenmemelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurular niteliğine göre en kısa sürede ve en geç 30 gün içinde sonuçlandırılır; yanıt yazılı veya elektronik ortamda iletilir. İşlem kural olarak ücretsizdir. Ek maliyet doğarsa yalnızca Kurulca belirlenen tarifedeki ücret alınabilir; hata veri sorumlusundan kaynaklanıyorsa alınan ücret iade edilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Başvurunun reddedilmesi, yanıtın yetersiz bulunması veya süresinde yanıt verilmemesi durumunda, yanıtı öğrendiğiniz tarihten itibaren 30 gün ve her durumda başvuru tarihinden itibaren 60 gün içinde Kişisel Verileri Koruma Kuruluna şikâyette bulunabilirsiniz."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  },
+  "cerez-politikasi": {
+    "title": "Çerez Politikası",
+    "sourceUrl": "https://getirbakim.com/cerez-politikasi",
+    "importedAt": "2026-10-03",
+    "updatedAt": "2026-10-03",
+    "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
+    "sections": [
+      {
+        "title": "Veri Sorumlusunun Kimliği",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "ERGUL ENERJI SAN TIC LTD STI; Getirbakim internet sitesi kapsamında kişisel verilerin işlenmesinden sorumlu tüzel kişidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Adres: Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Telefon: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "tel:+902163870078"
+                },
+                "children": [
+                  "0216 387 00 78"
+                ]
+              },
+              " · E-posta: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "KEP adresi: ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:ergulenerji@hs03.kep.tr"
+                },
+                "children": [
+                  "ergulenerji@hs03.kep.tr"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Çerez ve Yerel Depolama Nedir?",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Çerez, internet sitesinin tarayıcıya kaydettiği ve sonraki isteklerde siteye gönderilebilen küçük bir veridir. Yerel depolama ise tarayıcıda veri saklayan ayrı bir mekanizmadır. Çerez tercih kaydı yerel depolamada tutulur; bir HTTP çerezi değildir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Kullanılan Kayıtlar, Amaçlar ve Süreler",
+        "blocks": [
+          {
+            "tag": "ul",
+            "attrs": {},
+            "children": [
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_session: Servis hesabı oturumunu sürdürür. Giriş yapıldığında kullanılır; geçerlilik süresi 30 dakikadır."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_cart: Ziyaretçi sepetini tarayıcıyla ilişkilendirir. Ziyaretçi sepeti oluşturulduğunda kullanılır; geçerlilik süresi 30 gündür."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_vehicle: Kullanıcının açıkça talep ettiği araç kaydetme işlevinde marka, model ve yılı hatırlar. Araç kaydedildiğinde kullanılır; geçerlilik süresi 30 gündür."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_cookie_consent: Çerez kategorisi tercihlerini ve kayıt zamanını bu tarayıcının yerel depolamasında tutar. Tercih kaydı 180 gün geçerli kabul edilir; süre dolduktan sonraki site ziyaretinde yeniden seçim istenir."
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Hukuki Sebepler ve Açık Rıza",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Talep ettiğiniz oturum, sepet ve araç kaydetme işlevlerinde gerekli olan veri işleme, KVKK madde 5/2(c) kapsamında; güvenliğin sağlanması ve gizlilik tercihlerinin hatırlanması için zorunlu işlemler ise temel hak ve özgürlüklerinize zarar vermemek kaydıyla madde 5/2(f) kapsamında değerlendirilir. Gerekli kayıtlar reklam veya kullanıcı profilleme amacıyla kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Şu anda analitik veya pazarlama çerezi ve bu amaçlara yönelik entegrasyon etkin değildir. Mevcut tercih ekranında bu kategorilere seçim yapılması, henüz kurulmamış veya açıklanmamış herhangi bir hizmet sağlayıcısı için sınırsız açık rıza oluşturmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Analitik veya pazarlama hizmeti devreye alınmadan önce sağlayıcı, veri türü, amaç, süre ve varsa yurt dışı aktarım koşulları açıklanmalı; başka bir hukuki dayanak yoksa faaliyete özgü açık rıza alınmalıdır. Açık rıza verilmemesi, temel site hizmetlerinden yararlanmayı engellemez."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Tercihlerin Yönetimi",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Çerez bildirimindeki “Tümünü kabul et”, “Tümünü reddet” ve “Tercihleri ayarla” seçenekleriyle kategori tercihlerinizi belirleyebilirsiniz. “Tümünü reddet” gerekli hizmet kayıtlarını engellemez. Tercih ekranındaki “Tercihleri kaydet” seçeneği seçiminizi saklar."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sayfanın altındaki “Çerez tercihleri” düğmesiyle seçiminizi yeniden açabilir ve değiştirebilirsiniz. Tercih, bu tarayıcıya aittir; farklı bir tarayıcı veya cihazda ayrı seçim yapılır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Tarayıcınız depolamayı engelliyorsa tercih yalnızca açık sayfada tutulabilir. Tarayıcı ayarlarından site verilerini silebilirsiniz; bu işlem oturumu, ziyaretçi sepetine erişimi ve araç tercihinin hatırlanmasını etkileyebilir."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Üçüncü Taraflar ve Aktarım",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Mevcut yerel sürümde analitik veya reklam amacıyla üçüncü taraf izleme entegrasyonu ve e-posta, ödeme veya kargo sağlayıcısına kişisel veri aktarımı bulunmamaktadır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Planlanan AWS Frankfurt barındırması henüz devreye alınmamıştır. Barındırma veya güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları açıklanmalıdır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bir üçüncü tarafın kendi gizlilik politikasının bulunması, şirketin aydınlatma ve hukuka uygun aktarım yükümlülüklerini ortadan kaldırmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Güncelleme ve İlgili Kişi Hakları",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu politika güncelleme tarihiyle yayımlanır. Yeni çerez veya entegrasyon eklenmesi, yalnızca eski bir kategori tercihiyle etkinleştirilemez; gerekli aydınlatma ve rıza şartları ayrıca yerine getirilmelidir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kişisel verilerinize ilişkin haklarınız, başvuru kanalları ve 30 günlük cevap süresi KVKK Aydınlatma Metninde açıklanmıştır."
+            ]
+          }
+        ]
+      }
+    ],
+    "company": [
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret unvanı: "
+            ]
+          },
+          "ERGUL ENERJI SAN TIC LTD STI"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Telefon: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "tel:+902163870078"
+            },
+            "children": [
+              "0216 387 00 78"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:info@ergulenerji.com"
+            },
+            "children": [
+              "info@ergulenerji.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "WhatsApp: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "https://wa.me/905358355775"
+            },
+            "children": [
+              "+90 535 835 57 75"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "KEP adresi: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:ergulenerji@hs03.kep.tr"
+            },
+            "children": [
+              "ergulenerji@hs03.kep.tr"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Adres: "
+            ]
+          },
+          "Esentepe Mahallesi, Kartal Oto Sanayi Sitesi, C1 Blok, No: 25, Kartal / İstanbul / Türkiye"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Vergi dairesi / Vergi numarası: "
+            ]
+          },
+          "Kartal Vergi Dairesi / 3570422249"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "MERSİS numarası: "
+            ]
+          },
+          "0357042224900019"
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Ticaret sicili numarası: "
+            ]
+          },
+          "64972-5"
+        ]
+      }
+    ],
+    "sourceUpdatedAt": "2026-03-12"
+  }
+}

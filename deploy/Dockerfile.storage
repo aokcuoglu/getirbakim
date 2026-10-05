@@ -1,0 +1,44 @@
+# Upstream registry images are unavailable. Build the official sources at fixed
+# release commits; these images are built in CI and transferred with the app.
+FROM golang:1.24-bookworm AS minio-build
+WORKDIR /src
+RUN git init . \
+ && git remote add origin https://github.com/minio/minio.git \
+ && git fetch --depth=1 origin 9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a \
+ && git checkout --detach FETCH_HEAD
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w -X github.com/minio/minio/cmd.Version=2025-10-15T17:29:55Z -X github.com/minio/minio/cmd.ReleaseTag=RELEASE.2025-10-15T17-29-55Z -X github.com/minio/minio/cmd.CommitID=9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a" \
+    -o /out/minio .
+
+FROM golang:1.24-bookworm AS mc-build
+WORKDIR /src
+RUN git init . \
+ && git remote add origin https://github.com/minio/mc.git \
+ && git fetch --depth=1 origin 7394ce0dd2a80935aded936b09fa12cbb3cb8096 \
+ && git checkout --detach FETCH_HEAD
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mc .
+
+FROM debian:bookworm-slim AS storage-base
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --uid 1000 --create-home minio \
+ && mkdir /data \
+ && chown minio:minio /data
+USER minio
+
+FROM storage-base AS minio
+LABEL org.opencontainers.image.source="https://github.com/minio/minio" \
+      org.opencontainers.image.revision="9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+COPY --from=minio-build /out/minio /usr/local/bin/minio
+COPY --from=minio-build /src/LICENSE /usr/share/licenses/minio/LICENSE
+ENTRYPOINT ["/usr/local/bin/minio"]
+
+FROM storage-base AS mc
+LABEL org.opencontainers.image.source="https://github.com/minio/mc" \
+      org.opencontainers.image.revision="7394ce0dd2a80935aded936b09fa12cbb3cb8096" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+COPY --from=mc-build /out/mc /usr/local/bin/mc
+COPY --from=mc-build /src/LICENSE /usr/share/licenses/minio-mc/LICENSE
+ENTRYPOINT ["/usr/local/bin/mc"]

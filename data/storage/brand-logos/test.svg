@@ -1,4 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50" width="100" height="50">
-  <rect width="100" height="50" fill="red"/>
-  <text x="50" y="35" text-anchor="middle" fill="white" font-size="20">TEST</text>
-</svg>

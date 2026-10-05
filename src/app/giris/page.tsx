@@ -1,0 +1,7 @@
+import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
+import Link from "next/link";
+import { login } from "@/modules/auth/actions";
+export default async function Login({searchParams}:{searchParams:Promise<SearchParams>}) {
+ const {error}=normalizeSearchParams(await searchParams);
+ return <section className="login page-section"><p className="eyebrow">GETİRBAKİM / SERVİS HESABI</p><h1 className="page-title">Profesyoneller için.</h1><p className="lead">Onaylı servis hesabınla B2B fiyatlarına ulaş. Bireysel alışveriş için giriş yapman gerekmez.</p>{error && <p role="alert" className="error">{error === "limit" ? "Çok fazla giriş denemesi. 15 dakika sonra tekrar dene." : "Giriş bilgileri geçersiz veya servis hesabı onaylanmamış."}</p>}<form action={login} className="stack"><label>E-posta<input type="email" name="email" autoComplete="username" maxLength={200} required/></label><label>Şifre<input type="password" name="password" autoComplete="current-password" maxLength={72} required/></label><button>Giriş yap ↗</button></form><p className="legal-sales-links"><Link href="/kvkk-aydinlatma-metni">KVKK Aydınlatma Metni</Link> · <Link href="/gizlilik-politikasi">Gizlilik Politikası</Link></p><p className="muted">Hesaplar Getirbakim yönetimi tarafından servis onayından sonra açılır.</p><p><Link className="service-link" href="/servisler/basvuru">Servis hesabına başvur →</Link></p><Link className="service-link" href="/katalog">Bireysel alışverişe devam et →</Link></section>;
+}

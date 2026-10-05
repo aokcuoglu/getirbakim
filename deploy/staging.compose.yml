@@ -1,0 +1,127 @@
+name: getirbakim-v2-staging
+
+x-app-environment: &app-environment
+  APP_ENV: staging
+  SITE_URL: ${SITE_URL:-http://localhost:3103}
+  BUILD_VERSION: ${BUILD_VERSION:-development}
+  DATABASE_URL: postgresql://getirbakim_app:${POSTGRES_PASSWORD:?Set staging database password}@postgres:5432/getirbakim
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: product-media
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set staging media access key}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set staging media secret}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:?Set staging administrator email}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set staging administrator password}
+
+services:
+  app:
+    image: getirbakim-v2-app:${BUILD_VERSION:-development}
+    build:
+      context: ..
+      target: app
+      args:
+        SITE_URL: ${SITE_URL:-http://localhost:3103}
+        APP_ENV: staging
+        BUILD_VERSION: ${BUILD_VERSION:-development}
+    environment: *app-environment
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3003:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 768m
+    cpus: 1
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "2" }
+
+  operations:
+    image: getirbakim-v2-operations:${BUILD_VERSION:-development}
+    build:
+      context: ..
+      target: operations
+    profiles: [tools]
+    environment: *app-environment
+    mem_limit: 512m
+    cpus: 1
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: getirbakim
+      POSTGRES_USER: getirbakim_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set staging database password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U getirbakim_app -d getirbakim"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "2" }
+
+  minio:
+    image: getirbakim-v2-minio:${BUILD_VERSION:-development}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.storage
+      target: minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set staging media administrator}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set staging media administrator password}
+    volumes:
+      - product-media:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "2" }
+
+  createbuckets:
+    image: getirbakim-v2-mc:${BUILD_VERSION:-development}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.storage
+      target: mc
+    profiles: [tools]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    entrypoint: /bin/sh
+    command:
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        mc mb --ignore-existing local/product-media
+        mc anonymous set none local/product-media
+        mc admin user add local "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" >/dev/null
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket"],"Resource":["arn:aws:s3:::product-media"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::product-media/*"]}]}' > /tmp/policy.json
+        mc admin policy create local product-media /tmp/policy.json
+        mc admin policy attach local product-media --user "$$S3_ACCESS_KEY_ID"
+
+volumes:
+  postgres-data:
+  product-media:

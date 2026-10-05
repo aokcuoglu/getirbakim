@@ -1,0 +1,12 @@
+[Unit]
+Description=Getirbakim production supplier synchronization
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/getirbakim-v2-production
+ExecStart=/bin/bash /opt/getirbakim-v2-production/scripts/production-task.sh supplier-sync
+TimeoutStartSec=90min
+UMask=0077
+

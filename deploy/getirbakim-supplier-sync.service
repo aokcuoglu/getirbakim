@@ -1,0 +1,15 @@
+[Unit]
+Description=Getirbakim supplier synchronization and retention
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=getirbakim
+WorkingDirectory=/srv/getirbakim
+ExecStart=/usr/bin/node --env-file=/srv/getirbakim/.env.local --import tsx /srv/getirbakim/scripts/sync-suppliers.ts
+TimeoutStartSec=90min
+UMask=0077
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal

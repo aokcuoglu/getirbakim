@@ -1,0 +1,19 @@
+.cookie-banner{position:fixed;inset:auto 0 0;z-index:90;background:#fff;border-top:1px solid #cbd2d9;box-shadow:0 -4px 20px #212b360d;color:#212b36;max-height:85dvh;overflow-y:auto;overscroll-behavior:contain}
+.cookie-banner-inner{max-width:1404px;margin:0 auto;padding:18px 38px calc(10px + env(safe-area-inset-bottom))}
+.cookie-banner h2{font-size:16px;font-weight:600;line-height:24px;letter-spacing:0;margin:0 0 7px}
+.cookie-banner p{font-size:12px;line-height:21px;margin:0 0 12px}
+.cookie-banner p a{color:#0077c7;text-decoration:underline;text-underline-offset:2px}
+.cookie-actions{display:flex;flex-wrap:wrap;gap:8px}
+.cookie-actions button{min-height:35px;padding:8px 12px;border:1px solid #0077c7;border-radius:4px;background:#0077c7;color:white;font-size:12px;line-height:18px;font-weight:600}
+.cookie-actions button:hover{background:#0065a9;border-color:#0065a9}
+.cookie-actions .cookie-secondary{background:#fff;border-color:#bcc6d0;color:#212b36;font-weight:400}
+.cookie-actions .cookie-secondary:hover{background:#f5f7f9;border-color:#637381}
+.cookie-preferences-link{background:transparent;color:inherit;border:0;border-radius:0;padding:0;min-height:24px;font-size:inherit;font-weight:400;text-decoration:underline;text-underline-offset:3px}
+.cookie-preferences-link:hover{background:transparent;color:#0077c7}
+.cookie-settings{border:1px solid #dfe4e9;border-radius:4px;margin:0 0 14px;padding:12px 16px;display:grid;gap:14px}
+.cookie-settings legend{padding:0 6px;font-size:13px;font-weight:600}
+.cookie-settings label{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.cookie-settings input{width:17px;height:17px;flex-shrink:0;margin:2px 0 0;padding:0;accent-color:#0077c7}
+.cookie-settings strong{display:block;font-size:12px;line-height:20px}
+.cookie-settings small{display:block;font-size:12px;line-height:19px;color:#637381}
+@media(max-width:600px){.cookie-banner-inner{padding:16px 16px calc(16px + env(safe-area-inset-bottom))}.cookie-actions button{min-height:44px;flex:1 1 auto}.cookie-settings{padding:10px}.cookie-banner p{line-height:20px}}

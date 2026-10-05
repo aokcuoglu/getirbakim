@@ -1,0 +1,600 @@
+{
+  "supplierItemId": "0000df72-b78a-4fca-92ec-700be2e7baf2",
+  "supplierCode": "DPO 445-1134RMLDEM2",
+  "supplierBrand": "DEPO",
+  "source": "https://www.trodo.com/headlight-depo-445-1134rmldem2",
+  "sourceMethod": "Orca computer-use, Chrome accessibility tree; image URL obtained using Open Image in New Tab",
+  "manufacturer": "DEPO",
+  "partNumber": "445-1134RMLDEM2",
+  "completeness": "complete",
+  "imageFile": "artifacts/trodo-sample/445-1134RMLDEM2.webp",
+  "imageSource": "https://picdn.trodo.com/media/m2_catalog_cache/480x480%2FTecDoc%2F4657%2F210%2F52%2F445-1134mldem2.jpg?1",
+  "data": {
+    "displayName": "Sağ ön far",
+    "description": "SEAT Leon serisi için sağ ön far. Far seviye ayar motoru dahildir; ampuller ve ampul tutucu ayrıca temin edilir.",
+    "specifications": [
+      [
+        "Montaj konumu",
+        "Sağ"
+      ],
+      [
+        "Ampul tipleri",
+        "H7 · PY21W · P21W"
+      ],
+      [
+        "Ampul soketleri",
+        "PX26d · BAU15s · BA15s"
+      ],
+      [
+        "Far seviye ayarı",
+        "Elektrikli, ayar motoru dahil"
+      ],
+      [
+        "Paket içeriği",
+        "Ampul ve ampul tutucu dahil değil"
+      ],
+      [
+        "Gövde rengi",
+        "Siyah"
+      ],
+      [
+        "Onay",
+        "ECE onaylı"
+      ],
+      [
+        "Eş parça (sol far)",
+        "445-1134LMLDEM2"
+      ]
+    ],
+    "oemNumbers": {
+      "SEAT": [
+        "5F1941006",
+        "5F1941006A",
+        "5F1941006B"
+      ]
+    },
+    "crossReferences": {
+      "ALKAR": [
+        "2772102"
+      ],
+      "MCS": [
+        "327005408"
+      ],
+      "PRASCO": [
+        "ST4264903"
+      ],
+      "TYC": [
+        "20 14825 05 2"
+      ],
+      "VAN WEZEL": [
+        "4946962V",
+        "4946962"
+      ]
+    },
+    "vehicles": [
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.6 TDI DDYB; CXXA; CLHB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 66,
+        "ps": 90,
+        "cc": 1598,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "1.6 TDI DDYB; CXXA; CLHB, Diesel 1.6, 66kW/90PS 1598ccm, 02/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.6 TDI CLHA",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1598,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "1.6 TDI CLHA, Diesel 1.6, 77kW/105PS 1598ccm, 02/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.6 TDI CXXB; DBKA; CRKB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1598,
+        "from": "09/2013",
+        "to": "11/2016",
+        "sourceText": "1.6 TDI CXXB; DBKA; CRKB, Diesel 1.6, 81kW/110PS 1598ccm, 09/2013-11/2016"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "2.0 TDI CRVC",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 105,
+        "ps": 143,
+        "cc": 1968,
+        "from": "05/2013",
+        "to": "08/2018",
+        "sourceText": "2.0 TDI CRVC, Diesel 2, 105kW/143PS 1968ccm, 05/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "2.0 TDI CKFC; CRMB",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 110,
+        "ps": 150,
+        "cc": 1968,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "2.0 TDI CKFC; CRMB, Diesel 2, 110kW/150PS 1968ccm, 02/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "2.0 TDI CUNA; CUPA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 135,
+        "ps": 184,
+        "cc": 1968,
+        "from": "03/2013",
+        "to": "08/2018",
+        "sourceText": "2.0 TDI CUNA; CUPA, Diesel 2, 135kW/184PS 1968ccm, 03/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.2 TSI CYVA; CJZB",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 63,
+        "ps": 86,
+        "cc": 1197,
+        "from": "01/2013",
+        "to": "08/2018",
+        "sourceText": "1.2 TSI CYVA; CJZB, Petrol 1.2, 63kW/86PS 1197ccm, 01/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.2 TSI CJZA",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1197,
+        "from": "02/2013",
+        "to": "04/2014",
+        "sourceText": "1.2 TSI CJZA, Petrol 1.2, 77kW/105PS 1197ccm, 02/2013-04/2014"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.4 TSI CMBA; CXSA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 90,
+        "ps": 122,
+        "cc": 1395,
+        "from": "02/2013",
+        "to": "06/2015",
+        "sourceText": "1.4 TSI CMBA; CXSA, Petrol 1.4, 90kW/122PS 1395ccm, 02/2013-06/2015"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.4 TSI CHPA; CPTA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 103,
+        "ps": 140,
+        "cc": 1395,
+        "from": "02/2013",
+        "to": "11/2016",
+        "sourceText": "1.4 TSI CHPA; CPTA, Petrol 1.4, 103kW/140PS 1395ccm, 02/2013-11/2016"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "1.8 TSI CJSA",
+        "fuel": "Petrol",
+        "litres": 1.8,
+        "kw": 132,
+        "ps": 180,
+        "cc": 1798,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "1.8 TSI CJSA, Petrol 1.8, 132kW/180PS 1798ccm, 02/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "2.0 Cupra CJXE",
+        "fuel": "Petrol",
+        "litres": 2,
+        "kw": 195,
+        "ps": 265,
+        "cc": 1984,
+        "from": "10/2013",
+        "to": "11/2016",
+        "sourceText": "2.0 Cupra CJXE, Petrol 2, 195kW/265PS 1984ccm, 10/2013-11/2016"
+      },
+      {
+        "model": "SEAT LEON SC (5F5)",
+        "engineAndCodes": "2.0 Cupra CJXA",
+        "fuel": "Petrol",
+        "litres": 2,
+        "kw": 206,
+        "ps": 280,
+        "cc": 1984,
+        "from": "10/2013",
+        "to": "11/2016",
+        "sourceText": "2.0 Cupra CJXA, Petrol 2, 206kW/280PS 1984ccm, 10/2013-11/2016"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.2 TSI CJZA",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1197,
+        "from": "08/2013",
+        "to": "08/2020",
+        "sourceText": "1.2 TSI CJZA, Petrol 1.2, 77kW/105PS 1197ccm, 08/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.2 TSI CYVA; CJZB",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 63,
+        "ps": 86,
+        "cc": 1197,
+        "from": "11/2013",
+        "to": "08/2018",
+        "sourceText": "1.2 TSI CYVA; CJZB, Petrol 1.2, 63kW/86PS 1197ccm, 11/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.4 TSI CHPA; CPTA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 103,
+        "ps": 140,
+        "cc": 1395,
+        "from": "10/2013",
+        "to": "08/2020",
+        "sourceText": "1.4 TSI CHPA; CPTA, Petrol 1.4, 103kW/140PS 1395ccm, 10/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.4 TSI CMBA; CXSA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 90,
+        "ps": 122,
+        "cc": 1395,
+        "from": "09/2012",
+        "to": "06/2015",
+        "sourceText": "1.4 TSI CMBA; CXSA, Petrol 1.4, 90kW/122PS 1395ccm, 09/2012-06/2015"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.8 TSI CJSA",
+        "fuel": "Petrol",
+        "litres": 1.8,
+        "kw": 132,
+        "ps": 180,
+        "cc": 1798,
+        "from": "10/2013",
+        "to": "08/2018",
+        "sourceText": "1.8 TSI CJSA, Petrol 1.8, 132kW/180PS 1798ccm, 10/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.6 TDI DDYB; CXXA; CLHB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 66,
+        "ps": 90,
+        "cc": 1598,
+        "from": "11/2013",
+        "to": "08/2018",
+        "sourceText": "1.6 TDI DDYB; CXXA; CLHB, Diesel 1.6, 66kW/90PS 1598ccm, 11/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.6 TDI CLHA",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1598,
+        "from": "10/2013",
+        "to": "08/2020",
+        "sourceText": "1.6 TDI CLHA, Diesel 1.6, 77kW/105PS 1598ccm, 10/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.6 TDI CXXB; DBKA; CRKB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1598,
+        "from": "09/2013",
+        "to": "08/2020",
+        "sourceText": "1.6 TDI CXXB; DBKA; CRKB, Diesel 1.6, 81kW/110PS 1598ccm, 09/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.6 TDI 4Drive CLHA",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1598,
+        "from": "04/2014",
+        "to": "08/2020",
+        "sourceText": "1.6 TDI 4Drive CLHA, Diesel 1.6, 77kW/105PS 1598ccm, 04/2014-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "2.0 TDI DFGA; CRLB; CRBC; CKFC; CRMB; DFFA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 110,
+        "ps": 150,
+        "cc": 1968,
+        "from": "10/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI DFGA; CRLB; CRBC; CKFC; CRMB; DFFA, Diesel 2, 110kW/150PS 1968ccm, 10/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "2.0 TDI CRVC",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 105,
+        "ps": 143,
+        "cc": 1968,
+        "from": "10/2013",
+        "to": "08/2018",
+        "sourceText": "2.0 TDI CRVC, Diesel 2, 105kW/143PS 1968ccm, 10/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "2.0 TDI CUNA; DJGA; CUPA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 135,
+        "ps": 184,
+        "cc": 1968,
+        "from": "08/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI CUNA; DJGA; CUPA, Diesel 2, 135kW/184PS 1968ccm, 08/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "2.0 TDI CRLD; CRVA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1968,
+        "from": "02/2013",
+        "to": "12/2016",
+        "sourceText": "2.0 TDI CRLD; CRVA, Diesel 2, 81kW/110PS 1968ccm, 02/2013-12/2016"
+      },
+      {
+        "model": "SEAT LEON ST (5F8)",
+        "engineAndCodes": "1.4 TGI CPWA",
+        "fuel": "Petrol/Compressed Natural Gas (CNG)",
+        "litres": 1.4,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1395,
+        "from": "10/2013",
+        "to": "08/2018",
+        "sourceText": "1.4 TGI CPWA, Petrol/Compressed Natural Gas (CNG) 1.4, 81kW/110PS 1395ccm, 10/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.6 TDI CXXB; DBKA; CRKB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1598,
+        "from": "09/2013",
+        "to": "08/2020",
+        "sourceText": "1.6 TDI CXXB; DBKA; CRKB, Diesel 1.6, 81kW/110PS 1598ccm, 09/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.6 TDI DDYB; CXXA; CLHB",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 66,
+        "ps": 90,
+        "cc": 1598,
+        "from": "11/2012",
+        "to": "08/2018",
+        "sourceText": "1.6 TDI DDYB; CXXA; CLHB, Diesel 1.6, 66kW/90PS 1598ccm, 11/2012-08/2018"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.6 TDI CLHA",
+        "fuel": "Diesel",
+        "litres": 1.6,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1598,
+        "from": "09/2012",
+        "to": "08/2020",
+        "sourceText": "1.6 TDI CLHA, Diesel 1.6, 77kW/105PS 1598ccm, 09/2012-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 TDI CKFC; CRMB; DFFA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 110,
+        "ps": 150,
+        "cc": 1968,
+        "from": "10/2012",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI CKFC; CRMB; DFFA, Diesel 2, 110kW/150PS 1968ccm, 10/2012-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 TDI CUNA; DJGA; CUPA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 135,
+        "ps": 184,
+        "cc": 1968,
+        "from": "09/2012",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI CUNA; DJGA; CUPA, Diesel 2, 135kW/184PS 1968ccm, 09/2012-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 TDI CRLD; CRVA",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1968,
+        "from": "05/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI CRLD; CRVA, Diesel 2, 81kW/110PS 1968ccm, 05/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.4 TSI CMBA; CXSA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 90,
+        "ps": 122,
+        "cc": 1395,
+        "from": "11/2012",
+        "to": "10/2016",
+        "sourceText": "1.4 TSI CMBA; CXSA, Petrol 1.4, 90kW/122PS 1395ccm, 11/2012-10/2016"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.2 TSI CYVA; CJZB",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 63,
+        "ps": 86,
+        "cc": 1197,
+        "from": "12/2012",
+        "to": "08/2018",
+        "sourceText": "1.2 TSI CYVA; CJZB, Petrol 1.2, 63kW/86PS 1197ccm, 12/2012-08/2018"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 TDI CRVC",
+        "fuel": "Diesel",
+        "litres": 2,
+        "kw": 105,
+        "ps": 143,
+        "cc": 1968,
+        "from": "05/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 TDI CRVC, Diesel 2, 105kW/143PS 1968ccm, 05/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.2 TSI CYVB",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1197,
+        "from": "04/2014",
+        "to": "08/2020",
+        "sourceText": "1.2 TSI CYVB, Petrol 1.2, 81kW/110PS 1197ccm, 04/2014-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.2 TSI CJZA",
+        "fuel": "Petrol",
+        "litres": 1.2,
+        "kw": 77,
+        "ps": 105,
+        "cc": 1197,
+        "from": "01/2013",
+        "to": "08/2020",
+        "sourceText": "1.2 TSI CJZA, Petrol 1.2, 77kW/105PS 1197ccm, 01/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.4 TGI CPWA",
+        "fuel": "Petrol/Compressed Natural Gas (CNG)",
+        "litres": 1.4,
+        "kw": 81,
+        "ps": 110,
+        "cc": 1395,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "1.4 TGI CPWA, Petrol/Compressed Natural Gas (CNG) 1.4, 81kW/110PS 1395ccm, 02/2013-08/2018"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.4 TSI CHPA; CPTA",
+        "fuel": "Petrol",
+        "litres": 1.4,
+        "kw": 103,
+        "ps": 140,
+        "cc": 1395,
+        "from": "09/2012",
+        "to": "08/2020",
+        "sourceText": "1.4 TSI CHPA; CPTA, Petrol 1.4, 103kW/140PS 1395ccm, 09/2012-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 Cupra CJXE",
+        "fuel": "Petrol",
+        "litres": 2,
+        "kw": 195,
+        "ps": 265,
+        "cc": 1984,
+        "from": "10/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 Cupra CJXE, Petrol 2, 195kW/265PS 1984ccm, 10/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "2.0 Cupra CJXA",
+        "fuel": "Petrol",
+        "litres": 2,
+        "kw": 206,
+        "ps": 280,
+        "cc": 1984,
+        "from": "10/2013",
+        "to": "08/2020",
+        "sourceText": "2.0 Cupra CJXA, Petrol 2, 206kW/280PS 1984ccm, 10/2013-08/2020"
+      },
+      {
+        "model": "SEAT LEON (5F1)",
+        "engineAndCodes": "1.8 TSI CJSA",
+        "fuel": "Petrol",
+        "litres": 1.8,
+        "kw": 132,
+        "ps": 180,
+        "cc": 1798,
+        "from": "02/2013",
+        "to": "08/2018",
+        "sourceText": "1.8 TSI CJSA, Petrol 1.8, 132kW/180PS 1798ccm, 02/2013-08/2018"
+      }
+    ],
+    "vehicleModels": [
+      "SEAT LEON SC (5F5)",
+      "SEAT LEON ST (5F8)",
+      "SEAT LEON (5F1)"
+    ],
+    "imageWidth": 480,
+    "imageHeight": 480
+  }
+}
