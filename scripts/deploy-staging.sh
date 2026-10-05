@@ -36,4 +36,6 @@ mv "${backup}.partial" "$backup"
 "${compose[@]}" run --rm --no-deps operations node --import tsx scripts/import-vehicles.ts
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 app
 bash scripts/smoke-staging.sh
+"${compose[@]}" run --rm --no-deps operations node --conditions=react-server --import tsx scripts/verify-staging.ts
+"${compose[@]}" run --rm --no-deps -e VERIFY_URL=http://app:3000 operations node --import tsx scripts/verify-commerce-http.ts
 echo "Staging ready at VPS loopback 127.0.0.1:3003; backup: $backup"

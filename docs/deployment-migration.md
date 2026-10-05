@@ -29,7 +29,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 3. Mevcut `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` repo sırlarıyla image aktarımı.
 4. Yalnızca `/opt/getirbakim-v2` klasöründe ilgili commit'e geçiş. Kirli checkout durdurulur.
 5. Yalnızca staging veritabanının yedeği, şema kurulumu, görsel/araç kataloğu aktarımı ve uygulamanın güncellenmesi.
-6. Sağlık ve temel sayfa kontrolleri.
+6. Sağlık ve temel sayfa kontrolleri; gerçek yönetici girişi/oturumu, özel medya upload/download ve geçici sentetik kayıtlarla sepet/sipariş/iptal/erişim kontrolleri.
 
 `VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` üzerinde mevcut workflow'lar geçiş tamamlanana kadar aynen kalır. `next-system` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
 
