@@ -5,10 +5,11 @@
 | Ortam | Repo / klasör | Yayın |
 | --- | --- | --- |
 | Mevcut canlı | `main`, VPS `/opt/getirbakim` | getirbakim.com / www.getirbakim.com |
-| Yeni sistem | `next-system`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
-| Yerel geçiş kopyası | `/Users/void/www/getirbakim-migration` | Docker ve kod kontrolleri |
+| Yeni test sistemi | `next-system`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
+| Yeni canlı sistem | `main`, VPS `/opt/getirbakim-v2-production` | `getirbakim-v2-live:3000` edge alias'ı |
+| Geliştirme kaynağı | `/Users/void/www/getirbakim` | yerel PostgreSQL 18 ve MinIO |
 
-Kaynak geliştirme klasörleri `/Users/void/www/gb` ve `/Users/void/www/getirbakim` bu hazırlık sırasında değiştirilmez. Yeni sistem için devam eden commit'ler `getirbakim-migration` çalışma kopyasında yapılır. Mevcut sitenin kodu Git geçmişinde ve `main` branch'inde durur; geri dönüş için `v*` etiketi gönderilmez, çünkü mevcut canlı workflow'u bu etiketlerde tetiklenir.
+Geliştirmeye `/Users/void/www/getirbakim` içinde devam edilir. Bu klasör mevcut GitHub repo geçmişine bağlanmıştır; önceki yerel ilk commit `local/pre-github-migration` branch'inde korunur. `.env.local`, yerel veritabanı ve MinIO değiştirilmez. `/Users/void/www/gb` eski projenin yerel arşividir. Canlı geçiş tamamlanınca `main` yeni sistemi yayınlar; eski kod `archive/legacy-20261005` branch'inde korunur.
 
 ## Test ortamına erişim
 
@@ -45,7 +46,17 @@ Deploy scripti yalnızca checkout ile aynı tam `DEPLOY_SHA` değerini kabul ede
 
 ## Canlı geçişten önce
 
-2026-10-05 kullanıcı kararı: yeni sistem temiz verilerle başlar; eski sistem arşiv olarak korunur. Eski canlı kod `archive/legacy-20261005` branch'inde; kaynak, özel ortam dosyası, medya ve tam veritabanı snapshot'u VPS'te `/var/backups/getirbakim-legacy/20261005` altında saklanır. Müşteri/sipariş verisi yeni sisteme aktarılmaz. Canlı geçişte güncel son yedek ayrıca alınır.
+2026-10-05 düzeltilen kullanıcı kararı: yalnızca eski `gb` sisteminden bağımsız başlanır. Yeni `/Users/void/www/getirbakim` projesindeki TÜM veritabanı kayıtları, ürün zenginleştirmeleri, eşleşmeler, kuyruklar ve MinIO nesneleri canlıya taşınır; boş veritabanı veya yeniden ürün toplama kullanılmaz. Eski canlı kod `archive/legacy-20261005` branch'inde; kaynak, özel ortam dosyası, medya ve tam veritabanı snapshot'u VPS'te `/var/backups/getirbakim-legacy/20261005` altında saklanır.
+
+## Yerel verinin canlıya aktarımı
+
+`scripts/export-live-snapshot.ts`, PostgreSQL 18'de tek bir exported snapshot üzerinden özel-format dump ve 38 tablonun kesin kayıt sayılarını üretir. S3 bucket'ındaki tüm nesneleri indirir; veritabanındaki medya referanslarının SHA-256/boyutlarıyla karşılaştırır. Dosyalar `.local` altında özel izinlerle tutulur ve Git'e eklenmez.
+
+Yeni production PostgreSQL 18 ayrı volume üzerinde kurulur; uygulama rolü superuser değildir. Dump yalnızca boş yeni veritabanına, tek transaction ile restore edilir. `scripts/verify-live-snapshot.ts` tüm tablo sayılarını; `scripts/import-live-media.ts` her nesnenin aktarım öncesi ve sonrası SHA-256 özetini doğrular. Kaynak kimlikler korunur. Restore sadece ilk hazırlıkta yapılır; sonraki deploy'lar canlı veriyi yerel dump ile ezmez.
+
+`deploy/production.compose.yml` ve `scripts/deploy-production.sh` ayrı production stack'ini yönetir. GitHub `Deploy production` workflow'u `main` push'larında image'ları runner'da derler, tam commit'e bağlı deploy yapar ve her şema güncellemesi öncesi canlı yedeği alır. İlk hazırlık için `launch/local-data` branch'i de aynı workflow'u tetikler. Medya image'ları daha önce doğrulanmış `STORAGE_VERSION` sürümünden kullanılır.
+
+Canlı tedarikçi zamanlayıcısı yalnızca aktarım doğrulandıktan sonra kurulur. Günlük yedekler ve supplier systemd timer'ları production stack'ine aittir. Uygulamanın mevcut ödeme ve uyumluluk özellikleri aynen korunur.
 
 - Arşiv yedeklerinin okunabilirliğini doğrulamak. Eski Prisma şemasını yeni şemaya doğrudan bağlamamak.
 - Yeni uygulama için bağımsız production veritabanı/rolü, medya deposu, ortam değişkenleri ve tedarikçi zamanlayıcılarını hazırlamak.

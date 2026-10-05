@@ -1,0 +1,57 @@
+name: Deploy production
+on:
+  push:
+    branches: [main, launch/local-data]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: getirbakim-v2-production
+  cancel-in-progress: false
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/launch/local-data'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production images on runner
+        run: |
+          version="${GITHUB_SHA:0:12}"
+          docker build --target app --build-arg APP_ENV=production --build-arg SITE_URL=https://getirbakim.com --build-arg BUILD_VERSION="$version" -t "getirbakim-v2-production-app:$version" .
+          docker build --target operations -t "getirbakim-v2-production-operations:$version" .
+          docker save "getirbakim-v2-production-app:$version" "getirbakim-v2-production-operations:$version" | gzip > /tmp/production-images.tar.gz
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/production_key
+          chmod 600 ~/.ssh/production_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+      - name: Deploy independent production stack
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/production_key "$VPS_USER@$VPS_HOST" 'test -f /opt/getirbakim-v2-production/.local/production-data-ready && mkdir -p /opt/getirbakim-v2-production/.local/images'
+          scp -i ~/.ssh/production_key /tmp/production-images.tar.gz "$VPS_USER@$VPS_HOST:/opt/getirbakim-v2-production/.local/images/$GITHUB_SHA.tar.gz"
+          ssh -i ~/.ssh/production_key "$VPS_USER@$VPS_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/getirbakim-v2-production
+          test "$(git remote get-url origin)" = 'https://github.com/aokcuoglu/getirbakim.git'
+          test -z "$(git status --porcelain --untracked-files=normal)"
+          git fetch origin "$1"
+          test "$(git rev-parse FETCH_HEAD)" = "$1"
+          git checkout --detach "$1"
+          gzip -dc ".local/images/$1.tar.gz" | docker load >/dev/null
+          DEPLOY_SHA="$1" bash scripts/deploy-production.sh
+          rm -- ".local/images/$1.tar.gz"
+          REMOTE
+      - name: Clean SSH key
+        if: always()
+        run: rm -f ~/.ssh/production_key
