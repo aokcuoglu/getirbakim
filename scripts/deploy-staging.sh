@@ -27,15 +27,16 @@ fi
 mkdir -p .local/backups
 chmod 700 .local .local/backups
 backup=".local/backups/$(date -u +%Y%m%dT%H%M%SZ)-${BUILD_VERSION}.sql.gz"
-"${compose[@]}" exec -T postgres pg_dump -U getirbakim_app -d getirbakim | gzip > "${backup}.partial"
+"${compose[@]}" exec -T postgres pg_dump -U getirbakim_app -d getirbakim </dev/null | gzip > "${backup}.partial"
 chmod 600 "${backup}.partial"
 mv "${backup}.partial" "$backup"
-"${compose[@]}" run --rm --no-deps createbuckets
-"${compose[@]}" run --rm --no-deps operations node --import tsx scripts/setup.ts
-"${compose[@]}" run --rm --no-deps operations node --import tsx scripts/import-assets.ts
-"${compose[@]}" run --rm --no-deps operations node --import tsx scripts/import-vehicles.ts
+"${compose[@]}" run -T --rm --no-deps createbuckets </dev/null
+"${compose[@]}" run -T --rm --no-deps operations node --import tsx scripts/setup.ts </dev/null
+"${compose[@]}" run -T --rm --no-deps operations node --import tsx scripts/import-assets.ts </dev/null
+"${compose[@]}" run -T --rm --no-deps operations node --import tsx scripts/import-vehicles.ts </dev/null
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 app
 bash scripts/smoke-staging.sh
-"${compose[@]}" run --rm --no-deps operations node --conditions=react-server --import tsx scripts/verify-staging.ts
-"${compose[@]}" run --rm --no-deps -e VERIFY_URL=http://app:3000 operations node --import tsx scripts/verify-commerce-http.ts
+"${compose[@]}" run -T --rm --no-deps operations node --conditions=react-server --import tsx scripts/verify-staging.ts </dev/null
+"${compose[@]}" run -T --rm --no-deps -e VERIFY_URL=http://app:3000 operations node --import tsx scripts/verify-commerce-http.ts </dev/null
+bash scripts/prune-release-images.sh getirbakim-v2-app getirbakim-v2-operations
 echo "Staging ready at VPS loopback 127.0.0.1:3003; backup: $backup"

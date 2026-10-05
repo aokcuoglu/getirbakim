@@ -4,7 +4,7 @@
 
 | Ortam | Repo / klasör | Yayın |
 | --- | --- | --- |
-| Mevcut canlı | `main`, VPS `/opt/getirbakim` | getirbakim.com / www.getirbakim.com |
+| Eski sistem arşivi | `archive/legacy-20261005`, VPS `/opt/getirbakim` | Canlı yönlendirmeden çıkarıldı |
 | Yeni test sistemi | `next-system`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
 | Yeni canlı sistem | `main`, VPS `/opt/getirbakim-v2-production` | `getirbakim-v2-live:3000` edge alias'ı |
 | Geliştirme kaynağı | `/Users/void/www/getirbakim` | yerel PostgreSQL 18 ve MinIO |
@@ -32,7 +32,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 5. Yalnızca staging veritabanının yedeği, şema kurulumu, görsel/araç kataloğu aktarımı ve uygulamanın güncellenmesi.
 6. Sağlık ve temel sayfa kontrolleri; gerçek yönetici girişi/oturumu, özel medya upload/download ve geçici sentetik kayıtlarla sepet/sipariş/iptal/erişim kontrolleri.
 
-`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` üzerinde mevcut workflow'lar geçiş tamamlanana kadar aynen kalır. `next-system` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
+`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` artık yeni production workflow'unu kullanır; eski Bun deploy'u çalıştırılmaz. `next-system` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
 
 İlk sunucu hazırlığı ayrıca `.env.staging` oluşturmayı ve aynı repo origin'ine sahip temiz `/opt/getirbakim-v2` Git checkout'unu gerektirir. Ayar şablonu `deploy/staging.env.example` içindedir. Parolalar rastgele hexadecimal üretilir, dosya izinleri `600` olur.
 
@@ -58,13 +58,41 @@ Yeni production PostgreSQL 18 ayrı volume üzerinde kurulur; uygulama rolü sup
 
 Canlı tedarikçi zamanlayıcısı yalnızca aktarım doğrulandıktan sonra kurulur. Günlük yedekler ve supplier systemd timer'ları production stack'ine aittir. Uygulamanın mevcut ödeme ve uyumluluk özellikleri aynen korunur.
 
-- Arşiv yedeklerinin okunabilirliğini doğrulamak. Eski Prisma şemasını yeni şemaya doğrudan bağlamamak.
-- Yeni uygulama için bağımsız production veritabanı/rolü, medya deposu, ortam değişkenleri ve tedarikçi zamanlayıcılarını hazırlamak.
-- Eski URL'ler (`/tr`, `/en`, kategori ve ürün adresleri) için SEO yönlendirme eşlemesini hazırlamak.
-- TAMI tahsilat akışının yeni uygulamada tamamlandığını ayrıca doğrulamak. Adaptör bulunması canlı tahsilatın hazır olduğu anlamına gelmez.
-- Yönetici/servis girişi, sepet, sipariş, veri güncelliği ve medya erişimini doğrulamak.
-- Tam veri/dosya yedeği ve doğrulanmış geri dönüş planı hazırlamak.
-- Ortak edge nginx'in yapılandırmasını doğrulamak; mevcut eksik BakımX staging sertifikası sorununu çözmeden edge reload/recreate yapmamak.
-- Ayrı production deploy akışı ve yeni uygulamanın edge upstream'ini hazırlamak. `next-system` branch'ini doğrudan `main` içine almak mevcut prod deploy'u değiştireceği için ancak geçiş hazırlıkları tamamlandığında yapmak.
+## Canlı doğrulama ve işletim
 
-2026-10-05 incelemesinde mevcut canlı commit `cd88d0d6c0f96b3c4ff83ad423052a2b8b9e210f`, edge nginx sağlıksız fakat Getirbakim/BakımX uygulamaları çalışır durumdaydı. Sunucuda yaklaşık 28 GB boş disk ve 3.2 GiB kullanılabilir RAM vardı. Bu değerler deploy anında yeniden kontrol edilir.
+2026-10-05 aktarımında 38 tablonun kesin kayıt sayıları ve 83 özel medya nesnesinin SHA-256/boyutları kaynakla eşleşti. 319.388 tedarikçi kaydı, zenginleştirmeler, 7.046 araç eşleştirmesi, üretici logoları, mevcut hesap/sepet/sipariş kayıtları ve kuyruklar korundu. Snapshot zamanı `2026-10-05T18:19:34Z`'dir. Geliştirmesi devam eden yerel zenginleştirme/eşleştirme kod değişiklikleri kullanıcının tercihiyle bu yayına dahil edilmedi.
+
+Gerçek veriyle testte, 319.351 katalog kaydının kimlikleri/markaları ve varsayılan liste, marka filtresi, arama sonuçları değişmeden kaldı. Katalog metadata sorguları fiyat hesaplamalarından ayrıldı; varsayılan sayfanın fiyatları yalnızca seçilen ürünler için hesaplanır. Production sorgusu yaklaşık 12 saniyeden 2,3 saniyeye indi. PostgreSQL istatistikleri deploy sonrasında `ANALYZE` ile güncellenir.
+
+HTTPS üzerinde ana sayfa/katalog, ürün ve marka görselleri, gerçek yönetici girişi, Secure/HttpOnly oturum ve mobil/masaüstü görünüm doğrulandı. `www` apex'e; `/tr` ve `/en` ana sayfaya yönlenir. Locale içeren eski yönetim ve arama yolları da yeni sayfalara yönlendirilir. Eski ürün slug'ları için bire bir eşleme bu aktarımın kapsamına dahil değildir.
+
+Paylaşılan edge `/opt/edge` içindedir. Yalnızca Getirbakim upstream'i `getirbakim-v2-live:3000` olarak seçildi. Edge'in eskimiş bind mount'u, host üzerindeki geçerli yapılandırmalarla yeniden oluşturuldu; BakımX production yönlendirmeleri korundu ve kontrol edildi. Önceki dosyalar `/var/backups/getirbakim-edge-20261005` altında saklanır.
+
+Tedarikçi API notu: geçiş sırasında Başbuğ Login HTTP 200 döndü; FiyatGetir hem yerelde hem VPS'te 180 saniyelik denemede zaman aşımına uğradı. Güncellik kuralları gevşetilmedi. API toparlanınca zamanlayıcı mevcut scope ve geri deneme kurallarıyla güncelleme yapar; yönetimde tedarikçi sağlık ekranı izlenmelidir.
+
+`getirbakim-production-sync.timer` biten çalışmadan 15 dakika sonra due scope'ları kontrol eder. `getirbakim-production-backup.timer` günlük 03:30 UTC civarında özel-format PostgreSQL yedeği alır. Günlük yedekler `.local/backups` içinde 14 gün tutulur; deploy öncesi yedekler ayrı dosyalardır. Başarılı deploy sonrası uygulama/operasyon image'larının mevcut ve bir önceki sürümü tutulur; legacy image'larına ve volume'lara dokunulmaz. MinIO kalıcı ayrı volume'dadır; ilk aktarımın nesne kopyası ve manifesti `.local/import/snapshot` içinde korunur.
+
+```sh
+cd /opt/getirbakim-v2-production
+BUILD_VERSION=$(git rev-parse --short=12 HEAD) docker compose --env-file .env.production -f deploy/production.compose.yml ps
+systemctl list-timers getirbakim-production-\*.timer
+journalctl -u getirbakim-production-sync.service --since today
+bash scripts/production-task.sh backup
+```
+
+Canlı ayarlar `/opt/getirbakim-v2-production/.env.production` içindedir ve Git'e eklenmez. `.env.local` geliştirme ayarlarıdır. `main` push'ları kodu yayınlar; canlı veritabanı veya MinIO yerel verilerle tekrar ezilmez.
+
+## Legacy arşivi ve geri dönüş
+
+İlk tam kaynak/ortam/medya/veritabanı arşivi `/var/backups/getirbakim-legacy/20261005` içindedir. Cutover sonrasındaki son veritabanı ve medya kopyası `/var/backups/getirbakim-legacy/20261005-cutover` altındadır. Arşivler özel izinlerle saklanır; SHA-256 ve `pg_restore --list` kontrolleri yapılır. Tam restore provası yapılmadı. Eski servislerin volume'ları ve `getirbakim-legacy:20261005` image'ı korunur.
+
+Geri dönüşte önce eski PostgreSQL, Meilisearch ve Squid; ardından eski uygulama başlatılır. Sağlık kontrolünden sonra yalnızca Getirbakim edge dosyası önceki upstream'e alınır ve nginx doğrulanıp reload edilir. Yeni production veritabanını legacy dump ile restore etmeyin; iki şema bağımsızdır.
+
+```sh
+docker start getirbakim-postgres getirbakim-meilisearch getirbakim-squid
+docker start getirbakim-app
+# Eski uygulama sağlıklı olduktan sonra:
+cp /var/backups/getirbakim-edge-20261005/getirbakim.host.conf /opt/edge/conf.d/getirbakim.conf
+docker exec edge-nginx nginx -t
+docker exec edge-nginx nginx -s reload
+```

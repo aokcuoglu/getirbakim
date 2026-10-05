@@ -26,4 +26,5 @@ for (const path of ['/api/health','/','/katalog','/giris','/robots.txt']) {
   console.log(`PASS production ${path}`);
 }
 JS
+bash scripts/prune-release-images.sh getirbakim-v2-production-app getirbakim-v2-production-operations
 echo "Production application ready on edge alias getirbakim-v2-live and loopback :3004 (${BUILD_VERSION})."
