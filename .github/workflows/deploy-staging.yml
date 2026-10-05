@@ -25,8 +25,8 @@ jobs:
           cp deploy/staging.env.example .env.staging
           sed -i 's/=$/=ci-only-placeholder/' .env.staging
           export BUILD_VERSION="${GITHUB_SHA:0:12}"
-          docker compose --env-file .env.staging -f deploy/staging.compose.yml build app operations
-          docker save "getirbakim-v2-app:$BUILD_VERSION" "getirbakim-v2-operations:$BUILD_VERSION" | gzip > /tmp/staging-images.tar.gz
+          docker compose --env-file .env.staging -f deploy/staging.compose.yml build app operations minio createbuckets
+          docker save "getirbakim-v2-app:$BUILD_VERSION" "getirbakim-v2-operations:$BUILD_VERSION" "getirbakim-v2-minio:$BUILD_VERSION" "getirbakim-v2-mc:$BUILD_VERSION" | gzip > /tmp/staging-images.tar.gz
       - name: Configure SSH
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}

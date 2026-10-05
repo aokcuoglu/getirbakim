@@ -21,9 +21,9 @@ test -f .env.staging || { echo "Missing .env.staging" >&2; exit 1; }
 compose=(docker compose --env-file .env.staging -f deploy/staging.compose.yml)
 
 if [[ "${STAGING_IMAGES_READY:-}" != "1" ]]; then
-  "${compose[@]}" build app operations
+  "${compose[@]}" build app operations minio createbuckets
 fi
-"${compose[@]}" up -d --wait --wait-timeout 120 postgres minio
+"${compose[@]}" up -d --no-build --wait --wait-timeout 120 postgres minio
 mkdir -p .local/backups
 chmod 700 .local .local/backups
 backup=".local/backups/$(date -u +%Y%m%dT%H%M%SZ)-${BUILD_VERSION}.sql.gz"
