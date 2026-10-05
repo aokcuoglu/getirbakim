@@ -16,6 +16,7 @@ backup=".local/backups/production-$(date -u +%Y%m%dT%H%M%SZ)-${BUILD_VERSION}.du
 "${compose[@]}" exec -T postgres pg_dump -U getirbakim_app -d getirbakim -Fc </dev/null > "${backup}.partial"
 chmod 600 "${backup}.partial"; mv "${backup}.partial" "$backup"
 "${compose[@]}" run -T --rm --no-deps operations node --import tsx scripts/setup.ts </dev/null
+"${compose[@]}" exec -T postgres psql -U getirbakim_app -d getirbakim -c 'ANALYZE' </dev/null
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 app
 "${compose[@]}" exec -T app node --input-type=module <<'JS'
 for (const path of ['/api/health','/','/katalog','/giris','/robots.txt']) {

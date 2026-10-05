@@ -49,6 +49,21 @@ CREATE TABLE IF NOT EXISTS commerce_order_items (
  PRIMARY KEY(order_id,product_id)
 );
 CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
+-- Shared eligibility, without calculating prices for every catalog row.
+CREATE OR REPLACE VIEW commerce_supplier_items AS
+SELECT i.* FROM supplier_items i
+WHERE i.supplier='basbug' AND i.warehouse='MRK' AND i.presence='present' AND NOT i.conflicting
+AND NOT EXISTS(SELECT 1 FROM products p WHERE p.supplier=i.supplier AND p.code=i.code);
+CREATE OR REPLACE VIEW commerce_catalog_entries AS
+SELECT id,category,supplier,code,name,brand,description,updated_at,
+ ''::text AS oem,'store'::text AS source,''::text AS company FROM products
+UNION ALL
+SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
+ COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
+FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
+CREATE INDEX IF NOT EXISTS supplier_items_catalog_order_idx ON supplier_items(company,changed_at DESC,id)
+WHERE supplier='basbug' AND warehouse='MRK' AND presence='present' AND NOT conflicting;
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -65,11 +80,9 @@ WITH latest AS (
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost
- FROM supplier_items i CROSS JOIN commerce_settings s
+ FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
- WHERE i.supplier='basbug' AND i.warehouse='MRK' AND i.presence='present' AND NOT i.conflicting
- AND NOT EXISTS(SELECT 1 FROM products p WHERE p.supplier=i.supplier AND p.code=i.code)
 )
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,

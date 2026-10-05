@@ -76,8 +76,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
-    mem_limit: 640m
-    cpus: 0.5
+    mem_limit: 1g
+    cpus: 2
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "2" }

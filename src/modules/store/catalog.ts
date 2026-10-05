@@ -10,6 +10,7 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=$1";
+const catalogEntriesSql = "SELECT * FROM commerce_catalog_entries WHERE source='store' OR company=$1";
 const company = () => process.env.BASBUG_FIRMA_ADI || "BASBUG";
 export async function searchProducts(code: string): Promise<CatalogProduct[]> {
  if (!code.trim()) return [];
@@ -46,15 +47,21 @@ export async function browseProducts(query: CatalogQuery) {
  }
  if(query.category && categories.some(c=>c.slug===query.category)) { values.push(query.category); clauses.push(`category=$${values.length}`); }
  if(query.brand) { values.push(query.brand.slice(0,200)); clauses.push(`brand=$${values.length}`); }
- const from = `FROM (${catalogSql}) catalog ${clauses.length ? "WHERE "+clauses.join(" AND ") : ""}`;
+ const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
+ const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  const total = Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const pageSize = 60, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  const order=query.sort === "price-asc" ? "price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "price_kurus DESC NULLS LAST,id" : "updated_at DESC,id";
- const items = (await db.query<CatalogProduct>(`SELECT * ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`, [...values,(page-1)*pageSize])).rows;
+ const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
+ const items = (await db.query<CatalogProduct>(pricedSort
+  ? `SELECT * FROM (${catalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`
+  : `WITH page AS MATERIALIZED (SELECT id,updated_at ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1})
+     SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
+     ORDER BY page.updated_at DESC,page.id`, [...values,(page-1)*pageSize])).rows;
  return {items,total,page,pages,pageSize};
 }
 export async function catalogBrands() {
- return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);
+ return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);
 }
