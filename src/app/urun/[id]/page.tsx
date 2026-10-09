@@ -17,6 +17,7 @@ import { GarageButton } from "@/components/garage/garage-button";
 import { currentVehicle } from "@/modules/store/garage";
 import "@/styles/product-detail.css";
 import { ProductFitment } from "@/components/product-fitment";
+import { getReferenceLinks } from "@/modules/store/reference-links";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -57,6 +58,10 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];
   }
   const references = Object.entries(referenceNumbers).sort(([a], [b]) => a.localeCompare(b));
+  const referenceHref = await getReferenceLinks(product.id, [
+    ...Object.entries(enrichment?.crossReferences || {}).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
+    ...Object.entries(enrichment?.oemNumbers || {}).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
+  ]);
   return <div className="pdp-page"><section className="shell pdp-overview">
     {product.supplier !== "demo" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredProduct).replace(/</g, "\\u003c") }}/>}
     <nav className="pdp-breadcrumbs" aria-label="Sayfa yolu"><Link href="/">Ana sayfa</Link><ChevronRight size={13}/><Link href="/katalog">Yedek parçalar</Link><ChevronRight size={13}/>{category && <><Link href={`/katalog?category=${category.slug}`}>{category.name}</Link><ChevronRight size={13}/></>}<span aria-current="page">{title} {product.brand} {displayPartNumber}</span></nav>
@@ -103,7 +108,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
         {(enrichment?.description || product.description) && <p className="pdp-description">{enrichment?.description || product.description}</p>}
       </section>
       {enrichment && (enrichment.vehicles.length > 0 ? <ProductFitment vehicles={enrichment.vehicles}/> : enrichment.vehicleModels.length > 0 && <section className="pdp-section" id="uyumlu-araclar"><h2>Uyumlu araç modelleri</h2><div className="pdp-model-list">{enrichment.vehicleModels.map(model => <span key={model}>{model}</span>)}</div><p>Motor ve üretim yılı ayrıntıları henüz eklenmedi.</p></section>)}
-      {references.length > 0 && <section className="pdp-section" id="oem-numaralari"><h2>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="pdp-references">{references.map(([brand, codes]) => <div key={brand}><dt>{brand}</dt><dd>{codes.map(code => <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
+      {references.length > 0 && <section className="pdp-section" id="oem-numaralari"><h2>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="pdp-references" tabIndex={0} aria-label="OEM ve muadil numaraları">{references.map(([brand, codes]) => <div key={brand}><dt>{brand}</dt><dd>{codes.map(code => { const href = referenceHref(brand, code); return href ? <Link key={code} href={href}>{code}</Link> : <span key={code}>{code}</span>; })}</dd></div>)}</dl></section>}
       <section className="pdp-section pdp-help" id="urun-yardim"><Headphones size={30}/><div><h2>Bu ürün hakkında soruların mı var?</h2><p>{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
     <nav className="pdp-section-menu" aria-label="Ürün bilgileri"><a href="#product-specifications">Ürün detayları</a>{hasFitment && <a href="#uyumlu-araclar">Uyumlu araçlar</a>}{references.length > 0 && <a href="#oem-numaralari">OEM ve muadil numaraları</a>}<a href="#urun-yardim">Bu ürün hakkında sorular</a></nav>
