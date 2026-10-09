@@ -6,6 +6,7 @@ import { ArrowDownToLine, ArrowUpRight, Check, CheckCircle2, ChevronLeft, Chevro
 import { requireAdmin } from "@/modules/auth/session";
 import { enrichmentDashboard, enrichmentStatuses } from "@/modules/admin/enrichment-data";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
+import { AdminPageHeader } from "@/components/admin/ui";
 import "@/styles/enrichment-admin.css";
 
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
@@ -30,7 +31,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`,tone:"amber"},
   ];
   return <section className="shell enrichment-admin">
-    <header className="enrichment-heading"><div><p className="eyebrow">YÖNETİM / VERİ OPERASYONU</p><h1>Ürün zenginleştirme</h1><p>Parçaların bilgiye dönüşümünü tek yerden takip et.</p></div><div className="enrichment-heading-actions"><span><span className="enrichment-live-dot"/>Veritabanından güncel görünüm</span><EnrichmentRefresh/></div></header>
+    <AdminPageHeader breadcrumbs={[{label:"Yönetim",href:"/yonetim"},{label:"Ürün zenginleştirme"}]} eyebrow="Veri operasyonu" title="Ürün zenginleştirme" description="Parçaların bilgiye dönüşümünü tek yerden takip et." actions={<div className="enrichment-heading-actions"><span><span className="enrichment-live-dot"/>Veritabanından güncel görünüm</span><EnrichmentRefresh/></div>}/>
     <div className="enrichment-metrics">{cards.map(card=><article className={`enrichment-metric enrichment-${card.tone}`} key={card.label}><div><span>{card.label}</span><card.icon size={19}/></div><strong>{number(card.value)}</strong><small>{card.note}</small></article>)}</div>
     <div className="enrichment-overview"><article className="enrichment-progress"><div className="enrichment-section-heading"><h2>Katalog kapsamı</h2><span>{number(total)} ürün</span></div><div className="enrichment-progress-summary"><strong>{number(attempted)}<span> ürün incelendi</span></strong><span>{total?((attempted/total)*100).toLocaleString("tr-TR",{maximumFractionDigits:2}):0}%</span></div><div className="enrichment-progress-track" role="progressbar" aria-label="İncelenen ürünler" aria-valuenow={attempted} aria-valuemin={0} aria-valuemax={Math.max(total,1)}><span style={{width:`${total?attempted/total*100:0}%`}}/></div><div className="enrichment-progress-footer"><span><Clock3 size={14}/>{number(counts.pending||0)} ürün henüz incelenmedi</span><span>Son aktarım: {data.metrics.latest?date(data.metrics.latest):"Henüz yok"}</span></div></article>
       <Link href={href({status:"attention",match:"all",q:"",page:"1"})} className="enrichment-attention"><div className="enrichment-attention-icon"><CircleHelp size={22}/></div><div><span>Kontrol bekleyen kayıtlar</span><strong>{number(attention)}</strong><p>{number(counts.review||0)} inceleme · {number((counts.blocked||0)+(counts.failed||0))} erişim / işlem hatası</p></div><ArrowUpRight size={20}/></Link></div>

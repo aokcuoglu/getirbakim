@@ -2,10 +2,38 @@ import { adminOverview } from "@/modules/admin/data";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { requireAdmin } from "@/modules/auth/session";
-import { supplierStatuses } from "@/modules/suppliers/clients";
-import { createService, approveService } from "@/modules/admin/actions";
+import { SupplierConnections } from "@/components/admin/supplier-connections";
+import { approveService } from "@/modules/admin/actions";
+import { AdminPage, AdminPageHeader, AdminPanel, AdminColumns, Stat, StatGrid, StatusMessage, EmptyState } from "@/components/admin/ui";
+
+const number = (value: number | string) => new Intl.NumberFormat("tr-TR").format(Number(value));
+
 export default async function Admin({searchParams}:{searchParams:Promise<SearchParams>}) {
- await requireAdmin();const {created,approved,error}=normalizeSearchParams(await searchParams);
- const {counts,accounts}=await adminOverview();
- return <section className="shell page-section"><p className="eyebrow">GETİRBAKİM / YÖNETİM</p><h1 className="page-title">Operasyon alanı.</h1><div className="admin-stats"><div><small>Bağımsız veritabanı</small><strong>{counts.database}</strong></div><div><small>Kayıtlı ürün</small><strong>{counts.products}</strong></div><div><small>Servis hesabı</small><strong>{accounts.length}</strong></div></div><h2>Tedarikçi bağlantıları</h2><div className="supplier-grid">{supplierStatuses().map(s=><article className="panel" key={s.name}><span className="badge">Doğrulama bekliyor</span><h3>{s.name}</h3><p>{s.configured ? "Bağlantı değişkenleri tanımlı." : "Bağlantı değişkenleri eksik."}</p><p className="muted">{s.message}</p>{s.name === "Başbuğ" && <Link className="button" href="/yonetim/tedarikciler/basbug">Başbuğ verilerini incele →</Link>}</article>)}</div><div className="admin-columns"><div><h2>Onaylı servis hesabı aç</h2><p className="muted">Bu işlem servise fiyat ve sepet erişimini hemen açar.</p>{created && <p className="notice" role="status">Servis hesabı oluşturuldu.</p>}{error && <p className="error" role="alert">{error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Alanları kontrol edin. Şifre en az 12 karakter ve en fazla 72 UTF-8 bayt, indirim %0–50 olmalı."}</p>}<form action={createService} className="stack"><label>Servis adı<input name="name" minLength={2} maxLength={150} required/></label><label>E-posta<input name="email" type="email" maxLength={200} required/></label><label>İlk şifre<input name="password" type="password" minLength={12} maxLength={72} autoComplete="new-password" required/></label><label>Servise özel indirim (%)<input name="discount" type="number" min={0} max={50} defaultValue={0} required/></label><button>Servisi onayla ve hesabı aç ↗</button></form></div><div><h2>Servis hesapları ve başvurular</h2>{approved && <p className="notice" role="status">Servis başvurusu onaylandı.</p>}{accounts.length ? accounts.map(a=><article className="panel" key={a.email}><h3>{a.name}</h3><p>{a.email}</p>{a.contact_name && <p>{a.contact_name} · {a.phone} · {a.city}</p>}<small>{a.approved ? "Onaylı" : "Onay bekliyor"} · %{a.discount_percent} indirim</small>{!a.approved && <form action={approveService} className="admin-approval"><input type="hidden" name="id" value={a.id}/><label>Servise özel indirim (%)<input name="discount" type="number" min={0} max={50} defaultValue={0} required/></label><button>Başvuruyu onayla</button></form>}</article>) : <p className="muted">Henüz servis hesabı yok.</p>}</div></div></section>;
+  await requireAdmin();
+  const {approved,error}=normalizeSearchParams(await searchParams);
+  const {counts,accounts}=await adminOverview();
+  const pending=accounts.filter(a=>!a.approved);
+  return <AdminPage>
+    <AdminPageHeader eyebrow="Yönetim" title="Genel bakış" description="Katalog, servis hesapları ve tedarikçi bağlantılarının özeti."/>
+    <StatGrid label="Özet">
+      <Stat label="Kayıtlı ürün" value={number(counts.products)}/>
+      <Stat label="Servis hesabı" value={number(accounts.length)} href="/yonetim/servisler" linkLabel="Servisleri yönet"/>
+      <Stat label="Onay bekleyen başvuru" value={number(pending.length)} note={pending.length ? "Aşağıdan onaylayabilirsin" : "Bekleyen başvuru yok"}/>
+      <Stat label="Veritabanı" value={counts.database}/>
+    </StatGrid>
+    {approved && <StatusMessage>Servis başvurusu onaylandı.</StatusMessage>}
+    {error && <StatusMessage tone="error">Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</StatusMessage>}
+    <AdminColumns>
+      <AdminPanel title="Onay bekleyen servis başvuruları" description="Onay, servise fiyat ve sepet erişimini hemen açar." actions={<Link className="admin-link" href="/yonetim/servisler">Tüm servisler →</Link>}>
+        {pending.length ? <ul className="admin-list">{pending.map(a=><li key={a.id}>
+          <h3>{a.name}</h3><p>{a.email}</p>{a.contact_name && <p>{a.contact_name} · {a.phone} · {a.city}</p>}
+          <form action={approveService} className="admin-inline-form"><input type="hidden" name="id" value={a.id}/><label>Servise özel indirim (%)<input name="discount" type="number" min={0} max={50} defaultValue={0} required/></label><button>Başvuruyu onayla</button></form>
+        </li>)}</ul> : <EmptyState title="Bekleyen başvuru yok"><p>Yeni başvurular burada listelenir.</p></EmptyState>}
+      </AdminPanel>
+      <AdminPanel title="Tedarikçi bağlantıları" actions={<Link className="admin-link" href="/yonetim/tedarikciler">Tedarikçiler →</Link>}>
+        <SupplierConnections/>
+      </AdminPanel>
+    </AdminColumns>
+  </AdminPage>;
 }
+
