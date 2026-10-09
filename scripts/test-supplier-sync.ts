@@ -118,7 +118,7 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
         : url.includes("ListeGrubuGetir") ? { malzemeGruplariListesi:[{ kod:"FIAT",ad:"FIAT" }] }
         : url.includes("MalzemeleriGetir") ? { malzemeListesi:codes.map(code=>fixture(code).product_data) }
         : url.includes("FiyatGetir") ? { fiyatListesi:codes.map(code=>fixture(code).price_data) }
-        : url.includes("StokGetir") ? { stokListesi:codes.map(code=>fixture(code).stock_data) }
+        : url.includes("StokGetir") ? { stokListesi:codes.map(code=>({ ...fixture(code).stock_data, sDepo:new URL(url).searchParams.get("Depo") })) }
         : { dovizListesi:[{ dovizCinsi:"EUR",alis:"40",satis:"41" }] };
       return new Response(JSON.stringify(body), { headers:{ "Content-Type":"application/json" } });
     };

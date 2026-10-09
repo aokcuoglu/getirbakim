@@ -44,3 +44,14 @@ test("malformed or empty product responses cannot replace a successful snapshot"
     assert.throws(() => prepareBasbugImport({ products, prices: { fiyatListesi: [price] }, stock: { stokListesi: [stock] } }));
   }
 });
+
+test("warehouse stocks attach per-depot flags to the primary stock record", () => {
+  const depot = (sDepo: string, stok: number) => ({ stokListesi: [{ ...stock, sDepo, stok }] });
+  const result = prepareBasbugImport({ products: { malzemeListesi: [product] }, prices: { fiyatListesi: [price] }, stock: depot("MRK", 1),
+    warehouseStocks: { MRK: depot("MRK", 1), IZM: depot("IZM", 0), IAN: { stokListesi: [{ ...stock, sDepo: "IAN" }, { ...stock, sDepo: "IAN", stok: 0 }] }, TRK: { stokListesi: [] } } });
+  const item = result.items[0];
+  assert.deepEqual(item.stock_data?.depolar, { MRK: { stok: 1, sYol: 0 }, IZM: { stok: 0, sYol: 0 }, IAN: { stok: 1, sYol: 0 } });
+  assert.equal(item.stock_count, 1);
+  assert.equal(item.conflicting, true);
+  assert.equal(item.source_variants.warehouseStocks?.IAN.length, 2);
+});

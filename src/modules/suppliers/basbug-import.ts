@@ -15,6 +15,9 @@ const stockSchema = z.object({ no: z.string().min(1), stok: z.number().finite(),
 const groupsSchema = z.object({ malzemeGruplariListesi: z.array(z.object({ kod: z.string().min(1), ad: z.string() })) });
 const currenciesSchema = z.object({ dovizListesi: z.array(z.object({ dovizCinsi: z.string(), alis: z.string().regex(/^\d+(\.\d+)?$/), satis: z.string().regex(/^\d+(\.\d+)?$/) })) });
 const authSchema = z.object({ token: z.string().min(1), tokenTipi: z.literal("Bearer"), tokenBitisSuresi: z.number().positive() });
+// Warehouses this account may query; others answer HTTP 607 ("Depo Oncelik bilginiz bulunmamaktadir").
+// Values are availability flags (0/1), not quantities.
+export const basbugWarehouses = ["MRK", "IZM", "IAN", "TRK"] as const;
 export const importOptions = z.object({ mode: z.enum(["full", "commerce"]).default("full"), group: z.string().regex(/^[A-Z0-9_-]{1,30}$/), warehouse: z.literal("MRK"), company: z.string().trim().min(1).max(100).optional(), acceptAnomaly: z.string().trim().min(10).max(500).optional() });
 
 export class BasbugImportError extends Error {
@@ -50,22 +53,35 @@ function indexRows<T extends { no: string }>(rows: T[]) {
   return map;
 }
 
-export function prepareBasbugImport(input: { products: unknown; prices: unknown; stock: unknown }) {
+const stockList = z.object({ stokListesi: z.array(stockSchema) });
+
+export function prepareBasbugImport(input: { products: unknown; prices: unknown; stock: unknown; warehouseStocks?: Record<string, unknown> }) {
   const products = z.object({ malzemeListesi: z.array(productSchema).min(1) }).parse(input.products).malzemeListesi;
   const prices = z.object({ fiyatListesi: z.array(priceSchema) }).parse(input.prices).fiyatListesi;
-  const stock = z.object({ stokListesi: z.array(stockSchema) }).parse(input.stock).stokListesi;
+  const stock = stockList.parse(input.stock).stokListesi;
   const p = indexRows(products), f = indexRows(prices), s = indexRows(stock);
-  const items = [...p].map(([code, product]) => ({
-    code, product_data: product.value, price_data: f.get(code)?.value ?? null,
-    stock_data: s.get(code)?.value ?? null, product_count: product.count,
-    price_count: f.get(code)?.count ?? 0, stock_count: s.get(code)?.count ?? 0,
-    conflicting: product.conflicting || Boolean(f.get(code)?.conflicting) || Boolean(s.get(code)?.conflicting),
-    source_variants: {
-      ...(product.conflicting ? { products: product.variants } : {}),
-      ...(f.get(code)?.conflicting ? { prices: f.get(code)!.variants } : {}),
-      ...(s.get(code)?.conflicting ? { stocks: s.get(code)!.variants } : {}),
-    },
-  }));
+  const depots = Object.entries(input.warehouseStocks ?? {}).map(([depot, data]) => [depot, indexRows(stockList.parse(data).stokListesi)] as const);
+  const items = [...p].map(([code, product]) => {
+    const primary = s.get(code);
+    const depotRows = depots.flatMap(([depot, rows]) => rows.has(code) ? [[depot, rows.get(code)!] as const] : []);
+    const depotConflicts = Object.fromEntries(depotRows.filter(([, row]) => row.conflicting).map(([depot, row]) => [depot, row.variants]));
+    // Per-warehouse flags ride inside stock_data so change history and checkout keep one stock record.
+    const stock_data = primary && depots.length
+      ? { ...primary.value, depolar: Object.fromEntries(depotRows.map(([depot, row]) => [depot, { stok: row.value.stok, sYol: row.value.sYol }])) }
+      : primary?.value ?? null;
+    return {
+      code, product_data: product.value, price_data: f.get(code)?.value ?? null,
+      stock_data, product_count: product.count,
+      price_count: f.get(code)?.count ?? 0, stock_count: primary?.count ?? 0,
+      conflicting: product.conflicting || Boolean(f.get(code)?.conflicting) || Boolean(primary?.conflicting) || Object.keys(depotConflicts).length > 0,
+      source_variants: {
+        ...(product.conflicting ? { products: product.variants } : {}),
+        ...(f.get(code)?.conflicting ? { prices: f.get(code)!.variants } : {}),
+        ...(primary?.conflicting ? { stocks: primary.variants } : {}),
+        ...(Object.keys(depotConflicts).length ? { warehouseStocks: depotConflicts } : {}),
+      },
+    };
+  });
   return { items, quality: {
     productRows: products.length, priceRows: prices.length, stockRows: stock.length,
     uniqueProducts: p.size, missingPrices: items.filter(i => !i.price_data).length,
@@ -151,9 +167,15 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       if (baseline.observations.ListeGrubuGetir) observations.ListeGrubuGetir = baseline.observations.ListeGrubuGetir;
     }
     const prices = await get("FiyatGetir", { ListeGrubu: group });
-    const stock = await get("StokGetir", { ListeGrubu: group, Depo: warehouse });
+    const warehouseStocks: Record<string, unknown> = {};
+    for (const depot of basbugWarehouses) {
+      const data = await get("StokGetir", { ListeGrubu: group, Depo: depot });
+      if (stockList.parse(data).stokListesi.some(row => row.sDepo !== depot)) throw new BasbugImportError("contract");
+      warehouseStocks[depot] = data;
+    }
+    const stock = warehouseStocks[warehouse];
     const currencies = currenciesSchema.parse(await get("DovizBilgisiGetir"));
-    const prepared = prepareBasbugImport({ products, prices, stock });
+    const prepared = prepareBasbugImport({ products, prices, stock, warehouseStocks });
     if (mode === "commerce") {
       const byCode = new Map(existing.map(item => [item.code,item]));
       for (const item of prepared.items) {
