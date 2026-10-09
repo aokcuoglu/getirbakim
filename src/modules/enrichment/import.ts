@@ -51,6 +51,9 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
           supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,source_url=EXCLUDED.source_url,source_method=EXCLUDED.source_method,
           manufacturer=EXCLUDED.manufacturer,manufacturer_part_number=EXCLUDED.manufacturer_part_number,image_id=COALESCE(EXCLUDED.image_id,product_enrichments.image_id),payload=EXCLUDED.payload,match_basis=EXCLUDED.match_basis,imported_at=now()`,
           [item.supplierItemId, item.supplierCode, item.supplierBrand, item.source, item.sourceMethod, item.manufacturer, item.partNumber, imageId, JSON.stringify(item.data), JSON.stringify(item.matchBasis)]);
+        await client.query('DELETE FROM product_source_categories WHERE supplier_item_id=$1',[item.supplierItemId]);
+        for(const category of item.data.categories)await client.query(`INSERT INTO product_source_categories(supplier_item_id,source,category_id)
+          SELECT $1,source,category_id FROM source_categories WHERE source=$2 AND category_id=$3 ON CONFLICT DO NOTHING`,[item.supplierItemId,category.source,category.id]);
         await client.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status,last_attempt_at,attempts,candidate_url)
           VALUES($1,$2,$3,$4,now(),1,$5) ON CONFLICT(supplier_item_id) DO UPDATE SET status=EXCLUDED.status,
           candidate_url=EXCLUDED.candidate_url,attempts=product_enrichment_jobs.attempts+1,last_attempt_at=now(),last_error=NULL,updated_at=now()`,
