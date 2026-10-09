@@ -18,7 +18,7 @@ export type AdminSupplierItem = {
   id: string; code: string;
   product_data: { ac: string; ac2: string; uk: string; oe: string; lgk: string; m: string; mo: string; y: string; b: string; dc: string; lf: number; mkk: string };
   price_data: { nf: number; mif: number; k: number } | null;
-  stock_data: { stok: number; sYol: number; sDepo: string; sFarkliDepo: number } | null;
+  stock_data: { stok: number; sYol: number; sDepo: string; sFarkliDepo: number; depolar?: Record<string, { stok: number; sYol: number }> } | null;
   product_count: number; price_count: number; stock_count: number; conflicting: boolean;
   source_variants: Record<string, unknown>;
   presence: "present" | "pending_missing" | "inactive";
