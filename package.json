@@ -44,6 +44,7 @@
     "supplier:auto:install": "node --import tsx scripts/install-supplier-launchd.ts",
     "supplier:auto:uninstall": "node --import tsx scripts/install-supplier-launchd.ts --uninstall",
     "db:supplier:automation": "node --env-file=.env.local --import tsx scripts/migrate-supplier-automation.ts",
+    "test:payments": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-payments.ts",
     "test:supplier-checkout": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-supplier-checkout.ts",
     "logos:prepare": "node --env-file=.env.local --import tsx scripts/manufacturer-logos.ts prepare",
     "logos:import": "node --env-file=.env.local --import tsx scripts/manufacturer-logos.ts import",

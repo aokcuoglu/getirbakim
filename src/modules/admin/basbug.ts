@@ -23,6 +23,7 @@ export type AdminSupplierItem = {
   source_variants: Record<string, unknown>;
   presence: "present" | "pending_missing" | "inactive";
   first_seen_at: Date; last_seen_at: Date; changed_at: Date; missing_count: number;
+  sale_price_kurus: number | null; sale_available: boolean | null; sale_stock_label: string | null;
 };
 
 export async function adminBasbugData(params: BasbugParams) {
@@ -70,7 +71,11 @@ export async function adminBasbugData(params: BasbugParams) {
   const total = Number(count.rows[0].count), pages = Math.max(1, Math.ceil(total / 50));
   const parsedPage = Number(params.page);
   const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
-  const items = await db.query<AdminSupplierItem>(`SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT 50 OFFSET $${values.length + 1}`, [...values, (page - 1) * 50]);
+  const items = await db.query<AdminSupplierItem>(`WITH page AS MATERIALIZED (
+    SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT 50 OFFSET $${values.length + 1}
+  ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
+    FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
+    ORDER BY page.code,page.id`, [...values, (page - 1) * 50]);
   return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: items.rows, brands: brands.rows.map(r => r.value), currencies: currencies.rows.map(r => r.value), total, page, pages };
 }
 

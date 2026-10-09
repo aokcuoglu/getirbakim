@@ -5,7 +5,7 @@ import {PartArt} from "@/components/part-art";
 import {categories,money,servicePrice,type CatalogProduct as CatalogEntry} from "@/modules/store/catalog";
 import type {Account} from "@/modules/auth/session";
 import type {CatalogProductImage} from "@/modules/store/product-enrichment";
-import {updateCart} from "@/app/sepet/actions";
+import {PurchaseForm} from "@/components/purchase-form";
 import {ManufacturerBadge} from "@/components/manufacturer-badge";
 import type {ManufacturerLogo} from "@/modules/store/manufacturer-logos";
 import {specificationValue} from "@/modules/store/catalog-filters";
@@ -27,7 +27,7 @@ export function CatalogProduct({product:p,image,logo,account,details}:{product:C
  <div className="listing-product-buy">
  <div className={"listing-price"+(p.price_kurus===null?" price-pending":"")}>{price}</div>{p.price_kurus!==null&&<div className="listing-price-note">KDV dahil <span>· Kargo hariç</span>{discounted&&<span> · Servisine özel fiyat</span>}</div>}
  <p className={"listing-stock"+(p.available?"":" unavailable")}><Image src="/media/trodo/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>
- <form action={updateCart} className="listing-purchase"><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="mode" value="add"/><input aria-label={p.name+" için adet"} type="number" name="quantity" min={1} max={p.max_quantity} defaultValue={1} required disabled={!(p.available&&p.price_kurus!==null)}/><button disabled={!(p.available&&p.price_kurus!==null)}>{p.available?"Sepete ekle":"Stokta yok"}</button></form>
+ <PurchaseForm productId={p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity}/>
  <CompareCheckbox entry={{id:p.id,title,price,specifications}}/>
  <Link className="listing-safety" href="/bilgi/uyumluluk"><Info size={14}/>Güvenlik ve uyumluluk bilgileri</Link>
  </div></div></article>;

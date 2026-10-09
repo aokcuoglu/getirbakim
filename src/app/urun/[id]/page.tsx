@@ -6,10 +6,12 @@ import { notFound } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
 import { getProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
-import { updateCart } from "@/app/sepet/actions";
+import { PurchaseForm } from "@/components/purchase-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
+import {getStoreCategories} from "@/modules/store/categories";
+import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
 import { ProductGallery } from "@/components/product-gallery";
@@ -39,6 +41,9 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const logos = await getManufacturerLogos([product.brand]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
+  const storeCategories=await getStoreCategories();
+  const leaf=enrichment?.categories[0];
+  const productCategoryPath=leaf?categoryPath(storeCategories,leaf.id):[];
   const category = categories.find(c => c.slug === product.category);
   const price = product.price_kurus === null ? null : money(servicePrice(product.price_kurus!, isB2B ? account!.discount_percent : 0));
 
@@ -64,7 +69,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   ]);
   return <div className="pdp-page"><section className="shell pdp-overview">
     {product.supplier !== "demo" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredProduct).replace(/</g, "\\u003c") }}/>}
-    <nav className="pdp-breadcrumbs" aria-label="Sayfa yolu"><Link href="/">Ana sayfa</Link><ChevronRight size={13}/><Link href="/katalog">Yedek parçalar</Link><ChevronRight size={13}/>{category && <><Link href={`/katalog?category=${category.slug}`}>{category.name}</Link><ChevronRight size={13}/></>}<span aria-current="page">{title} {product.brand} {displayPartNumber}</span></nav>
+    <nav className="pdp-breadcrumbs" aria-label="Sayfa yolu"><Link href="/">Ana sayfa</Link><ChevronRight size={13}/><Link href="/katalog">Katalog</Link><ChevronRight size={13}/>{productCategoryPath.length?productCategoryPath.map(node=><span key={node.id}><Link href={`/katalog?category=${node.slug}`}>{node.name}</Link><ChevronRight size={13}/></span>):category&&<><Link href={`/katalog?category=${category.slug}`}>{category.name}</Link><ChevronRight size={13}/></>}<span aria-current="page">{title} {product.brand} {displayPartNumber}</span></nav>
     <div className="pdp-hero">
       <div className="pdp-gallery">
         <div className="pdp-brand-row"><ManufacturerBadge brand={product.brand} logo={logos.get(product.brand)} className="pdp-brand-badge"/>{product.supplier === "demo" && <span className="pdp-demo">Sentetik örnek ürün</span>}</div>
@@ -78,11 +83,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           {isB2B && <span className="pdp-price-label">Servisine özel B2B fiyatı</span>}
           <p className="pdp-price">{price}</p>
           <p className="pdp-tax">KDV dahil <span/> <Link href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
-          <form action={updateCart} className="pdp-cart-form">
-            <input type="hidden" name="productId" value={product.id}/><input type="hidden" name="mode" value="add"/>
-            <label><span className="sr-only">Adet</span><select name="quantity" aria-label={`${product.code} için adet`} defaultValue={1} disabled={!product.available}>{Array.from({length: Math.min(product.max_quantity, 100)}, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></label>
-            <button disabled={!product.available}>{product.available ? "Sepete ekle" : "Stokta yok"}</button>
-          </form>
+          <PurchaseForm productId={product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} className="pdp-cart-form"/>
         </>}
         <div className="pdp-vehicle-check"><CircleAlert size={20}/><GarageButton vehicle={vehicle} variant="product"/></div>
         {vehicle?.vehicleId && enrichment?.vehicles.some(row => String(row.vehicleTypeId) === vehicle.vehicleId) && <p className="pdp-garage-match"><ClipboardCheck size={17}/>Garajındaki {vehicle.make} {vehicle.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}

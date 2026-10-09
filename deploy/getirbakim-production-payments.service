@@ -1,0 +1,12 @@
+[Unit]
+Description=Getirbakim production TAMI payment reconciliation
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/getirbakim-v2-production
+EnvironmentFile=/opt/getirbakim-v2-production/.env.production
+ExecStart=/usr/bin/curl -fsS --max-time 240 -X POST -H "Authorization: Bearer ${PAYMENT_RECONCILIATION_SECRET}" http://127.0.0.1:3004/api/payments/tami/reconcile
+TimeoutStartSec=5min
+UMask=0077

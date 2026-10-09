@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS commerce_settings (
  updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid REFERENCES accounts(id)
 );
 INSERT INTO commerce_settings(id) VALUES(true) ON CONFLICT DO NOTHING;
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
+ CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
 CREATE TABLE IF NOT EXISTS commerce_cart_items (
  owner_kind text NOT NULL CHECK(owner_kind IN ('account','guest')), owner_id text NOT NULL,
@@ -73,7 +75,7 @@ WITH latest AS (
  SELECT supplier,company,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
  FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
 ), supplier_prices AS (
- SELECT i.*,s.markup_percent,s.vat_percent,s.max_age_hours,
+ SELECT i.*,s.markup_percent,s.vat_percent,s.max_age_hours,s.basbug_checkout_mode,
  (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
  AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
  AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute')) AS source_fresh,
@@ -94,20 +96,62 @@ UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(product_data->>'ac2',''),
- CASE WHEN cost>0 AND exchange_rate>0 AND rate_at>now()-make_interval(hours=>max_age_hours)
- AND source_fresh
+ CASE WHEN cost>0 AND exchange_rate>0
+ AND (basbug_checkout_mode='snapshot' OR (rate_at>now()-make_interval(hours=>max_age_hours) AND source_fresh))
  AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
  THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END,
  NULL::integer,changed_at,COALESCE(product_data->>'oe',''),'supplier',company,
- source_fresh AND
+ (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
  99,
- CASE WHEN NOT source_fresh THEN 'Stok bilgisi güncelleniyor'
+ CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Kayıtlı stokta mevcut · Teyit bekliyor'
+ WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
  WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
  WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
  WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
  WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
  ELSE 'Stokta yok' END,
  jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
- 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at)
+ 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at,
+ 'checkout_mode',basbug_checkout_mode,'source_fresh',source_fresh,'company',company,'list_group',list_group,'warehouse',warehouse)
 FROM supplier_prices;
+-- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000
+ CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);
+-- Zero disables the free-shipping threshold.
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS free_shipping_threshold_kurus integer NOT NULL DEFAULT 150000
+ CHECK(free_shipping_threshold_kurus BETWEEN 0 AND 1000000000);
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS subtotal_kurus bigint;
+UPDATE commerce_orders SET subtotal_kurus=total_kurus WHERE subtotal_kurus IS NULL;
+ALTER TABLE commerce_orders ALTER COLUMN subtotal_kurus SET NOT NULL;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipping_kurus bigint NOT NULL DEFAULT 0 CHECK(shipping_kurus>=0);
+-- 'none' marks orders placed before online payment existed.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'none'
+ CHECK(payment_status IN ('none','awaiting','paid','expired','refund_required','refunded'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_due_at timestamptz;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS paid_at timestamptz;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_note text NOT NULL DEFAULT '';
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_reference text;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'
+  AND pg_get_constraintdef(oid) LIKE '%awaiting_payment%') THEN
+  ALTER TABLE commerce_orders DROP CONSTRAINT IF EXISTS commerce_orders_status_check;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_status_check
+   CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','cancelled'));
+ END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS commerce_orders_payment_due_idx ON commerce_orders(payment_due_at) WHERE status='awaiting_payment';
+-- One row per hosted-page attempt. provider_order_id is the orderId sent to TAMI and must never be reused.
+CREATE TABLE IF NOT EXISTS commerce_payments (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id),
+ provider text NOT NULL DEFAULT 'tami' CHECK(provider='tami'),
+ provider_order_id text NOT NULL UNIQUE,
+ amount_kurus bigint NOT NULL CHECK(amount_kurus>0),
+ status text NOT NULL DEFAULT 'initiated' CHECK(status IN ('initiated','pending','succeeded','abandoned')),
+ hosted_url text, failure_reason text, provider_result jsonb,
+ bank_reference text, bank_auth_code text, installment_count integer,
+ created_at timestamptz NOT NULL DEFAULT now(), checked_at timestamptz, paid_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
