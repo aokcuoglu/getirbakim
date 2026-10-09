@@ -5,8 +5,14 @@ import { applyForService } from "@/modules/auth/service-application";
 export const metadata: Metadata = { title: "Servis hesabı başvurusu | Getirbakim", robots: { index: false, follow: true } };
 export default async function Application({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const { sent, error } = normalizeSearchParams(await searchParams);
-  return <section className="shell page-section application-page"><Link href="/servisler" className="back">← Servisler için Getirbakim</Link><h1 className="page-title">Servis hesabına başvur.</h1>
-    {sent === "1" ? <><p className="notice" role="status">Başvurun alındı. Yeni başvurular servis bilgileri kontrol edildikten sonra değerlendirilir. Bu e-posta ile zaten bir hesabın varsa mevcut hesabını kullanabilirsin.</p><p>Başvurun onaylandıktan sonra belirlediğin şifreyle giriş yapabilirsin. Soruların için <a href="tel:+902163870078">0216 387 00 78</a> üzerinden bize ulaş.</p><Link href="/giris" className="button">Servis girişine git</Link></> : <>
+  return <section className="shell page-section application-page">
+    <Link href="/servisler" className="back">← Servisler için Getirbakim</Link>
+    <h1 className="page-title">Servis hesabına başvur.</h1>
+    {sent === "1" ? <>
+      <p className="notice" role="status">Başvurun alındı. Yeni başvurular servis bilgileri kontrol edildikten sonra değerlendirilir. Bu e-posta ile zaten bir hesabın varsa mevcut hesabını kullanabilirsin.</p>
+      <p>Başvurun onaylandıktan sonra belirlediğin şifreyle giriş yapabilirsin. Soruların için <a href="tel:+902163870078">0216 387 00 78</a> üzerinden bize ulaş.</p>
+      <Link href="/giris" className="button">Servis girişine git</Link>
+    </> : <>
       <p className="lead">Servisini tanıyalım, parça ihtiyaçlarına birlikte bakalım. B2B fiyatları yönetici onayından sonra açılır.</p>
       {error && <p className="error" role="alert">{error === "limit" ? "Başvuru deneme sınırına ulaşıldı. Bir saat sonra tekrar dene veya destek ekibimize ulaş." : "Alanları kontrol et. Şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı; telefon 10–15 rakam içermeli. Kullanım koşullarını kabul et."}</p>}
       <form action={applyForService} className="stack">
