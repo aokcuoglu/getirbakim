@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { db } from '../src/lib/db';
 import { getProduct,browseProducts } from '../src/modules/store/catalog';
 import { setCartQuantity,cartFor,type CartOwner } from '../src/modules/store/cart';
-import { submitOrder,cartQuote } from '../src/modules/store/orders';
+import { submitOrder,cartQuote,shippingRule } from '../src/modules/store/orders';
+process.env.TAMI_CHECKOUT_ENABLED='true';
 const owner:CartOwner={kind:'guest',id:randomUUID().replaceAll('-','')};
 let productId='', supplierFixture='';const orderIds:string[]=[];
 const input={requestKey:randomUUID(),quote:'',name:'Commerce verification',email:'commerce@example.invalid',phone:'5551234567',address:'Test address only, Istanbul',note:'Synthetic verification; delete after run'};
@@ -29,12 +30,14 @@ try {
  assert.equal(await setCartQuantity(owner,productId,2,true),false);
  assert.equal((await cartFor(owner))[0].quantity,2);
  assert.equal(await setCartQuantity(owner,p.id,2,true),true);
- let items=await cartFor(owner);assert.equal(items.length,2);input.quote=cartQuote(items,0);
+ let items=await cartFor(owner);assert.equal(items.length,2);const shipping=await shippingRule();input.quote=cartQuote(items,0,shipping);
  assert.equal((await submitOrder(owner,{...input,quote:'a'.repeat(64)})).error,'price');
  assert.equal((await cartFor(owner)).length,2);
  const results=await Promise.all([submitOrder(owner,input),submitOrder(owner,input)]);
  assert.ok(results[0].id);assert.equal(results[0].id,results[1].id);orderIds.push(results[0].id!);
- assert.equal((await cartFor(owner)).length,0);
+ // The cart is kept until the payment provider confirms the order.
+ assert.equal((await cartFor(owner)).length,2);
+ assert.equal((await db.query('SELECT status FROM commerce_orders WHERE id=$1',[results[0].id])).rows[0].status,'awaiting_payment');
  assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,1);
  assert.equal((await db.query('SELECT count(*) FROM commerce_order_items WHERE order_id=$1',[results[0].id])).rows[0].count,'2');
  const snapshot=(await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1 AND product_id=$2',[results[0].id,p.id])).rows[0].pricing_snapshot;
@@ -44,7 +47,7 @@ try {
  // A sold-out store product cannot produce an order.
  assert.equal(await setCartQuantity(owner,productId,1),true);
  items=await cartFor(owner);await db.query('UPDATE products SET stock=0 WHERE id=$1',[productId]);
- assert.equal((await submitOrder(owner,{...input,requestKey:randomUUID(),quote:cartQuote(items,0)})).error,'stock');
+ assert.equal((await submitOrder(owner,{...input,requestKey:randomUUID(),quote:cartQuote(items,0,shipping)})).error,'stock');
  // Anonymous public HTML must contain TRY prices and supplier purchasing controls.
  const base=process.env.VERIFY_URL || 'http://localhost:3000';
  const html=await (await fetch(`${base}/katalog?q=AE%20FOL214&searchBy=code`)).text();

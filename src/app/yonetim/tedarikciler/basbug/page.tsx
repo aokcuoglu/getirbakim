@@ -1,10 +1,15 @@
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
+import { SupplierRefreshAll } from "@/components/admin/supplier-refresh-all";
+import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import Link from "next/link";
 import { AdminPageHeader, StatusBadge } from "@/components/admin/ui";
 import { adminBasbugData } from "@/modules/admin/basbug";
-import { refreshBasbug } from "./actions";
+import { refreshBasbug, saveBasbugCheckoutMode } from "./actions";
+import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
+import { money } from "@/modules/store/catalog";
+import { PurchaseForm } from "@/components/purchase-form";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 }).format(value);
@@ -13,10 +18,12 @@ const rate = (value: string) => value.includes(".") ? value.replace(/0+$/, "").r
 const date = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
 const errors: Record<string, string> = {
   rejected: "Ürün sayısı veya veri eksikliği güvenlik eşiğini aştı. Çekim inceleme için reddedildi; güncel veriler korunuyor.",
+  paused: "Başbuğ API çekimleri durduruldu. Mevcut veriler korunuyor.",
   busy: "Bir aktarım zaten devam ediyor. Biraz sonra yeniden deneyin.",
   config: "Başbuğ bağlantı bilgilerini kontrol edin.",
   contract: "İstek veya yanıt beklenen veri yapısına uymadı. Önceki veriler korunuyor.",
   upstream: "Başbuğ verileri alınamadı. Önceki veriler korunuyor; yeniden deneyebilirsiniz.",
+  mode: "Sipariş veri kaynağını kontrol edin.",
 };
 
 function runError(reason: string) {
@@ -26,12 +33,18 @@ function runError(reason: string) {
   if (reason === "worker-interrupted") return "İşlem tamamlanmadan kesildi";
   if (reason.startsWith("config")) return "Bağlantı ayarları eksik veya geçersiz";
   if (reason.startsWith("contract")) return "Yanıt veri yapısı doğrulanamadı";
+  if (reason.startsWith("upstream:")) {
+    const stage = reason.split(":")[1]?.trim();
+    const service = ({ Auth: "Oturum açma", ListeGrubuGetir: "Grup listesi", MalzemeleriGetir: "Ürün listesi", FiyatGetir: "Fiyat", StokGetir: "Stok", DovizBilgisiGetir: "Kur" } as Record<string, string>)[stage];
+    if (service) return `${service} servisi: ${reason.endsWith(": timeout") ? "yanıt zaman aşımına uğradı" : reason.match(/HTTP \d{3}$/)?.[0] || "veri alınamadı"}`;
+  }
   return "Servis veya kayıt işlemi tamamlanamadı";
 }
 
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await adminBasbugData(params);
+  const checkoutMode = await supplierCheckoutMode();
   const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
   function pageUrl(target: number) {
     const query = new URLSearchParams({ group, page: String(target) });
@@ -42,10 +55,13 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     <AdminPageHeader breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "Başbuğ" }]} eyebrow="Tedarikçi verileri" title="Başbuğ" description="Ürün, kaynak fiyat ve depo stok verilerini incele." actions={<StatusBadge tone="info">Başbuğ API · MRK</StatusBadge>}/>
     {params.updated === "1" && <p className="notice" role="status">Veriler API’den çekildi ve güncel kayıtlar yenilendi.</p>}
     {params.error && <p className="error" role="alert">{errors[params.error] || errors.upstream}</p>}
-    {!data.health.heartbeat?.alive && <p className="error" role="alert">Otomatik çekim zamanlayıcısından güncel çalışma sinyali alınamıyor. Bilgisayarın açık olduğunu ve zamanlayıcının çalıştığını kontrol edin.</p>}
-    {data.health.scopes.some(scope => (!group || scope.list_group===group) && scope.commerce_failures>0) && <p className="error" role="alert">Fiyat, stok veya kur güncellemesi başarısız olan gruplar var. Otomatik yeniden deneme planlandı; ayrıntılar çekim geçmişinde.</p>}
-    {data.stale && <p className="error" role="alert">Veriler güncellik süresini aştı. Son başarılı çekim ve zamanlayıcı kontrol edilmeli.</p>}
-    {Boolean(data.sync?.consecutive_failures) && <p className="error" role="alert">Art arda {data.sync?.consecutive_failures} çekim başarısız. Son başarılı veriler gösteriliyor.</p>}
+    {params.modeSaved === "1" && <p className="notice" role="status">Sipariş veri kaynağı kaydedildi.</p>}
+    <section className="panel supplier-commerce-mode" aria-labelledby="supplier-commerce-title">
+      <div><h2 id="supplier-commerce-title">Sepet ve sipariş</h2><p>{checkoutMode === "snapshot" ? "Kayıtlı fiyat, kur ve stok verileri kullanılıyor. Siparişte API çağrısı yapılmaz; kayıtlar stok ve fiyat teyidi bekler." : "Sipariş sırasında Başbuğ API’sinden fiyat ve stok doğrulanır. Güncellik sınırını aşan kayıtlar satışa kapanır."}</p><Link href="/sepet">Sepeti aç →</Link> · <Link href="/yonetim/siparisler">Siparişleri yönet →</Link></div>
+      <form action={saveBasbugCheckoutMode}><label>Sipariş veri kaynağı<select name="checkoutMode" defaultValue={checkoutMode}><option value="snapshot">Kayıtlı veriler · Bakım süresince</option><option value="live">Canlı API doğrulaması</option></select></label><button>Kaydet</button></form>
+    </section>
+    <SupplierHealthStatus health={data.health} group={group} refresh={refreshBasbug}/>
+    <SupplierRefreshAll groups={knownGroups.map(group => group.kod)}/>
     <SupplierTabs key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<>
     <section className="supplier-import-section"><div className="supplier-section-title"><div><h2>Kaynağı güncelle</h2><p>Başbuğ API’sinden çekilecek grubu seç. Bu seçim ürün filtrelerinden bağımsızdır.</p></div><span className="supplier-chip">API · MRK deposu</span></div>    <details className="panel supplier-run-history"><summary>Senkronizasyon ve çekim geçmişi <span>Son {data.recentRuns.length} işlem</span></summary>
       <div className="supplier-sync-overview"><span>Zamanlayıcı: {data.health.heartbeat?.alive ? "Çalışıyor" : "Çalışma sinyali yok"}</span><span>Son kontrol: {data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "Henüz tamamlanmadı"}</span></div>
@@ -87,11 +103,12 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </form>
     {!snapshot ? <div className="empty"><h2>Bu grubun verileri henüz çekilmedi.</h2><p>Veri aktarımı sekmesinden liste grubunu seçip API’den çekebilirsiniz.</p></div> : <>
       <div className="supplier-results"><div className="results-heading"><span>{number(total)} ürün · Sayfa {page} / {pages}</span><span>{group || "Tüm liste grupları"} · MRK</span></div>
-      {items.length ? <div className="supplier-table-wrap" role="region" aria-label="Başbuğ ürün tablosu" tabIndex={0}><table className="supplier-table"><caption className="sr-only">Başbuğ ürünleri ve kaynak fiyat/stok alanları</caption><thead><tr><th>Parça / OEM</th><th>Ürün / Marka</th><th>Para birimi</th><th>LF</th><th>NF</th><th>MIF</th><th>K</th><th>MRK sinyali</th><th>Kontrol</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
+      {items.length ? <div className="supplier-table-wrap" role="region" aria-label="Başbuğ ürün tablosu" tabIndex={0}><table className="supplier-table"><caption className="sr-only">Başbuğ ürünleri ve kaynak fiyat/stok alanları</caption><thead><tr><th>Parça / OEM</th><th>Ürün / Marka</th><th>Para birimi</th><th>LF</th><th>NF</th><th>MIF</th><th>K</th><th>MRK sinyali</th><th>Kontrol</th><th>Satış · KDV dahil</th></tr></thead><tbody>{items.map(item => <tr key={item.id}>
         <td><Link className="supplier-code" href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>{item.code}</Link><small>OEM: {item.product_data.oe || "—"}</small></td>
         <td><strong>{item.product_data.ac}</strong><small>{item.product_data.uk} · {item.product_data.ac2}</small></td>
         <td>{item.product_data.dc}</td><td>{number(item.product_data.lf)}</td><td>{item.price_data ? number(item.price_data.nf) : "Eksik"}</td><td>{item.price_data ? number(item.price_data.mif) : "Eksik"}</td><td>{item.price_data?.k ?? "—"}</td><td>{item.stock_data?.stok ?? "Eksik"}<small>Adet doğrulanmadı</small></td>
         <td>{item.presence !== "present" ? (item.presence === "inactive" ? "Pasif" : "Listede bulunamadı") : item.conflicting ? "Çelişkili" : !item.price_data ? "Fiyat eksik" : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? "Tekrar var" : "—"}<small><Link href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>Detay →</Link></small></td>
+        <td className="supplier-purchase-cell"><strong>{item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"}</strong><small>{item.sale_stock_label}</small><PurchaseForm productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)} maxQuantity={99} className="supplier-purchase"/></td>
       </tr>)}</tbody></table></div> : <div className="empty"><h2>Filtrelere uygun ürün bulunamadı.</h2><p>Aramayı veya filtreleri değiştirebilirsiniz.</p></div>}
       <nav className="supplier-pagination" aria-label="Ürün sayfaları"><Link aria-disabled={page === 1} href={pageUrl(Math.max(1,page-1))}>← Önceki</Link><div>{Array.from(new Set([1, ...Array.from({length:5},(_,i)=>Math.max(1,Math.min(page-2,pages-4))+i),pages])).filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b).map((n,i,ns)=><span key={n}>{i>0 && n-ns[i-1]>1 && <span className="pagination-gap">…</span>}<Link aria-current={n===page ? "page" : undefined} href={pageUrl(n)}>{n}</Link></span>)}</div><Link aria-disabled={page === pages} href={pageUrl(Math.min(pages,page+1))}>Sonraki →</Link><form action="/yonetim/tedarikciler/basbug">{Object.entries(params).filter(([key])=>!["page","updated","error"].includes(key)).map(([key,value])=><input key={key} type="hidden" name={key} value={value || ""}/>)}<label>Sayfaya git<input aria-label="Sayfa numarası" type="number" name="page" min={1} max={pages} defaultValue={page}/></label><button>Git</button></form></nav></div>
     </>}</SupplierBrowser>
