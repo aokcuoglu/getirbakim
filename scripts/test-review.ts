@@ -6,7 +6,7 @@ import { createServiceSchema, loginSchema, serviceApplicationSchema } from "../s
 
 test("repeated URL keys use the first value, and invalid filters never reach catalog queries", () => {
   assert.deepEqual(normalizeSearchParams({ q: ["first", "second"], brand: [], page: "2" }), { q: "first", brand: undefined, page: "2" });
-  const query = parseCatalogQuery({ q: ["  first  ", "second"], category: "unknown", sort: "invalid", page: "Infinity", searchBy: "code" });
+  const query = parseCatalogQuery({ q: ["  first  ", "second"], category: "Fren/../x", sort: "invalid", page: "Infinity", searchBy: "code" });
   assert.equal(query.q, "first");
   assert.equal(query.searchBy, "code");
   for (const key of ["category", "sort", "page"] as const) assert.equal(query[key], undefined);

@@ -1,0 +1,23 @@
+/* /automakers: brand tiles share geometry with the home page make grid. */
+.automakers-body{padding-block:24px 64px}
+.automakers-body h1{font-size:32px;line-height:40px;font-weight:600;letter-spacing:-.5px;margin:16px 0 8px}
+.automakers-lead{color:var(--muted);font-size:15px;line-height:22px;margin:0 0 32px;max-width:720px}
+.automakers-body h2{font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.4px;margin:32px 0 16px}
+.automakers-grid{display:grid;gap:16px;grid-template-columns:repeat(6,minmax(0,1fr));list-style:none;margin:0;padding:0}
+.automakers-grid a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:88px;padding:10px;background:white;border:1px solid var(--line);border-radius:6px;font-size:12px;line-height:16px;font-weight:500;color:var(--ink);text-align:center}
+.automakers-grid a:hover{color:#0077c7;border-color:var(--blue)}
+.automakers-grid img{width:92px;height:42px;max-width:100%;object-fit:contain}
+.automakers-grid span{max-width:100%;overflow-wrap:anywhere}
+.automakers-grid .automaker-monogram{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#f4f6f8;color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.5px}
+.automakers-letters{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px;position:sticky;top:0;background:white;padding-block:8px;z-index:1}
+.automakers-letters a{min-width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--line);border-radius:4px;font-size:13px;font-weight:600;color:var(--ink)}
+.automakers-letters a:hover{border-color:var(--blue);color:#0077c7}
+.automakers-group{scroll-margin-top:56px}
+.automakers-group h3{font-size:18px;line-height:24px;font-weight:600;margin:24px 0 12px}
+@media (max-width:1024px){.automakers-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:768px){
+ .automakers-body h1{font-size:26px;line-height:32px}
+ .automakers-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+ .automakers-grid a{height:80px}
+ .automakers-letters{flex-wrap:nowrap;overflow-x:auto}
+}

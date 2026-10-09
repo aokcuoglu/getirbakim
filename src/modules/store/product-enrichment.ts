@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
+import {catalogSpecifications} from "./catalog-filters";
 
 export type CatalogProductImage = { src: string; width: number; height: number };
 
@@ -75,4 +76,16 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     partNumber: row.manufacturer_part_number,
     imagePath: row.image_id ? `/api/product-media/${row.image_id}` : null,
   };
+}
+
+export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){
+ const details=new Map<string,{specifications:[string,string][];vehicleSpecific:boolean;partNumber:string}>();
+ if(!products.length)return details;
+ const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,COALESCE(s.product_data->>'oe','') AS current_oem FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=$2 AND s.presence='present'",[products.map(p=>p.id),process.env.BASBUG_FIRMA_ADI||'BASBUG'])).rows;
+ for(const row of rows){
+  const product=products.find(p=>p.id===row.supplier_item_id),data=enrichmentDataSchema.safeParse(row.payload),basis=matchBasisSchema.safeParse(row.match_basis);
+  if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({...product,oem:row.current_oem},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
+  details.set(product.id,{specifications:catalogSpecifications(data.data.specifications,basis.data.type==='exact_part'),vehicleSpecific:data.data.vehicles.length>0,partNumber:basis.data.type==='exact_part'?row.manufacturer_part_number:product.code});
+ }
+ return details;
 }

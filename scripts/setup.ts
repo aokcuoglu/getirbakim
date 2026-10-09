@@ -20,6 +20,8 @@ try {
   await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
   await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
   await client.query(await readFile("db/product-fitments.sql", "utf8"));
+  await client.query(await readFile("db/source-categories.sql", "utf8"));
+  await client.query(await readFile("db/newsletter.sql", "utf8"));
   await client.query("COMMIT");
  } catch (error) { await client.query("ROLLBACK"); throw error; }
  finally { client.release(); }

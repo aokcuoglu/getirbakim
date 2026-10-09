@@ -4,7 +4,7 @@ export function validSourcePath(host:string,path:string,kind:string) {
  if(path.length>2000 || !path.startsWith('/') || path.startsWith('//') || /[\r\n\\]/.test(path)) return false;
  if(host==='picdn.trodo.com') return kind==='image' && /^\/media\/m2_catalog_cache\/(?:480|1440)x(?:480|1440)/.test(path);
  if(host!=='www.trodo.com') return false;
- if(kind==='json') return /^\/rest\/V1\/(?:catalogsearch\/result\/0\?|catalog-product-api\/(?:product-url\/[^/]+\/IE|view-data\/\d+\/IE)$|vehicle\/(?:models|type)\/1\/\d+$)/.test(path);
+ if(kind==='json') return /^\/rest\/V1\/(?:catalogsearch\/(?:result\/0|oem\/[A-Z0-9]{1,60})\?|catalog-product-api\/(?:product-url\/[^/]+\/IE|view-data\/\d+\/IE)$|vehicle\/(?:models|type)\/1\/\d+$)/.test(path);
  if(kind==='logo') return /^\/media\/manufacturer_(?:source|cache)\/\d+\//.test(path);
  return kind==='html' && /^\/[a-z0-9][a-z0-9-]+$/.test(path);
 }
@@ -14,7 +14,9 @@ export function retryAfterMs(value:string|null,now=Date.now()) {
  if(Number.isFinite(seconds)&&seconds>=0) return seconds*1000;
  const date=Date.parse(value);return Number.isFinite(date)?Math.max(0,date-now):0;
 }
-export function sourceDecision(status:number,attempt:number,retryAfter:string|null,now=Date.now()) {
+export function sourceDecision(status:number,attempt:number,retryAfter:string|null,now=Date.now(),challenge=false) {
+ // A Cloudflare browser check is cleared by revisiting the site, not by retrying the request.
+ if(challenge&&[403,429,503].includes(status)) return {action:'challenge' as const,waitMs:0};
  if([401,403].includes(status)) return {action:'block' as const,waitMs:0};
  if(status===429 || status===503 || status===0 || status>=500) {
   return {action:attempt>=4?'block' as const:'retry' as const,waitMs:Math.max(retryAfterMs(retryAfter,now),Math.min(900000,60000*2**(attempt-1)))};
