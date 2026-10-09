@@ -7,7 +7,15 @@ export BUILD_VERSION="$(git rev-parse --short=12 HEAD)"
 compose=(docker compose --env-file .env.production -f deploy/production.compose.yml)
 case "${1:-}" in
   supplier-sync)
-    exec "${compose[@]}" run --rm --no-deps operations node --import tsx scripts/sync-suppliers.ts
+    shift
+    exec "${compose[@]}" run --rm --no-deps -T operations node --import tsx scripts/sync-suppliers.ts "$@"
+    ;;
+  supplier-health)
+    exec "${compose[@]}" run --rm --no-deps -T operations node --import tsx scripts/supplier-health.ts
+    ;;
+  supplier-configure)
+    shift
+    exec "${compose[@]}" run --rm --no-deps -T operations node --import tsx scripts/configure-supplier-sync.ts "$@"
     ;;
   backup)
     mkdir -p .local/backups
@@ -17,5 +25,5 @@ case "${1:-}" in
     mv "${target}.partial" "$target"
     find .local/backups -maxdepth 1 -type f -name 'daily-*.dump' -mtime +14 -delete
     ;;
-  *) echo 'Usage: production-task.sh supplier-sync|backup' >&2; exit 2 ;;
+  *) echo 'Usage: production-task.sh supplier-sync [--force [--group=A,B] [--mode=full|commerce]]|supplier-health|supplier-configure --group=ALL ...|backup' >&2; exit 2 ;;
 esac

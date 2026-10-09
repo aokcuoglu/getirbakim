@@ -129,6 +129,19 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "upstream");
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_imports WHERE status='failed'")).rows[0].count),1);
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_items WHERE presence='present'")).rows[0].count),5);
+    const successfulFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("ListeGrubuGetir")) throw new DOMException("sensitive response must not be stored", "TimeoutError");
+      return successfulFetch(input, init);
+    };
+    fail=false;
+    await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "upstream");
+    assert.equal((await client.query("SELECT error_reason FROM supplier_imports ORDER BY started_at DESC LIMIT 1")).rows[0].error_reason,"upstream: ListeGrubuGetir: timeout");
+    globalThis.fetch = async (input, init) => String(input).includes("FiyatGetir") ? new Response("sensitive body",{status:503}) : successfulFetch(input, init);
+    await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "upstream");
+    assert.equal((await client.query("SELECT error_reason FROM supplier_imports ORDER BY started_at DESC LIMIT 1")).rows[0].error_reason,"upstream: FiyatGetir: HTTP 503");
+    assert.equal(Number((await client.query("SELECT count(*) FROM supplier_items WHERE presence='present'")).rows[0].count),5);
+    globalThis.fetch = successfulFetch;
     fail=false; codes=["A"];
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "rejected");
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_imports WHERE status='rejected'")).rows[0].count),1);
