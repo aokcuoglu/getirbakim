@@ -9,17 +9,31 @@
 .login>.muted {
   margin-top: 25px
 }
+.account-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(33,43,54,.5);
+  cursor: default
+}
+.account-menu-backdrop:hover {
+  background: rgba(33,43,54,.5);
+  border: 0
+}
 .account-popover {
   position: absolute;
-  right: 0;
-  top: calc(100% + 18px);
-  width: 340px;
+  left: -64px;
+  top: calc(100% + 6px);
+  width: 285px;
   max-width: calc(100vw - 30px);
   background: white;
-  border-radius: 16px;
+  border-radius: 3px;
   box-shadow: var(--popup-shadow);
   border: 1px solid #e6e9ec;
-  padding: 24px;
+  padding: 20px;
   z-index: 50;
   text-align: left
 }
@@ -27,7 +41,7 @@
   content: "";
   position: absolute;
   top: -7px;
-  right: 45px;
+  left: 71px;
   background: white;
   border-top: 1px solid #e6e9ec;
   border-left: 1px solid #e6e9ec;
@@ -50,7 +64,27 @@
   display: flex;
   width: 100%;
   margin-top: 12px;
-  font-size: 14px
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 3px;
+  font-size: 12px
+}
+.account-popover .button.outline {
+  border-color: var(--control-border);
+  color: var(--ink)
+}
+.account-popover .button.outline:not(:focus-visible) {
+  outline: none
+}
+@media (min-width:601px) and (max-width:1100px) {
+.account-popover {
+  left: auto;
+  right: 0
+}
+.account-popover:before {
+  left: auto;
+  right: 10px
+}
 }
 @media (max-width:600px) {
 .account-popover {
@@ -59,25 +93,26 @@
   right: 15px;
   top: 90px;
   width: auto;
-  max-width: none
+  max-width: none;
+  max-height: calc(100dvh - 105px);
+  overflow-y: auto
 }
 .account-popover:before {
   display: none
 }
 }
-/* Trodo's shared login/register modal: 1020 px, equal columns, 622 px minimum. */
 .account-popover > .button:first-child {
   margin-top: 0
 }
 .account-menu-benefits {
   list-style: none;
   padding: 0;
-  margin: 26px 0 0
+  margin: 24px 0 0
 }
 .account-menu-benefits li {
   display: flex;
-  gap: 12px;
-  padding: 16px 0;
+  gap: 10px;
+  padding: 12px 0;
   border-top: 1px solid var(--line)
 }
 .account-menu-benefits li:first-child {
@@ -92,15 +127,17 @@
   stroke-width: 1.5
 }
 .account-menu-benefits b {
-  font-size: 14px;
+  display: block;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 20px
-}
-.account-menu-benefits p {
-  margin: 4px 0 0;
-  font-size: 13px;
   line-height: 18px
 }
+.account-menu-benefits p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 16px
+}
+/* Trodo's shared login/register modal: 1020 px, equal columns, 622 px minimum. */
 .auth-modal {
   position: fixed;
   inset: 0;

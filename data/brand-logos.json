@@ -1,0 +1,1770 @@
+{
+  "vehicles": {
+    "VOLKSWAGEN": {
+      "src": "/media/logos/vehicles/volkswagen.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/volkswagen-logo.svg",
+      "sha256": "e5cbdb423205b23dd6edb791dddb7da4da4e19e0371a79f66635ccb65e101319"
+    },
+    "AUDI": {
+      "src": "/media/logos/vehicles/audi.webp",
+      "width": 320,
+      "height": 111,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/audi-logo.svg",
+      "sha256": "bc983d4b43499442f1f1efc678d9c729401c3291130073fa2d5c744550b4c53a"
+    },
+    "TOYOTA": {
+      "src": "/media/logos/vehicles/toyota.webp",
+      "width": 120,
+      "height": 78,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/toyota-logo.svg",
+      "sha256": "b62ed9e902b6f8e6ab8ebbb13287877631a516dcf2541645f0db3654a7c888cc"
+    },
+    "BMW": {
+      "src": "/media/logos/vehicles/bmw.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/bmw-logo.svg",
+      "sha256": "c376749d59816ff0297144ae0d30936661a241e3069fae747567caa56598e2fd"
+    },
+    "OPEL": {
+      "src": "/media/logos/vehicles/opel.webp",
+      "width": 184,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/opel-logo.svg",
+      "sha256": "04877f9180cce7af7762005a5f1be643b609c7bb3fd10f986909bc238f83ff0a"
+    },
+    "VOLVO": {
+      "src": "/media/logos/vehicles/volvo.webp",
+      "width": 147,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/volvo-logo.svg",
+      "sha256": "c13fefb0f1c34674acc2e7a7b8910741e10a2961cb84032157089961dae2ff16"
+    },
+    "SKODA": {
+      "src": "/media/logos/vehicles/skoda.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/skoda-logo.svg",
+      "sha256": "28aa6aa7bc29a38f02b296e2f42c7cd80b73d6e9125249bd668fec0641904d91"
+    },
+    "RENAULT": {
+      "src": "/media/logos/vehicles/renault.webp",
+      "width": 109,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/renault-logo.svg",
+      "sha256": "0eb7c57baad423c4d318f3c15dadf44b09f22f1a13e5e5e28e4fd1a7c1ae714d"
+    },
+    "MERCEDES-BENZ": {
+      "src": "/media/logos/vehicles/mercedes-benz.webp",
+      "width": 145,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mercedes-benz-logo.svg",
+      "sha256": "44b06103b74c92bb6cdd77c52a4595655cf7f43776b301c056b78691dff356fd"
+    },
+    "PEUGEOT": {
+      "src": "/media/logos/vehicles/peugeot.webp",
+      "width": 130,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/peugeot-logo.svg",
+      "sha256": "a73f2f58266aa696e1b857b78eb7978886db356974787a35859bd7758a7acf67"
+    },
+    "FORD": {
+      "src": "/media/logos/vehicles/ford.webp",
+      "width": 150,
+      "height": 56,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ford-logo.png",
+      "sha256": "3c39cee99f673cdb8cb765b831f1e792f9fa4ce90e96433406f723cdd43d4184"
+    },
+    "KIA": {
+      "src": "/media/logos/vehicles/kia.webp",
+      "width": 320,
+      "height": 76,
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/kia.svg",
+      "sha256": "1021e9190be134c2116647ef664ad540246df1092bcb84f4508b4128e6d73c73"
+    },
+    "HYUNDAI": {
+      "src": "/media/logos/vehicles/hyundai.webp",
+      "width": 282,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/hyundai-logo.svg",
+      "sha256": "195e9afabc220354ad75b58aee76e592cf8cb18bdcb08c6dfedcc79a05684ff2"
+    },
+    "SUBARU": {
+      "src": "/media/logos/vehicles/subaru.webp",
+      "width": 150,
+      "height": 74,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/subaru-logo.png",
+      "sha256": "ba497f5ef6efbf8731cbb723b6869d76018ceaf7aef9f9d40387d9a81b814f17"
+    },
+    "MAZDA": {
+      "src": "/media/logos/vehicles/mazda.webp",
+      "width": 162,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mazda-logo.svg",
+      "sha256": "b23823c665cffb7978daf941f10dcb73fc1c5e987d2311015e3c251e4c910842"
+    },
+    "CITROËN": {
+      "src": "/media/logos/vehicles/citroen.webp",
+      "width": 115,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/citroen-logo.svg",
+      "sha256": "3d73a96e7460217a942ff8b635289e48ed89660106dd5524e55ae56f38a35b1b"
+    },
+    "NISSAN": {
+      "src": "/media/logos/vehicles/nissan.webp",
+      "width": 172,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/nissan-logo.svg",
+      "sha256": "a6ce619b92f22984e0df4220a763a0922e22adf33b7388166e775ce8d1ef91a3"
+    },
+    "LEXUS": {
+      "src": "/media/logos/vehicles/lexus.webp",
+      "width": 150,
+      "height": 107,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/lexus-logo.png",
+      "sha256": "5ef6fb492d0b85271d55bfb9a3a4e8523d3c6c0b5d66e56270aada30da5696c0"
+    },
+    "HONDA": {
+      "src": "/media/logos/vehicles/honda.webp",
+      "width": 150,
+      "height": 122,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/honda-logo.png",
+      "sha256": "4bacdfc29d0b59588d0372221f33bd461680d344bb4e3722e8eeab7ed6dc790a"
+    },
+    "SEAT": {
+      "src": "/media/logos/vehicles/seat.webp",
+      "width": 195,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/seat-logo.svg",
+      "sha256": "0b04d4e49853f9f57af417b824c0452d1245b7560f5d1a05244953d5e4adad5a"
+    },
+    "FIAT": {
+      "src": "/media/logos/vehicles/fiat.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/fiat-logo.svg",
+      "sha256": "1d30f7ecc7f1e39ff383def38ee2e9d9227c602a1d2029e104752b7f33cf66d8"
+    },
+    "SUZUKI": {
+      "src": "/media/logos/vehicles/suzuki.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/suzuki-logo.svg",
+      "sha256": "aeb7ccecf68ba8d8675c9bf41d200d1e8b8829e11e1cb5917161b4cf19baee73"
+    },
+    "JEEP": {
+      "src": "/media/logos/vehicles/jeep.webp",
+      "width": 320,
+      "height": 129,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/jeep-logo.svg",
+      "sha256": "98c046320f9ddf443fd73cb869fa515e7db10354b5ad89c27f6b9696985a844e"
+    },
+    "LAND ROVER": {
+      "src": "/media/logos/vehicles/land-rover.webp",
+      "width": 274,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/land-rover-logo.svg",
+      "sha256": "5f3eeacfb83673ccbb39bae4ba6d41a45e3827db0de89538bb8023393b6745fd"
+    },
+    "MITSUBISHI": {
+      "src": "/media/logos/vehicles/mitsubishi.webp",
+      "width": 167,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mitsubishi-logo.svg",
+      "sha256": "42eaad8efdba8f663328995fd62fdd6424c21a9d238f799f50e0372a492ab560"
+    },
+    "CHEVROLET": {
+      "src": "/media/logos/vehicles/chevrolet.webp",
+      "width": 150,
+      "height": 43,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/chevrolet-logo.png",
+      "sha256": "4bfa5162ec9a57fa74336b4f18d6bb50e2d675f44bf5cf119937d41a266a2497"
+    },
+    "DACIA": {
+      "src": "/media/logos/vehicles/dacia.webp",
+      "width": 264,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/dacia-logo.svg",
+      "sha256": "840080cf6accfb3f232294ea2cd603654e8917991df4dba8bcfd3b710b458198"
+    },
+    "CHRYSLER": {
+      "src": "/media/logos/vehicles/chrysler.webp",
+      "width": 320,
+      "height": 52,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/chrysler-logo.svg",
+      "sha256": "c548acb130cbaeebc1d0efbd002dcfe418201620a0d4cbb7a2ecf3a7699f96b0"
+    },
+    "ALFA ROMEO": {
+      "src": "/media/logos/vehicles/alfa-romeo.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/alfa-romeo-logo.svg",
+      "sha256": "d9ac33c4330d28ffc1225434d0f2803620ab51f83864cf4c54e9a955e9825087"
+    },
+    "JAGUAR": {
+      "src": "/media/logos/vehicles/jaguar.webp",
+      "width": 282,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/jaguar-logo.svg",
+      "sha256": "05d648de8d67691453cc7d2e70b0e9e8007ca1a914cf6e4d74b99dbc836b22fa"
+    },
+    "PORSCHE": {
+      "src": "/media/logos/vehicles/porsche.webp",
+      "width": 116,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/porsche-logo.svg",
+      "sha256": "8a097895f5baccbd8b395b47423284cce12da6840ac9563c9b3c3e67bb7c6f4b"
+    },
+    "TESLA": {
+      "src": "/media/logos/vehicles/tesla.webp",
+      "width": 145,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/tesla-logo.svg",
+      "sha256": "6153c59db8f46852e2de7b31305e7661a2e807f2a2610e74f02e3ab4d00ca18b"
+    },
+    "DODGE": {
+      "src": "/media/logos/vehicles/dodge.webp",
+      "width": 150,
+      "height": 21,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/dodge-logo.png",
+      "sha256": "ae6656d3e17a7f57b293f97f23dd6fd36c49d0bd08d41c1eae9d28e75b709daf"
+    },
+    "BENTLEY": {
+      "src": "/media/logos/vehicles/bentley.webp",
+      "width": 320,
+      "height": 101,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/bentley-logo.svg",
+      "sha256": "383ea62a6faa5084557386e50cca0ec5ed7521b9b8fe29c4b655b58af968fd4b"
+    },
+    "MINI": {
+      "src": "/media/logos/vehicles/mini.webp",
+      "width": 320,
+      "height": 135,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mini-logo.svg",
+      "sha256": "35676d5f991c6cc51e942386a94e44fddcec769437ea33e2bd331167a2582732"
+    },
+    "CUPRA": {
+      "src": "/media/logos/vehicles/cupra.webp",
+      "width": 219,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/cupra-logo.svg",
+      "sha256": "9ea78a59b887157bdf8f881296da73629c90a39f8e691ea1c6eb77e5fdf34619"
+    },
+    "ABARTH": {
+      "src": "/media/logos/vehicles/abarth.webp",
+      "width": 128,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/abarth-logo.svg",
+      "sha256": "8c2d91544c621a4f64cb48ea151e216559e3b065227f8f846decc3c8a6d1aa9a"
+    },
+    "AC": {
+      "src": "/media/logos/vehicles/ac.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/ac.png",
+      "sha256": "86f030de150d31323555ed3572ecbd0e047609e9c1168b670ccdb2f5eba2b9ba"
+    },
+    "ACURA": {
+      "src": "/media/logos/vehicles/acura.webp",
+      "width": 266,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/acura-logo.svg",
+      "sha256": "b983806bed2cb321ef721c932e07eeeee6600ef288856776d1e40a74ebd4d5af"
+    },
+    "AIWAYS": {
+      "src": "/media/logos/vehicles/aiways.webp",
+      "width": 238,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/aiways-logo.svg",
+      "sha256": "882e31eca3a3a10f84f786cc297c7d82b9a23e80504f902e8706724e2e5e075d"
+    },
+    "AIXAM": {
+      "src": "/media/logos/vehicles/aixam.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/aixam-logo.svg",
+      "sha256": "944fbe0368981477a89b0b5325fb160fb9d646415b7a77927325b440a22b8290"
+    },
+    "ALPINA": {
+      "src": "/media/logos/vehicles/alpina.webp",
+      "width": 145,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/alpina-logo.svg",
+      "sha256": "fb604a848a303dced47c108663d3900959e5c7dfff65015daf963afd1c6b1782"
+    },
+    "ALPINE": {
+      "src": "/media/logos/vehicles/alpine.webp",
+      "width": 271,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/alpine-logo.svg",
+      "sha256": "2549b5e86cd511b3394afcb34a96d6574e44d9137824409eb5938d79b89b9f7d"
+    },
+    "AMC": {
+      "src": "/media/logos/vehicles/amc.webp",
+      "width": 168,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/amc.png",
+      "sha256": "4108f0462cb79200853f937aa31e60db9b5903630fb30d90d1e39835d7e983cc"
+    },
+    "ARO": {
+      "src": "/media/logos/vehicles/aro.webp",
+      "width": 114,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/aro-logo.svg",
+      "sha256": "8e8b9ac7ce37852c7196506c7f35929917b258287c5d7d5e18bac470e57f00ca"
+    },
+    "ARTEGA": {
+      "src": "/media/logos/vehicles/artega.webp",
+      "width": 102,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/artega.png",
+      "sha256": "b2ada43ce1a5d096e7c3c200c246a056e9a43b72d3007eecf89b6119984fcaff"
+    },
+    "ASTON MARTIN": {
+      "src": "/media/logos/vehicles/aston-martin.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/aston-martin-logo.svg",
+      "sha256": "8b6a07ae76e9cb4d85cd418a3457d04e49401e40d100ab87fe236d70ebc29e6d"
+    },
+    "AUSTIN": {
+      "src": "/media/logos/vehicles/austin.webp",
+      "width": 320,
+      "height": 99,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/austin-logo.svg",
+      "sha256": "f43a91b91f7bc71b16da0faa85843a199a9cef06d5286dde9285a963bc9ac730"
+    },
+    "AUTOBIANCHI": {
+      "src": "/media/logos/vehicles/autobianchi.webp",
+      "width": 142,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/autobianchi-logo.svg",
+      "sha256": "fd50336766803435b0d7637a4adf80ccd8fcf9112920a2fcf256cf20ed4a872f"
+    },
+    "BAC": {
+      "src": "/media/logos/vehicles/bac.webp",
+      "width": 310,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/bac-logo.svg",
+      "sha256": "5be35ac7259a204331a7f5b07e12aed0b68aede68e98b475b08531907c03e08a"
+    },
+    "BAIC": {
+      "src": "/media/logos/vehicles/baic.webp",
+      "width": 187,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/baic-logo.svg",
+      "sha256": "2e9abe83c69c47d8a40c380dc1978ab2e569bc59ee9e9c2818da3c19cfb35be7"
+    },
+    "BAW": {
+      "src": "/media/logos/vehicles/baw.webp",
+      "width": 230,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/baw-logo.svg",
+      "sha256": "ebccd89f5eb6b16e0d62c4294250e3ee9032494070ae49f87d71d91bd6346a61"
+    },
+    "BERTONE": {
+      "src": "/media/logos/vehicles/bertone.webp",
+      "width": 99,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/bertone-logo.svg",
+      "sha256": "35e881a8d44cf5d604f5d0285083a8262a0afff9f020747b7e736edebd8a783b"
+    },
+    "BESTUNE": {
+      "src": "/media/logos/vehicles/bestune.webp",
+      "width": 320,
+      "height": 137,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/bestune.png",
+      "sha256": "9513d9821ff42d9bed3ff91d87100368c91b12dd8dfa0806889cc7ee6503e10e"
+    },
+    "BITTER": {
+      "src": "/media/logos/vehicles/bitter.webp",
+      "width": 98,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/bitter.png",
+      "sha256": "f300a7e70c9856b2ea525924379e5dbcaba14fca039371253cc389444556f7b2"
+    },
+    "BORGWARD": {
+      "src": "/media/logos/vehicles/borgward.webp",
+      "width": 103,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/borgward.png",
+      "sha256": "d0f2f05a5b358c37ae9f7be4e7b945a2bcfa06857aef7fbf6057761c4373bfef"
+    },
+    "BRISTOL": {
+      "src": "/media/logos/vehicles/bristol.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/bristol.png",
+      "sha256": "f81c5773f941d56614a7751666b166d049355596a684a0fa8d41f9982bf6942f"
+    },
+    "BUGATTI": {
+      "src": "/media/logos/vehicles/bugatti.webp",
+      "width": 284,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/bugatti-logo.svg",
+      "sha256": "1cbd0eb944254f3ca9b3b85cd809e423b2aac8d15eec76c4c7f62b537fdba3cd"
+    },
+    "BUICK": {
+      "src": "/media/logos/vehicles/buick.webp",
+      "width": 320,
+      "height": 100,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/buick.png",
+      "sha256": "edc2ff702a078befa3c3209010a42f9f7cafff22ffb163047e9104fc15f55a57"
+    },
+    "BYD": {
+      "src": "/media/logos/vehicles/byd.webp",
+      "width": 320,
+      "height": 62,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/byd-logo.svg",
+      "sha256": "fc74e8fd4648559c534534f85085fe5833ea5777bceff5623d50318d00b3ca2a"
+    },
+    "CADILLAC": {
+      "src": "/media/logos/vehicles/cadillac.webp",
+      "width": 320,
+      "height": 131,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/cadillac.png",
+      "sha256": "02f026a5473aadbc9c1125fe65fcf9e1c07f0b3342939e0e6c7e6802f8bf2433"
+    },
+    "CALLAWAY": {
+      "src": "/media/logos/vehicles/callaway.webp",
+      "width": 320,
+      "height": 131,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/callaway-logo.svg",
+      "sha256": "714ce42176efb4132e9936c90a39b441a9063091c9dcb6997e918d8b606e26a6"
+    },
+    "CATERHAM": {
+      "src": "/media/logos/vehicles/caterham.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/caterham-logo.svg",
+      "sha256": "7521ca9bb7f4959051e9b8e0fa0da2c3a73b6a4febdda3b928171a1bb4b0ff53"
+    },
+    "CHANGAN": {
+      "src": "/media/logos/vehicles/changan.webp",
+      "width": 320,
+      "height": 87,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/changan.png",
+      "sha256": "713daf72da735546de16945629f99d063670203799ef9a0470166ba585af9de7"
+    },
+    "CHERY": {
+      "src": "/media/logos/vehicles/chery.webp",
+      "width": 267,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/chery.png",
+      "sha256": "6a396245ecccd9067d1bc87e5ee7c3f11650eabf696976320d369ed8ac12baab"
+    },
+    "DAEWOO": {
+      "src": "/media/logos/vehicles/daewoo.webp",
+      "width": 219,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/daewoo.png",
+      "sha256": "b8d5c319b700e0af9a2b276acbe3d904d555a356baab8d66768968750eae6d67"
+    },
+    "DAF": {
+      "src": "/media/logos/vehicles/daf.webp",
+      "width": 320,
+      "height": 141,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/daf.png",
+      "sha256": "60054a438d380a8985b6106b3505deee43b15af95719ed247b61f92f8b8b0f12"
+    },
+    "DAIHATSU": {
+      "src": "/media/logos/vehicles/daihatsu.webp",
+      "width": 320,
+      "height": 120,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/daihatsu-logo.svg",
+      "sha256": "7e4e0e11acfee6d63012fcdb835d86b27e2d89896edfae1160f2de785db06387"
+    },
+    "DAIMLER": {
+      "src": "/media/logos/vehicles/daimler.webp",
+      "width": 320,
+      "height": 97,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/daimler-logo.svg",
+      "sha256": "9c0cd694e639a04ff32253cfaefb52530361c933cd804f3138103d15817f976c"
+    },
+    "DE LOREAN": {
+      "src": "/media/logos/vehicles/de-lorean.webp",
+      "width": 320,
+      "height": 62,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/de-lorean-logo.svg",
+      "sha256": "16760333b6d8e5d30ae8fe733e0ab17d358f4583407cf5c16f80d94a9e75de2e"
+    },
+    "DE TOMASO": {
+      "src": "/media/logos/vehicles/de-tomaso.webp",
+      "width": 284,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/de-tomaso.png",
+      "sha256": "0ff9d7654fbf86209a5e9a7f9570345898b0aedc3d094236e6c811a936d51e10"
+    },
+    "DEEPAL": {
+      "src": "/media/logos/vehicles/deepal.webp",
+      "width": 117,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/deepal-logo.svg",
+      "sha256": "27287aa2719454c2167bcc9c7bb6841ecfe20d09d0c1cffadc89a2b4375e7f4c"
+    },
+    "DFSK": {
+      "src": "/media/logos/vehicles/dfsk.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/dfsk-logo.svg",
+      "sha256": "2b97e532c3a56c3904abfc7ea19bc1a6bcf0a039ee90290f06e9c87ec6932168"
+    },
+    "DONGFENG": {
+      "src": "/media/logos/vehicles/dongfeng.webp",
+      "width": 320,
+      "height": 59,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/dongfeng.png",
+      "sha256": "23b72975799544c41de1d2c2843139cb75b7bb810dba6f482ef91dfcc2c18fa7"
+    },
+    "DONKERVOORT": {
+      "src": "/media/logos/vehicles/donkervoort.webp",
+      "width": 320,
+      "height": 131,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/donkervoort.png",
+      "sha256": "7789328bf35c9e5c6d10faec76e39f3ff10a2ed807a579f96a67dd35fd42b4c0"
+    },
+    "DS": {
+      "src": "/media/logos/vehicles/ds.webp",
+      "width": 118,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ds-logo.svg",
+      "sha256": "2eb41076489dcbd3bc4c29cee4c5dc73e2cb34f06a3933e7df70f33612c89fa2"
+    },
+    "E.GO": {
+      "src": "/media/logos/vehicles/e-go.webp",
+      "width": 320,
+      "height": 119,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ego-logo.svg",
+      "sha256": "2360b7081cfb232de43b59a87392e5e99f163000e59a00ff5fdcf917d8a9528f"
+    },
+    "EMC": {
+      "src": "/media/logos/vehicles/emc.webp",
+      "width": 320,
+      "height": 89,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/emc-logo.svg",
+      "sha256": "49ba1b98fbcb86bd99e561b5773a0612e8f3e055841d66b3d535c4dc7278a2e3"
+    },
+    "EVO": {
+      "src": "/media/logos/vehicles/evo.webp",
+      "width": 320,
+      "height": 57,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/evo-logo.svg",
+      "sha256": "46386e945447027da457485167db6847ce80c8e6e2880787388b8465f8e53afe"
+    },
+    "FERRARI": {
+      "src": "/media/logos/vehicles/ferrari.webp",
+      "width": 77,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ferrari-logo.svg",
+      "sha256": "78d044efb60b0e9ce760218c749ea559f913a8ac62850daef7d4df3478cc8a35"
+    },
+    "FISKER": {
+      "src": "/media/logos/vehicles/fisker.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/fisker.png",
+      "sha256": "ef9f99251691e048e4ff09e5af1b957b9735ca9e3e9df5cd02cc831106d85b36"
+    },
+    "FOTON": {
+      "src": "/media/logos/vehicles/foton.webp",
+      "width": 320,
+      "height": 98,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/foton.png",
+      "sha256": "09ab587968a65dd9d6fd5b5e26222321b28ce95546b0382e8631ec66fb66e80a"
+    },
+    "FSO": {
+      "src": "/media/logos/vehicles/fso.webp",
+      "width": 320,
+      "height": 103,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/fso.png",
+      "sha256": "d26a69aae7f2eddf4c395a9643fe91d0a655def58ad703b0410129829af10236"
+    },
+    "GAZ": {
+      "src": "/media/logos/vehicles/gaz.webp",
+      "width": 129,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/gaz.png",
+      "sha256": "3d1114c2641ff71a5cb7b3f9d83ef7e50187f0e81cfb70b9980fc2d8476e3012"
+    },
+    "GEELY": {
+      "src": "/media/logos/vehicles/geely.webp",
+      "width": 320,
+      "height": 95,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/geely-logo.svg",
+      "sha256": "95521f90a6a9d3981132f0603c6015f9eff4d623f071a6e53f185340c5fa6bef"
+    },
+    "GENESIS": {
+      "src": "/media/logos/vehicles/genesis.webp",
+      "width": 320,
+      "height": 112,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/genesis-logo.svg",
+      "sha256": "090699c536bcc99817906a6e166c6377d69fa74d95e86ef77b11e3605b20022d"
+    },
+    "GEO": {
+      "src": "/media/logos/vehicles/geo.webp",
+      "width": 320,
+      "height": 86,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/geo-logo.svg",
+      "sha256": "550fb45b0e3f6b32928389920ff3b6ca6703ea00fd3968751f6c9d146f412438"
+    },
+    "GEOMETRY": {
+      "src": "/media/logos/vehicles/geometry.webp",
+      "width": 320,
+      "height": 23,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/geometry-logo.svg",
+      "sha256": "7175ab03fc9f6daa8023a4464d92a231f40cd9c53eb88694a8b19d4d813a368f"
+    },
+    "GINETTA": {
+      "src": "/media/logos/vehicles/ginetta.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ginetta-logo.svg",
+      "sha256": "f78cac4fc958ad904b2dc4d86e9291b4a09ff025837a1a0ece6aae9adfbe7627"
+    },
+    "GMC": {
+      "src": "/media/logos/vehicles/gmc.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/gmc.png",
+      "sha256": "9632fa9a807c42a2951dd7f526aea484405a0db5eef8044695629f7ccc2d9f0c"
+    },
+    "GREAT WALL": {
+      "src": "/media/logos/vehicles/great-wall.webp",
+      "width": 148,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/great-wall.png",
+      "sha256": "0c590ff17e16e78a8779c8a7ffde3ecec970e6e21a5a3d810f9bffb84c75e90c"
+    },
+    "HAVAL": {
+      "src": "/media/logos/vehicles/haval.webp",
+      "width": 320,
+      "height": 56,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/haval.png",
+      "sha256": "daae6191683d0b5c82b44c0955b0302f51d9ee64ff6e31b0e2c9ba4014a63135"
+    },
+    "HINDUSTAN": {
+      "src": "/media/logos/vehicles/hindustan.webp",
+      "width": 201,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/hindustan-motors.png",
+      "sha256": "b217f94719e724917263bea5c56d97983451b7a8558a51b07ec3454134693bf6"
+    },
+    "HONGQI": {
+      "src": "/media/logos/vehicles/hongqi.webp",
+      "width": 77,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/hongqi.png",
+      "sha256": "f1fb2c933aa031a1b8e59675dde214dc0b99677e7c88a4103b333a19ed575ef4"
+    },
+    "HUMMER": {
+      "src": "/media/logos/vehicles/hummer.webp",
+      "width": 320,
+      "height": 27,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/hummer-logo.svg",
+      "sha256": "f1f547b80872ed6ba7c5eb993620bac042c88e7a7d33d2d923758c0806a3c35a"
+    },
+    "ICH-X": {
+      "src": "/media/logos/vehicles/ich-x.webp",
+      "width": 320,
+      "height": 84,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ich-x-logo.svg",
+      "sha256": "b52f0d4eb318409a9a89c49bc8e4edbf6a2771c20c6cc8efef2aed13ee2856fc"
+    },
+    "INEOS": {
+      "src": "/media/logos/vehicles/ineos.webp",
+      "width": 320,
+      "height": 84,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ineos-logo.svg",
+      "sha256": "eafecb215f8c97ef8ca20a1b7b0eba41eb794d11e245bfabebc500b833620d98"
+    },
+    "INFINITI": {
+      "src": "/media/logos/vehicles/infiniti.webp",
+      "width": 280,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/infiniti-logo.svg",
+      "sha256": "515410f44f285652a9751c37d605bbc11628b0e7113726cf1cbbc06b0df7014f"
+    },
+    "INNOCENTI": {
+      "src": "/media/logos/vehicles/innocenti.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/innocenti.png",
+      "sha256": "4b726d6ef2cca6077e38e829e1fc33c24aa6cbf92c7de3d4e0471e3e62ff787e"
+    },
+    "ISDERA": {
+      "src": "/media/logos/vehicles/isdera.webp",
+      "width": 90,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/isdera-logo.svg",
+      "sha256": "a18e1deec84d615c7fc09548f25415c63efc9728384e78f23c9772fc1acd1a06"
+    },
+    "ISORIVOLTA": {
+      "src": "/media/logos/vehicles/isorivolta.webp",
+      "width": 97,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/iso.png",
+      "sha256": "7182aad3fe9add7984bbe64b73eaea5e811b60176efab9e0bc96aaa50df5ff91"
+    },
+    "ISUZU": {
+      "src": "/media/logos/vehicles/isuzu.webp",
+      "width": 320,
+      "height": 52,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/isuzu-logo.svg",
+      "sha256": "8d323f50c16495c77ee1ae22d93ddaf0d97e3ca2ba17c38887fddd35ac449a33"
+    },
+    "IVECO": {
+      "src": "/media/logos/vehicles/iveco.webp",
+      "width": 320,
+      "height": 61,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/iveco.png",
+      "sha256": "a4a76fed32f30d6f35a0939ef971423b99fe1a20e25b8f73a28d5898c775df31"
+    },
+    "JAC": {
+      "src": "/media/logos/vehicles/jac.webp",
+      "width": 320,
+      "height": 122,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/jac.png",
+      "sha256": "91471922d30247ad38c66fe090ea4d76c1111075532bf676761769c5a33648ac"
+    },
+    "JAECOO": {
+      "src": "/media/logos/vehicles/jaecoo.webp",
+      "width": 320,
+      "height": 37,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/jaecoo-logo.svg",
+      "sha256": "15ba030a4ba916950dc64a25df8ed6731e63ad69ed09e4755697affeb88851d8"
+    },
+    "JENSEN": {
+      "src": "/media/logos/vehicles/jensen.webp",
+      "width": 159,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/jensen.png",
+      "sha256": "9d856301d1f2fbb50c07eaa630ea70ba4fb04f0e7c8ac4f4b31b1617c0871c19"
+    },
+    "KARMA": {
+      "src": "/media/logos/vehicles/karma.webp",
+      "width": 231,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/karma.png",
+      "sha256": "42a1b569b3f8af1a625cb729f2f1b95fd733b3440af8e012634b7bce8447014d"
+    },
+    "KG MOBILITY": {
+      "src": "/media/logos/vehicles/kg-mobility.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/kgm-logo.svg",
+      "sha256": "aa047ee3ce0dd981adb91bd8b35c85ec5e4b93cc9211eb536bd4d5772d4c50f6"
+    },
+    "KOENIGSEGG": {
+      "src": "/media/logos/vehicles/koenigsegg.webp",
+      "width": 145,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/koenigsegg-logo.svg",
+      "sha256": "22aff69f542748f26e50f0f4844ba3acfc9ef8b87238683555d892d40c1cbcf7"
+    },
+    "KTM": {
+      "src": "/media/logos/vehicles/ktm.webp",
+      "width": 320,
+      "height": 100,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/ktm.png",
+      "sha256": "fe08ff3eea7957a39a47c21a14a53189eeccbfcb556a10fc3918b9badec627ab"
+    },
+    "LADA": {
+      "src": "/media/logos/vehicles/lada.webp",
+      "width": 320,
+      "height": 129,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/lada-logo.svg",
+      "sha256": "9201b1bd6c8513be07071ef7089269e93baac573604177f22bde24f15c80d3db"
+    },
+    "LAMBORGHINI": {
+      "src": "/media/logos/vehicles/lamborghini.webp",
+      "width": 126,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/lamborghini.png",
+      "sha256": "26d169e2d6ec468989dc00b66f1e80873b5f194f92d4a258ff8f4f41f556a3d6"
+    },
+    "LANCIA": {
+      "src": "/media/logos/vehicles/lancia.webp",
+      "width": 143,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/lancia.png",
+      "sha256": "7d7f20117c26d689ca243ddcecefcca6be82cb002dda6b22feb6dfe3608f0bcf"
+    },
+    "LANDWIND (JMC)": {
+      "src": "/media/logos/vehicles/landwind-jmc.webp",
+      "width": 320,
+      "height": 77,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/landwind.png",
+      "sha256": "4534157c7abc7b41ea5abb89ef734c9ffeb03a4158dd1de9dabfbe046b578dcb"
+    },
+    "LEAPMOTOR": {
+      "src": "/media/logos/vehicles/leapmotor.webp",
+      "width": 231,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/leapmotor.png",
+      "sha256": "f49f8b0486a828058c978a59ff5164baa024b23a3232376c78c5250a5607684c"
+    },
+    "LEVC": {
+      "src": "/media/logos/vehicles/levc.webp",
+      "width": 307,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/levc.png",
+      "sha256": "ac3e5d9fb085f2e28a957b67ef6d819401555df0770394ef6f6cbae05baf3fe7"
+    },
+    "LIFAN": {
+      "src": "/media/logos/vehicles/lifan.webp",
+      "width": 320,
+      "height": 58,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/lifan.png",
+      "sha256": "a586babaa09f5e202d40c4e4d2a591264031737297626d62114e7022264152a1"
+    },
+    "LIGIER": {
+      "src": "/media/logos/vehicles/ligier.webp",
+      "width": 205,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/ligier.png",
+      "sha256": "314b08ca6833ff66514ca4e175b96614208bf57b6ce8a40b7110a1a89d6e5dee"
+    },
+    "LINCOLN": {
+      "src": "/media/logos/vehicles/lincoln.webp",
+      "width": 320,
+      "height": 111,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/lincoln-logo.svg",
+      "sha256": "3fa0f226a0d11cfad6c781a5cf9071501806c48567b89939155e3229c72ba573"
+    },
+    "LOTUS": {
+      "src": "/media/logos/vehicles/lotus.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/lotus-logo.svg",
+      "sha256": "514faba49c25190819020183a95dff5c40d5da5c0d480567e46f2a0ffa70d653"
+    },
+    "LUCID": {
+      "src": "/media/logos/vehicles/lucid.webp",
+      "width": 320,
+      "height": 18,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/lucid.png",
+      "sha256": "2ada522efae2a01998441b84b14f9d27d24365f96ccc68682e09c764e3b7e0e1"
+    },
+    "LYNK & CO": {
+      "src": "/media/logos/vehicles/lynk-co.webp",
+      "width": 320,
+      "height": 46,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/lynk-and-co.png",
+      "sha256": "62df61f54bd84f95fac170336733a75a19aebcd90eebd6cb6e78a869ecc54314"
+    },
+    "MAHINDRA": {
+      "src": "/media/logos/vehicles/mahindra.webp",
+      "width": 291,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/mahindra.png",
+      "sha256": "76f8737ec19bc7d8be6355c84dc4b2ff6eff907a1926b515b282f7b3eae5ce46"
+    },
+    "MARCOS": {
+      "src": "/media/logos/vehicles/marcos.webp",
+      "width": 158,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/marcos.png",
+      "sha256": "b9588f7f7761cc0ab3bacedc682f1b1b897c611d4e28d166cfd32bfe3fb7038c"
+    },
+    "MARUTI": {
+      "src": "/media/logos/vehicles/maruti.webp",
+      "width": 148,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/maruti-logo.svg",
+      "sha256": "0fc865cc05f70b735bd3701b971d2867f184b818cf140a742dafb30025b3799d"
+    },
+    "MASERATI": {
+      "src": "/media/logos/vehicles/maserati.webp",
+      "width": 320,
+      "height": 130,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/maserati.png",
+      "sha256": "8f98e09639ca6c181c0f89774798b1bfe4a5bd0d42197a41d65375cab40e2193"
+    },
+    "MAXUS": {
+      "src": "/media/logos/vehicles/maxus.webp",
+      "width": 163,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/maxus.png",
+      "sha256": "d0c383ab68708d678a339a210d5394b57844c108a3bc7aafe6ebf2666a009a72"
+    },
+    "MAYBACH": {
+      "src": "/media/logos/vehicles/maybach.webp",
+      "width": 261,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/maybach.png",
+      "sha256": "53a1d334ecdc47df721949894786acd282bad9c7aea09e7c8054604107e9db39"
+    },
+    "MCLAREN": {
+      "src": "/media/logos/vehicles/mclaren.webp",
+      "width": 320,
+      "height": 49,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mclaren-logo.svg",
+      "sha256": "54c074908d1f8df12a2dd26d2624c266d5527ec69618216c4c53f5019198c4ef"
+    },
+    "MG": {
+      "src": "/media/logos/vehicles/mg.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/mg.png",
+      "sha256": "9a543470695e767926fd67ee4ba98adc49590c840aa3c9d65e76e0a572708dab"
+    },
+    "MICROCAR": {
+      "src": "/media/logos/vehicles/microcar.webp",
+      "width": 280,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/microcar.png",
+      "sha256": "c115a6075359f53d84f9e035781192a61eb2fd2204e785d8444b8dc0ddb45a9d"
+    },
+    "MITSUOKA": {
+      "src": "/media/logos/vehicles/mitsuoka.webp",
+      "width": 152,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/mitsuoka.png",
+      "sha256": "c09b9e4f8b327a9e07fb79ecbbef8471f5684f5f2658108688950d8a9d781ebf"
+    },
+    "MORGAN": {
+      "src": "/media/logos/vehicles/morgan.webp",
+      "width": 320,
+      "height": 88,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/morgan.png",
+      "sha256": "32ed193e7cc1aad4556b2efdbf17b068bfffcaff7c956ffc8247ea451b23cc9b"
+    },
+    "MORRIS": {
+      "src": "/media/logos/vehicles/morris.webp",
+      "width": 145,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/morris.png",
+      "sha256": "edbb73a73f4e24b412e324bf629dcc8e769033689ec88de34ba5f6665573d7a7"
+    },
+    "NIO": {
+      "src": "/media/logos/vehicles/nio.webp",
+      "width": 320,
+      "height": 112,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/nio.png",
+      "sha256": "d9729061b9bf17ac4c70745601f4049a94632d48090698fe3ec8c62f8e1b1d0d"
+    },
+    "OLDSMOBILE": {
+      "src": "/media/logos/vehicles/oldsmobile.webp",
+      "width": 284,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/oldsmobile.png",
+      "sha256": "904e6d07d289dcd96c9ce76438c6a4cb81690561a5fe5a4f797961fc181ca0f9"
+    },
+    "OLTCIT": {
+      "src": "/media/logos/vehicles/oltcit.webp",
+      "width": 159,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/oltcit.png",
+      "sha256": "e662a18f4f38039e685d8ea3f9197c6138c693c364f46bf24f1688c7fad03b02"
+    },
+    "OMODA": {
+      "src": "/media/logos/vehicles/omoda.webp",
+      "width": 320,
+      "height": 40,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/omoda.png",
+      "sha256": "5a2554dccf4c8fcd5d9e68948844e6c5c369b1b115433a26d39d70d01cdba8e0"
+    },
+    "OSCA": {
+      "src": "/media/logos/vehicles/osca.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/osca.png",
+      "sha256": "dbc5070f5f32800bffb1e1d58b2c100cbbd9cabda59afe806e66626e5dd241c2"
+    },
+    "PANOZ": {
+      "src": "/media/logos/vehicles/panoz.webp",
+      "width": 98,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/panoz.png",
+      "sha256": "35438b994d353f2c68804c32ebf2e26ae882633faf6c9051016f0afa73b25e83"
+    },
+    "PININFARINA": {
+      "src": "/media/logos/vehicles/pininfarina.webp",
+      "width": 320,
+      "height": 116,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/pininfarina.png",
+      "sha256": "83cfde377282667d913a77eb239b3ce62a5607f2840a0b2cc9460c8a521cd2e3"
+    },
+    "PLYMOUTH": {
+      "src": "/media/logos/vehicles/plymouth.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/plymouth.png",
+      "sha256": "6ded25a69d8bd357a1405d2dfa3352f1f56b4eb2769a202cc333db3178c05138"
+    },
+    "POLESTAR": {
+      "src": "/media/logos/vehicles/polestar.webp",
+      "width": 142,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/polestar.png",
+      "sha256": "9354a46712927b6d6f9fc2addff832bb091ffec3f579040aefb8c4f0d80a5361"
+    },
+    "PONTIAC": {
+      "src": "/media/logos/vehicles/pontiac.webp",
+      "width": 210,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/pontiac.png",
+      "sha256": "6b89a5eefb429e5c1b2cd520a7998ee27b2c00411cca8bd5a2edffd749f74248"
+    },
+    "PREMIER": {
+      "src": "/media/logos/vehicles/premier.webp",
+      "width": 320,
+      "height": 121,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/premier.png",
+      "sha256": "3ff92b5a0228f1b447d66b900651dc3691ca40d6835de98143f3c695a992f8c7"
+    },
+    "PROTON": {
+      "src": "/media/logos/vehicles/proton.webp",
+      "width": 106,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/proton.png",
+      "sha256": "0e8709116591960e1e2952c813320583ecb29b572a81ed8cb355bcdb5dfd4015"
+    },
+    "PUCH": {
+      "src": "/media/logos/vehicles/puch.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/puch-logo.svg",
+      "sha256": "7420351bb7ff0f045e1b8ba48ab5940969e33f351017a49aec83e81316e31392"
+    },
+    "RAM": {
+      "src": "/media/logos/vehicles/ram.webp",
+      "width": 140,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ram-logo.svg",
+      "sha256": "8c4cae2e99af5852d07154a9d93b12889888bd23405b65ad5bd5e21dbf2347d6"
+    },
+    "RILEY": {
+      "src": "/media/logos/vehicles/riley.webp",
+      "width": 225,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/riley.png",
+      "sha256": "6d5d8db9bbb0d64f6ebf588b581d56b150fcb7f56d57fc3c5b4100b441e091c5"
+    },
+    "RIMAC": {
+      "src": "/media/logos/vehicles/rimac.webp",
+      "width": 153,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/rimac.png",
+      "sha256": "f32a0df9e96afcefebac798f8c890336b52e34f5fc06300ae311a184b9b29ad8"
+    },
+    "ROLLS-ROYCE": {
+      "src": "/media/logos/vehicles/rolls-royce.webp",
+      "width": 83,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/rolls-royce-logo.svg",
+      "sha256": "8ab452676222ed892b2d7cc208b915f1fd730caa6a5206362a7a7be1bbd52553"
+    },
+    "ROVER": {
+      "src": "/media/logos/vehicles/rover.webp",
+      "width": 114,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/rover.png",
+      "sha256": "a83c56e2d6a0538c7e0ca312ade65e26883fbd054dcea3a22485e8ee2a82b418"
+    },
+    "RUF": {
+      "src": "/media/logos/vehicles/ruf.webp",
+      "width": 320,
+      "height": 143,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/ruf.png",
+      "sha256": "3fabb2eda48e25c4022c929f64f474f6d5bc924294bbd704c5b2a8ae337eb876"
+    },
+    "SAAB": {
+      "src": "/media/logos/vehicles/saab.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/saab.png",
+      "sha256": "450ebc83196359599d3cbc3544401ee23c2ec8b8560d1b169cae475561cca310"
+    },
+    "SMART": {
+      "src": "/media/logos/vehicles/smart.webp",
+      "width": 152,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/smart.png",
+      "sha256": "a0d2db7bdc3de4123bff38e4be9170f986fad354eb9c928a4ea2dc0ef98fff18"
+    },
+    "SPYKER": {
+      "src": "/media/logos/vehicles/spyker.webp",
+      "width": 275,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/spyker.png",
+      "sha256": "ada086e54ea8f83c032723c8ffcda32b643ea3d84a1893b7c2838af46a0a7090"
+    },
+    "SSANGYONG": {
+      "src": "/media/logos/vehicles/ssangyong.webp",
+      "width": 219,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/ssangyong.png",
+      "sha256": "5877f6c391a87aad99016e33d686a46bcb9532620d978ed7e57a25159b85ace3"
+    },
+    "TALBOT": {
+      "src": "/media/logos/vehicles/talbot.webp",
+      "width": 141,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/talbot.png",
+      "sha256": "828d69a1d89a0527a8a6f2e75b5caf5d01f527272ec0202c5d79356f97be819d"
+    },
+    "TATA": {
+      "src": "/media/logos/vehicles/tata.webp",
+      "width": 164,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/tata.png",
+      "sha256": "26a87ad9edf6469d6dbe462e0ca13c08f680110ded8258acb53282773835fcb0"
+    },
+    "TOGG": {
+      "src": "/media/logos/vehicles/togg.webp",
+      "width": 294,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/togg-logo.svg",
+      "sha256": "bf472ca48006c83981953fbf495a0f4bf17447d285c2a5cc1e47e357fa83f88b"
+    },
+    "TRABANT": {
+      "src": "/media/logos/vehicles/trabant.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/trabant-logo.svg",
+      "sha256": "7a12ba2e13608c9a41090bd51580bfd379fdc2bc085d302e6014bbcb0e069b54"
+    },
+    "TRIUMPH": {
+      "src": "/media/logos/vehicles/triumph.webp",
+      "width": 153,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/triumph.png",
+      "sha256": "33db6a8f0877af6ab16cff882e9683a5cee6c77f4a0e670e3c3c8a34a54e400e"
+    },
+    "TVR": {
+      "src": "/media/logos/vehicles/tvr.webp",
+      "width": 320,
+      "height": 112,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/tvr.png",
+      "sha256": "896903adbb1c2c3796ca374ecccfab3cc3cf79811c13c47126df82806c966da8"
+    },
+    "UAZ": {
+      "src": "/media/logos/vehicles/uaz.webp",
+      "width": 249,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/uaz.png",
+      "sha256": "9cf2a8c5ccf3dd9849ffca0cb231404832fe020eec0c960fd12445b8be3a8fc2"
+    },
+    "VAUXHALL": {
+      "src": "/media/logos/vehicles/vauxhall.webp",
+      "width": 193,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/vauxhall.png",
+      "sha256": "260b999de724aa6fa44fa39279b8dd317c362f92e798fd7217ee52d06289134b"
+    },
+    "VECTOR": {
+      "src": "/media/logos/vehicles/vector.webp",
+      "width": 160,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/vector.png",
+      "sha256": "76a4458912e8eb8e3ad4f5305a997265f1feca3bad8aeb282d97a62238a2e57e"
+    },
+    "VINFAST": {
+      "src": "/media/logos/vehicles/vinfast.webp",
+      "width": 159,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/vinfast.png",
+      "sha256": "a8912158baeb321220f69f671ed9f79d236aeb62be20df885b30a920bb7214fe"
+    },
+    "WARTBURG": {
+      "src": "/media/logos/vehicles/wartburg.webp",
+      "width": 320,
+      "height": 82,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/wartburg.png",
+      "sha256": "50414228d45c6e2f49095b67cc47bd30f069bfcc16528a68a469105ee1001272"
+    },
+    "WESTFIELD": {
+      "src": "/media/logos/vehicles/westfield.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/westfield.png",
+      "sha256": "7d5d1c520c0a3a7ac99439c024a35d2b9c03b81f12c18d73b69e11e2eeba5d7c"
+    },
+    "WEY": {
+      "src": "/media/logos/vehicles/wey.webp",
+      "width": 104,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/wey.png",
+      "sha256": "912b3508424c8c36bb7cef3d8e2b85652358f54e20b1e2c628b7abbea07e5705"
+    },
+    "WIESMANN": {
+      "src": "/media/logos/vehicles/wiesmann.webp",
+      "width": 97,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/wiesmann.png",
+      "sha256": "7ae5c07dd40c7b4f72bb7beeeea2bf35ccbfb6507dc528e15ad29aea57f3db74"
+    },
+    "XPENG": {
+      "src": "/media/logos/vehicles/xpeng.webp",
+      "width": 320,
+      "height": 120,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/xpeng.png",
+      "sha256": "61afde19b32c7e7740649c99f12c246e5e23f08e39269581f95397a45d1871a8"
+    },
+    "YULON": {
+      "src": "/media/logos/vehicles/yulon.webp",
+      "width": 320,
+      "height": 71,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/yulon.png",
+      "sha256": "71965ec345c5572b9747109b5f7298bc901d4a26467fd76b0bb4e11b9164fade"
+    },
+    "ZASTAVA": {
+      "src": "/media/logos/vehicles/zastava.webp",
+      "width": 320,
+      "height": 137,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/zastava.png",
+      "sha256": "3ab916328c41aaa5cb861099e24841173f0e04afda1f639f1fc9a20346f8979e"
+    },
+    "ZAZ": {
+      "src": "/media/logos/vehicles/zaz.webp",
+      "width": 160,
+      "height": 144,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/zaz.png",
+      "sha256": "be626c1c001073faed06a7924601cb2940694c3f741d778eaf048d0b554e8f7d"
+    },
+    "ZEEKR": {
+      "src": "/media/logos/vehicles/zeekr.webp",
+      "width": 320,
+      "height": 79,
+      "source": "https://raw.githubusercontent.com/filippofilip95/car-logos-dataset/master/logos/optimized/zeekr.png",
+      "sha256": "2e4af865aac10fb3460cd9b89584e22f03e720b6be59c36a6c41143dc94d7567"
+    },
+    "EBRO": {
+      "src": "/media/logos/vehicles/ebro.webp",
+      "width": 320,
+      "height": 48,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Logotipo_ebro_moderno.svg",
+      "sha256": "c2324f0a893058818f03478fa8652544aa826e5a32deaf11ef044bfb6f327ab8"
+    },
+    "IRMSCHER": {
+      "src": "/media/logos/vehicles/irmscher.webp",
+      "width": 320,
+      "height": 38,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Irmscher_logo.svg",
+      "sha256": "969b924ac7e366a933d5ec15b0455961b7e00bc57824448b26e6521318a4b022"
+    },
+    "LIVAN AUTO": {
+      "src": "/media/logos/vehicles/livan-auto.webp",
+      "width": 320,
+      "height": 113,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Livan_Automotive_logo.svg",
+      "sha256": "c600b83e8c99aa7b2387d5c71655bc20a1189ceb10bf05a68fa4b5ac2818b7de"
+    },
+    "MOBILIZE": {
+      "src": "/media/logos/vehicles/mobilize.webp",
+      "width": 320,
+      "height": 76,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Brand-logo-mobilize.png",
+      "sha256": "a30a64025227e821aea596957eb0a1de8949b74772e53cdbce41275f0db191bc"
+    },
+    "SHELBY": {
+      "src": "/media/logos/vehicles/shelby.webp",
+      "width": 320,
+      "height": 70,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Shelby_American_logo.jpg",
+      "sha256": "2f5733682c1f076283d4b20120180bef5da3668b58949c38fa4dcf11356d5e97"
+    },
+    "ASIA MOTORS": {
+      "src": "/media/logos/vehicles/asia-motors.webp",
+      "width": 242,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Asia_Motors_Logo.svg",
+      "sha256": "593c6aa69b115af421d65852613952fad0a7f0eca26401627a19d6011ce92ac2"
+    },
+    "AUTO UNION": {
+      "src": "/media/logos/vehicles/auto-union.webp",
+      "width": 320,
+      "height": 114,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Auto_Union.svg",
+      "sha256": "48099164a8d071383173386a70e95370b6568ccc3508c638aa6f9569fa17bbd5"
+    },
+    "BEDFORD": {
+      "src": "/media/logos/vehicles/bedford.webp",
+      "width": 320,
+      "height": 49,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Bedford_gm_logo.png",
+      "sha256": "0d388165e4111a87411cf606bd23c29dd8f17ed885c2f2885d609ef1da413bb6"
+    },
+    "CHECKER": {
+      "src": "/media/logos/vehicles/checker.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Checkermotoslogo.svg",
+      "sha256": "c0917eaed3bef21894e576bb19856834fdffc776f304fdabc2b1733e36f936a0"
+    },
+    "DR": {
+      "src": "/media/logos/vehicles/dr.webp",
+      "width": 208,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/DR_Automobiles_logo.svg",
+      "sha256": "4b2610025e62cf915fcd7c939c0841201ad07009beb2fc5b7cdec38f090da305"
+    },
+    "MIA ELECTRIC": {
+      "src": "/media/logos/vehicles/mia-electric.webp",
+      "width": 320,
+      "height": 134,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo_mia_electric_black.png",
+      "sha256": "e022d881a668931c4bcc859c1cb128ef39bf90d8eec917eb529ec74c85cf2bca"
+    },
+    "MOSKVICH": {
+      "src": "/media/logos/vehicles/moskvich.webp",
+      "width": 320,
+      "height": 74,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo_of_Moskvich.svg",
+      "sha256": "c05afbd2c2266cb0eb1b64d9fb872fa58820ee6021e4696aae2a75b8521832f4"
+    },
+    "MPM MOTORS": {
+      "src": "/media/logos/vehicles/mpm-motors.webp",
+      "width": 320,
+      "height": 81,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/MPM_Motors_Logo%C2%A9.jpg",
+      "sha256": "5046e8a2ce92993f8dce4197d39da06e9c1d26c709daf26d79dca42beb52373c"
+    },
+    "NSU": {
+      "src": "/media/logos/vehicles/nsu.webp",
+      "width": 140,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/NSU_1960_Logo.svg",
+      "sha256": "ed56edfd5b8584adfb3dd73b675a7211840e31ee00859fcb0669350e338bd984"
+    },
+    "PIAGGIO": {
+      "src": "/media/logos/vehicles/piaggio.webp",
+      "width": 320,
+      "height": 130,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Piaggio_Group_logo.svg",
+      "sha256": "1fa0757c8ab73d2119f112ed976db7e07b42307f11081db0502e6171a27de105"
+    },
+    "SANTANA": {
+      "src": "/media/logos/vehicles/santana.webp",
+      "width": 195,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Santana_Motor_logo.svg",
+      "sha256": "c2a6927539f03d2ae443509e0d4f9d57def2cf39ba957b2c6bfd52d53b1530f5"
+    },
+    "SERES": {
+      "src": "/media/logos/vehicles/seres.webp",
+      "width": 320,
+      "height": 104,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo_Seres_Group.svg",
+      "sha256": "343e279c305002de304e3cbf2e695a8a1f8846b8dbbf7d936b05e22aa4f2dd34"
+    },
+    "STREETSCOOTER": {
+      "src": "/media/logos/vehicles/streetscooter.webp",
+      "width": 320,
+      "height": 63,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Streetscooter_2021_logo.svg",
+      "sha256": "4bd050d8a46c6eb642fec63731349d0505f18e55c6c0795961be08e0145dc840"
+    },
+    "UMM": {
+      "src": "/media/logos/vehicles/umm.webp",
+      "width": 320,
+      "height": 52,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Umm_logo_red.svg",
+      "sha256": "6407041b03d667f568efdb7b4aa402e84239f5e54fce2c160a639a7a57f4c71b"
+    },
+    "AUSTIN-HEALEY": {
+      "src": "/media/logos/vehicles/austin-healey.webp",
+      "width": 320,
+      "height": 63,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Ahealey_Motif.jpg",
+      "sha256": "0b0d3505a38c7cd549be505c769d21b70a14465ae87dff8e651e67b225a69cb5"
+    },
+    "RAYTON FISSORE": {
+      "src": "/media/logos/vehicles/rayton-fissore.webp",
+      "width": 143,
+      "height": 144,
+      "source": "https://commons.wikimedia.org/wiki/Special:FilePath/Rayton_Fissore_logo.svg",
+      "sha256": "560ceb7521285ff89bd1c8faba3c55d5e8641cf3614b0b663627689152d733e3"
+    },
+    "FORD AUSTRALIA": {
+      "src": "/media/logos/vehicles/ford.webp",
+      "width": 150,
+      "height": 56,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ford-logo.png",
+      "sha256": "3c39cee99f673cdb8cb765b831f1e792f9fa4ce90e96433406f723cdd43d4184"
+    },
+    "FORD OTOSAN": {
+      "src": "/media/logos/vehicles/ford.webp",
+      "width": 150,
+      "height": 56,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ford-logo.png",
+      "sha256": "3c39cee99f673cdb8cb765b831f1e792f9fa4ce90e96433406f723cdd43d4184"
+    },
+    "FORD USA": {
+      "src": "/media/logos/vehicles/ford.webp",
+      "width": 150,
+      "height": 56,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/ford-logo.png",
+      "sha256": "3c39cee99f673cdb8cb765b831f1e792f9fa4ce90e96433406f723cdd43d4184"
+    },
+    "MINI (GB)": {
+      "src": "/media/logos/vehicles/mini.webp",
+      "width": 320,
+      "height": 135,
+      "source": "https://raw.githubusercontent.com/vehiclespecs/brand-logos/main/mini-logo.svg",
+      "sha256": "35676d5f991c6cc51e942386a94e44fddcec769437ea33e2bd331167a2582732"
+    }
+  },
+  "manufacturers": {
+    "BOSCH": {
+      "src": "/media/logos/manufacturers/bosch.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://www.trodo.com/media/manufacturer_source/25/1754479164_o86bin_bosch.svg",
+      "sha256": "4c4037cbb1b014b949290a3b728a6f16a324204954029d68fcaababcb353c9be",
+      "registryKey": "BOSCH"
+    },
+    "FEBI": {
+      "src": "/media/logos/manufacturers/febi.webp",
+      "width": 164,
+      "height": 144,
+      "source": "https://www.trodo.com/media/manufacturer_cache/66/180x180/1748943905_o639f5_febi_bilstein.png",
+      "sha256": "d911f3d908cdad5b2dbebcbc533f41a30e7cf84fa9c86f8a274bff3bbd477572",
+      "registryKey": "FEBIBILSTEIN"
+    },
+    "LUK": {
+      "src": "/media/logos/manufacturers/luk.webp",
+      "width": 190,
+      "height": 144,
+      "source": "https://www.trodo.com/media/manufacturer_source/8/1748944417_o639m7_luk.svg",
+      "sha256": "2450569907d6e7feba5375db161841957f0a9c6d869066b749f020afd93baf63",
+      "registryKey": "LUK"
+    },
+    "SKF": {
+      "src": "/media/logos/manufacturers/skf.webp",
+      "width": 300,
+      "height": 71,
+      "source": "https://www.trodo.com/media/manufacturer_source/40/1748944706_o639rp_skf.svg",
+      "sha256": "89ab5ca1a5706181cffaf43f0bd082c9b3405255a6d26288a0aa74aaec761d3f",
+      "registryKey": "SKF"
+    },
+    "GATES": {
+      "src": "/media/logos/manufacturers/gates.webp",
+      "width": 186,
+      "height": 100,
+      "source": "https://www.trodo.com/media/manufacturer_source/28/1748944772_o639s2_gates.svg",
+      "sha256": "f9ebb8e3305dcb964f7c7ee09e86bdfcbc5e6617630cd57327762c18707f814b",
+      "registryKey": "GATES"
+    },
+    "SACHS": {
+      "src": "/media/logos/manufacturers/sachs.webp",
+      "width": 297,
+      "height": 61,
+      "source": "https://www.trodo.com/media/manufacturer_source/27/1744039334_o47fle_sachs.svg",
+      "sha256": "14c89a783f6ab700414d758a6e0fe87f781b082647d617cb4e7ed76a09e1ff35",
+      "registryKey": "SACHS"
+    },
+    "FAG": {
+      "src": "/media/logos/manufacturers/fag.webp",
+      "width": 320,
+      "height": 108,
+      "source": "https://www.trodo.com/media/manufacturer_source/140/1743070979_o3qals_fag.svg",
+      "sha256": "7ef294a37057d92e4b2524443f9e5a7a21c818ad07c49f37608b1d292e483e8c",
+      "registryKey": "FAG"
+    },
+    "MANN": {
+      "src": "/media/logos/manufacturers/mann.webp",
+      "width": 300,
+      "height": 144,
+      "source": "https://www.trodo.com/media/manufacturer_source/6/1742901822_o3obmc_mann_filter.svg",
+      "sha256": "1b29ca4c038d7751edc49991aa96e284fb7e13204bb95ee7853568a094940b7e",
+      "registryKey": "MANNFILTER"
+    },
+    "TRW": {
+      "src": "/media/logos/manufacturers/trw.webp",
+      "width": 180,
+      "height": 55,
+      "source": "https://www.trodo.com/media/manufacturer_cache/134/180x180/1743071210_o3qapj_trw.png",
+      "sha256": "c4e3ec4f0d32b025a8fd94d84e47c03ded2b9f23cbc7ac5c3d72b5aedd2f0829",
+      "registryKey": "TRW"
+    },
+    "LEMFORDER": {
+      "src": "/media/logos/manufacturers/lemforder.webp",
+      "width": 300,
+      "height": 69,
+      "source": "https://www.trodo.com/media/manufacturer_source/30/1749472440_o69c40_lemforder.svg",
+      "sha256": "2c8e49d4f5a557d87920c8e407096decdc22f0d78a6b197e49e1331929f06fa9",
+      "registryKey": "LEMFORDER"
+    },
+    "DENSO": {
+      "src": "/media/logos/manufacturers/denso.webp",
+      "width": 180,
+      "height": 35,
+      "source": "https://www.trodo.com/media/manufacturer_cache/49/180x180/1742984980_o3pasa_denso.png",
+      "sha256": "482e1f48c162acf18d51a6ee63cee1a9f9a2e552a67f241a5c630baa1217678c",
+      "registryKey": "DENSO"
+    },
+    "CONTITECH": {
+      "src": "/media/logos/manufacturers/contitech.webp",
+      "width": 180,
+      "height": 42,
+      "source": "https://www.trodo.com/media/manufacturer_cache/26/180x180/1742977635_o3p8qf_contitech.png",
+      "sha256": "1eac5a85d707a98c97f1da7f57a477183b5f063b72f59878853649ff3dd424e8",
+      "registryKey": "CONTITECH"
+    },
+    "ELRING": {
+      "src": "/media/logos/manufacturers/elring.webp",
+      "width": 189,
+      "height": 144,
+      "source": "https://www.trodo.com/media/manufacturer_source/11/1744038840_o47fe0_elring.svg",
+      "sha256": "4d054a8cd2b6ecf05e86028bff406c30e44b9f027bb4aa2be79f4cef6af073f3",
+      "registryKey": "ELRING"
+    },
+    "MOOG": {
+      "src": "/media/logos/manufacturers/moog.webp",
+      "width": 178,
+      "height": 35,
+      "source": "https://www.trodo.com/media/manufacturer_cache/82/180x180/1743001152_o3pesc_moog.png",
+      "sha256": "741e9b0c23f8ed00015b96d9876af8c1d56d881afc5ee389d0f828bd8ade6f45",
+      "registryKey": "MOOG"
+    },
+    "PIERBURG": {
+      "src": "/media/logos/manufacturers/pierburg.webp",
+      "width": 288,
+      "height": 122,
+      "source": "https://www.trodo.com/media/manufacturer_source/7/1744617699_o4e819_pierburg.svg",
+      "sha256": "43d84e93d9d259f57dc694423924b6c87ad2ee5aff91553fabe5af20cde8f435",
+      "registryKey": "PIERBURG"
+    },
+    "CTR": {
+      "src": "/media/logos/manufacturers/ctr.webp",
+      "width": 180,
+      "height": 49,
+      "source": "https://www.trodo.com/media/manufacturer_cache/124681/180x180/1774008199_p3jc3i_ctr.png",
+      "sha256": "956bfdf02f85cdcfe44329c6b5dde512556a3ae70fb73ca0aae6f2db85c3dafc",
+      "registryKey": "CTR"
+    },
+    "VALEO": {
+      "src": "/media/logos/manufacturers/valeo.webp",
+      "width": 186,
+      "height": 81,
+      "source": "https://www.trodo.com/media/manufacturer_source/20/1778778356_p5eg5p_valeo.svg",
+      "sha256": "648f05911c721dd8ee1bff4084bca0959733f7bd111fe9f15592843a2e849559",
+      "registryKey": "VALEO"
+    },
+    "INA": {
+      "src": "/media/logos/manufacturers/ina.webp",
+      "width": 100,
+      "height": 100,
+      "source": "https://www.trodo.com/media/manufacturer_cache/141/100x50/1754478559_1749198070_o668ka_ina_2x.png",
+      "sha256": "7235999bd4d2f6b25598999ca37771a76004b85c110b3ca1fc68add3b4b90c63",
+      "registryKey": "INA"
+    },
+    "BLUE PRINT": {
+      "src": "/media/logos/manufacturers/blue-print.webp",
+      "width": 108,
+      "height": 96,
+      "source": "https://www.trodo.com/media/manufacturer_cache/190/100x50/1754478595_1745828136_o4r8f6_blue_print_2x.png",
+      "sha256": "64e56a2a1deef9df791ee1dc51a8f17d757449022caeecd4d0a48eb287beab22",
+      "registryKey": "BLUEPRINT"
+    },
+    "LESJOFORS": {
+      "src": "/media/logos/manufacturers/lesjofors.webp",
+      "width": 320,
+      "height": 55,
+      "source": "https://www.lesjofors.com/contentassets/10c3419efd664b0b8d32319be27f5c3b/lesjoforslogo.svg",
+      "sha256": "3c9b6a5e617a0554f1af8f531146c68bbd3508717909ad10a3cb200906a0c9b3"
+    },
+    "DELPHI": {
+      "src": "/media/logos/manufacturers/delphi.webp",
+      "width": 195,
+      "height": 67,
+      "source": "https://www.trodo.com/media/manufacturer_source/62/1748945060_o63a4j_delphi.svg",
+      "sha256": "2e43c6096555bcf5403a2fd22747d92c78766aeea2eea4aec0ac9eacb297ffd9",
+      "registryKey": "DELPHI"
+    },
+    "HELLA": {
+      "src": "/media/logos/manufacturers/hella.webp",
+      "width": 200,
+      "height": 144,
+      "source": "https://cdn.autodoc.de/brands/thumbs/2.png",
+      "sha256": "b4c7ce6febff44d484216b14248b8e3dbd196d8cf73c32b234e20fb48ef05589"
+    },
+    "MAHLE": {
+      "src": "/media/logos/manufacturers/mahle.webp",
+      "width": 320,
+      "height": 71,
+      "source": "https://www.mahle-stiftung.de/uploaded/images/1024/mahle-rgb-01.jpg",
+      "sha256": "d1e2f4953278c3f59ca89d66d7620d21dfb12589fe21957348d341f3c06ecd5b"
+    },
+    "NGK": {
+      "src": "/media/logos/manufacturers/ngk.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://cdn.autodoc.de/brands/thumbs/15.png",
+      "sha256": "60c186ad3e5265d9fb6217421cde54c68165ef215c74e50d9dbdbd8bba0f3d57"
+    },
+    "DAYCO": {
+      "src": "/media/logos/manufacturers/dayco.webp",
+      "width": 320,
+      "height": 43,
+      "source": "https://cdn.autodoc.de/brands/thumbs/42.png",
+      "sha256": "0870e84dbcee8ae6af916ce405114b869b097b321f25b6563b7beb5f203c0924"
+    },
+    "NRF": {
+      "src": "/media/logos/manufacturers/nrf.webp",
+      "width": 204,
+      "height": 144,
+      "source": "https://nrf.eu/wp-content/uploads/2026/01/logo-600x0-c-default.webp",
+      "sha256": "f779259a5d3ac7c7169cc34677174557df040bdeb10c38776cea997fed5c624d"
+    },
+    "DEPO": {
+      "src": "/media/logos/manufacturers/depo.webp",
+      "width": 173,
+      "height": 44,
+      "source": "https://www.trodo.com/media/manufacturer_cache/132732/180x180/1772789032_p369ml_depo.png",
+      "sha256": "08ed574169efb8996b57841699b605cc3fbe6ea044b7ec1f67cf07dc76c163a8",
+      "registryKey": "DEPO"
+    },
+    "PURFLUX": {
+      "src": "/media/logos/manufacturers/purflux.webp",
+      "width": 320,
+      "height": 87,
+      "source": "https://cdn.autodoc.de/brands/thumbs/38.png",
+      "sha256": "d39ad0a153e2342ef2cec0c0961cbd877626bd84ee0d362fea90e520c236129f"
+    },
+    "HENGST": {
+      "src": "/media/logos/manufacturers/hengst.webp",
+      "width": 305,
+      "height": 144,
+      "source": "https://cdn.autodoc.de/brands/thumbs/81.png",
+      "sha256": "9f58966346f43a19114a99b696e9b3111297a3b8bc9180f48a5aae1ea8ab66fe"
+    },
+    "ATE": {
+      "src": "/media/logos/manufacturers/ate.webp",
+      "width": 229,
+      "height": 144,
+      "source": "https://cdn.autodoc.de/brands/thumbs/3.png",
+      "sha256": "83bfd1b0971e44ea66d414332b6f736757a9292cb6a0a16f7f1efb3e66e60401"
+    },
+    "BERU": {
+      "src": "/media/logos/manufacturers/beru.webp",
+      "width": 208,
+      "height": 144,
+      "source": "https://cdn.freebiesupply.com/logos/large/2x/beru-02-logo-png-transparent.png",
+      "sha256": "634e2e4039a14b155c9d19e12fcde0cdcfb6cb7eec48d7c9ab730122ac891329"
+    },
+    "CHAMPION": {
+      "src": "/media/logos/manufacturers/champion.webp",
+      "width": 290,
+      "height": 144,
+      "source": "https://www.drivparts.com/content/dam/marketing/emea/fmmp/brands/logos/champion.png",
+      "sha256": "6343174528941cf9bb4f2b2a790ad5ad9b2510ee4c588bfe09c93a2fe545942d"
+    },
+    "FERODO": {
+      "src": "/media/logos/manufacturers/ferodo.webp",
+      "width": 200,
+      "height": 31,
+      "source": "https://www.ferodo.com/content/loc-emea/loc-eu/fmmp-ferodo/en_GB/_jcr_content/page-nav/site_nav/logo-image.img.png/Ferodo%20Logo-1779354854063.png",
+      "sha256": "9d840ae425d280a16f106cd7e0440a86e0be9ed584cf13263309cb7057d1a016"
+    },
+    "JURID": {
+      "src": "/media/logos/manufacturers/jurid.webp",
+      "width": 320,
+      "height": 105,
+      "source": "https://www.drivparts.com/content/dam/marketing/emea/fmmp/brands/logos/jurid.png",
+      "sha256": "5e5906b909f6560ebc10130bddca0453b0b3775639a78397b28644d69f56f90a"
+    },
+    "TEXTAR": {
+      "src": "/media/logos/manufacturers/textar.webp",
+      "width": 320,
+      "height": 108,
+      "source": "https://cdn.autodoc.de/brands/thumbs/39.png",
+      "sha256": "62b2a04066be5fe787db240ed6e45a16b8293c1e718ab4f18f382726be72f3ce"
+    },
+    "CORTECO": {
+      "src": "/media/logos/manufacturers/corteco.webp",
+      "width": 212,
+      "height": 76,
+      "source": "https://www.corteco.com/#header-logo",
+      "sha256": "216abb821e3e86e5cc5d5b1aa355829bda4ba1ab3762daf999dbf3a67a12c24a"
+    },
+    "BORGWARNER": {
+      "src": "/media/logos/manufacturers/borgwarner.webp",
+      "width": 320,
+      "height": 26,
+      "source": "https://www.borgwarner.com/Assets/Icons/spritemap.svg#bw_logo",
+      "sha256": "680a7fe9b889441c36310f758328c5f00d141b01c3154cdcfe7f20856492f3bf"
+    },
+    "GARRETT": {
+      "src": "/media/logos/manufacturers/garrett.webp",
+      "width": 125,
+      "height": 42,
+      "source": "https://www.garrettmotion.com/wp-content/uploads/2024/07/garrett-logo-1.png",
+      "sha256": "98ec21c7aa4c3e5619417faaba60e5f1c0919c17d0f6d24e0b479886fe9ce547"
+    },
+    "NTN-SNR": {
+      "src": "/media/logos/manufacturers/ntn-snr.webp",
+      "width": 320,
+      "height": 64,
+      "source": "https://www.albeco.com.pl/media/media/image/NTN_SNR_Logo.png",
+      "sha256": "757e2e4dbabdd12d7f609e97b73c120d314c91a6604c387244e80939d89e68cb"
+    },
+    "AISIN": {
+      "src": "/media/logos/manufacturers/aisin.webp",
+      "width": 270,
+      "height": 52,
+      "source": "https://www.aisin.com/jp/assets/img/common/logo.svg",
+      "sha256": "4ec9d16fc1fd58daa61256a006ab8b61ca8cd7aec07915ebe3d303d692374000"
+    },
+    "GKN": {
+      "src": "/media/logos/manufacturers/gkn.webp",
+      "width": 320,
+      "height": 106,
+      "source": "https://www.gknautomotive.com/media/zzaj4wu5/gkn-auto-logo-stacked-wide.png",
+      "sha256": "ffae0ed01843de8dc9879cc45533ddd590d43cd0185979392284261219f20973"
+    },
+    "STABILUS": {
+      "src": "/media/logos/manufacturers/stabilus.webp",
+      "width": 320,
+      "height": 29,
+      "source": "https://www.stabilus.com/layouts/default/images/stabilus.svg",
+      "sha256": "b4ee7e17b3449fafa2171346152654727468507ff8c455e3b843d772b214cc56"
+    },
+    "VERNET": {
+      "src": "/media/logos/manufacturers/vernet.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://fr.vernet-group.com/wp-content/uploads/2019/12/2019_Vernet-PNG.png",
+      "sha256": "591d382b2d0b7b9497cab1e3abdd9d2b5b9c58fb4b81fd1b0d4ef6eff248cefd"
+    },
+    "UFI": {
+      "src": "/media/logos/manufacturers/ufi.webp",
+      "width": 144,
+      "height": 144,
+      "source": "https://www.ufifilters.com/wp-content/uploads/2018/03/logo-1.png",
+      "sha256": "9781740c5c8010ad68c307fc28219f6c9fcaef924feec8a601c3bd430d68fdbe"
+    },
+    "SHELL": {
+      "src": "/media/logos/manufacturers/shell.webp",
+      "width": 156,
+      "height": 144,
+      "source": "https://arsenal-oil.com/cdn/shop/files/Shell_logo.png?v=1744901850&width=1426",
+      "sha256": "c6e6ccc154b9dfb1aa0707dddb67b297afa6add40a41a9f5dc1ddd42f8dda117"
+    },
+    "TOTAL": {
+      "src": "/media/logos/manufacturers/total.webp",
+      "width": 197,
+      "height": 144,
+      "source": "https://totalenergies.com/themes/custom/totalenergies_com/dist/img/logo_totalenergies.png",
+      "sha256": "ee9e72a2776259364ed227b96190307c60c676ffc0ac5bc7564dd642c73bbb68"
+    },
+    "OSRAM": {
+      "src": "/media/logos/manufacturers/osram.webp",
+      "width": 320,
+      "height": 72,
+      "source": "https://cdn.autodoc.de/brands/thumbs/67.png",
+      "sha256": "5c9a7c8b43deff70cb63aa277a30cc0137d291e53087f32476b4f1fc18f6c976"
+    },
+    "VDO": {
+      "src": "/media/logos/manufacturers/vdo.webp",
+      "width": 320,
+      "height": 64,
+      "source": "https://cdn.autodoc.de/brands/thumbs/83.png",
+      "sha256": "6b40b56dbf1da15c249a081917a92e7d28239e1f1e17f1809d518bacae2734d4"
+    }
+  }
+}

@@ -1,11 +1,16 @@
 import "server-only";
 import {db} from "@/lib/db";
 import {manufacturerBrandKey} from "./enrichment-contract";
+import {getStaticManufacturerLogo} from "./storefront-logos";
 
 export type ManufacturerLogo = {src: string; width: number; height: number};
 export async function getManufacturerLogos(brands: string[]) {
-  const keys = [...new Set(brands.map(manufacturerBrandKey).filter(Boolean))];
   const logos = new Map<string,ManufacturerLogo>();
+  for (const brand of brands) {
+    const logo = getStaticManufacturerLogo(brand);
+    if (logo) logos.set(brand,logo);
+  }
+  const keys = [...new Set(brands.filter(brand=>!logos.has(brand)).map(manufacturerBrandKey).filter(Boolean))];
   if (!keys.length) return logos;
   const rows = (await db.query<{brand_key:string;sha256:string;width:number;height:number}>(
     "SELECT brand_key,sha256,width,height FROM manufacturer_logos WHERE brand_key=ANY($1::text[])",[keys])).rows;

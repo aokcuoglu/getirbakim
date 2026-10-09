@@ -2768,7 +2768,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-07",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -2847,6 +2847,25 @@
             "attrs": {},
             "children": [
               "Bu sürümde sipariş, ödeme, açık üyelik kaydı ve pazarlama gönderimi hizmetleri etkin değildir. Henüz sunulmayan hizmetler için veri toplandığı veya paylaşım yapıldığı varsayılmaz."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bülten Abonelik Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ana sayfadaki bülten formunu gönderdiğinde e-posta adresin, e-posta alma izni metni ve sürümü, talep tarihi ve kayıt kaynağı saklanır. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde abonelik talebi kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bu sürümde bülten e-postası gönderilmez ve bu kayıtlar bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
             ]
           }
         ]
@@ -3393,7 +3412,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-07",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -3513,6 +3532,25 @@
             "attrs": {},
             "children": [
               "Şu anda internet sitesinde sipariş veya ödeme alınmamaktadır. Site üzerinden sipariş, ödeme kartı veya teslimat adresi verisi toplanmaz. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bülten Abonelik Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Ana sayfadaki bülten formunu gönderdiğinde e-posta adresin, e-posta alma izni metni ve sürümü, talep tarihi ve kayıt kaynağı saklanır. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde abonelik talebi kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bu sürümde bülten e-postası gönderilmez ve bu kayıtlar bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
             ]
           }
         ]
