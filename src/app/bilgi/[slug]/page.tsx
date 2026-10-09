@@ -8,10 +8,21 @@ const pages:Record<string,{title:string;paragraphs:string[]}>={
  yardim:{title:"Nasıl yardımcı olabiliriz?",paragraphs:["Ürün aramak için üstteki arama alanına ürün adı, marka veya OEM kodu yaz. Kategoriler üzerinden kataloğa göz atabilirsin.","Bireysel alışveriş için servis hesabı gerekmez. Sepetin bu tarayıcıda 30 günlük güvenli bir çerezle ilişkilendirilir.","Profesyonel servis hesabı Getirbakim yönetimi tarafından onaylandıktan sonra açılır. B2B girişinde servisine tanımlı fiyatlar uygulanır ve ziyaretçi sepetin hesabına aktarılır.","Destek: 0216 387 00 78 · info@ergulenerji.com. Çalışma saatleri 09:00–17:30. Bu aşamada çevrimiçi ödeme alınmamaktadır; sipariş talepleri stok ve sevkiyat teyidine bağlıdır."]}
 };
 export async function generateMetadata({params}:{params:Promise<{slug:string}>}) {
- const {slug}=await params; const legalSlug=slug === "teslimat" ? "teslimat-ve-iade" : slug;
+ const {slug}=await params;
+ const legalSlug=slug === "teslimat" ? "teslimat-ve-iade" : slug;
  if(legalDocument(legalSlug)) return legalMetadata(legalSlug);
  return {title: `${pages[slug]?.title ?? "Bilgi"} | Getirbakim`};
 }
 export default async function Info({params}:{params:Promise<{slug:string}>}) {
- const {slug}=await params; const legalSlug=slug === "teslimat" ? "teslimat-ve-iade" : slug; if(legalDocument(legalSlug)) return <LegalPage slug={legalSlug}/>;const page=Object.hasOwn(pages,slug) ? pages[slug] : undefined;if(!page)notFound();return <section className="shell info-page page-section"><Link className="back" href="/">← Ana sayfa</Link><h1 className="page-title">{page.title}</h1>{page.paragraphs.map(p=><p key={p}>{p}</p>)}<Link className="button" href="/katalog">Kataloğa göz at →</Link></section>;
+ const {slug}=await params;
+ const legalSlug=slug === "teslimat" ? "teslimat-ve-iade" : slug;
+ if(legalDocument(legalSlug)) return <LegalPage slug={legalSlug}/>;
+ const page=Object.hasOwn(pages,slug) ? pages[slug] : undefined;
+ if(!page) notFound();
+ return <section className="shell info-page page-section">
+  <Link className="back" href="/">← Ana sayfa</Link>
+  <h1 className="page-title">{page.title}</h1>
+  {page.paragraphs.map(p=><p key={p}>{p}</p>)}
+  <Link className="button" href="/katalog">Kataloğa göz at →</Link>
+ </section>;
 }
