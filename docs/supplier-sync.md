@@ -157,3 +157,34 @@ Yönetim ekranı zamanlayıcı sinyalini, grup bazında planı, son ticari başa
 Sipariş, ağ çağrısı boyunca DB transaction tutmadan ilgili grupları canlı yeniler. Kaynak hatası/çakışan çekim, tükenen stok veya güncel olmayan veri siparişi durdurur. Fiyat değişirse mevcut fiyat doğrulama akışı müşteriyi yeniden fiyat onayına yönlendirir. API çağrısı sırasında sepete farklı bir tedarikçi grubu eklenirse sipariş tekrar kontrol ister. Tamamlanan aynı istek anahtarı yeniden geldiğinde yeni API çağrısı yapılmaz. Sipariş fiyat/kurlar/vergi anlık değerlerini saklar; sonraki kaynak güncellemeleri geçmiş sipariş fiyatını değiştirmez. Grup bazındaki canlı kontrol sepet büyüklüğüne göre gecikebilir; doğrulanmış ürün bazlı servis sözleşmesine geçildiğinde daraltılabilir.
 
 Doğrulama: `npm run test:basbug`, `npm run test:supplier-sync`, `npm run test:supplier-checkout`, `npm run lint`, `npm run typecheck`, `npm run build`. PostgreSQL testleri geçici şemaları kullanır ve sonunda kaldırır. Advisory lock'lar veritabanı genelindedir: testler zamanlayıcı kilidini alır; canlı işçi çalışırken hızlıca durup tekrar denemeyi ister.
+
+## Production işletimi ve manuel tetikleme — 9 Ekim 2026
+
+6 Ekim'deki FiyatGetir kesintisinde production'da tüm kapsamlar kapatılmış ve `getirbakim-production-sync.service` maskelenmişti; veri 5 Ekim'de kaldı. 9 Ekim ölçümü: API normal (FIAT ürün 2,3 sn / fiyat 1,1 sn / stok 1,0 sn, token ömrü 300 sn). Yerelde 15 grubun zorla tam aktarımı **2 dk 5 sn**, yalnız fiyat/stok/kur turu **1 dk 15 sn** sürdü (321.206 güncel kayıt).
+
+Zamanlayıcıya iki ekleme yapıldı:
+
+- **Devre kesici:** Bir grup `upstream`, `config`, `busy` veya `paused` ile başarısız olursa o turdaki kalan gruplar denenmez (`circuitOpen` + `skipped` loglanır). Kesintide her 15 dakikalık tur en fazla bir grubu dener; eskiden 15 grubun her biri 60 sn zaman aşımı bekliyordu. `rejected`/`contract` grup özelinde olduğu için diğer gruplar devam eder. Başarısız grup kendi geri çekilme süresine girer, sonraki tur sıradaki grubu dener; API dönünce gruplar kendiliğinden toparlanır.
+- **Manuel tetikleme:** `--force` plan ve `enabled` bayrağına bakmadan çeker. Varsayılan `full`; `--mode=commerce` yalnız fiyat/stok/kur.
+
+```sh
+# Yerel (otomatik görev kurulu değil; ihtiyaç oldukça elle):
+npm run supplier:sync -- --force                      # tüm gruplar, tam aktarım
+npm run supplier:sync -- --force --mode=commerce      # tüm gruplar, fiyat/stok/kur
+npm run supplier:sync -- --force --group=FIAT,AV      # seçili gruplar
+npm run supplier:health
+
+# Production (/opt/getirbakim-v2-production):
+bash scripts/production-task.sh supplier-sync --force
+bash scripts/production-task.sh supplier-health
+bash scripts/production-task.sh supplier-configure --group=ALL --daily-at=03:00 \
+  --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90
+sudo systemctl unmask getirbakim-production-sync.service
+sudo systemctl enable --now getirbakim-production-sync.timer
+```
+
+`--group=ALL` aynı planı tedarikçinin bilinen tüm kapsamlarına uygular. Production planı: ürün listesi her gece İstanbul 03:00, fiyat/stok/kur **30 dakikada bir**, ticari bayatlık 90 dakika. Sipariş anındaki canlı doğrulama bunun üzerine ayrıca çalışır.
+
+Acil durdurma: `supplier-configure --group=ALL --enabled=false --commerce-enabled=false` (veriler korunur, satış bayatlık kuralına göre kapanır). Servisi maskelemek yerine bunu tercih edin; maskelenmiş servis sağlık ucunda `stopped` görünür.
+
+**Dış izleme:** `GET /api/health/suppliers` zamanlayıcı durmuşsa ya da etkin bir grup bayat/başarısızsa **503** döner; gövdede yalnız toplu durum (`status`, `scheduler`, `groups`, `issues`, `oldest_commerce_success`) vardır. Bir uptime izleyicisine (ör. 5 dakikada bir, 2 ardışık 503'te alarm) bağlanmalı; macOS bildirimi yalnız yerel kurulum içindir.

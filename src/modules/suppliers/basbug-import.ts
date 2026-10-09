@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { z } from "zod";
 import type { Pool } from "pg";
 import { applySupplierSnapshot, rejectionReason } from "./sync";
@@ -16,8 +18,8 @@ const authSchema = z.object({ token: z.string().min(1), tokenTipi: z.literal("Be
 export const importOptions = z.object({ mode: z.enum(["full", "commerce"]).default("full"), group: z.string().regex(/^[A-Z0-9_-]{1,30}$/), warehouse: z.literal("MRK"), company: z.string().trim().min(1).max(100).optional(), acceptAnomaly: z.string().trim().min(10).max(500).optional() });
 
 export class BasbugImportError extends Error {
-  constructor(public readonly reason: "busy" | "upstream" | "contract" | "config" | "rejected", stage?: string) {
-    super(`Başbuğ: ${reason}${stage ? ` (${stage})` : ""}`);
+  constructor(public readonly reason: "busy" | "upstream" | "contract" | "config" | "rejected" | "paused", public readonly detail?: string) {
+    super(`Başbuğ: ${reason}${detail ? ` (${detail})` : ""}`);
   }
 }
 
@@ -76,6 +78,7 @@ export function prepareBasbugImport(input: { products: unknown; prices: unknown;
 }
 
 export async function importBasbug(pool: Pool, options: z.input<typeof importOptions>, progress?: (stage: string) => void) {
+  if (existsSync(resolve(".local/basbug-paused"))) throw new BasbugImportError("paused");
   const { mode, group, warehouse, company: requestedCompany, acceptAnomaly } = importOptions.parse(options);
   const company = requestedCompany || process.env.BASBUG_FIRMA_ADI || "BASBUG";
   const connection = await pool.connect();
@@ -110,11 +113,12 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kullaniciAdi: required("BASBUG_USERNAME"), parola: required("BASBUG_PASSWORD"), clientID: required("BASBUG_CLIENT_ID"), clientSecret: required("BASBUG_CLIENT_SECRET") }),
       });
-      if (!result.ok) throw new BasbugImportError("upstream");
+      if (!result.ok) throw new BasbugImportError("upstream", `Auth HTTP ${result.status}`);
       const auth = authSchema.parse(await result.json());
       token = auth.token; expires = before + auth.tokenBitisSuresi * 1000;
     }
     async function get(path: string, params: Record<string, string> = {}) {
+      if (existsSync(resolve(".local/basbug-paused"))) throw new BasbugImportError("paused");
       if (Date.now() >= expires - 70_000) await login();
       progress?.(path);
       stage = path;
@@ -207,8 +211,11 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
     if (inTransaction) await connection.query("ROLLBACK");
     if (runId) {
       const reason = error instanceof BasbugImportError ? error.reason : error instanceof z.ZodError ? "contract" : "upstream";
+      // Persist only controlled diagnostics, never response bodies or raw exception messages.
+      const diagnostic = error instanceof Error && error.name === "TimeoutError" ? "timeout"
+        : error instanceof BasbugImportError ? error.detail?.match(/HTTP \d{3}$/)?.[0] : undefined;
       await connection.query(`UPDATE supplier_imports SET status=$2,completed_at=clock_timestamp(),observations=$3,
-        error_reason=COALESCE(error_reason,$4) WHERE id=$1`, [runId,reason === "rejected" ? "rejected" : "failed",JSON.stringify(observations),`${reason}: ${stage}`]);
+        error_reason=COALESCE(error_reason,$4) WHERE id=$1`, [runId,reason === "rejected" ? "rejected" : "failed",JSON.stringify(observations),`${reason}: ${stage}${diagnostic ? `: ${diagnostic}` : ""}`]);
       if (mode === "commerce") {
         await connection.query(`UPDATE supplier_sync_scopes SET commerce_failures=commerce_failures+1,
           commerce_next_run_at=now()+LEAST(360,15*power(2,LEAST(commerce_failures,5))) * interval '1 minute'
