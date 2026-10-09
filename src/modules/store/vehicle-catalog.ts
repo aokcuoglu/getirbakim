@@ -33,3 +33,11 @@ export function vehicleProductionDates(dateFrom: string | null, dateTo: string |
   const format = (date: string) => date.split("-").reverse().join(".");
   return `${dateFrom ? format(dateFrom) : "Başlangıç bilinmiyor"} – ${dateTo ? format(dateTo) : "devam ediyor"}`;
 }
+
+// URL slug for /car-parts/{slug}: "ALFA ROMEO" → "alfa-romeo", "CITROËN" → "citroen".
+export function vehicleBrandSlug(name: string) {
+  return normalizeVehicleSearch(name).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+// Storefront order for the popular make grids (home page, /automakers).
+export const popularVehicleMakes=["VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT","FIAT","SUZUKI","JEEP","LAND ROVER","MITSUBISHI","CHEVROLET","DACIA","CHRYSLER","ALFA ROMEO","JAGUAR","PORSCHE","TESLA","DODGE","BENTLEY","MINI","CUPRA"];

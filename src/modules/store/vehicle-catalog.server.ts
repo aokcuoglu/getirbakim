@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { normalizeVehicleSearch, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
+import { normalizeVehicleSearch, vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
 function validId(value: string) {
@@ -27,6 +27,10 @@ function formatVehicle(row: VehicleRow): CatalogVehicle {
 export async function getVehicleBrands(): Promise<VehicleBrand[]> {
   const { rows } = await db.query<VehicleBrand>("SELECT id::text, display_name AS name, popular FROM vehicle_brands");
   return rows.sort((a, b) => a.name.localeCompare(b.name, "tr"));
+}
+
+export async function getVehicleBrandBySlug(slug: string) {
+  return (await getVehicleBrands()).find(brand => vehicleBrandSlug(brand.name) === slug);
 }
 
 export async function getVehicleModels(brandId: string): Promise<VehicleModel[] | null> {
