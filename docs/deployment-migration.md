@@ -54,7 +54,7 @@ Deploy scripti yalnızca checkout ile aynı tam `DEPLOY_SHA` değerini kabul ede
 
 Yeni production PostgreSQL 18 ayrı volume üzerinde kurulur; uygulama rolü superuser değildir. Dump yalnızca boş yeni veritabanına, tek transaction ile restore edilir. `scripts/verify-live-snapshot.ts` tüm tablo sayılarını; `scripts/import-live-media.ts` her nesnenin aktarım öncesi ve sonrası SHA-256 özetini doğrular. Kaynak kimlikler korunur. Restore sadece ilk hazırlıkta yapılır; sonraki deploy'lar canlı veriyi yerel dump ile ezmez.
 
-`deploy/production.compose.yml` ve `scripts/deploy-production.sh` ayrı production stack'ini yönetir. GitHub `Deploy production` workflow'u `main` push'larında image'ları runner'da derler, tam commit'e bağlı deploy yapar ve her şema güncellemesi öncesi canlı yedeği alır. İlk hazırlık için `launch/local-data` branch'i de aynı workflow'u tetikler. Medya image'ları daha önce doğrulanmış `STORAGE_VERSION` sürümünden kullanılır.
+`deploy/production.compose.yml` ve `scripts/deploy-production.sh` ayrı production stack'ini yönetir. GitHub `Deploy production` workflow'u `main` push'larında image'ları runner'da derler, tam commit'e bağlı deploy yapar ve her şema güncellemesi öncesi canlı yedeği alır. İlk hazırlıkta kullanılan `launch/local-data` branch'i main'e girdikten sonra silindi. Medya image'ları daha önce doğrulanmış `STORAGE_VERSION` sürümünden kullanılır.
 
 Canlı tedarikçi zamanlayıcısı yalnızca aktarım doğrulandıktan sonra kurulur. Günlük yedekler ve supplier systemd timer'ları production stack'ine aittir. Uygulamanın mevcut ödeme ve uyumluluk özellikleri aynen korunur.
 

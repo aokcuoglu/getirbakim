@@ -1,7 +1,7 @@
 name: Deploy production
 on:
   push:
-    branches: [main, launch/local-data]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
   deploy:
     needs: check
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/launch/local-data'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
