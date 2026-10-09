@@ -1,32 +1,5 @@
 /* supplier-admin: single owner for these surfaces; responsive and scoped variants below. */
 
-.admin-workspace .admin-stats {
-  display: grid;
-  grid-template-columns: repeat(3,1fr);
-  gap: 20px;
-  margin: 30px 0 45px
-}
-.admin-workspace .admin-stats>div {
-  background: #f5f8fa;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 24px
-}
-.admin-workspace .admin-stats small {
-  display: block;
-  color: var(--muted);
-  margin-bottom: 12px
-}
-.admin-workspace .admin-stats strong {
-  display: block;
-  font-size: 25px
-}
-.admin-workspace .supplier-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 25px;
-  margin-bottom: 45px
-}
 .admin-workspace .admin-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -42,22 +15,6 @@
 }
 }
 @media (max-width:600px) {
-.admin-workspace .admin-stats {
-  gap: 8px
-}
-.admin-workspace .admin-stats>div {
-  padding: 14px
-}
-.admin-workspace .admin-stats strong {
-  font-size: 20px
-}
-.admin-workspace .admin-stats small {
-  font-size: 12px
-}
-.admin-workspace .supplier-grid {
-  grid-template-columns: 1fr;
-  gap: 20px
-}
 .admin-workspace .admin-columns {
   grid-template-columns: 1fr;
   gap: 20px
@@ -69,7 +26,7 @@
   --card-radius: 4px;
   color: var(--ink)
 }
-.admin-workspace .panel,.admin-workspace .admin-stats>div,.admin-workspace .empty {
+.admin-workspace .panel,.admin-workspace .empty {
   border-radius: 4px;
   box-shadow: none
 }
@@ -87,42 +44,8 @@
   font-size: 11px;
   letter-spacing: 1px
 }
-.admin-workspace .admin-stats {
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line)
-}
-.admin-workspace .admin-stats>div {
-  border: 0;
-  background: var(--light)
-}
 .supplier-admin,.supplier-admin .supplier-section-title>div {
   min-width: 0
-}
-.supplier-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 24px;
-  padding-bottom: 24px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--line)
-}
-.supplier-heading .page-title {
-  margin: 8px 0
-}
-.supplier-heading .muted {
-  margin-bottom: 0
-}
-.supplier-heading .badge {
-  border: 1px solid #c9dbe9;
-  border-radius: 4px;
-  padding: 8px 12px;
-  font-size: 12px;
-  line-height: 20px;
-  background: var(--soft-blue);
-  color: #305b79;
-  white-space: normal
 }
 .supplier-section-title {
   display: flex;
@@ -686,12 +609,6 @@
 to {
   transform: rotate(360deg)
 }}
-.supplier-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 24px;
-  margin: 24px 0
-}
 .supplier-fields {
   margin: 0 0 24px
 }
@@ -723,10 +640,6 @@ to {
 .supplier-filters {
   grid-template-columns: repeat(2,minmax(0,1fr))
 }
-.supplier-heading {
-  align-items: flex-start;
-  flex-wrap: wrap
-}
 .supplier-section-title {
   flex-wrap: wrap;
   align-items: flex-start
@@ -736,9 +649,6 @@ to {
 }
 .supplier-pagination form {
   margin-left: 0
-}
-.supplier-detail-grid {
-  grid-template-columns: 1fr
 }}
 @media(max-width:600px){
 .admin-workspace .page-title {
@@ -798,9 +708,6 @@ to {
 }
 .supplier-run-history summary>span {
   margin-left: 0
-}
-.supplier-heading .badge {
-  font-size: 11px
 }
 .supplier-table-wrap {
   max-height: 65vh

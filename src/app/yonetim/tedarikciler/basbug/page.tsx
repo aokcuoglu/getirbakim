@@ -2,6 +2,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import Link from "next/link";
+import { AdminPageHeader, StatusBadge } from "@/components/admin/ui";
 import { adminBasbugData } from "@/modules/admin/basbug";
 import { refreshBasbug } from "./actions";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
@@ -38,8 +39,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     return `/yonetim/tedarikciler/basbug?${query}`;
   }
   return <section className="shell page-section supplier-admin">
-    <nav className="breadcrumbs" aria-label="Sayfa yolu"><Link href="/yonetim">Yönetim</Link><span aria-hidden="true">/</span><Link href="/yonetim/tedarikciler">Tedarikçiler</Link><span aria-hidden="true">/</span><span aria-current="page">Başbuğ</span></nav>
-    <div className="supplier-heading"><div><p className="eyebrow">TEDARİKÇİ VERİLERİ</p><h1 className="page-title">Başbuğ</h1><p className="muted">Ürün, kaynak fiyat ve depo stok verilerini incele.</p></div><span className="badge">Başbuğ API · MRK</span></div>
+    <AdminPageHeader breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "Başbuğ" }]} eyebrow="Tedarikçi verileri" title="Başbuğ" description="Ürün, kaynak fiyat ve depo stok verilerini incele." actions={<StatusBadge tone="info">Başbuğ API · MRK</StatusBadge>}/>
     {params.updated === "1" && <p className="notice" role="status">Veriler API’den çekildi ve güncel kayıtlar yenilendi.</p>}
     {params.error && <p className="error" role="alert">{errors[params.error] || errors.upstream}</p>}
     {!data.health.heartbeat?.alive && <p className="error" role="alert">Otomatik çekim zamanlayıcısından güncel çalışma sinyali alınamıyor. Bilgisayarın açık olduğunu ve zamanlayıcının çalıştığını kontrol edin.</p>}
