@@ -25,12 +25,13 @@ export class SourceQueue {
    await new Promise(r=>setTimeout(r,1000));
   }
  }
- async claim(host:string):Promise<{id:string;token:string;path:string;kind:string}|{blocked:true}|{waitMs:number}>{
+ async claim(host:string):Promise<{id:string;token:string;path:string;kind:string}|{blocked:true}|{challenge:true}|{waitMs:number}>{
   const client=await this.pool.connect();
   try{
    await client.query('BEGIN');
    const h=(await client.query('SELECT *,greatest(0,extract(epoch FROM next_allowed_at-now())*1000)::int AS wait_ms FROM enrichment_source_hosts WHERE host=$1 FOR UPDATE',[host])).rows[0];
    if(!h||h.blocked){await client.query('COMMIT');return {blocked:true};}
+   if(h.challenge_since){await client.query('COMMIT');return {challenge:true};}
    if(h.wait_ms>0){await client.query('COMMIT');return {waitMs:h.wait_ms};}
    const busy=(await client.query("SELECT 1 FROM enrichment_source_requests WHERE host=$1 AND status='leased' AND lease_until>now() LIMIT 1",[host])).rowCount;
    if(busy){await client.query('COMMIT');return {waitMs:1000};}
@@ -43,13 +44,13 @@ export class SourceQueue {
    await client.query('COMMIT');return {id:row.id,token,path:row.path,kind:row.kind};
   }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
  }
- async finish(input:{id:string;token:string;httpStatus:number;elapsedMs:number;bytes:number;retryAfter:string|null;error?:string;body?:unknown}){
+ async finish(input:{id:string;token:string;httpStatus:number;elapsedMs:number;bytes:number;retryAfter:string|null;error?:string;challenge?:boolean;body?:unknown}){
   const client=await this.pool.connect();
   try{
    await client.query('BEGIN');
    const row=(await client.query("SELECT * FROM enrichment_source_requests WHERE id=$1 AND run_id=$2 AND lease_token=$3 AND status='leased' FOR UPDATE",[input.id,this.runId,input.token])).rows[0];
    if(!row){await client.query('ROLLBACK');throw Error('Stale request lease');}
-   const decision=sourceDecision(input.error&&input.httpStatus===200?0:input.httpStatus,row.attempts,input.retryAfter);
+   const decision=input.error&&input.httpStatus===200?{action:'fail' as const,waitMs:0}:sourceDecision(input.httpStatus,row.attempts,input.retryAfter,Date.now(),input.challenge);
    const error=input.error||`HTTP ${input.httpStatus}`;
    await client.query(`INSERT INTO enrichment_request_events(run_id,request_id,host,path,http_status,elapsed_ms,bytes,outcome,retry_after_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [this.runId,row.id,row.host,row.path,input.httpStatus,input.elapsedMs,input.bytes,decision.action,decision.waitMs]);
@@ -59,6 +60,10 @@ export class SourceQueue {
     if(Buffer.byteLength(body)>15*1024*1024)throw Error('Source response too large');
     await client.query("INSERT INTO enrichment_source_cache(host,path,body,expires_at) VALUES($1,$2,$3,now()+$4*interval '1 millisecond') ON CONFLICT(host,path) DO UPDATE SET body=EXCLUDED.body,fetched_at=now(),expires_at=EXCLUDED.expires_at",[row.host,row.path,body,cacheLifetime(row.path,row.kind)]);
     await client.query("UPDATE enrichment_source_requests SET status='complete',body=$2,finished_at=now(),lease_token=NULL,lease_until=NULL WHERE id=$1",[row.id,body]);
+   }else if(decision.action==='challenge'){
+    // The request was not served; it waits for the browser check without spending an attempt.
+    await client.query("UPDATE enrichment_source_requests SET status='pending',available_at=now(),attempts=greatest(0,attempts-1),last_error=$2,lease_token=NULL,lease_until=NULL WHERE id=$1",[row.id,error]);
+    await client.query('UPDATE enrichment_source_hosts SET challenge_since=coalesce(challenge_since,now()),challenges=challenges+1,last_error=$2 WHERE host=$1',[row.host,error]);
    }else if(decision.action==='retry'){
     await client.query("UPDATE enrichment_source_requests SET status='pending',available_at=now()+$2*interval '1 millisecond',last_error=$3,lease_token=NULL,lease_until=NULL WHERE id=$1",[row.id,decision.waitMs,error]);
     await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=greatest(next_allowed_at,now()+$2*interval '1 millisecond'),last_error=$3,interval_ms=CASE WHEN $4=429 THEN least(30000,interval_ms*2) ELSE interval_ms END WHERE host=$1",[row.host,decision.waitMs,error,input.httpStatus]);
@@ -71,4 +76,14 @@ export class SourceQueue {
    return {action:decision.action,waitMs:decision.waitMs};
   }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
  }
+ // Returns a lease whose response never arrived (tab navigated or closed) without spending an attempt.
+ async release(id:string,token:string){
+  await this.pool.query("UPDATE enrichment_source_requests SET status='pending',available_at=now(),attempts=greatest(0,attempts-1),lease_token=NULL,lease_until=NULL WHERE id=$1 AND run_id=$2 AND lease_token=$3 AND status='leased'",[id,this.runId,token]);
+ }
+ async hostState(host:string):Promise<{blocked:boolean;challengeSince:Date|null;lastError:string|null}>{
+  const h=(await this.pool.query('SELECT blocked,challenge_since,last_error FROM enrichment_source_hosts WHERE host=$1',[host])).rows[0];
+  return {blocked:Boolean(h?.blocked),challengeSince:h?.challenge_since??null,lastError:h?.last_error??null};
+ }
+ async clearChallenge(host:string){await this.pool.query('UPDATE enrichment_source_hosts SET challenge_since=NULL,next_allowed_at=greatest(next_allowed_at,now()) WHERE host=$1',[host]);}
+ async blockHost(host:string,error:string){await this.pool.query('UPDATE enrichment_source_hosts SET blocked=true,challenge_since=NULL,last_error=$2 WHERE host=$1',[host,error]);}
 }

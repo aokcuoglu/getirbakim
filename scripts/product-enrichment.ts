@@ -15,6 +15,7 @@ try {
       await client.query(await readFile("db/product-fitments.sql", "utf8"));
       await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
       await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
+      await client.query(await readFile("db/source-categories.sql", "utf8"));
       const result = await client.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
         SELECT id,code,COALESCE(product_data->>'uk',''),COALESCE(product_data->>'oe','') FROM supplier_items
         ON CONFLICT(supplier_item_id) DO NOTHING`);

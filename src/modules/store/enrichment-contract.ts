@@ -7,6 +7,8 @@ export const matchBasisSchema = z.discriminatedUnion("type", [
     referenceSource: z.enum(["supplier_oem", "original_manufacturer_part_code"]) }),
 ]);
 export const enrichmentDataSchema = z.object({
+  categories: z.array(z.object({source:z.literal("trodo"),id:z.number().int().positive(),name:z.string().min(1).max(300),
+    path:z.array(z.object({id:z.number().int().positive(),name:z.string().min(1).max(300)})).max(30)})).max(100).default([]),
   displayName: z.string().min(1).max(300).optional(),
   description: z.string().max(3000).optional(),
   specifications: z.array(z.tuple([z.string().min(1).max(200), z.string().min(1).max(1000)])).max(100),
@@ -19,7 +21,7 @@ export const enrichmentDataSchema = z.object({
   }).refine(vehicle => vehicle.cc > 0 || vehicle.fuel === "Electric", {
     message: "Zero displacement is only valid for electric vehicles", path: ["cc"],
   })).max(10000),
-  vehicleModels: z.array(z.string().min(1)).max(500).default([]),
+  vehicleModels: z.array(z.string().min(1)).max(5000).default([]),
   imageWidth: z.number().int().positive().max(10000).default(480),
   imageHeight: z.number().int().positive().max(10000).default(480),
 });
@@ -37,13 +39,21 @@ export const enrichmentImportSchema = z.object({
 });
 
 const normalize = (value: string) => value.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
-const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER" };
+const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER" };
 export const manufacturerBrandKey = (value: string) => aliases[normalize(value)] || normalize(value);
 const brandKey = manufacturerBrandKey;
 const prefixes: Record<string, string[]> = {
   DEPO: ["DPO"], LUK: ["LUK"], FEBIBILSTEIN: ["FEBI"], BOSCH: ["BOS", "BCH"], LEMFORDER: ["LEM"], BSG: ["BSG"],
   DENSO: ["DEN"], MANNFILTER: ["MANN"], ELRING: ["ELR"], CONTITECH: ["C", "CT"], TRW: ["TRW"],
   MOOG: ["MOOG"], SKF: ["SKF"], SACHS: ["SCH"], FAG: ["FAG"], PIERBURG: ["PRG"], CTR: ["CTR"],
+  // Supplier prefixes verified against same-brand Trodo catalog candidates.
+  FILTRON: ["FILT"], DAYCO: ["DAY"], TEXTAR: ["TX"], VDO: ["VDO"], ERA: ["ERA"], NGK: ["NGK"],
+  GATES: ["GTS"], AISIN: ["AIS"], DELPHI: ["DEL"], NRF: ["NRF"], VALEO: ["VAL"], RAPRO: ["RAP"],
+  CIFAM: ["CIF"], ATE: ["ATE"], ZF: ["ZF"], STABILUS: ["STB"], INA: ["INA"], HELLA: ["HEL"],
+  HEPU: ["HEPU"], BLUEPRINT: ["BLU"], BREMI: ["BRM"], FERODO: ["FRD"], BERU: ["BR"],
+  CHAMPION: ["CHA"], SOFIMA: ["SOF"], DOLZ: ["DOLZ"], PURFLUX: ["PUR"], WAHLER: ["WHL"],
+  AE: ["AE"], JURID: ["JRD"], ULO: ["ULO"],
+  HENGSTFILTER: ["HNG"],
 };
 
 export function matchesSupplierPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
@@ -55,17 +65,20 @@ export function matchesSupplierPart(supplierBrand: string, supplierCode: string,
 }
 
 export function matchesEnrichment(supplier: { brand: string; code: string; oem: string }, source: {
-  manufacturer: string; partNumber: string; data: EnrichmentData; matchBasis: z.infer<typeof matchBasisSchema>;
+  manufacturer: string; partNumber: string; data: Pick<EnrichmentData, "oemNumbers" | "crossReferences">; matchBasis: z.infer<typeof matchBasisSchema>;
 }) {
   const basis = source.matchBasis;
   if (basis.type === "exact_part") return matchesSupplierPart(supplier.brand, supplier.code, source.manufacturer, source.partNumber);
   if (supplier.oem !== basis.supplierOem) return false;
   const reference = normalize(basis.reference);
   if (!reference) return false;
-  const supplierReferences = supplier.oem.split(/[,;|\n]+|(?<=\d{7})\s+(?=\d{7})/).map(normalize);
+  // Kit notation ("HX7G 6065 AB/SET") also authorizes the base OE number.
+  const supplierReferences = supplier.oem.split(/[,;|\n]+|(?<=\d{7})\s+(?=\d{7})/)
+    .flatMap(value => [value, value.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i, "")]).map(normalize).filter(value => value.length >= 4);
   const authorized = basis.referenceSource === "supplier_oem"
     ? supplierReferences.includes(reference)
-    : !supplier.oem && /^OE-/.test(supplier.brand) && normalize(supplier.code) === reference;
+    // An original manufacturer's own part number is an OE number, whatever its supplier OEM field holds.
+    : /^OE-/.test(supplier.brand) && normalize(supplier.code) === reference;
   return authorized && (normalize(source.partNumber) === reference
     || [...Object.values(source.data.oemNumbers), ...Object.values(source.data.crossReferences)].flat().some(value => normalize(value) === reference));
 }

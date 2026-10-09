@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
  next_allowed_at timestamptz NOT NULL DEFAULT now(),
  blocked boolean NOT NULL DEFAULT false,last_error text
 );
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenge_since timestamptz;
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenges integer NOT NULL DEFAULT 0;
 INSERT INTO enrichment_source_hosts(host) VALUES('www.trodo.com'),('picdn.trodo.com') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS enrichment_source_cache (
  host text NOT NULL,path text NOT NULL,body jsonb NOT NULL,fetched_at timestamptz NOT NULL DEFAULT now(),
