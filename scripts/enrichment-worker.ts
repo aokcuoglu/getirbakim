@@ -31,7 +31,7 @@ async function report(runId:string){
  const results={run,outcomes,stages,requests,brandCount:brands.length,brands,quality};
  await mkdir(`artifacts/enrichment-pilot-${runId}`,{recursive:true});await writeFile(`artifacts/enrichment-pilot-${runId}/report.json`,JSON.stringify(results,null,2));return results;
 }
-async function createRun(size:number,seed:string){
+async function createRun(size:number,seed:string,allowShort=false){
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
  const client=await pool.connect();try{
   await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(20261004,1)');
@@ -45,10 +45,11 @@ async function createRun(size:number,seed:string){
     FROM product_enrichment_jobs j WHERE status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
    ) s ORDER BY priority,hash LIMIT $3`,[run.id,seed,size]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
-  if(count!==size)throw Error('Not enough pending jobs');await client.query('COMMIT');
+  if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
+  if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
   await mkdir(`artifacts/enrichment-pilot-${run.id}`,{recursive:true});
   const items=(await pool.query('SELECT ordinal,supplier_item_id,supplier_code,supplier_brand,oem FROM enrichment_run_items WHERE run_id=$1 ORDER BY ordinal',[run.id])).rows;
-  await writeFile(`artifacts/enrichment-pilot-${run.id}/manifest.json`,JSON.stringify({id:run.id,size,seed,strategy:'One per brand, remainder stable hash sample of pending jobs',items},null,2));return run.id;
+  await writeFile(`artifacts/enrichment-pilot-${run.id}/manifest.json`,JSON.stringify({id:run.id,size:count,seed,strategy:'One per brand, remainder stable hash sample of pending jobs',items},null,2));return run.id;
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 async function serve(runId:string,port:number,chrome=false){
@@ -89,7 +90,7 @@ async function serve(runId:string,port:number,chrome=false){
  const owner=await pool.connect();
  const locked=(await owner.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0].locked;
  if(!locked){server.close();owner.release();throw Error('Run already has a worker');}
- let stopping=false;for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,()=>{stopping=true;queue.stopping=true;});
+ let stopping=false;const stop=()=>{stopping=true;queue.stopping=true;};for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,stop);
  await pool.query("UPDATE enrichment_runs SET status='running',started_at=coalesce(started_at,now()),finished_at=NULL WHERE id=$1",[runId]);
  const collectors=chrome?startChromeCollectors(queue,{port:Number(process.env.ENRICHMENT_CHROME_PORT||9222),profileDir:resolve('.local/enrichment/chrome-profile'),clientCode,
   landing:{'www.trodo.com':'https://www.trodo.com/','picdn.trodo.com':'https://picdn.trodo.com/media/m2_catalog_cache/480x480%2FTecDoc%2F4657%2F210%2F52%2F445-1134mldem2.jpg?1'}}):null;
@@ -222,9 +223,30 @@ async function serve(runId:string,port:number,chrome=false){
   }
   if(stopping)await pool.query("UPDATE enrichment_runs SET status='stopped' WHERE id=$1 AND status='running'",[runId]);
   console.log(JSON.stringify(await report(runId)));
+  return stopping?'stopped':(await pool.query('SELECT status FROM enrichment_runs WHERE id=$1',[runId])).rows[0].status as string;
  }finally{
+  for(const signal of ['SIGINT','SIGTERM'] as const)process.off(signal,stop);
   // Browser waits are bounded, but shutdown must not depend on them; state is already in the database.
-  await Promise.race([collectors?.stop(),new Promise(r=>setTimeout(r,20000))]);await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);owner.release();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+  await Promise.race([collectors?.stop(),new Promise(r=>setTimeout(r,20000))]);await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);owner.release();
+  // Keep-alive sockets from the browser bridge would otherwise hold close() open after the run finishes.
+  await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});}
+}
+// Works through every pending job in batches: an unfinished run is resumed first, then new batches are drawn until the
+// queue is empty. A blocked source or a stop signal ends the loop with the batch's checkpoints preserved.
+async function continueAll(port:number,chrome:boolean,batchSize:number){
+ await prepare();
+ for(let batch=1;;batch++){
+  const active=(await pool.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
+  let runId:string=active??"";
+  if(!runId){
+   const pending=(await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n;
+   if(!pending){console.log(JSON.stringify({continue:'done',batches:batch-1}));return;}
+   runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true);
+  }
+  console.log(JSON.stringify({continue:active?'resume':'batch',batch,runId}));
+  const status=await serve(runId,port,chrome);
+  if(status!=='complete'){console.log(JSON.stringify({continue:'halted',runId,status}));return;}
+ }
 }
 async function requeueReview(runId:string){
  const client=await pool.connect();try{
@@ -251,10 +273,11 @@ try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
  else if(command==='pilot'){await prepare();console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
  else if(command==='run'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
+ else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
  else if(command==='unblock'){await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL');console.log('Source hosts unblocked');}
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review')console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);
