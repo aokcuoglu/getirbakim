@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, SlidersHorizontal } from "lucide-react";
-import { Select } from "@/components/ui/select";
+import { Select } from "@/components/site/select";
 
 import {CategoryTree} from "@/components/navigation/category-tree";
 import type {StoreCategory} from "@/modules/store/category-tree";

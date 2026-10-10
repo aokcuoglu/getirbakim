@@ -5,7 +5,7 @@ import { currentVehicle } from "@/modules/store/garage";
 import { cartQuantity, currentCartOwner } from "@/modules/store/cart";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { GarageButton } from "@/components/garage/garage-button";
-import { SiteIcon } from "@/components/ui/site-icon";
+import { SiteIcon } from "@/components/site/site-icon";
 
 async function HeaderAccount() {
   const account = await currentAccount();

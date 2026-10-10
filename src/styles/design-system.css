@@ -1,11 +1,11 @@
 /* design-system: single owner for these surfaces; responsive and scoped variants below. */
-body {
+:where(html:not(:has(.admin-app))) body {
   font-family: Inter,sans-serif;
   font-size: 14px;
   line-height: 20px;
   color: var(--ink)
 }
-button {
+:where(html:not(:has(.admin-app))) button {
   font: inherit;
   display: inline-flex;
   justify-content: center;
@@ -25,12 +25,12 @@ button {
   transition: background var(--transition),border-color var(--transition);
   box-shadow: none
 }
-input {
+:where(html:not(:has(.admin-app))) input {
   font: inherit;
   width: 100%;
   font-family: inherit
 }
-select {
+:where(html:not(:has(.admin-app))) select {
   font: inherit;
   width: 100%;
   font-family: inherit;
@@ -46,7 +46,7 @@ select {
   max-width: 100%;
   color: var(--ink)
 }
-textarea {
+:where(html:not(:has(.admin-app))) textarea {
   font: inherit;
   width: 100%;
   font-family: inherit;
@@ -80,26 +80,26 @@ textarea {
   transition: background var(--transition),border-color var(--transition);
   box-shadow: none
 }
-h1 {
+:where(html:not(:has(.admin-app))) h1 {
   margin-top: 0;
   font-weight: 600;
   letter-spacing: 0
 }
-h2 {
+:where(html:not(:has(.admin-app))) h2 {
   margin-top: 0;
   font-weight: 600;
   letter-spacing: 0;
   font-size: 26px;
   line-height: 34px
 }
-h3 {
+:where(html:not(:has(.admin-app))) h3 {
   margin-top: 0;
   font-weight: 600;
   letter-spacing: 0;
   font-size: 21px;
   line-height: 29px
 }
-p {
+:where(html:not(:has(.admin-app))) p {
   margin-top: 0
 }
 .skip-link {
@@ -324,11 +324,11 @@ p {
   --popup-shadow: 0 6px 24px rgba(33,43,54,.1);
   --transition: 150ms ease
 }
-h4 {
+:where(html:not(:has(.admin-app))) h4 {
   font-weight: 600;
   letter-spacing: 0
 }
-button:hover {
+:where(html:not(:has(.admin-app))) button:hover {
   background: var(--deep);
   border-color: var(--deep)
 }
@@ -336,13 +336,13 @@ button:hover {
   background: var(--deep);
   border-color: var(--deep)
 }
-button:active {
+:where(html:not(:has(.admin-app))) button:active {
   background: #005a9f
 }
 .button:active {
   background: #005a9f
 }
-button:disabled {
+:where(html:not(:has(.admin-app))) button:disabled {
   opacity: 1;
   background: #e6e9ec;
   border-color: #e6e9ec;
@@ -359,7 +359,7 @@ button:disabled {
   border-color: #54626e;
   color: var(--ink)
 }
-input:not([type=hidden]):not([type=checkbox]) {
+:where(html:not(:has(.admin-app))) input:not([type=hidden]):not([type=checkbox]) {
   height: 52px;
   padding: 13px 14px;
   background: white;
@@ -372,63 +372,63 @@ input:not([type=hidden]):not([type=checkbox]) {
   max-width: 100%;
   color: var(--ink)
 }
-input::placeholder {
+:where(html:not(:has(.admin-app))) input::placeholder {
   color: #637381;
   font-size: 14px;
   opacity: 1
 }
-textarea::placeholder {
+:where(html:not(:has(.admin-app))) textarea::placeholder {
   color: #637381;
   font-size: 14px;
   opacity: 1
 }
-input:not([type=hidden]):focus {
+:where(html:not(:has(.admin-app))) input:not([type=hidden]):focus {
   border-color: var(--blue);
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-textarea:focus {
+:where(html:not(:has(.admin-app))) textarea:focus {
   border-color: var(--blue);
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-input:disabled {
+:where(html:not(:has(.admin-app))) input:disabled {
   background: #f8f9f9;
   color: #98a4af;
   border-color: #e6e9ec
 }
-input[aria-invalid=true] {
+:where(html:not(:has(.admin-app))) input[aria-invalid=true] {
   border-color: #de3618;
   background: #fbeae5
 }
-input[type=checkbox] {
+:where(html:not(:has(.admin-app))) input[type=checkbox] {
   height: 16px;
   width: 16px;
   accent-color: var(--blue);
   padding: 0;
   border-radius: 3px
 }
-a:focus-visible {
+:where(html:not(:has(.admin-app))) a:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-button:focus-visible {
+:where(html:not(:has(.admin-app))) button:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-input:focus-visible {
+:where(html:not(:has(.admin-app))) input:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-select:focus-visible {
+:where(html:not(:has(.admin-app))) select:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-textarea:focus-visible {
+:where(html:not(:has(.admin-app))) textarea:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
-summary:focus-visible {
+:where(html:not(:has(.admin-app))) summary:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px
 }
@@ -445,7 +445,7 @@ summary:focus-visible {
 .button .site-icon {
   flex-shrink: 0
 }
-button>.site-icon {
+:where(html:not(:has(.admin-app))) button>.site-icon {
   flex-shrink: 0
 }
 .ui-select {

@@ -1,9 +1,15 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { BadgePercent, Building2, ExternalLink, LayoutDashboard, Layers3, LogOut, Menu, PlugZap, ReceiptText, Truck, X, type LucideIcon } from "lucide-react";
+import { BadgePercent, Building2, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, PlugZap, ReceiptText, Sun, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
+import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu,
+  SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar,
+} from "@/components/ui/sidebar";
 
 export type AdminNavStatus = {
   orders: number; services: number; enrichment: number;
@@ -11,8 +17,8 @@ export type AdminNavStatus = {
   dinamik: "success" | "warning" | "danger" | "neutral";
 };
 type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik"; exact?: boolean };
-const sections: { title?: string; items: Item[] }[] = [
-  { items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
+const sections: { title: string; items: Item[] }[] = [
+  { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
   { title: "Satış", items: [
     { href: "/yonetim/siparisler", label: "Siparişler", icon: ReceiptText, count: "orders" },
     { href: "/yonetim/servisler", label: "B2B servisler", icon: Building2, count: "services" },
@@ -27,56 +33,77 @@ const sections: { title?: string; items: Item[] }[] = [
     { href: "/yonetim/tedarikciler/dinamik", label: "Dinamik API", icon: Truck, dot: "dinamik" },
   ] },
 ];
+const dotStyles = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive", neutral: "bg-muted-foreground/40" };
 const dotLabels = { success: "sağlıklı", warning: "dikkat gerekiyor", danger: "hata", neutral: "bağlı değil" };
 
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {
   const pathname = usePathname();
-  // The drawer belongs to the path it was opened on, so navigating closes it.
-  const [openOn, setOpenOn] = useState<string | null>(null);
-  const open = openOn === pathname;
-  const setOpen = (value: boolean) => setOpenOn(value ? pathname : null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpenOn(null); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [open]);
+  const { isMobile, setOpenMobile } = useSidebar();
   const active = (item: Item) => item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
-  const initials = account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toLocaleUpperCase("tr")).join("");
-  return <>
-    <div className="admin-mobilebar">
-      <button type="button" aria-label="Yönetim menüsünü aç" aria-expanded={open} aria-controls="admin-sidebar" onClick={() => setOpen(true)}><Menu size={18}/></button>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <Link href="/yonetim"><img src="/brand/logo-light.svg" alt="getirbakim yönetim" width={120} height={27}/></Link>
-    </div>
-    {open && <div className="admin-scrim" onClick={() => setOpen(false)} aria-hidden="true"/>}
-    <aside id="admin-sidebar" className={`admin-sidebar${open ? " is-open" : ""}`}>
-      <div className="admin-sidebar-brand">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <Link href="/yonetim"><img src="/brand/logo-light.svg" alt="getirbakim" width={106} height={24}/></Link><span>Yönetim</span>
-        {open && <button type="button" className="admin-btn-ghost" style={{ marginLeft: "auto" }} aria-label="Menüyü kapat" onClick={() => setOpen(false)}><X size={16}/></button>}
-      </div>
-      <nav className="admin-nav" aria-label="Yönetim">
-        {sections.map((section, index) => <div key={section.title ?? index}>
-          {section.title && <p className="admin-nav-title">{section.title}</p>}
-          <ul>{section.items.map(item => {
-            const count = item.count ? status[item.count] : 0;
-            const tone = item.dot ? status[item.dot] : null;
-            return <li key={item.href}>
-              <Link href={item.href} aria-current={active(item) ? "page" : undefined}>
-                <item.icon size={16} aria-hidden="true"/>{item.label}
-                {count > 0 && <span className={`admin-nav-count${item.count === "services" || item.count === "orders" ? " is-alert" : ""}`}><span className="sr-only">, bekleyen: </span>{count}</span>}
-                {tone && <span className={`admin-nav-dot is-${tone}`} role="img" aria-label={dotLabels[tone]}/>}
-              </Link>
-            </li>;
-          })}</ul>
-        </div>)}
-      </nav>
-      <div className="admin-sidebar-footer">
-        <Link href="/" target="_blank"><ExternalLink size={16} aria-hidden="true"/>Mağazayı aç</Link>
-        <div className="admin-account"><span className="admin-avatar" aria-hidden="true">{initials || "Y"}</span><div><strong>{account.name}</strong><small>{account.email}</small></div></div>
-        <form action={logout}><button type="submit"><LogOut size={16} aria-hidden="true"/>Çıkış yap</button></form>
-      </div>
-    </aside>
-  </>;
+  const initials = account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toLocaleUpperCase("tr")).join("") || "Y";
+  return <Sidebar collapsible="icon">
+    <SidebarHeader>
+      <SidebarMenu><SidebarMenuItem>
+        <SidebarMenuButton size="lg" render={<Link href="/yonetim"/>} tooltip="Genel bakış">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">g</span>
+          <span className="grid flex-1 text-left leading-tight"><span className="truncate font-semibold text-foreground">getirbakim</span><span className="truncate text-xs">Yönetim paneli</span></span>
+        </SidebarMenuButton>
+      </SidebarMenuItem></SidebarMenu>
+    </SidebarHeader>
+    <SidebarContent>
+      {sections.map(section => <SidebarGroup key={section.title}>
+        <SidebarGroupLabel>{section.title}</SidebarGroupLabel>
+        <SidebarMenu>{section.items.map(item => {
+          const count = item.count ? status[item.count] : 0;
+          const tone = item.dot ? status[item.dot] : null;
+          return <SidebarMenuItem key={item.href}>
+            <SidebarMenuButton isActive={active(item)} tooltip={item.label} onClick={() => isMobile && setOpenMobile(false)}
+              render={<Link href={item.href} aria-current={active(item) ? "page" : undefined}/>}>
+              <item.icon aria-hidden="true"/><span>{item.label}</span>
+            </SidebarMenuButton>
+            {count > 0 && <SidebarMenuBadge className={cn("rounded-full px-1.5 tabular-nums", (item.count === "orders" || item.count === "services") && "bg-warning/15 text-warning")}>
+              <span className="sr-only">Bekleyen: </span>{count}
+            </SidebarMenuBadge>}
+            {tone && <SidebarMenuBadge><span className={cn("size-2 rounded-full", dotStyles[tone])} role="img" aria-label={dotLabels[tone]}/></SidebarMenuBadge>}
+          </SidebarMenuItem>;
+        })}</SidebarMenu>
+      </SidebarGroup>)}
+    </SidebarContent>
+    <SidebarFooter>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip="Mağazayı aç" render={<Link href="/" target="_blank"/>}><ExternalLink aria-hidden="true"/><span>Mağazayı aç</span></SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent"/>}>
+              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback></Avatar>
+              <span className="grid flex-1 text-left leading-tight"><span className="truncate font-medium text-foreground">{account.name}</span><span className="truncate text-xs">{account.email}</span></span>
+              <ChevronsUpDown className="ml-auto" aria-hidden="true"/>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side={isMobile ? "bottom" : "right"} align="end" className="min-w-56">
+              <DropdownMenuGroup><DropdownMenuLabel className="truncate">{account.email}</DropdownMenuLabel></DropdownMenuGroup>
+              <DropdownMenuSeparator/>
+              <ThemeItem/>
+              <DropdownMenuSeparator/>
+              <DropdownMenuItem onClick={() => { void logout(); }}><LogOut aria-hidden="true"/>Çıkış yap</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarFooter>
+    <SidebarRail/>
+  </Sidebar>;
+}
+
+/** Light/dark switch for the workspace only; the storefront has no dark theme. */
+function ThemeItem() {
+  const toggle = () => {
+    const dark = document.documentElement.classList.toggle("dark");
+    try { localStorage.setItem("gb-admin-theme", dark ? "dark" : "light"); } catch {}
+  };
+  return <DropdownMenuItem onClick={toggle} closeOnClick={false}>
+    <Sun className="dark:hidden" aria-hidden="true"/><Moon className="hidden dark:block" aria-hidden="true"/>
+    <span className="dark:hidden">Koyu temaya geç</span><span className="hidden dark:inline">Açık temaya geç</span>
+  </DropdownMenuItem>;
 }

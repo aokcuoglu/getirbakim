@@ -1,6 +1,6 @@
 "use client";
 import { usePathname } from "next/navigation";
-import { SiteIcon } from "@/components/ui/site-icon";
+import { SiteIcon } from "@/components/site/site-icon";
 
 // Consumer reassurance band; the administration workspace has no use for it.
 // TODO: render from a (store) route-group layout instead once storefront routes move into one.

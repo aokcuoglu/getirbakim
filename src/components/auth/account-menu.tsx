@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ShieldCheck, Search, CarFront } from "lucide-react";
-import { SiteIcon } from "@/components/ui/site-icon";
+import { SiteIcon } from "@/components/site/site-icon";
 import { AuthModal, type AuthMode } from "./auth-modal";
 import { logout } from "@/modules/auth/actions";
 

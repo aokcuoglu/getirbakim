@@ -3,8 +3,8 @@ import { BrandLogo } from "@/components/brand-logo";
 import { HeaderTools } from "@/components/navigation/header-tools";
 import { CategoryMenu } from "@/components/navigation/category-menu";
 import { SearchBox } from "@/components/navigation/search-box";
-import { Select } from "@/components/ui/select";
-import { SiteIcon } from "@/components/ui/site-icon";
+import { Select } from "@/components/site/select";
+import { SiteIcon } from "@/components/site/site-icon";
 import { getStoreCategories } from "@/modules/store/categories";
 
 /** The one site header: every storefront route renders this; the administration workspace has its own shell. */
