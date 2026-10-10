@@ -25,6 +25,6 @@ export async function currentOrder(id:string) {
   [id,account?.approved && account.role==='admin' || false,owner.kind,owner.id,guest?.id ?? ''],
  )).rows[0];
  if(!order) return null;
- const items=(await db.query<OrderItem>("SELECT product_id,name,code,quantity,unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id",[id])).rows;
+ const items=(await db.query<OrderItem>("SELECT product_id,name,code,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id",[id])).rows;
  return {order,items};
 }

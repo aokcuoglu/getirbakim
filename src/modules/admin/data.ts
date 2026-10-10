@@ -55,3 +55,23 @@ export async function adminOrders(rawPage?: string) {
   )).rows;
   return { orders, page };
 }
+
+export type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
+/** Compatibility level at checkout against returns, for orders that were not cancelled. */
+export async function fitmentReturnReport() {
+  await requireAdmin();
+  return (await db.query<FitmentReturnRow>(
+    `SELECT COALESCE(i.fitment_level,'unrecorded') AS level,count(*)::integer AS lines,
+     count(*) FILTER (WHERE r.quantity>0)::integer AS returned,count(*) FILTER (WHERE r.not_fit>0)::integer AS not_fit
+     FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id
+     LEFT JOIN LATERAL (SELECT sum(quantity) AS quantity,sum(quantity) FILTER (WHERE reason='not_fit') AS not_fit
+      FROM commerce_returns WHERE order_id=i.order_id AND product_id=i.product_id) r ON true
+     WHERE o.status IN ('pending','confirmed','shipped') GROUP BY 1 ORDER BY 2 DESC`,
+  )).rows;
+}
+
+export type OrderReturn = { id: string; product_id: string; quantity: number; reason: string; note: string; created_at: Date };
+export async function orderReturns(orderId: string) {
+  await requireAdmin();
+  return (await db.query<OrderReturn>("SELECT id,product_id,quantity,reason,note,created_at FROM commerce_returns WHERE order_id=$1 ORDER BY created_at", [orderId])).rows;
+}
