@@ -12,8 +12,8 @@ export function StatusBadge({ tone = "neutral", children }: { tone?: Tone | "neu
   return <span className={`admin-badge admin-badge-${tone}`}>{children}</span>;
 }
 
-export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
-  return <div className="admin-empty"><h3>{title}</h3>{children}</div>;
+export function EmptyState({ title, icon, children }: { title: string; icon?: ReactNode; children?: ReactNode }) {
+  return <div className="admin-empty">{icon}<h3>{title}</h3>{children}</div>;
 }
 
 /** Horizontally scrollable, keyboard-focusable region around a data table. */

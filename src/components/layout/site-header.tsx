@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/select";
 import { SiteIcon } from "@/components/ui/site-icon";
 import { getStoreCategories } from "@/modules/store/categories";
 
-/** The one site header: every route, storefront and administration alike, renders this. */
+/** The one site header: every storefront route renders this; the administration workspace has its own shell. */
 export async function SiteHeader() {
   const categories = await getStoreCategories();
   return <>

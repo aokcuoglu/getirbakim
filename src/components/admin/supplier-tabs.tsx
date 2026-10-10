@@ -10,8 +10,8 @@ export function SupplierTabs({ transfer, products, initialTab = "products" }: {
   const [active, setActive] = useState(initialTab);
   const id = useId();
   const tabs = [
-    { key: "transfer" as const, label: "Veri aktarımı", number: "01" },
-    { key: "products" as const, label: "Çekilmiş veriler", number: "02" },
+    { key: "products" as const, label: "Ürünler" },
+    { key: "transfer" as const, label: "Senkronizasyon ve kalite" },
   ];
   return <div className="supplier-tabs">
     <div className="supplier-tab-list" role="tablist" aria-label="Başbuğ yönetimi">
@@ -25,7 +25,7 @@ export function SupplierTabs({ transfer, products, initialTab = "products" }: {
           const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : (index + 1) % 2;
           setActive(tabs[next].key);
           document.getElementById(`${id}-${tabs[next].key}-tab`)?.focus();
-        }}><span>{tab.number}</span>{tab.label}</button>)}
+        }}>{tab.label}</button>)}
     </div>
     {tabs.map(tab => <div key={tab.key} role="tabpanel" id={`${id}-${tab.key}-panel`}
       aria-labelledby={`${id}-${tab.key}-tab`} hidden={active !== tab.key} tabIndex={0}
