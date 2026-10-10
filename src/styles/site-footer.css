@@ -1,0 +1,14 @@
+/* The one site footer, on every route. Checkout keeps the older footer grid. */
+.catalog-footer-links{display:none}
+body:not(:has(.checkout-page))>.service-strip{display:none}
+body:not(:has(.checkout-page))>footer{background:white;padding:48px 0 0;border-top:1px solid #e6e9ec}
+body:not(:has(.checkout-page))>footer>.footer-grid,body:not(:has(.checkout-page))>footer>.footer-categories{display:none}
+body:not(:has(.checkout-page)) .catalog-footer-links{display:grid;max-width:1350px;padding-inline:15px;grid-template-columns:2fr 1fr 1fr;gap:20px;padding-bottom:40px}
+.catalog-footer-links h2{font-size:14px;line-height:20px;font-weight:500;margin:0 0 16px}
+.catalog-footer-links nav>a{display:block;font-size:14px;line-height:20px;padding:4px 0;color:#212b36}
+.catalog-footer-links section>a{color:#0063b4;font-size:14px;line-height:20px}
+body:not(:has(.checkout-page)) .footer-bottom{max-width:1350px;padding:16px 15px;background:#f8f9f9;font-size:12px;line-height:20px;border-top:1px solid #e6e9ec}
+@media(max-width:768px){
+ body:not(:has(.checkout-page)) .catalog-footer-links{grid-template-columns:1fr 1fr}
+ .catalog-footer-links>section{grid-column:1/-1}
+}
