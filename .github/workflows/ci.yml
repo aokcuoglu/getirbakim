@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test:review && npm run test:brand && npm run test:fitment && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts
+      - run: npm run test:review && npm run test:brand && npm run test:fitment && npm run test:fitment-level && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts
       - run: npm run build
         env:
           APP_ENV: staging

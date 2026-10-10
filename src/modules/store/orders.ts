@@ -7,6 +7,9 @@ import { refreshCheckoutSources,checkoutScopes } from './supplier-checkout';
 import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
+import { parseGarageVehicle,type GarageVehicle } from './garage';
+import { productFitmentLevel } from './fitment-level.server';
+import type { FitmentLevel } from './fitment-level';
 
 export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
@@ -16,7 +19,7 @@ export type CommerceOrder = {
  payment_status:'none'|'awaiting'|'paid'|'expired'|'refund_required'|'refunded';
  payment_due_at:Date|null; paid_at:Date|null; payment_note:string; refund_reference:string|null;
 };
-export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>};
+export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>; vehicle:GarageVehicle|null; fitment_level:FitmentLevel|null};
 
 export type ShippingRule = {fee:number;threshold:number};
 export async function shippingRule(connection:Pick<PoolClient,'query'>=db):Promise<ShippingRule> {
@@ -37,7 +40,8 @@ export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRu
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
 }
 export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string};
-export async function submitOrder(owner:CartOwner,input:CheckoutInput):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
+/** `garage` is used for cart lines added before a vehicle was recorded on them. */
+export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
  // Completed retries must not require another supplier call.
  const completed=(await db.query<{id:string}>('SELECT id FROM commerce_orders WHERE owner_kind=$1 AND owner_id=$2 AND request_key=$3',[owner.kind,owner.id,input.requestKey])).rows[0];
  if(completed) return {id:completed.id};
@@ -73,7 +77,10 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput):Promise<{
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id`,
    [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
   for(const p of items) {
-   await client.query('INSERT INTO commerce_order_items VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount})]);
+   const vehicle=parseGarageVehicle(p.vehicle) ?? garage;
+   const fitment=await productFitmentLevel(p,vehicle);
+   await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment]);
    if(p.source==='store') await client.query('UPDATE products SET stock=stock-$2,updated_at=now() WHERE id=$1',[p.id,p.quantity]);
   }
   // The cart stays until TAMI confirms payment, so a declined card can be retried.

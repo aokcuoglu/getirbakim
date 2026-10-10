@@ -33,6 +33,22 @@ Sipariş oluştururken iletişim ve adres alınır, fiyat/indirim/adet tekrar ko
 
 Ödeme sipariş anında TAMI ortak ödeme sayfasında kartla alınır; sipariş ödeme doğrulanınca “Teyit bekliyor” olur. Kargo sabit ücret + ücretsiz kargo eşiğiyle toplamda tahsil edilir. Ayrıntılar: [Online ödeme (TAMI)](payments.md). Tedarikçiye otomatik satın alma bağlı değildir.
 
+## Araç uyumluluğu ölçümü
+
+Ürün sepete eklenirken garajdaki araç sepet satırına yazılır; sonradan adet değişince korunur. Siparişte bu araç (satırda yoksa o anki garaj aracı) sipariş kalemine kopyalanır ve uyumluluk seviyesi hesaplanıp saklanır:
+
+| Seviye | Koşul |
+| --- | --- |
+| `guaranteed` | Ürün, garajdaki motor tipine katalog bağlantısıyla bağlı |
+| `likely` | Aynı model bağlı, motor tipi değil |
+| `mismatch` | Ürünün tüm kaynak araç satırları bağlı ve hiçbiri bu araç/model değil |
+| `unknown` | Ürünün araç verisi yok, eşleşmemiş kaynak satırı var ya da garaj aracı katalogda değil |
+| `no_vehicle` | Garajda araç yok |
+
+Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kuralla "listede yok" uyarısı gösterir. Bu seviyeler henüz müşteriye garanti olarak sunulmaz.
+
+İadeler sevk edilmiş siparişin sayfasında yönetici tarafından satır bazında, nedeniyle (`not_fit` = "Aracıma uymadı") `commerce_returns` tablosuna kaydedilir; toplam iade adedi sipariş adedini aşamaz. `/yonetim/siparisler` sipariş satırlarını sipariş anındaki seviyeye göre iade ve "uymadı" sayılarıyla raporlar.
+
 ## Kurulum ve doğrulama
 
 `npm run db:commerce:migrate` mevcut DB'ye tabloları ve `commerce_catalog` görünümünü ekler. `npm run db:setup` yeni kurulumda da çalıştırır. Eski sepetler tek seferlik taşınır; geçiş yeniden çalıştırılabilir.
@@ -40,6 +56,7 @@ Sipariş oluştururken iletişim ve adres alınır, fiyat/indirim/adet tekrar ko
 - `npm run verify:commerce`: fiyat formülü, stok sinyali, sepet, eşzamanlı sipariş/idempotency, fiyat değişimi ve stok ayırma.
 - `npm run verify:commerce:http`: çalışan sunucuda gerçek Server Action formları, B2B fiyatı, sipariş yetkisi, yönetim ekranları, servis indirimi ve iptalde stok iadesi.
 - `npm run test:supplier-checkout`: geçici şemada canlı API hata/fiyat/stok kontrolleri, kayıtlı modda eski NF/kur/stokla API’siz sipariş, eksik/çelişkili/pasif kayıtların reddi, adet sınırı, eşzamanlı gönderim ve değişmeyen sipariş fiyat/gözlem kayıtları. API yanıtları mock edilir; yerel durdurma dosyasına dokunulmaz.
+- `npm run test:fitment-level`: uyumluluk seviyesi kuralı.
 - `npm run verify:catalog`: katalog arama/filtre/paginasyon ve ürün detayları.
 
 Doğrulamalar geçici sentetik hesap/ürün/sipariş kayıtlarını sonunda siler. HTTP doğrulaması varsayılan `http://localhost:3000` kullanır; `VERIFY_URL` ile değiştirilebilir.

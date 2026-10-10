@@ -155,3 +155,24 @@ CREATE TABLE IF NOT EXISTS commerce_payments (
 );
 CREATE INDEX IF NOT EXISTS commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
+-- Fitment guarantee, phase 0: measure compatibility before promising it.
+-- The garage vehicle is captured when a product is added and copied to the order line together
+-- with the compatibility level computed at checkout. No FK: orders outlive vehicle catalog reloads.
+ALTER TABLE commerce_cart_items ADD COLUMN IF NOT EXISTS vehicle jsonb
+ CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS vehicle jsonb
+ CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
+-- NULL only on lines created before levels were recorded.
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS fitment_level text
+ CHECK(fitment_level IN ('guaranteed','likely','mismatch','unknown','no_vehicle'));
+-- Returns are recorded by operations per order line; several partial returns may add up to the ordered quantity.
+CREATE TABLE IF NOT EXISTS commerce_returns (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL, product_id uuid NOT NULL,
+ quantity integer NOT NULL CHECK(quantity BETWEEN 1 AND 99),
+ reason text NOT NULL CHECK(reason IN ('not_fit','wrong_item','damaged','defective','changed_mind','other')),
+ note text NOT NULL DEFAULT '',
+ created_at timestamptz NOT NULL DEFAULT now(), created_by uuid REFERENCES accounts(id),
+ FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
+);
+CREATE INDEX IF NOT EXISTS commerce_returns_line_idx ON commerce_returns(order_id,product_id);

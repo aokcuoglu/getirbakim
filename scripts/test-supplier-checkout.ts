@@ -37,6 +37,10 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     await db.query(schemaSql);
     await db.query(commerceSql);
     await db.query(commerceSql);
+    // The order line's compatibility level reads the vehicle catalog and product enrichments;
+    // the full vehicle schema needs pg_trgm, which lives outside this test's search path.
+    await db.query("CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL)");
+    await db.query(await readFile(join(originalCwd,"db/product-enrichment.sql"),"utf8"));
     process.env.TAMI_CHECKOUT_ENABLED="true";process.env.BASBUG_BASE_URL="https://api.basbug.com.tr";
     for (const key of keys.slice(2)) process.env[key]="TEST";
     globalThis.fetch=async input=> {
@@ -55,7 +59,12 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     const owner={kind:"guest" as const,id:randomBytes(32).toString("hex")};
     await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)",[owner.id]);
     const id=(await db.query("SELECT id FROM supplier_items")).rows[0].id;
+    const vehicle={make:"Fiat",model:"Egea",year:2020,vehicleId:"999999"};
+    assert.equal(await setCartQuantity(owner,id,1,true,vehicle),true);
+    assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
+    // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
+    assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
     const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test",note:""};
     fail=true;assert.equal((await submitOrder(owner,input)).error,"supplier");
     assert.equal((await db.query("SELECT count(*) FROM commerce_orders")).rows[0].count,"0");
@@ -69,6 +78,8 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     fail=false;price=50;await importBasbug(db,{group:"FIAT",warehouse:"MRK",company:"TEST",mode:"commerce"});
     const line=(await db.query("SELECT * FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0];
     assert.equal(line.pricing_snapshot.nf,20);assert.equal(Number(line.unit_price_kurus),3120);
+    // Without fitment data the line is unknown, never a promise; the vehicle snapshot travels with it.
+    assert.deepEqual(line.vehicle,vehicle);assert.equal(line.fitment_level,"unknown");
     assert.equal((await db.query("SELECT status FROM commerce_orders")).rows[0].status,"awaiting_payment");
 
     // Maintenance mode uses stored NF, stock and FX, without an API call.

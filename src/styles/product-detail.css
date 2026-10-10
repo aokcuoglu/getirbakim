@@ -145,3 +145,7 @@
 .fitment-unlinked { color: #68778a; font-size: 11px; white-space: nowrap; }
 .pdp-garage-match { display: flex; align-items: flex-start; gap: 8px; color: #26734d; font-size: 13px; line-height: 20px; }
 .pdp-garage-match svg { flex-shrink: 0; margin-top: 2px; }
+.pdp-garage-likely, .pdp-garage-mismatch { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; }
+.pdp-garage-likely { color: #8a5a00; }
+.pdp-garage-mismatch { color: #b3261e; font-weight: 600; }
+.pdp-garage-likely svg, .pdp-garage-mismatch svg { flex-shrink: 0; margin-top: 2px; }

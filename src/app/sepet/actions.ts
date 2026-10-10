@@ -7,6 +7,7 @@ import { currentAccount } from "@/modules/auth/session";
 import { cartFor } from "@/modules/store/cart";
 import { purchasePreview } from "@/modules/store/purchase-preview";
 import type { PurchaseState } from "@/modules/store/purchase-types";
+import { currentVehicle } from "@/modules/store/garage";
 
 export async function addToCart(_state: PurchaseState, form: FormData): Promise<PurchaseState> {
  const input=z.object({productId:z.uuid(),quantity:z.coerce.number().int().min(1).max(99)}).safeParse(Object.fromEntries(form));
@@ -14,7 +15,7 @@ export async function addToCart(_state: PurchaseState, form: FormData): Promise<
  if(!input.success) return {...failure,error:"Ürün ve adedi kontrol et."};
  const owner=await currentCartOwner(true);
  if(!owner) return {...failure,error:"Sepet oturumu oluşturulamadı."};
- const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,true);
+ const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,true,await currentVehicle());
  if(!ok) return {...failure,error:"Ürün fiyatı veya stok durumu uygun değil; sepetindeki adedi kontrol et."};
  revalidatePath("/", "layout");
  const [account,items]=await Promise.all([currentAccount(),cartFor(owner)]);
@@ -39,7 +40,8 @@ export async function updateCart(form: FormData) {
  if(!input.success) redirect("/sepet?error=1");
  const owner=await currentCartOwner(true);
  if(!owner) throw new Error("Sepet oluşturulamadı.");
- const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,input.data.mode==="add");
+ const add=input.data.mode==="add";
+ const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,add,add ? await currentVehicle() : undefined);
  revalidatePath("/", "layout"); redirect(ok ? "/sepet" : "/sepet?error=stock");
 }
 
@@ -52,7 +54,7 @@ export async function placeOrder(form:FormData):Promise<{id:string;error?:undefi
  const owner=await currentCartOwner();
  if(!owner) return {error:'session'};
  const {submitOrder}=await import('@/modules/store/orders');
- const result=await submitOrder(owner,input.data);
+ const result=await submitOrder(owner,input.data,await currentVehicle());
  if(result.error===undefined) revalidatePath('/','layout');
  return result;
 }

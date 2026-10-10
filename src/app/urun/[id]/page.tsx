@@ -17,6 +17,8 @@ import { ManufacturerBadge } from "@/components/manufacturer-badge";
 import { ProductGallery } from "@/components/product-gallery";
 import { GarageButton } from "@/components/garage/garage-button";
 import { currentVehicle } from "@/modules/store/garage";
+import { fitmentLevel } from "@/modules/store/fitment-level";
+import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import "@/styles/product-detail.css";
 import { ProductFitment } from "@/components/product-fitment";
 import { getReferenceLinks } from "@/modules/store/reference-links";
@@ -52,6 +54,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     sku: product.code, brand: { "@type": "Brand", name: product.brand },
     description: enrichment?.description || product.description || undefined, image: enrichment?.imagePath ? `${siteUrl}${enrichment.imagePath}` : undefined, url: `${siteUrl}/urun/${product.id}` };
   const vehicle = await currentVehicle();
+  const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle), enrichment?.vehicles ?? []);
   const title = enrichment?.displayName || product.name;
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   const displayPartNumber = enrichment?.matchBasis.type === "oem_reference" ? ownPartNumber : enrichment?.partNumber || product.code;
@@ -86,7 +89,9 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           <PurchaseForm productId={product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} className="pdp-cart-form"/>
         </>}
         <div className="pdp-vehicle-check"><CircleAlert size={20}/><GarageButton vehicle={vehicle} variant="product"/></div>
-        {vehicle?.vehicleId && enrichment?.vehicles.some(row => String(row.vehicleTypeId) === vehicle.vehicleId) && <p className="pdp-garage-match"><ClipboardCheck size={17}/>Garajındaki {vehicle.make} {vehicle.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
+        {fitment === "guaranteed" && <p className="pdp-garage-match"><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
+        {fitment === "likely" && <p className="pdp-garage-likely"><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli listede; motor tipini <a href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>}
+        {fitment === "mismatch" && <p className="pdp-garage-mismatch" role="alert"><CircleAlert size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         <p className={`pdp-stock ${!product.available ? "pdp-out-of-stock" : ""}`}><PackageCheck size={17}/>{product.stock_label}</p>
         <Link className="pdp-delivery" href="/bilgi/teslimat"><Truck size={32}/><span><strong>Teslimat bilgileri <Info size={14}/></strong><small>{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18}/></Link>
         <dl className="pdp-spec-preview">{specifications.slice(0, 4).map(([label, value]) => <div key={label}><dt>{label}:</dt><dd>{value}</dd></div>)}</dl>
