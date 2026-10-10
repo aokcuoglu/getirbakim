@@ -1,0 +1,64 @@
+/* The one site header, on every route. Checkout keeps its own reduced header (purchase.css). */
+.utility-bar,.store-header{--ink:#212b36;--muted:#637381;--line:#e6e9ec;--blue:#3378bd}
+body:not(:has(.checkout-page)) .utility-bar{height:42px;background:white;color:#212b36;font-size:14px}
+body:not(:has(.checkout-page)) .utility-bar .shell,body:not(:has(.checkout-page)) .store-header .shell{max-width:1350px;padding-inline:15px}
+body:not(:has(.checkout-page)) .utility-inner,body:not(:has(.checkout-page)) .utility-inner>div{gap:24px}
+body:not(:has(.checkout-page)) .locale-menus .select-trigger{font-size:14px}
+body:not(:has(.checkout-page)) .header-main{height:88px;min-height:88px;padding-block:24px;gap:28px}
+body:not(:has(.checkout-page)) .logo .brand-wordmark{width:158px}
+body:not(:has(.checkout-page)) .header-search{height:40px;min-height:40px;border:1px solid #c4cdd5;border-radius:3px;padding:0;gap:0}
+body:not(:has(.checkout-page)) .header-search .search-select{width:154px;flex-basis:154px}
+body:not(:has(.checkout-page)) .header-search .select-trigger{height:38px;min-height:38px;border-radius:0;background:#f8f9f9;font-size:14px;padding:9px 32px 9px 12px}
+body:not(:has(.checkout-page)) .header-search input:not([type=hidden]){height:38px;min-height:38px;padding:9px 10px;font-size:14px}
+body:not(:has(.checkout-page)) .header-search>button{height:38px;min-height:38px;width:40px;flex-basis:40px;border:0;border-radius:0;color:#212b36;background:white;padding:0}
+body:not(:has(.checkout-page)) .header-tools{gap:0;flex:0 0 422px;justify-content:space-between}
+body:not(:has(.checkout-page)) .header-search{margin-right:-8px}
+body:not(:has(.checkout-page)) .header-tools .header-tool>.site-icon{width:32px;height:32px}
+body:not(:has(.checkout-page)) .header-tools strong{font-size:14px}
+body:not(:has(.checkout-page)) .header-tools small{font-size:13px}
+body:not(:has(.checkout-page)) .cart-tool{border:0;border-radius:0;width:32px;height:40px}
+body:not(:has(.checkout-page)) .cart-tool>.site-icon{width:32px;height:32px}
+body:not(:has(.checkout-page)) .cart-tool b{display:none}
+body:not(:has(.checkout-page)) .category-nav{height:42px;min-height:42px;padding-top:0;padding-bottom:14px;gap:28px;font-size:14px}
+body:not(:has(.checkout-page)) .category-nav>a,body:not(:has(.checkout-page)) .category-nav-trigger{min-height:20px}
+body:not(:has(.checkout-page)) .category-mega{left:max(15px,calc((100vw - 1320px)/2));right:max(15px,calc((100vw - 1320px)/2))}
+body:not(:has(.checkout-page)) .category-menu{width:101px;border-right:1px solid #c4cdd5}
+body:not(:has(.checkout-page)) .category-menu .all-categories{width:76px;min-width:0;height:28px;min-height:28px;border:0;border-radius:0;background:white;justify-content:center;padding:0}
+body:not(:has(.checkout-page)) .all-categories>span{display:inline}
+body:not(:has(.checkout-page)) .category-nav .nav-help{color:#923830}
+@media(max-width:1358px){
+ body:not(:has(.checkout-page)) .category-nav{gap:24px}
+}
+@media(max-width:1100px){
+ body:not(:has(.checkout-page)) .header-main{gap:20px}
+ body:not(:has(.checkout-page)) .header-search .search-select{width:130px;flex-basis:130px}
+ body:not(:has(.checkout-page)) .header-tools{gap:15px;flex-basis:310px}
+ body:not(:has(.checkout-page)) .category-nav{gap:18px;font-size:13px}
+ body:not(:has(.checkout-page)) .category-menu{width:60px}
+ body:not(:has(.checkout-page)) .category-menu .all-categories{width:44px}
+ body:not(:has(.checkout-page)) .all-categories>span{display:none}
+}
+@media(max-width:850px){
+ body:not(:has(.checkout-page)) .header-tools .header-tool>span{display:none}
+ body:not(:has(.checkout-page)) .header-tools{flex-basis:128px}
+ body:not(:has(.checkout-page)) .header-main{gap:16px}
+ body:not(:has(.checkout-page)) .category-nav{overflow:auto}
+}
+@media(max-width:600px){
+ body:not(:has(.checkout-page)) .utility-bar{display:none}
+ body:not(:has(.checkout-page)) .header-main{height:auto;min-height:114px;padding-block:15px;flex-wrap:wrap;gap:12px}
+ body:not(:has(.checkout-page)) .logo .brand-wordmark{width:148px}
+ body:not(:has(.checkout-page)) .header-tools{margin-left:auto;flex-basis:128px}
+ body:not(:has(.checkout-page)) .header-search{order:3;flex:0 0 100%;width:100%}
+ body:not(:has(.checkout-page)) .header-search .search-select{display:block;flex-basis:130px}
+ body:not(:has(.checkout-page)) .category-nav{height:42px;min-height:42px;padding-block:0}
+}
+@media(max-width:600px){
+ body:not(:has(.checkout-page)) .header-main{min-height:114px;height:auto}
+ body:not(:has(.checkout-page)) .header-search{margin-right:0}
+}
+@media(min-width:601px) and (max-width:850px){
+ body:not(:has(.checkout-page)) .header-main{height:88px;min-height:88px;flex-wrap:nowrap}
+ body:not(:has(.checkout-page)) .header-search{min-width:0;order:0;flex:1;margin-right:0}
+ body:not(:has(.checkout-page)) .header-search .search-select{display:none}
+}
