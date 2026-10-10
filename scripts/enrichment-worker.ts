@@ -31,19 +31,32 @@ async function report(runId:string){
  const results={run,outcomes,stages,requests,brandCount:brands.length,brands,quality};
  await mkdir(`artifacts/enrichment-pilot-${runId}`,{recursive:true});await writeFile(`artifacts/enrichment-pilot-${runId}/report.json`,JSON.stringify(results,null,2));return results;
 }
-async function createRun(size:number,seed:string,allowShort=false){
+// Supplier items that arrived after the last `enrichment:prepare` join the full catalog pass.
+async function enqueueNewSupplierItems(){
+ return (await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
+  SELECT id,code,COALESCE(product_data->>'uk',''),COALESCE(product_data->>'oe','') FROM supplier_items
+  ON CONFLICT(supplier_item_id) DO NOTHING`)).rowCount??0;
+}
+async function createRun(size:number,seed:string,allowShort=false,spreadBrands=true){
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
  const client=await pool.connect();try{
   await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(20261004,1)');
   const active=(await client.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
   const run=(await client.query('INSERT INTO enrichment_runs(seed,sample_size) VALUES($1,$2) RETURNING id',[seed,size])).rows[0];
-  // Stable random sample, with one guaranteed representative per supplier brand.
+  // Stable random sample. A pilot first takes one representative per supplier brand; the catalog pass skips that,
+  // because every batch would otherwise start with hundreds of brand samples. Then saleable in-stock items, other
+  // saleable items, and items no longer offered in the storefront, so linked products grow fastest where orders
+  // happen; every pending item is still reached.
   await client.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
    SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,hash)-1,supplier_code,supplier_brand,oem FROM (
     SELECT j.*,md5($2||j.supplier_item_id::text) AS hash,
-     CASE WHEN row_number() OVER(PARTITION BY supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0 ELSE 1 END AS priority
-    FROM product_enrichment_jobs j WHERE status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
-   ) s ORDER BY priority,hash LIMIT $3`,[run.id,seed,size]);
+     CASE WHEN $4 AND row_number() OVER(PARTITION BY supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
+      WHEN c.id IS NULL THEN 3
+      WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
+      ELSE 2 END AS priority
+    FROM product_enrichment_jobs j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+    WHERE j.status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
+   ) s ORDER BY priority,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
@@ -239,9 +252,11 @@ async function continueAll(port:number,chrome:boolean,batchSize:number){
   const active=(await pool.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
   let runId:string=active??"";
   if(!runId){
+   const queued=await enqueueNewSupplierItems();
+   if(queued)console.log(JSON.stringify({continue:'queued-new-items',queued}));
    const pending=(await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n;
    if(!pending){console.log(JSON.stringify({continue:'done',batches:batch-1}));return;}
-   runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true);
+   runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true,false);
   }
   console.log(JSON.stringify({continue:active?'resume':'batch',batch,runId}));
   const status=await serve(runId,port,chrome);
