@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import type { PassPace } from "./enrichment-pace";
 
 export const enrichmentStatuses: Record<string, string> = {
   complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
@@ -31,7 +32,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   }
   const from = `FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
     LEFT JOIN product_enrichments e ON e.supplier_item_id=j.supplier_item_id WHERE ${conditions.join(" AND ")}`;
-  const [counts, metrics, sources, total, pilot] = await Promise.all([
+  const [counts, metrics, sources, total, pilot, pass] = await Promise.all([
     db.query<{status:string; count:number}>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status"),
     db.query<{enriched:number; oem_matches:number; direct_matches:number; images:number; oem_numbers:number; vehicles:number; latest:Date|null; bytes:string}>(`SELECT count(*)::int AS enriched,
       count(*) FILTER(WHERE match_basis->>'type'='oem_reference')::int AS oem_matches,
@@ -53,6 +54,15 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       (SELECT max(created_at) FROM enrichment_request_events e WHERE e.run_id=r.id) AS last_response
       FROM (SELECT * FROM enrichment_runs ORDER BY created_at DESC LIMIT 1) r
       JOIN enrichment_run_items i ON i.run_id=r.id GROUP BY r.id,r.status,r.sample_size,r.cache_hits`),
+    // Pace of the full catalog pass. A 10-minute window counts as active when Trodo answered at least once in it.
+    db.query<PassPace>(`SELECT
+      (SELECT count(*)::int FROM enrichment_run_items WHERE finished_at>now()-interval '24 hours') AS finished_24h,
+      (SELECT count(DISTINCT date_bin('10 minutes',created_at,'2026-01-01'))::int FROM enrichment_request_events
+        WHERE host='www.trodo.com' AND created_at>now()-interval '24 hours') AS active_windows_24h,
+      (SELECT count(DISTINCT supplier_item_id)::int FROM product_vehicle_fitments WHERE vehicle_type_id IS NOT NULL) AS linked_products,
+      (SELECT interval_ms FROM enrichment_source_hosts WHERE host='www.trodo.com') AS interval_ms,
+      (SELECT challenge_since FROM enrichment_source_hosts WHERE host='www.trodo.com') AS challenge_since,
+      (SELECT blocked FROM enrichment_source_hosts WHERE host='www.trodo.com') AS blocked`),
   ]);
   const pageSize=25, pages=Math.max(1,Math.ceil(total.rows[0].count/pageSize));
   const requested=Number(query.page), page=Number.isSafeInteger(requested)?Math.max(1,Math.min(pages,requested)):1;
@@ -65,6 +75,6 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     COALESCE(jsonb_array_length(e.payload->'specifications'),0) AS specification_count
     ${from} ORDER BY COALESCE(e.imported_at,j.last_attempt_at,j.created_at) DESC,j.supplier_item_id
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
-  return { pilot:pilot.rows[0]??null, counts:counts.rows, metrics:metrics.rows[0], sources:sources.rows, rows:rows.rows,
+  return { pass:pass.rows[0], pilot:pilot.rows[0]??null, counts:counts.rows, metrics:metrics.rows[0], sources:sources.rows, rows:rows.rows,
     total:total.rows[0].count, page,pages,pageSize, filters:{q,status,match} };
 }
