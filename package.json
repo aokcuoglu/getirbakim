@@ -51,6 +51,7 @@
     "test:logos": "node --import tsx --test scripts/test-manufacturer-logos.ts",
     "enrichment:pilot": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts pilot",
     "enrichment:run": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts run",
+    "enrichment:continue": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts continue",
     "enrichment:report": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts report",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts"
   },
