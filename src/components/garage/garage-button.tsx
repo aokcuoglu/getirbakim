@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { SiteIcon } from "@/components/ui/site-icon";
+import { SiteIcon } from "@/components/site/site-icon";
 import { CarFront } from "lucide-react";
 import { VehicleSheet } from "./vehicle-sheet";
 import type { SavedVehicle } from "@/modules/store/vehicle-catalog";

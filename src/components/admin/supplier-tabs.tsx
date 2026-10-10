@@ -1,40 +1,27 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+type Tab = "transfer" | "products";
 
 export function SupplierTabs({ transfer, products, initialTab = "products" }: {
   transfer: ReactNode;
   products: ReactNode;
-  initialTab?: "transfer" | "products";
+  initialTab?: Tab;
 }) {
-  const [active, setActive] = useState(initialTab);
-  const id = useId();
-  const tabs = [
-    { key: "products" as const, label: "Ürünler" },
-    { key: "transfer" as const, label: "Senkronizasyon ve kalite" },
-  ];
-  return <div className="supplier-tabs">
-    <div className="supplier-tab-list" role="tablist" aria-label="Başbuğ yönetimi">
-      {tabs.map((tab, index) => <button key={tab.key} type="button" role="tab"
-        id={`${id}-${tab.key}-tab`} aria-controls={`${id}-${tab.key}-panel`}
-        aria-selected={active === tab.key} tabIndex={active === tab.key ? 0 : -1}
-        onClick={() => setActive(tab.key)}
-        onKeyDown={event => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : (index + 1) % 2;
-          setActive(tabs[next].key);
-          document.getElementById(`${id}-${tabs[next].key}-tab`)?.focus();
-        }}>{tab.label}</button>)}
-    </div>
-    {tabs.map(tab => <div key={tab.key} role="tabpanel" id={`${id}-${tab.key}-panel`}
-      aria-labelledby={`${id}-${tab.key}-tab`} hidden={active !== tab.key} tabIndex={0}
-      onClick={event => {
-        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        const target = event.target;
-        if (target instanceof Element && target.closest('a[data-supplier-tab="products"]')) setActive("products");
-      }}>
-      {tab.key === "transfer" ? transfer : products}
-    </div>)}
-  </div>;
+  const [active, setActive] = useState<Tab>(initialTab);
+  return <Tabs value={active} onValueChange={value => setActive(value as Tab)} className="gap-4">
+    <TabsList variant="line" aria-label="Başbuğ yönetimi" className="w-full justify-start border-b">
+      <TabsTrigger value="products" className="flex-none px-3">Ürünler</TabsTrigger>
+      <TabsTrigger value="transfer" className="flex-none px-3">Senkronizasyon ve kalite</TabsTrigger>
+    </TabsList>
+    {/* Quality links in the transfer tab filter the product list, so following one also switches tabs. */}
+    <TabsContent value="products" keepMounted>{products}</TabsContent>
+    <TabsContent value="transfer" keepMounted onClick={event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest('a[data-supplier-tab="products"]')) setActive("products");
+    }}>{transfer}</TabsContent>
+  </Tabs>;
 }

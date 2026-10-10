@@ -45,11 +45,6 @@ body:has(.purchase-dialog[open]){overflow:hidden}
 .supplier-commerce-mode form{display:flex;align-items:end;gap:12px;flex-shrink:0}
 .supplier-commerce-mode label{font-size:13px}
 .supplier-commerce-mode select{display:block;min-width:230px;margin-top:8px}
-.supplier-purchase-cell{min-width:220px}
-.supplier-purchase{display:flex;gap:8px;margin-top:10px}
-.supplier-purchase select{width:54px;min-height:36px;padding:4px 8px;background:white;border:1px solid #c4cdd5;border-radius:4px}
-.supplier-purchase button{min-height:36px;font-size:12px;padding:6px 12px}
-.supplier-purchase button:disabled{background:#e6e9ec;border-color:#e6e9ec;color:#637381}
 body:has(:is(.cart-page,.checkout-page)){--ink:#212b36;--muted:#637381;--line:#e6e9ec}
 .cart-page,.checkout-page{background:#f8f9f9;color:#212b36}
 .shopping-cart,.checkout-content{max-width:1350px;padding:0 15px 48px;min-height:550px}

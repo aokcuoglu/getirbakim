@@ -19,5 +19,5 @@ import "@/styles/site-header.css";
 import "@/styles/site-footer.css";
 export const metadata:Metadata={title:"Getirbakim | Aracın için doğru parça",metadataBase:new URL(siteUrl),verification:{google:process.env.GOOGLE_SITE_VERIFICATION},description:"Aracın için, parçadan anlayan insanların yedek parça mağazası. Bir bakalım, doğru parçayı bulalım.",openGraph:{siteName:"Getirbakim",locale:"tr_TR",type:"website",images:[{url:"/brand/social-getirbakim.png",width:1080,height:1080,alt:"Getirbakim — Bir bakalım, doğru parçayı bulalım."}]}};
 export default function Layout({children}:{children:React.ReactNode}) {
- return <html lang="tr"><body><a className="skip-link" href="#main-content">İçeriğe geç</a><StorefrontChrome><SiteHeader/></StorefrontChrome><main id="main-content" tabIndex={-1}>{children}</main><ServiceStrip/><StorefrontChrome><SiteFooter/></StorefrontChrome></body></html>;
+ return <html lang="tr" suppressHydrationWarning><body><a className="skip-link" href="#main-content">İçeriğe geç</a><StorefrontChrome><SiteHeader/></StorefrontChrome><main id="main-content" tabIndex={-1}>{children}</main><ServiceStrip/><StorefrontChrome><SiteFooter/></StorefrontChrome></body></html>;
 }

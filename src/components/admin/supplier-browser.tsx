@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useTransition, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
 
 export function SupplierBrowser({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -8,7 +9,7 @@ export function SupplierBrowser({ children }: { children: ReactNode }) {
   function navigate(href: string) {
     startTransition(() => router.push(href, { scroll: false }));
   }
-  return <section className={`supplier-browser ${pending ? "is-loading" : ""}`} aria-busy={pending}
+  return <section className="group/browser relative min-w-0" data-loading={pending || undefined} aria-busy={pending}
     onSubmit={event => {
       const form = event.target;
       if (!(form instanceof HTMLFormElement)) return;
@@ -26,7 +27,7 @@ export function SupplierBrowser({ children }: { children: ReactNode }) {
       event.preventDefault();
       if (link.getAttribute("aria-disabled") !== "true") navigate(url.pathname + url.search);
     }}>
-    {pending && <div className="supplier-loading" role="status"><span/>Ürünler yükleniyor…</div>}
+    {pending && <div className="absolute top-16 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-lg bg-foreground px-3 py-2 text-sm text-background shadow-lg" role="status"><Loader2 className="size-4 animate-spin" aria-hidden="true"/>Ürünler yükleniyor…</div>}
     {children}
   </section>;
 }

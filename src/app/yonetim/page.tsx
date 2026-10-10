@@ -10,7 +10,14 @@ import { money } from "@/modules/store/catalog";
 import { db } from "@/lib/db";
 import { EnrichmentRefresh } from "@/components/admin/enrichment-refresh";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
-import { AdminPage, AdminPageHeader, AdminPanel, ProgressBar, Stat, StatGrid, StatusBadge, StatusMessage, EmptyState, TableRegion } from "@/components/admin/ui";
+import { OrdersChart } from "@/components/admin/orders-chart";
+import { AdminColumns, AdminPage, AdminPageHeader, AdminPanel, ProgressBar, Stat, StatGrid, StatusBadge, StatusMessage, EmptyState } from "@/components/admin/ui";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const number = (value: number | string) => new Intl.NumberFormat("tr-TR").format(Number(value));
 const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -40,8 +47,6 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const lastSuccess = [...(health?.scopes.map(scope => scope.commerce_last_success_at ?? scope.last_success_at) ?? []), data.lastSuccess?.completed_at]
     .filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
   const basbugTone = !health ? "danger" : health.healthy ? "success" : "warning";
-  const maxDay = Math.max(1, ...days.map(day => day.orders));
-  const dayLabel = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
 
   const attention = [
     { href: "/yonetim/siparisler?status=action", icon: ReceiptText, tone: "warning", title: "Teyit bekleyen sipariş", note: "Tedarikçi stok ve teslim süresini teyit edip onayla", count: orders.action },
@@ -53,6 +58,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   ];
   const open = attention.filter(item => item.count > 0);
 
+  const tones: Record<string, string> = { warning: "bg-warning/10 text-warning", danger: "bg-destructive/10 text-destructive", info: "bg-primary/10 text-primary" };
+
   return <AdminPage>
     <AdminPageHeader title="Genel bakış" description={<>Bugün {today()} · Siparişler, tedarikçi verisi ve katalog durumunun özeti.</>} actions={<EnrichmentRefresh/>}/>
     {approved && <StatusMessage>Servis başvurusu onaylandı.</StatusMessage>}
@@ -60,7 +67,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
 
     <StatGrid label="Özet">
       <Stat icon={Wallet} label="Ciro · son 30 gün" value={money(revenue)}
-        note={<>{number(orders.paid_30d)} ödenmiş sipariş{delta !== null && <> · <span className={`admin-delta ${delta >= 0 ? "is-up" : "is-down"}`}>{delta >= 0 ? <ArrowUpRight size={12}/> : <ArrowDownRight size={12}/>}%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</span> önceki 30 güne göre</>}</>}/>
+        note={<>{number(orders.paid_30d)} ödenmiş sipariş{delta !== null && <> · <span className={cn("inline-flex items-center font-semibold", delta >= 0 ? "text-success" : "text-destructive")}>{delta >= 0 ? <ArrowUpRight className="size-3"/> : <ArrowDownRight className="size-3"/>}%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</span> önceki 30 güne göre</>}</>}/>
       <Stat icon={ReceiptText} label="İşlem bekleyen sipariş" value={number(orders.action + orders.refund)} tone={orders.action + orders.refund ? "warning" : "success"}
         note={`${number(orders.action)} teyit · ${number(orders.refund)} iade · ${number(orders.awaiting_payment)} ödeme bekliyor`} href="/yonetim/siparisler?status=action" linkLabel="Siparişlere git"/>
       <Stat icon={PackageCheck} label="Katalogdaki ürün" value={number(data.catalog.items)} note="Başbuğ güncel listesinde bulunan kayıtlar" href="/yonetim/tedarikciler/basbug" linkLabel="Ürünleri incele"/>
@@ -68,67 +75,67 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         note={`Son başarılı çekim ${ago(lastSuccess)} · ${health?.heartbeat?.alive ? "zamanlayıcı çalışıyor" : "zamanlayıcı sinyali yok"}`} href="/yonetim/tedarikciler/basbug" linkLabel="Durumu gör"/>
     </StatGrid>
 
-    <div className="admin-grid-main">
-      <AdminPanel title="Siparişler · son 14 gün" description={`Oluşturulma gününe göre · toplam ${number(days.reduce((sum, day) => sum + day.orders, 0))} sipariş · en yüksek ${number(maxDay)}/gün`} actions={<Link className="admin-link" href="/yonetim/siparisler">Tüm siparişler →</Link>}>
-        <div className="admin-bars" role="img" aria-label={`Son 14 günde ${number(days.reduce((s, d) => s + d.orders, 0))} sipariş`}>
-          {days.map(day => <div key={day.day} title={`${dayLabel(day.day)}: ${day.orders} sipariş · ${money(day.revenue_kurus)} ödenmiş`}>
-            <span style={{ height: `${day.orders / maxDay * 100}%` }}/><small>{dayLabel(day.day).split(" ")[0]}</small>
-          </div>)}
-        </div>
+    <AdminColumns wide>
+      <AdminPanel title="Siparişler · son 14 gün" description={`Oluşturulma gününe göre · toplam ${number(days.reduce((sum, day) => sum + day.orders, 0))} sipariş`} actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/siparisler">Tüm siparişler →</Link>}>
+        <OrdersChart days={days}/>
       </AdminPanel>
       <AdminPanel title="Dikkat gerektirenler" description={open.length ? `${open.length} konu işlem bekliyor` : "Her şey yolunda"} flush>
-        {open.length ? <ul className="admin-actions-list">{open.map(item => <li key={item.title}><Link href={item.href}>
-          <span className={`admin-action-icon is-${item.tone}`}><item.icon size={16} aria-hidden="true"/></span>
-          <div><strong>{item.title}</strong><small>{item.note}</small></div><b>{number(item.count)}</b><ChevronRight size={16} className="admin-chevron" aria-hidden="true"/>
-        </Link></li>)}</ul> : <EmptyState title="Bekleyen iş yok" icon={<CheckCircle2 size={28}/>}><p>Siparişler, başvurular ve senkronizasyon güncel.</p></EmptyState>}
+        {open.length ? <ItemGroup className="gap-0!">{open.map(item => <Item key={item.title} size="sm" className="rounded-none border-0 px-4 py-3 hover:bg-muted/60 [&+&]:border-t" render={<Link href={item.href}/>}>
+          <ItemMedia variant="icon" className={cn("rounded-md", tones[item.tone])}><item.icon aria-hidden="true"/></ItemMedia>
+          <ItemContent><ItemTitle>{item.title}</ItemTitle><ItemDescription>{item.note}</ItemDescription></ItemContent>
+          <ItemActions><span className="text-base font-semibold tabular-nums">{number(item.count)}</span><ChevronRight className="size-4 text-muted-foreground" aria-hidden="true"/></ItemActions>
+        </Item>)}</ItemGroup> : <EmptyState title="Bekleyen iş yok" icon={<CheckCircle2/>}>Siparişler, başvurular ve senkronizasyon güncel.</EmptyState>}
       </AdminPanel>
-    </div>
+    </AdminColumns>
 
-    <div className="admin-grid-main">
-      <AdminPanel title="Son siparişler" actions={<Link className="admin-link" href="/yonetim/siparisler">Tümü →</Link>}>
-        {recent.length ? <TableRegion label="Son siparişler"><table className="admin-table"><thead><tr><th>Sipariş</th><th>Müşteri</th><th>Durum</th><th>Ödeme</th><th className="num">Tutar</th></tr></thead><tbody>
-          {recent.map(order => <tr key={order.id}>
-            <td className="nowrap"><Link className="admin-row-link" href={`/siparis/${order.id}`}>#{order.number}</Link><small>{time(order.created_at)}</small></td>
-            <td>{order.customer_name}</td>
-            <td><OrderStatusBadge status={order.status}/></td>
-            <td><PaymentStatusBadge status={order.payment_status}/></td>
-            <td className="num"><strong>{money(Number(order.total_kurus))}</strong></td>
-          </tr>)}
-        </tbody></table></TableRegion> : <EmptyState title="Henüz sipariş yok"/>}
+    <AdminColumns wide>
+      <AdminPanel title="Son siparişler" actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/siparisler">Tümü →</Link>} flush>
+        {recent.length ? <Table><TableHeader><TableRow><TableHead className="pl-4">Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="pr-4 text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
+          {recent.map(order => <TableRow key={order.id}>
+            <TableCell className="pl-4"><Link className="font-medium hover:text-primary hover:underline" href={`/siparis/${order.id}`}>#{order.number}</Link><div className="text-xs text-muted-foreground">{time(order.created_at)}</div></TableCell>
+            <TableCell>{order.customer_name}</TableCell>
+            <TableCell><OrderStatusBadge status={order.status}/></TableCell>
+            <TableCell><PaymentStatusBadge status={order.payment_status}/></TableCell>
+            <TableCell className="pr-4 text-right font-medium tabular-nums">{money(Number(order.total_kurus))}</TableCell>
+          </TableRow>)}
+        </TableBody></Table> : <EmptyState title="Henüz sipariş yok"/>}
       </AdminPanel>
-      <div className="admin-stack">
-        <AdminPanel title="Ürün zenginleştirme" actions={<Link className="admin-link" href="/yonetim/urun-verileri">Aç →</Link>}>
-          <p className="admin-hint" style={{ marginBottom: 8 }}><strong style={{ color: "var(--a-text)", fontSize: 18 }}>{number(enrichmentTotal - (enrichment.pending || 0))}</strong> / {number(enrichmentTotal)} ürün incelendi</p>
+      <div className="flex min-w-0 flex-col gap-4">
+        <AdminPanel title="Ürün zenginleştirme" actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/urun-verileri">Aç →</Link>}>
+          <p className="mb-2 text-sm text-muted-foreground"><strong className="text-lg font-semibold text-foreground tabular-nums">{number(enrichmentTotal - (enrichment.pending || 0))}</strong> / {number(enrichmentTotal)} ürün incelendi</p>
           <ProgressBar label="Zenginleştirme ilerlemesi" total={enrichmentTotal} segments={[
             { value: enrichment.complete || 0, tone: "success" }, { value: enrichment.partial || 0 },
             { value: enrichmentAttention, tone: "warning" }, { value: enrichment.not_found || 0, tone: "muted" },
           ]}/>
-          <ul className="admin-legend">
-            <li><i style={{ background: "#22a356" }}/>{number(enrichment.complete || 0)} tamam</li>
-            <li><i/>{number(enrichment.partial || 0)} kısmi</li>
-            <li><i style={{ background: "#e6a23c" }}/>{number(enrichmentAttention)} kontrol</li>
-            <li><i style={{ background: "#c3cad2" }}/>{number(enrichment.not_found || 0)} eşleşmeyen</li>
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground tabular-nums">
+            <li className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-chart-2"/>{number(enrichment.complete || 0)} tamam</li>
+            <li className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-primary"/>{number(enrichment.partial || 0)} kısmi</li>
+            <li className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-chart-3"/>{number(enrichmentAttention)} kontrol</li>
+            <li className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-chart-5"/>{number(enrichment.not_found || 0)} eşleşmeyen</li>
           </ul>
         </AdminPanel>
-        <AdminPanel title="Tedarikçi bağlantıları" actions={<Link className="admin-link" href="/yonetim/tedarikciler">Yönet →</Link>} flush>
-          <ul className="admin-actions-list">{supplierStatuses().map(s => {
+        <AdminPanel title="Tedarikçi bağlantıları" actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/tedarikciler">Yönet →</Link>} flush>
+          <ItemGroup className="gap-0!">{supplierStatuses().map(s => {
             const isBasbug = s.name === "Başbuğ";
-            const tone = isBasbug ? basbugTone : s.configured ? "neutral" : "warning";
-            return <li key={s.name}><Link href={isBasbug ? "/yonetim/tedarikciler/basbug" : "/yonetim/tedarikciler/dinamik"}>
-              <span className="admin-action-icon">{s.name.slice(0, 1)}</span>
-              <div><strong>{s.name}</strong><small>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : s.configured ? "Değişkenler tanımlı · bağlantı doğrulanmadı" : "Bağlantı değişkenleri eksik"}</small></div>
-              <StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : "Hata") : "Doğrulanmadı"}</StatusBadge>
-            </Link></li>;
-          })}</ul>
+            const tone = isBasbug ? basbugTone : "neutral";
+            return <Item key={s.name} size="sm" className="rounded-none border-0 px-4 py-3 hover:bg-muted/60 [&+&]:border-t" render={<Link href={isBasbug ? "/yonetim/tedarikciler/basbug" : "/yonetim/tedarikciler/dinamik"}/>}>
+              <ItemMedia variant="icon" className="rounded-md bg-muted font-semibold text-muted-foreground">{s.name.slice(0, 1)}</ItemMedia>
+              <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : s.configured ? "Değişkenler tanımlı · bağlantı doğrulanmadı" : "Bağlantı değişkenleri eksik"}</ItemDescription></ItemContent>
+              <ItemActions><StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : "Hata") : "Doğrulanmadı"}</StatusBadge></ItemActions>
+            </Item>;
+          })}</ItemGroup>
         </AdminPanel>
       </div>
-    </div>
+    </AdminColumns>
 
-    {pending.length > 0 && <AdminPanel title="Onay bekleyen servis başvuruları" description="Onay, servise fiyat ve sepet erişimini hemen açar." actions={<Link className="admin-link" href="/yonetim/servisler">Tüm servisler →</Link>}>
-      <ul className="admin-list">{pending.map(a => <li key={a.id} className="admin-row">
-        <div><h3>{a.name}</h3><p>{a.email}</p>{a.contact_name && <p>{a.contact_name} · {a.phone} · {a.city}</p>}</div>
-        <form action={approveService} className="admin-inline-form" style={{ marginTop: 0 }}><input type="hidden" name="id" value={a.id}/><label>Servise özel indirim (%)<input name="discount" type="number" min={0} max={50} defaultValue={0} required/></label><button>Başvuruyu onayla</button></form>
-      </li>)}</ul>
+    {pending.length > 0 && <AdminPanel title="Onay bekleyen servis başvuruları" description="Onay, servise fiyat ve sepet erişimini hemen açar." actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/servisler">Tüm servisler →</Link>} flush>
+      <ItemGroup className="gap-0!">{pending.map(a => <Item key={a.id} className="rounded-none border-0 px-4 py-3 [&+&]:border-t">
+        <ItemContent><ItemTitle>{a.name}</ItemTitle><ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}</ItemDescription></ItemContent>
+        <ItemActions><form action={approveService} className="flex items-end gap-2"><input type="hidden" name="id" value={a.id}/>
+          <Field className="w-36 gap-1"><FieldLabel htmlFor={`discount-${a.id}`} className="text-xs">Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
+          <Button type="submit">Başvuruyu onayla</Button>
+        </form></ItemActions>
+      </Item>)}</ItemGroup>
     </AdminPanel>}
   </AdminPage>;
 }

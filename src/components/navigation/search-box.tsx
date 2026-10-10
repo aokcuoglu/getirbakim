@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { Select } from "@/components/ui/select";
+import { Select } from "@/components/site/select";
 
 type SearchBoxProps = {
   variant?: "header" | "hero" | "catalog";

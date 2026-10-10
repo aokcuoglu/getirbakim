@@ -1,7 +1,145 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* Document reset only. Tokens, controls and shared surfaces live in design-system.css. */
-* { box-sizing: border-box; }
-body { margin: 0; background: #fff; }
-a { color: inherit; text-decoration: none; }
+@custom-variant dark (&:is(.dark *));
+
+/* Document reset only. Storefront tokens, controls and shared surfaces live in design-system.css. */
+/* In the base layer (like Tailwind's preflight, which already does the same) so utilities can override them. */
+@layer base {
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; }
+  a { color: inherit; text-decoration: none; }
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* shadcn/ui theme. Only the administration workspace (/yonetim) uses it so far, so the tokens are scoped to documents
+   that contain .admin-app: the storefront keeps its own --muted/--line/--blue tokens untouched, while portals
+   (dialogs, popovers, menus) rendered into <body> still receive the admin tokens. */
+@theme inline {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root:has(.admin-app) {
+  --radius: 0.5rem;
+  --background: #f7f8fa;
+  --foreground: #18202a;
+  --card: #ffffff;
+  --card-foreground: #18202a;
+  --popover: #ffffff;
+  --popover-foreground: #18202a;
+  --primary: #0077c7;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f5;
+  --secondary-foreground: #18202a;
+  --muted: #f1f3f5;
+  --muted-foreground: #646d79;
+  --accent: #eef1f4;
+  --accent-foreground: #18202a;
+  --destructive: #c42a12;
+  --success: #157a3c;
+  --warning: #9a5300;
+  --info: #0077c7;
+  --border: #e4e7eb;
+  --input: #d3d8de;
+  --ring: #0077c7;
+  --chart-1: #0077c7;
+  --chart-2: #22a356;
+  --chart-3: #e6a23c;
+  --chart-4: #7c5cc4;
+  --chart-5: #9aa3ad;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #49525d;
+  --sidebar-primary: #0077c7;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eaf4fb;
+  --sidebar-accent-foreground: #0068ae;
+  --sidebar-border: #e4e7eb;
+  --sidebar-ring: #0077c7;
+}
+
+:root.dark:has(.admin-app) {
+  --background: #0b0d10;
+  --foreground: #e8eaed;
+  --card: #13161a;
+  --card-foreground: #e8eaed;
+  --popover: #171a1f;
+  --popover-foreground: #e8eaed;
+  --primary: #3d9be0;
+  --primary-foreground: #04121d;
+  --secondary: #1d2126;
+  --secondary-foreground: #e8eaed;
+  --muted: #1d2126;
+  --muted-foreground: #9aa3ad;
+  --accent: #22272d;
+  --accent-foreground: #e8eaed;
+  --destructive: #ef6a52;
+  --success: #46c47a;
+  --warning: #f0b45a;
+  --info: #3d9be0;
+  --border: #262b31;
+  --input: #343a42;
+  --ring: #3d9be0;
+  --chart-1: #3d9be0;
+  --chart-2: #46c47a;
+  --chart-3: #f0b45a;
+  --chart-4: #a48be0;
+  --chart-5: #6b7480;
+  --sidebar: #101317;
+  --sidebar-foreground: #b8bfc7;
+  --sidebar-primary: #3d9be0;
+  --sidebar-primary-foreground: #04121d;
+  --sidebar-accent: #1b2833;
+  --sidebar-accent-foreground: #7cc0f0;
+  --sidebar-border: #262b31;
+  --sidebar-ring: #3d9be0;
+}
+
+@layer base {
+  :root:has(.admin-app) * { @apply border-border outline-ring/50; }
+  :root:has(.admin-app) body { @apply bg-background text-foreground font-sans; }
+  :root:has(.admin-app) :is(button:not(:disabled),[role=button]:not(:disabled)) { cursor: pointer; }
+}

@@ -7,7 +7,14 @@ import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, recordRefund } from "@/modules/admin/commerce-actions";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
-import { AdminPage, AdminPageHeader, AdminPanel, AdminTabs, EmptyState, StatusMessage, TableRegion } from "@/components/admin/ui";
+import { AdminPage, AdminPageHeader, AdminPanel, AdminTabs, EmptyState, StatusMessage } from "@/components/admin/ui";
+import { Button } from "@/components/ui/button";
+import { PagerLink } from "@/components/admin/ui";
+import { Card, CardFooter } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "cancelled"];
@@ -30,50 +37,54 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.saved && <StatusMessage>Sipariş güncellendi.</StatusMessage>}
     {params.error && <StatusMessage tone="error">Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</StatusMessage>}
 
-    <AdminPanel flush>
-      <div style={{ padding: "0 12px" }}><AdminTabs label="Sipariş durumları" tabs={tabOrder.map(key => ({ href: href({ status: key }), label: orderFilters[key].label, count: counts[key], current: filter === key }))}/></div>
-      {shown.length ? <TableRegion label="Siparişler"><table className="admin-table">
-        <thead><tr><th>Sipariş</th><th>Müşteri</th><th>Durum</th><th>Ödeme</th><th className="num">Tutar</th><th style={{ textAlign: "right" }}>İşlem</th></tr></thead>
-        <tbody>{shown.map(o => <tr key={o.id}>
-          <td className="nowrap"><Link className="admin-row-link" href={`/siparis/${o.id}`}>#{o.number}</Link><small>{time(o.created_at)}</small></td>
-          <td style={{ minWidth: 220 }}><strong>{o.customer_name}</strong><small>{o.email} · {o.phone}</small>
-            <details className="admin-disclosure" style={{ marginTop: 4 }}><summary>Teslimat ve ödeme ayrıntıları</summary>
-              <dl className="admin-detail-grid">
-                <div><dt>Adres</dt><dd>{o.address}</dd></div>
-                {o.note && <div><dt>Not</dt><dd>{o.note}</dd></div>}
-                {o.payments.length > 0 && <div><dt>TAMI</dt><dd>{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
-                {o.paid_at && <div><dt>Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
-                {o.refund_reference && <div><dt>İade referansı</dt><dd>{o.refund_reference}</dd></div>}
-              </dl>
-            </details>
-            {o.payment_note && <small style={{ color: "var(--a-danger)" }}>{o.payment_note}</small>}
-          </td>
-          <td><OrderStatusBadge status={o.status}/></td>
-          <td><PaymentStatusBadge status={o.payment_status}/></td>
-          <td className="num"><strong>{money(Number(o.total_kurus))}</strong>{Number(o.shipping_kurus) > 0 && <small>Kargo {money(Number(o.shipping_kurus))} dahil</small>}</td>
-          <td>
-            {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <form action={changeOrderStatus} className="admin-row-actions">
+    <Card className="gap-0 py-0">
+      <AdminTabs label="Sipariş durumları" tabs={tabOrder.map(key => ({ href: href({ status: key }), label: orderFilters[key].label, count: counts[key], current: filter === key }))}/>
+      {shown.length ? <Table>
+        <TableHeader><TableRow><TableHead className="pl-4">Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead><TableHead className="pr-4 text-right">İşlem</TableHead></TableRow></TableHeader>
+        <TableBody>{shown.map(o => <TableRow key={o.id} className="align-top">
+          <TableCell className="pl-4"><Link className="font-medium hover:text-primary hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-xs text-muted-foreground">{time(o.created_at)}</div></TableCell>
+          <TableCell className="min-w-56 whitespace-normal">
+            <div className="font-medium">{o.customer_name}</div><div className="text-xs text-muted-foreground">{o.email} · {o.phone}</div>
+            <Collapsible className="mt-1">
+              <CollapsibleTrigger className="group inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"><ChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" aria-hidden="true"/>Teslimat ve ödeme</CollapsibleTrigger>
+              <CollapsibleContent>
+                <dl className="mt-2 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+                  <div><dt className="text-muted-foreground">Adres</dt><dd>{o.address}</dd></div>
+                  {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
+                  {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
+                  {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
+                  {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd>{o.refund_reference}</dd></div>}
+                </dl>
+              </CollapsibleContent>
+            </Collapsible>
+            {o.payment_note && <p className="mt-1 text-xs text-destructive">{o.payment_note}</p>}
+          </TableCell>
+          <TableCell><OrderStatusBadge status={o.status}/></TableCell>
+          <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
+          <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-xs text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
+          <TableCell className="pr-4">
+            {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <form action={changeOrderStatus} className="flex justify-end gap-2">
               <input type="hidden" name="id" value={o.id}/>
-              <select name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <option value="confirmed">Onayla</option> : <option value="shipped">Sevk edildi</option>}<option value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</option></select>
-              <button>Uygula</button>
+              <NativeSelect size="sm" name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
+              <Button type="submit" size="sm">Uygula</Button>
             </form>}
-            {o.payment_status === "refund_required" && <form action={recordRefund} className="admin-row-actions">
+            {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
               <input type="hidden" name="id" value={o.id}/>
-              <input name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required style={{ width: 150 }}/>
-              <button>İade yapıldı</button>
+              <Input className="h-7 w-40" name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required/>
+              <Button type="submit" size="sm">İade yapıldı</Button>
             </form>}
-          </td>
-        </tr>)}</tbody>
-      </table></TableRegion> : <EmptyState title={filter === "all" ? "Henüz sipariş yok" : "Bu durumda sipariş yok"} icon={<Inbox size={28}/>}>{filter !== "all" && <p><Link className="admin-link" href={href({ status: "all" })}>Tüm siparişleri göster</Link></p>}</EmptyState>}
-      {(page > 1 || orders.length > 50) && <div className="admin-table-footer"><span>Sayfa {page}</span><div className="admin-pager">
-        {page > 1 ? <Link href={href({ page: page - 1 })}><ChevronLeft size={14}/>Önceki</Link> : <span aria-disabled="true"><ChevronLeft size={14}/>Önceki</span>}
-        {orders.length > 50 ? <Link href={href({ page: page + 1 })}>Sonraki<ChevronRight size={14}/></Link> : <span aria-disabled="true">Sonraki<ChevronRight size={14}/></span>}
-      </div></div>}
-    </AdminPanel>
+          </TableCell>
+        </TableRow>)}</TableBody>
+      </Table> : <EmptyState title={filter === "all" ? "Henüz sipariş yok" : "Bu durumda sipariş yok"} icon={<Inbox/>}>{filter !== "all" && <Link className="text-primary hover:underline" href={href({ status: "all" })}>Tüm siparişleri göster</Link>}</EmptyState>}
+      {(page > 1 || orders.length > 50) && <CardFooter className="justify-between border-t py-3 text-sm text-muted-foreground"><span>Sayfa {page}</span><div className="flex gap-2">
+        <PagerLink href={page > 1 ? href({ page: page - 1 }) : null}><ChevronLeft/>Önceki</PagerLink>
+        <PagerLink href={orders.length > 50 ? href({ page: page + 1 }) : null}>Sonraki<ChevronRight/></PagerLink>
+      </div></CardFooter>}
+    </Card>
 
-    {fitment.length > 0 && <AdminPanel title="Uyumluluk ve iadeler" description="İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler sevk edilen siparişin sayfasından kaydedilir.">
-      <TableRegion label="Uyumluluk ve iadeler"><table className="admin-table"><thead><tr><th scope="col">Uyumluluk</th><th scope="col" className="num">Satır</th><th scope="col" className="num">İade edilen</th><th scope="col" className="num">“Aracıma uymadı”</th></tr></thead>
-        <tbody>{fitment.map(row => <tr key={row.level}><td>{row.level === "unrecorded" ? "Kayıt yok (eski sipariş)" : fitmentLevelLabels[row.level as FitmentLevel] ?? row.level}</td><td className="num">{row.lines}</td><td className="num">{row.returned}</td><td className="num">{row.not_fit}</td></tr>)}</tbody></table></TableRegion>
+    {fitment.length > 0 && <AdminPanel title="Uyumluluk ve iadeler" description="İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler sevk edilen siparişin sayfasından kaydedilir." flush>
+      <Table><TableHeader><TableRow><TableHead className="pl-4">Uyumluluk</TableHead><TableHead className="text-right">Satır</TableHead><TableHead className="text-right">İade edilen</TableHead><TableHead className="pr-4 text-right">“Aracıma uymadı”</TableHead></TableRow></TableHeader>
+        <TableBody>{fitment.map(row => <TableRow key={row.level}><TableCell className="pl-4">{row.level === "unrecorded" ? "Kayıt yok (eski sipariş)" : fitmentLevelLabels[row.level as FitmentLevel] ?? row.level}</TableCell><TableCell className="text-right tabular-nums">{row.lines}</TableCell><TableCell className="text-right tabular-nums">{row.returned}</TableCell><TableCell className="pr-4 text-right tabular-nums">{row.not_fit}</TableCell></TableRow>)}</TableBody></Table>
     </AdminPanel>}
   </AdminPage>;
 }
