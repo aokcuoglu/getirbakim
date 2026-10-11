@@ -6,6 +6,7 @@ import { CookieConsent } from "@/components/privacy/cookie-consent";
 import {ResponsiveFooterGroup} from "./responsive-footer-group";
 import {FooterVariants,RouteFrame} from "@/components/layout/store-route";
 import {cn} from "@/lib/utils";
+import {SocialLinks} from "@/components/social-links";
 
 type FooterLink = { href: string; title: string };
 
@@ -71,10 +72,10 @@ export async function SiteFooter() {
    <ResponsiveFooterGroup title="Faydalı bilgiler">{information.map(link=><Link key={link.href} href={link.href}>{link.title}</Link>)}</ResponsiveFooterGroup>
    <ResponsiveFooterGroup title="Kategoriler">{catalogCategories.map(category=><Link key={category.id} href={"/katalog?category="+category.slug}>{category.name}</Link>)}</ResponsiveFooterGroup>
   </div>
-  <div className="mx-auto flex w-full max-w-[1350px] justify-between gap-6 border-t border-border bg-[#f8f9f9] px-[15px] py-4 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:gap-2 max-[600px]:text-[11px]">
+  <div className="mx-auto flex w-full max-w-[1350px] items-center justify-between gap-6 border-t border-border bg-[#f8f9f9] px-[15px] py-4 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]">
    <span>© {year} ERGUL ENERJI SAN TIC LTD STI</span>
    <CookieConsent/>
-   <span>Aracın için doğru parça.</span>
+   <div className="flex items-center gap-4 max-[600px]:justify-between"><span>Aracın için doğru parça.</span><SocialLinks/></div>
   </div>
  </footer>;
  const checkout=<footer className="bg-[#f7f8fa] pt-10 text-sm leading-5 text-foreground">
@@ -95,10 +96,10 @@ export async function SiteFooter() {
    <h2 id="footer-categories-title" className="m-0 text-[13px] leading-[22px] font-semibold">Kategoriler</h2>
    {categories.map(category => <Link key={category.slug} href={`/katalog?category=${category.slug}`} className={cn(muted,"max-[600px]:py-2")}>{category.name}</Link>)}
   </nav>
-  <div className={cn(shell,"flex justify-between gap-6 border-t border-border pt-5 pb-6 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:gap-2 max-[600px]:text-[11px]")}>
+  <div className={cn(shell,"flex items-center justify-between gap-6 border-t border-border pt-5 pb-6 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]")}>
    <span>© {year} ERGUL ENERJI SAN TIC LTD STI</span>
    <CookieConsent/>
-   <span>Aracın için doğru parça.</span>
+   <div className="flex items-center gap-4 max-[600px]:justify-between"><span>Aracın için doğru parça.</span><SocialLinks/></div>
   </div>
  </footer>;
  return <RouteFrame><FooterVariants links={links} checkout={checkout}/></RouteFrame>;
