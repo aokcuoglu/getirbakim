@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function categoryImageCollector(bridge,token){
  if(location.hostname!=='www.trodo.com')throw Error('Wrong category image origin');
  if(window.__getirbakimCategoryImages)window.__getirbakimCategoryImages.running=false;
