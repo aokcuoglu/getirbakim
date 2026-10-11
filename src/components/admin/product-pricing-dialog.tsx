@@ -75,7 +75,7 @@ function PricingForm({ id, cost, pricing, initialFocus }: { id: string; cost: nu
         <ItemDescription>KDV dahil. Stok, fiyat güncelliği ve satış teyidi koşulları geçerliliğini korur.</ItemDescription>
       </ItemContent>
     </Item>
-    {!edited && result.message && <Alert variant={result.status === "error" ? "destructive" : "default"} role={result.status === "error" ? "alert" : "status"}>
+    {!edited && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
       {result.status === "error" ? <CircleAlert/> : <CircleCheck/>}<AlertDescription>{result.message}</AlertDescription>
     </Alert>}
     <DialogFooter className="sm:justify-between">

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronsUpDown, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ChevronsUpDown, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
 import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
 import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
@@ -54,9 +54,9 @@ function ChangeValue({ value, path, currency }: { value: unknown; path: string[]
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function statusBadge(tone: "success" | "warning" | "info" | "neutral", text: string) {
-  return <Badge variant={tone === "success" ? "secondary" : "outline"}>
-    {tone === "success" ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : tone === "warning" ? <TriangleAlert data-icon="inline-start" aria-hidden="true"/> : tone === "info" ? <Info data-icon="inline-start" aria-hidden="true"/> : null}{text}
+function statusBadge(tone: "success" | "warning" | "destructive" | "info" | "neutral", text: string) {
+  return <Badge variant={tone === "neutral" ? "outline" : tone}>
+    {tone === "success" ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : tone === "warning" ? <TriangleAlert data-icon="inline-start" aria-hidden="true"/> : tone === "info" ? <Info data-icon="inline-start" aria-hidden="true"/> : tone === "destructive" ? <CircleAlert data-icon="inline-start" aria-hidden="true"/> : null}{text}
   </Badge>;
 }
 export function SourceJson({ label, value }: { label: string; value: unknown }) {
@@ -103,7 +103,7 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
 export function SupplierStocks({ stocks }: { stocks: { label: string; available: boolean | null; note?: string }[] }) {
   return <Table><TableBody>{stocks.map(stock => <TableRow key={stock.label}>
     <TableHead scope="row" className="whitespace-normal wrap-anywhere text-muted-foreground">{stock.label}</TableHead>
-    <TableCell className="text-right whitespace-normal"><Badge variant={stock.available ? "secondary" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge>{stock.note && <span className="mt-1 block text-xs text-muted-foreground">{stock.note}</span>}</TableCell>
+    <TableCell className="text-right whitespace-normal"><Badge variant={stock.available === null ? "warning" : stock.available ? "success" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge>{stock.note && <span className="mt-1 block text-xs text-muted-foreground">{stock.note}</span>}</TableCell>
   </TableRow>)}</TableBody></Table>;
 }
 type DetailItem = {
@@ -136,12 +136,12 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
-          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(sale?.available && sale.price_kurus && !snapshot ? "success" : "warning", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
+          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "destructive", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
         </div>
         <p className="text-muted-foreground tabular-nums">Kâr %{supplierNumber(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{supplierNumber(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
         <Separator/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground">
-          {statusBadge(item.presence === "present" ? "success" : "warning", presence)}<span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
+          {statusBadge(item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning", presence)}<span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
         </div>
       </CardContent>
       <CardFooter className="flex-wrap gap-2">
@@ -149,7 +149,7 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
       </CardFooter>
     </Card>
-    {item.conflicting && <Alert><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Aynı ürün kodu için çelişkili değerler bulundu. Farklı yanıtları veri kontrolü bölümünde inceleyebilirsiniz.</AlertDescription></Alert>}
+    {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Aynı ürün kodu için çelişkili değerler bulundu. Farklı yanıtları veri kontrolü bölümünde inceleyebilirsiniz.</AlertDescription></Alert>}
     <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">{productInfo}{stockInfo}</div>
     <SupplierHistory changes={item.changes} currency={pricing.currency ?? "TRY"}/>
     <Card>

@@ -26,7 +26,7 @@ export function SupplierHealthStatus({ health, group, refresh }: {
   ]);
   const nextRetry = retries.sort((a, b) => a.getTime() - b.getTime())[0];
   const groups = affected.length ? affected : scopes;
-  return <Alert aria-labelledby="supplier-health-title">
+  return <Alert variant="warning" aria-labelledby="supplier-health-title">
     <TriangleAlert aria-hidden="true"/>
     <AlertTitle id="supplier-health-title">{commerceStale || catalogStale ? "Başbuğ verilerinin güncellenmesi gerekiyor" : affected.length ? "Başbuğ güncellemeleri yeniden deneme bekliyor" : "Otomatik güncelleme sinyali alınamıyor"}</AlertTitle>
     <AlertDescription className="flex flex-col gap-2">

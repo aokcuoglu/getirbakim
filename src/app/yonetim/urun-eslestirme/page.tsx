@@ -38,10 +38,9 @@ function OfferCell({ offer }: { offer: Offer | undefined }) {
     <span className="flex items-center gap-2 tabular-nums"><span className="font-medium">{price(offer.price)}</span><StockLabel stock={offer.available}/></span></div>;
 }
 
-/** Stock Badge variants stand in for the tones: positive → secondary, attention → outline, failure → destructive. */
 function ToneBadge({ tone, children }: { tone: "success" | "warning" | "neutral"; children: ReactNode }) {
   const Icon = tone === "success" ? CircleCheck : tone === "warning" ? TriangleAlert : null;
-  return <Badge variant={tone === "success" ? "secondary" : "outline"}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{children}</Badge>;
+  return <Badge variant={tone === "neutral" ? "outline" : tone}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{children}</Badge>;
 }
 
 function EmptyState({ title, icon, children }: { title: string; icon: ReactNode; children?: ReactNode }) {
@@ -113,7 +112,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               <TableCell className="max-w-32 truncate font-medium" title={pair.brand_b}>{pair.brand_b}</TableCell>
               <TableCell className="text-right tabular-nums">{pair.shared_parts}</TableCell>
               <TableCell className="text-right tabular-nums">{pair.shared_eans ?? <span className="text-muted-foreground">—</span>}</TableCell>
-              <TableCell className="text-center">{pair.similarity ? <ToneBadge tone={pair.strong ? "success" : "neutral"}>{pair.similarity}</ToneBadge> : "—"}</TableCell>
+              <TableCell className="text-center">{pair.similarity ? <ToneBadge tone={pair.strong ? "success" : "warning"}>{pair.similarity}</ToneBadge> : "—"}</TableCell>
               <TableCell className="max-w-72 truncate text-muted-foreground" title={sampleText}>{sample ? <><span className="font-mono text-foreground">{sample.part}</span> · {sample.a || "—"} · {sample.b || "—"}</> : "—"}</TableCell>
               <TableCell><PairDecision pair={pair} back={back}/></TableCell>
               <TableCell><PairDialog pair={pair} back={back}/></TableCell>
@@ -207,7 +206,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </>;
   }
 
-  const notice = (text: ReactNode) => <Alert role="status"><CircleCheck/><AlertDescription>{text}</AlertDescription></Alert>;
+  const notice = (text: ReactNode) => <Alert variant="success" role="status"><CircleCheck/><AlertDescription>{text}</AlertDescription></Alert>;
   const statCards: { icon: LucideIcon; label: string; value: number; note: string; href: string; badge?: ReactNode }[] = stats ? [
     { icon: GitCompareArrows, label: "1 · Marka kararı bekleyen", value: pending, note: `${number(data.strength.strong)} güçlü · ${number(data.strength.weak)} zayıf benzerlik`, href: tabHref(),
       badge: <ToneBadge tone={data.strength.strong ? "warning" : "success"}>{data.strength.strong ? "İnceleme var" : "Güncel"}</ToneBadge> },

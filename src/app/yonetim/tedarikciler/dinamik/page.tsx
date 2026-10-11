@@ -32,15 +32,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const number = (value: number | null | undefined) => new Intl.NumberFormat("tr-TR").format(value ?? 0);
 const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Henüz yok";
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
-const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "neutral" };
+const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
 const price = (value: number | null | undefined) => value == null ? null : new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence"] as const;
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
-const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="secondary"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
   : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "warning" ? <Badge variant="outline"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "info" ? <Badge variant="outline"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
+  : tone === "warning" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+  : tone === "info" ? <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
 
 export default async function DinamikAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
@@ -172,10 +172,10 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
             <TableCell className="max-w-32 truncate text-muted-foreground" title={item.list_group}>{item.list_group}</TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={p.kull1s}>{p.kull1s || "—"}</TableCell>
             <TableCell className="max-w-40 truncate text-muted-foreground" title={[p.kull7s, p.kull8s].filter(Boolean).join(" · ")}>{p.kull8s || p.kull7s || "—"}</TableCell>
-            <TableCell className="text-right tabular-nums">{price(item.price_data?.fiyat) ?? <Badge variant="outline">Eksik</Badge>}</TableCell>
+            <TableCell className="text-right tabular-nums">{price(item.price_data?.fiyat) ?? <Badge variant="warning">Eksik</Badge>}</TableCell>
             <TableCell className="text-right font-medium tabular-nums" title={item.sale_stock_label ?? "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
             <TableCell className="text-right tabular-nums text-muted-foreground">{campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"}</TableCell>
-            {dinamikRegions.map(r => { const stock = dinamikRegionStock(item.stock_data, r.key); return <TableCell key={r.key} className="text-center"><Badge variant={stock ? "secondary" : "outline"} title={stock === null ? `${r.label}: stok listesinde yok` : `${r.label}: ${stock ? "VAR" : "YOK"}`}>{stock === null ? "—" : stock ? "Var" : "Yok"}</Badge></TableCell>; })}
+            {dinamikRegions.map(r => { const stock = dinamikRegionStock(item.stock_data, r.key); return <TableCell key={r.key} className="text-center"><Badge variant={stock ? "success" : "outline"} title={stock === null ? `${r.label}: stok listesinde yok` : `${r.label}: ${stock ? "VAR" : "YOK"}`}>{stock === null ? "—" : stock ? "Var" : "Yok"}</Badge></TableCell>; })}
             <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : item.price_data?.fiyat == null ? statusBadge("warning", "Fiyat eksik") : !item.stock_data ? statusBadge("neutral", "Yalnız fiyat") : item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell><DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
           </TableRow></SupplierProductDetails>; })}</TableBody>

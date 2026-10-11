@@ -25,10 +25,10 @@ import { money } from "@/modules/store/catalog";
 import { refreshSeta } from "./actions";
 
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
-const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="secondary"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
   : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "warning" ? <Badge variant="outline"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "info" ? <Badge variant="outline"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
+  : tone === "warning" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+  : tone === "info" ? <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(value);
 const date = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
@@ -85,7 +85,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
         <SupplierActivityBadge supplier="seta" initial={activity}>{statusBadge(!scope ? "neutral" : health.healthy ? "success" : "warning", !scope ? "Henüz aktarılmadı" : health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor")}</SupplierActivityBadge>
       </div>
     </div>
-    {params.updated === "1" && <Alert role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Liste API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
+    {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Liste API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="SETA özet">
       {facts.map(([label, value, note]) => <Card key={label} size="sm">
@@ -105,7 +105,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
         <CardHeader><CardTitle><h2>Otomatik güncelleme planı</h2></CardTitle><CardDescription>{scope ? `${scope.enabled ? `Ürün listesi: ${scope.interval_minutes === 1440 ? "her gün" : `${scope.interval_minutes} dakikada bir`} · sonraki ${date(scope.next_run_at)}` : "Ürün listesi çekimi kapalı"} · ${scope.commerce_enabled ? `Fiyat/stok: ${scope.commerce_interval_minutes} dakikada bir` : "Fiyat/stok çekimi kapalı"}` : "İlk başarılı aktarım günlük planı oluşturur."}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground">Plan ayarı: <code className="font-mono">supplier-configure --supplier=seta --group=ALL --daily-at=03:00 --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90</code></p>
-          {scope && (scope.catalog_stale || scope.commerce_stale || scope.consecutive_failures > 0 || scope.commerce_failures > 0) && <Alert><TriangleAlert aria-hidden="true"/><AlertDescription>{scope.catalog_stale || scope.commerce_stale ? "Güncellik süresi aşıldı; fiyatlar satışta gizleniyor." : `Son çekimler başarısız; sonraki deneme ${date(scope.commerce_failures ? scope.commerce_next_run_at : scope.next_run_at)}.`}</AlertDescription></Alert>}
+          {scope && (scope.catalog_stale || scope.commerce_stale || scope.consecutive_failures > 0 || scope.commerce_failures > 0) && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertDescription>{scope.catalog_stale || scope.commerce_stale ? "Güncellik süresi aşıldı; fiyatlar satışta gizleniyor." : `Son çekimler başarısız; sonraki deneme ${date(scope.commerce_failures ? scope.commerce_next_run_at : scope.next_run_at)}.`}</AlertDescription></Alert>}
         </CardContent>
       </Card>
       <Card>
@@ -140,9 +140,9 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
               <TableCell className="max-w-32 truncate text-muted-foreground" title={[item.product_data.vehicle_brand, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.vehicle_brand || "—"}</TableCell>
               <TableCell className="max-w-48 truncate text-muted-foreground" title={cross}>{cross || "—"}</TableCell>
               <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
-              <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="outline">Eksik</Badge>}</TableCell>
+              <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="warning">Eksik</Badge>}</TableCell>
               <TableCell className="text-right font-medium tabular-nums" title={item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
-              <TableCell className="text-center"><Badge variant={stock !== null && stock > 0 ? "secondary" : "outline"} title="Kaynak adet değil, var/yok bildirir">{stock === null ? "Veri yok" : stock > 0 ? "Var" : "Yok"}</Badge></TableCell>
+              <TableCell className="text-center"><Badge variant={stock === null ? "warning" : stock > 0 ? "success" : "outline"} title="Kaynak adet değil, var/yok bildirir">{stock === null ? "Veri yok" : stock > 0 ? "Var" : "Yok"}</Badge></TableCell>
               <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell><Button nativeButton={false} render={<Link href={`/yonetim/tedarikciler/seta/urun/${item.id}`}/>} variant="ghost" size="icon" className="size-11" aria-label={`${item.code} ürün detayı`}><ArrowUpRight aria-hidden="true"/></Button></TableCell>
             </TableRow>;

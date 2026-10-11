@@ -27,8 +27,8 @@ const number = (value: number | string) => new Intl.NumberFormat("tr-TR").format
 const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const today = () => new Date().toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", weekday: "long", day: "numeric", month: "long" });
 type Tone = "success" | "warning" | "danger" | "neutral";
-const looks: Record<Tone, { variant: "secondary" | "outline" | "destructive"; icon: LucideIcon }> = {
-  success: { variant: "secondary", icon: CircleCheck }, warning: { variant: "outline", icon: TriangleAlert },
+const looks: Record<Tone, { variant: "success" | "warning" | "destructive" | "outline"; icon: LucideIcon }> = {
+  success: { variant: "success", icon: CircleCheck }, warning: { variant: "warning", icon: TriangleAlert },
   danger: { variant: "destructive", icon: CircleAlert }, neutral: { variant: "outline", icon: Clock },
 };
 function ToneBadge({ tone, children }: { tone: Tone; children: React.ReactNode }) {
@@ -86,7 +86,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       </div>
       <div className="flex flex-wrap gap-2"><EnrichmentRefresh/></div>
     </div>
-    {approved && <Alert role="status"><CircleCheck/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
+    {approved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
     {error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</AlertDescription></Alert>}
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Özet">
@@ -94,7 +94,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <CardHeader>
           <CardDescription>Ciro · son 30 gün</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums">{money(revenue)}</CardTitle>
-          {delta !== null && <CardAction><Badge variant="outline">{delta >= 0 ? <TrendingUp data-icon="inline-start"/> : <TrendingDown data-icon="inline-start"/>}%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</Badge></CardAction>}
+          {delta !== null && <CardAction><Badge variant={delta >= 0 ? "success" : "destructive"}>{delta >= 0 ? <TrendingUp data-icon="inline-start"/> : <TrendingDown data-icon="inline-start"/>}%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</Badge></CardAction>}
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
           <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş sipariş</div>
@@ -155,7 +155,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
             <Item size="sm" render={<Link href={item.href}/>}>
               <ItemMedia variant="icon"><item.icon aria-hidden="true"/></ItemMedia>
               <ItemContent><ItemTitle>{item.title}</ItemTitle><ItemDescription>{item.note}</ItemDescription></ItemContent>
-              <ItemActions><Badge variant={item.tone === "danger" ? "destructive" : "secondary"} className="tabular-nums">{number(item.count)}</Badge><ChevronRight className="size-4" aria-hidden="true"/></ItemActions>
+              <ItemActions><Badge variant={item.tone === "danger" ? "destructive" : item.tone === "warning" ? "warning" : "secondary"} className="tabular-nums">{number(item.count)}</Badge><ChevronRight className="size-4" aria-hidden="true"/></ItemActions>
             </Item>
           </div>)}</ItemGroup> : <Empty>
             <EmptyHeader>
@@ -199,10 +199,10 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
               <ProgressValue/>
             </Progress>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary" className="tabular-nums">{number(enrichment.complete || 0)} tamam</Badge>
-              <Badge variant="outline" className="tabular-nums">{number(enrichment.partial || 0)} kısmi</Badge>
-              <Badge variant={enrichmentAttention ? "destructive" : "outline"} className="tabular-nums">{number(enrichmentAttention)} kontrol</Badge>
-              <Badge variant="outline" className="tabular-nums">{number(enrichment.not_found || 0)} eşleşmeyen</Badge>
+              <Badge variant="success" className="tabular-nums">{number(enrichment.complete || 0)} tamam</Badge>
+              <Badge variant="warning" className="tabular-nums">{number(enrichment.partial || 0)} kısmi</Badge>
+              <Badge variant={enrichmentAttention ? "warning" : "outline"} className="tabular-nums">{number(enrichmentAttention)} kontrol</Badge>
+              <Badge variant={enrichment.not_found ? "destructive" : "outline"} className="tabular-nums">{number(enrichment.not_found || 0)} eşleşmeyen</Badge>
             </div>
           </CardContent>
         </Card>

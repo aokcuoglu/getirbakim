@@ -31,7 +31,7 @@ export function SupplierProductDetails({ children, code, title, supplier, fields
       <Separator/>
       <div className="flex flex-col gap-2">
         <h3 className="font-medium">{stockTitle}</h3>
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">{stocks.map(({ label, available }) => <div key={label} className="flex flex-col items-start gap-1"><dt className="text-muted-foreground">{label}</dt><dd><Badge variant={available ? "secondary" : "outline"}>{available === null ? "Veri yok" : available ? "Var" : "Yok"}</Badge></dd></div>)}</dl>
+        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">{stocks.map(({ label, available }) => <div key={label} className="flex flex-col items-start gap-1"><dt className="text-muted-foreground">{label}</dt><dd><Badge variant={available === null ? "warning" : available ? "success" : "outline"}>{available === null ? "Veri yok" : available ? "Var" : "Yok"}</Badge></dd></div>)}</dl>
       </div>
       <DialogFooter className="sm:justify-between">
         {footer}

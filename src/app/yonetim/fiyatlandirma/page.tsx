@@ -41,7 +41,7 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
       </div>
     </header>
 
-    {params.saved && <Alert role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive"><CircleAlert aria-hidden="true"/><AlertTitle>Ayarlar kaydedilemedi</AlertTitle><AlertDescription>Kâr, KDV, veri geçerliliği ve kargo alanlarının izin verilen aralıklarda olduğunu kontrol edin.</AlertDescription></Alert>}
 
     <PricingWorkspace key={JSON.stringify(settings)} settings={settings} currencies={currencies}>
