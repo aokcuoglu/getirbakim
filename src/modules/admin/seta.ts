@@ -5,6 +5,8 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
+import { z } from "zod";
+import type { SupplierChange } from "./supplier-changes";
 
 export type SetaParams = { q?: string; category?: string; stock?: string; quality?: string; presence?: string; page?: string; updated?: string; error?: string };
 export type SetaImportSummary = {
@@ -53,4 +55,16 @@ export async function adminSetaData(params: SetaParams) {
     ORDER BY page.code,page.id`, [...values, (page - 1) * 50]);
   return { snapshot: snapshot.rows[0], recentRuns: recentRuns.rows, health, categories: categories.rows.map(row => row.value),
     items: items.rows, total, page, pages };
+}
+
+export async function adminSetaItem(id: string) {
+  await requireAdmin();
+  if (!z.uuid().safeParse(id).success) return null;
+  const { rows } = await db.query<SetaItem & {
+    first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number;
+    missing_count: number; source_variants: Record<string, unknown>;
+  }>("SELECT * FROM supplier_items WHERE supplier='seta' AND company=$1 AND id=$2", [setaCompany, id]);
+  if (!rows[0]) return null;
+  const changes = (await db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id])).rows;
+  return { ...rows[0], changes };
 }

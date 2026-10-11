@@ -5,7 +5,7 @@
 ## Yönetim
 
 - `/yonetim/fiyatlandirma`: maliyet üzerine kâr, KDV ve kur/tedarikçi verisi geçerlilik süresi. Başlangıç %30 kâr, %20 KDV ve 36 saat geçerlilik. KDV oranı işletme tarafından panelden değiştirilebilir.
-- Dinamik ürün detayındaki **Kâr ve KDV oranları**: sayfadan ayrılmadan açılan modalda bu ürün için kâr ve/veya KDV özelleştirilir. Boş bırakılan alan genel oranı izler; `0` özel bir orandır. **Genel oranlara dön** özel kaydı kaldırır. Genel ayarlar ve diğer ürünler değişmez.
+- Dinamik, Başbuğ ve SETA ürün detayındaki **Kâr ve KDV oranları**: sayfadan ayrılmadan açılan modalda bu ürün için kâr ve/veya KDV özelleştirilir. Boş bırakılan alan genel oranı izler; `0` özel bir orandır. **Genel oranlara dön** özel kaydı kaldırır. Genel ayarlar ve diğer ürünler değişmez. Başbuğ dövizli maliyetinde önizleme, katalog ile aynı son başarılı aktarımın satış kurunu kullanır; kur yoksa önizleme gösterilmez. SETA detayına yönetim listesindeki parça kodundan veya detay düğmesinden erişilir.
 - `/yonetim/servisler`: servis hesabı oluşturma, onayı açma/kapatma ve %0–50 servis indirimi.
 - `/yonetim/siparisler`: siparişleri inceleme, teyit bekleyen siparişi onaylama veya iptal; onaylı siparişi sevk etme veya iptal. İptal, ayrılmış mağaza stoklarını yalnız bir kez iade eder.
 

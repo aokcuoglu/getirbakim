@@ -8,8 +8,7 @@ import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { SetaProductFilters } from "@/components/admin/seta-product-filters";
-import { SetaProductDetails } from "@/components/admin/seta-product-details";
-import { CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -135,7 +134,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
             const cross = Object.entries(item.product_data.cross ?? {}).map(([brand, code]) => `${brand || "?"} ${code}`).join(" · ");
             const stock = item.stock_data?.stok ?? null;
             return <TableRow key={item.id}>
-              <TableCell className="font-mono font-medium" title={item.code}>{item.code}</TableCell>
+              <TableCell className="font-mono font-medium" title={item.code}><Link href={`/yonetim/tedarikciler/seta/urun/${item.id}`} className="text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.code}</Link></TableCell>
               <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
               <TableCell className="max-w-64 truncate font-medium" title={[item.product_data.ac, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
               <TableCell className="max-w-32 truncate text-muted-foreground" title={[item.product_data.vehicle_brand, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.vehicle_brand || "—"}</TableCell>
@@ -145,7 +144,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
               <TableCell className="text-right font-medium tabular-nums" title={item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
               <TableCell className="text-center"><Badge variant={stock !== null && stock > 0 ? "secondary" : "outline"} title="Kaynak adet değil, var/yok bildirir">{stock === null ? "Veri yok" : stock > 0 ? "Var" : "Yok"}</Badge></TableCell>
               <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-              <TableCell><SetaProductDetails item={item} cost={item.price_data ? `${number(item.price_data.nf)} ${item.product_data.dc}` : "Fiyat eksik"} salePrice={item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"}/></TableCell>
+              <TableCell><Button nativeButton={false} render={<Link href={`/yonetim/tedarikciler/seta/urun/${item.id}`}/>} variant="ghost" size="icon" className="size-11" aria-label={`${item.code} ürün detayı`}><ArrowUpRight aria-hidden="true"/></Button></TableCell>
             </TableRow>;
           })}</TableBody>
         </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}

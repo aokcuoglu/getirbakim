@@ -14,7 +14,7 @@ export async function saveProductPricing(_previous: ProductPricingResult, form: 
   if (!input.success) return { status: "error", message: "Oranları kontrol edin. Kâr 0–1.000, KDV 0–100 aralığında ve en fazla iki ondalık basamaklı olmalıdır." };
   const { id, ...rates } = input.data;
   try {
-    if (!await persistProductPricing(db, id, rates, admin.id)) return { status: "error", message: "Dinamik ürün kaydı bulunamadı. Sayfayı yenileyin." };
+    if (!await persistProductPricing(db, id, rates, admin.id)) return { status: "error", message: "Tedarikçi ürün kaydı bulunamadı. Sayfayı yenileyin." };
   } catch {
     return { status: "error", message: "Oranlar kaydedilemedi. Yeniden deneyin." };
   }
