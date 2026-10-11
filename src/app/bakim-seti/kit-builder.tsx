@@ -56,10 +56,18 @@ export function KitBuilder({ options }: { options: KitSlotOptions[] }) {
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<string | null>(null);
   const byKey = useMemo(() => new Map(options.map(slot => [slot.key, slot])), [options]);
-  const chosen = Object.entries(selection) as [KitSlotKey, KitItem][];
+  const chosen = (Object.entries(selection) as [KitSlotKey, KitItem | undefined][]).filter((entry): entry is [KitSlotKey, KitItem] => Boolean(entry[1]));
   const total = chosen.reduce((sum, [, item]) => sum + item.priceKurus, 0);
   const query = kitImageQuery(selection);
-  const choose = (key: KitSlotKey, item: KitItem | undefined) => { setResult(null); setSelection(current => ({ ...current, [key]: item })); };
+  // A slot taken out of the kit is removed, not kept as an empty key.
+  const choose = (key: KitSlotKey, item: KitItem | undefined) => {
+    setResult(null);
+    setSelection(current => {
+      const next = { ...current };
+      if (item) next[key] = item; else delete next[key];
+      return next;
+    });
+  };
   const enabledFilters = filterKeys.filter(key => selection[key]);
   // "All Bosch": brands every enabled filter slot can offer.
   const sharedFamilies = enabledFilters.length > 1 ? [...new Set(byKey.get(enabledFilters[0])?.items.map(item => item.family))]
