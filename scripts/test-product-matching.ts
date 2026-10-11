@@ -65,6 +65,19 @@ test("master products: one automatic product per key, symmetric equivalents", as
     WHERE r.product_id=e.equivalent_id AND r.equivalent_id=e.product_id)`), 0);
 });
 
+test("equivalent decisions: hand-made links survive refreshes, unrelated pairs and HD suffixes follow the decision", async () => {
+  const count = (sql: string) => one(`SELECT count(*)::int AS value FROM ${sql}`, []);
+  const linked = (a: string, b: string) => `EXISTS (SELECT 1 FROM product_equivalents e WHERE e.product_id=${a} AND e.equivalent_id=${b})`;
+  assert.equal(await count(`product_equivalent_decisions d WHERE d.status='equivalent' AND NOT ${linked("d.product_a", "d.product_b")}`), 0);
+  assert.equal(await count(`product_equivalent_decisions d WHERE d.status='unrelated' AND (${linked("d.product_a", "d.product_b")} OR ${linked("d.product_b", "d.product_a")})`), 0);
+  // DAYCO 10PK1725HD is the same size as ABA / CONTITECH 10PK1725 once the pair is decided equivalent.
+  assert.equal(await count(`product_brand_pair_decisions d
+    JOIN products a ON a.brand IN (d.brand_a,d.brand_b) AND a.variant=0 AND length(a.part_number)>=5
+    JOIN products b ON b.brand IN (d.brand_a,d.brand_b) AND b.brand<>a.brand AND b.variant=0 AND b.part_number=a.part_number||'HD'
+    WHERE d.status='equivalent' AND NOT ${linked("a.id", "b.id")} AND NOT EXISTS (SELECT 1 FROM product_equivalent_decisions x
+      WHERE x.status='unrelated' AND x.product_a=LEAST(a.id,b.id) AND x.product_b=GREATEST(a.id,b.id))`), 0);
+});
+
 test("a split row gets its own locked product and rejoins on undo", async () => {
   const client = await pool.connect();
   try {

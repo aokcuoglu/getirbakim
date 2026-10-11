@@ -77,3 +77,61 @@ export async function mergeProducts(form: FormData) {
   revalidatePath("/yonetim/urunler");
   redirect(target ? `/yonetim/urunler/${target}?merged=1` : `/yonetim/urunler/${product_id}?error=merge`);
 }
+
+const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);
+
+/**
+ * Not the same product but usable instead (another brand of the same size): an equivalent decision kept across
+ * refreshes. The link shows at once; the next refresh keeps it only while no rule ties the pair.
+ */
+export async function linkEquivalent(form: FormData) {
+  const admin = await requireAdmin();
+  const data = pair.safeParse(Object.fromEntries(form));
+  if (!data.success) redirect("/yonetim/urunler?error=input");
+  const { product_id, other_id } = data.data;
+  const client = await db.connect();
+  let linked = false;
+  try {
+    await client.query("BEGIN");
+    const products = (await client.query<{ id: string; brand_label: string; part_number: string }>(
+      "SELECT id,brand_label,part_number FROM products WHERE id=ANY($1::uuid[]) AND merged_into IS NULL", [[product_id, other_id]])).rows;
+    if (products.length === 2) {
+      const [a, b] = [product_id, other_id].sort();
+      await client.query(`INSERT INTO product_equivalent_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'equivalent',$3)
+        ON CONFLICT (product_a,product_b) DO UPDATE SET status='equivalent',decided_by=excluded.decided_by,decided_at=now()`, [a, b, admin.id]);
+      for (const self of products) {
+        const other = products.find(row => row.id !== self.id)!;
+        await client.query(`INSERT INTO product_equivalents(product_id,equivalent_id,kind,brand,part_number) VALUES($1,$2,'manual',$3,$4)
+          ON CONFLICT (product_id,equivalent_id) DO NOTHING`, [self.id, other.id, other.brand_label, other.part_number]);
+      }
+      linked = true;
+    }
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  revalidatePath(`/yonetim/urunler/${product_id}`);
+  redirect(linked ? `/yonetim/urunler/${product_id}?linked=1#muadil` : `/yonetim/urunler/${product_id}?error=link#muadil`);
+}
+
+// Remove an equivalent: a hand-made link is forgotten, an automatic one is recorded as unrelated so refreshes skip it.
+export async function unlinkEquivalent(form: FormData) {
+  const admin = await requireAdmin();
+  const data = pair.safeParse(Object.fromEntries(form));
+  if (!data.success) redirect("/yonetim/urunler?error=input");
+  const { product_id, other_id } = data.data;
+  const [a, b] = [product_id, other_id].sort();
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const kind = (await client.query<{ kind: string }>("SELECT kind FROM product_equivalents WHERE product_id=$1 AND equivalent_id=$2",
+      [product_id, other_id])).rows[0]?.kind;
+    if (kind === "manual") await client.query("DELETE FROM product_equivalent_decisions WHERE product_a=$1 AND product_b=$2", [a, b]);
+    else if (kind) await client.query(`INSERT INTO product_equivalent_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'unrelated',$3)
+      ON CONFLICT (product_a,product_b) DO UPDATE SET status='unrelated',decided_by=excluded.decided_by,decided_at=now()`, [a, b, admin.id]);
+    await client.query("DELETE FROM product_equivalents WHERE (product_id,equivalent_id) IN (($1::uuid,$2::uuid),($2::uuid,$1::uuid))", [product_id, other_id]);
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  revalidatePath(`/yonetim/urunler/${product_id}`);
+  redirect(`/yonetim/urunler/${product_id}?unlinked=1#muadil`);
+}

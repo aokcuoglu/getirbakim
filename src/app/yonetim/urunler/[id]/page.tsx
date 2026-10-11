@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, TriangleAlert, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,10 +12,10 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
 import { money } from "@/modules/store/catalog";
-import { mergeProducts, splitSource, undoSplitSource } from "../actions";
+import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
 
 const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı" } as const;
+const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı", manual: "Elle muadil" } as const;
 
 export default async function MasterProduct({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
   const [{ id }, query] = await Promise.all([params, searchParams.then(normalizeSearchParams)]);
@@ -46,6 +46,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {query.joined && <Alert variant="success"><CircleCheck/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}
     {query.merged && <Alert variant="success"><CircleCheck/><AlertDescription>Ürünler birleştirildi; tüm kaynaklar bu üründe ve mağazada tek ürün olarak satılıyor. Yanlışsa ilgili kaynağı “Geri al” ile ayırın.</AlertDescription></Alert>}
     {query.reset && <Alert variant="success"><CircleCheck/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
+    {query.linked && <Alert variant="success"><CircleCheck/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
+    {query.unlinked && <Alert variant="success"><CircleCheck/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
     {query.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
     {merged && <Alert variant="info"><Info/><AlertTitle>Bu ürün birleştirildi</AlertTitle>
       <AlertDescription>Kayıtları <Link className="underline underline-offset-4" href={`/yonetim/urunler/${merged.id}`}>{merged.brand_label} {merged.code}</Link> ürününe taşındı (marka eşleştirme kararı).</AlertDescription></Alert>}
@@ -85,7 +87,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
 
     <Card id="birlestir">
       <CardHeader><CardTitle><h2>Başka ürünle birleştir</h2></CardTitle>
-        <CardDescription>Otomatik eşleşmenin kaçırdığı aynı ürünü bulun: parça numarası veya tedarikçi koduyla arayın. Birleşince tüm kaynaklar tek üründe toplanır; Başbuğ&apos;un sattığı ürün kimliğini korur.</CardDescription></CardHeader>
+        <CardDescription>Otomatik eşleşmenin kaçırdığı aynı ürünü bulun: parça numarası veya tedarikçi koduyla arayın. Birleşince tüm kaynaklar tek üründe toplanır; Başbuğ&apos;un sattığı ürün kimliğini korur. Farklı marka aynı ürün değildir: yerine kullanılabiliyorsa “Muadil” ile bağlayın.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form className="flex flex-wrap items-center gap-2" action={`/yonetim/urunler/${product.id}#birlestir`}>
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
@@ -99,24 +101,31 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${target.id}`}>{target.code}</Link></TableCell>
             <TableCell className="max-w-72 truncate" title={target.name ?? ""}>{target.name ?? "—"}</TableCell>
             <TableCell><div className="flex flex-wrap gap-1">{target.suppliers.length ? target.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
-            <TableCell><form action={mergeProducts}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/>
-              <Button type="submit" variant="outline"><Merge data-icon="inline-start" aria-hidden="true"/>Birleştir</Button></form></TableCell>
+            <TableCell><div className="flex flex-wrap justify-end gap-2">
+              {target.equivalent ? <Badge variant="info"><Link2 data-icon="inline-start" aria-hidden="true"/>Muadil</Badge>
+                : <form action={linkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/>
+                  <Button type="submit" variant={target.same_brand ? "outline" : "default"}><Link2 data-icon="inline-start" aria-hidden="true"/>Muadil</Button></form>}
+              <form action={mergeProducts}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/>
+                <Button type="submit" variant="outline"><Merge data-icon="inline-start" aria-hidden="true"/>Birleştir</Button></form>
+            </div></TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyTitle>{merge.q.length < 3 ? "En az 3 karakter girin." : "Ürün bulunamadı."}</EmptyTitle></EmptyHeader></Empty>)}
       </CardContent>
     </Card>
 
-    <Card>
+    <Card id="muadil">
       <CardHeader><CardTitle><h2>Muadil ürünler</h2></CardTitle>
-        <CardDescription>Aynı ürün değil, yerine kullanılabilecek ürünler: ortak OEM numarası, SETA gibi tedarikçilerin rakip kodu referansı veya “Muadil” marka kararı.</CardDescription></CardHeader>
+        <CardDescription>Aynı ürün değil, yerine kullanılabilecek ürünler: ortak OEM numarası, SETA gibi tedarikçilerin rakip kodu referansı, “Muadil” marka kararı veya elle bağlantı. Yanlış bağlantıyı “Kaldır” ile çıkarın; yenilemeler yeniden eklemez.</CardDescription></CardHeader>
       <CardContent>{equivalents.length ? <Table><caption className="sr-only">Muadil ürünler</caption>
-        <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead>Bağlantı nedeni</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead>Bağlantı nedeni</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
         <TableBody>{equivalents.map(item => <TableRow key={item.id}>
           <TableCell className="max-w-32 truncate font-medium">{item.brand_label}</TableCell>
           <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.id}`}>{item.code}</Link></TableCell>
           <TableCell className="max-w-72 truncate" title={item.name ?? ""}>{item.name ?? "—"}</TableCell>
           <TableCell><div className="flex flex-wrap gap-1">{item.suppliers.length ? item.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
-          <TableCell className="text-muted-foreground">{kinds[item.kind]} · <span className="font-mono">{item.via_brand} {item.via_part}</span></TableCell>
+          <TableCell className="text-muted-foreground">{kinds[item.kind]}{item.kind !== "manual" && <> · <span className="font-mono">{item.via_brand} {item.via_part}</span></>}</TableCell>
+          <TableCell><form action={unlinkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={item.id}/>
+            <Button type="submit" variant="outline"><Unlink data-icon="inline-start" aria-hidden="true"/>Kaldır</Button></form></TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><Link2/></EmptyMedia><EmptyTitle>Muadil bulunamadı.</EmptyTitle></EmptyHeader></Empty>}</CardContent>
     </Card>
