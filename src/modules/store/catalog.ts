@@ -224,6 +224,20 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
      ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
  return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
+export type ProductSuggestion={id:string;name:string;brand:string;code:string};
+/** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
+export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
+ const search=await catalogSearch(raw,mode);
+ const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
+ if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};
+ const values:unknown[]=[company(),search.ids],bind=binder(values);
+ // One suggestion per name and brand: a supplier lists the same part in many sizes.
+ const products=(await db.query<ProductSuggestion>(`SELECT id,name,brand,code FROM (
+  SELECT DISTINCT ON (name,brand) id::text,name,brand,code,rank,updated_at FROM (
+   SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
+  ORDER BY name,brand,rank DESC,updated_at DESC,id) best ORDER BY rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
+ return {products,...notes};
+}
 export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
