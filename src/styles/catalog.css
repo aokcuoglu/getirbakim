@@ -1,5 +1,5 @@
 /* Catalog geometry measured against Trodo brake-discs, with local product data. */
-body:has(:is(.catalog-page,.store-home,.cart-page)){--ink:#212b36;--muted:#637381;--line:#e6e9ec;--blue:#3378bd}
+body:has(:is(.catalog-page,.store-home,.cart-page)){--ink:#212b36;--sf-muted:#637381;--line:#e6e9ec;--blue:#3378bd}
 .catalog-page{background:white;color:#212b36}
 .catalog-hero{height:280px;position:relative;background:#212b36 url('/media/trodo/images/mobile-catalog.webp') center/cover no-repeat;color:white;padding:0 0 40px}
 .catalog-hero-brakes{background-image:linear-gradient(#212b36cc,#212b36cc),url('/media/trodo/images/brake-system-banner.webp')}

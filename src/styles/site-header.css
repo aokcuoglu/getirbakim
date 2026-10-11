@@ -1,5 +1,5 @@
 /* The one site header, on every route. Checkout keeps its own reduced header (purchase.css). */
-.utility-bar,.store-header{--ink:#212b36;--muted:#637381;--line:#e6e9ec;--blue:#3378bd}
+.utility-bar,.store-header{--ink:#212b36;--sf-muted:#637381;--line:#e6e9ec;--blue:#3378bd}
 body:not(:has(.checkout-page)) .utility-bar{height:42px;background:white;color:#212b36;font-size:14px}
 body:not(:has(.checkout-page)) .utility-bar .shell,body:not(:has(.checkout-page)) .store-header .shell{max-width:1350px;padding-inline:15px}
 body:not(:has(.checkout-page)) .utility-inner,body:not(:has(.checkout-page)) .utility-inner>div{gap:24px}

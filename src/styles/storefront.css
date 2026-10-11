@@ -96,7 +96,7 @@
   border-bottom: 1px solid var(--line);
   background: var(--light);
   font-size: 12px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .utility-inner,.utility-inner>div {
   display: flex;
@@ -255,7 +255,7 @@
 }
 .category-nav .nav-help {
   margin-left: auto;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .category-nav-trigger {
   flex-shrink: 0;
@@ -391,7 +391,7 @@
   border: 0;
   border-radius: 3px;
   background: white;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .category-mega-close:hover {
   background: var(--light);
@@ -518,7 +518,7 @@
 }
 .market-search input::placeholder {
   font-size: 14px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .market-search input:not([type=hidden]):focus {
   border: 0;
@@ -585,7 +585,7 @@
   line-height: 20px;
   font-weight: 500;
   letter-spacing: 1.6px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin: 0 0 20px
 }
 .store-hero h1 {
@@ -601,7 +601,7 @@
 .hero-description {
   font-size: 16px;
   line-height: 26px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin-bottom: 0
 }
 .hero-garage {
@@ -615,7 +615,7 @@
 .hero-garage>p {
   font-size: 12px;
   line-height: 20px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin: 0;
   max-width: 300px
 }
@@ -665,18 +665,18 @@
   display: block;
   font-size: 12px;
   line-height: 18px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .vehicle-picker>svg {
   flex-shrink: 0;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .eyebrow {
   display: block;
   font-size: 11px;
   line-height: 18px;
   letter-spacing: 1.2px;
-  color: var(--muted);
+  color: var(--sf-muted);
   font-weight: 500;
   margin-bottom: 8px
 }
@@ -757,7 +757,7 @@
   overflow-wrap: anywhere
 }
 .category-tiles>a>svg {
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .home-editorial {
   padding-top: 8px;
@@ -831,7 +831,7 @@
 .section-description {
   font-size: 14px;
   line-height: 24px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin-bottom: 24px
 }
 .make-grid {
@@ -861,12 +861,12 @@
 }
 .make-grid svg {
   flex-shrink: 0;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .subtle {
   font-size: 12px;
   line-height: 20px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin: 16px 0 0
 }
 .b2b-banner {
@@ -908,7 +908,7 @@
 .b2b-banner p {
   font-size: 14px;
   line-height: 22px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin: 0
 }
 .b2b-banner>a {
@@ -962,7 +962,7 @@
   display: block;
   font-size: 12px;
   line-height: 18px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin-top: 4px
 }
 footer {
@@ -981,7 +981,7 @@ footer {
 .footer-grid p {
   font-size: 13px;
   line-height: 24px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin: 16px 0
 }
 .footer-grid h2 {
@@ -1002,7 +1002,7 @@ footer {
   display: block;
   font-size: 13px;
   line-height: 22px;
-  color: var(--muted);
+  color: var(--sf-muted);
   padding: 5px 0;
   overflow-wrap: anywhere
 }
@@ -1020,7 +1020,7 @@ footer {
 .country {
   font-size: 12px;
   line-height: 20px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .footer-categories {
   display: flex;
@@ -1039,7 +1039,7 @@ footer {
   margin: 0
 }
 .footer-categories a {
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .footer-bottom {
   display: flex;
@@ -1049,7 +1049,7 @@ footer {
   padding-bottom: 24px;
   border-top: 1px solid var(--line);
   font-size: 12px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 @media(min-width:851px) and (max-width:1100px){
 .footer-grid {
@@ -1101,7 +1101,7 @@ footer {
   display: flex;
   gap: 12px;
   font-size: 12px;
-  color: var(--muted)
+  color: var(--sf-muted)
 }
 .category-sheet-close {
   position: absolute;
@@ -1578,7 +1578,7 @@ footer {
 .store-category-tree details[open]>summary>svg{transform:rotate(90deg)}
 .store-category-tree a{display:block;flex:1;padding:9px 4px;font-size:14px;line-height:1.4;text-decoration:none;color:var(--ink)}
 .store-category-tree a:hover,.store-category-tree a[aria-current=page]{color:var(--blue);font-weight:600}
-.store-category-tree small{display:block;color:var(--muted);font-size:11px;line-height:1.5;margin-top:3px}
+.store-category-tree small{display:block;color:var(--sf-muted);font-size:11px;line-height:1.5;margin-top:3px}
 .store-category-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:14px}
 .store-category-search input{border:0;outline:0;min-width:0;width:100%;font:inherit;background:transparent}
 .category-sheet-list .store-category-tree{padding:12px 20px}

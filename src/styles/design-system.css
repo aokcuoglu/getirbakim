@@ -1,67 +1,4 @@
 /* design-system: single owner for these surfaces; responsive and scoped variants below. */
-:where(html:not(:has(.admin-app))) body {
-  font-family: Inter,sans-serif;
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--ink)
-}
-:where(html:not(:has(.admin-app))) button {
-  font: inherit;
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  gap: 10px;
-  color: white;
-  cursor: pointer;
-  font-family: inherit;
-  min-height: 48px;
-  padding: 13px 27px;
-  border: 1px solid var(--blue);
-  border-radius: var(--control-radius);
-  background: var(--blue);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-  transition: background var(--transition),border-color var(--transition);
-  box-shadow: none
-}
-:where(html:not(:has(.admin-app))) input {
-  font: inherit;
-  width: 100%;
-  font-family: inherit
-}
-:where(html:not(:has(.admin-app))) select {
-  font: inherit;
-  width: 100%;
-  font-family: inherit;
-  height: 52px;
-  padding: 13px 14px;
-  background: white;
-  border: 1px solid var(--control-border);
-  border-radius: var(--control-radius);
-  box-shadow: none;
-  font-size: 16px;
-  line-height: 24px;
-  transition: border-color var(--transition);
-  max-width: 100%;
-  color: var(--ink)
-}
-:where(html:not(:has(.admin-app))) textarea {
-  font: inherit;
-  width: 100%;
-  font-family: inherit;
-  height: 52px;
-  padding: 13px 14px;
-  background: white;
-  border: 1px solid var(--control-border);
-  border-radius: var(--control-radius);
-  box-shadow: none;
-  font-size: 16px;
-  line-height: 24px;
-  transition: border-color var(--transition);
-  max-width: 100%;
-  color: var(--ink)
-}
 .button {
   display: inline-flex;
   justify-content: center;
@@ -79,28 +16,6 @@
   line-height: 20px;
   transition: background var(--transition),border-color var(--transition);
   box-shadow: none
-}
-:where(html:not(:has(.admin-app))) h1 {
-  margin-top: 0;
-  font-weight: 600;
-  letter-spacing: 0
-}
-:where(html:not(:has(.admin-app))) h2 {
-  margin-top: 0;
-  font-weight: 600;
-  letter-spacing: 0;
-  font-size: 26px;
-  line-height: 34px
-}
-:where(html:not(:has(.admin-app))) h3 {
-  margin-top: 0;
-  font-weight: 600;
-  letter-spacing: 0;
-  font-size: 21px;
-  line-height: 29px
-}
-:where(html:not(:has(.admin-app))) p {
-  margin-top: 0
 }
 .skip-link {
   position: fixed;
@@ -125,7 +40,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  color: var(--muted);
+  color: var(--sf-muted);
   margin-bottom: 28px;
   flex-wrap: wrap;
   overflow-wrap: anywhere;
@@ -145,12 +60,12 @@
   font-weight: 600
 }
 .lead {
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 16px;
   line-height: 24px
 }
 .muted {
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 14px;
   line-height: 22px
 }
@@ -175,12 +90,12 @@
 .empty p {
   max-width: 460px;
   margin: 0 auto 24px;
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 14px;
   line-height: 24px
 }
 .title-count {
-  color: var(--muted);
+  color: var(--sf-muted);
   font-weight: 400
 }
 .secondary {
@@ -267,7 +182,7 @@
 }
 .back {
   display: block;
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 12px;
   margin-bottom: 25px
 }
@@ -313,7 +228,7 @@
   --blue: #0077c7;
   --deep: #0063b4;
   --ink: #222831;
-  --muted: #626b75;
+  --sf-muted: #626b75;
   --line: #e5e7eb;
   --light: #f7f8fa;
   --card-radius: 16px;
@@ -324,30 +239,12 @@
   --popup-shadow: 0 6px 24px rgba(33,43,54,.1);
   --transition: 150ms ease
 }
-:where(html:not(:has(.admin-app))) h4 {
-  font-weight: 600;
-  letter-spacing: 0
-}
-:where(html:not(:has(.admin-app))) button:hover {
-  background: var(--deep);
-  border-color: var(--deep)
-}
 .button:hover {
   background: var(--deep);
   border-color: var(--deep)
 }
-:where(html:not(:has(.admin-app))) button:active {
-  background: #005a9f
-}
 .button:active {
   background: #005a9f
-}
-:where(html:not(:has(.admin-app))) button:disabled {
-  opacity: 1;
-  background: #e6e9ec;
-  border-color: #e6e9ec;
-  color: #98a4af;
-  pointer-events: none
 }
 .button.outline {
   background: white;
@@ -358,79 +255,6 @@
   background: #f9fafb;
   border-color: #54626e;
   color: var(--ink)
-}
-:where(html:not(:has(.admin-app))) input:not([type=hidden]):not([type=checkbox]) {
-  height: 52px;
-  padding: 13px 14px;
-  background: white;
-  border: 1px solid var(--control-border);
-  border-radius: var(--control-radius);
-  box-shadow: none;
-  font-size: 16px;
-  line-height: 24px;
-  transition: border-color var(--transition);
-  max-width: 100%;
-  color: var(--ink)
-}
-:where(html:not(:has(.admin-app))) input::placeholder {
-  color: #637381;
-  font-size: 14px;
-  opacity: 1
-}
-:where(html:not(:has(.admin-app))) textarea::placeholder {
-  color: #637381;
-  font-size: 14px;
-  opacity: 1
-}
-:where(html:not(:has(.admin-app))) input:not([type=hidden]):focus {
-  border-color: var(--blue);
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) textarea:focus {
-  border-color: var(--blue);
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) input:disabled {
-  background: #f8f9f9;
-  color: #98a4af;
-  border-color: #e6e9ec
-}
-:where(html:not(:has(.admin-app))) input[aria-invalid=true] {
-  border-color: #de3618;
-  background: #fbeae5
-}
-:where(html:not(:has(.admin-app))) input[type=checkbox] {
-  height: 16px;
-  width: 16px;
-  accent-color: var(--blue);
-  padding: 0;
-  border-radius: 3px
-}
-:where(html:not(:has(.admin-app))) a:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) button:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) input:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) select:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) textarea:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
-}
-:where(html:not(:has(.admin-app))) summary:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 2px
 }
 .stack button {
   width: 100%
@@ -443,9 +267,6 @@
   height: auto
 }
 .button .site-icon {
-  flex-shrink: 0
-}
-:where(html:not(:has(.admin-app))) button>.site-icon {
   flex-shrink: 0
 }
 .ui-select {
@@ -564,3 +385,187 @@
 .content-columns .panel { margin-bottom: 12px; }
 @media (max-width: 1000px) { .content-columns { gap: 30px; } }
 @media (max-width: 600px) { .content-columns { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
+
+/* Storefront element defaults: below Tailwind utilities (see the layer order in globals.css). */
+@layer legacy {
+:where(html:not(:has(.admin-app))) body {
+  font-family: Inter,sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink)
+}
+:where(html:not(:has(.admin-app))) button {
+  font: inherit;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  color: white;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 48px;
+  padding: 13px 27px;
+  border: 1px solid var(--blue);
+  border-radius: var(--control-radius);
+  background: var(--blue);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  transition: background var(--transition),border-color var(--transition);
+  box-shadow: none
+}
+:where(html:not(:has(.admin-app))) input {
+  font: inherit;
+  width: 100%;
+  font-family: inherit
+}
+:where(html:not(:has(.admin-app))) select {
+  font: inherit;
+  width: 100%;
+  font-family: inherit;
+  height: 52px;
+  padding: 13px 14px;
+  background: white;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  box-shadow: none;
+  font-size: 16px;
+  line-height: 24px;
+  transition: border-color var(--transition);
+  max-width: 100%;
+  color: var(--ink)
+}
+:where(html:not(:has(.admin-app))) textarea {
+  font: inherit;
+  width: 100%;
+  font-family: inherit;
+  height: 52px;
+  padding: 13px 14px;
+  background: white;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  box-shadow: none;
+  font-size: 16px;
+  line-height: 24px;
+  transition: border-color var(--transition);
+  max-width: 100%;
+  color: var(--ink)
+}
+:where(html:not(:has(.admin-app))) h1 {
+  margin-top: 0;
+  font-weight: 600;
+  letter-spacing: 0
+}
+:where(html:not(:has(.admin-app))) h2 {
+  margin-top: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 26px;
+  line-height: 34px
+}
+:where(html:not(:has(.admin-app))) h3 {
+  margin-top: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 21px;
+  line-height: 29px
+}
+:where(html:not(:has(.admin-app))) p {
+  margin-top: 0
+}
+:where(html:not(:has(.admin-app))) h4 {
+  font-weight: 600;
+  letter-spacing: 0
+}
+:where(html:not(:has(.admin-app))) button:hover {
+  background: var(--deep);
+  border-color: var(--deep)
+}
+:where(html:not(:has(.admin-app))) button:active {
+  background: #005a9f
+}
+:where(html:not(:has(.admin-app))) button:disabled {
+  opacity: 1;
+  background: #e6e9ec;
+  border-color: #e6e9ec;
+  color: #98a4af;
+  pointer-events: none
+}
+:where(html:not(:has(.admin-app))) input:not([type=hidden]):not([type=checkbox]) {
+  height: 52px;
+  padding: 13px 14px;
+  background: white;
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  box-shadow: none;
+  font-size: 16px;
+  line-height: 24px;
+  transition: border-color var(--transition);
+  max-width: 100%;
+  color: var(--ink)
+}
+:where(html:not(:has(.admin-app))) input::placeholder {
+  color: #637381;
+  font-size: 14px;
+  opacity: 1
+}
+:where(html:not(:has(.admin-app))) textarea::placeholder {
+  color: #637381;
+  font-size: 14px;
+  opacity: 1
+}
+:where(html:not(:has(.admin-app))) input:not([type=hidden]):focus {
+  border-color: var(--blue);
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) textarea:focus {
+  border-color: var(--blue);
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) input:disabled {
+  background: #f8f9f9;
+  color: #98a4af;
+  border-color: #e6e9ec
+}
+:where(html:not(:has(.admin-app))) input[aria-invalid=true] {
+  border-color: #de3618;
+  background: #fbeae5
+}
+:where(html:not(:has(.admin-app))) input[type=checkbox] {
+  height: 16px;
+  width: 16px;
+  accent-color: var(--blue);
+  padding: 0;
+  border-radius: 3px
+}
+:where(html:not(:has(.admin-app))) a:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) textarea:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px
+}
+:where(html:not(:has(.admin-app))) button>.site-icon {
+  flex-shrink: 0
+}
+}

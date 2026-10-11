@@ -273,7 +273,7 @@
   align-items: center;
   gap: 24px;
   margin: 24px 0;
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 12px;
   font-weight: 500;
   line-height: 16px
@@ -312,7 +312,7 @@
   left: 12px;
   top: 14px;
   max-width: calc(100% - 24px);
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 14px;
   line-height: 20px;
   pointer-events: none;
@@ -415,7 +415,7 @@
   line-height: 20px
 }
 .auth-reset-copy {
-  color: var(--muted);
+  color: var(--sf-muted);
   font-size: 14px;
   line-height: 22px;
   margin: 0 0 24px
