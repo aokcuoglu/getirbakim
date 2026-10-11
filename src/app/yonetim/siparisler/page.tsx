@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -48,13 +49,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.saved && <Alert role="status"><CircleCheck/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
 
-    <Tabs value={filter}>
-      <TabsList variant="line" aria-label="Sipariş durumları" className="max-w-full overflow-x-auto">
+    <Tabs value={filter}><ScrollArea className="pb-2">
+      <TabsList variant="line" aria-label="Sipariş durumları">
         {tabOrder.map(key => <TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({ status: key })} scroll={false}/>}>
           {orderFilters[key].label}<Badge variant="secondary" className="tabular-nums">{new Intl.NumberFormat("tr-TR").format(counts[key])}</Badge>
         </TabsTrigger>)}
       </TabsList>
-    </Tabs>
+      <ScrollBar orientation="horizontal"/>
+    </ScrollArea></Tabs>
 
     <Card>
       <CardContent>

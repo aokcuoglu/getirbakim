@@ -26,7 +26,7 @@ export function SetaProductDetails({ item, cost, salePrice }: { item: SetaItem; 
   return <Dialog>
     <DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger>
     {/* Cart forms submit their server action instead of the surrounding supplier filter navigation. */}
-    <DialogContent className="max-h-svh overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
+    <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
       <DialogHeader>
         <DialogTitle ref={titleRef} tabIndex={-1}>{item.product_data.ac}</DialogTitle>
         <DialogDescription className="font-mono">{item.code} · SETA</DialogDescription>

@@ -22,7 +22,7 @@ export function SupplierProductDetails({ children, code, title, supplier, fields
   const titleRef = useRef<HTMLHeadingElement>(null);
   return <Dialog>
     {children}
-    <DialogContent className="max-h-svh overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
+    <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
       <DialogHeader>
         <DialogTitle ref={titleRef} tabIndex={-1}>{title}</DialogTitle>
         <DialogDescription className="font-mono">{code} · {supplier}</DialogDescription>
