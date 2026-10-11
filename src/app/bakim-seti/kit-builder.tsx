@@ -37,7 +37,10 @@ function KitStage({ selection }: { selection: KitSelection }) {
 function defaultSelection(options: KitSlotOptions[]): KitSelection {
   const byKey = new Map(options.map(slot => [slot.key, slot]));
   const wanted: KitFilterKey[] = ["air", "oil", "cabin"];
-  const family = preferredFamilies.find(name => wanted.every(key => byKey.get(key)?.items.some(item => item.family === name)));
+  // Brands whose packaging is in the packshot library come first: they make the most convincing picture.
+  const coverage = (name: string) => wanted.filter(key => byKey.get(key)?.items.some(item => item.family === name && item.packshot)).length;
+  const family = [...preferredFamilies].sort((a, b) => coverage(b) - coverage(a))
+    .find(name => wanted.every(key => byKey.get(key)?.items.some(item => item.family === name)));
   const selection: KitSelection = {};
   for (const key of wanted) {
     const items = byKey.get(key)?.items ?? [];
@@ -45,7 +48,8 @@ function defaultSelection(options: KitSlotOptions[]): KitSelection {
     if (item) selection[key] = item;
   }
   const oil = byKey.get("engineOil")?.items ?? [];
-  const engineOil = oil.find(item => item.liters?.startsWith("4")) ?? oil[0];
+  const engineOil = oil.find(item => item.packshot && item.liters?.startsWith("4")) ?? oil.find(item => item.packshot)
+    ?? oil.find(item => item.liters?.startsWith("4")) ?? oil[0];
   if (engineOil) selection.engineOil = engineOil;
   return selection;
 }
@@ -70,8 +74,10 @@ export function KitBuilder({ options }: { options: KitSlotOptions[] }) {
   };
   const enabledFilters = filterKeys.filter(key => selection[key]);
   // "All Bosch": brands every enabled filter slot can offer.
+  const packshotCount = (family: string) => enabledFilters.filter(key => byKey.get(key)?.items.some(item => item.family === family && item.packshot)).length;
   const sharedFamilies = enabledFilters.length > 1 ? [...new Set(byKey.get(enabledFilters[0])?.items.map(item => item.family))]
-    .filter(family => enabledFilters.every(key => byKey.get(key)?.items.some(item => item.family === family))) : [];
+    .filter(family => enabledFilters.every(key => byKey.get(key)?.items.some(item => item.family === family)))
+    .sort((a, b) => packshotCount(b) - packshotCount(a)) : [];
   const oilGroups = useMemo(() => {
     const groups = new Map<string, KitItem[]>();
     for (const item of byKey.get("engineOil")?.items ?? []) groups.set(item.family, [...groups.get(item.family) ?? [], item]);

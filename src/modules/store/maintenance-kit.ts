@@ -91,52 +91,58 @@ const packshotSize: Record<KitSlotKey, { width: number; height: number }> = {
   engineOil: { width: 230, height: 320 },
 };
 export const kitCanvas = 1000;
-const floor = 905;
 
 export type KitLayer = { key: KitSlotKey; item: KitItem; x: number; y: number; width: number; height: number; z: number };
 
-/** Packaging cut-outs keep their own proportions at the slot's height; drawn boxes use the fixed size. */
+// Height a packaging cut-out gets at full scale. Manufacturer shots show the box with the filter element
+// beside it, so they run wide; rows are scaled down to fit the canvas.
+const cutoutHeight: Record<KitSlotKey, number> = { air: 450, oil: 330, cabin: 450, fuel: 350, engineOil: 480 };
+
+/** Packaging cut-outs keep their own proportions; drawn boxes use their fixed size. */
 function slotSize(key: KitSlotKey, item: KitItem) {
-  const size = packshotSize[key];
-  if (!item.packshot) return size;
+  if (!item.packshot) return packshotSize[key];
   const aspect = Math.min(2.4, Math.max(0.3, item.packshot.width / item.packshot.height));
-  const width = Math.min(size.height * aspect, size.width * 1.6);
-  return { width, height: width / aspect };
+  return { width: cutoutHeight[key] * aspect, height: cutoutHeight[key] };
 }
 
+const depth: Record<KitSlotKey, number> = { cabin: 1, air: 2, fuel: 3, oil: 4, engineOil: 5 };
+
 /**
- * Places the selected packshots: filters stand in a back row (air, oil, fuel, cabin, overlapping a
- * little), the oil can stands in front of the middle. Works for any subset, so no per-combination
+ * Places the selected packshots in two depths, like a product photographer would: the big air and cabin
+ * filter boxes at the back (left and right, overlapping the title panel), the small oil and fuel filter
+ * boxes in front between them and the oil can front right. Works for any subset, so no per-combination
  * template is needed.
  */
 export function kitLayout(selection: KitSelection): KitLayer[] {
-  const rowOrder: KitFilterKey[] = ["air", "oil", "fuel", "cabin"];
-  const depth: Record<KitSlotKey, number> = { cabin: 1, air: 2, fuel: 3, oil: 4, engineOil: 5 };
-  const row = rowOrder.filter(key => selection[key]);
-  const overlap = 0.14;
-  const sizes = row.map(key => slotSize(key, selection[key]!));
-  const widths = sizes.map(size => size.width);
-  const rowWidth = widths.reduce((sum, width, index) => sum + width - (index ? overlap * Math.min(width, widths[index - 1]) : 0), 0);
-  const scale = row.length ? Math.min(1.25, 880 / rowWidth) : 1;
   const layers: KitLayer[] = [];
-  let x = 520 - (rowWidth * scale) / 2;
-  row.forEach((key, index) => {
-    const size = sizes[index];
-    if (index) x -= overlap * Math.min(size.width, widths[index - 1]) * scale;
-    const width = size.width * scale, height = size.height * scale;
-    // Small boxes stand a step forward, in front of the big air filter box.
-    const forward = key === "oil" || key === "fuel" ? 30 : 0;
-    layers.push({ key, item: selection[key]!, x, y: floor + forward - height, width, height, z: depth[key] });
-    x += width;
-  });
+  const left = 24, right = kitCanvas - 24;
+  const add = (key: KitSlotKey, x: number, floor: number, scale: number) => {
+    const size = slotSize(key, selection[key]!);
+    layers.push({ key, item: selection[key]!, x, y: floor - size.height * scale, width: size.width * scale, height: size.height * scale, z: depth[key] });
+  };
+  // Back row: air at the left edge, cabin at the right edge (overlapping by at most 15 %).
+  const back = (["air", "cabin"] as const).filter(key => selection[key]);
+  const backWidths = back.map(key => slotSize(key, selection[key]!).width);
+  const backScale = back.length ? Math.min(1, ((right - left) * (back.length > 1 ? 1.15 : 0.7)) / backWidths.reduce((a, b) => a + b, 0)) : 1;
+  if (back.length === 2) { add("air", left, 880, backScale); add("cabin", right - backWidths[1] * backScale, 880, backScale); }
+  else if (back.length === 1) add(back[0], back[0] === "air" ? left : right - backWidths[0] * backScale, 880, backScale);
+  // Oil can: front right.
+  let canLeft = right;
   if (selection.engineOil) {
-    const size = slotSize("engineOil", selection.engineOil), oilScale = Math.min(1.15, Math.max(0.9, scale));
-    const width = size.width * oilScale, height = size.height * oilScale;
-    // In front of the right edge of the small boxes (or the gap between two big ones), so every box stays visible.
-    const small = layers.filter(layer => layer.key === "oil" || layer.key === "fuel").at(-1);
-    const anchor = small ?? (layers.length > 1 ? layers.at(-2) : undefined);
-    const centre = anchor ? Math.min(kitCanvas - width / 2 - 20, anchor.x + anchor.width + width * 0.4) : 520;
-    layers.push({ key: "engineOil", item: selection.engineOil, x: centre - width / 2, y: floor + 55 - height, width, height, z: depth.engineOil });
+    const size = slotSize("engineOil", selection.engineOil), scale = Math.min(1, 430 / size.height);
+    canLeft = right - size.width * scale - 6;
+    add("engineOil", canLeft, kitCanvas - 18, scale);
+  }
+  // Front row: centred between the air box and the oil can.
+  const front = (["oil", "fuel"] as const).filter(key => selection[key]);
+  if (front.length) {
+    const air = layers.find(layer => layer.key === "air");
+    const spanLeft = air ? air.x + air.width * 0.35 : left, spanRight = selection.engineOil ? canLeft + 60 : right;
+    const widths = front.map(key => slotSize(key, selection[key]!).width);
+    const total = widths.reduce((a, b) => a + b, 0) * (front.length > 1 ? 0.88 : 1);
+    const scale = Math.min(1, (spanRight - spanLeft) / total);
+    let x = spanLeft + Math.max(0, (spanRight - spanLeft - total * scale) / 2);
+    front.forEach((key, index) => { add(key, x, 955, scale); x += widths[index] * scale * 0.88; });
   }
   return layers.sort((a, b) => a.z - b.z);
 }

@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Local research output; only reviewed fixtures belong under tests/fixtures.
 /artifacts/
+
+# Maintenance kit packshots: brand packaging images, kept out of Git until usage rights are settled (#172)
+/public/kit-packshots/*.webp
