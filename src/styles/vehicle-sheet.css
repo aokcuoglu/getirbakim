@@ -61,6 +61,12 @@
 .vehicle-sheet .vehicle-remove:hover{color:#c53333}
 .vehicle-note{font-size:12px;line-height:20px;color:#637381;margin:18px 0 0}
 .vehicle-garage>h3{margin:4px 0 24px}
+.vehicle-saved{margin-top:28px}
+.vehicle-saved h4{margin:0 0 8px;font-size:12px;line-height:16px;font-weight:600;color:#637381}
+.vehicle-saved-row{display:flex;align-items:stretch}
+.vehicle-saved-row .vehicle-row{flex:1}
+.vehicle-sheet .vehicle-saved-remove{display:grid;place-items:center;width:40px;border:0;background:transparent;color:#637381}
+.vehicle-sheet .vehicle-saved-remove:hover{color:#c53333}
 .vehicle-empty{text-align:center;padding:36px 0;color:#637381}
 .vehicle-empty>svg{margin:0 auto 16px}
 .vehicle-empty p{font-size:14px;line-height:22px;margin:0 0 8px;color:#212b36}

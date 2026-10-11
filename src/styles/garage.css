@@ -38,3 +38,6 @@
   display: none
 }
 }
+.garage-saved { list-style: none; margin: 0; padding: 0; }
+.garage-saved li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #e6e9ec; }
+.garage-saved li > span { flex: 1; }
