@@ -1,15 +1,16 @@
 import { Pool } from "pg";
 import { z } from "zod";
+import { setaScope } from "../src/modules/suppliers/seta-import";
 const argumentsByName = Object.fromEntries(process.argv.slice(2).map(arg => {
   const match=/^--([a-z-]+)=(.+)$/.exec(arg);
   if (!match) throw new Error("Use --name=value arguments");
   return [match[1],match[2]];
 }));
 const options=z.object({
-  supplier:z.enum(["basbug","dinamik"]).default("basbug"),
+  supplier:z.enum(["basbug","dinamik","seta"]).default("basbug"),
   group:z.string().regex(/^[A-Z0-9_-]{1,30}$/),
-  company:z.string().trim().min(1).max(100).default(process.env.BASBUG_FIRMA_ADI || "BASBUG"),
-  warehouse:z.literal("MRK").default("MRK"),
+  company:z.string().trim().min(1).max(100).optional(),
+  warehouse:z.string().regex(/^[A-Z0-9_-]{1,30}$/).optional(),
   enabled:z.enum(["true","false"]).default("true"),
   "interval-minutes":z.coerce.number().int().min(15).max(10080).default(1440),
   "stale-minutes":z.coerce.number().int().min(15).max(20160).default(2160),
@@ -17,7 +18,12 @@ const options=z.object({
   "commerce-interval-minutes":z.coerce.number().int().min(15).max(1440).default(60),
   "commerce-stale-minutes":z.coerce.number().int().min(16).max(2880).default(120),
   "daily-at":z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).default("03:00"),
-}).strict().parse(argumentsByName);
+}).strict().transform(value=>value.supplier==="seta"
+  // SETA has one fixed scope (its list group is literally "ALL").
+  ? {...value,company:setaScope.company,warehouse:setaScope.warehouse}
+  : {...value,company:value.company ?? (process.env.BASBUG_FIRMA_ADI || "BASBUG"),warehouse:value.warehouse ?? "MRK"}).parse(argumentsByName);
+if (options.supplier==="seta" && options.group!==setaScope.group) throw new Error(`SETA has a single scope: --group=${setaScope.group}`);
+if (options.supplier!=="seta" && options.warehouse!=="MRK") throw new Error("Only the MRK warehouse is verified");
 if (options["commerce-stale-minutes"] <= options["commerce-interval-minutes"]) throw new Error("Commercial freshness must exceed its interval");
 if (options.supplier === "dinamik" && (options.enabled === "true" || options["commerce-enabled"] === "true")) throw new Error("Dinamik adapter is not verified; enabling it is unavailable");
 if (options["stale-minutes"] <= options["interval-minutes"]) throw new Error("Stale threshold must exceed the sync interval");
@@ -26,7 +32,7 @@ try {
   const database=(await pool.query("SELECT current_database() AS name,current_user AS owner")).rows[0];
   if (database.name!=="getirbakim" || database.owner!=="getirbakim_app") throw new Error("Independent database check failed");
   // --group=ALL applies the same plan to every scope already known for this supplier/company.
-  const groups=options.group==="ALL" ? (await pool.query<{list_group:string}>("SELECT list_group FROM supplier_sync_scopes WHERE supplier=$1 AND company=$2 AND warehouse=$3 ORDER BY list_group",
+  const groups=options.supplier==="seta" ? [setaScope.group] : options.group==="ALL" ? (await pool.query<{list_group:string}>("SELECT list_group FROM supplier_sync_scopes WHERE supplier=$1 AND company=$2 AND warehouse=$3 ORDER BY list_group",
     [options.supplier,options.company,options.warehouse])).rows.map(row=>row.list_group) : [options.group];
   if (!groups.length) throw new Error("No known scopes for --group=ALL");
   for (const group of groups) {

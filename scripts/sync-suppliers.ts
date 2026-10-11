@@ -1,12 +1,14 @@
 import { Pool } from "pg";
 import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
+import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
 // Invoke every 15 minutes. Due scopes choose their own interval (default: once a day).
-// Manual run: --force [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
+// Manual run: --force [--supplier=basbug|seta] [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
 const args = z.object({
   force: z.literal(true).optional(),
+  supplier: z.enum(["basbug", "seta"]).optional(),
   group: z.string().regex(/^[A-Z0-9_-]{1,30}(,[A-Z0-9_-]{1,30})*$/).transform(value => value.split(",")).optional(),
   mode: z.enum(["full", "commerce"]).optional(),
 }).strict().parse(Object.fromEntries(process.argv.slice(2).map(arg => {
@@ -14,7 +16,7 @@ const args = z.object({
   if (!match) throw new Error("Use --force, --group=A,B or --mode=full|commerce");
   return [match[1], match[2] ?? true];
 })));
-if ((args.group || args.mode) && !args.force) throw new Error("--group and --mode require --force");
+if ((args.group || args.mode || args.supplier) && !args.force) throw new Error("--supplier, --group and --mode require --force");
 // These failures say the supplier itself is unreachable or occupied; trying the remaining groups now only adds load.
 const stopReasons = new Set(["upstream", "config", "busy", "paused"]);
 
@@ -33,18 +35,34 @@ try {
       VALUES(true,clock_timestamp(),NULL,NULL) ON CONFLICT(id) DO UPDATE SET started_at=EXCLUDED.started_at,finished_at=NULL,succeeded=NULL`);
     heartbeatStarted = true;
     const scopes = (await worker.query<{ supplier: string; company: string; list_group: string; warehouse: string; enabled:boolean; next_run_at:Date }>(
-      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier='basbug' AND ($1::text[] IS NULL OR list_group=ANY($1)) ORDER BY list_group"
+      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier=$2 AND ($1::text[] IS NULL OR list_group=ANY($1)) ORDER BY list_group"
         : "SELECT * FROM supplier_sync_scopes WHERE (enabled AND next_run_at<=now()) OR (commerce_enabled AND commerce_next_run_at<=now()) ORDER BY next_run_at,supplier,list_group",
-      args.force ? [args.group ?? null] : [],
+      args.force ? [args.group ?? null, args.supplier ?? "basbug"] : [],
     )).rows;
+    // SETA's single scope is created by its first successful import; a forced run may be that first import.
+    if (args.force && args.supplier === "seta" && !scopes.length && !args.group)
+      scopes.push({ supplier: "seta", company: setaScope.company, list_group: setaScope.group, warehouse: setaScope.warehouse, enabled: true, next_run_at: new Date() });
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
     let catalogWordsChanged = false;
+    const circuitOpen = new Set<string>();
     for (const [index, scope] of scopes.entries()) {
+      if (circuitOpen.has(scope.supplier)) continue;
       const started = Date.now();
+      const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
+      if (scope.supplier === "seta") {
+        try {
+          const result = await importSeta(pool, { mode });
+          console.log({ supplier: "seta", mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+          if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
+        } catch (error) {
+          console.error({ supplier: "seta", mode, reason: error instanceof SetaImportError ? error.message : "SETA import failed", seconds: Math.round((Date.now() - started) / 1000) });
+          process.exitCode = 1;
+        }
+        continue;
+      }
       try {
         if (scope.supplier !== "basbug" || scope.warehouse !== "MRK") throw new Error("No verified adapter for scope");
-        const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
         console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
@@ -53,10 +71,11 @@ try {
         const reason = error instanceof BasbugImportError ? error.message : "No verified adapter for scope";
         console.error({ group: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });
         process.exitCode = 1;
+        // Only Başbuğ's remaining groups are skipped; other suppliers do not share its outage.
         if (error instanceof BasbugImportError && stopReasons.has(error.reason)) {
-          const skipped = scopes.slice(index + 1).map(next => next.list_group);
+          circuitOpen.add("basbug");
+          const skipped = scopes.slice(index + 1).filter(next => next.supplier === "basbug").map(next => next.list_group);
           if (skipped.length) console.error({ circuitOpen: error.reason, skipped });
-          break;
         }
       }
     }

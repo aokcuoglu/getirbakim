@@ -52,9 +52,10 @@ CREATE TABLE IF NOT EXISTS commerce_order_items (
 );
 CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
 -- Shared eligibility, without calculating prices for every catalog row.
+-- Saleable sources: Başbuğ's MRK warehouse and SETA's single list (both store TRY cost as nf, availability as stok).
 CREATE OR REPLACE VIEW commerce_supplier_items AS
 SELECT i.* FROM supplier_items i
-WHERE i.supplier='basbug' AND i.warehouse='MRK' AND i.presence='present' AND NOT i.conflicting
+WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier='seta') AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
@@ -64,8 +65,9 @@ SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
-CREATE INDEX IF NOT EXISTS supplier_items_catalog_order_idx ON supplier_items(company,changed_at DESC,id)
-WHERE supplier='basbug' AND warehouse='MRK' AND presence='present' AND NOT conflicting;
+DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
+CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_idx ON supplier_items(company,changed_at DESC,id)
+WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta') AND presence='present' AND NOT conflicting;
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at

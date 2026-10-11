@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import type { CommerceOrder } from "@/modules/store/orders";
 
 type ServiceAccount = {
@@ -139,4 +140,15 @@ export async function adminSupplierOverview() {
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' AND company=$1 ORDER BY started_at DESC LIMIT 1", [company]),
   ]);
   return { items: items.rows[0], runs: runs.rows[0], last: last.rows[0] ?? null };
+}
+
+export async function adminSetaOverview() {
+  await requireAdmin();
+  const [items, last] = await Promise.all([
+    db.query<{ present: number; saleable: number }>(`SELECT count(*) FILTER (WHERE i.presence='present')::int AS present,
+      count(c.id) FILTER (WHERE c.available AND c.price_kurus IS NOT NULL)::int AS saleable
+      FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id WHERE i.supplier='seta' AND i.company=$1`, [setaCompany]),
+    db.query<{ status: string; started_at: Date }>("SELECT status,started_at FROM supplier_imports WHERE supplier='seta' AND company=$1 ORDER BY started_at DESC LIMIT 1", [setaCompany]),
+  ]);
+  return { ...items.rows[0], last: last.rows[0] ?? null };
 }

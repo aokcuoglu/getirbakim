@@ -9,6 +9,7 @@ import { adminNavCounts } from "@/modules/admin/data";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { db } from "@/lib/db";
+import { setaCompany } from "@/modules/suppliers/storefront-sources";
 
 export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
 
@@ -17,12 +18,14 @@ export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false
 // layouts do not re-run on client navigation.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const account = await requireAdmin();
-  const [counts, health, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null), cookies()]);
+  const [counts, health, setaHealth, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
+    supplierHealth(db, setaCompany).catch(() => null), cookies()]);
   const dinamik = supplierStatuses().find(s => s.name === "Dinamik");
   const status: AdminNavStatus = {
     ...counts,
     basbug: !health ? "danger" : health.healthy ? "success" : "warning",
     dinamik: dinamik?.verified ? "success" : "neutral",
+    seta: !process.env.SETA_API_KEY ? "neutral" : !setaHealth ? "danger" : setaHealth.healthy ? "success" : "warning",
   };
   return <div className="admin-app">
     <AdminTheme/>
