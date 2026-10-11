@@ -52,7 +52,7 @@ function PricingForm({ id, cost, pricing, initialFocus }: { id: string; cost: nu
     <fieldset disabled={pending} className="grid min-w-0 gap-4 sm:grid-cols-2">
       {(["markup", "vat"] as const).map(field => <Field key={field} data-invalid={Boolean(errors[field])}>
         <FieldLabel htmlFor={`${fieldId}-${field}`}>{field === "markup" ? "Maliyet üzerine kâr (%)" : "KDV oranı (%)"}</FieldLabel>
-        <Input ref={field === "markup" ? initialFocus : undefined} id={`${fieldId}-${field}`} name={field} type="text" inputMode="decimal" pattern="[0-9]+([.,][0-9]{1,2})?" className="h-11 rounded-[4px] tabular-nums"
+        <Input ref={field === "markup" ? initialFocus : undefined} id={`${fieldId}-${field}`} name={field} type="text" inputMode="decimal" className="h-11 rounded-[4px] tabular-nums"
           value={values[field]} placeholder={`Genel: %${percent(field === "markup" ? pricing.generalMarkup : pricing.generalVat)}`}
           aria-invalid={Boolean(errors[field])} aria-describedby={`${fieldId}-${field}-hint${errors[field] ? ` ${fieldId}-${field}-error` : ""}`}
           onChange={event => { const value = event.currentTarget.value; setValues(previous => ({ ...previous, [field]: value })); setEdited(true); }}/>
