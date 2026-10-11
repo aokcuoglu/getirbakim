@@ -5,10 +5,13 @@
 ## Yönetim
 
 - `/yonetim/fiyatlandirma`: maliyet üzerine kâr, KDV ve kur/tedarikçi verisi geçerlilik süresi. Başlangıç %30 kâr, %20 KDV ve 36 saat geçerlilik. KDV oranı işletme tarafından panelden değiştirilebilir.
+- Dinamik ürün detayındaki **Kâr ve KDV oranları**: sayfadan ayrılmadan açılan modalda bu ürün için kâr ve/veya KDV özelleştirilir. Boş bırakılan alan genel oranı izler; `0` özel bir orandır. **Genel oranlara dön** özel kaydı kaldırır. Genel ayarlar ve diğer ürünler değişmez.
 - `/yonetim/servisler`: servis hesabı oluşturma, onayı açma/kapatma ve %0–50 servis indirimi.
 - `/yonetim/siparisler`: siparişleri inceleme, teyit bekleyen siparişi onaylama veya iptal; onaylı siparişi sevk etme veya iptal. İptal, ayrılmış mağaza stoklarını yalnız bir kez iade eder.
 
 Satış fiyatı kuruş olarak `round(NF × döviz satış kuru × (1+kâr/100) × (1+KDV/100) × 100)` hesaplanır. Onaylı servisin indirimi bu satış fiyatına uygulanır. İndirim kârı azaltır; yüksek indirim maliyet altına satışa neden olabilir. Geçmiş sipariş fiyatları değişmez.
+
+Ürüne özel oranlar `commerce_product_pricing` tablosunda tedarikçi ürün kimliğiyle, son güncelleyen yönetici ve tarihle saklanır. Her oran ayrı ayrı genel ayardan devralınır; tedarikçi senkronizasyonu bu kaydı değiştirmez. Katalog, ürün detayı, sepet ve sipariş aynı etkili oranlarla hesaplanır. Oran değişikliği sepetteki fiyat teklifini yeniler; tamamlanmış siparişlerin oran ve fiyat snapshot'ları korunur. Kâr 0–1.000, KDV 0–100 aralığında, en fazla iki ondalık basamakla girilir; virgül ve nokta kabul edilir.
 
 Kur kaynağı aynı firma için son başarılı `supplier_imports.currencies_data.dovizListesi` kaydının `satis` değeridir. TL/TRY için kur 1'dir. Canlı modda kur veya ürün/stok verisi geçerlilik süresini aşarsa satış engellenir. Eksik NF veya bilinmeyen döviz sıfır fiyatla değiştirilmez. LF/MIF/K satış formülünde kullanılmaz.
 
@@ -56,6 +59,7 @@ Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kur
 - `npm run verify:commerce`: fiyat formülü, stok sinyali, sepet, eşzamanlı sipariş/idempotency, fiyat değişimi ve stok ayırma.
 - `npm run verify:commerce:http`: çalışan sunucuda gerçek Server Action formları, B2B fiyatı, sipariş yetkisi, yönetim ekranları, servis indirimi ve iptalde stok iadesi.
 - `npm run test:supplier-checkout`: geçici şemada canlı API hata/fiyat/stok kontrolleri, kayıtlı modda eski NF/kur/stokla API’siz sipariş, eksik/çelişkili/pasif kayıtların reddi, adet sınırı, eşzamanlı gönderim ve değişmeyen sipariş fiyat/gözlem kayıtları. API yanıtları mock edilir; yerel durdurma dosyasına dokunulmaz.
+- `npm run test:product-pricing`: oran doğrulaması, kuruş yuvarlama, ürüne özel kâr/KDV, genel ayardan devralma ve sıfır oranları; geçici PostgreSQL şemasında fiyat hesabı, diğer ürünlerin korunması, senkronizasyon sonrası oranların korunması ve genel oranlara dönüş. CI bu testi ve sipariş testiyle oran değişikliklerini PostgreSQL üzerinde çalıştırır.
 - `npm run test:fitment-level`: uyumluluk seviyesi kuralı.
 - `npm run verify:catalog`: katalog arama/filtre/paginasyon ve ürün detayları.
 

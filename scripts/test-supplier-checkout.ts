@@ -113,11 +113,16 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     fail=true;const snapshotCalls=calls;
     const storedInput={...input,requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0)};
     assert.equal((await submitOrder(owner,{...storedInput,quote:"0".repeat(64)})).error,"price");
+    const admin=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','pricing@example.invalid','test','admin',true) RETURNING id")).rows[0].id;
+    await db.query("INSERT INTO commerce_product_pricing(supplier_item_id,markup_percent,vat_percent,updated_by) VALUES($1,50,10,$2)",[id,admin]);
+    assert.equal((await submitOrder(owner,storedInput)).error,"price");
+    storedInput.quote=await cartQuote(await cartFor(owner),0);
     const storedOrders=await Promise.all([submitOrder(owner,storedInput),submitOrder(owner,storedInput)]);
     assert.ok(storedOrders[0].id);assert.equal(storedOrders[0].id,storedOrders[1].id);
     assert.equal(calls,snapshotCalls);assert.equal((await cartFor(owner)).length,1);
     const storedLine=(await db.query("SELECT * FROM commerce_order_items WHERE order_id=$1",[storedOrders[0].id])).rows[0];
-    assert.equal(Number(storedLine.unit_price_kurus),312000);assert.equal(storedLine.quantity,2);
+    assert.equal(Number(storedLine.unit_price_kurus),330000);assert.equal(storedLine.quantity,2);
+    assert.equal(storedLine.pricing_snapshot.markup_percent,50);assert.equal(storedLine.pricing_snapshot.vat_percent,10);
     assert.equal(storedLine.pricing_snapshot.observed_at,observedAt);assert.equal(storedLine.pricing_snapshot.rate_at,rateAt);
     assert.equal(storedLine.pricing_snapshot.checkout_mode,"snapshot");
     await db.query("UPDATE commerce_settings SET basbug_checkout_mode='live'");
@@ -126,6 +131,9 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     assert.equal(await setCartQuantity(owner,id,1),false);
     await db.query("UPDATE supplier_items SET price_data=$2::jsonb WHERE id=$1",[id,JSON.stringify({nf:100,mif:100,k:0})]);
     assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[storedOrders[0].id])).rows[0].pricing_snapshot.nf,50);
+    await db.query("DELETE FROM commerce_product_pricing WHERE supplier_item_id=$1",[id]);
+    assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[storedOrders[0].id])).rows[0].pricing_snapshot.markup_percent,50);
+    assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0].pricing_snapshot.markup_percent,30);
   } finally {
     process.chdir(originalCwd);await rm(testCwd,{recursive:true,force:true});
     globalThis.fetch=originalFetch;process.env.DATABASE_URL=originalUrl;
