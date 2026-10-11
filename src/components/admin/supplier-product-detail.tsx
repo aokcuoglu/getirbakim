@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronsUpDown, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
 import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
 import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
@@ -10,8 +10,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -60,10 +60,12 @@ function statusBadge(tone: "success" | "warning" | "destructive" | "info" | "neu
   </Badge>;
 }
 export function SourceJson({ label, value }: { label: string; value: unknown }) {
-  return <Collapsible className="min-w-0">
-    <CollapsibleTrigger render={<Button variant="ghost"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>{label}</CollapsibleTrigger>
-    <CollapsibleContent><Textarea readOnly aria-label={label} className="max-h-80 font-mono" value={JSON.stringify(value, null, 2)}/></CollapsibleContent>
-  </Collapsible>;
+  return <Accordion className="rounded-lg border">
+    <AccordionItem value="source" className="px-4">
+      <AccordionTrigger>{label}</AccordionTrigger>
+      <AccordionContent><Textarea readOnly aria-label={label} className="max-h-80 font-mono" value={JSON.stringify(value, null, 2)}/></AccordionContent>
+    </AccordionItem>
+  </Accordion>;
 }
 export function sourceMoney(value: number, currency = "TRY") {
   return currency === "TRY" || currency === "TL" ? money(Math.round(value * 100)) : `${supplierNumber(value)} ${currency || "Para birimi belirtilmemiş"}`;
@@ -76,15 +78,13 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
   return <Card>
     <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle><CardDescription>Son 90 gün içindeki en son 20 kayıt. Önce yalnız değişen alanlar gösterilir; ham kayıtlar ayrıntılarda korunur.</CardDescription></CardHeader>
     <CardContent>
-      {changes.length ? <div className="flex min-w-0 flex-col gap-2">{changes.map((change, index) => {
+      {changes.length ? <Accordion multiple className="rounded-lg border">{changes.map(change => {
         const fields = supplierFieldChanges(change.before_data, change.after_data);
-        return <Collapsible key={change.id} className="min-w-0">
-          {index > 0 && <Separator/>}
-          <div className="flex flex-wrap items-center gap-2 py-2">
-            <CollapsibleTrigger render={<Button variant="ghost"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/><Timestamp value={change.changed_at}/></CollapsibleTrigger>
-            {statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind] ?? change.kind)}
-          </div>
-          <CollapsibleContent className="flex min-w-0 flex-col gap-2">
+        return <AccordionItem key={change.id} value={change.id} className="border-b px-4 last:border-b-0">
+          <AccordionTrigger className="items-center">
+            <span className="flex flex-wrap items-center gap-2"><Timestamp value={change.changed_at}/>{statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind] ?? change.kind)}</span>
+          </AccordionTrigger>
+          <AccordionContent className="flex min-w-0 flex-col gap-4">
             {fields.length ? <Table aria-label={`${supplierDate(change.changed_at)} değişen alanlar`}>
                 <TableHeader><TableRow><TableHead className="w-2/5">Alan</TableHead><TableHead>Önce</TableHead><TableHead>Sonra</TableHead></TableRow></TableHeader>
                 <TableBody>{fields.map(field => <TableRow key={JSON.stringify(field.path)}>
@@ -93,18 +93,23 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
                   <TableCell className="whitespace-normal wrap-anywhere align-top"><ChangeValue value={field.after} path={field.path} currency={historyCurrency(change.after_data, currency)}/></TableCell>
                 </TableRow>)}</TableBody>
               </Table> : <p className="text-muted-foreground">Ürün, fiyat ve stok alanlarında fark yok; kayıt durumu değişti.</p>}
-            <SourceJson label="Ham geçmiş kaydını göster" value={{ önce: change.before_data, sonra: change.after_data }}/>
-          </CollapsibleContent>
-        </Collapsible>;
-      })}</div> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
+            <SourceJson label="Ham geçmiş kaydı" value={{ önce: change.before_data, sonra: change.after_data }}/>
+          </AccordionContent>
+        </AccordionItem>;
+      })}</Accordion> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
     </CardContent>
   </Card>;
 }
 export function SupplierStocks({ stocks }: { stocks: { label: string; available: boolean | null; note?: string }[] }) {
-  return <Table><TableBody>{stocks.map(stock => <TableRow key={stock.label}>
-    <TableHead scope="row" className="whitespace-normal wrap-anywhere text-muted-foreground">{stock.label}</TableHead>
-    <TableCell className="text-right whitespace-normal"><Badge variant={stock.available === null ? "warning" : stock.available ? "success" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge>{stock.note && <span className="mt-1 block text-xs text-muted-foreground">{stock.note}</span>}</TableCell>
-  </TableRow>)}</TableBody></Table>;
+  const notes = stocks.some(stock => stock.note);
+  return <Table>
+    <TableHeader><TableRow><TableHead className="w-2/5">Depo</TableHead><TableHead>Stok</TableHead>{notes && <TableHead>Yolda</TableHead>}</TableRow></TableHeader>
+    <TableBody>{stocks.map(stock => <TableRow key={stock.label}>
+      <TableHead scope="row" className="whitespace-normal wrap-anywhere text-muted-foreground">{stock.label}</TableHead>
+      <TableCell><Badge variant={stock.available === null ? "warning" : stock.available ? "success" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge></TableCell>
+      {notes && <TableCell className="whitespace-normal text-muted-foreground">{stock.note ?? "—"}</TableCell>}
+    </TableRow>)}</TableBody>
+  </Table>;
 }
 type DetailItem = {
   id: string; code: string; presence: string; conflicting: boolean; last_seen_at: Date;
@@ -131,7 +136,13 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
       </div>
     </div>
     <Card role="region" aria-label="Fiyat ve satış durumu">
-      <CardHeader><CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle></CardHeader>
+      <CardHeader>
+        <CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle>
+        <CardAction className="flex flex-wrap gap-2">
+          <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing}/>
+          {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+        </CardAction>
+      </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
@@ -144,10 +155,6 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
           {statusBadge(item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning", presence)}<span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
         </div>
       </CardContent>
-      <CardFooter className="flex-wrap gap-2">
-        <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing}/>
-        {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
-      </CardFooter>
     </Card>
     {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Aynı ürün kodu için çelişkili değerler bulundu. Farklı yanıtları veri kontrolü bölümünde inceleyebilirsiniz.</AlertDescription></Alert>}
     <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">{productInfo}{stockInfo}</div>

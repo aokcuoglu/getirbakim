@@ -14,15 +14,15 @@ export function AdminAddToCart({ productId, name, available }: { productId: stri
   return <div className="flex flex-col gap-1">
     <form action={action} className="flex gap-2">
       <input type="hidden" name="productId" value={productId}/>
-      <NativeSelect size="sm" aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}>
+      <NativeSelect aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}>
         {Array.from({ length: 99 }, (_, i) => <NativeSelectOption key={i + 1} value={i + 1}>{i + 1}</NativeSelectOption>)}
       </NativeSelect>
-      <Button type="submit" size="sm" variant={available ? "default" : "outline"} disabled={!available || pending}>{pending ? "Ekleniyor…" : "Sepete ekle"}</Button>
+      <Button type="submit" variant={available ? "default" : "outline"} disabled={!available || pending}>{pending ? "Ekleniyor…" : "Sepete ekle"}</Button>
     </form>
     <p role="status" className="text-sm">
       {state.error && <span className="text-destructive">{state.error} </span>}
       {state.added && <span>Sepete eklendi · </span>}
-      {(state.error || state.added) && <Button variant="link" size="xs" nativeButton={false} render={<Link href="/sepet"/>}>Sepeti aç</Button>}
+      {(state.error || state.added) && <Button variant="link" nativeButton={false} render={<Link href="/sepet"/>}>Sepeti aç</Button>}
     </p>
   </div>;
 }

@@ -37,7 +37,7 @@ export function EnrichmentVehicles({ productId }: { productId: string }) {
   }) || [];
   return <section className="flex flex-col gap-3" aria-labelledby={`${id}-title`}>
     <h3 id={`${id}-title`} className="flex items-center gap-2 text-sm font-semibold"><CarFront className="size-4" aria-hidden="true"/>Araç / motor eşleşmeleri</h3>
-    {error ? <Alert variant="destructive" role="alert"><CircleAlert/><AlertTitle>Araç bilgileri alınamadı</AlertTitle><AlertDescription>{error}</AlertDescription><AlertAction><Button size="sm" variant="outline" onClick={() => { setError(""); setAttempt(value => value + 1); }}>Tekrar dene</Button></AlertAction></Alert>
+    {error ? <Alert variant="destructive" role="alert"><CircleAlert/><AlertTitle>Araç bilgileri alınamadı</AlertTitle><AlertDescription>{error}</AlertDescription><AlertAction><Button variant="outline" onClick={() => { setError(""); setAttempt(value => value + 1); }}>Tekrar dene</Button></AlertAction></Alert>
     : !data ? <div className="flex flex-col gap-2" role="status"><span className="sr-only">Araç bilgileri yükleniyor…</span><Skeleton className="h-8 w-full"/><Skeleton className="h-24 w-full"/></div>
     : !data.rows.length ? <p className="text-sm text-muted-foreground">{data.modelCount ? `${data.modelCount} model adı kaydedilmiş; motor ayrıntıları henüz aktarılmamış.` : "Bu ürün için henüz araç / motor bilgisi aktarılmamış."}</p> : <>
       <div className="flex flex-wrap gap-2">

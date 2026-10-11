@@ -136,7 +136,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
               <Table><TableBody>{variables.map(name => <TableRow key={name}><TableCell className="font-mono">{name}</TableCell><TableCell className="text-right">{statusBadge(process.env[name] ? "success" : "warning", process.env[name] ? "Tanımlı" : "Eksik")}</TableCell></TableRow>)}</TableBody></Table>
               <p className="text-muted-foreground">{status?.message}</p>
             </CardContent>
-            <CardFooter><Button variant="link" size="sm" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Tüm tedarikçiler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
+            <CardFooter><Button variant="link" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Tüm tedarikçiler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
           </Card>
         </div>
       </div>
@@ -167,7 +167,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
             stockTitle="Bölge stokları" stocks={dinamikRegions.map(region => ({ label: region.label, available: dinamikRegionStock(item.stock_data, region.key) }))}
             footer={<p className="text-muted-foreground">Liste fiyatı KDV hariç maliyet kabul edilir; satış fiyatı ortak kâr + KDV ile hesaplanır, kampanya oranı uygulanmaz. Stoklar adet yerine var/yok bildirir.</p>}>
           <TableRow>
-            <TableCell><DialogTrigger render={<Button variant="link" size="sm" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
+            <TableCell><DialogTrigger render={<Button variant="link" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
             <TableCell className="max-w-64 truncate font-medium" title={p.stokAdi ?? "Yalnız fiyat listesinde; ürün bilgisi yok"}>{p.stokAdi || <span className="font-normal text-muted-foreground">Ürün bilgisi yok</span>}</TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={item.list_group}>{item.list_group}</TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={p.kull1s}>{p.kull1s || "—"}</TableCell>
@@ -177,7 +177,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
             <TableCell className="text-right tabular-nums text-muted-foreground">{campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"}</TableCell>
             {dinamikRegions.map(r => { const stock = dinamikRegionStock(item.stock_data, r.key); return <TableCell key={r.key} className="text-center"><Badge variant={stock ? "success" : "outline"} title={stock === null ? `${r.label}: stok listesinde yok` : `${r.label}: ${stock ? "VAR" : "YOK"}`}>{stock === null ? "—" : stock ? "Var" : "Yok"}</Badge></TableCell>; })}
             <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : item.price_data?.fiyat == null ? statusBadge("warning", "Fiyat eksik") : !item.stock_data ? statusBadge("neutral", "Yalnız fiyat") : item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
+            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
           </TableRow></SupplierProductDetails>; })}</TableBody>
         </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>{data.items.present ? "Aramayı veya filtreleri değiştirebilirsiniz." : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker."}</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>

@@ -47,7 +47,7 @@ export default async function Suppliers() {
         </dl>
         {props.note && <p className="text-muted-foreground">{props.note}</p>}
       </CardContent>
-      <CardFooter className="justify-between gap-2"><span className="text-muted-foreground">{props.footer}</span><Button size="sm" variant="outline" nativeButton={false} render={<Link href={props.href}/>}>{props.action}<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
+      <CardFooter className="justify-between gap-2"><span className="text-muted-foreground">{props.footer}</span><Button variant="outline" nativeButton={false} render={<Link href={props.href}/>}>{props.action}<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
     </Card>;
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
