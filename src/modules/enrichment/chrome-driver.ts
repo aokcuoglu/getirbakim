@@ -130,14 +130,15 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
   const landing=options.landing[host];
   let page:CdpPage|undefined;
   const connect=async()=>{page?.close();page=await pageFor(options.port,host,landing);pages.set(host,page);if(host==='www.trodo.com')await page.send('Network.enable',{});return page;};
-  // view-data responses loaded by a product page, served when the worker asks for them next.
-  const views=new Map<string,SourceResult>();
+  // view-data responses loaded by a product page; cached before the product request finishes, so the worker's
+  // follow-up view-data request is a cache hit and does not take a rate-limited slot.
+  const views=new Map<string,unknown>();
   async function run(job:{path:string;kind:string}):Promise<SourceResult>{
    const started=Date.now(),p=page!;
    const fromPage=async(url:string,wanted:Record<string,RegExp>,key:string):Promise<SourceResult>=>{
     const found=await p.visit(url,wanted,[key]);
     const view=found.view;
-    if(view?.status===200){try{const body=JSON.parse(view.body);const id=VIEW_API.exec(view.url)?.[1];if(id)views.set(`/rest/V1/catalog-product-api/view-data/${id}/IE`,{httpStatus:200,elapsedMs:0,bytes:view.body.length,retryAfter:null,body});}catch{/* fetched again on demand */}}
+    if(view?.status===200){try{const body=JSON.parse(view.body);const id=VIEW_API.exec(view.url)?.[1];if(id)views.set(`/rest/V1/catalog-product-api/view-data/${id}/IE`,body);}catch{/* fetched again on demand */}}
     const hit=found[key];
     if(!hit){
      const s=await p.evaluate<{blocked:boolean;challenge:boolean;title:string}>(PAGE_STATE,10000).catch(()=>null);
@@ -160,7 +161,6 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
    if(host==='www.trodo.com'&&job.kind==='json'&&product){
     return fromPage(`${SITE}/${decodeURIComponent(product[1])}`,{product:PRODUCT_API,view:VIEW_API},'product');
    }
-   const cachedView=views.get(job.path);if(cachedView){views.delete(job.path);return {...cachedView,elapsedMs:0};}
    if(host==='www.trodo.com'&&job.kind==='html'){
     const here=await p.evaluate<string>('location.pathname',10000);
     if(here!==job.path){await p.navigate(SITE+job.path);await pause(6000);}
@@ -215,8 +215,10 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
     let result:SourceResult;
     try{
      if(!page?.open)await connect();
+     views.clear();
      result=await run(job);
      if(/Cloudflare block page/.test(result.error||'')){await queue.release(job.id,job.token);await queue.blockHost(host,result.error!);log({chrome:'blocked',host,error:result.error});return;}
+     for(const [path,body] of views)await queue.store(host,path,'json',body).catch(error=>log({chrome:'view_cache_failed',host,path,error:String(error)}));
     }catch(error){
      // The response never arrived (navigation, closed tab, lost CDP); the request goes back unspent.
      await queue.release(job.id,job.token);log({chrome:'request_interrupted',host,error:String(error)});

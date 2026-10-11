@@ -25,6 +25,12 @@ export class SourceQueue {
    await new Promise(r=>setTimeout(r,1000));
   }
  }
+ // Caches a response the source served alongside another request (a product page loads its view-data), so a later
+ // request for it is a cache hit instead of a rate-limited fetch.
+ async store(host:string,path:string,kind:string,body:unknown){
+  if(!validSourcePath(host,path,kind))throw Error('Source path rejected');
+  await this.pool.query("INSERT INTO enrichment_source_cache(host,path,body,expires_at) VALUES($1,$2,$3,now()+$4*interval '1 millisecond') ON CONFLICT(host,path) DO UPDATE SET body=EXCLUDED.body,fetched_at=now(),expires_at=EXCLUDED.expires_at",[host,path,JSON.stringify(body),cacheLifetime(path,kind)]);
+ }
  async claim(host:string):Promise<{id:string;token:string;path:string;kind:string}|{blocked:true}|{challenge:true}|{waitMs:number}>{
   const client=await this.pool.connect();
   try{
