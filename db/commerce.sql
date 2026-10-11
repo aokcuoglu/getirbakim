@@ -52,10 +52,11 @@ CREATE TABLE IF NOT EXISTS commerce_order_items (
 );
 CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
 -- Shared eligibility, without calculating prices for every catalog row.
--- Saleable sources: Başbuğ's MRK warehouse and SETA's single list (both store TRY cost as nf, availability as stok).
+-- Saleable sources: Başbuğ's MRK warehouse, SETA's single list and Dinamik codes that have a stock-list row
+-- (price-list-only codes carry no name). All store cost as nf and availability as stok.
 CREATE OR REPLACE VIEW commerce_supplier_items AS
 SELECT i.* FROM supplier_items i
-WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier='seta') AND i.presence='present' AND NOT i.conflicting
+WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier='seta' OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
@@ -66,8 +67,10 @@ SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
-CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_idx ON supplier_items(company,changed_at DESC,id)
-WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta') AND presence='present' AND NOT conflicting;
+-- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
+DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
+CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_v2_idx ON supplier_items(company,changed_at DESC,id)
+WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta' OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at

@@ -92,7 +92,13 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
   return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
- if(mode==="code"||ids.length)return {parsed,ids};
+ if(mode==="code")return {parsed,ids};
+ if(ids.length){
+  // Dinamik names do list vehicles ("ON FREN BALATASI … GOLF PASSAT"), so the whole query can match by name
+  // alone and would hide the parts fitments link to that vehicle. A fitted part + vehicle reading adds them.
+  const vehicle=await vehicleSearch(raw,hits,false);
+  return vehicle?.vehicle?.fitted?{...vehicle,ids:[...new Set([...vehicle.ids,...ids])].slice(0,maxSearchHits)}:{parsed,ids};
+ }
  // Cheapest reading first: the words as typed split into part + vehicle, then the whole query
  // spell-corrected ("hava fiiltresi"), then a split with each part corrected ("fren balatsı pasat").
  const vehicle=await vehicleSearch(raw,hits,false);
@@ -103,7 +109,7 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  return await vehicleSearch(raw,hits,true)??{parsed,ids};
 });
 /**
- * Product names never mention vehicles, so "fren balatası passat" matches nothing as a whole. Tries
+ * Most product names never mention vehicles, so "fren balatası passat" often matches nothing as a whole. Tries
  * every split of the words into a leading or trailing vehicle part ("passat", "golf 7 2015") and a
  * part that matches products. Splits whose parts are linked by fitments win, then the longest
  * vehicle part ("buji | bmw 320d" over "buji bmw | 320d").

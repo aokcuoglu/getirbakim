@@ -130,6 +130,23 @@ export async function fetchDinamikBrands(fetchJson: DinamikFetch = dinamikClient
   return brands.sort();
 }
 
+const text = (value: unknown) => typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+
+/**
+ * Storefront, search and checkout read Başbuğ's field names (ac name, ac2 description, uk brand, oe OEMs, dc currency,
+ * nf cost, stok availability), so Dinamik rows also carry them next to their own fields, as SETA's do.
+ * nf is Dinamik's list price, treated as the VAT-exclusive TRY cost (business decision, 2026-10-11): the shared
+ * markup and VAT settings apply on top. kampanyaOrani is kept but not applied — its meaning is unverified.
+ * stok is 1 when any regional flag says VAR; the flags themselves stay alongside.
+ */
+export function dinamikStorefrontFields(stockRow: Record<string, unknown> | undefined, priceRow: Record<string, unknown> | undefined) {
+  const product = stockRow ? { no: text(stockRow.stokKodu), ac: text(stockRow.stokAdi) || text(stockRow.stokKodu), ac2: text(stockRow.ingilizceAdi),
+    uk: text(stockRow.kull3s) || text(stockRow.marka), oe: text(stockRow.oemListe), dc: "TRY" } : {};
+  const price = typeof priceRow?.fiyat === "number" && priceRow.fiyat > 0 ? { nf: priceRow.fiyat } : {};
+  const stock = stockRow ? { stok: stockFields.some(key => text(stockRow[key]).toUpperCase() === "VAR") ? 1 : 0 } : {};
+  return { product, price, stock };
+}
+
 function pick(row: Record<string, unknown>, keys: readonly string[]) {
   return Object.fromEntries(keys.filter(key => key in row).map(key => [key, row[key]]));
 }
@@ -165,14 +182,15 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
     const st = s.get(code), pr = p.get(code);
     const stockRow = st?.value as Record<string, unknown> | undefined;
     const priceRow = pr?.value as Record<string, unknown> | undefined;
+    const storefront = dinamikStorefrontFields(stockRow, priceRow);
     // Both lists quote a price; a disagreement is kept visible instead of picking one.
     const priceMismatch = Boolean(st && pr && st.value.fiyat !== pr.value.fiyat);
     const conflicting = (st?.variants.length ?? 0) > 1 || (pr?.variants.length ?? 0) > 1 || priceMismatch;
     return {
       code,
-      product_data: stockRow ? omit(stockRow, [...stockFields, ...offerFields]) : { stokKodu: code, marka: priceRow!.marka },
-      price_data: priceRow ? { ...omit(priceRow, []), ...(stockRow && "kampanyaOrani" in stockRow ? { kampanyaOrani: stockRow.kampanyaOrani } : {}) } : null,
-      stock_data: stockRow ? pick(stockRow, stockFields) : null,
+      product_data: stockRow ? { ...omit(stockRow, [...stockFields, ...offerFields]), ...storefront.product } : { stokKodu: code, marka: priceRow!.marka },
+      price_data: priceRow ? { ...omit(priceRow, []), ...(stockRow && "kampanyaOrani" in stockRow ? { kampanyaOrani: stockRow.kampanyaOrani } : {}), ...storefront.price } : null,
+      stock_data: stockRow ? { ...pick(stockRow, stockFields), ...storefront.stock } : null,
       product_count: Math.max(st?.count ?? 0, pr?.count ?? 0), price_count: pr?.count ?? 0, stock_count: st?.count ?? 0,
       conflicting,
       source_variants: {

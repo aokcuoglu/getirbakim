@@ -95,7 +95,7 @@ Cron logu döndürülmeli ve exit/heartbeat dışarıdan izlenmeli. Sistem saat 
 
 ## Mağaza, fiyatlama ve sipariş sınırı
 
-Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik 11 Ekim 2026'dan beri aynı tablolara çekiliyor (aşağıda); fiyat/stok anlamları doğrulanmadığından satış adaptörü yoktur.
+Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik 11 Ekim 2026'dan beri aynı tablolara çekiliyor ve mağazada satılıyor (aşağıda).
 
 Satış adaptörü açılırken uygulanması gereken sözleşme:
 
@@ -198,6 +198,7 @@ Dinamik aynı motoru (`supplier_items`, `supplier_item_changes`, `supplier_impor
 - **Plan:** her marka günde bir, İstanbul **04:00** (Başbuğ'un 03:00 tam listesinden sonra), bayatlık 36 saat. İlk tam tarama (11 Ekim, lokal, tünel üzerinden): 786 marka, **920.830 kayıt**, 0 hata, toplam ~16 dk çekim+yazma; en büyük marka ORIJINAL (35.462 kod, 17 MB yanıt, ~36 sn, ~550 MB bellek → `operations` konteyneri 1 GB). DB'de ~750 MB güncel kayıt + ilk görülme olaylarıyla ~1 GB değişiklik geçmişi (90 günde temizlenir). Zamanlayıcı Başbuğ kapsamlarını önce işler, sonra yeni Dinamik markalarını yalnız tur başına **10 dakika** başlatır (`DINAMIK_TICK_MINUTES`); kalanlar sonraki turlara kalır. Böylece Başbuğ'un 30 dakikalık fiyat/stok işi gecikmez; gece taraması ~04:00–05:00 arasında tamamlanır.
 - **Ayrı kilit:** Dinamik aktarımı `pg_advisory_lock(20261001,3)` kullanır; Başbuğ aktarımıyla (anahtar 1) çakışmaz. Devre kesici tedarikçi başınadır: Dinamik `upstream` hatası verirse o turda kalan Dinamik markaları atlanır, Başbuğ etkilenmez.
 - **Koruma eşikleri** Başbuğ ile aynıdır (%20 ürün düşüşü, 10 puan eksik fiyat/stok artışı). Hiç ürünü olmamış marka boş liste dönebilir (başarılı, 0 kayıt); ürünü olan markanın boş dönmesi reddedilir.
+- **Mağaza satışı:** SETA gibi Dinamik satırları da Başbuğ alan adlarını taşır (`ac` ad, `uk` üretici `kull3s`, `oe` OEM listesi, `dc`=TRY, `price_data.nf`=`fiyat`, `stock_data.stok`= bölgelerden biri VAR ise 1). `fiyat` KDV hariç maliyet kabul edilir (ticari karar); satış fiyatı `nf × (1+kâr) × (1+KDV)`, oranlar `/yonetim/fiyatlandirma`'daki ortak ayarlardır. `kampanyaOrani` saklanır ama uygulanmaz. Yalnız fiyat listesinde olan (adı olmayan) kodlar `commerce_supplier_items`'a girmez. Siparişte canlı modda sepetteki markaların listeleri yeniden çekilir (en büyük marka ~35 sn); Dinamik çekimi sürerken (`busy`) sipariş tedarikçi hatasıyla durur, Başbuğ'daki gibi.
 - **Ayrı fiyat/stok işi yok:** stok ve fiyat aynı iki çağrıyla gelir; daha sık güncellik gerekirse `--interval-minutes` kısaltılır.
 
 ```sh

@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getProduct, money } from "@/modules/store/catalog";
 import { ChevronRight, History } from "lucide-react";
 import { adminDinamikItem } from "@/modules/admin/dinamik";
 import { dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
@@ -18,6 +20,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
   const item = await adminDinamikItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
+  const sale = await getProduct(item.id);
   const listHref = `/yonetim/tedarikciler/dinamik?brand=${encodeURIComponent(item.list_group)}`;
   return <AdminPage>
     <AdminPageHeader
@@ -31,7 +34,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
           "OEM listesi": p.oemListe, "Eşdeğer listesi": p.esdegerListe, Barkod: [p.barkod1, p.barkod2, p.barkod3].filter(Boolean).join(", "),
           "Paket / koli": p.paketMiktari !== undefined ? `${p.paketMiktari} / ${p.koliMiktari ?? "—"} ${p.olcuBirimi ?? ""}` : null, Desi: p.desi, Görsel: p.resimUrl }}/>
       </AdminPanel>
-      <AdminPanel title="Kaynak fiyat ve stok" description="Fiyatın KDV ve iskonto anlamı doğrulanmadı; ürün mağazada satışa açık değil. Stoklar adet değil VAR/YOK bayrağıdır.">
+      <AdminPanel title="Kaynak fiyat ve stok" description="Liste fiyatı KDV hariç maliyet kabul edilir; kampanya oranı satış fiyatına uygulanmaz. Stoklar adet değil VAR/YOK bayrağıdır.">
         <Fields values={{ "Liste fiyatı (₺)": item.price_data?.fiyat ?? "Eksik", "Kampanya oranı": item.price_data?.kampanyaOrani ?? "—",
           "Stok listesindeki fiyat": typeof item.source_variants.stockListPrice === "number" ? `${item.source_variants.stockListPrice} (fiyat listesiyle farklı)` : "Fiyat listesiyle aynı" }}/>
         <Separator className="my-4"/>
@@ -40,6 +43,10 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
           : <p className="text-sm text-muted-foreground">Bu kod yalnız fiyat listesinde; stok listesinde satırı yok.</p>}
       </AdminPanel>
     </AdminColumns>
+    <AdminPanel title="Getirbakim satış fiyatı" actions={<><Link className="font-medium text-primary hover:underline" href="/yonetim/fiyatlandirma">Kâr ve KDV oranları →</Link>{sale && <Link className="font-medium text-primary hover:underline" href={`/urun/${sale.id}`}>Katalogda aç →</Link>}</>}>
+      <p className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : item.stock_data ? "Güncel fiyat bulunamadı" : "Mağazada gösterilmiyor"}</p>
+      <p className="text-sm text-muted-foreground">{item.stock_data ? `KDV dahil · ${sale?.stock_label ?? "Satışa kapalı"}` : "Yalnız fiyat listesinde olan kodların ürün bilgisi yok; mağazaya alınmaz."}</p>
+    </AdminPanel>
     <AdminPanel title="Değişiklik geçmişi" description="Son 90 gün içindeki en son 20 değişiklik gösterilir. Değişmeyen çekimler yeni geçmiş satırı oluşturmaz." flush>
       {item.changes.length ? <div className="divide-y">{item.changes.map(change => <Collapsible key={change.id} className="px-4 py-2.5">
         <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left text-sm"><ChevronRight className="size-4 text-muted-foreground transition-transform group-data-panel-open:rotate-90" aria-hidden="true"/><span className="tabular-nums">{date(change.changed_at)}</span><StatusBadge tone={change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning"}>{changeKinds[change.kind]}</StatusBadge></CollapsibleTrigger>
