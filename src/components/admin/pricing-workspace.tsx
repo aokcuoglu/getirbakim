@@ -135,8 +135,8 @@ export function PricingWorkspace({ settings, currencies, children }: { settings:
           <CardFooter className="flex flex-wrap justify-between gap-3">
             <Badge variant="secondary" role="status">{!pricingValid ? "Alanları kontrol edin" : pricingChanged ? "Kaydedilmemiş değişiklikler" : "Kayıtlı ayarlar"}</Badge>
             <Field orientation="horizontal" className="w-auto flex-wrap">
-              {pricingChanged && <Button type="button" variant="outline" disabled={pricingPending} onClick={() => { setValues(previous => ({ ...previous, markup: settings.markup_percent, vat: settings.vat_percent, age: String(settings.max_age_hours) })); setRejectedInput(previous => ({ ...previous, markup: undefined, vat: undefined, age: undefined })); }} aria-label="Değişiklikleri geri al"><RotateCcw aria-hidden="true"/>Geri al</Button>}
-              <Button type="submit" disabled={!pricingChanged || !pricingValid || pricingPending}>{pricingPending ? <Spinner aria-label="Kaydediliyor"/> : <Save aria-hidden="true"/>}{pricingPending ? "Kaydediliyor…" : "Kuralları kaydet"}</Button>
+              {pricingChanged && <Button type="button" variant="outline" disabled={pricingPending} onClick={() => { setValues(previous => ({ ...previous, markup: settings.markup_percent, vat: settings.vat_percent, age: String(settings.max_age_hours) })); setRejectedInput(previous => ({ ...previous, markup: undefined, vat: undefined, age: undefined })); }} aria-label="Değişiklikleri geri al"><RotateCcw data-icon="inline-start" aria-hidden="true"/>Geri al</Button>}
+              <Button type="submit" disabled={!pricingChanged || !pricingValid || pricingPending}>{pricingPending ? <Spinner data-icon="inline-start" aria-label="Kaydediliyor"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pricingPending ? "Kaydediliyor…" : "Kuralları kaydet"}</Button>
             </Field>
           </CardFooter>
         </Card>
@@ -174,7 +174,7 @@ export function PricingWorkspace({ settings, currencies, children }: { settings:
           <Item variant="muted" className="mt-auto" role="status" aria-live="polite" aria-atomic="true">
             <ItemContent>
               <ItemTitle>KDV dahil satış fiyatı</ItemTitle>
-              <CardTitle className="text-3xl tabular-nums break-all">{previewValid ? `${tl(baseCost + profit + tax)} TL` : "—"}</CardTitle>
+              <div className="text-3xl font-semibold tabular-nums">{previewValid ? `${tl(baseCost + profit + tax)} TL` : "—"}</div>
               <ItemDescription>{!previewValid ? "Önizleme için geçerli maliyet ve oranlar girin." : pricingChanged ? "Kaydedilmemiş oranlarla hesaplandı." : "Kayıtlı oranlarla hesaplandı."}</ItemDescription>
             </ItemContent>
           </Item>
@@ -210,8 +210,8 @@ export function PricingWorkspace({ settings, currencies, children }: { settings:
           <CardFooter className="flex flex-wrap justify-between gap-3">
             <Badge variant="secondary" role="status">{!shippingValid ? "Alanları kontrol edin" : shippingChanged ? "Kaydedilmemiş değişiklikler" : "Kayıtlı ayarlar"}</Badge>
             <Field orientation="horizontal" className="w-auto flex-wrap">
-              {shippingChanged && <Button type="button" variant="outline" disabled={shippingPending} onClick={() => { setValues(previous => ({ ...previous, fee: initialFee, threshold: initialThreshold })); setRejectedInput(previous => ({ ...previous, fee: undefined, threshold: undefined })); }} aria-label="Değişiklikleri geri al"><RotateCcw aria-hidden="true"/>Geri al</Button>}
-              <Button type="submit" disabled={!shippingChanged || !shippingValid || shippingPending}>{shippingPending ? <Spinner aria-label="Kaydediliyor"/> : <Save aria-hidden="true"/>}{shippingPending ? "Kaydediliyor…" : "Kargoyu kaydet"}</Button>
+              {shippingChanged && <Button type="button" variant="outline" disabled={shippingPending} onClick={() => { setValues(previous => ({ ...previous, fee: initialFee, threshold: initialThreshold })); setRejectedInput(previous => ({ ...previous, fee: undefined, threshold: undefined })); }} aria-label="Değişiklikleri geri al"><RotateCcw data-icon="inline-start" aria-hidden="true"/>Geri al</Button>}
+              <Button type="submit" disabled={!shippingChanged || !shippingValid || shippingPending}>{shippingPending ? <Spinner data-icon="inline-start" aria-label="Kaydediliyor"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{shippingPending ? "Kaydediliyor…" : "Kargoyu kaydet"}</Button>
             </Field>
           </CardFooter>
         </Card>

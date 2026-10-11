@@ -26,7 +26,7 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
   const updated = latest ? new Date(latest.completed_at) : null;
 
   return <div className="flex min-w-0 flex-col gap-6">
-    <header className="flex flex-col gap-3">
+    <header className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
         <BreadcrumbSeparator/>
@@ -35,9 +35,9 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Fiyatlandırma ve kargo</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Satış fiyatını ve siparişlerin kargo koşullarını belirleyin.</p>
+          <p className="text-muted-foreground">Satış fiyatını ve siparişlerin kargo koşullarını belirleyin.</p>
         </div>
-        <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Servis indirimleri<ArrowUpRight aria-hidden="true"/></Button>
+        <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Servis indirimleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
       </div>
     </header>
 
@@ -58,7 +58,7 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
           </ScrollArea>
           {updated ? <p className="text-xs text-muted-foreground">Son çekim: <time dateTime={updated.toISOString()}>{updated.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "short", timeStyle: "short" })}</time></p>
             : <Empty><EmptyHeader><EmptyTitle>Henüz kur kaydı yok</EmptyTitle><EmptyDescription>Dövizli fiyat önizlemesi için başarılı bir Başbuğ senkronizasyonu gerekir.</EmptyDescription></EmptyHeader></Empty>}
-          <Button className="self-start" variant="link" nativeButton={false} render={<Link href="/yonetim/tedarikciler/basbug"/>}>Senkronizasyon durumu<ArrowUpRight aria-hidden="true"/></Button>
+          <Button className="self-start" variant="link" nativeButton={false} render={<Link href="/yonetim/tedarikciler/basbug"/>}>Senkronizasyon durumu<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
       </div>
     </PricingWorkspace>
   </div>;

@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import type { SupplierActivity, SupplierName } from "@/modules/suppliers/activity";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
@@ -38,7 +38,6 @@ export function SupplierActivityBadge({ supplier, initial, unit = "grup", childr
   }, [supplier, router]);
   if (!activity.running) return children;
   return <span role="status" aria-live="polite">
-    {/* StatusBadge's info colors, with the spinner in place of its static dot. */}
-    <Badge variant="outline" className="gap-1.5 border-primary/20 bg-primary/10 text-primary"><Loader2 className="size-3 animate-spin" aria-hidden="true"/>Veri çekiliyor…{activity.group && activity.group !== "ALL" ? ` · ${activity.group}` : ""}{activity.completed ? ` · ${number(activity.completed)} ${unit} tamamlandı` : ""}</Badge>
+    <Badge variant="secondary"><Spinner data-icon="inline-start" aria-hidden="true"/>Veri çekiliyor…{activity.group && activity.group !== "ALL" ? ` · ${activity.group}` : ""}{activity.completed ? ` · ${number(activity.completed)} ${unit} tamamlandı` : ""}</Badge>
   </span>;
 }

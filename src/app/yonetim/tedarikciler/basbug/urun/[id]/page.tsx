@@ -1,21 +1,35 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProduct, money } from "@/modules/store/catalog";
 import { adminBasbugItem } from "@/modules/admin/basbug";
-import { ChevronRight, History } from "lucide-react";
-import { AdminColumns, AdminPage, AdminPageHeader, AdminPanel, EmptyState, StatusBadge } from "@/components/admin/ui";
+import { ArrowRight, ChevronsUpDown, CircleCheck, History, Info, TriangleAlert } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { basbugStockLabel, basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
 
 const date = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
 const warehouseNames: Record<string, string> = { MRK: "Merkez", IZM: "İzmir" };
 const changeKinds: Record<string, string> = { added: "Yeni ürün", changed: "Veri değişti", missing: "Listede bulunamadı", inactive: "Pasife alındı", restored: "Geri geldi" };
+type Tone = "success" | "warning" | "info";
+const statusBadge = (tone: Tone, text: ReactNode) => tone === "success" ? <Badge variant="secondary"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+  : tone === "warning" ? <Badge variant="outline"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+  : <Badge variant="outline"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge>;
 
 function Fields({ values }: { values: Record<string, unknown> }) {
-  return <dl className="divide-y text-sm">{Object.entries(values).map(([key, value]) => <div key={key} className="grid grid-cols-[9rem_minmax(0,1fr)] gap-4 py-2 first:pt-0 last:pb-0 sm:grid-cols-[11rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{key}</dt><dd className="break-words tabular-nums">{value === null || value === undefined || value === "" ? "—" : String(value)}</dd></div>)}</dl>;
+  return <Table><TableBody>{Object.entries(values).map(([key, value]) => <TableRow key={key}><TableHead scope="row" className="text-muted-foreground">{key}</TableHead><TableCell className="whitespace-normal break-words tabular-nums">{value === null || value === undefined || value === "" ? "—" : String(value)}</TableCell></TableRow>)}</TableBody></Table>;
 }
-const json = "mt-2 max-h-[32rem] overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5";
+
+function Json({ label, value }: { label: string; value: unknown }) {
+  return <Textarea readOnly aria-label={label} className="max-h-96 font-mono" value={JSON.stringify(value, null, 2)}/>;
+}
 
 export default async function SupplierItem({ params }: { params: Promise<{ id: string }> }) {
   const item = await adminBasbugItem((await params).id);
@@ -23,39 +37,75 @@ export default async function SupplierItem({ params }: { params: Promise<{ id: s
   const p = item.product_data;
   const sale = await getProduct(item.id);
   const listHref = `/yonetim/tedarikciler/basbug?group=${encodeURIComponent(item.list_group)}`;
-  return <AdminPage>
-    <AdminPageHeader
-      breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "Başbuğ", href: listHref }, { label: item.code }]}
-      title={<span className="font-mono">{item.code}</span>}
-      description={<>{p.ac} · {p.uk}<br/>{item.list_group} / {item.warehouse} · Çekim: {date(item.completed_at)} (İstanbul) · İlk görülme: {date(item.first_seen_at)} · Son değişim: {date(item.changed_at)}</>}
-      actions={<StatusBadge tone={item.presence === "present" ? "success" : "warning"}>{item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif — iki başarılı çekimde bulunamadı" : "Son listede bulunamadı"}</StatusBadge>}/>
-    <AdminColumns>
-      <AdminPanel title="Ürün bilgileri" description="Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.">
-        <Fields values={{ "Ek açıklama": p.ac2, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, "Birim": p.b, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/>
-      </AdminPanel>
-      <AdminPanel title="Kaynak fiyat ve stok" description="NF, KDV hariç maliyettir. LF, MIF ve K satış hesaplamasında kullanılmaz. Depolar için stok bulunabilirliği gösterilir.">
-        <Fields values={{ "Para birimi": p.dc, LF: p.lf, "NF · KDV hariç maliyet": item.price_data?.nf ?? "Eksik", MIF: item.price_data?.mif ?? "Eksik", K: item.price_data?.k ?? "Eksik", "Yolda": item.stock_data?.sYol === undefined ? "Veri yok" : item.stock_data.sYol > 0 ? "Var" : "Yok", "Diğer öncelik depoları": item.stock_data?.sFarkliDepo === undefined ? "Veri yok" : item.stock_data.sFarkliDepo > 0 ? "Stok var" : "Stok yok" }}/>
-        <Separator className="my-4"/>
-        <h3 className="mb-2 text-sm font-medium">Depo stokları</h3>
-        <Fields values={Object.fromEntries(basbugWarehouses.map(depot => [warehouseNames[depot] ? `${warehouseNames[depot]} (${depot})` : depot, `${basbugStockLabel(basbugWarehouseStock(item.stock_data, depot))}${(item.stock_data?.depolar?.[depot]?.sYol ?? (depot === "MRK" ? item.stock_data?.sYol : 0) ?? 0) > 0 ? " · Yolda" : ""}`]))}/>
-        <p className="mt-2 text-xs text-muted-foreground">“Veri yok”, stok yanıtı alınmayan veya hesabın erişemediği depoları belirtir.</p>
-      </AdminPanel>
-    </AdminColumns>
-    <AdminPanel title="Getirbakim satış fiyatı" actions={<><Link className="font-medium text-primary hover:underline" href="/yonetim/fiyatlandirma">Kâr ve KDV oranları →</Link>{sale && <Link className="font-medium text-primary hover:underline" href={`/urun/${sale.id}`}>Katalogda aç →</Link>}</>}>
-      <p className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "Güncel fiyat bulunamadı"}</p>
-      <p className="text-sm text-muted-foreground">KDV dahil · {sale?.stock_label ?? "Satışa kapalı"}</p>
-    </AdminPanel>
-    <AdminPanel title="Değişiklik geçmişi" description="Son 90 gün içindeki en son 20 değişiklik gösterilir. Değişmeyen çekimler yeni geçmiş satırı oluşturmaz." flush>
-      {item.changes.length ? <div className="divide-y">{item.changes.map(change => <Collapsible key={change.id} className="px-4 py-2.5">
-        <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left text-sm"><ChevronRight className="size-4 text-muted-foreground transition-transform group-data-panel-open:rotate-90" aria-hidden="true"/><span className="tabular-nums">{date(change.changed_at)}</span><StatusBadge tone={change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning"}>{changeKinds[change.kind]}</StatusBadge></CollapsibleTrigger>
-        <CollapsibleContent><pre className={json}>{JSON.stringify({ önce: change.before_data, sonra: change.after_data }, null, 2)}</pre></CollapsibleContent>
-      </Collapsible>)}</div> : <EmptyState title="Kayıtlı değişiklik yok" icon={<History/>}/>}
-    </AdminPanel>
-    <AdminPanel title="Veri kontrolü" actions={item.conflicting ? <StatusBadge tone="warning">İnceleme gerekli</StatusBadge> : undefined}>
-      <p className="text-sm">Kaynak satır sayısı — Ürün: {item.product_count}, fiyat: {item.price_count}, stok: {item.stock_count}.</p>
-      <p className="mt-1 text-sm text-muted-foreground">{item.conflicting ? "Aynı kod için farklı yanıtlar bulundu. Kayıt inceleme gerektiriyor; farklı kaynak değerleri aşağıda saklanıyor." : "Bu kayıt için çelişkili tekrar bulunmadı."}</p>
-      <Collapsible className="mt-3"><CollapsibleTrigger className="group inline-flex items-center gap-1 text-sm font-medium hover:underline"><ChevronRight className="size-4 transition-transform group-data-panel-open:rotate-90" aria-hidden="true"/>Kaynak alanlarını göster</CollapsibleTrigger>
-        <CollapsibleContent><pre className={json}>{JSON.stringify({ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }, null, 2)}</pre></CollapsibleContent></Collapsible>
-    </AdminPanel>
-  </AdminPage>;
+  return <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2">
+      <Breadcrumb><BreadcrumbList>
+        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
+        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
+        <BreadcrumbItem><BreadcrumbLink render={<Link href={listHref}/>}>Başbuğ</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
+        <BreadcrumbItem><BreadcrumbPage>{item.code}</BreadcrumbPage></BreadcrumbItem>
+      </BreadcrumbList></Breadcrumb>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="font-mono text-2xl font-semibold tracking-tight break-all">{item.code}</h1>
+          <p className="text-muted-foreground">{p.ac} · {p.uk}</p>
+          <p className="text-muted-foreground">{item.list_group} / {item.warehouse} · Çekim: {date(item.completed_at)} (İstanbul) · İlk görülme: {date(item.first_seen_at)} · Son değişim: {date(item.changed_at)}</p>
+        </div>
+        {statusBadge(item.presence === "present" ? "success" : "warning", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif — iki başarılı çekimde bulunamadı" : "Son listede bulunamadı")}
+      </div>
+    </div>
+    <div className="grid items-start gap-4 xl:grid-cols-2">
+      <Card>
+        <CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.</CardDescription></CardHeader>
+        <CardContent><Fields values={{ "Ek açıklama": p.ac2, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, "Birim": p.b, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle><h2>Kaynak fiyat ve stok</h2></CardTitle><CardDescription>NF, KDV hariç maliyettir. LF, MIF ve K satış hesaplamasında kullanılmaz. Depolar için stok bulunabilirliği gösterilir.</CardDescription></CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <Fields values={{ "Para birimi": p.dc, LF: p.lf, "NF · KDV hariç maliyet": item.price_data?.nf ?? "Eksik", MIF: item.price_data?.mif ?? "Eksik", K: item.price_data?.k ?? "Eksik", "Yolda": item.stock_data?.sYol === undefined ? "Veri yok" : item.stock_data.sYol > 0 ? "Var" : "Yok", "Diğer öncelik depoları": item.stock_data?.sFarkliDepo === undefined ? "Veri yok" : item.stock_data.sFarkliDepo > 0 ? "Stok var" : "Stok yok" }}/>
+          <Separator/>
+          <h3 className="font-medium">Depo stokları</h3>
+          <Fields values={Object.fromEntries(basbugWarehouses.map(depot => [warehouseNames[depot] ? `${warehouseNames[depot]} (${depot})` : depot, `${basbugStockLabel(basbugWarehouseStock(item.stock_data, depot))}${(item.stock_data?.depolar?.[depot]?.sYol ?? (depot === "MRK" ? item.stock_data?.sYol : 0) ?? 0) > 0 ? " · Yolda" : ""}`]))}/>
+          <p className="text-muted-foreground">“Veri yok”, stok yanıtı alınmayan veya hesabın erişemediği depoları belirtir.</p>
+        </CardContent>
+      </Card>
+    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle><h2>Getirbakim satış fiyatı</h2></CardTitle>
+        <CardAction className="flex flex-wrap gap-1">
+          <Button variant="link" size="sm" nativeButton={false} render={<Link href="/yonetim/fiyatlandirma"/>}>Kâr ve KDV oranları<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
+          {sale && <Button variant="link" size="sm" nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <p className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "Güncel fiyat bulunamadı"}</p>
+        <p className="text-muted-foreground">KDV dahil · {sale?.stock_label ?? "Satışa kapalı"}</p>
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle><CardDescription>Son 90 gün içindeki en son 20 değişiklik gösterilir. Değişmeyen çekimler yeni geçmiş satırı oluşturmaz.</CardDescription></CardHeader>
+      <CardContent>
+        {item.changes.length ? <div className="flex flex-col gap-2">{item.changes.map((change, index) => <Collapsible key={change.id} className="flex flex-col gap-2">
+          {index > 0 && <Separator/>}
+          <div className="flex flex-wrap items-center gap-2">
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/><span className="tabular-nums">{date(change.changed_at)}</span></CollapsibleTrigger>
+            {statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind])}
+          </div>
+          <CollapsibleContent><Json label={`${date(change.changed_at)} değişiklik kaydı`} value={{ önce: change.before_data, sonra: change.after_data }}/></CollapsibleContent>
+        </Collapsible>)}</div> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader><CardTitle><h2>Veri kontrolü</h2></CardTitle>{item.conflicting && <CardAction>{statusBadge("warning", "İnceleme gerekli")}</CardAction>}</CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        <p>Kaynak satır sayısı — Ürün: {item.product_count}, fiyat: {item.price_count}, stok: {item.stock_count}.</p>
+        <p className="text-muted-foreground">{item.conflicting ? "Aynı kod için farklı yanıtlar bulundu. Kayıt inceleme gerektiriyor; farklı kaynak değerleri aşağıda saklanıyor." : "Bu kayıt için çelişkili tekrar bulunmadı."}</p>
+        <Collapsible>
+          <CollapsibleTrigger render={<Button variant="link" size="sm"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Kaynak alanlarını göster</CollapsibleTrigger>
+          <CollapsibleContent><Json label="Kaynak alanları" value={{ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }}/></CollapsibleContent>
+        </Collapsible>
+      </CardContent>
+    </Card>
+  </div>;
 }
