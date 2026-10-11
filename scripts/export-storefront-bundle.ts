@@ -9,25 +9,34 @@ import { objectStorage } from "../src/lib/object-storage";
 // mappings, product enrichments with their images, manufacturer logos) to a bundle that
 // scripts/import-storefront-bundle.ts loads into a database with the same supplier item ids.
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
-const root = resolve(process.argv[2] || ".local/storefront-bundle");
+// --since=ISO exports only enrichments imported after that time (and their mappings and images); the
+// category tree and logos are small and always complete. manifest.snapshotAt is the next run's --since.
+const root = resolve(process.argv.slice(2).find(arg => !arg.startsWith("--")) || ".local/storefront-bundle");
+const sinceArg = process.argv.find(arg => arg.startsWith("--since="))?.slice(8);
+const since = sinceArg ? new Date(sinceArg) : null;
+if (since && Number.isNaN(since.getTime())) throw new Error("--since must be an ISO timestamp");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const storage = objectStorage();
 const client = await pool.connect();
 try {
   // One snapshot so mappings, enrichments and media agree while a local worker keeps writing.
   await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-  const read = async (sql: string) => (await client.query(sql)).rows;
+  const read = async (sql: string, params: unknown[] = []) => (await client.query(sql, params)).rows;
+  const changed = since ? [since] : [new Date(0)];
   const manifest = {
     exportedAt: new Date().toISOString(),
+    since: since?.toISOString() ?? null,
+    snapshotAt: (await read("SELECT now() AS at"))[0].at,
     categories: await read("SELECT * FROM source_categories ORDER BY source,category_id"),
     labels: await read("SELECT * FROM source_category_labels ORDER BY source,category_id,locale"),
     images: await read("SELECT * FROM source_category_images ORDER BY source,category_id"),
-    products: await read("SELECT * FROM product_source_categories ORDER BY supplier_item_id,source,category_id"),
-    enrichments: await read("SELECT * FROM product_enrichments ORDER BY supplier_item_id"),
+    products: await read(`SELECT * FROM product_source_categories WHERE supplier_item_id IN (SELECT supplier_item_id FROM product_enrichments WHERE imported_at>$1)
+      ORDER BY supplier_item_id,source,category_id`, changed),
+    enrichments: await read("SELECT * FROM product_enrichments WHERE imported_at>$1 ORDER BY supplier_item_id", changed),
     // Hex bytea text survives JSON; the driver's Buffer would not.
     logos: await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
       FROM manufacturer_logos ORDER BY brand_key`),
-    media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments) ORDER BY id`),
+    media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE imported_at>$1) ORDER BY id`, changed),
   };
   await client.query("COMMIT");
   for (const object of manifest.media) {
