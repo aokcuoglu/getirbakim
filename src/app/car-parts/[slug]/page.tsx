@@ -23,7 +23,7 @@ export async function generateMetadata(props:Props) {
  return {title:`${name} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"} | Getirbakim`,
   description:`${name} araçlara uygun ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"} incele. Ürün kodu, OEM numarası ve araç bilgileriyle uyumluluğu kontrol et.`.slice(0,180),
   alternates:{canonical:category?`${path}?category=${category.slug}`:path},
-  robots:query.q || query.brand || query.brands || query.attributes || query.availability || query.sort || query.page ? {index:false,follow:true} : undefined};
+  robots:query.q || query.brand || query.brands || query.attributes || query.availability || query.fits || query.sort || query.page ? {index:false,follow:true} : undefined};
 }
 
 export default async function CarParts(props:Props) {

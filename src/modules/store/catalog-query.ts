@@ -11,6 +11,8 @@ const schema = z.object({
   brands: optionalText(6500),
   attributes: optionalText(18000),
   availability: z.enum(["in_stock","out_of_stock"]).optional().catch(undefined),
+  // Only products linked to the garage vehicle's engine type; the vehicle itself comes from the garage cookie.
+  fits: z.enum(["vehicle"]).optional().catch(undefined),
   sort: z.enum(["newest", "price-asc", "price-desc"]).optional().catch(undefined),
   searchBy: z.enum(["all", "code"]).optional().catch(undefined),
   page: z.string().regex(/^\d+$/).refine(value => Number.isSafeInteger(Number(value))).optional().catch(undefined),
