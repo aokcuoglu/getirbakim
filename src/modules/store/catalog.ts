@@ -42,7 +42,9 @@ export const categories = [
 const trustedFitments=`JOIN product_enrichments e ON e.supplier_item_id=f.supplier_item_id AND f.source_vehicle=e.payload->'vehicles'->f.source_index
     JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))`;
-type CatalogSearch={parsed:ParsedSearch;mode:SearchMode;correctedQuery?:string};
+type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string};
+// Broad one-word prefixes ("a") stop here instead of shipping every catalog id around.
+const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
@@ -58,13 +60,17 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 }
 /** Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. */
 // Memoised per request: the listing, its facets and the vehicle-fit count all filter by the same search.
+// The matching ids are fetched once through the search indexes; given as `id = ANY(...)` every later
+// query reaches supplier_items by primary key. Joined as a subquery instead, the planner hash-joined
+// the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
- const parsed=parseSearchQuery(raw);
- const found=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  return (await db.query<{found:boolean}>(`SELECT EXISTS (${searchHits(candidate,binder(values),mode)}) AS found`,values)).rows[0].found;};
- if(mode==="code"||await found(parsed))return {parsed,mode};
+ const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
+  return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
+ const parsed=parseSearchQuery(raw),ids=await hits(parsed);
+ if(mode==="code"||ids.length)return {parsed,ids};
  const corrected=await correctSearch(raw,"product");
- return corrected&&await found(corrected.parsed)?{parsed:corrected.parsed,mode,correctedQuery:corrected.text}:{parsed,mode};
+ const correctedIds=corrected?await hits(corrected.parsed):[];
+ return corrected&&correctedIds.length?{parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text}:{parsed,ids};
 });
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
@@ -73,7 +79,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  let search:CatalogSearch|undefined;
  if(query.q?.trim()) {
   search=await catalogSearch(query.q,query.searchBy==="code"?"code":"all");
-  clauses.push(`catalog.id IN (${searchHits(search.parsed,binder(values),search.mode)})`);
+  clauses.push(`catalog.id=ANY(${binder(values)(search.ids)}::uuid[])`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
