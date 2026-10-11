@@ -13,6 +13,8 @@ export type SavedVehicle = {
 };
 export type VehicleCatalogResponse = {
   brands?: VehicleBrand[]; models?: VehicleModel[]; vehicles?: CatalogVehicle[]; total?: number;
+  /** Set when nothing matched as typed and the results are for this corrected spelling. */
+  correctedQuery?: string;
 };
 
 export function vehicleDetails(vehicle: CatalogVehicle, year: number): SavedVehicle {

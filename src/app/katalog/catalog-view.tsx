@@ -49,6 +49,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
   {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
    :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
   <Link href={fitsHref(params.fits?undefined:"vehicle")} scroll={false}>{params.fits?"Tüm ürünleri göster":"Yalnızca aracıma uyanları göster"}</Link></div>;
+ const correction=result.correctedQuery&&<p className="catalog-search-correction" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
  const finder=(
      <div className="catalog-vehicle-search">
       <form action={home} className="catalog-code-search" role="search" aria-label="OEM numarasıyla parça ara">
@@ -75,7 +76,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
     <div className="listing-layout">
      <CatalogSidebar categories={[...categories]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="category-results-column">
-     {fitFilter}
+     {correction}{fitFilter}
     {!params.q&&!params.brand&&!params.brands&&!params.attributes&&!params.availability&&!params.fits&&<CategoryCards categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
       {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :

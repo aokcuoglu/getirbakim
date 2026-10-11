@@ -45,6 +45,8 @@ try {
     }
     await client.query("COMMIT");
     await client.query("ANALYZE vehicle_brands, vehicle_models, vehicle_types");
+    // Spelling corrections in vehicle search only know words of the imported catalog.
+    if ((await client.query("SELECT to_regproc('refresh_search_vocabulary') IS NOT NULL AS installed")).rows[0].installed) await client.query("SELECT refresh_search_vocabulary()");
     console.log("TecDoc import committed; brands, models and vehicle types are ready.");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
