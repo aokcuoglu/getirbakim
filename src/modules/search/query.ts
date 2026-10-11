@@ -29,7 +29,7 @@ export function compactSearchCode(value: string) {
  * One accepted spelling of a query word; `prefix` also matches longer words ("fren" → "frenler").
  * A value with a space is a phrase of adjacent words ("320 d").
  */
-export type SearchAlternative = { value: string; prefix: boolean };
+export type SearchAlternative = { value: string; prefix: boolean; synonym?: boolean };
 /** A query word. Required words must all match; optional ones only improve the ranking. */
 export type SearchTerm = { text: string; alternatives: SearchAlternative[]; required: boolean };
 export type ParsedSearch = { terms: SearchTerm[]; compact: string; years: number[] };
@@ -83,7 +83,7 @@ export function parseSearchQuery(raw: string, options: ParseOptions = {}): Parse
     // "golf 7" means the seventh generation, not every "75 hp" variant: model numbers match whole.
     const alternatives: SearchAlternative[] = [{ value: word, prefix: !smallNumber }];
     for (const stem of stems(word)) alternatives.push({ value: stem, prefix: true });
-    for (const synonym of synonyms.get(word) ?? []) alternatives.push({ value: synonym, prefix: true });
+    for (const synonym of synonyms.get(word) ?? []) alternatives.push({ value: synonym, prefix: true, synonym: true });
     // "320d", "c200": TecDoc writes engine and model codes apart ("320 d", "C 200").
     const split = word.match(/^(\d+)([a-z]+)$|^([a-z]+)(\d+)$/);
     if (split) alternatives.push({ value: split.slice(1).filter(Boolean).join(" "), prefix: true });
@@ -99,6 +99,11 @@ export function parseSearchQuery(raw: string, options: ParseOptions = {}): Parse
 }
 
 // Values are [a-z0-9. ] after normalisation, so quoting needs no escaping.
+/** The same query without translated words ("fren" no longer also means "brake"). */
+export function withoutSynonyms(parsed: ParsedSearch): ParsedSearch {
+  return { ...parsed, terms: parsed.terms.map(term => ({ ...term, alternatives: term.alternatives.filter(alternative => !alternative.synonym) })) };
+}
+
 /** The same query matching whole words only ("hava" no longer finds "HAVAL"). */
 export function wholeWords(parsed: ParsedSearch): ParsedSearch {
   return { ...parsed, terms: parsed.terms.map(term => ({ ...term, alternatives: term.alternatives.map(a => ({ ...a, prefix: false })) })) };

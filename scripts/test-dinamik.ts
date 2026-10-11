@@ -3,7 +3,7 @@ import test from "node:test";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
-import { DinamikImportError, discoverDinamikBrands, importDinamik, prepareDinamikImport, type DinamikFetch } from "../src/modules/suppliers/dinamik-import";
+import { DinamikImportError, discoverDinamikBrands, importDinamik, prepareDinamikImport, refreshDinamikItems, type DinamikFetch } from "../src/modules/suppliers/dinamik-import";
 
 // Shapes copied from live getStockList / getPriceList responses (FEBI, 2026-10-11).
 const stockRow = (code: string, fiyat = 106.09, varyok1 = "YOK") => ({ $type: "customer", varyok1, varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", kaporta: "YOK", varyokAll: "VAR",
@@ -113,6 +113,28 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     lists.FEBI = { stock: [stockRow("FEBI 1")], prices: Array.from({ length: 9 }, (_, i) => priceRow(`FEBI ${i + 1}`)) };
     await importDinamik(pool, { brand: "FEBI" }, fake);
     assert.equal((await pool.query("SELECT consecutive_failures FROM supplier_sync_scopes WHERE list_group='FEBI'")).rows[0].consecutive_failures, 0);
+
+    // Checkout refresh: one getStock call per cart row; only real changes are written and logged.
+    const ids = Object.fromEntries((await pool.query<{ id: string; code: string }>("SELECT id,code FROM supplier_items WHERE code IN ('FEBI 1','FEBI 2')")).rows.map(r => [r.code, r.id]));
+    const asked: string[] = [];
+    const perCode: DinamikFetch = async (path, body) => {
+      assert.equal(path, "getStock");
+      const code = (body as { STOK_KODU: string }).STOK_KODU; asked.push(code);
+      return code === "FEBI 1" ? [stockRow("FEBI 1", 120, "VAR")] : [];
+    };
+    const before = (await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes")).rows[0].n;
+    const refreshed = await refreshDinamikItems(pool, [ids["FEBI 1"], ids["FEBI 2"]], perCode);
+    assert.deepEqual(asked.sort(), ["FEBI 1", "FEBI 2"]);
+    assert.equal(refreshed.changed, 2);
+    const febi1 = (await pool.query("SELECT price_data,stock_data FROM supplier_items WHERE code='FEBI 1'")).rows[0];
+    assert.equal(febi1.price_data.nf, 120); assert.equal(febi1.stock_data.varyok1, "VAR"); assert.equal(febi1.stock_data.stok, 1);
+    // A code the endpoint no longer returns is not sold on its old stock.
+    const febi2 = (await pool.query("SELECT stock_data FROM supplier_items WHERE code='FEBI 2'")).rows[0];
+    assert.equal(febi2.stock_data.stok, 0); assert.equal(febi2.stock_data.varyokAll, "YOK");
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes")).rows[0].n, before + 2);
+    // Same answer again: nothing changes, nothing is logged.
+    assert.equal((await refreshDinamikItems(pool, [ids["FEBI 1"]], perCode)).changed, 0);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes")).rows[0].n, before + 2);
 
     // A brand Dinamik stops listing is disabled, not deleted.
     brands = ["FEBI", "SCHADEK"];

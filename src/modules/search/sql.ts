@@ -69,9 +69,13 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
 
 /** Relevance of a catalog-shaped row (name, brand, code, oem, description columns), highest first. */
 export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
+  const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
   const columns = ["name", "brand", "code", "oem", "description"].map(column => `${alias}.${column}`).join(", ");
-  return `catalog_search_rank(${columns}, to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text),
-    to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text)`;
+  // Supplier rows rank their stored inputs (db/search.sql trigger): ~6 normalisations fewer per row, which
+  // turned a 23k-match search from ~0.8 s of ranking into a primary-key lookup each. Store products, and
+  // any row the trigger has not filled yet, compute the same values on the fly.
+  return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
+    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL), catalog_search_rank(${columns}, ${queries}))`;
 }
 
 /**

@@ -9,7 +9,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
+import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
@@ -73,7 +73,8 @@ const maxSearchHits=50000;
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
   `SELECT p.id FROM products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
- if(parsed.compact.length>=3)hits.push(`SELECT e.supplier_item_id FROM product_enrichments e
+ // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
+ if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(supplier_item.product_data->>'oe',''))
@@ -89,14 +90,15 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 // the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
+  // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
+  return (await db.query<{id:string}>(`SELECT id::text FROM (SELECT DISTINCT id FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};
  if(ids.length){
   // Dinamik names do list vehicles ("ON FREN BALATASI … GOLF PASSAT"), so the whole query can match by name
   // alone and would hide the parts fitments link to that vehicle. A fitted part + vehicle reading adds them.
-  const vehicle=await vehicleSearch(raw,hits,false);
+  const vehicle=await vehicleSearch(raw,hits,false,true);
   return vehicle?.vehicle?.fitted?{...vehicle,ids:[...new Set([...vehicle.ids,...ids])].slice(0,maxSearchHits)}:{parsed,ids};
  }
  // Cheapest reading first: the words as typed split into part + vehicle, then the whole query
@@ -114,7 +116,8 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  * part that matches products. Splits whose parts are linked by fitments win, then the longest
  * vehicle part ("buji | bmw 320d" over "buji bmw | 320d").
  */
-async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean):Promise<CatalogSearch|null>{
+/** `fittedOnly`: only readings whose vehicle has linked parts count, checked before the costlier product search. */
+async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false):Promise<CatalogSearch|null>{
  const words=normalizeSearchText(raw.slice(0,120)).split(" ").filter(Boolean);
  if(words.length<2||words.length>6)return null;
  // Notices quote the shopper's own spelling ("yağ filtresi") when each typed word is one search word.
@@ -127,15 +130,20 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   if(best&&(best.vehicle?.fitted||split.vehicle.length<=best.vehicleWords))continue;
   if(!parseSearchQuery(split.vehicle.join(" ")).terms.some(term=>term.required&&/[a-z]/.test(term.text)))continue;
   // Each part is spell-checked against its own vocabulary: "pasat" is a vehicle word, "balatsı" a part word.
+  // Next to a name match the vehicle words must match as typed: "fren" (→ "brake") must not read as the
+  // "shooting brake" body style of "fren balatası".
+  const vehicleWords=(parsed:ParsedSearch)=>fittedOnly?withoutSynonyms(parsed):parsed;
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
-   return Boolean((await db.query(`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",parsed,binder(values))} LIMIT 1`,values)).rowCount);});
+   return Boolean((await db.query(`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
   if(!vehicle)continue;
+  const fitValues:unknown[]=[];
+  const linked=new Set(await fittedProductIds(`SELECT v.id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(vehicle.parsed),binder(fitValues))}`,fitValues));
+  if(fittedOnly&&!linked.size)continue;
   let ids:string[]=[];
   const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
   if(!product)continue;
-  const fitValues:unknown[]=[];
-  const linked=new Set(await fittedProductIds(`SELECT v.id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicle.parsed,binder(fitValues))}`,fitValues));
   const fitted=ids.filter(id=>linked.has(id));
+  if(fittedOnly&&!fitted.length)continue;
   const candidate={parsed:product.parsed,ids:fitted.length?fitted:ids,vehicleWords:split.vehicle.length,
    vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
   if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
@@ -217,7 +225,57 @@ const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggre
 function filterKey(query:CatalogQuery,context:CatalogContext){
  return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.fits?context.vehicleTypeId:null]);
 }
+/**
+ * Everything a plain search listing needs from its matches in one pass: ids in relevance order and the
+ * brand facet. Reads the matched rows by primary key with their stored ranking inputs (db/search.sql);
+ * the generic path joined the 23k-row id list against the catalog view four times (count, brands,
+ * attribute facet, ranked page: ~0.6 s together) for the same answer. Same fields and order as that path.
+ */
+async function summarizeSearch(search:CatalogSearch){
+ if(!search.ids.length)return {ids:[] as string[],brands:[] as string[]};
+ const values:unknown[]=[company(),search.ids],bind=binder(values);
+ const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
+ const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
+   SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.changed_at AS updated_at,
+    COALESCE(catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}),
+     catalog_search_rank(COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(i.product_data->>'ac2',''),${queries})) AS rank
+   FROM commerce_supplier_items i WHERE i.id=ANY($2::uuid[]) AND i.company=ANY($1::text[])
+   UNION ALL
+   SELECT p.id,p.brand,p.updated_at,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM products p WHERE p.id=ANY($2::uuid[]))
+  SELECT (SELECT array_agg(id::text ORDER BY rank DESC,updated_at DESC,id) FROM hits) AS ids,
+   (SELECT array_agg(DISTINCT brand ORDER BY brand) FROM hits) AS brands`,values)).rows[0];
+ return {ids:row?.ids??[],brands:row?.brands??[]};
+}
+// A search with no other filter is the common case. Broad ones ("fren": ~70k matches) spend ~0.5 s just
+// reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
+// it is served stale-while-revalidate for 10 minutes. Prices and stock are still read live for the listed
+// ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
+const cachedPages=10,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300);
+type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
+const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
+ const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);
+ const {attributes}=await attributeFacets(summary.brands,[summary.ids],"SELECT unnest($1::uuid[]) AS id");
+ return {ids:summary.ids.slice(0,cachedPages*60),total:summary.ids.length,brands:summary.brands,attributes,
+  correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
+});
+/** No filter but the search (mirrors the clauses catalogFilter adds). */
+function isPlainSearch(query:CatalogQuery){
+ return Boolean(query.q?.trim())&&!query.category&&!query.make&&query.fits!=="vehicle"&&!query.availability
+  &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
+}
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
+ if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
+  const mode=query.searchBy==="code"?"code":"all",plain=await plainSearch(query.q!,mode);
+  const pageSize=60,total=plain.total,pages=Math.max(1,Math.ceil(total/pageSize));
+  const requested=Number(query.page);
+  const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
+  const ranked=page<=cachedPages?plain.ids:(await summarizeSearch(await catalogSearch(query.q!,mode))).ids;
+  const ids=ranked.slice((page-1)*pageSize,page*pageSize);
+  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
+   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+  return {items,total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
+ }
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const total = search ? await count() : await cachedCounts(filterKey(query,context),count);
@@ -289,14 +347,22 @@ export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) 
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
  const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits};
+ if(isPlainSearch(scope)){
+  const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
+  return {brands:plain.brands,attributes:plain.attributes};
+ }
  const {values,from,search}=await catalogFilter(scope,context);
  const load=()=>facetsFor(values,from);
  return search ? load() : cachedFacets(filterKey(scope,context),load);
 }
 async function facetsFor(values:unknown[],from:string){
  const brands=(await db.query<{brand:string}>(`SELECT DISTINCT brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
+ return attributeFacets(brands,values,`SELECT catalog.id ${from}`);
+}
+/** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
+async function attributeFacets(brands:string[],values:unknown[],scopedSql:string){
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
- const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (SELECT catalog.id ${from})
+ const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql})
  SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values
  FROM scoped JOIN product_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand

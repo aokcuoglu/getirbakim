@@ -74,7 +74,8 @@ export class DinamikImportError extends Error {
   }
 }
 
-export type DinamikFetch = (path: string) => Promise<unknown>;
+/** GET `path`, or POST `body` as JSON when given (getStock). */
+export type DinamikFetch = (path: string, body?: unknown) => Promise<unknown>;
 
 /**
  * Production egress is the VPS address Dinamik allow-lists. Local development can reach the API
@@ -95,11 +96,13 @@ export function dinamikClient(): DinamikFetch {
   const tunnel = process.env.DINAMIK_DIRECT_TUNNEL?.trim().match(/^(127\.0\.0\.1|localhost):(\d{2,5})$/);
   if (process.env.DINAMIK_DIRECT_TUNNEL?.trim() && !tunnel) throw new DinamikImportError("config", "DINAMIK_DIRECT_TUNNEL");
   const ca = [...rootCertificates, SECTIGO_DV_R36];
-  return path => new Promise((resolve, reject) => {
+  return (path, body) => new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = request({
       host: tunnel?.[1] ?? DINAMIK_HOST, port: tunnel ? Number(tunnel[2]) : 443, servername: DINAMIK_HOST, ca,
-      path: `/api/Dnmk_Customer/${path}`, method: "GET", timeout: 120_000,
-      headers: { Host: DINAMIK_HOST, Accept: "application/json", ApiKey: apiKey, SecretKey: secretKey },
+      path: `/api/Dnmk_Customer/${path}`, method: payload ? "POST" : "GET", timeout: payload ? 20_000 : 120_000,
+      headers: { Host: DINAMIK_HOST, Accept: "application/json", ApiKey: apiKey, SecretKey: secretKey,
+        ...(payload ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(payload)) } : {}) },
     }, response => {
       const chunks: Buffer[] = [];
       let size = 0;
@@ -120,7 +123,7 @@ export function dinamikClient(): DinamikFetch {
     });
     req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { name: "TimeoutError" })));
     req.on("error", reject);
-    req.end();
+    req.end(payload);
   });
 }
 
@@ -303,4 +306,59 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
     try { if (locked) await connection.query("SELECT pg_advisory_unlock(20261001,$1)", [DINAMIK_LOCK]); }
     finally { connection.release(); }
   }
+}
+
+/**
+ * Checkout-time refresh of just the cart's Dinamik rows through the per-code getStock endpoint (~0.5 s each,
+ * verified 2026-10-11; same row shape as the stock list, [] for a code no longer listed). The brand-list
+ * import took up to ~35 s (ORIJINAL) and waited on a running nightly import's lock. Only price and stock
+ * change here: presence and catalog membership stay with the full brand imports. A code the endpoint no
+ * longer returns is marked unavailable (every region YOK) rather than sold on its last known stock.
+ */
+export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch) {
+  if (!ids.length) return { refreshed: 0, changed: 0 };
+  const rows = (await pool.query<{ id: string; code: string; list_group: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }>(
+    "SELECT id,code,list_group,product_data,price_data,stock_data FROM supplier_items WHERE supplier='dinamik' AND id=ANY($1::uuid[])", [ids])).rows;
+  const get = fetchJson ?? dinamikClient();
+  const observed: { id: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }[] = [];
+  // A few at a time: carts are small, and the API serves one code per request.
+  for (let index = 0; index < rows.length; index += 4) {
+    await Promise.all(rows.slice(index, index + 4).map(async row => {
+      let response: unknown;
+      try { response = await get("getStock", { STOK_KODU: row.code }); }
+      catch (error) { throw error instanceof DinamikImportError ? error : new DinamikImportError("upstream", "getStock"); }
+      const stock = z.array(stockRowSchema).parse(response).filter(item => item.stokKodu.trim() === row.code);
+      if (!stock.length) {
+        observed.push({ id: row.id, product_data: row.product_data, price_data: row.price_data,
+          stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
+        return;
+      }
+      const item = prepareDinamikImport({ brand: row.list_group, stock: [stock[0]], prices: [{ marka: stock[0].marka, stokKodu: row.code, fiyat: stock[0].fiyat }] }).items[0];
+      observed.push({ id: row.id, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
+    }));
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // JSONB equality ignores key order; only real changes get a new changed_at and a history row.
+    const changed = await client.query(`WITH incoming AS (
+        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,product_data jsonb,price_data jsonb,stock_data jsonb)),
+      -- CTEs share the statement's snapshot, so this still reads the values before the update.
+      before AS (
+        SELECT o.id,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data) AS data
+        FROM supplier_items o JOIN incoming n ON n.id=o.id
+        WHERE ROW(o.product_data,o.price_data,o.stock_data) IS DISTINCT FROM ROW(n.product_data,n.price_data,n.stock_data)),
+      updated AS (
+        UPDATE supplier_items o SET product_data=n.product_data,price_data=n.price_data,stock_data=n.stock_data,last_seen_at=now(),changed_at=now()
+        FROM incoming n JOIN before b ON b.id=n.id WHERE o.id=n.id
+        RETURNING o.id,o.product_data,o.price_data,o.stock_data,o.conflicting,o.source_variants,o.presence)
+      INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
+      SELECT u.id,NULL,now(),'changed',b.data,jsonb_build_object('product',u.product_data,'price',u.price_data,'stock',u.stock_data,
+        'conflicting',u.conflicting,'variants',u.source_variants,'presence',u.presence,'source','checkout')
+      FROM updated u JOIN before b ON b.id=u.id`, [JSON.stringify(observed)]);
+    await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.map(item => item.id)]);
+    await client.query("COMMIT");
+    return { refreshed: observed.length, changed: changed.rowCount ?? 0 };
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
 }
