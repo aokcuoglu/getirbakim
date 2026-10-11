@@ -17,6 +17,7 @@ try {
   await migrateSupplierSnapshots(client);
   await client.query(await readFile("db/commerce.sql", "utf8"));
   await client.query(await readFile("db/search.sql", "utf8"));
+  await client.query(await readFile("db/garage.sql", "utf8"));
   await client.query(await readFile("db/product-enrichment.sql", "utf8"));
   await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
   await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
