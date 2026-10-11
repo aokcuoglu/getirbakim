@@ -8,14 +8,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-## Geliştirme çalışma akışı
+## Geliştirme, sürümleme ve yayın kuralları
 
-Bu tür geliştirme ve düzeltme çalışmalarında kullanıcının tercih ettiği akış:
+İşe başlamadan önce [geliştirme ve sürüm politikasını](docs/development-workflow.md) oku ve uygula. Kullanıcının işe özel güncel talimatı önceliklidir.
 
-1. Kod değişikliğine başlamadan önce GitHub Issue aç ve işi bu Issue ile takip et.
-2. Güncel `origin/dev` üzerinden işe özel branch ve ayrı worktree oluştur; değişiklikleri bu worktree'de yap.
-3. Başka çalışmaların değişikliklerini koru ve PR'a yalnız bu işin kapsamındaki dosyaları dahil et.
-4. İlgili testleri, tür kontrolünü ve lint'i çalıştır; arayüz değişikliklerini tarayıcıda doğrula.
-5. Issue'yu kapatacak şekilde `Closes #<issue>` içeren, hedefi `dev` olan PR aç.
-6. CI ve gerekli kontroller geçtikten sonra PR'ı `dev` branch'ine merge et. Kullanıcı farklı bir hedef veya bekleme talebi belirttiyse onu uygula.
-7. Tamamlandığında Issue ve PR bağlantılarını, test sonucunu ve merge durumunu kullanıcıya bildir.
+- Varsayılan akış: yerel inceleme → güncel `origin/dev` üzerinden ayrı worktree → dosya değiştirmeden GitHub Issue → geliştirme/doğrulama → Issue'ya bağlı PR → CI geçince `dev` merge. Kullanıcı farklı hedef veya bekleme istemediyse yeniden izin istemeden bu akışı tamamla.
+- Başka çalışmaların dosyalarını ve worktree'lerini koru; PR'a yalnızca bu işin değişikliklerini dahil et.
+- Commit/PR başlıklarında Conventional Commits; Issue/PR'da rehberdeki iş türü, alan ve gerektiğinde sürüm etkisi etiketlerini kullan.
+- Her commit/PR için sürüm tag'i oluşturma. Kullanıcı `main` sürümü istediğinde önemli özellikleri `feat` / MINOR olarak sürümle; manifestleri ve changelog'u güncelle, `main` sürüm commit'ine annotated `vX.Y.Z` tag'i koy.
+- Commit, push, PR, merge, tag veya Release sonrasında Contabo'ya otomatik deploy yapma. Şimdilik staging yok; AWS geçişinden sonra ayrı kullanıcı talebiyle ele alınacak.
+- `main` merge/sürüm ve production deploy ayrı kullanıcı talepleridir. CI zorunludur; deploy workflow'larını veya staging'i açık talep olmadan etkinleştirme.
+- Tamamlandığında Issue/PR bağlantılarını, doğrulama ve merge durumunu bildir; varsa sürüm/tag bilgisini ekle.
