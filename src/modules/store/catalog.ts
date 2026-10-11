@@ -8,7 +8,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {normalizeSearchText,parseSearchQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
+import {exactTsQuery,normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
@@ -224,19 +224,31 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
      ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
  return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
-export type ProductSuggestion={id:string;name:string;brand:string;code:string};
+/** A product, or (for broad searches) a product name shared by `products` items. */
+export type ProductSuggestion={kind:"product";id:string;name:string;brand:string;code:string}|{kind:"name";name:string;products:number};
+// Ranking every match per keystroke takes seconds on the VPS for broad prefixes ("fren": ~15k);
+// above this, the type-ahead suggests product names from search_product_names instead.
+const maxRankedSuggestions=500;
 /** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  const search=await catalogSearch(raw,mode);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};
- const values:unknown[]=[company(),search.ids],bind=binder(values);
+ if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
+  const query=prefixTsQuery(search.parsed),exact=exactTsQuery(search.parsed);
+  // Names holding a query word whole first, then the names most products share.
+  const names=query?(await db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
+   WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
+   ORDER BY ts_rank(to_tsvector('simple',normalized),to_tsquery('simple',$2))>0 DESC,products DESC,name LIMIT ${Number(limit)}`,[query,exact])).rows:[];
+  if(names.length)return {products:names.map(row=>({kind:"name" as const,...row})),...notes};
+ }
+ const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
- const products=(await db.query<ProductSuggestion>(`SELECT id,name,brand,code FROM (
+ const products=(await db.query<{id:string;name:string;brand:string;code:string}>(`SELECT id,name,brand,code FROM (
   SELECT DISTINCT ON (name,brand) id::text,name,brand,code,rank,updated_at FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
   ORDER BY name,brand,rank DESC,updated_at DESC,id) best ORDER BY rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
- return {products,...notes};
+ return {products:products.map(row=>({kind:"product" as const,...row})),...notes};
 }
 export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));

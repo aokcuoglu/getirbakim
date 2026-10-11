@@ -6,7 +6,8 @@ import { suggestProducts, type VehicleSearchScope } from "./catalog";
 
 export type SearchSuggestions = {
   categories: { name: string; href: string }[];
-  products: { name: string; brand: string; code: string; href: string }[];
+  /** Products, or for broad searches product names leading to their search results. */
+  products: { name: string; detail: string; href: string }[];
   correctedQuery?: string;
   vehicleScope?: VehicleSearchScope;
 };
@@ -28,7 +29,9 @@ export async function searchSuggestions(raw: string, mode: SearchMode): Promise<
   }).sort((a, b) => leading(b) - leading(a) || a.path.length - b.path.length || a.name.localeCompare(b.name, "tr")).slice(0, 4);
   return {
     categories: matching.map(category => ({ name: category.name, href: `/katalog?category=${encodeURIComponent(category.slug)}` })),
-    products: found.products.map(product => ({ name: productTitle(product.name), brand: product.brand, code: product.code, href: `/urun/${product.id}` })),
+    products: found.products.map(product => product.kind === "product"
+      ? { name: productTitle(product.name), detail: `${product.brand} · ${product.code}`, href: `/urun/${product.id}` }
+      : { name: productTitle(product.name), detail: `${product.products.toLocaleString("tr-TR")} ürün`, href: `/katalog?${new URLSearchParams({ q: product.name.toLocaleLowerCase("tr") })}` }),
     correctedQuery: found.correctedQuery,
     vehicleScope: found.vehicleScope,
   };
