@@ -8,7 +8,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {exactTsQuery,normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
+import {normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
@@ -39,10 +39,27 @@ export const categories = [
  {slug:"silecek",name:"Silecekler",art:"wipers"},
  {slug:"aksesuar",name:"Aksesuar ve ekipman",art:"tools"},
 ] as const;
-// Fitments observed in the product's current, trusted enrichment payload; `f` is product_vehicle_fitments.
-const trustedFitments=`JOIN product_enrichments e ON e.supplier_item_id=f.supplier_item_id AND f.source_vehicle=e.payload->'vehicles'->f.source_index
-    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))`;
+/**
+ * Products linked to the vehicle types `typesSql` selects (one `id` column), counting only fitments
+ * observed in the product's current, trusted enrichment payload. Steps are materialised in order:
+ * matching types (through their indexes), their fitments, then each candidate's payload vehicles read
+ * once. Joined row by row instead, the multi-kB payload was re-read per fitment: 20 s for "passat",
+ * 1-2 min for a make page.
+ */
+async function fittedProductIds(typesSql:string,values:unknown[]){
+ return (await db.query<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
+  fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
+  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichments e
+   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+   WHERE e.supplier_item_id IN (SELECT supplier_item_id FROM fits))
+  SELECT DISTINCT f.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.supplier_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`,values)).rows.map(row=>row.id);
+}
+// Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
+const cachedFitted=staleCache<string[]>(10*60*1000);
+const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
+ "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
+const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
  * `vehicle`: the query named a part and a vehicle ("fren balatası passat"). `fitted` says whether
  * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
@@ -109,9 +126,9 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   let ids:string[]=[];
   const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
   if(!product)continue;
-  const fitValues:unknown[]=[ids],fitBind=binder(fitValues);
-  const fitted=(await db.query<{id:string}>(`SELECT DISTINCT f.supplier_item_id::text AS id FROM product_vehicle_fitments f ${trustedFitments}
-   JOIN vehicle_types v ON v.id=f.vehicle_type_id WHERE f.supplier_item_id=ANY($1::uuid[]) AND ${vehicleTypeMatch("v",vehicle.parsed,fitBind)}`,fitValues)).rows.map(row=>row.id);
+  const fitValues:unknown[]=[];
+  const linked=new Set(await fittedProductIds(`SELECT v.id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicle.parsed,binder(fitValues))}`,fitValues));
+  const fitted=ids.filter(id=>linked.has(id));
   const candidate={parsed:product.parsed,ids:fitted.length?fitted:ids,vehicleWords:split.vehicle.length,
    vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
   if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
@@ -157,19 +174,15 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   const make=await getVehicleBrandBySlug(query.make);
   if(!make)clauses.push('false');
   else {
-   values.push(Number(make.id));
-   clauses.push(`catalog.id IN (SELECT f.supplier_item_id FROM vehicle_models m
-    JOIN vehicle_types v ON v.model_id=m.id
-    JOIN product_vehicle_fitments f ON f.vehicle_type_id=v.id
-    ${trustedFitments}
-    WHERE m.brand_id=$${values.length})`);
+   values.push(await makeFittedIds(Number(make.id)));
+   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  if(query.fits==='vehicle') {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
-   values.push(Number(context.vehicleTypeId));
-   clauses.push(`catalog.id IN (SELECT f.supplier_item_id FROM product_vehicle_fitments f ${trustedFitments} WHERE f.vehicle_type_id=$${values.length})`);
+   values.push(await typeFittedIds(Number(context.vehicleTypeId)));
+   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
@@ -235,11 +248,11 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};
  if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
-  const query=prefixTsQuery(search.parsed),exact=exactTsQuery(search.parsed);
-  // Names holding a query word whole first, then the names most products share.
+  const query=prefixTsQuery(search.parsed);
+  // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
   const names=query?(await db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
    WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
-   ORDER BY ts_rank(to_tsvector('simple',normalized),to_tsquery('simple',$2))>0 DESC,products DESC,name LIMIT ${Number(limit)}`,[query,exact])).rows:[];
+   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query])).rows:[];
   if(names.length)return {products:names.map(row=>({kind:"name" as const,...row})),...notes};
  }
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
@@ -264,8 +277,8 @@ export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
 /** Which of the listed products are linked to the vehicle type, for the card badge. */
 export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) {
  if(!ids.length)return new Set<string>();
- return new Set((await db.query<{id:string}>(`SELECT DISTINCT f.supplier_item_id::text AS id FROM product_vehicle_fitments f ${trustedFitments}
-  WHERE f.vehicle_type_id=$1 AND f.supplier_item_id=ANY($2::uuid[])`,[Number(vehicleTypeId),ids])).rows.map(row=>row.id));
+ const linked=new Set(await typeFittedIds(Number(vehicleTypeId)));
+ return new Set(ids.filter(id=>linked.has(id)));
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
  const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits};
