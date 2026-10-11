@@ -95,7 +95,7 @@ Cron logu döndürülmeli ve exit/heartbeat dışarıdan izlenmeli. Sistem saat 
 
 ## Mağaza, fiyatlama ve sipariş sınırı
 
-Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik erişimi ve ürün sözleşmesi doğrulanmadığından canlı adaptörü yoktur; ortak tablolar / değişiklik motoru Dinamik'i destekler, zamanlayıcı etkinleştirmeyi reddeder.
+Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik 11 Ekim 2026'dan beri aynı tablolara çekiliyor (aşağıda); fiyat/stok anlamları doğrulanmadığından satış adaptörü yoktur.
 
 Satış adaptörü açılırken uygulanması gereken sözleşme:
 
@@ -188,6 +188,33 @@ sudo systemctl enable --now getirbakim-production-sync.timer
 Acil durdurma: `supplier-configure --group=ALL --enabled=false --commerce-enabled=false` (veriler korunur, satış bayatlık kuralına göre kapanır). Servisi maskelemek yerine bunu tercih edin; maskelenmiş servis sağlık ucunda `stopped` görünür.
 
 **Dış izleme:** `GET /api/health/suppliers` zamanlayıcı durmuşsa ya da etkin bir grup bayat/başarısızsa **503** döner; gövdede yalnız toplu durum (`status`, `scheduler`, `groups`, `issues`, `oldest_commerce_success`) vardır. Bir uptime izleyicisine (ör. 5 dakikada bir, 2 ardışık 503'te alarm) bağlanmalı; macOS bildirimi yalnız yerel kurulum içindir.
+
+## Dinamik — 11 Ekim 2026
+
+Dinamik aynı motoru (`supplier_items`, `supplier_item_changes`, `supplier_imports`, `supplier_sync_scopes`) kullanır. API'de sayfalama yok; marka başına bir stok ve bir fiyat listesi döner. Bu yüzden **her marka bir kapsamdır**: `supplier='dinamik'`, `company='DINAMIK'`, `list_group=<marka>`, `warehouse='ALL'`. Bir markanın hatası diğerlerine dokunmaz; kayıp/pasif mantığı marka içinde çalışır. Sözleşme ve erişim: [integrations.md](integrations.md#dinamik).
+
+- **Kayıt biçimi:** `product_data` stok listesindeki ürün alanları (fiyat ve VAR/YOK bayrakları hariç); `price_data` fiyat listesi satırı + stok listesindeki `kampanyaOrani`; `stock_data` `varyok1..4`, `varyokAll`, `kaporta`. Yalnız fiyat listesinde olan kodda `product_data` sadece `stokKodu`/`marka`, `stock_data` `null` — eksik değer uydurulmaz. İki listenin fiyatı farklıysa kayıt çelişkili işaretlenir (`source_variants.stockListPrice`).
+- **Marka listesi:** zamanlayıcı günde bir kez `getBrandList` okur (`supplier_discovery`). Yeni markalar etkin kapsam olarak eklenir; listeden düşen markanın kapsamı kapatılır, kayıtları silinmez.
+- **Plan:** her marka günde bir, İstanbul **04:00** (Başbuğ'un 03:00 tam listesinden sonra), bayatlık 36 saat. İlk tam tarama (11 Ekim, lokal, tünel üzerinden): 786 marka, **920.830 kayıt**, 0 hata, toplam ~16 dk çekim+yazma; en büyük marka ORIJINAL (35.462 kod, 17 MB yanıt, ~36 sn, ~550 MB bellek → `operations` konteyneri 1 GB). DB'de ~750 MB güncel kayıt + ilk görülme olaylarıyla ~1 GB değişiklik geçmişi (90 günde temizlenir). Zamanlayıcı Başbuğ kapsamlarını önce işler, sonra yeni Dinamik markalarını yalnız tur başına **10 dakika** başlatır (`DINAMIK_TICK_MINUTES`); kalanlar sonraki turlara kalır. Böylece Başbuğ'un 30 dakikalık fiyat/stok işi gecikmez; gece taraması ~04:00–05:00 arasında tamamlanır.
+- **Ayrı kilit:** Dinamik aktarımı `pg_advisory_lock(20261001,3)` kullanır; Başbuğ aktarımıyla (anahtar 1) çakışmaz. Devre kesici tedarikçi başınadır: Dinamik `upstream` hatası verirse o turda kalan Dinamik markaları atlanır, Başbuğ etkilenmez.
+- **Koruma eşikleri** Başbuğ ile aynıdır (%20 ürün düşüşü, 10 puan eksik fiyat/stok artışı). Hiç ürünü olmamış marka boş liste dönebilir (başarılı, 0 kayıt); ürünü olan markanın boş dönmesi reddedilir.
+- **Ayrı fiyat/stok işi yok:** stok ve fiyat aynı iki çağrıyla gelir; daha sık güncellik gerekirse `--interval-minutes` kısaltılır.
+
+```sh
+# Lokal (tünel açıkken, DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443):
+npm run supplier:dinamik:import -- --discover            # marka listesi → kapsamlar
+npm run supplier:dinamik:import -- --brand="FEBI"        # tek marka
+npm run supplier:sync -- --force --supplier=dinamik --group="FEBI,BOSCH"
+
+# Production (/opt/getirbakim-v2-production):
+bash scripts/production-task.sh supplier-sync --force --supplier=dinamik --group=FEBI
+bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=ALL --enabled=false   # acil durdurma
+bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=ALL --daily-at=04:00   # yeniden açma
+```
+
+`--force --supplier=dinamik` grup verilmeden tüm markaları bütçesiz çeker ve ~16 dk+ boyunca zamanlayıcı kilidini tutar; bu sürede Başbuğ fiyat/stok turları bekler. Production'da tüm markalar için zorlama yerine normal zamanlayıcıyı bekleyin veya `--group` ile sınırlayın.
+
+Yönetim: `/yonetim/tedarikciler/dinamik` güncel ürün, bölgede stokta, güncel/etkin marka, son 24 saat, son çekimler ve hata veren markaları gösterir. `/api/health/suppliers` Dinamik kapsamlarını da kapsar: hata veren ya da 36 saatten bayat marka 503 üretir.
 
 ## SETA — 11 Ekim 2026
 

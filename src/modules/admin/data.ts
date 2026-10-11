@@ -98,7 +98,7 @@ export async function adminDashboard() {
       LEFT JOIN commerce_orders o ON (o.created_at AT TIME ZONE 'Europe/Istanbul')::date=d::date GROUP BY d ORDER BY d`),
     db.query<Pick<CommerceOrder, "id" | "number" | "customer_name" | "total_kurus" | "status" | "payment_status" | "created_at">>(
       "SELECT id,number,customer_name,total_kurus,status,payment_status,created_at FROM commerce_orders ORDER BY created_at DESC,id DESC LIMIT 6"),
-    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE presence='present'"),
+    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'"),
     db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status"),
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
@@ -140,6 +140,32 @@ export async function adminSupplierOverview() {
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' AND company=$1 ORDER BY started_at DESC LIMIT 1", [company]),
   ]);
   return { items: items.rows[0], runs: runs.rows[0], last: last.rows[0] ?? null };
+}
+
+export type DinamikRun = { list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number } };
+/** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
+export async function adminDinamikOverview() {
+  await requireAdmin();
+  const [items, scopes, runs, recent, failing, discovery] = await Promise.all([
+    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
+      count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
+      count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
+      FROM supplier_items WHERE supplier='dinamik' AND presence='present'`),
+    db.query<{ enabled: number; synced: number; failing: number; due: number; last_success: Date | null; oldest_success: Date | null }>(`SELECT count(*) FILTER (WHERE enabled)::int AS enabled,
+      count(*) FILTER (WHERE enabled AND last_success_at IS NOT NULL)::int AS synced,count(*) FILTER (WHERE enabled AND consecutive_failures>0)::int AS failing,
+      count(*) FILTER (WHERE enabled AND next_run_at<=now())::int AS due,max(last_success_at) AS last_success,min(last_success_at) FILTER (WHERE enabled) AS oldest_success
+      FROM supplier_sync_scopes WHERE supplier='dinamik'`),
+    db.query<{ total: number; failed: number }>(`SELECT count(*)::int AS total,count(*) FILTER (WHERE status IN ('failed','rejected'))::int AS failed
+      FROM supplier_imports WHERE supplier='dinamik' AND started_at>now()-interval '24 hours'`),
+    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT 12`),
+    db.query<{ list_group: string; consecutive_failures: number; next_run_at: Date; error_reason: string | null }>(`SELECT s.list_group,s.consecutive_failures,s.next_run_at,r.error_reason
+      FROM supplier_sync_scopes s LEFT JOIN LATERAL (SELECT error_reason FROM supplier_imports i WHERE i.supplier=s.supplier AND i.company=s.company
+        AND i.list_group=s.list_group AND i.warehouse=s.warehouse ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
+      WHERE s.supplier='dinamik' AND s.enabled AND s.consecutive_failures>0 ORDER BY s.consecutive_failures DESC,s.list_group LIMIT 20`),
+    db.query<{ checked_at: Date; listed: number }>("SELECT checked_at,listed FROM supplier_discovery WHERE supplier='dinamik'"),
+  ]);
+  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, failing: failing.rows, discovery: discovery.rows[0] ?? null };
 }
 
 export async function adminSetaOverview() {

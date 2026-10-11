@@ -5,6 +5,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { approveService } from "@/modules/admin/actions";
 import { supplierHealth } from "@/modules/suppliers/health";
+import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
 import { db } from "@/lib/db";
@@ -34,9 +35,12 @@ function ago(value: Date | null | undefined) {
 export default async function Admin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const { approved, error } = normalizeSearchParams(await searchParams);
-  const [{ accounts }, data, health] = await Promise.all([
+  const [{ accounts }, data, health, dinamikHealth] = await Promise.all([
     adminOverview(), adminDashboard(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
+    supplierHealth(db, DINAMIK_COMPANY).catch(() => null),
   ]);
+  const dinamikLast = dinamikHealth?.scopes.reduce<Date | null>((latest, scope) => scope.last_success_at && (!latest || scope.last_success_at > latest) ? scope.last_success_at : latest, null);
+  const dinamikTone = !dinamikHealth ? "danger" : dinamikHealth.healthy ? "success" : dinamikLast ? "warning" : "neutral";
   const pending = accounts.filter(a => !a.approved);
   const { orders, days, recent } = data;
   const revenue = Number(orders.revenue_30d), previous = Number(orders.revenue_prev_30d);
@@ -117,11 +121,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <AdminPanel title="Tedarikçi bağlantıları" actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/tedarikciler">Yönet →</Link>} flush>
           <ItemGroup className="gap-0!">{supplierStatuses().map(s => {
             const isBasbug = s.name === "Başbuğ";
-            const tone = isBasbug ? basbugTone : s.verified ? "success" : "neutral";
+            const tone = isBasbug ? basbugTone : s.name === "Dinamik" ? dinamikTone : s.verified ? "success" : "neutral";
             return <Item key={s.name} size="sm" className="rounded-none border-0 px-4 py-3 hover:bg-muted/60 [&+&]:border-t" render={<Link href={s.href}/>}>
               <ItemMedia variant="icon" className="rounded-md bg-muted font-semibold text-muted-foreground">{s.name.slice(0, 1)}</ItemMedia>
-              <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : s.configured ? (s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı") : "Bağlantı değişkenleri eksik"}</ItemDescription></ItemContent>
-              <ItemActions><StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : "Hata") : s.verified ? "Bağlı" : "Doğrulanmadı"}</StatusBadge></ItemActions>
+              <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : !s.configured ? "Bağlantı değişkenleri eksik" : s.name === "Dinamik" ? `Son çekim ${ago(dinamikLast)} · ${dinamikHealth?.scopes.length ?? 0} marka` : s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı"}</ItemDescription></ItemContent>
+              <ItemActions><StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug || s.name === "Dinamik" ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : tone === "neutral" ? "Bekliyor" : "Hata") : s.verified ? "Bağlı" : "Doğrulanmadı"}</StatusBadge></ItemActions>
             </Item>;
           })}</ItemGroup>
         </AdminPanel>

@@ -142,3 +142,8 @@ CREATE TABLE IF NOT EXISTS supplier_scheduler_health (
  started_at timestamptz NOT NULL, finished_at timestamptz, succeeded boolean,
  CHECK (finished_at IS NULL OR finished_at >= started_at)
 );
+-- Suppliers whose scopes come from a published list (Dinamik brands): when the list was last read.
+CREATE TABLE IF NOT EXISTS supplier_discovery (
+ supplier text PRIMARY KEY CHECK (supplier IN ('dinamik')),
+ checked_at timestamptz NOT NULL, listed integer NOT NULL CHECK (listed >= 0)
+);

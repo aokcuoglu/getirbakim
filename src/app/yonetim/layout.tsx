@@ -7,7 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { requireAdmin } from "@/modules/auth/session";
 import { adminNavCounts } from "@/modules/admin/data";
 import { supplierHealth } from "@/modules/suppliers/health";
-import { supplierStatuses } from "@/modules/suppliers/clients";
+import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { db } from "@/lib/db";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
 
@@ -18,13 +18,12 @@ export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false
 // layouts do not re-run on client navigation.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const account = await requireAdmin();
-  const [counts, health, setaHealth, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
-    supplierHealth(db, setaCompany).catch(() => null), cookies()]);
-  const dinamik = supplierStatuses().find(s => s.name === "Dinamik");
+  const [counts, health, dinamik, setaHealth, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
+    supplierHealth(db, DINAMIK_COMPANY).catch(() => null), supplierHealth(db, setaCompany).catch(() => null), cookies()]);
   const status: AdminNavStatus = {
     ...counts,
     basbug: !health ? "danger" : health.healthy ? "success" : "warning",
-    dinamik: dinamik?.verified ? "success" : "neutral",
+    dinamik: !dinamik ? "danger" : dinamik.healthy ? "success" : dinamik.scopes.some(scope => scope.last_success_at) ? "warning" : "neutral",
     seta: !process.env.SETA_API_KEY ? "neutral" : !setaHealth ? "danger" : setaHealth.healthy ? "success" : "warning",
   };
   return <div className="admin-app">

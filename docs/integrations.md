@@ -1,12 +1,20 @@
-# Tedarikçi entegrasyon durumu — 1 Ekim 2026
+# Tedarikçi entegrasyon durumu — 1 Ekim 2026 (Dinamik: 11 Ekim)
 
 Eski `gb` kodu, şeması, sorguları veya verileri okunmadı/taşınmadı. Yalnızca `.env` ve `.env.local` içinden gerekli bağlantı alanları seçildi. Gereksiz eski proxy, TLS güvensizliği, eşzamanlılık ve senkronizasyon ayarları taşınmadı.
 
 ## Dinamik
 
-Kaynak bağlantı adresindeki `/swagger/v1/swagger.json` ve `/swagger/index.html` erişimi HTTP 401 döndü. `ApiKey` ve `SecretKey` başlıklarıyla yapılan dokümantasyon isteği `Access denied from IP` yanıtını verdi. Bu yalnızca erişim engelini doğrular; ürün uç noktası veya kimlik doğrulama sözleşmesini doğrulamaz. TLS doğrulaması uygulamada kapatılmadı.
+11 Ekim 2026: canlı bağlandı. API (`https://dinamikapp-api.dinamik.online`, `ApiKey` + `SecretKey` başlıkları) yalnız VPS IP'sine (173.249.36.2) izin verir; production konteynerleri bu IP'den çıktığı için proxy gerekmez. Lokal geliştirmede `ssh -N -L 18443:dinamikapp-api.dinamik.online:443 root@173.249.36.2` + `DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443` (SNI, sertifika ve `Host` gerçek ad kalır). Swagger 404; sözleşme canlı yanıtlardan doğrulandı.
 
-Gerekli sonraki adım: uygulamanın çıkış IP'sine izin verilmesi ve güncel resmi OpenAPI/servis dokümanının alınması. Ardından yalnızca okuma yapan ürün kodu araması ve detay istekleri çalıştırılmalı; gerçek yanıtların alanları, kuruş dönüşümü, para birimi, vergi, stok ve müşteri özel fiyat anlamları doğrulanmalıdır.
+Sunucu TLS zincirinde ara sertifikayı göndermiyor. Doğrulama kapatılmadı: Sectigo DV R36 ara sertifikası koda sabitlendi (kök, sistem güven deposundaki Sectigo Root R46; ara sertifika 2036'ya kadar geçerli).
+
+| Uç nokta | İçerik |
+| --- | --- |
+| `GET /api/Dnmk_Customer/getBrandList` | 786 marka (`[{brand}]`) |
+| `GET /api/Dnmk_Customer/getStockList/{marka}` | Ürün ayrıntısı + `varyok1..4` (İstanbul/Ankara/Sakarya/Kayseri), `varyokAll`, `kaporta` VAR/YOK bayrakları, `fiyat`, `kampanyaOrani`, paket/koli/ölçü/desi |
+| `GET /api/Dnmk_Customer/getPriceList/{marka}` | `marka`, `stokKodu`, `fiyat`; stok listesinin üst kümesi |
+
+Gözlemler (FEBI/BOSCH örneği): fiyat listesi stok listesinin ~2-3 katı; stok listesinde olup fiyat listesinde olmayan kod yok; iki listedeki fiyatlar birebir aynı. Stok değerleri adet değil VAR/YOK. Fiyatın KDV dahil/hariç, iskontolu/iskontosuz olduğu ve kampanya oranının uygulanma şekli **doğrulanmadı**; bu yüzden mağaza satışı kapalı (`commerce_supplier_items` yalnız Başbuğ). Ayrıntı: [supplier-sync.md](supplier-sync.md#dinamik--11-ekim-2026).
 
 ## Başbuğ
 

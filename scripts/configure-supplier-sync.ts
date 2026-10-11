@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { z } from "zod";
+import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE, dinamikBrandPattern } from "../src/modules/suppliers/dinamik-import";
 import { setaScope } from "../src/modules/suppliers/seta-import";
 const argumentsByName = Object.fromEntries(process.argv.slice(2).map(arg => {
   const match=/^--([a-z-]+)=(.+)$/.exec(arg);
@@ -8,7 +9,7 @@ const argumentsByName = Object.fromEntries(process.argv.slice(2).map(arg => {
 }));
 const options=z.object({
   supplier:z.enum(["basbug","dinamik","seta"]).default("basbug"),
-  group:z.string().regex(/^[A-Z0-9_-]{1,30}$/),
+  group:z.string().regex(dinamikBrandPattern),
   company:z.string().trim().min(1).max(100).optional(),
   warehouse:z.string().regex(/^[A-Z0-9_-]{1,30}$/).optional(),
   enabled:z.enum(["true","false"]).default("true"),
@@ -17,15 +18,20 @@ const options=z.object({
   "commerce-enabled":z.enum(["true","false"]).default("false"),
   "commerce-interval-minutes":z.coerce.number().int().min(15).max(1440).default(60),
   "commerce-stale-minutes":z.coerce.number().int().min(16).max(2880).default(120),
-  "daily-at":z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).default("03:00"),
-}).strict().transform(value=>value.supplier==="seta"
+  "daily-at":z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
+}).strict().transform(value => value.supplier === "seta"
   // SETA has one fixed scope (its list group is literally "ALL").
-  ? {...value,company:setaScope.company,warehouse:setaScope.warehouse}
-  : {...value,company:value.company ?? (process.env.BASBUG_FIRMA_ADI || "BASBUG"),warehouse:value.warehouse ?? "MRK"}).parse(argumentsByName);
-if (options.supplier==="seta" && options.group!==setaScope.group) throw new Error(`SETA has a single scope: --group=${setaScope.group}`);
-if (options.supplier!=="seta" && options.warehouse!=="MRK") throw new Error("Only the MRK warehouse is verified");
+  ? { ...value, company: setaScope.company, warehouse: setaScope.warehouse, "daily-at": value["daily-at"] ?? "03:00" }
+  : value.supplier === "dinamik"
+  // Dinamik runs after Başbuğ's 03:00 full lists so the two never compete for the nightly window.
+  ? { ...value, company: value.company ?? DINAMIK_COMPANY, warehouse: value.warehouse ?? DINAMIK_WAREHOUSE, "daily-at": value["daily-at"] ?? "04:00" }
+  : { ...value, company: value.company ?? (process.env.BASBUG_FIRMA_ADI || "BASBUG"), warehouse: value.warehouse ?? "MRK", "daily-at": value["daily-at"] ?? "03:00" }).parse(argumentsByName);
+if (options.supplier === "seta" && options.group !== setaScope.group) throw new Error(`SETA has a single scope: --group=${setaScope.group}`);
 if (options["commerce-stale-minutes"] <= options["commerce-interval-minutes"]) throw new Error("Commercial freshness must exceed its interval");
-if (options.supplier === "dinamik" && (options.enabled === "true" || options["commerce-enabled"] === "true")) throw new Error("Dinamik adapter is not verified; enabling it is unavailable");
+// Dinamik's stock and price lists are one call each per brand: a full run already refreshes both.
+if (options.supplier === "dinamik" && options["commerce-enabled"] === "true") throw new Error("Dinamik has no separate price/stock run; shorten --interval-minutes instead");
+if (options.supplier === "dinamik" && (options.company !== DINAMIK_COMPANY || options.warehouse !== DINAMIK_WAREHOUSE)) throw new Error(`Dinamik scopes use company ${DINAMIK_COMPANY} and warehouse ${DINAMIK_WAREHOUSE}`);
+if (options.supplier === "basbug" && options.warehouse !== "MRK") throw new Error("Başbuğ scopes use warehouse MRK");
 if (options["stale-minutes"] <= options["interval-minutes"]) throw new Error("Stale threshold must exceed the sync interval");
 const pool=new Pool({ connectionString:process.env.DATABASE_URL });
 try {

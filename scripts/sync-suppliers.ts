@@ -1,15 +1,16 @@
 import { Pool } from "pg";
 import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
+import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
 // Invoke every 15 minutes. Due scopes choose their own interval (default: once a day).
-// Manual run: --force [--supplier=basbug|seta] [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
+// Manual run: --force [--supplier=basbug|dinamik|seta] [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
 const args = z.object({
   force: z.literal(true).optional(),
-  supplier: z.enum(["basbug", "seta"]).optional(),
-  group: z.string().regex(/^[A-Z0-9_-]{1,30}(,[A-Z0-9_-]{1,30})*$/).transform(value => value.split(",")).optional(),
+  supplier: z.enum(["basbug", "dinamik", "seta"]).optional(),
+  group: z.string().transform(value => value.split(",")).pipe(z.array(z.string().regex(dinamikBrandPattern))).optional(),
   mode: z.enum(["full", "commerce"]).optional(),
 }).strict().parse(Object.fromEntries(process.argv.slice(2).map(arg => {
   const match = /^--([a-z]+)(?:=(.+))?$/.exec(arg);
@@ -17,6 +18,12 @@ const args = z.object({
   return [match[1], match[2] ?? true];
 })));
 if ((args.group || args.mode || args.supplier) && !args.force) throw new Error("--supplier, --group and --mode require --force");
+if (args.supplier === "dinamik" && args.mode === "commerce") throw new Error("Dinamik has no separate price/stock run; use full");
+const forcedSupplier = args.supplier ?? "basbug";
+const dinamikConfigured = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"].every(key => Boolean(process.env[key]));
+// ~790 brands do not fit one tick next to Başbuğ's 30-minute price runs: start new brands only within
+// this budget and leave the rest due for the following ticks. Forced runs are not limited.
+const dinamikBudgetMs = z.coerce.number().positive().max(80).parse(process.env.DINAMIK_TICK_MINUTES || 10) * 60_000;
 // These failures say the supplier itself is unreachable or occupied; trying the remaining groups now only adds load.
 const stopReasons = new Set(["upstream", "config", "busy", "paused"]);
 
@@ -34,10 +41,22 @@ try {
     await worker.query(`INSERT INTO supplier_scheduler_health(id,started_at,finished_at,succeeded)
       VALUES(true,clock_timestamp(),NULL,NULL) ON CONFLICT(id) DO UPDATE SET started_at=EXCLUDED.started_at,finished_at=NULL,succeeded=NULL`);
     heartbeatStarted = true;
+    // Brand list refresh: once a day, and before a forced full Dinamik run over all brands.
+    if (dinamikConfigured && (args.force ? forcedSupplier === "dinamik" && !args.group : !(await worker.query(
+      "SELECT 1 FROM supplier_discovery WHERE supplier='dinamik' AND checked_at>now()-interval '1 day'")).rowCount)) {
+      try {
+        const discovery = await discoverDinamikBrands(pool);
+        console.log({ dinamikBrands: discovery.listed, added: discovery.added.length, disabled: discovery.disabled, invalid: discovery.invalid });
+      } catch (error) {
+        console.error({ dinamikBrands: "failed", reason: error instanceof DinamikImportError ? error.message : "upstream" });
+        process.exitCode = 1;
+      }
+    }
     const scopes = (await worker.query<{ supplier: string; company: string; list_group: string; warehouse: string; enabled:boolean; next_run_at:Date }>(
-      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier=$2 AND ($1::text[] IS NULL OR list_group=ANY($1)) ORDER BY list_group"
-        : "SELECT * FROM supplier_sync_scopes WHERE (enabled AND next_run_at<=now()) OR (commerce_enabled AND commerce_next_run_at<=now()) ORDER BY next_run_at,supplier,list_group",
-      args.force ? [args.group ?? null, args.supplier ?? "basbug"] : [],
+      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier=$2 AND ($1::text[] IS NULL OR list_group=ANY($1)) AND ($1::text[] IS NOT NULL OR $2<>'dinamik' OR enabled) ORDER BY list_group"
+        // Dinamik last: its brands only start within a time budget, and stopping there must not skip other suppliers.
+        : "SELECT * FROM supplier_sync_scopes WHERE (enabled AND next_run_at<=now()) OR (commerce_enabled AND commerce_next_run_at<=now()) ORDER BY supplier='dinamik',next_run_at,supplier,list_group",
+      args.force ? [args.group ?? null, forcedSupplier] : [],
     )).rows;
     // SETA's single scope is created by its first successful import; a forced run may be that first import.
     if (args.force && args.supplier === "seta" && !scopes.length && !args.group)
@@ -45,10 +64,30 @@ try {
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
     let catalogWordsChanged = false;
+    const tickStarted = Date.now();
     const circuitOpen = new Set<string>();
     for (const [index, scope] of scopes.entries()) {
       if (circuitOpen.has(scope.supplier)) continue;
       const started = Date.now();
+      if (scope.supplier === "dinamik") {
+        if (!args.force && started - tickStarted > dinamikBudgetMs) {
+          console.log({ dinamikDeferred: scopes.slice(index).filter(next => next.supplier === "dinamik").length });
+          break;
+        }
+        try {
+          const result = await importDinamik(pool, { brand: scope.list_group });
+          console.log({ supplier: "dinamik", brand: scope.list_group, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+        } catch (error) {
+          const reason = error instanceof DinamikImportError ? error.message : "Dinamik import failed";
+          console.error({ supplier: "dinamik", brand: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });
+          process.exitCode = 1;
+          if (error instanceof DinamikImportError && stopReasons.has(error.reason)) {
+            circuitOpen.add("dinamik");
+            console.error({ circuitOpen: error.reason, supplier: "dinamik", skipped: scopes.slice(index + 1).filter(next => next.supplier === "dinamik").length });
+          }
+        }
+        continue;
+      }
       const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
       if (scope.supplier === "seta") {
         try {
