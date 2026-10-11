@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ExternalLink, LockKeyhole, X } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 import { paymentState } from "@/app/siparis/[id]/actions";
 import { PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
 
@@ -39,7 +43,7 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
   orderId: string; popup: Window | null; total: string; onDismiss: () => void;
 }) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const [open, setOpen] = useState(true);
   const windowRef = useRef<Window | null>(popup);
   const [phase, setPhase] = useState<Phase>(popup ? "open" : "blocked");
   const paid = phase === "paid";
@@ -52,8 +56,6 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
     if (!state.startsWith("awaiting_payment:")) { router.push(`/siparis/${orderId}`); return true; }
     return false;
   }, [orderId, router]);
-
-  useEffect(() => { dialog.current?.showModal(); }, []);
 
   useEffect(() => {
     if (paid) { const timer = setTimeout(() => { router.push(`/siparis/${orderId}?odeme=sonuc`); router.refresh(); }, 1500); return () => clearTimeout(timer); }
@@ -82,7 +84,7 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
     loadPaymentWindow(orderId);
   };
   const focus = () => { if (windowRef.current && !windowRef.current.closed) windowRef.current.focus(); else retry(); };
-  const dismiss = () => { windowRef.current?.close(); dialog.current?.close(); onDismiss(); };
+  const dismiss = () => { windowRef.current?.close(); setOpen(false); onDismiss(); };
 
   const error = typeof phase === "object" ? paymentErrors[phase.error] ?? paymentErrors.closed : null;
   const title = paid ? "Ödemen alındı" : error ? "Ödeme başlatılamadı" : phase === "open" ? "Ödeme penceresi açık" : "Ödeme tamamlanmadı";
@@ -93,18 +95,24 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
       : "Ödeme penceresi kapandı. Ödemeyi tamamlamadıysan yeniden deneyebilirsin; siparişin ve sepetin korunuyor.");
   const canRetry = !paid && (!error || error === paymentErrors.provider);
 
-  return <dialog ref={dialog} className="payment-dialog" aria-labelledby="payment-dialog-title" onCancel={event => { event.preventDefault(); if (!paid) dismiss(); }}>
-    {!paid && <button className="purchase-close" onClick={dismiss} aria-label="Ödeme penceresini kapat"><X size={20}/></button>}
-    <div className={`payment-dialog-icon${paid ? " is-paid" : ""}`}>{paid ? <CheckCircle2 size={32}/> : <LockKeyhole size={28}/>}</div>
-    <h2 id="payment-dialog-title">{title}</h2>
-    <p className="payment-dialog-total">{total}</p>
-    <p className={error ? "error" : "payment-dialog-text"} role="status">{text}</p>
-    {phase === "open" && <span className="payment-dialog-progress" aria-hidden/>}
-    {!paid && <div className="payment-dialog-actions">
-      {phase === "open" ? <button className="purchase-primary" onClick={focus}><ExternalLink size={18}/>Ödeme penceresine git</button>
-        : canRetry && <button className="purchase-primary" onClick={retry}><LockKeyhole size={18}/>{phase === "blocked" ? "Ödeme penceresini aç" : "Yeniden dene"}</button>}
-      <button className="purchase-outline" onClick={dismiss}>Daha sonra öde</button>
-    </div>}
-    {!paid && <small className="payment-dialog-note">Kart bilgilerin TAMI’de işlenir, Getirbakım’a iletilmez. Siparişin ödeme süresi boyunca sipariş sayfasından tekrar ödeyebilirsin.</small>}
-  </dialog>;
+  const action = "h-auto min-h-12 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
+  return <Dialog open={open} disablePointerDismissal onOpenChange={next => { if (!next && !paid) dismiss(); }}>
+    <DialogContent showCloseButton={false} overlayClassName="bg-[#212b3673] supports-backdrop-filter:backdrop-blur-none" aria-labelledby="payment-dialog-title" className="inset-x-0 top-[12dvh] mx-auto block translate-x-0 translate-y-0 gap-0 ring-0 sm:max-w-[440px] max-[760px]:sm:max-w-none max-h-[calc(88dvh-24px)] w-[calc(100%-32px)] max-w-[440px] overflow-auto rounded-[10px] bg-white px-8 pt-9 pb-7 text-center text-foreground shadow-[0_12px_50px_#212b3626] max-[760px]:top-auto max-[760px]:bottom-0 max-[760px]:w-full max-[760px]:max-w-none max-[760px]:rounded-t-[14px] max-[760px]:rounded-b-none max-[760px]:px-5 max-[760px]:pt-8 max-[760px]:pb-[calc(20px+env(safe-area-inset-bottom))]">
+        {!paid && <Button variant="secondary" className="absolute top-2.5 right-2.5 size-8 min-h-8 rounded-[5px] border-0 bg-[#e6e9ec] p-0 text-foreground hover:bg-[#d9dfe4]" onClick={dismiss} aria-label="Ödeme penceresini kapat"><X className="size-5" aria-hidden/></Button>}
+        <div className={cn("mx-auto grid size-14 place-items-center rounded-full", paid ? "bg-[#ebf5ed] text-[#2e7d32]" : "bg-[#e5f2fa] text-primary")}>{paid ? <CheckCircle2 className="size-8" aria-hidden/> : <LockKeyhole className="size-7" aria-hidden/>}</div>
+        <DialogTitle id="payment-dialog-title" className="mt-4 mb-1 text-[22px] leading-7 font-semibold tracking-[-0.4px]">{title}</DialogTitle>
+        <p className="mb-4 text-xl font-semibold text-primary">{total}</p>
+        {error ? <Alert role="status" className="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{text}</Alert>
+          : <p className="m-0 text-sm leading-[22px] text-[#454f5b]" role="status">{text}</p>}
+        {phase === "open" && <>
+          <span className="mt-5 block h-[3px] animate-[payment-progress_1.4s_linear_infinite] rounded-[3px] bg-[linear-gradient(90deg,#e5f2fa_0,#007bc4_50%,#e5f2fa_100%)] bg-size-[200%_100%] motion-reduce:animate-none motion-reduce:bg-primary" aria-hidden/>
+        </>}
+        {!paid && <div className="mt-6 grid gap-2.5">
+          {phase === "open" ? <Button className={cn(action, "font-semibold hover:bg-brand-strong")} onClick={focus}><ExternalLink className="size-[18px]" aria-hidden/>Ödeme penceresine git</Button>
+            : canRetry && <Button className={cn(action, "font-semibold hover:bg-brand-strong")} onClick={retry}><LockKeyhole className="size-[18px]" aria-hidden/>{phase === "blocked" ? "Ödeme penceresini aç" : "Yeniden dene"}</Button>}
+          <Button variant="outline" className={cn(action, "border-input bg-white font-medium text-foreground hover:bg-muted")} onClick={dismiss}>Daha sonra öde</Button>
+        </div>}
+        {!paid && <small className="mt-[18px] block text-xs leading-[18px] text-muted-foreground">Kart bilgilerin TAMI’de işlenir, Getirbakım’a iletilmez. Siparişin ödeme süresi boyunca sipariş sayfasından tekrar ödeyebilirsin.</small>}
+    </DialogContent>
+  </Dialog>;
 }

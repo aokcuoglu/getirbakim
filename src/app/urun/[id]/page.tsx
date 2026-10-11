@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { siteUrl } from "@/lib/site";
 import Link from "next/link";
@@ -19,9 +19,17 @@ import { GarageButton } from "@/components/garage/garage-button";
 import { currentVehicle } from "@/modules/store/garage";
 import { fitmentLevel } from "@/modules/store/fitment-level";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
-import "@/styles/product-detail.css";
 import { ProductFitment } from "@/components/product-fitment";
 import { getReferenceLinks } from "@/modules/store/reference-links";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import { cn } from "@/lib/utils";
+
+const benefits = [
+  { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
+  { icon: Truck, size: 25, title: "Tek noktadan tedarik", text: <>Parçaların Getirbakim operasyonunda bir araya gelir.</> },
+  { icon: RotateCcw, size: 23, title: "İade ve değişim", text: <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">İade koşullarını ve sürecini incele.</Link> },
+  { icon: ClipboardCheck, size: 23, title: "Araç uyumluluğu", text: <>OEM kodunu, motor ve model bilgilerini karşılaştır.</> },
+];
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -70,53 +78,68 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     ...Object.entries(enrichment?.crossReferences || {}).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
     ...Object.entries(enrichment?.oemNumbers || {}).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
   ]);
-  return <div className="pdp-page"><section className="shell pdp-overview">
+  const crumbLink = "transition-colors hover:text-[#2d78c7]";
+  const crumbSeparator = <BreadcrumbSeparator className="[&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
+  const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
+  const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
+  const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
+  return <div className="text-sm leading-5 text-foreground"><section className={shell}>
     {product.supplier !== "demo" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredProduct).replace(/</g, "\\u003c") }}/>}
-    <nav className="pdp-breadcrumbs" aria-label="Sayfa yolu"><Link href="/">Ana sayfa</Link><ChevronRight size={13}/><Link href="/katalog">Katalog</Link><ChevronRight size={13}/>{productCategoryPath.length?productCategoryPath.map(node=><span key={node.id}><Link href={`/katalog?category=${node.slug}`}>{node.name}</Link><ChevronRight size={13}/></span>):category&&<><Link href={`/katalog?category=${category.slug}`}>{category.name}</Link><ChevronRight size={13}/></>}<span aria-current="page">{title} {product.brand} {displayPartNumber}</span></nav>
-    <div className="pdp-hero">
-      <div className="pdp-gallery">
-        <div className="pdp-brand-row"><ManufacturerBadge brand={product.brand} logo={logos.get(product.brand)} className="pdp-brand-badge"/>{product.supplier === "demo" && <span className="pdp-demo">Sentetik örnek ürün</span>}</div>
-        {enrichment?.imagePath ? <ProductGallery src={enrichment.imagePath} width={enrichment.imageWidth} height={enrichment.imageHeight} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="pdp-placeholder"><PartArt kind={category?.art}/></div>}
+    <Breadcrumb aria-label="Sayfa yolu" className="py-3">
+      <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:text-[11px]">
+        <BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/"/>}>Ana sayfa</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}
+        <BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/katalog"/>}>Katalog</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}
+        {productCategoryPath.length ? productCategoryPath.map(node => <Fragment key={node.id}><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={`/katalog?category=${node.slug}`}/>}>{node.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</Fragment>)
+          : category && <><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={`/katalog?category=${category.slug}`}/>}>{category.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</>}
+        <BreadcrumbItem><BreadcrumbPage className="text-inherit">{title} {product.brand} {displayPartNumber}</BreadcrumbPage></BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+    <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
+      <div className="relative min-w-0 max-[750px]:pt-8">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={product.brand} logo={logos.get(product.brand)} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
+        {enrichment?.imagePath ? <ProductGallery src={enrichment.imagePath} width={enrichment.imageWidth} height={enrichment.imageHeight} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
-      <div className="pdp-summary">
-        <h1>{title} {product.brand} {displayPartNumber}</h1>
-        {hasFitment && <p className="pdp-compatible">Uyumlu araçlar: {enrichment!.vehicleModels.slice(0, 3).join(", ")} <a href="#uyumlu-araclar">Tümünü göster</a></p>}
-        <p className="pdp-code">Ürün kodu: {product.code}</p>
-        {product.price_kurus === null ? <div className="pdp-price-unavailable"><h2>Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
-          {isB2B && <span className="pdp-price-label">Servisine özel B2B fiyatı</span>}
-          <p className="pdp-price">{price}</p>
-          <p className="pdp-tax">KDV dahil <span/> <Link href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
-          <PurchaseForm productId={product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} className="pdp-cart-form"/>
+      <div>
+        <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {product.brand} {displayPartNumber}</h1>
+        {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {enrichment!.vehicleModels.slice(0, 3).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
+        <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.code}</p>
+        {product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
+          {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
+          <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px] text-[#ed3821]">{price}</p>
+          <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
+          <PurchaseForm productId={product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
         </>}
-        <div className="pdp-vehicle-check"><CircleAlert size={20}/><GarageButton vehicle={vehicle} variant="product"/></div>
-        {fitment === "guaranteed" && <p className="pdp-garage-match"><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
-        {fitment === "likely" && <p className="pdp-garage-likely"><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli listede; motor tipini <a href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>}
-        {fitment === "mismatch" && <p className="pdp-garage-mismatch" role="alert"><CircleAlert size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
-        <p className={`pdp-stock ${!product.available ? "pdp-out-of-stock" : ""}`}><PackageCheck size={17}/>{product.stock_label}</p>
-        <Link className="pdp-delivery" href="/bilgi/teslimat"><Truck size={32}/><span><strong>Teslimat bilgileri <Info size={14}/></strong><small>{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18}/></Link>
-        <dl className="pdp-spec-preview">{specifications.slice(0, 4).map(([label, value]) => <div key={label}><dt>{label}:</dt><dd>{value}</dd></div>)}</dl>
-        <a className="pdp-show-all" href="#product-specifications">Tüm özellikleri göster</a>
-        {!isB2B && <div className="pdp-summary-footer"><LoginButton className="pdp-service-login">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
+        <div className="flex min-h-[54px] items-center gap-4 rounded-[5px] border border-[#ffb380] bg-[#fffaee] px-4 py-3"><CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/><GarageButton vehicle={vehicle} variant="product"/></div>
+        {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
+        {fitment === "likely" && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>}
+        {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
+        <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>
+        <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
+        <dl className="mt-[18px] mb-1.5">{specifications.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
+        <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
+        {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1 text-[#0065c3]"><LoginButton className="min-h-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[#53677d] hover:text-[#0065c3]">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
       </div>
     </div>
-    <div className="pdp-benefits">
-      <div><ShieldCheck size={23}/><span><strong>Güvenli alışveriş</strong><small>Fiyat ve sipariş bilgilerini hesabından takip et.</small></span></div>
-      <div><Truck size={25}/><span><strong>Tek noktadan tedarik</strong><small>Parçaların Getirbakim operasyonunda bir araya gelir.</small></span></div>
-      <div><RotateCcw size={23}/><span><strong>İade ve değişim</strong><small><Link href="/bilgi/teslimat">İade koşullarını ve sürecini incele.</Link></small></span></div>
-      <div><ClipboardCheck size={23}/><span><strong>Araç uyumluluğu</strong><small>OEM kodunu, motor ve model bilgilerini karşılaştır.</small></span></div>
+    <div className="mt-8 mb-10 grid grid-cols-2 gap-[15px] max-[750px]:my-7 max-[750px]:grid-cols-1 max-[750px]:gap-2.5">
+      {benefits.map(({ icon: Icon, size, title, text }) => <div key={title} className="flex min-h-[86px] items-start gap-3.5 rounded-[5px] border border-[#dfe4ea] p-5 max-[750px]:min-h-[76px] max-[750px]:p-4"><Icon size={size} strokeWidth={1.25} className="shrink-0"/><span><strong className="block font-medium">{title}</strong><small className="mt-1 block text-[13px] leading-5 text-[#465a70]">{text}</small></span></div>)}
     </div>
   </section>
-  <div className="pdp-information-area"><div className="shell pdp-information-layout">
-    <div className="pdp-information-content">
-      <section className="pdp-specifications" id="product-specifications" aria-labelledby="specifications-title">
-        <h2 id="specifications-title">{title} {product.brand} {displayPartNumber} teknik bilgileri</h2>
-        <dl style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label}><dt>{label}:</dt><dd>{value}</dd></div>)}</dl>
-        {(enrichment?.description || product.description) && <p className="pdp-description">{enrichment?.description || product.description}</p>}
+  <div className="border-t border-[#dce2e9] bg-[#f7f8fa] pt-[50px] pb-[60px] max-[750px]:pt-7 max-[750px]:pb-10"><div className={cn(shell, "grid grid-cols-[minmax(0,1fr)_280px] items-start gap-12 max-[1000px]:grid-cols-[minmax(0,1fr)_230px] max-[1000px]:gap-6 max-[750px]:flex max-[750px]:flex-col max-[750px]:gap-6")}>
+    <div className="min-w-0 max-[750px]:w-full">
+      <section className="scroll-mt-[110px]" id="product-specifications" aria-labelledby="specifications-title">
+        <h2 id="specifications-title" className={sectionTitle}>{title} {product.brand} {displayPartNumber} teknik bilgileri</h2>
+        <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
+        {(enrichment?.description || product.description) && <p className="mt-6 leading-6 text-[#53677d]">{enrichment?.description || product.description}</p>}
       </section>
-      {enrichment && (enrichment.vehicles.length > 0 ? <ProductFitment vehicles={enrichment.vehicles}/> : enrichment.vehicleModels.length > 0 && <section className="pdp-section" id="uyumlu-araclar"><h2>Uyumlu araç modelleri</h2><div className="pdp-model-list">{enrichment.vehicleModels.map(model => <span key={model}>{model}</span>)}</div><p>Motor ve üretim yılı ayrıntıları henüz eklenmedi.</p></section>)}
-      {references.length > 0 && <section className="pdp-section" id="oem-numaralari"><h2>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="pdp-references" tabIndex={0} aria-label="OEM ve muadil numaraları">{references.map(([brand, codes]) => <div key={brand}><dt>{brand}</dt><dd>{codes.map(code => { const href = referenceHref(brand, code); return href ? <Link key={code} href={href}>{code}</Link> : <span key={code}>{code}</span>; })}</dd></div>)}</dl></section>}
-      <section className="pdp-section pdp-help" id="urun-yardim"><Headphones size={30}/><div><h2>Bu ürün hakkında soruların mı var?</h2><p>{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
+      {enrichment && (enrichment.vehicles.length > 0 ? <ProductFitment vehicles={enrichment.vehicles}/> : enrichment.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{enrichment.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{model}</span>)}</div><p>Motor ve üretim yılı ayrıntıları henüz eklenmedi.</p></section>)}
+      {references.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{references.map(([brand, codes]) => <div key={brand} className="grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]"><dt className="text-[#53677d]">{brand}</dt><dd className="m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere">{codes.map(code => { const href = referenceHref(brand, code); return href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>; })}</dd></div>)}</dl></section>}
+      <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
-    <nav className="pdp-section-menu" aria-label="Ürün bilgileri"><a href="#product-specifications">Ürün detayları</a>{hasFitment && <a href="#uyumlu-araclar">Uyumlu araçlar</a>}{references.length > 0 && <a href="#oem-numaralari">OEM ve muadil numaraları</a>}<a href="#urun-yardim">Bu ürün hakkında sorular</a></nav>
+    <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-wrap max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
+      ["#product-specifications", "Ürün detayları", true],
+      ["#uyumlu-araclar", "Uyumlu araçlar", hasFitment],
+      ["#oem-numaralari", "OEM ve muadil numaraları", references.length > 0],
+      ["#urun-yardim", "Bu ürün hakkında sorular", true],
+    ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium first:bg-[#f7f8fa] hover:bg-[#f7f8fa] max-[750px]:px-2.5 max-[750px]:text-xs">{label}</a>)}</nav>
   </div></div></div>;
 }

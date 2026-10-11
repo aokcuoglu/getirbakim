@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { AdminTheme } from "@/components/admin/admin-theme";
 import { AdminSidebar, type AdminNavStatus } from "@/components/admin/admin-nav";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -10,9 +11,6 @@ import { supplierStatuses } from "@/modules/suppliers/clients";
 import { db } from "@/lib/db";
 
 export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
-
-// Applies the saved workspace theme before first paint; the toggle lives in the account menu.
-const themeScript = `try{document.documentElement.classList.toggle("dark",localStorage.getItem("gb-admin-theme")==="dark")}catch(e){}`;
 
 // The workspace replaces the storefront header and footer with its own shell (see StorefrontChrome); .admin-app also
 // scopes the shadcn theme tokens in globals.css. Every page and data loader still checks the session itself:
@@ -27,7 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     dinamik: dinamik?.verified ? "success" : "neutral",
   };
   return <div className="admin-app">
-    <script dangerouslySetInnerHTML={{ __html: themeScript }}/>
+    <AdminTheme/>
     <TooltipProvider>
       <SidebarProvider defaultOpen={jar.get("sidebar_state")?.value !== "false"}>
         <AdminSidebar status={status} account={{ name: account.name, email: account.email }}/>
