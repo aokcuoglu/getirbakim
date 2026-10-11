@@ -16,6 +16,8 @@ export type Product = { id: string; category: string; supplier: "dinamik" | "bas
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
  available: boolean; max_quantity: number; stock_label: string; pricing_snapshot: Record<string, unknown>;
+ /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
+ offer_id?: string; offers?: number;
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -28,6 +30,42 @@ export async function searchProducts(code: string): Promise<CatalogProduct[]> {
 export async function getProduct(id: string): Promise<CatalogProduct | undefined> {
  if (!z.uuid().safeParse(id).success) return undefined;
  return (await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
+}
+/**
+ * Same product from several suppliers (product_offers): the listing shows the primary row, priced and stocked by
+ * the cheapest offer that can be sold now; the primary itself wins ties. Without a sellable offer the row is kept.
+ */
+export async function withBestOffers<T extends CatalogProduct>(items: T[]): Promise<T[]> {
+ const ids = items.filter(item => item.source === "supplier").map(item => item.id);
+ if (!ids.length) return items;
+ const offers = (await db.query<CatalogProduct & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
+  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
+  WHERE o.primary_id=ANY($2::uuid[])`, [company(), ids])).rows;
+ return items.map(item => {
+  const group = offers.filter(offer => offer.primary_id === item.id);
+  if (group.length < 2) return item;
+  const best = group.filter(offer => offer.available && offer.price_kurus !== null)
+   .sort((a, b) => a.price_kurus! - b.price_kurus! || Number(b.id === item.id) - Number(a.id === item.id))[0];
+  if (!best) return { ...item, offers: group.length };
+  return { ...item, price_kurus: best.price_kurus, available: best.available, max_quantity: best.max_quantity, stock_label: best.stock_label,
+   pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
+ });
+}
+/** The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`). */
+export async function getStoreProduct(id: string): Promise<{ product?: CatalogProduct; primaryId?: string }> {
+ if (!z.uuid().safeParse(id).success) return {};
+ const primaryId = (await db.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1 AND primary_id<>item_id", [id])).rows[0]?.primary_id;
+ if (primaryId) return { primaryId };
+ const product = await getProduct(id);
+ return { product: product && (await withBestOffers([product]))[0] };
+}
+/** SETA products stating one of this product's (or its grouped offers') OEM numbers or its own number. */
+export async function getSetaEquivalents(id: string) {
+ return (await db.query<CatalogProduct & { via_brand: string; via_part: string }>(`SELECT * FROM (
+  SELECT DISTINCT ON (priced.id) priced.*,r.brand AS via_brand,r.part_number AS via_part FROM product_seta_references r
+  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=r.seta_item_id OFFSET 0) priced ON true
+  WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)
+  ORDER BY priced.id) seta ORDER BY available DESC,price_kurus NULLS LAST,code LIMIT 24`, [company(), id])).rows;
 }
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
 export function money(kurus: number) { return new Intl.NumberFormat("tr-TR",{ style:"currency", currency:"TRY" }).format(kurus/100); }
@@ -91,7 +129,9 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
   // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
-  return (await db.query<{id:string}>(`SELECT id::text FROM (SELECT DISTINCT id FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
+  // A secondary supplier offer counts as a hit of the product listing it.
+  return (await db.query<{id:string}>(`SELECT id::text FROM (SELECT DISTINCT COALESCE(o.primary_id,hit.id) AS id FROM (${searchHits(candidate,binder(values),mode)}) hit(id)
+   LEFT JOIN product_offers o ON o.item_id=hit.id LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};
@@ -162,10 +202,12 @@ async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean
  const correctedParsed=corrected&&parse(corrected.text);
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }
+// Secondary offers of a product sold by several suppliers are reached through the product listing them.
+const listedOnly="NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=catalog.id AND o.primary_id<>o.item_id)";
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
- const values: unknown[] = [company()]; const clauses: string[] = [];
+ const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  let search:CatalogSearch|undefined;
  if(query.q?.trim()) {
   search=await catalogSearch(query.q,query.searchBy==="code"?"code":"all");
@@ -210,7 +252,10 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
    AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part'))`);
  }
- if(query.availability)clauses.push(`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE ${query.availability==='in_stock'?'available':"NOT available AND stock_label='Stokta yok'"})`);
+ // In stock: the row or any offer grouped under it can be sold now.
+ if(query.availability)clauses.push(query.availability==='in_stock'
+  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${catalogSql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
+  :`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};
@@ -274,7 +319,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const ids=ranked.slice((page-1)*pageSize,page*pageSize);
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
-  return {items,total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
+  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
@@ -293,14 +338,14 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
    `SELECT id::text FROM (SELECT id,updated_at ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
-  return {items,total,page,pages,pageSize};
+  return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  const items = (await db.query<CatalogProduct>(pricedSort
   ? `SELECT * FROM (${catalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offset}`
   : `WITH page AS MATERIALIZED (SELECT id,updated_at,${rank} AS rank ${from} ORDER BY rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
      SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
      ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
- return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
+ return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */
 export type ProductSuggestion={kind:"product";id:string;name:string;brand:string;code:string}|{kind:"name";name:string;products:number};

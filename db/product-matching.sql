@@ -88,6 +88,26 @@ CREATE TABLE IF NOT EXISTS product_equivalence_groups (
  brand text NOT NULL, part_number text NOT NULL, direct integer NOT NULL, referencing integer NOT NULL,
  products integer NOT NULL, members integer NOT NULL, suppliers text[] NOT NULL, PRIMARY KEY (brand,part_number)
 );
+-- Storefront offers. Saleable Başbuğ/Dinamik items that are the same product (brand key + part number) share one
+-- listing: the primary (Başbuğ first, then the lowest code) is what the store lists, and every item of the group,
+-- primary included, is an offer competing on price and stock. SETA is a brand of its own and never joins.
+CREATE TABLE IF NOT EXISTS product_offers (
+ item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ primary_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_id);
+-- Items an admin split off a group ("Ayır"); they stay separate listings across refreshes.
+CREATE TABLE IF NOT EXISTS product_offer_exclusions (
+ item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz NOT NULL DEFAULT now()
+);
+-- SETA equivalents of a Başbuğ/Dinamik item: SETA items stating one of its OEM numbers or its own brand + number.
+CREATE TABLE IF NOT EXISTS product_seta_references (
+ item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
+ seta_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
+ brand text NOT NULL, part_number text NOT NULL, PRIMARY KEY (item_id,seta_item_id)
+);
+CREATE INDEX IF NOT EXISTS product_seta_references_seta_idx ON product_seta_references(seta_item_id);
 CREATE TABLE IF NOT EXISTS product_match_runs (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, started_at timestamptz NOT NULL, completed_at timestamptz NOT NULL,
  stats jsonb NOT NULL
@@ -100,7 +120,7 @@ BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
  DELETE FROM product_match_groups; DELETE FROM product_brand_pair_suggestions; DELETE FROM product_equivalence_groups;
- DELETE FROM product_references;
+ DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
  DELETE FROM product_match_items;
  INSERT INTO product_match_items
  SELECT i.id, i.supplier, COALESCE(a.canonical,k.key), supplier_item_part_number(i.supplier,i.code,i.product_data),
@@ -199,7 +219,38 @@ BEGIN
  SELECT ref_brand, ref_part, count(*) FILTER (WHERE direct), count(*) FILTER (WHERE NOT direct),
   count(DISTINCT (brand,part_number)), count(*), array_agg(DISTINCT supplier ORDER BY supplier)
  FROM members GROUP BY ref_brand, ref_part HAVING count(DISTINCT (brand,part_number))>1;
+ INSERT INTO product_offers
+ WITH saleable AS (
+  SELECT m.supplier_item_id, m.supplier, m.brand, m.part_number, i.code FROM product_match_items m
+  JOIN commerce_supplier_items i ON i.id=m.supplier_item_id
+  WHERE m.supplier IN ('basbug','dinamik') AND NOT EXISTS (SELECT 1 FROM product_offer_exclusions x WHERE x.item_id=m.supplier_item_id)
+ ), ranked AS (
+  SELECT supplier_item_id, count(*) OVER (PARTITION BY brand,part_number) AS offers,
+   first_value(supplier_item_id) OVER (PARTITION BY brand,part_number ORDER BY supplier='basbug' DESC,code,supplier_item_id) AS primary_id
+  FROM saleable
+ )
+ SELECT supplier_item_id, primary_id FROM ranked WHERE offers>1;
+ ANALYZE product_offers;
+ INSERT INTO product_seta_references
+ SELECT DISTINCT ON (k.item_id,r.supplier_item_id) k.item_id, r.supplier_item_id, k.brand, k.part_number
+ FROM (
+  SELECT supplier_item_id AS item_id, brand, part_number FROM product_match_items WHERE supplier IN ('basbug','dinamik')
+  UNION SELECT r.supplier_item_id, r.brand, r.part_number FROM product_references r
+  JOIN product_match_items m ON m.supplier_item_id=r.supplier_item_id AND m.supplier IN ('basbug','dinamik')
+ ) k JOIN product_references r ON r.brand=k.brand AND r.part_number=k.part_number
+ JOIN product_match_items s ON s.supplier_item_id=r.supplier_item_id AND s.supplier='seta'
+ ORDER BY k.item_id, r.supplier_item_id, k.brand, k.part_number;
+ ANALYZE product_seta_references;
  SELECT jsonb_build_object(
+  'offer_groups', (SELECT count(DISTINCT primary_id) FROM product_offers),
+  'offer_items', (SELECT count(*) FROM product_offers),
+  'basbug_dinamik_groups', (SELECT count(*) FROM (SELECT primary_id FROM product_offers o JOIN supplier_items i ON i.id=o.item_id
+    GROUP BY primary_id HAVING count(*) FILTER (WHERE i.supplier='basbug')>0 AND count(*) FILTER (WHERE i.supplier='dinamik')>0) g),
+  'dinamik_only', (SELECT count(*) FROM commerce_supplier_items i WHERE i.supplier='dinamik'
+    AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id IN (SELECT o2.item_id FROM product_offers o2 JOIN supplier_items b ON b.id=o2.item_id AND b.supplier='basbug'))),
+  'offer_exclusions', (SELECT count(*) FROM product_offer_exclusions),
+  'seta_linked_items', (SELECT count(DISTINCT seta_item_id) FROM product_seta_references),
+  'seta_linked_products', (SELECT count(DISTINCT item_id) FROM product_seta_references),
   'items', (SELECT count(*) FROM product_match_items),
   'groups', (SELECT count(*) FROM product_match_groups),
   'cross_supplier_groups', (SELECT count(*) FROM product_match_groups WHERE cardinality(suppliers)>1),

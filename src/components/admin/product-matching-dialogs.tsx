@@ -10,8 +10,6 @@ import { decideBrandPair } from "@/app/yonetim/urun-eslestirme/actions";
 
 export type PairRow = { brand_a: string; brand_b: string; shared_parts: string; shared_eans: string | null; similarity: string | null; strong: boolean;
   samples: { part: string; a: string | null; b: string | null }[]; ean_samples: { ean: string; part_a: string; a: string | null; part_b: string; b: string | null }[] };
-// `relation` is set for equivalence groups: whether the item owns the reference number or states it.
-export type GroupMemberRow = { id: string; supplier: string; code: string; brand: string | null; name: string | null; cost: string; stock: boolean | null; sale: string; relation?: string };
 
 const decisions = [["same", "Aynı marka", "default"], ["equivalent", "Muadil", "outline"], ["unrelated", "İlgisiz", "ghost"]] as const;
 
@@ -60,26 +58,23 @@ export function PairDialog({ pair, back }: { pair: PairRow; back: string }) {
   </Dialog>;
 }
 
-export function GroupDialog({ title, description, members }: { title: string; description: string; members: GroupMemberRow[] }) {
-  const relation = members.some(member => member.relation);
+export type LinkedProductRow = { id: string; supplier: string; code: string; name: string | null; via: string };
+
+/** The store listings a SETA product is shown on as an equivalent. */
+export function SetaDialog({ title, description, products }: { title: string; description: string; products: LinkedProductRow[] }) {
   return <Dialog>
-    <DetailTrigger label={`${title} kayıtlarını aç`}/>
-    <DialogContent className="sm:max-w-4xl">
+    <DetailTrigger label={`${title} bağlantılarını aç`}/>
+    <DialogContent className="sm:max-w-3xl">
       <DialogHeader><DialogTitle className="font-mono">{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
       <div className="max-h-[60dvh] overflow-auto rounded-lg border">
-        <Table className={`${relation ? "min-w-[880px]" : "min-w-[760px]"} table-fixed text-xs [&_td]:py-1.5`}><TableHeader><TableRow className="bg-muted/40">
-          <TableHead className="w-24 pl-3">Tedarikçi</TableHead>{relation && <TableHead className="w-28">Bağ</TableHead>}<TableHead className="w-40">Kod</TableHead><TableHead className="w-32">Kaynak marka</TableHead><TableHead>Ad</TableHead>
-          <TableHead className="w-28 text-right">Kaynak fiyat</TableHead><TableHead className="w-16 text-center">Stok</TableHead><TableHead className="w-28 pr-3 text-right">Mağaza</TableHead>
+        <Table className="min-w-[640px] table-fixed text-xs [&_td]:py-1.5"><TableHeader><TableRow className="bg-muted/40">
+          <TableHead className="w-24 pl-3">Tedarikçi</TableHead><TableHead className="w-40">Kod</TableHead><TableHead>Ad</TableHead><TableHead className="w-40 pr-3">Ortak numara</TableHead>
         </TableRow></TableHeader>
-          <TableBody>{members.map(member => <TableRow key={member.id}>
-            <TableCell className="pl-3">{member.supplier}</TableCell>
-            {relation && <TableCell className="text-muted-foreground">{member.relation}</TableCell>}
-            <TableCell className="truncate font-mono" title={member.code}>{member.code}</TableCell>
-            <TableCell className="truncate text-muted-foreground" title={member.brand ?? ""}>{member.brand || "—"}</TableCell>
-            <TableCell className="truncate" title={member.name ?? ""}>{member.name || "—"}</TableCell>
-            <TableCell className="text-right tabular-nums">{member.cost}</TableCell>
-            <TableCell className="text-center"><StockLabel stock={member.stock}/></TableCell>
-            <TableCell className="pr-3 text-right tabular-nums text-muted-foreground">{member.sale}</TableCell>
+          <TableBody>{products.map(product => <TableRow key={product.id}>
+            <TableCell className="pl-3">{product.supplier}</TableCell>
+            <TableCell className="truncate font-mono" title={product.code}><a className="hover:underline" href={`/urun/${product.id}`} target="_blank" rel="noreferrer">{product.code}</a></TableCell>
+            <TableCell className="truncate" title={product.name ?? ""}>{product.name || "—"}</TableCell>
+            <TableCell className="truncate pr-3 font-mono text-muted-foreground" title={product.via}>{product.via}</TableCell>
           </TableRow>)}</TableBody></Table>
       </div>
     </DialogContent>

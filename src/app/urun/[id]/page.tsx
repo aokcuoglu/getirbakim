@@ -2,9 +2,9 @@ import { Fragment, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { siteUrl } from "@/lib/site";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
-import { getProduct, money, servicePrice, categories } from "@/modules/store/catalog";
+import { getProduct, getSetaEquivalents, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { PurchaseForm } from "@/components/purchase-form";
 import { PartArt } from "@/components/part-art";
@@ -45,7 +45,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function Detail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const product = await getProduct(id);
+  const { product, primaryId } = await getStoreProduct(id);
+  // A supplier offer of a product several suppliers sell is shown on that product's page.
+  if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
   const enrichment = await getProductEnrichment(product);
   const logos = await getManufacturerLogos([product.brand]);
@@ -79,6 +81,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     ...Object.entries(enrichment?.crossReferences || {}).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
     ...Object.entries(enrichment?.oemNumbers || {}).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
   ]);
+  const seta = product.supplier === "seta" ? [] : await getSetaEquivalents(product.id);
   const crumbLink = "transition-colors hover:text-[#2d78c7]";
   const crumbSeparator = <BreadcrumbSeparator className="[&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
   const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
@@ -108,7 +111,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
           <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px] text-[#ed3821]">{price}</p>
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
-          <PurchaseForm productId={product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
+          <PurchaseForm productId={product.offer_id ?? product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
         </>}
         <div className="flex min-h-[54px] items-center gap-4 rounded-[5px] border border-[#ffb380] bg-[#fffaee] px-4 py-3"><CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/><GarageButton vehicle={vehicle} variant="product"/></div>
         {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
@@ -133,13 +136,20 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
         {(enrichment?.description || product.description) && <p className="mt-6 leading-6 text-[#53677d]">{enrichment?.description || product.description}</p>}
       </section>
       {enrichment && (enrichment.vehicles.length > 0 ? <ProductFitment vehicles={enrichment.vehicles}/> : enrichment.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{enrichment.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{model}</span>)}</div><p>Motor ve üretim yılı ayrıntıları henüz eklenmedi.</p></section>)}
-      {references.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{references.map(([brand, codes]) => <div key={brand} className="grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]"><dt className="text-[#53677d]">{brand}</dt><dd className="m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere">{codes.map(code => { const href = referenceHref(brand, code); return href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>; })}</dd></div>)}</dl></section>}
+      {(references.length > 0 || seta.length > 0) && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{product.brand} {displayPartNumber} OEM ve muadil numaraları</h2>{references.length > 0 && <dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{references.map(([brand, codes]) => <div key={brand} className="grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]"><dt className="text-[#53677d]">{brand}</dt><dd className="m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere">{codes.map(code => { const href = referenceHref(brand, code); return href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>; })}</dd></div>)}</dl>}
+        {seta.length > 0 && <div className={cn(references.length > 0 && "mt-7")}><h3 className="mb-3 text-lg leading-6 font-semibold">SETA muadilleri</h3>
+          <ul className="m-0 grid list-none gap-2 p-0">{seta.map(item => <li key={item.id}><Link href={`/urun/${item.id}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg border border-[#dce2e9] bg-white px-5 py-3.5 transition-colors hover:border-[#0065c3] max-[750px]:gap-3 max-[750px]:px-3.5">
+            <span className="min-w-0"><span className="block font-medium wrap-anywhere">{item.name}</span><span className="block text-[13px] text-[#53677d] wrap-anywhere">SETA {item.code} · {item.via_brand === "ORIJINAL" ? "OEM" : item.via_brand} {item.via_part}</span></span>
+            <span className="text-right"><span className="block font-semibold whitespace-nowrap">{item.price_kurus === null ? "—" : money(servicePrice(item.price_kurus, isB2B ? account!.discount_percent : 0))}</span><span className={cn("block text-xs", item.available ? "text-[#26734d]" : "text-[#53677d]")}>{item.available ? "Stokta" : "Stokta yok"}</span></span>
+          </Link></li>)}</ul>
+        </div>}
+      </section>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
     <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-wrap max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
       ["#product-specifications", "Ürün detayları", true],
       ["#uyumlu-araclar", "Uyumlu araçlar", hasFitment],
-      ["#oem-numaralari", "OEM ve muadil numaraları", references.length > 0],
+      ["#oem-numaralari", "OEM ve muadil numaraları", references.length > 0 || seta.length > 0],
       ["#urun-yardim", "Bu ürün hakkında sorular", true],
     ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium first:bg-[#f7f8fa] hover:bg-[#f7f8fa] max-[750px]:px-2.5 max-[750px]:text-xs">{label}</a>)}</nav>
   </div></div></div>;
