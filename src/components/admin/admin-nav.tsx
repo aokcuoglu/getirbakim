@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, Building2, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, PlugZap, ReceiptText, Sun, Truck, type LucideIcon } from "lucide-react";
+import { BadgePercent, Building2, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, PlugZap, ReceiptText, Sun, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,7 @@ const sections: { title: string; items: Item[] }[] = [
   ] },
   { title: "Katalog", items: [
     { href: "/yonetim/urun-verileri", label: "Ürün zenginleştirme", icon: Layers3, count: "enrichment" },
+    { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows },
   ] },
   { title: "Entegrasyonlar", items: [
     { href: "/yonetim/tedarikciler", label: "Tüm tedarikçiler", icon: PlugZap, exact: true },
