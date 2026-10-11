@@ -14,7 +14,7 @@ Sunucu TLS zincirinde ara sertifikayı göndermiyor. Doğrulama kapatılmadı: S
 | `GET /api/Dnmk_Customer/getStockList/{marka}` | Ürün ayrıntısı + `varyok1..4` (İstanbul/Ankara/Sakarya/Kayseri), `varyokAll`, `kaporta` VAR/YOK bayrakları, `fiyat`, `kampanyaOrani`, paket/koli/ölçü/desi |
 | `GET /api/Dnmk_Customer/getPriceList/{marka}` | `marka`, `stokKodu`, `fiyat`; stok listesinin üst kümesi |
 
-Gözlemler (FEBI/BOSCH örneği): fiyat listesi stok listesinin ~2-3 katı; stok listesinde olup fiyat listesinde olmayan kod yok; iki listedeki fiyatlar birebir aynı. Stok değerleri adet değil VAR/YOK. Fiyatın KDV dahil/hariç, iskontolu/iskontosuz olduğu ve kampanya oranının uygulanma şekli **doğrulanmadı**; bu yüzden mağaza satışı kapalı (`commerce_supplier_items` yalnız Başbuğ). Ayrıntı: [supplier-sync.md](supplier-sync.md#dinamik--11-ekim-2026).
+Gözlemler (FEBI/BOSCH örneği): fiyat listesi stok listesinin ~2-3 katı; stok listesinde olup fiyat listesinde olmayan kod yok; iki listedeki fiyatlar birebir aynı. Stok değerleri adet değil VAR/YOK. **Ticari karar (11 Ekim 2026):** `fiyat` KDV hariç TRY maliyettir; satış fiyatı Başbuğ ile aynı ortak kâr + KDV oranlarıyla (varsayılan %30 + %20) hesaplanır. Kampanya oranının anlamı doğrulanmadığından uygulanmaz. Ayrıntı: [supplier-sync.md](supplier-sync.md#dinamik--11-ekim-2026).
 
 ## Başbuğ
 

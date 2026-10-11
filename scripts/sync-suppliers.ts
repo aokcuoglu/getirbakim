@@ -77,6 +77,8 @@ try {
         try {
           const result = await importDinamik(pool, { brand: scope.list_group });
           console.log({ supplier: "dinamik", brand: scope.list_group, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+          // Dinamik names are sold and searched on the storefront too.
+          if (result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
         } catch (error) {
           const reason = error instanceof DinamikImportError ? error.message : "Dinamik import failed";
           console.error({ supplier: "dinamik", brand: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });

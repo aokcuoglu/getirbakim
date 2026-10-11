@@ -1,3 +1,6 @@
+import { supplierActivity } from "@/modules/suppliers/activity";
+import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
+import { db } from "@/lib/db";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
@@ -42,7 +45,7 @@ function runError(reason: string) {
 
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
-  const [data, checkoutMode] = await Promise.all([adminSetaData(params), supplierCheckoutMode()]);
+  const [data, checkoutMode, activity] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta")]);
   const { snapshot, health, items, categories, total, page, pages } = data;
   const scope = health.scopes[0];
   const pageUrl = (target: number) => {
@@ -60,7 +63,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
   return <AdminPage>
     <AdminPageHeader breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "SETA" }]} title="SETA API"
       description="Seta Filtre B2B listesi: ürün, OEM, çapraz referans, KDV hariç bayi fiyatı ve stok durumu."
-      actions={<StatusBadge tone={!scope ? "neutral" : health.healthy ? "success" : "warning"}>{!scope ? "Henüz aktarılmadı" : health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor"}</StatusBadge>}/>
+      actions={<SupplierActivityBadge supplier="seta" initial={activity}><StatusBadge tone={!scope ? "neutral" : health.healthy ? "success" : "warning"}>{!scope ? "Henüz aktarılmadı" : health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor"}</StatusBadge></SupplierActivityBadge>}/>
     {params.updated === "1" && <StatusMessage>Liste API’den çekildi ve güncel kayıtlar yenilendi.</StatusMessage>}
     {params.error && <StatusMessage tone="error">{errors[params.error] || errors.upstream}</StatusMessage>}
     <Card className="py-0" role="region" aria-label="SETA özet">

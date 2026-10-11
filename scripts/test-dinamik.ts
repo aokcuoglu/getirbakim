@@ -20,17 +20,28 @@ test("stock and price lists merge per code without inventing missing data", () =
   // Product fields stay in product_data, availability flags in stock_data, prices in price_data.
   assert.equal(byCode["FEBI 1"].product_data.stokAdi, "EGZOZ ASKI LASTIGI");
   assert.ok(!("fiyat" in byCode["FEBI 1"].product_data) && !("varyok1" in byCode["FEBI 1"].product_data) && !("$type" in byCode["FEBI 1"].product_data));
-  assert.deepEqual(byCode["FEBI 1"].stock_data, { varyok1: "YOK", varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", varyokAll: "VAR", kaporta: "YOK" });
-  assert.deepEqual(byCode["FEBI 1"].price_data, { marka: "FEBI", stokKodu: "FEBI 1", fiyat: 106.09, kampanyaOrani: 0 });
+  assert.deepEqual(byCode["FEBI 1"].stock_data, { varyok1: "YOK", varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", varyokAll: "VAR", kaporta: "YOK", stok: 1 });
+  assert.deepEqual(byCode["FEBI 1"].price_data, { marka: "FEBI", stokKodu: "FEBI 1", fiyat: 106.09, kampanyaOrani: 0, nf: 106.09 });
+  // Başbuğ-shaped fields the storefront, search and checkout read (see dinamikStorefrontFields).
+  assert.deepEqual(Object.fromEntries(["no", "ac", "ac2", "uk", "oe", "dc"].map(key => [key, byCode["FEBI 1"].product_data[key]])),
+    { no: "FEBI 1", ac: "EGZOZ ASKI LASTIGI", ac2: "", uk: "FEBI", oe: "", dc: "TRY" });
   // Price-list-only code: minimal product, unknown stock.
   assert.deepEqual(byCode["FEBI 2"].product_data, { stokKodu: "FEBI 2", marka: "FEBI" });
   assert.equal(byCode["FEBI 2"].stock_data, null);
+  assert.equal(byCode["FEBI 2"].price_data?.nf, 9.5);
+  // No price → no cost: the storefront hides the price instead of selling at zero.
+  assert.ok(!("nf" in byCode["FEBI 4"].price_data!));
   // The two lists disagree on the price: kept visible as a conflict, not resolved.
   assert.equal(byCode["FEBI 3"].conflicting, true);
   assert.equal(byCode["FEBI 3"].source_variants.stockListPrice, 50);
   assert.equal(quality.missingPrices, 1);
   assert.equal(quality.missingStocks, 2);
   assert.equal(quality.available, 2);
+});
+
+test("stok is 1 only when some regional flag says VAR", () => {
+  const { items } = prepareDinamikImport({ brand: "FEBI", stock: [{ ...stockRow("FEBI 1"), varyok4: "YOK", varyokAll: "YOK" }, { ...stockRow("FEBI 2"), varyok4: "YOK", varyokAll: "VAR" }], prices: [] });
+  assert.deepEqual(items.map(item => item.stock_data?.stok), [0, 1]);
 });
 
 test("repeated and contradicting rows are counted and preserved", () => {

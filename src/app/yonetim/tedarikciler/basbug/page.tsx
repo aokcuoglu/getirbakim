@@ -22,6 +22,9 @@ import { cn } from "@/lib/utils";
 import { adminBasbugData } from "@/modules/admin/basbug";
 import { refreshBasbug, saveBasbugCheckoutMode } from "./actions";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
+import { supplierActivity } from "@/modules/suppliers/activity";
+import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
+import { db } from "@/lib/db";
 import { money } from "@/modules/store/catalog";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { basbugStockLabel, basbugWarehouse, basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
@@ -58,7 +61,7 @@ function runError(reason: string) {
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await adminBasbugData(params);
-  const checkoutMode = await supplierCheckoutMode();
+  const [checkoutMode, activity] = await Promise.all([supplierCheckoutMode(), supplierActivity(db, "basbug")]);
   const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
   function pageUrl(target: number) {
     const query = new URLSearchParams({ group, page: String(target) });
@@ -79,7 +82,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   ];
   return <AdminPage>
     <AdminPageHeader breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "Başbuğ" }]} title="Başbuğ API"
-      description="Ürün, kaynak fiyat ve depo stok verilerini incele; senkronizasyonu yönet." actions={<StatusBadge tone={data.health.healthy ? "success" : "warning"}>{data.health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor"}</StatusBadge>}/>
+      description="Ürün, kaynak fiyat ve depo stok verilerini incele; senkronizasyonu yönet." actions={<SupplierActivityBadge supplier="basbug" initial={activity}><StatusBadge tone={data.health.healthy ? "success" : "warning"}>{data.health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor"}</StatusBadge></SupplierActivityBadge>}/>
     {params.updated === "1" && <StatusMessage>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</StatusMessage>}
     {params.error && <StatusMessage tone="error">{errors[params.error] || errors.upstream}</StatusMessage>}
     {params.modeSaved === "1" && <StatusMessage>Sipariş veri kaynağı kaydedildi.</StatusMessage>}

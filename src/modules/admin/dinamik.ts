@@ -17,6 +17,7 @@ export type DinamikItem = {
   source_variants: Record<string, unknown>;
   presence: "present" | "pending_missing" | "inactive";
   first_seen_at: Date; last_seen_at: Date; changed_at: Date; missing_count: number;
+  sale_price_kurus?: number | null; sale_available?: boolean | null; sale_stock_label?: string | null;
 };
 
 const pageSize = 50;
@@ -59,7 +60,12 @@ export async function adminDinamikItems(params: DinamikParams) {
   const total = count.rows[0].count, pages = Math.max(1, Math.ceil(total / pageSize));
   const parsedPage = Number(params.page);
   const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
-  const items = await db.query<DinamikItem>(`SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT ${pageSize} OFFSET $${values.length + 1}`, [...values, (page - 1) * pageSize]);
+  // Same join as the Başbuğ list: the storefront price for just this page of rows.
+  const items = await db.query<DinamikItem>(`WITH page AS MATERIALIZED (
+    SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT ${pageSize} OFFSET $${values.length + 1}
+  ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
+    FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
+    ORDER BY page.code,page.id`, [...values, (page - 1) * pageSize]);
   return { items: items.rows, total, page, pages, brands: brands.rows.map(row => row.list_group), groups: groups ? groups.rows.map(row => row.value) : allGroups!.values };
 }
 
