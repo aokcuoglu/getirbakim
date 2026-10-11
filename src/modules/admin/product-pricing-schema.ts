@@ -19,15 +19,19 @@ function rate(max: number) {
 export const productPricingRatesSchema = z.object({ markup: rate(1000), vat: rate(100) });
 export const productPricingSchema = productPricingRatesSchema.extend({ id: z.uuid() });
 export type ProductPricingRates = z.output<typeof productPricingRatesSchema>;
-export type ProductPricing = ProductPricingRates & { generalMarkup: number; generalVat: number };
+export type ProductPricing = ProductPricingRates & { generalMarkup: number; generalVat: number; currency: string | null; exchangeRate: number | null };
 export type ProductPricingResult = { status: "idle" | "success" | "error"; message?: string; rates?: ProductPricingRates };
 
 /** Decimal arithmetic matches PostgreSQL numeric rounding, including half-cent boundaries. */
-export function productPricePreview(cost: number | null, markup: number, vat: number): number | null {
-  if (cost === null || !Number.isFinite(cost) || cost <= 0 || cost > 21474836.47 || !Number.isFinite(markup) || !Number.isFinite(vat) || markup < 0 || markup > 1000 || vat < 0 || vat > 100) return null;
-  const [coefficient, exponent = "0"] = String(cost).split("e");
-  const scale = (coefficient.split(".")[1]?.length ?? 0) - Number(exponent);
-  const digits = BigInt(coefficient.replace(".", "")) * BigInt(10) ** BigInt(Math.max(0, -scale));
+export function productPricePreview(cost: number | null, markup: number, vat: number, exchangeRate: number | null = 1): number | null {
+  if (cost === null || !Number.isFinite(cost) || cost <= 0 || exchangeRate === null || !Number.isFinite(exchangeRate) || exchangeRate <= 0 || !Number.isFinite(markup) || !Number.isFinite(vat) || markup < 0 || markup > 1000 || vat < 0 || vat > 100) return null;
+  const decimal = (value: number) => {
+    const [coefficient, exponent = "0"] = String(value).split("e");
+    return { digits: BigInt(coefficient.replace(".", "")), scale: (coefficient.split(".")[1]?.length ?? 0) - Number(exponent) };
+  };
+  const source = decimal(cost), rate = decimal(exchangeRate);
+  const scale = source.scale + rate.scale;
+  const digits = source.digits * rate.digits * BigInt(10) ** BigInt(Math.max(0, -scale));
   const numerator = digits * BigInt(10000 + Math.round(markup * 100)) * BigInt(10000 + Math.round(vat * 100)) * BigInt(100);
   const denominator = BigInt(10) ** BigInt(Math.max(0, scale)) * BigInt(100000000);
   const rounded = (BigInt(2) * numerator + denominator) / (BigInt(2) * denominator);
