@@ -5,8 +5,9 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { z } from "zod";
+import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbug-stock";
 
-export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; stock?: string; quality?: string; presence?: string; page?: string; updated?: string; error?: string };
+export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; updated?: string; error?: string };
 export type ImportSummary = {
   run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null; stats: Record<string, number>;
   id: string; company: string; list_group: string; warehouse: string;
@@ -20,7 +21,7 @@ export type AdminSupplierItem = {
   id: string; code: string;
   product_data: { ac: string; ac2: string; uk: string; oe: string; lgk: string; m: string; mo: string; y: string; b: string; dc: string; lf: number; mkk: string };
   price_data: { nf: number; mif: number; k: number } | null;
-  stock_data: { stok: number; sYol: number; sDepo: string; sFarkliDepo: number; depolar?: Record<string, { stok: number; sYol: number }> } | null;
+  stock_data: BasbugStockData | null;
   product_count: number; price_count: number; stock_count: number; conflicting: boolean;
   source_variants: Record<string, unknown>;
   presence: "present" | "pending_missing" | "inactive";
@@ -61,7 +62,12 @@ export async function adminBasbugData(params: BasbugParams) {
   if (q) conditions.push(supplierItemMatch("supplier_items", parseSearchQuery(q), binder(values)));
   if (params.brand) add("product_data->>'uk'=?", params.brand.slice(0, 200));
   if (params.currency) add("product_data->>'dc'=?", params.currency.slice(0, 20));
-  if (params.stock === "1" || params.stock === "0") add("stock_data->>'stok'=?", params.stock);
+  if (["1", "0", "unknown"].includes(params.stock ?? "")) {
+    values.push(basbugWarehouse(params.warehouse));
+    const depot = `$${values.length}::text`;
+    const stock = `COALESCE(stock_data->'depolar'->${depot}->>'stok',CASE WHEN ${depot}='MRK' THEN stock_data->>'stok' END)::numeric`;
+    conditions.push(params.stock === "unknown" ? `${stock} IS NULL` : `${stock}${params.stock === "1" ? ">0" : "<=0"}`);
+  }
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
   if (params.quality === "duplicates") conditions.push("(product_count>1 OR price_count>1 OR stock_count>1)");
   if (params.quality === "conflicts") conditions.push("conflicting");
