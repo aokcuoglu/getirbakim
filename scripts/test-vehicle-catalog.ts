@@ -47,7 +47,7 @@ test("CSV quoting, null dates/displacement and DB-backed picker lists are preser
   assert.equal(vehicleProductionDates(null, null), "Başlangıç bilinmiyor – devam ediyor");
 });
 
-test("DB search accepts aliases and accents, paginates consistently, and treats SQL wildcards literally", async () => {
+test("DB search accepts aliases and accents, paginates consistently, and ignores SQL wildcards", async () => {
   const first = await searchVehicleCatalog("VW Golf dizel");
   const second = await searchVehicleCatalog("VW Golf dizel", 60);
   assert.ok(first.total > 60); assert.equal(first.vehicles.length, 60);
@@ -58,10 +58,8 @@ test("DB search accepts aliases and accents, paginates consistently, and treats 
   const accented = await searchVehicleCatalog("citroën"), plain = await searchVehicleCatalog("citroen");
   assert.equal(accented.total, plain.total); assert.ok(plain.total > 0);
   assert.equal((await searchVehicleCatalog("nonexistent-vehicle-987654")).total, 0);
-  for (const query of ["%", "_", "\\", "' OR TRUE --"]) {
-    const expected = (await source).vehicles.filter(v => query.toLowerCase().split(/\s+/).every(term => v.search_text.includes(term))).length;
-    assert.equal((await searchVehicleCatalog(query)).total, expected);
-  }
+  // Punctuation is not searchable text, so wildcards and injection attempts match nothing.
+  for (const query of ["%", "_", "\\", "' OR TRUE --"]) assert.equal((await searchVehicleCatalog(query)).total, 0);
 });
 
 test("selection resolves a DB TecDoc ID and rejects missing IDs and invalid years", async () => {
