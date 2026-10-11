@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
-import { exactTsQuery, parseSearchQuery, type ParsedSearch } from "@/modules/search/query";
+import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
@@ -81,7 +81,7 @@ export type VehicleSearchResult = { vehicles: CatalogVehicle[]; total: number; c
 
 export async function searchVehicleCatalog(query: string, offset = 0, limit = 60): Promise<VehicleSearchResult> {
   const parsed = parseSearchQuery(query, { years: true });
-  if (!parsed.terms.length && !parsed.years.length) return { vehicles: [], total: 0 };
+  if (searchTooShort(query) || (!parsed.terms.length && !parsed.years.length)) return { vehicles: [], total: 0 };
   const result = await rankedVehicleSearch(parsed, offset, limit);
   if (result.total) return result;
   // Nothing matched as typed: retry with mistyped words corrected ("volksvagen pasat").

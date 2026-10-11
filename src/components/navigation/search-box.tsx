@@ -52,7 +52,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
         onChange={value => setMode(value === "code" ? "code" : "all")} />
       <input type="search" name="q" aria-label="Ürün, marka veya OEM koduyla ara"
         placeholder={mode === "code" ? "Ürün kodu veya OEM numarası" : "Hangi parçayı arıyorsun?"}
-        defaultValue={defaultQuery} maxLength={120}
+        defaultValue={defaultQuery} minLength={2} maxLength={120}
         className={cn("w-0 min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm leading-[22px] text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:border-0 focus:shadow-none focus:outline-none focus-visible:outline-none", v.input)} />
       {category && <input type="hidden" name="category" value={category} />}
       <button type="submit" aria-label="Parça ara" className={cn("grid min-h-0 shrink-0 place-items-center border-0 p-0", v.button)}><Search size={20} aria-hidden="true" /></button>

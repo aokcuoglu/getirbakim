@@ -12,6 +12,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils";
 import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle } from "@/app/garaj/actions";
 import type { GarageEntry } from "@/modules/store/garage";
+import { minSearchLength, searchTooShort } from "@/modules/search/query";
 import { vehicleDetails, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 
@@ -59,7 +60,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const brandsRequest = useVehicleCatalog("/api/vehicles");
   const modelsRequest = useVehicleCatalog(brandId ? `/api/vehicles?brandId=${encodeURIComponent(brandId)}` : null);
   const typesRequest = useVehicleCatalog(modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
-  const searchRequest = useVehicleCatalog(query.trim() ? `/api/vehicles?q=${encodeURIComponent(query.trim())}&offset=${searchOffset}` : null, 250);
+  const tooShort = searchTooShort(query);
+  const searchRequest = useVehicleCatalog(query.trim() && !tooShort ? `/api/vehicles?q=${encodeURIComponent(query.trim())}&offset=${searchOffset}` : null, 250);
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
@@ -173,7 +175,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             {model && step !== "model" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("model")}>{model.name}</Button></>}
             {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
-          {activeRequest.loading ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Araç verileri yükleniyor…</p>
+          {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
+            : activeRequest.loading ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Araç verileri yükleniyor…</p>
             : activeRequest.error ? <div className={emptyBox}><p role="alert">{activeRequest.error}</p><Button type="button" className={secondaryButton} onClick={activeRequest.retry}>Tekrar dene</Button></div>
             : query.trim() ? <>
               <p className="mt-0 mb-3 text-xs text-muted-foreground">{searchTotal} araç seçeneği{searchTotal > 60 && ` · ${searchOffset + 1}–${Math.min(searchOffset + 60, searchTotal)} gösteriliyor`}</p>
