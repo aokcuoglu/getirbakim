@@ -88,9 +88,9 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
             {fields.length ? <Table aria-label={`${supplierDate(change.changed_at)} değişen alanlar`}>
                 <TableHeader><TableRow><TableHead className="w-2/5">Alan</TableHead><TableHead>Önce</TableHead><TableHead>Sonra</TableHead></TableRow></TableHeader>
                 <TableBody>{fields.map(field => <TableRow key={JSON.stringify(field.path)}>
-                  <TableHead scope="row" className="whitespace-normal wrap-anywhere align-top">{field.path.map(key => fieldNames[key] ?? key).join(" · ") || "Kayıt"}</TableHead>
-                  <TableCell className="whitespace-normal wrap-anywhere align-top"><ChangeValue value={field.before} path={field.path} currency={historyCurrency(change.before_data, currency)}/></TableCell>
-                  <TableCell className="whitespace-normal wrap-anywhere align-top"><ChangeValue value={field.after} path={field.path} currency={historyCurrency(change.after_data, currency)}/></TableCell>
+                  <TableHead scope="row" className="whitespace-normal wrap-anywhere">{field.path.map(key => fieldNames[key] ?? key).join(" · ") || "Kayıt"}</TableHead>
+                  <TableCell className="whitespace-normal wrap-anywhere"><ChangeValue value={field.before} path={field.path} currency={historyCurrency(change.before_data, currency)}/></TableCell>
+                  <TableCell className="whitespace-normal wrap-anywhere"><ChangeValue value={field.after} path={field.path} currency={historyCurrency(change.after_data, currency)}/></TableCell>
                 </TableRow>)}</TableBody>
               </Table> : <p className="text-muted-foreground">Ürün, fiyat ve stok alanlarında fark yok; kayıt durumu değişti.</p>}
             <SourceJson label="Ham geçmiş kaydı" value={{ önce: change.before_data, sonra: change.after_data }}/>
