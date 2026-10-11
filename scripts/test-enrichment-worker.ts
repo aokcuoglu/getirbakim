@@ -1,11 +1,116 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdtemp,symlink,rm} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {sourceDecision,retryAfterMs,validSourcePath} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
 import {SourceQueue} from '../src/modules/enrichment/source-queue';
+import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
+test('long-running Chrome collectors close between successive catalog batches',async t=>{
+ const sockets:FakeSocket[]=[];
+ class FakeSocket extends EventTarget {
+  static OPEN=1;
+  readyState=1;
+  constructor(readonly url:string){super();sockets.push(this);queueMicrotask(()=>this.dispatchEvent(new Event('open')));}
+  send(message:string){
+   const {id,method}=JSON.parse(message);
+   const result=method==='Runtime.evaluate'?{result:{value:{host:this.url.split('/').at(-1),ready:'complete',blocked:false,challenge:false,title:'Source'}}}:{};
+   queueMicrotask(()=>this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({id,result})})));
+  }
+  close(){this.readyState=3;this.dispatchEvent(new Event('close'));}
+ }
+ const originalSocket=globalThis.WebSocket;
+ globalThis.WebSocket=FakeSocket as unknown as typeof WebSocket;
+ t.after(()=>{globalThis.WebSocket=originalSocket;});
+ t.mock.timers.enable({apis:['setTimeout']});
+ t.mock.method(globalThis,'fetch',async(input:string|URL|Request)=>{
+  const path=new URL(String(input)).pathname;
+  if(path==='/json/version')return Response.json({});
+  assert.equal(path,'/json/list');
+  return Response.json(['www.trodo.com','picdn.trodo.com'].map(host=>({id:host,type:'page',url:`https://${host}/`,webSocketDebuggerUrl:`ws://127.0.0.1:9222/${host}`})));
+ });
+ const flush=()=>new Promise<void>(resolve=>setImmediate(resolve));
+ for(let batch=0;batch<2;batch++){
+  let polls=0;
+  const queue={async clearChallenge(){},async hostState(){return {blocked:false};},async claim(){polls++;return {waitMs:250};}} as unknown as SourceQueue;
+  const collectors=startChromeCollectors(queue,{port:9222,profileDir:'unused',clientCode:'',landing:{'www.trodo.com':'https://www.trodo.com/','picdn.trodo.com':'https://picdn.trodo.com/'},log(){}});
+  // Simulate hours of rate-limit waits without any source traffic or real time passing.
+  for(let i=0;i<30000;i++){t.mock.timers.tick(1000);await flush();}
+  assert.ok(polls>50000);
+  let stopped:Promise<unknown>|undefined;
+  assert.doesNotThrow(()=>{stopped=collectors.stop();});
+  await stopped;
+  assert.ok(sockets.every(socket=>socket.readyState===3));
+ }
+ assert.equal(sockets.length,4);
+});
+test('catalog CLI completes successive 1,000-item batches, the remainder and halts on a blocked source',{skip:!process.env.DATABASE_URL},async()=>{
+ const schema='enrichment_batch_test_'+randomUUID().replaceAll('-','');
+ const directory=await mkdtemp(join(tmpdir(),'enrichment-batch-'));
+ const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
+ const admin=new Pool({connectionString:process.env.DATABASE_URL});
+ const pool=new Pool({connectionString:connection.href});
+ const startWorker=()=>{
+  const child=spawn(process.execPath,['--conditions=react-server','--import','tsx','scripts/enrichment-worker.ts','continue','0','1000'],{
+   cwd:directory,env:{...process.env,DATABASE_URL:connection.href},stdio:['ignore','pipe','pipe'],timeout:30000,killSignal:'SIGKILL',
+  });
+  let stdout='',stderr='';
+  child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
+  const done=new Promise<string>((resolve,reject)=>{
+   child.once('error',reject);
+   child.once('close',(code,signal)=>{if(code===0)resolve(stdout);else reject(Error(`Worker exited ${code??signal}: ${stderr}`));});
+  });
+  return {child,done};
+ };
+ try{
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  // Restrict every worker query and generated artifact to this disposable fixture.
+  for(const name of ['db','scripts','node_modules'])await symlink(resolve(name),join(directory,name));
+  await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code text NOT NULL,product_data jsonb NOT NULL);
+   CREATE TABLE commerce_supplier_items(id uuid PRIMARY KEY,stock_data jsonb);
+   CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
+  await pool.query(await readFile('db/product-enrichment.sql','utf8'));
+  await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
+  await pool.query(`INSERT INTO supplier_items(code,product_data) SELECT (1000000000+n)::text,'{"uk":"OTHER"}'::jsonb FROM generate_series(1,2001) AS n`);
+  const items=(await pool.query('SELECT code FROM supplier_items')).rows;
+  const paths=items.flatMap(({code})=>sourcePartQueries('OTHER',code).map(searchPath));
+  await pool.query(`INSERT INTO enrichment_source_cache(host,path,body,expires_at) SELECT 'www.trodo.com',path,'[{"products":[]}]'::jsonb,now()+interval '1 day' FROM unnest($1::text[]) AS path`,[paths]);
+  const output=await startWorker().done;
+  const runs=(await pool.query('SELECT id,status,sample_size FROM enrichment_runs ORDER BY created_at')).rows;
+  assert.deepEqual(runs.map(r=>({status:r.status,size:r.sample_size})),[{status:'complete',size:1000},{status:'complete',size:1000},{status:'complete',size:1}]);
+  assert.match(output,/"continue":"done","batches":3/);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_request_events')).rows[0].n,0);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n,0);
+  await pool.query(`INSERT INTO supplier_items(code,product_data) VALUES('2000000000','{"uk":"OTHER"}');UPDATE enrichment_source_hosts SET blocked=true WHERE host='www.trodo.com'`);
+  const halted=await startWorker().done;
+  assert.match(halted,/"continue":"halted".*"status":"blocked"/);
+  const blocked=(await pool.query("SELECT id FROM enrichment_runs WHERE status='blocked'")).rows[0].id;
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,4);
+  assert.equal((await pool.query('SELECT status FROM enrichment_run_items WHERE run_id=$1',[blocked])).rows[0].status,'queued');
+  // A stop while waiting for an uncached request keeps the same batch and its checkpoint.
+  await pool.query('UPDATE enrichment_source_hosts SET blocked=false');
+  const worker=startWorker();
+  try{
+   let collecting=false;
+   for(let i=0;i<100;i++){
+    collecting=(await pool.query("SELECT count(*)::int AS n FROM enrichment_run_items WHERE run_id=$1 AND status='collecting'",[blocked])).rows[0].n===1;
+    if(collecting)break;
+    await new Promise(resolve=>setTimeout(resolve,50));
+   }
+   assert.ok(collecting);worker.child.kill('SIGTERM');
+   assert.match(await worker.done,/"continue":"halted".*"status":"stopped"/);
+   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,4);
+   assert.equal((await pool.query('SELECT status FROM enrichment_run_items WHERE run_id=$1',[blocked])).rows[0].status,'queued');
+  }finally{if(worker.child.exitCode===null){worker.child.kill('SIGKILL');await worker.done.catch(()=>{});}}
+ }finally{
+  await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();await rm(directory,{recursive:true,force:true});
+ }
+});
 test('cross-brand enrichment requires an original OEM row, not a similar code or aftermarket reference',()=>{
  const view=parseView([{relationships:{oe_numbers:{OPEL:[{oem:'1',value:'14 00 307'}],OTHER:[{oem:'0',value:'9999999'}]},attributes:{criteria:[]},vehicle_ids:[],vehicle_list:[]}}]);
  assert.equal(verifiedOemReference('1400307',view),'1400307');

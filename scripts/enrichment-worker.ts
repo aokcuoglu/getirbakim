@@ -58,7 +58,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
    SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
     SELECT j.*,md5($2||j.supplier_item_id::text) AS hash,
      round(10*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)) AS yield_bucket,
-     CASE WHEN $4 AND row_number() OVER(PARTITION BY supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
+     CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
       ELSE 2 END AS priority
@@ -249,9 +249,20 @@ async function serve(runId:string,port:number,chrome=false){
  }finally{
   for(const signal of ['SIGINT','SIGTERM'] as const)process.off(signal,stop);
   // Browser waits are bounded, but shutdown must not depend on them; state is already in the database.
-  await Promise.race([collectors?.stop(),new Promise(r=>setTimeout(r,20000))]);await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);owner.release();
-  // Keep-alive sockets from the browser bridge would otherwise hold close() open after the run finishes.
-  await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});}
+  let shutdownTimer:ReturnType<typeof setTimeout>|undefined;
+  try{
+   await Promise.race([Promise.resolve().then(()=>collectors?.stop()),new Promise<void>(resolve=>{shutdownTimer=setTimeout(resolve,20000);})]);
+  }finally{
+   clearTimeout(shutdownTimer);
+   try{await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);}
+   finally{
+    owner.release();
+    // Release the owner even when collector shutdown fails, so pool.end() cannot hide the error forever.
+    // Keep-alive sockets from the browser bridge would otherwise hold close() open after the run finishes.
+    await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});
+   }
+  }
+ }
 }
 // Works through every pending job in batches: an unfinished run is resumed first, then new batches are drawn until the
 // queue is empty. A blocked source or a stop signal ends the loop with the batch's checkpoints preserved.
