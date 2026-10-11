@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronsUpDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { getProduct } from "@/modules/store/catalog";
 import { adminBasbugItem } from "@/modules/admin/basbug";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
@@ -7,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
-import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, sourceMoney, supplierNumber, supplierDisclosure, supplierChevron } from "@/components/admin/supplier-product-detail";
+import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, sourceMoney, supplierNumber } from "@/components/admin/supplier-product-detail";
 
 const warehouseNames: Record<string, string> = { MRK: "Merkez", IZM: "İzmir" };
 const stockFlag = (value: number | undefined) => value === undefined ? null : value > 0;
@@ -27,14 +28,14 @@ export default async function BasbugItem({ params }: { params: Promise<{ id: str
     description={<>{p.ac || "Ürün adı bulunamadı"} · {p.uk || "Üretici belirtilmemiş"} · {item.list_group} / {item.warehouse}</>}
     sale={sale} pricing={pricing} cost={item.price_data?.nf ?? null} sourcePriceLabel="Kaynak bayi fiyatı (NF)"
     noSaleMessage={item.warehouse !== "MRK" ? "Mağazada yalnız merkez depo kayıtları satışa sunulur." : undefined}
-    productInfo={<Card className="rounded-[4px] border ring-0"><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.</CardDescription></CardHeader><CardContent>
+    productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.</CardDescription></CardHeader><CardContent>
       <Fields values={{ Üretici: p.uk, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, Birim: p.b }}/>
       <Collapsible className="mt-3 border-t pt-2">
-        <CollapsibleTrigger className={supplierDisclosure}><ChevronRight className={supplierChevron} aria-hidden="true"/>Diğer ürün alanları</CollapsibleTrigger>
+        <CollapsibleTrigger render={<Button variant="ghost"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Diğer ürün alanları</CollapsibleTrigger>
         <CollapsibleContent className="pt-2"><Fields values={{ "Ek açıklama": p.ac2, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/></CollapsibleContent>
       </Collapsible>
     </CardContent></Card>}
-    stockInfo={<Card className="rounded-[4px] border ring-0"><CardHeader><CardTitle><h2>Kaynak stokları</h2></CardTitle><CardDescription>Var / Yok, tedarikçinin stok sinyalidir; adet veya satış teyidi değildir.</CardDescription></CardHeader><CardContent>
+    stockInfo={<Card><CardHeader><CardTitle><h2>Kaynak stokları</h2></CardTitle><CardDescription>Var / Yok, tedarikçinin stok sinyalidir; adet veya satış teyidi değildir.</CardDescription></CardHeader><CardContent>
       {item.stock_data ? <>
         <SupplierStocks stocks={[...stocks, { label: "Diğer öncelik depoları", available: stockFlag(item.stock_data.sFarkliDepo) }]}/>
         <p className="mt-3 text-xs text-muted-foreground">“Veri yok”, stok yanıtı alınmayan veya hesabın erişemediği depoları belirtir. Yolda bilgisi mevcut stok anlamına gelmez.</p>
