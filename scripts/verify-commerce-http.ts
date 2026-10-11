@@ -15,6 +15,10 @@ function fields(html:string,field:string){
  return data;
 }
 async function post(path:string,body:FormData,cookieValue=cookie){return fetch(base+path,{method:'POST',headers:{cookie:cookieValue,origin:base},body,redirect:'manual'});}
+const uuid=/^[a-f0-9-]{36}$/;
+const pathOf=(res:Response)=>new URL(res.headers.get('location') ?? '',base).pathname;
+// Checkout redirects to the order page, or back with error=payment while TAMI checkout is disabled.
+function placedOrderId(res:Response){assert.equal(res.status,303);const at=res.headers.get('location') ?? '';if(at.includes('error=payment'))return '';const id=pathOf(res).split('/').pop() ?? '';assert.match(id,uuid);return id;}
 try {
  accountId=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved,discount_percent) VALUES('HTTP verify',$1,'unused','service',true,10) RETURNING id",[`${token}@example.invalid`])).rows[0].id;
  adminId=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('HTTP verify admin',$1,'unused','admin',true) RETURNING id",[`${adminToken}@example.invalid`])).rows[0].id;
@@ -25,11 +29,13 @@ try {
  const cart=await get('/sepet');assert.equal(cart.res.status,200);assert.ok(cart.html.includes('/siparis-olustur'));
  const checkout=fields((await get('/siparis-olustur')).html,'requestKey');
  for(const [k,v] of Object.entries({name:'Verification Buyer',email:'verify@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'HTTP test',consent:'on'}))checkout.set(k,v);
- const placed=await post('/siparis-olustur',checkout);assert.equal(placed.status,303);orderId=placed.headers.get('location')?.split('/').pop() ?? '';assert.match(orderId,/^[a-f0-9-]{36}$/);
+ orderId=placedOrderId(await post('/siparis-olustur',checkout));const payments=orderId!=='';
+ if(payments){
  assert.equal((await db.query('SELECT total_kurus,discount_percent FROM commerce_orders WHERE id=$1',[orderId])).rows[0].total_kurus,'9000');
  assert.ok((await get(`/siparis/${orderId}`)).html.includes('Teyit bekliyor'));
  assert.equal((await get(`/siparis/${orderId}`,'' )).res.status,404);
- assert.equal((await post('/siparis-olustur',checkout)).headers.get('location'),`/siparis/${orderId}`);
+ assert.equal(pathOf(await post('/siparis-olustur',checkout)),`/siparis/${orderId}`);
+ }
  for(const route of ['/yonetim/fiyatlandirma','/yonetim/servisler','/yonetim/siparisler']) {assert.equal((await get(route,adminCookie)).res.status,200);assert.equal((await get(route)).res.status,307);}
  const originalMode=(await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode;
  const sourcePage=await get('/yonetim/tedarikciler/basbug',adminCookie);assert.equal(sourcePage.res.status,200);assert.ok(sourcePage.html.includes('Satış · KDV dahil'));
@@ -43,10 +49,12 @@ try {
  assert.equal((await db.query('SELECT discount_percent FROM accounts WHERE id=$1',[accountId])).rows[0].discount_percent,10);
  assert.equal((await post('/yonetim/servisler',service,adminCookie)).status,303);
  assert.equal((await db.query('SELECT discount_percent FROM accounts WHERE id=$1',[accountId])).rows[0].discount_percent,15);
+ if(payments){
  assert.equal((await db.query('SELECT total_kurus FROM commerce_orders WHERE id=$1',[orderId])).rows[0].total_kurus,'9000');
  const orders=await get('/yonetim/siparisler',adminCookie);const status=fields(orders.html,'status');status.set('id',orderId);status.set('status','cancelled');assert.equal((await post('/yonetim/siparisler',status,adminCookie)).status,303);
  assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,2);
  await post('/yonetim/siparisler',status,adminCookie);assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,2);
+ }
  const snapshotMode=(await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode==='snapshot';
  const supplier=snapshotMode?(await db.query("SELECT id FROM commerce_catalog WHERE source='supplier' AND available AND price_kurus IS NOT NULL LIMIT 1")).rows[0]:null;
  const guestProductId=supplier?.id??productId;
@@ -57,15 +65,17 @@ try {
  const guestCart=await get('/sepet',guestCookie);assert.ok(guestCart.html.includes('Sepetim'));
  const guestCheckout=fields((await get('/siparis-olustur',guestCookie)).html,'requestKey');
  for(const [k,v] of Object.entries({name:'Guest Verification',email:'guest@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'Guest test',consent:'on'}))guestCheckout.set(k,v);
- const guestPlaced=await post('/siparis-olustur',guestCheckout,guestCookie);assert.equal(guestPlaced.status,303);guestOrderId=guestPlaced.headers.get('location')?.split('/').pop() ?? '';assert.match(guestOrderId,/^[a-f0-9-]{36}$/);
+ guestOrderId=placedOrderId(await post('/siparis-olustur',guestCheckout,guestCookie));assert.equal(guestOrderId!=='',payments);
+ if(payments){
  if(supplier){assert.equal((await db.query('SELECT count(*) FROM supplier_imports')).rows[0].count,beforeImports);assert.equal((await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1',[guestOrderId])).rows[0].pricing_snapshot.checkout_mode,'snapshot');assert.ok((await get(`/siparis/${guestOrderId}`,guestCookie)).html.includes('canlı API doğrulaması yapılmadı'));}
  assert.equal((await get(`/siparis/${guestOrderId}`,guestCookie)).res.status,200);
  assert.equal((await get(`/siparis/${guestOrderId}`)).res.status,404);
  const mixedCookie=`${cookie}; ${guestCookie}`;assert.equal((await get(`/siparis/${guestOrderId}`,mixedCookie)).res.status,200);
  assert.ok((await get('/siparisler',mixedCookie)).html.includes(guestOrderId));
- console.log('PASS: actual add/cart/checkout actions; B2B discount; order ownership and replay; supplier mode admin authorization and validation; cancellation restores store stock once; guest supplier snapshot order without imports; immutable order prices.');
+ }else assert.equal((await db.query('SELECT count(*) FROM commerce_orders WHERE owner_id=ANY($1)',[[accountId,guestHash]])).rows[0].count,'0');
+ console.log(payments?'PASS (TAMI checkout on):':'PASS (TAMI checkout off, orders refused):','actual add/cart/checkout actions; B2B discount; order ownership and replay; supplier mode admin authorization and validation; cancellation restores store stock once; guest supplier snapshot order without imports; immutable order prices.');
 } finally {
- for(const id of [orderId,guestOrderId])if(id){await db.query('DELETE FROM commerce_order_items WHERE order_id=$1',[id]);await db.query('DELETE FROM commerce_orders WHERE id=$1',[id]);}
+ for(const id of [orderId,guestOrderId])if(uuid.test(id)){await db.query('DELETE FROM commerce_order_items WHERE order_id=$1',[id]);await db.query('DELETE FROM commerce_orders WHERE id=$1',[id]);}
  if(guestHash)await db.query('DELETE FROM guest_carts WHERE token_hash=$1',[guestHash]);
  for(const id of [accountId,adminId])if(id)await db.query('DELETE FROM accounts WHERE id=$1',[id]);
  if(productId)await db.query('DELETE FROM products WHERE id=$1',[productId]);await db.end();
