@@ -60,7 +60,7 @@ export function SupplierRefreshAll({ groups }: { groups: string[] }) {
   return <section className="flex flex-col gap-3" aria-label="Tüm Başbuğ gruplarını güncelle">
     <div className="flex flex-wrap items-center gap-3">
       <Button variant="outline" onClick={refreshAll} disabled={running || !uniqueGroups.length}>{running ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <RefreshCw data-icon="inline-start" aria-hidden="true"/>}{running ? "Tüm gruplar yenileniyor…" : "Tüm grupları API’den yenile"}</Button>
-      <p className="min-w-0 flex-1 text-muted-foreground">API grup listesindeki {uniqueGroups.length} grup sırayla çekilir. Ürün, fiyat, MRK stok ve kur verileri yenilenir; işlem sırasında sayfayı açık tutun.</p>
+      <p className="min-w-0 flex-1 text-muted-foreground">{uniqueGroups.length} grup sırayla yenilenir; sayfayı açık tutun.</p>
     </div>
     {running && <Progress value={results.length / Math.max(uniqueGroups.length, 1) * 100} aria-label="Toplu güncelleme ilerlemesi"/>}
     <p role="status" aria-live="polite" className="tabular-nums empty:hidden">{running ? `${results.length} / ${uniqueGroups.length} grup tamamlandı · Şimdi: ${current}` : finished ? `${succeeded} başarılı · ${failed} başarısız${results.length < uniqueGroups.length ? ` · ${uniqueGroups.length - results.length} grup başlatılmadı` : ""}` : ""}</p>
