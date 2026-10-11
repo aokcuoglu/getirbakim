@@ -3,10 +3,10 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-export type MatchingParams = { tab?: string; strength?: string; scope?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; error?: string };
+export type MatchingParams = { tab?: string; strength?: string; scope?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; error?: string };
 // Keys arrived over time; runs recorded before a key lack it.
 export type MatchStats = { items: number; pair_suggestions: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
-  seta_linked_items?: number; seta_linked_products?: number };
+  seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
 export type EanSample = { ean: string; part_a: string; a: string | null; part_b: string; b: string | null };
 export type PairSuggestion = { brand_a: string; brand_b: string; shared_parts: number; shared_eans: number; avg_name_similarity: number | null;
   samples: { part: string; a: string | null; b: string | null }[]; ean_samples: EanSample[] };
@@ -14,10 +14,15 @@ export type Offer = { id: string; supplier: string; code: string; name: string; 
 /** A Başbuğ product with the Dinamik offers grouped under it; `selling` is the supplier whose offer the store sells now. */
 export type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
 export type SplitItem = { id: string; supplier: string; code: string; name: string | null; decided_at: Date };
-export type DinamikItem = { id: string; code: string; brand: string | null; name: string | null; price_kurus: number | null; available: boolean | null; enriched: boolean };
+export type DinamikItem = { id: string; product_id: string | null; code: string; brand: string | null; name: string | null; price_kurus: number | null; available: boolean | null; enriched: boolean };
 export type SetaProduct = { id: string; supplier: string; code: string; name: string | null; via: string };
 export type SetaItem = { id: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null; linked: number; products: SetaProduct[] };
-export type MatchingTab = "pairs" | "same" | "dinamik" | "seta";
+export type MatchingTab = "pairs" | "candidates" | "same" | "dinamik" | "seta";
+export type CandidateReason = "prefix" | "leading_zero" | "suffix";
+export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
+type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null };
+/** A Başbuğ-only product (a) and a Dinamik-only product (b) that look the same; "Aynı ürün" merges b into a. */
+export type Candidate = { reason: CandidateReason; name_similarity: number | null; brand: string; a: CandidateSide; b: CandidateSide };
 
 // Name similarity of real alias/rebrand pairs measured 0.15–0.37, coincidental number collisions ~0.02–0.05.
 export const strongSimilarity = 0.1;
@@ -27,17 +32,20 @@ const pageOf = (value: string | undefined, total: number) => {
   return { pages, page: Number.isSafeInteger(parsed) ? Math.min(pages, Math.max(1, parsed)) : 1 };
 };
 const compact = (value: string | undefined) => value?.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 80) ?? "";
-const tabs: MatchingTab[] = ["pairs", "same", "dinamik", "seta"];
+const tabs: MatchingTab[] = ["pairs", "candidates", "same", "dinamik", "seta"];
 
 export async function productMatchingData(params: MatchingParams) {
   await requireAdmin();
-  const [run, strength] = await Promise.all([
+  const [run, strength, candidates] = await Promise.all([
     db.query<{ completed_at: Date; stats: MatchStats }>("SELECT completed_at,stats FROM product_match_runs ORDER BY id DESC LIMIT 1"),
     db.query<{ strong: number; weak: number }>(`SELECT count(*) FILTER (WHERE avg_name_similarity>=$1)::int AS strong,
       count(*) FILTER (WHERE avg_name_similarity IS NULL OR avg_name_similarity<$1)::int AS weak FROM product_brand_pair_suggestions`, [strongSimilarity]),
+    db.query<{ count: number }>("SELECT count(*)::int FROM product_match_candidates"),
   ]);
   const tab = tabs.includes(params.tab as MatchingTab) ? params.tab as MatchingTab : "pairs";
-  const base = { run: run.rows[0] ?? null, strength: strength.rows[0], tab };
+  // Decisions remove candidates at once, so the pending count is live rather than the last run's.
+  const base = { run: run.rows[0] ?? null, strength: strength.rows[0], pendingCandidates: candidates.rows[0].count, tab };
+  if (tab === "candidates") return { ...base, ...await matchCandidates(params) };
   if (tab === "same") return { ...base, ...await sameProducts(params) };
   if (tab === "dinamik") return { ...base, ...await dinamikOnly(params) };
   if (tab === "seta") return { ...base, ...await setaReferences(params) };
@@ -86,6 +94,37 @@ async function sameProducts(params: MatchingParams) {
   return { same: row.groups ?? [], summary: row.summary, scope, total: row.total, page: Math.min(page, pages), pages, exclusions };
 }
 
+/** Reviewable candidates the automatic key missed; most similar names first. `q` narrows to a brand or code. */
+async function matchCandidates(params: MatchingParams) {
+  const reason = params.scope && params.scope in candidateReasons ? params.scope as CandidateReason : null;
+  const q = compact(params.q);
+  const values: unknown[] = [reason, q];
+  const where = `($1::text IS NULL OR c.reason=$1) AND ($2='' OR a.brand=$2 OR a.part_number LIKE '%'||$2||'%' OR b.part_number LIKE '%'||$2||'%')`;
+  const from = "product_match_candidates c JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b";
+  const [counts, total] = await Promise.all([
+    db.query<{ reason: CandidateReason; count: number }>(`SELECT reason,count(*)::int FROM product_match_candidates GROUP BY reason`),
+    db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values),
+  ]);
+  const { page, pages } = pageOf(params.page, total.rows[0].count);
+  type Row = { reason: CandidateReason; name_similarity: number | null; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
+  const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name)`;
+  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
+    ORDER BY c.name_similarity DESC NULLS LAST,a.brand,a.part_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+  // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
+  // a single-supplier product; its cheapest available row stands for it.
+  const ids = rows.flatMap(row => [row.a.id, row.b.id]);
+  const prices = ids.length ? (await db.query<{ product_id: string; price_kurus: number | null; available: boolean }>(`WITH s AS (
+      SELECT product_id,supplier_item_id FROM product_sources WHERE product_id=ANY($1::uuid[]))
+    SELECT DISTINCT ON (s.product_id) s.product_id,k.price_kurus,k.available FROM s
+    JOIN commerce_catalog k ON k.id=s.supplier_item_id AND k.id=ANY(ARRAY(SELECT supplier_item_id FROM s))
+    ORDER BY s.product_id,k.available DESC,k.price_kurus NULLS LAST`, [ids])).rows : [];
+  const priceOf = new Map(prices.map(row => [row.product_id, { price_kurus: row.price_kurus, available: row.available }]));
+  const priced = (item: Row["a"]): CandidateSide => ({ ...item, ...(priceOf.get(item.id) ?? { price_kurus: null, available: null }) });
+  const candidates: Candidate[] = rows.map(row => ({ ...row, a: priced(row.a), b: priced(row.b) }));
+  const byReason = Object.fromEntries(counts.rows.map(row => [row.reason, row.count])) as Partial<Record<CandidateReason, number>>;
+  return { candidates, reason, byReason, total: total.rows[0].count, page, pages, brandFilter: q };
+}
+
 /** Dinamik items the store lists on their own: not grouped under a Başbuğ product. */
 async function dinamikOnly(params: MatchingParams) {
   const q = compact(params.q).toLowerCase();
@@ -94,7 +133,7 @@ async function dinamikOnly(params: MatchingParams) {
     ${q ? "AND supplier_item_search_codes(i.code,i.product_data) LIKE '%'||$2||'%'" : ""}`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM commerce_supplier_items i WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
-  const items = (await db.query<DinamikItem>(`SELECT i.id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
+  const items = (await db.query<DinamikItem>(`SELECT i.id,(SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=i.id) AS product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
       c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=i.id) AS enriched
     FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY i.changed_at DESC,i.id LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
     LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY i.changed_at DESC,i.id`, values)).rows;

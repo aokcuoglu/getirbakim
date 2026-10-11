@@ -78,10 +78,33 @@ test("a split row gets its own locked product and rejoins on undo", async () => 
     const link = (await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0];
     assert.deepEqual(link, { product_id: split, method: "manual" });
     assert.ok((await client.query("SELECT variant FROM products WHERE id=$1", [split])).rows[0].variant > 0);
-    assert.equal((await client.query("SELECT product_unsplit_item($1) AS id", [pick.item])).rows[0].id, pick.product);
+    assert.equal((await client.query("SELECT product_reset_item($1) AS id", [pick.item])).rows[0].id, pick.product);
     assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0],
       { product_id: pick.product, method: "auto" });
     assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [split])).rows[0].merged_into, pick.product);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("merging a candidate locks the rows into the Başbuğ product; resetting a row undoes it and blocks the pair", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pair = (await client.query<{ a: string; b: string }>(`SELECT product_a AS a, product_b AS b FROM product_match_candidates LIMIT 1`)).rows[0];
+    assert.ok(pair, "expected at least one match candidate");
+    const items = (await client.query<{ id: string }>("SELECT supplier_item_id AS id FROM product_sources WHERE product_id=$1", [pair.b])).rows.map(row => row.id);
+    await client.query("INSERT INTO product_match_decisions(product_a,product_b,status) VALUES($1,$2,'same')", [pair.a, pair.b]);
+    assert.equal((await client.query("SELECT product_merge($2,$1,NULL) AS id", [pair.a, pair.b])).rows[0].id, pair.a);
+    const moved = (await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=ANY($1::uuid[])", [items])).rows;
+    assert.ok(moved.every(row => row.product_id === pair.a && row.method === "manual"));
+    const merged = (await client.query("SELECT merged_into FROM products WHERE id=$1", [pair.b])).rows[0].merged_into;
+    assert.equal(merged, pair.a);
+    assert.deepEqual((await client.query("SELECT suppliers FROM products WHERE id=$1", [pair.a])).rows[0].suppliers, ["basbug", "dinamik"]);
+    assert.equal((await client.query("SELECT product_reset_item($1) AS id", [items[0]])).rows[0].id, pair.b);
+    assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [pair.b])).rows[0].merged_into, null);
+    assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [pair.a, pair.b])).rows[0].status, "different");
   } finally {
     await client.query("ROLLBACK");
     client.release();

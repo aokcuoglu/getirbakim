@@ -108,3 +108,18 @@ export async function getMasterProduct(id: string) {
     ?? sources.rows.find(row => row.saleable) ?? null;
   return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null };
 }
+
+export type MergeTarget = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; same_brand: boolean };
+
+/** Products to merge with `id`: part number or supplier code match, same brand first. */
+export async function findMergeTargets(id: string, query: string | undefined) {
+  await requireAdmin();
+  const q = compact(query);
+  if (q.length < 3) return { q, targets: [] as MergeTarget[] };
+  const targets = (await db.query<MergeTarget>(`SELECT p.id,p.brand_label,p.code,p.name,p.suppliers,p.brand=self.brand AS same_brand
+    FROM products p, (SELECT brand FROM products WHERE id=$1) self
+    WHERE p.id<>$1 AND p.merged_into IS NULL AND (p.part_number LIKE '%'||$2||'%' OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
+      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||$2||'%'))
+    ORDER BY p.brand=self.brand DESC, p.part_number=$2 DESC, p.suppliers='{}', length(p.part_number), p.code LIMIT 20`, [id, q])).rows;
+  return { q, targets };
+}

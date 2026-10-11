@@ -71,12 +71,61 @@ export async function splitOffers(form: FormData) {
   redirect(withFlag(back, "split=1"));
 }
 
-// The row rejoins its key's product at once; the store groups it again after the next refresh.
+// Undo a manual decision (split or merge): the row rejoins its own key's product and the store regroups at once.
 export async function undoSplit(form: FormData) {
   await requireAdmin();
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
-  await db.query("SELECT product_unsplit_item($1)", [input.data.item_id]);
+  await db.query("SELECT product_reset_item($1)", [input.data.item_id]);
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
+}
+
+const candidateInput = z.object({ product_a: z.uuid(), product_b: z.uuid(), status: z.enum(["same", "different"]), back: backPath });
+
+// "Aynı ürün" merges the Dinamik product into the Başbuğ one (locked); "Farklı" only records the decision.
+export async function decideCandidate(form: FormData) {
+  const admin = await requireAdmin();
+  const input = candidateInput.safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
+  const { product_a, product_b, status, back } = input.data;
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,$3,$4)
+      ON CONFLICT (product_a,product_b) DO UPDATE SET status=excluded.status,decided_by=excluded.decided_by,decided_at=now()`, [product_a, product_b, status, admin.id]);
+    if (status === "same") await client.query("SELECT product_merge($2,$1,$3)", [product_a, product_b, admin.id]);
+    await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [product_a, product_b]);
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  revalidatePath("/yonetim/urun-eslestirme");
+  redirect(withFlag(back, `matched=${status}`));
+}
+
+// Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1").
+export async function acceptCandidates(form: FormData) {
+  const admin = await requireAdmin();
+  const input = z.object({ reason: z.enum(["prefix", "leading_zero", "suffix"]), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })
+    .safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
+  const { reason, brand, back } = input.data;
+  const client = await db.connect();
+  let merged = 0;
+  try {
+    await client.query("BEGIN");
+    const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
+      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 LIMIT 500`, [reason, brand])).rows;
+    for (const pair of pairs) {
+      await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
+        ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
+      await client.query("SELECT product_merge($2,$1,$3)", [pair.product_a, pair.product_b, admin.id]);
+      await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [pair.product_a, pair.product_b]);
+      merged++;
+    }
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  revalidatePath("/yonetim/urun-eslestirme");
+  redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}`));
 }
