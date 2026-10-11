@@ -5,15 +5,14 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
-import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
-import Link from "next/link";
-import { ChevronLeft, ChevronRight, History, PackageSearch, Search, SearchX } from "lucide-react";
+import { SetaProductFilters } from "@/components/admin/seta-product-filters";
+import { SetaProductDetails } from "@/components/admin/seta-product-details";
+import { ChevronLeft, ChevronRight, History, PackageSearch, SearchX } from "lucide-react";
 import { AdminPage, AdminPageHeader, AdminPanel, ButtonLink, EmptyState, PagerLink, StatusBadge, StatusMessage } from "@/components/admin/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { adminSetaData } from "@/modules/admin/seta";
@@ -92,24 +91,30 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
       </AdminPanel>
     </div>} products={
     <SupplierBrowser><Card className="gap-0 py-0">
-      <form key={[params.q, params.category, params.stock, params.presence, params.quality].join("|")} className="flex flex-wrap items-center gap-2 border-b p-3" action="/yonetim/tedarikciler/seta">
-        <InputGroup className="w-full sm:w-80"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Ürün kodu, OEM veya araç" maxLength={120}/></InputGroup>
-        <NativeSelect aria-label="Kategori" name="category" defaultValue={params.category || ""}><NativeSelectOption value="">Tüm kategoriler</NativeSelectOption>{categories.map(c => <NativeSelectOption key={c} value={c}>{c}</NativeSelectOption>)}</NativeSelect>
-        <NativeSelect aria-label="Stok" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">Stok: tümü</NativeSelectOption><NativeSelectOption value="1">Stokta var</NativeSelectOption><NativeSelectOption value="0">Stokta yok</NativeSelectOption></NativeSelect>
-        <NativeSelect aria-label="Listede bulunma" name="presence" defaultValue={params.presence || "present"}><NativeSelectOption value="present">Güncel listede var</NativeSelectOption><NativeSelectOption value="pending_missing">İlk kez bulunamadı</NativeSelectOption><NativeSelectOption value="inactive">İki çekimde bulunamadı</NativeSelectOption><NativeSelectOption value="all">Tüm kayıtlar</NativeSelectOption></NativeSelect>
-        <NativeSelect aria-label="Veri kalitesi" name="quality" defaultValue={params.quality || ""}><NativeSelectOption value="">Kalite: tümü</NativeSelectOption><NativeSelectOption value="missing-price">Fiyatı eksik</NativeSelectOption><NativeSelectOption value="conflicts">Çelişkili kayıt</NativeSelectOption></NativeSelect>
-        <Button type="submit">Filtrele</Button><ButtonLink variant="ghost" href="/yonetim/tedarikciler/seta">Temizle</ButtonLink>
-      </form>
+      <SetaProductFilters key={[params.q, params.category, params.stock, params.presence, params.quality].join("|")} params={params} categories={categories}/>
       {!snapshot ? <EmptyState title="SETA listesi henüz çekilmedi." icon={<PackageSearch/>}>Senkronizasyon sekmesinden listeyi API’den çekebilirsiniz.</EmptyState> : <div className="transition-opacity group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-45">
-        <div className="flex justify-between gap-3 border-b px-4 py-2.5 text-sm text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün</span><span>Tek liste</span></div>
-        {items.length ? <Table className="min-w-[960px]"><caption className="sr-only">SETA ürünleri ve kaynak fiyat/stok alanları</caption><TableHeader><TableRow><TableHead className="pl-4">Kod / OEM</TableHead><TableHead>Ürün / Araç</TableHead><TableHead>Çapraz referans</TableHead><TableHead className="text-right">Bayi fiyatı</TableHead><TableHead>Stok</TableHead><TableHead className="pr-4">Satış · KDV dahil</TableHead></TableRow></TableHeader><TableBody>{items.map(item => <TableRow key={item.id} className="align-top">
-          <TableCell className="max-w-60 pl-4"><span className="font-mono text-xs font-medium">{item.code}</span><div className="truncate text-xs text-muted-foreground" title={item.product_data.oe}>OEM: {item.product_data.oe || "—"}</div></TableCell>
-          <TableCell className="max-w-96 whitespace-normal"><div className="font-medium">{item.product_data.ac}</div><div className="text-xs text-muted-foreground">{[item.product_data.vehicle_brand, item.product_data.ac2].filter(Boolean).join(" · ")}</div></TableCell>
-          <TableCell className="max-w-64 whitespace-normal text-xs text-muted-foreground">{Object.entries(item.product_data.cross ?? {}).map(([brand, code]) => `${brand || "?"} ${code}`).join(" · ") || "—"}</TableCell>
-          <TableCell className="text-right tabular-nums">{item.price_data ? `${number(item.price_data.nf)} ${item.product_data.dc}` : <StatusBadge tone="warning">Fiyat yok</StatusBadge>}</TableCell>
-          <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : <StatusBadge tone={item.stock_data?.stok ? "success" : "neutral"}>{item.stock_data?.stok ? "Var" : "Yok"}</StatusBadge>}</TableCell>
-          <TableCell className="pr-4"><div className="font-semibold tabular-nums">{item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"}</div><div className="text-xs text-muted-foreground">{item.sale_stock_label}</div><AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/></TableCell>
-        </TableRow>)}</TableBody></Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyState>}
+        <div className="flex flex-wrap justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : "Stok yok"}`}</span><span>NF: KDV hariç bayi fiyatı · Satış: KDV dahil · Stok: var/yok</span></div>
+        {items.length ? <Table className="min-w-[1120px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">SETA ürünleri, fiyatları ve stok durumları</caption>
+          <colgroup><col className="w-[110px]"/><col className="w-[110px]"/><col className="w-[190px]"/><col className="w-[90px]"/><col className="w-[130px]"/><col className="w-[36px]"/><col className="w-[80px]"/><col className="w-[100px]"/><col className="w-[80px]"/><col className="w-[90px]"/><col className="w-[34px]"/></colgroup>
+          <TableHeader><TableRow className="bg-muted/40"><TableHead className="pl-4">Parça kodu</TableHead><TableHead>OEM</TableHead><TableHead>Ürün adı</TableHead><TableHead>Araç</TableHead><TableHead>Çapraz referans</TableHead><TableHead title="Kaynak para birimi">PB</TableHead><TableHead className="text-right" title="KDV hariç bayi fiyatı">NF</TableHead><TableHead className="text-right">Satış (₺)</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
+          <TableBody>{items.map(item => {
+            const cross = Object.entries(item.product_data.cross ?? {}).map(([brand, code]) => `${brand || "?"} ${code}`).join(" · ");
+            const stock = item.stock_data?.stok ?? null;
+            return <TableRow key={item.id}>
+              <TableCell className="truncate pl-4 font-mono font-medium" title={item.code}>{item.code}</TableCell>
+              <TableCell className="truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
+              <TableCell className="truncate font-medium" title={[item.product_data.ac, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
+              <TableCell className="truncate text-muted-foreground" title={[item.product_data.vehicle_brand, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.vehicle_brand || "—"}</TableCell>
+              <TableCell className="truncate text-muted-foreground" title={cross}>{cross || "—"}</TableCell>
+              <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
+              <TableCell className="truncate text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : "Eksik"}</TableCell>
+              <TableCell className="truncate text-right font-semibold tabular-nums" title={item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
+              <TableCell className="text-center"><span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap", stock === null ? "text-amber-700 dark:text-amber-400" : stock > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} title="Kaynak adet değil, var/yok bildirir"><span className={cn("size-1.5 shrink-0 rounded-full", stock === null ? "bg-amber-500" : stock > 0 ? "bg-emerald-500" : "bg-muted-foreground/40")} aria-hidden="true"/>{stock === null ? "Veri yok" : stock > 0 ? "Var" : "Yok"}</span></TableCell>
+              <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : !item.price_data ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : item.product_count > 1 ? <StatusBadge tone="info">Tekrar var</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
+              <TableCell className="pr-3"><SetaProductDetails item={item} cost={item.price_data ? `${number(item.price_data.nf)} ${item.product_data.dc}` : "Fiyat eksik"} salePrice={item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"}/></TableCell>
+            </TableRow>;
+          })}</TableBody>
+        </Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyState>}
         <nav className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm" aria-label="Ürün sayfaları">
           <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
           <div className="flex flex-wrap items-center gap-1">
@@ -117,7 +122,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
             {pageNumbers.map((n, i, ns) => <span key={n} className="flex items-center gap-1">{i > 0 && n - ns[i - 1] > 1 && <span className="px-1 text-muted-foreground">…</span>}<ButtonLink size="sm" variant={n === page ? "default" : "ghost"} href={pageUrl(n)} aria-current={n === page ? "page" : undefined}>{n}</ButtonLink></span>)}
             <PagerLink href={page < pages ? pageUrl(page + 1) : null}>Sonraki<ChevronRight/></PagerLink>
           </div>
-          <Link className="font-medium text-primary hover:underline" href="/yonetim/fiyatlandirma">Fiyatlandırma →</Link>
+          <form action="/yonetim/tedarikciler/seta" className="flex items-center gap-2">{Object.entries(params).filter(([key]) => ["q", "category", "stock", "quality", "presence"].includes(key)).map(([key, value]) => <input key={key} type="hidden" name={key} value={value || ""}/>)}<label htmlFor="page-jump" className="text-muted-foreground">Sayfaya git</label><Input id="page-jump" className="h-7 w-16" type="number" name="page" min={1} max={pages} defaultValue={page}/><Button type="submit" size="sm" variant="outline">Git</Button></form>
         </nav>
       </div>}
     </Card></SupplierBrowser>

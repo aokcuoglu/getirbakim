@@ -10,9 +10,11 @@ import { adminDinamikItems } from "@/modules/admin/dinamik";
 import { dinamikRegion, dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
+import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
 import { DinamikProductFilters } from "@/components/admin/dinamik-product-filters";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { money } from "@/modules/store/catalog";
@@ -106,8 +108,25 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
         {rows.length ? <Table className="min-w-[1270px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">Dinamik ürünleri, liste fiyatları ve bölge stok durumları</caption>
           <colgroup><col className="w-[150px]"/><col className="w-[230px]"/><col className="w-[96px]"/><col className="w-[90px]"/><col className="w-[120px]"/><col className="w-[86px]"/><col className="w-[92px]"/><col className="w-[52px]"/>{dinamikRegions.map(r => <col key={r.key} className="w-[58px]"/>)}<col className="w-[96px]"/><col className="w-[34px]"/></colgroup>
           <TableHeader><TableRow className="bg-muted/40"><TableHead className="pl-4">Stok kodu</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Araç</TableHead><TableHead>Grup</TableHead><TableHead className="text-right" title="KDV hariç maliyet (₺)">Fiyat (₺)</TableHead><TableHead className="text-right" title="Mağaza satış fiyatı, KDV dahil">Satış (₺)</TableHead><TableHead className="text-right" title="Kampanya oranı">Kamp.</TableHead>{dinamikRegions.map(r => <TableHead key={r.key} className={cn("text-center", r.key === region && "bg-primary/5")} title={`${r.label} stok durumu (${r.key})`}>{r.short}</TableHead>)}<TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
-          <TableBody>{rows.map(item => { const p = item.product_data; const href = `/yonetim/tedarikciler/dinamik/urun/${item.id}`; const campaign = Number(item.price_data?.kampanyaOrani ?? 0); return <TableRow key={item.id}>
-            <TableCell className="pl-4"><Link className="block truncate font-mono font-medium text-primary hover:underline" title={item.code} href={href}>{item.code}</Link></TableCell>
+          <TableBody>{rows.map(item => { const p = item.product_data; const href = `/yonetim/tedarikciler/dinamik/urun/${item.id}`; const campaign = Number(item.price_data?.kampanyaOrani ?? 0); return <SupplierProductDetails key={item.id} code={item.code} title={p.stokAdi || "Ürün bilgisi yok"} supplier="Dinamik" detailHref={href}
+            fields={[
+              ["Marka", item.list_group], ["İngilizce adı", p.ingilizceAdi],
+              ["Araç", p.kull1s], ["Üretici", p.kull3s],
+              ["Ürün grubu", p.kull7s], ["Ürün tipi", p.kull8s],
+              ["OEM listesi", p.oemListe], ["Eşdeğer listesi", p.esdegerListe],
+              ["Barkod", [p.barkod1, p.barkod2, p.barkod3].filter(Boolean).join(" · ")],
+              ["Paket / koli", p.paketMiktari !== undefined ? `${p.paketMiktari} / ${p.koliMiktari ?? "—"} ${p.olcuBirimi ?? ""}` : null],
+              ["Maliyet · KDV hariç (₺)", price(item.price_data?.fiyat) ?? "Fiyat eksik"],
+              ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : item.stock_data ? "Satışa kapalı" : "Mağazada gösterilmiyor"],
+              ["Kampanya oranı", campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"],
+              ["Listede bulunma", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Listede yok"],
+              ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : item.price_data?.fiyat == null ? "Fiyat eksik" : !item.stock_data ? "Yalnız fiyat kaydı; stok listesinde yok" : item.price_count > 1 || item.stock_count > 1 ? "Tekrarlanan kod" : "—"],
+              ["Kaynak satırları", `${item.price_count} fiyat · ${item.stock_count} stok`],
+            ]}
+            stockTitle="Bölge stokları" stocks={dinamikRegions.map(region => ({ label: region.label, available: dinamikRegionStock(item.stock_data, region.key) }))}
+            footer={<p className="text-xs text-muted-foreground">Liste fiyatı KDV hariç maliyet kabul edilir; satış fiyatı ortak kâr + KDV ile hesaplanır, kampanya oranı uygulanmaz. Stoklar adet yerine var/yok bildirir.</p>}>
+          <TableRow>
+            <TableCell className="pl-4"><DialogTrigger className="block w-full truncate text-left font-mono font-medium text-primary hover:underline" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}>{item.code}</DialogTrigger></TableCell>
             <TableCell className="truncate font-medium" title={p.stokAdi ?? "Yalnız fiyat listesinde; ürün bilgisi yok"}>{p.stokAdi || <span className="font-normal text-muted-foreground">Ürün bilgisi yok</span>}</TableCell>
             <TableCell className="truncate text-muted-foreground" title={item.list_group}>{item.list_group}</TableCell>
             <TableCell className="truncate text-muted-foreground" title={p.kull1s}>{p.kull1s || "—"}</TableCell>
@@ -117,8 +136,8 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
             <TableCell className="text-right tabular-nums text-muted-foreground">{campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"}</TableCell>
             {dinamikRegions.map(r => { const stock = dinamikRegionStock(item.stock_data, r.key); return <TableCell key={r.key} className={cn("text-center", r.key === region && "bg-primary/5")}><span className={cn("inline-flex items-center gap-1 whitespace-nowrap", stock === null ? "text-amber-700 dark:text-amber-400" : stock ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} title={stock === null ? `${r.label}: stok listesinde yok` : `${r.label}: ${stock ? "VAR" : "YOK"}`}><span className={cn("size-1.5 shrink-0 rounded-full", stock === null ? "bg-amber-500" : stock ? "bg-emerald-500" : "bg-muted-foreground/40")} aria-hidden="true"/>{stock === null ? "—" : stock ? "Var" : "Yok"}</span></TableCell>; })}
             <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : item.price_data?.fiyat == null ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : !item.stock_data ? <StatusBadge tone="neutral">Yalnız fiyat</StatusBadge> : item.price_count > 1 || item.stock_count > 1 ? <StatusBadge tone="info">Tekrar var</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell className="pr-3"><Link className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" href={href} aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></Link></TableCell>
-          </TableRow>; })}</TableBody>
+            <TableCell className="pr-3"><DialogTrigger className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></DialogTrigger></TableCell>
+          </TableRow></SupplierProductDetails>; })}</TableBody>
         </Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>{data.items.present ? "Aramayı veya filtreleri değiştirebilirsiniz." : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker."}</EmptyState>}
         <nav className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm" aria-label="Ürün sayfaları">
           <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>

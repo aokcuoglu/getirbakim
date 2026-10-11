@@ -3,6 +3,8 @@ import { SupplierRefreshAll } from "@/components/admin/supplier-refresh-all";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
+import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
+import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import Link from "next/link";
 import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, History, PackageSearch, SearchX } from "lucide-react";
 import { BasbugProductFilters } from "@/components/admin/basbug-product-filters";
@@ -10,6 +12,7 @@ import { AdminPage, AdminPageHeader, AdminPanel, ButtonLink, EmptyState, PagerLi
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DialogTrigger } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -148,8 +151,23 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         {items.length ? <Table className="min-w-[1220px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">Başbuğ ürünleri, fiyatları ve depo bazlı stok durumları</caption>
           <colgroup><col className="w-[112px]"/><col className="w-[92px]"/><col className="w-[184px]"/><col className="w-[80px]"/><col className="w-[36px]"/><col className="w-[78px]"/><col className="w-[100px]"/>{basbugWarehouses.map(depot => <col key={depot} className="w-[82px]"/>)}<col className="w-[90px]"/><col className="w-[34px]"/></colgroup>
           <TableHeader><TableRow className="bg-muted/40"><TableHead className="pl-4">Parça kodu</TableHead><TableHead>OEM</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead title="Kaynak para birimi">PB</TableHead><TableHead className="text-right" title="KDV hariç maliyet">NF</TableHead><TableHead className="text-right">Satış (₺)</TableHead>{basbugWarehouses.map(depot => <TableHead key={depot} className={cn("text-center", depot === basbugWarehouse(params.warehouse) && "bg-primary/5")} title={`${depot} depo stok durumu`}>{depot}</TableHead>)}<TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
-          <TableBody>{items.map(item => <TableRow key={item.id}>
-            <TableCell className="pl-4"><Link className="block truncate font-mono font-medium text-primary hover:underline" title={item.code} href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>{item.code}</Link></TableCell>
+          <TableBody>{items.map(item => <SupplierProductDetails key={item.id} code={item.code} title={item.product_data.ac || "Ürün bilgisi yok"} supplier="Başbuğ" detailHref={`/yonetim/tedarikciler/basbug/urun/${item.id}`}
+            fields={[
+              ["Marka", item.product_data.uk], ["OEM", item.product_data.oe],
+              ["Ek açıklama", item.product_data.ac2], ["Model", item.product_data.m],
+              ["Motor", item.product_data.mo], ["Yıl", item.product_data.y],
+              ["Birim", item.product_data.b], ["Liste grubu", item.product_data.lgk],
+              ["NF · KDV hariç maliyet", item.price_data ? `${number(item.price_data.nf)} ${item.product_data.dc}` : "Fiyat eksik"],
+              ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"],
+              ["Satış durumu", item.sale_stock_label || "Satışa kapalı"],
+              ["Listede bulunma", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Listede yok"],
+              ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : !item.price_data ? "Fiyat eksik" : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? "Tekrarlanan kod" : "—"],
+              ["Kaynak satırları", `${item.product_count} ürün · ${item.price_count} fiyat · ${item.stock_count} stok`],
+            ]}
+            stockTitle="Depo stokları" stocks={basbugWarehouses.map(depot => { const stock = basbugWarehouseStock(item.stock_data, depot); return { label: depot, available: stock === null ? null : stock > 0 }; })}
+            footer={<AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/>}>
+          <TableRow>
+            <TableCell className="pl-4"><DialogTrigger className="block w-full truncate text-left font-mono font-medium text-primary hover:underline" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}>{item.code}</DialogTrigger></TableCell>
             <TableCell className="truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
             <TableCell className="truncate font-medium" title={[item.product_data.ac,item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
             <TableCell className="truncate text-muted-foreground" title={item.product_data.uk}>{item.product_data.uk || "—"}</TableCell>
@@ -161,8 +179,8 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
               return <TableCell key={depot} className={cn("text-center", depot === basbugWarehouse(params.warehouse) && "bg-primary/5")}><span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap", stock === null ? "text-amber-700 dark:text-amber-400" : stock > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}><span className={cn("size-1.5 shrink-0 rounded-full", stock === null ? "bg-amber-500" : stock > 0 ? "bg-emerald-500" : "bg-muted-foreground/40")} aria-hidden="true"/>{basbugStockLabel(stock)}</span></TableCell>;
             })}
             <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : !item.price_data ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? <StatusBadge tone="info">Tekrar var</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell className="pr-3"><Link className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" href={`/yonetim/tedarikciler/basbug/urun/${item.id}`} aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></Link></TableCell>
-          </TableRow>)}</TableBody>
+            <TableCell className="pr-3"><DialogTrigger className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></DialogTrigger></TableCell>
+          </TableRow></SupplierProductDetails>)}</TableBody>
         </Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyState>}
         <nav className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm" aria-label="Ürün sayfaları">
           <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
