@@ -31,6 +31,6 @@ Aktarım `data/vehicle_brands.csv`, `vehicle_models.csv`, `vehicle_types.csv` do
 
 ## Araç tercihi
 
-Seçilen araç `gb_vehicle` HttpOnly çerezinde 30 gün saklanır; DB'de ziyaretçi tercih kaydı oluşturulmaz. Seçim kaydedilirken tip kimliği ve yıl DB kataloğundan doğrulanır. Mevcut hesaplar servis/yönetim kullanıcılarına yöneliktir; kişiler arası veya cihazlar arası garaj senkronizasyonu bulunmaz. İleride kişisel hesaplarla birden fazla araç ihtiyacı doğarsa hesaplara bağlı garaj tablosu eklenebilir.
+Seçili araç `gb_vehicle` HttpOnly çerezinde 30 gün saklanır; seçim kaydedilirken tip kimliği ve yıl DB kataloğundan doğrulanır. Garaj birden fazla araç tutar. Ziyaretçide liste `gb_garage` çerezindedir (en çok 5 araç). Giriş yapmış B2B ve yönetim hesaplarında liste `account_vehicles` tablosundadır (`db/garage.sql`, en çok 20 araç) ve cihazlar arası görünür. Hesapta seçili araç çerezi yoksa en son seçilen kayıtlı araç kullanılır. Kaldırılan seçim `none` olarak işaretlenir, böylece eski bir araç kendiliğinden geri gelmez. Girişte ziyaretçi garajı hesaba taşınır. Aynı araç, tip + model yılı (serbest metinde marka/model/yıl) anahtarıyla tek kayıttır. Kural `src/modules/store/garage.ts` içindedir.
 
 Araç kataloğu parça uyumluluk ilişkisi değildir. Ürünlerin TecDoc tiplerine bağlanması ve katalogda araca göre filtrelenmesi ayrı bir çalışmadır. Plaka sorgulama servisi bağlı değildir.

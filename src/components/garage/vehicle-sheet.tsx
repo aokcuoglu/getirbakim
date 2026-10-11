@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
-import { clearCatalogVehicle, selectCatalogVehicle } from "@/app/garaj/actions";
+import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle } from "@/app/garaj/actions";
+import type { GarageEntry } from "@/modules/store/garage";
 import { vehicleDetails, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 
@@ -28,6 +29,7 @@ export function VehicleSheet({ vehicle, onClose, initialTab = "search" }: { vehi
   const [searchOffset, setSearchOffset] = useState(0);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
+  const [garage, setGarage] = useState<{ signedIn: boolean; vehicles: GarageEntry[]; activeKey: string | null } | null>(null);
   const brandsRequest = useVehicleCatalog("/api/vehicles");
   const modelsRequest = useVehicleCatalog(brandId ? `/api/vehicles?brandId=${encodeURIComponent(brandId)}` : null);
   const typesRequest = useVehicleCatalog(modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
@@ -50,6 +52,26 @@ export function VehicleSheet({ vehicle, onClose, initialTab = "search" }: { vehi
   }, []);
   useEffect(() => { content.current?.scrollTo(0, 0); heading.current?.focus(); }, [step]);
   useEffect(() => { content.current?.scrollTo(0, 0); }, [tab]);
+  // Saved vehicles load when the garage tab opens; the active vehicle itself comes from the page.
+  useEffect(() => {
+    if (tab !== "garage") return;
+    let current = true;
+    garageVehicles().then(result => { if (current) setGarage(result); }).catch(() => { if (current) setError("Kayıtlı araçlar yüklenemedi."); });
+    return () => { current = false; };
+  }, [tab]);
+  const others = garage?.vehicles.filter(entry => entry.key !== garage.activeKey) ?? [];
+  function switchTo(key: string) {
+    startTransition(async () => {
+      try { const result = await switchGarageVehicle(key); if (result.error) setError(result.error); else onClose(); }
+      catch { setError("Araç seçilemedi. Lütfen tekrar dene."); }
+    });
+  }
+  function forget(key: string) {
+    startTransition(async () => {
+      try { await removeGarageVehicle(key); setGarage(await garageVehicles()); }
+      catch { setError("Araç kaldırılamadı. Lütfen tekrar dene."); }
+    });
+  }
 
   function go(next: Step) { setStep(next); setQuery(""); setSearchOffset(0); setError(""); }
   function pick(v: CatalogVehicle) {
@@ -105,7 +127,7 @@ export function VehicleSheet({ vehicle, onClose, initialTab = "search" }: { vehi
           <label className="vehicle-search"><Search size={19} aria-hidden="true" /><input aria-label="Marka, model veya yakıt türü ara" placeholder="Marka, model, yakıt türü ara" value={query} maxLength={120} onChange={event => { setQuery(event.target.value); setSearchOffset(0); }} />{query && <button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }}><X size={16} /></button>}</label>
           <div className="vehicle-step-heading">{step !== "brand" && !query.trim() && <button type="button" aria-label="Önceki seçim adımına dön" onClick={back}><ArrowLeft size={18} /></button>}<h3 ref={heading} tabIndex={-1}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3></div>
           {!query.trim() && step !== "brand" && <nav className="vehicle-breadcrumbs" aria-label="Araç seçim adımları"><button type="button" onClick={() => go("brand")}>{brand?.name}</button>{model && step !== "model" && <><ChevronRight size={12} /><button type="button" onClick={() => go("model")}>{model.name}</button></>}{fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><button type="button" onClick={() => go("fuel")}>{fuel}</button></>}</nav>}
-          {activeRequest.loading ? <p className="vehicle-result-count" role="status">Araç verileri yükleniyor…</p> : activeRequest.error ? <div className="vehicle-empty"><p role="alert">{activeRequest.error}</p><button type="button" className="vehicle-secondary" onClick={activeRequest.retry}>Tekrar dene</button></div> : query.trim() ? <><p className="vehicle-result-count">{searchTotal} araç seçeneği{searchTotal > 60 && ` · ${searchOffset + 1}–${Math.min(searchOffset + 60, searchTotal)} gösteriliyor`}</p>{searchResults.length ? <ul className="vehicle-list">{searchResults.map(v => { const details = vehicleDetails(v, v.to); return row(v.id, `${details.make} ${v.generation}`, () => pick(v), `${v.engine} · ${v.fuel} · ${v.power} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}`); })}</ul> : <div className="vehicle-empty"><Search size={28} /><p>Aradığın araç bulunamadı.</p><small>Başka bir marka, model veya yakıt türü dene.</small></div>}{searchTotal > 60 && <div className="vehicle-search-pages"><button type="button" className="vehicle-secondary" disabled={searchOffset === 0} onClick={() => { setSearchOffset(value => Math.max(0, value - 60)); content.current?.scrollTo(0, 0); }}>Önceki</button><button type="button" className="vehicle-secondary" disabled={searchOffset + 60 >= searchTotal} onClick={() => { setSearchOffset(value => value + 60); content.current?.scrollTo(0, 0); }}>Sonraki</button></div>}</> : <>
+          {activeRequest.loading ? <p className="vehicle-result-count" role="status">Araç verileri yükleniyor…</p> : activeRequest.error ? <div className="vehicle-empty"><p role="alert">{activeRequest.error}</p><button type="button" className="vehicle-secondary" onClick={activeRequest.retry}>Tekrar dene</button></div> : query.trim() ? <><p className="vehicle-result-count">{searchTotal} araç seçeneği{searchTotal > 60 && ` · ${searchOffset + 1}–${Math.min(searchOffset + 60, searchTotal)} gösteriliyor`}</p>{searchRequest.data?.correctedQuery && <p className="vehicle-result-count" role="status">“{query.trim()}” bulunamadı, “{searchRequest.data.correctedQuery}” için sonuçlar gösteriliyor.</p>}{searchResults.length ? <ul className="vehicle-list">{searchResults.map(v => { const details = vehicleDetails(v, v.to); return row(v.id, `${details.make} ${v.generation}`, () => pick(v), `${v.engine} · ${v.fuel} · ${v.power} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}`); })}</ul> : <div className="vehicle-empty"><Search size={28} /><p>Aradığın araç bulunamadı.</p><small>Başka bir marka, model veya yakıt türü dene.</small></div>}{searchTotal > 60 && <div className="vehicle-search-pages"><button type="button" className="vehicle-secondary" disabled={searchOffset === 0} onClick={() => { setSearchOffset(value => Math.max(0, value - 60)); content.current?.scrollTo(0, 0); }}>Önceki</button><button type="button" className="vehicle-secondary" disabled={searchOffset + 60 >= searchTotal} onClick={() => { setSearchOffset(value => value + 60); content.current?.scrollTo(0, 0); }}>Sonraki</button></div>}</> : <>
             {step === "brand" && <>{[true, false].map(popular => <div className="vehicle-list-group" key={String(popular)}><h4>{popular ? "POPÜLER MARKALAR" : "TÜM MARKALAR"}</h4><ul className="vehicle-list">{vehicleBrands.filter(b => b.popular === popular).map(b => row(b.id, b.name.toLocaleUpperCase("tr"), () => { setBrandId(b.id); setModelId(""); setFuel(""); go("model"); }))}</ul></div>)}</>}
             {step === "model" && <ul className="vehicle-list">{vehicleModels.map(m => row(m.id, m.name, () => { setModelId(m.id); setFuel(""); go("fuel"); }, vehicleProductionDates(m.dateFrom, m.dateTo)))}</ul>}
             {step === "fuel" && <ul className="vehicle-list">{[...new Set(variants.map(v => v.fuel))].map(name => row(name, name, () => { setFuel(name); go("engine"); }))}</ul>}
@@ -113,7 +135,11 @@ export function VehicleSheet({ vehicle, onClose, initialTab = "search" }: { vehi
             {step === "confirm" && selected && selectedDetails && <div className="vehicle-confirm"><div className="vehicle-summary"><CarFront size={32} /><div><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div><label className="vehicle-year" htmlFor={`${id}-year`}>Model yılı</label><select className="vehicle-year-select" id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))}>{Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <option key={value} value={value}>{value}</option>)}</select><button className="vehicle-save" type="button" disabled={pending} onClick={save}><Check size={18} />{pending ? "Kaydediliyor…" : "Aracımı seç"}</button><p className="vehicle-note">Parça uyumluluğunu OEM kodu ve araç özellikleriyle ayrıca kontrol et.</p></div>}
           </>}
         </div>
-      </> : <div className="vehicle-sheet-body vehicle-garage"><h3 ref={heading} tabIndex={-1}>{vehicle ? "Kayıtlı aracın" : "Garajın henüz boş"}</h3>{vehicle ? <><div className="vehicle-summary"><CarFront size={32} /><div><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div><button className="vehicle-save" type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></button><button className="vehicle-secondary" type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</button><button className="vehicle-remove" type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</button></> : <div className="vehicle-empty"><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><button className="vehicle-save" type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></button></div>}</div>}
+      </> : <div className="vehicle-sheet-body vehicle-garage"><h3 ref={heading} tabIndex={-1}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>{vehicle ? <><div className="vehicle-summary"><CarFront size={32} /><div><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div><button className="vehicle-save" type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></button><button className="vehicle-secondary" type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</button><button className="vehicle-remove" type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</button></> : others.length || !garage ? null : <div className="vehicle-empty"><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><button className="vehicle-save" type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></button></div>}
+        {others.length > 0 && <div className="vehicle-saved"><h4>{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4><ul className="vehicle-list">{others.map(entry => <li key={entry.key} className="vehicle-saved-row"><button type="button" className="vehicle-row" disabled={pending} onClick={() => switchTo(entry.key)}><span>{entry.make} {entry.model}<small>{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></button><button type="button" className="vehicle-saved-remove" disabled={pending} aria-label={`${entry.make} ${entry.model} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></button></li>)}</ul></div>}
+        {!vehicle && !others.length && !garage && <p className="vehicle-result-count" role="status">Kayıtlı araçlar yükleniyor…</p>}
+        {garage && !garage.signedIn && <p className="vehicle-note">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
+      </div>}
       {error && <p className="vehicle-sheet-error" role="alert">{error}</p>}
     </div>
     <div className="vehicle-sheet-footer"><Link className="button outline" href="/katalog" onClick={onClose}>Araç seçmeden alışveriş yap</Link></div>

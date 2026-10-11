@@ -1,4 +1,6 @@
 import "server-only";
+import { parseSearchQuery } from "@/modules/search/query";
+import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { supplierHealth } from "@/modules/suppliers/health";
@@ -48,14 +50,15 @@ export async function adminBasbugData(params: BasbugParams) {
   const stale = health.scopes.some(scope => (!group || scope.list_group===group) && (scope.catalog_stale || scope.commerce_stale));
   const knownGroups = latest?.groups_data.malzemeGruplariListesi ?? [{ kod: "FIAT", ad: "FIAT" }];
   if (!snapshot) return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: [] as AdminSupplierItem[], brands: [] as string[], currencies: [] as string[], total: 0, page: 1, pages: 1 };
-  const values: (string | number)[] = [snapshot.company];
+  const values: unknown[] = [snapshot.company];
   const conditions = ["supplier='basbug'", "company=$1", "warehouse='MRK'"];
   if (group) { values.push(group); conditions.push("list_group=$2"); }
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence : "present";
   if (presence !== "all") { values.push(presence!); conditions.push(`presence=$${values.length}`); }
   const add = (clause: string, value: string) => { values.push(value); conditions.push(clause.replaceAll("?", `$${values.length}`)); };
   const q = params.q?.trim().slice(0, 120);
-  if (q) add("(code ILIKE ? ESCAPE '\\' OR product_data->>'ac' ILIKE ? ESCAPE '\\' OR product_data->>'oe' ILIKE ? ESCAPE '\\' OR product_data->>'uk' ILIKE ? ESCAPE '\\')", `%${q.replace(/[\\%_]/g, "\\$&")}%`);
+  // Same engine as the storefront: word prefixes in name/brand/code/OEM, part numbers with any spacing.
+  if (q) conditions.push(supplierItemMatch("supplier_items", parseSearchQuery(q), binder(values)));
   if (params.brand) add("product_data->>'uk'=?", params.brand.slice(0, 200));
   if (params.currency) add("product_data->>'dc'=?", params.currency.slice(0, 20));
   if (params.stock === "1" || params.stock === "0") add("stock_data->>'stok'=?", params.stock);

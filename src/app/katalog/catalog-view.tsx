@@ -1,7 +1,8 @@
 import type { CatalogQuery } from "@/modules/store/catalog-query";
 import Link from "next/link";
-import { Search,ChevronRight,ShieldCheck,Truck,CarFront } from "lucide-react";
-import { browseProducts,catalogFacets } from "@/modules/store/catalog";
+import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck } from "lucide-react";
+import { browseProducts,catalogFacets,vehicleFitCount,productsFittingVehicle } from "@/modules/store/catalog";
+import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
 import { GarageButton } from "@/components/garage/garage-button";
@@ -28,9 +29,11 @@ const descriptions:Record<string,string>={
 export const catalogDescription=(slug:string)=>descriptions[slug];
 // Shared by /katalog and /car-parts/{make}; `make` is the brand resolved from params.make.
 export async function CatalogView({params,make}:{params:CatalogQuery;make?:VehicleBrand}) {
- const [result,facetData,account,vehicle,vehicleBrands]=await Promise.all([browseProducts(params),catalogFacets(params),currentAccount(),currentVehicle(),getVehicleBrands()]);
+ const vehicle=await currentVehicle();
+ const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
+ const [result,facetData,account,vehicleBrands,fitCount]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0]);
  const products=result.items;
- const [images,logos,details]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.brand)),getCatalogProductDetails(products)]);
+ const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  const categories=await getStoreCategories();
  const category=categories.find(c=>c.slug===params.category);
  const isBrakeCategory=category?.path.includes(252);
@@ -39,6 +42,14 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const makeName=make&&(make.name==="VOLKSWAGEN"?"VW":make.name);
  const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
  const home=make?`/car-parts/${params.make}`:"/katalog";
+ // Same URL shape as the sidebar filters: the make stays in the path, a page number is dropped.
+ const fitsHref=(fits:"vehicle"|undefined)=>{const query=new URLSearchParams();for(const [key,value] of Object.entries({...params,make:undefined,page:undefined,fits}))if(value)query.set(key,value);return query.size?`${home}?${query}`:home;};
+ const vehicleName=vehicle&&[vehicle.make,vehicle.model,vehicle.engine].filter(Boolean).join(" ");
+ const fitFilter=vehicleTypeId&&(params.fits||fitCount>0)&&<div className={"catalog-vehicle-fit"+(params.fits?" active":"")} role="status"><CircleCheck size={18} aria-hidden="true"/>
+  {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
+   :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
+  <Link href={fitsHref(params.fits?undefined:"vehicle")} scroll={false}>{params.fits?"Tüm ürünleri göster":"Yalnızca aracıma uyanları göster"}</Link></div>;
+ const correction=result.correctedQuery&&<p className="catalog-search-correction" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
  const finder=(
      <div className="catalog-vehicle-search">
       <form action={home} className="catalog-code-search" role="search" aria-label="OEM numarasıyla parça ara">
@@ -65,10 +76,11 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
     <div className="listing-layout">
      <CatalogSidebar categories={[...categories]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="category-results-column">
-    {!params.q&&!params.brand&&!params.brands&&!params.attributes&&!params.availability&&<CategoryCards categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
+     {correction}{fitFilter}
+    {!params.q&&!params.brand&&!params.brands&&!params.attributes&&!params.availability&&!params.fits&&<CategoryCards categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
-      {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account}/>) :
-       <div className="listing-empty"><Search size={38}/><h2>{params.q || params.brand || params.brands || params.attributes || params.availability ? "Aramana uygun ürün bulunamadı." : "Bu kategorinin ürünleri hazırlanıyor."}</h2><p>{params.q || params.brand || params.brands || params.attributes || params.availability ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Ürünler eklendiğinde burada listelenecek. Diğer kategorileri inceleyebilirsin."}</p><Link className="button" href={home}>Tüm ürünlere göz at</Link></div>}
+      {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :
+       <div className="listing-empty"><Search size={38}/><h2>{params.fits ? "Bu listede aracına bağlı ürün henüz yok." : params.q || params.brand || params.brands || params.attributes || params.availability ? "Aramana uygun ürün bulunamadı." : "Bu kategorinin ürünleri hazırlanıyor."}</h2><p>{params.fits ? "Araç uyumluluk verileri ürün ürün ekleniyor. Tüm ürünlerde OEM numarasıyla arayabilirsin." : params.q || params.brand || params.brands || params.attributes || params.availability ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Ürünler eklendiğinde burada listelenecek. Diğer kategorileri inceleyebilirsin."}</p><Link className="button" href={home}>Tüm ürünlere göz at</Link></div>}
      </CatalogResults>
      </div>
     </div>

@@ -119,6 +119,18 @@ Adaptör önce tam marka/parça eşleşmesini arar. Bulamazsa DB'deki OEM numara
 
 10.10.2026 ölçümü (koşu `be68aad8`): www.trodo.com için istek aralığı 10 sn. Tarayıcı çalışırken saatte ~354 istek yapılıyor, yani aralık sınırına dayanıyor. Ürün başına ortalama ~5,1 istek gidiyor: arama 1,55, OEM araması 0,7, ürün ve görünüm 0,8+0,8, araç listeleri 1,1. OEM ile doğrulanan bir eşleşme ~6, `not_found` 2,8–4,9 istek tutuyor. Yedek arama varyantları da eşleşme getiriyor: tamamlanan ürünlerin ~%16'sı bu varyantlarla bulundu. Bu nedenle istek sayısını kısmak yerine çalışma süresini uzatmak öncelikli. O gün kapak kapanınca Mac uyudu ve 2,5 saatlik bir duruş oldu; son 24 saatte çalışma oranı %43'tü. `/yonetim/urun-verileri` sayfasındaki "Katalog turu hızı" kartı son 24 saatte aranan ürünü, çalışma süresini, istek aralığını ve tahmini bitişi gösterir. Bir 10 dakikalık dilim, Trodo o dilimde en az bir kez yanıt verdiyse çalışılmış sayılır.
 
+### Canlıya düzenli aktarım — 11.10.2026
+
+Tarama yerel veritabanına yazar; canlı, aktarılana kadar eski veriyi gösterir. `npm run storefront:sync` şu adımları çalıştırır:
+
+1. `PRODUCTION_SSH` (`.env.local`, ör. `root@<host>`) üzerinden, son başarılı aktarımdan sonra içe aktarılan zenginleştirmeleri, bunların kategori eşlemelerini ve görsellerini dışa aktarır. Kategori ağacı ve logolar her seferinde tam gönderilir.
+2. Paketi VPS'te `.local/storefront-bundles/current` dizinine rsync ile kopyalar; yalnızca değişen dosyalar gider.
+3. Canlıda sırasıyla `production-task.sh backup`, `import-storefront` kuru çalıştırması, `--apply` ve `rebuild-fitments` çalışır.
+
+Filigran (`.local/storefront-sync/state.json`) yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir çalıştırma bir sonrakinde tamamen tekrarlanır. Anlık görüntü sırasında sürmekte olan içe aktarmaları kaçırmamak için 1 saat geri örtüşme bırakılır; içe aktarma upsert olduğu için tekrar zararsızdır. İlk çalıştırma (filigran yokken) tüm zenginleştirmeleri gönderir.
+
+`npm run storefront:sync:install` her gün 04:30'da çalışan launchd işini kurar. Mac o saatte uykudaysa iş uyanınca çalışır. Günlük `.local/storefront-sync/sync.log` dosyasına yazılır; kaldırmak için `npm run storefront:sync:uninstall`.
+
 ### Tarayıcı bağlantısı
 
 Doğrudan HTTP erişimi engelli olduğu için işçi normal kaynak tarayıcısına ihtiyaç duyar. Yalnızca `127.0.0.1:4318` üzerinde yerel köprü açar. Köprü sadece iki kaynak origin'ine (`www.trodo.com`, `picdn.trodo.com`) CORS izni verir; her istekte çalışma anında oluşturulan geçici bearer anahtarını ve kaynak origin'ini doğrular. Veritabanı/S3 kimlik bilgileri tarayıcıya verilmez. Kaynak görevleri yalnızca tanımlı halka açık ürün/araç/görsel yollarına izin verir; hesap uçları kabul edilmez.

@@ -1,6 +1,8 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { normalizeVehicleSearch, vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
+import { binder, correctSearch } from "@/modules/search/sql";
+import { exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch } from "@/modules/search/query";
+import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
 function validId(value: string) {
@@ -49,21 +51,49 @@ export async function getModelVehicles(modelId: string): Promise<CatalogVehicle[
   return rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id));
 }
 
-export async function searchVehicleCatalog(query: string, offset = 0, limit = 60) {
-  const terms = normalizeVehicleSearch(query).trim().split(/\s+/).filter(Boolean);
-  // Escape LIKE metacharacters: %, _ and backslash are literal search input.
-  const parameters: (string | number)[] = terms.map(term => `%${term.replace(/[\\%_]/g, "\\$&")}%`);
-  const where = terms.length ? terms.map((_, index) => `v.search_text LIKE $${index + 1}`).join(" AND ") : "TRUE";
-  parameters.push(limit, offset);
+// Make + model words decide the order; dividing by their length (chassis codes in brackets left out)
+// puts "GOLF VII" above "GOLF SPORTSVAN VII". Engine words only break ties.
+const modelDocument = `to_tsvector('simple', search_normalize(concat_ws(' ', b.display_name, b.name, regexp_replace(m.name, '\\(.*\\)', ''))))`;
+const vehicleDocument = `setweight(${modelDocument}, 'A') || setweight(to_tsvector('simple', search_normalize(v.name)), 'B')
+  || to_tsvector('simple', search_normalize(v.search_text))`;
+
+async function rankedVehicleSearch(parsed: ParsedSearch, offset: number, limit: number) {
+  const values: unknown[] = [];
+  const bind = binder(values);
+  const where = ["TRUE"];
+  const query = prefixTsQuery(parsed), exact = exactTsQuery(parsed);
+  // Word prefixes over the indexed document: "y" finds "MODEL Y", not the "Y" inside "(5YJS)".
+  if (query) where.push(`to_tsvector('simple', search_normalize(v.search_text)) @@ to_tsquery('simple', ${bind(query)})`);
+  // "passat 2015": a year narrows to vehicles built that year instead of being matched as text.
+  for (const year of parsed.years) where.push(`${bind(year)}::integer BETWEEN COALESCE(extract(year FROM v.year_of_constr_from), 0)
+    AND COALESCE(extract(year FROM v.year_of_constr_to), 9999)`);
+  const rank = `COALESCE(ts_rank(${modelDocument}, to_tsquery('simple', ${bind(exact)}::text), 2) * 10
+    + ts_rank(${vehicleDocument}, to_tsquery('simple', ${bind(exact)}::text)) * 0.1, 0)`;
+  const page = `LIMIT ${bind(limit)} OFFSET ${bind(offset)}`;
   // Count and page share one snapshot, including when offset is beyond the last match.
   const { rows } = await db.query<{ total: number; vehicles: VehicleRow[] }>(`
-    WITH matches AS MATERIALIZED (SELECT v.id FROM vehicle_types v WHERE ${where})
+    WITH matches AS MATERIALIZED (SELECT v.id, ${rank} AS rank ${vehicleJoins} WHERE ${where.join(" AND ")})
     SELECT (SELECT count(*)::integer FROM matches) AS total,
-      COALESCE((SELECT jsonb_agg(page) FROM (
-        SELECT ${vehicleFields} ${vehicleJoins} JOIN matches ON matches.id=v.id
-        ORDER BY v.name, v.year_of_constr_from, v.id LIMIT $${terms.length + 1} OFFSET $${terms.length + 2}
-      ) page), '[]'::jsonb) AS vehicles`, parameters);
+      COALESCE((SELECT jsonb_agg(page ORDER BY ordinal) FROM (
+        SELECT ${vehicleFields}, row_number() OVER (ORDER BY matches.rank DESC, b.display_name, m.name, v.name, v.year_of_constr_from, v.id) AS ordinal
+        ${vehicleJoins} JOIN matches ON matches.id=v.id
+        ORDER BY ordinal ${page}
+      ) page), '[]'::jsonb) AS vehicles`, values);
   return { vehicles: rows[0].vehicles.map(formatVehicle), total: rows[0].total };
+}
+
+export type VehicleSearchResult = { vehicles: CatalogVehicle[]; total: number; correctedQuery?: string };
+
+export async function searchVehicleCatalog(query: string, offset = 0, limit = 60): Promise<VehicleSearchResult> {
+  const parsed = parseSearchQuery(query, { years: true });
+  if (!parsed.terms.length && !parsed.years.length) return { vehicles: [], total: 0 };
+  const result = await rankedVehicleSearch(parsed, offset, limit);
+  if (result.total) return result;
+  // Nothing matched as typed: retry with mistyped words corrected ("volksvagen pasat").
+  const corrected = await correctSearch(query, "vehicle", { years: true });
+  if (!corrected) return result;
+  const retry = await rankedVehicleSearch(corrected.parsed, offset, limit);
+  return retry.total ? { ...retry, correctedQuery: corrected.text } : result;
 }
 
 export async function savedCatalogVehicle(id: string, year: number) {

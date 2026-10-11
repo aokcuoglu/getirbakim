@@ -8,7 +8,7 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
  const category=categories.find(c=>c.slug===params.category);
  return {title:`${category?.name ?? "Yedek parça kataloğu"} | Getirbakim`,description:(catalogDescription(category?.slug ?? "yedek-parca")??`${category?.name} ürünlerini incele. Ürün kodu ve OEM numarasıyla uyumluluğu kontrol et.`).slice(0,180),
   alternates:{canonical:category ? `/katalog?category=${category.slug}` : "/katalog"},
-  robots:params.q || params.brand || params.brands || params.attributes || params.availability || params.sort || params.page ? {index:false,follow:true} : undefined};
+  robots:params.q || params.brand || params.brands || params.attributes || params.availability || params.fits || params.sort || params.page ? {index:false,follow:true} : undefined};
 }
 export default async function Catalog({searchParams}:{searchParams:Promise<SearchParams>}) {
  return <CatalogView params={parseCatalogQuery({...await searchParams,make:undefined})}/>;

@@ -11,7 +11,8 @@ import type {ManufacturerLogo} from "@/modules/store/manufacturer-logos";
 import {specificationValue} from "@/modules/store/catalog-filters";
 import {CardSpecifications,CompareCheckbox} from "./catalog-card-controls";
 type Details={specifications:[string,string][];vehicleSpecific:boolean;partNumber:string};
-export function CatalogProduct({product:p,image,logo,account,details}:{product:CatalogEntry;image?:CatalogProductImage;logo?:ManufacturerLogo;account:Account|null;details?:Details}){
+/** `fitsVehicle`: linked to the garage vehicle's engine type. */
+export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle=false}:{product:CatalogEntry;image?:CatalogProductImage;logo?:ManufacturerLogo;account:Account|null;details?:Details;fitsVehicle?:boolean}){
  const discounted=Boolean(account?.approved&&account.role==="service"),category=categories.find(c=>c.slug===p.category);
  const displayName=p.name.toLowerCase().replace(/\bon\b/g,"ön").split(" ").map(word=>word.charAt(0).toLocaleUpperCase("tr")+word.slice(1)).join(" ");
  const title=displayName+" "+p.brand+" "+(details?.partNumber??p.code).replace(new RegExp("^"+p.brand.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s+","i"),"");
@@ -22,7 +23,7 @@ export function CatalogProduct({product:p,image,logo,account,details}:{product:C
  <div className="listing-product-media"><div className="listing-product-labels">{brandClass&&<span className={"brand-quality "+(brandClass==="Premium"?"premium":brandClass==="Budget"?"budget":"standard")} title={specificationValue(brandClass)} aria-label={specificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/trodo/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}<ManufacturerBadge brand={p.brand} logo={logo} className="listing-brand-badge"/></div>
  <Link href={"/urun/"+p.id} aria-label={title}>{image?<Image className="listing-product-image" src={image.src} width={image.width} height={image.height} alt={title} loading="lazy" unoptimized/>:<PartArt kind={category?.art}/>}</Link>{p.supplier==="demo"&&<small className="listing-demo">Örnek ürün</small>}</div>
  <div className="listing-product-content">
- <div className="listing-product-heading"><Link className="listing-product-name" href={"/urun/"+p.id}>{title}</Link><div className="listing-product-meta">{details?.vehicleSpecific&&<Link className="vehicle-specific" href={"/urun/"+p.id+"#uyumlu-araclar"}>ARACA ÖZEL</Link>}<span title={p.code}>Kod: {p.code}</span></div></div>
+ <div className="listing-product-heading"><Link className="listing-product-name" href={"/urun/"+p.id}>{title}</Link><div className="listing-product-meta">{fitsVehicle?<Link className="vehicle-specific vehicle-fits" href={"/urun/"+p.id+"#uyumlu-araclar"}>ARACINA UYAR</Link>:details?.vehicleSpecific&&<Link className="vehicle-specific" href={"/urun/"+p.id+"#uyumlu-araclar"}>ARACA ÖZEL</Link>}<span title={p.code}>Kod: {p.code}</span></div></div>
  <CardSpecifications specifications={specifications}/>
  <div className="listing-product-buy">
  <div className={"listing-price"+(p.price_kurus===null?" price-pending":"")}>{price}</div>{p.price_kurus!==null&&<div className="listing-price-note">KDV dahil <span>· Kargo hariç</span>{discounted&&<span> · Servisine özel fiyat</span>}</div>}
