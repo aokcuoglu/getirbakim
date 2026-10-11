@@ -214,7 +214,7 @@ bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=AL
 
 `--force --supplier=dinamik` grup verilmeden tüm markaları bütçesiz çeker ve ~16 dk+ boyunca zamanlayıcı kilidini tutar; bu sürede Başbuğ fiyat/stok turları bekler. Production'da tüm markalar için zorlama yerine normal zamanlayıcıyı bekleyin veya `--group` ile sınırlayın.
 
-Yönetim: `/yonetim/tedarikciler/dinamik` güncel ürün, bölgede stokta, güncel/etkin marka, son 24 saat, son çekimler ve hata veren markaları gösterir. `/api/health/suppliers` Dinamik kapsamlarını da kapsar: hata veren ya da 36 saatten bayat marka 503 üretir.
+Yönetim: `/yonetim/tedarikciler/dinamik` Başbuğ ekranı gibi iki sekmelidir. **Ürünler:** marka, ürün grubu (`kull7s`), bölge + stok durumu, listede bulunma ve kalite (yalnız fiyat listesinde, fiyatı eksik, kampanyalı, tekrar, çelişki) filtreli, 50'şer sayfalı tablo; arama kelime başlarını ad/kod/OEM/eşdeğer/ürün tipinde arar, parça numarasını ayraçsız da bulur (Türkçe harfler desende katlanır; ~1M satırda ~0,3 sn, markayla ~20 ms). Her satır `/yonetim/tedarikciler/dinamik/urun/<id>` detayına (kaynak alanlar, bölge stokları, değişiklik geçmişi) gider. **Senkronizasyon ve kalite:** güncel ürün, bölgede stokta, güncel/etkin marka, son 24 saat, son çekimler ve hata veren markaları gösterir. `/api/health/suppliers` Dinamik kapsamlarını da kapsar: hata veren ya da 36 saatten bayat marka 503 üretir.
 
 ## SETA — 11 Ekim 2026
 
