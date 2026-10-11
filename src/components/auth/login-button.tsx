@@ -1,23 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useRef, type ReactNode } from "react";
 import { AuthModal, type AuthMode } from "./auth-modal";
 
+/** A button (styled by the caller) that opens the login dialog. */
 export function LoginButton({ children, className }: { children: ReactNode; className?: string }) {
-  const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const modal = useRef<{ open: (mode: AuthMode) => void }>(null);
-
-  useEffect(() => {
-    if (open) modal.current?.open("login");
-  }, [open]);
-
   return <>
-    <button ref={trigger} type="button" className={className} aria-haspopup="dialog" onClick={() => setOpen(true)}>{children}</button>
-    {open && createPortal(<AuthModal ref={modal} onClosed={() => {
-      setOpen(false);
-      trigger.current?.focus({ preventScroll: true });
-    }} />, document.body)}
+    <button ref={trigger} type="button" className={className} aria-haspopup="dialog" onClick={() => modal.current?.open("login")}>{children}</button>
+    <AuthModal ref={modal} onClosed={() => trigger.current?.focus({ preventScroll: true })} />
   </>;
 }

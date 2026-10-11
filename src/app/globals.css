@@ -1,13 +1,17 @@
-/* Legacy storefront element rules (design-system.css) sit in their own layer below Tailwind's components and
-   utilities, so shadcn components win over them while the remaining legacy class rules (unlayered) still apply. */
-@layer theme, base, legacy, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
-/* Document reset only. Storefront tokens, controls and shared surfaces live in design-system.css. */
+/* Inter, self-hosted (weights used by the design: 400, 500, 600). */
+@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+
+/* Payment dialog progress shimmer (animate-[payment-progress_…]). */
+@keyframes payment-progress { to { background-position: -200% 0; } }
+
 /* In the base layer (like Tailwind's preflight, which already does the same) so utilities can override them. */
 @layer base {
   * { box-sizing: border-box; }
@@ -185,4 +189,9 @@
   * { @apply border-border outline-ring/50; }
   body { @apply bg-background text-foreground font-sans; }
   :is(button:not(:disabled),[role=button]:not(:disabled)) { cursor: pointer; }
+  /* Storefront typography defaults (carried over from the pre-shadcn design system; the admin keeps Tailwind's). */
+  :where(html:not(:has(.admin-app))) body { font-size: 14px; line-height: 20px; }
+  :where(html:not(:has(.admin-app))) :is(h1, h2, h3, h4) { font-weight: 600; }
+  :where(html:not(:has(.admin-app))) h2 { font-size: 26px; line-height: 34px; }
+  :where(html:not(:has(.admin-app))) h3 { font-size: 21px; line-height: 29px; }
 }

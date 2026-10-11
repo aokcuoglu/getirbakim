@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BadgePercent, Building2, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, PlugZap, ReceiptText, Sun, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
+import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -100,7 +101,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
 function ThemeItem() {
   const toggle = () => {
     const dark = document.documentElement.classList.toggle("dark");
-    try { localStorage.setItem("gb-admin-theme", dark ? "dark" : "light"); } catch {}
+    try { localStorage.setItem(ADMIN_THEME_KEY, dark ? "dark" : "light"); } catch {}
   };
   return <DropdownMenuItem onClick={toggle} closeOnClick={false}>
     <Sun className="dark:hidden" aria-hidden="true"/><Moon className="hidden dark:block" aria-hidden="true"/>
