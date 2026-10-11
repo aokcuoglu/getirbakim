@@ -38,6 +38,7 @@ const sections: { title: string; items: Item[] }[] = [
 ];
 const dotIcons = { success: CircleCheck, warning: TriangleAlert, danger: CircleAlert, neutral: CircleDashed };
 const dotLabels = { success: "sağlıklı", warning: "dikkat gerekiyor", danger: "hata", neutral: "bağlı değil" };
+const dotColors = { success: "text-success", warning: "text-warning", danger: "text-destructive", neutral: "text-muted-foreground" };
 
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {
   const pathname = usePathname();
@@ -99,7 +100,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
 
 function ToneIcon({ tone }: { tone: keyof typeof dotIcons }) {
   const Icon = dotIcons[tone];
-  return <Icon className="size-3.5" role="img" aria-label={dotLabels[tone]}/>;
+  return <Icon className={`size-3.5 ${dotColors[tone]}`} role="img" aria-label={dotLabels[tone]}/>;
 }
 
 /** Light/dark switch for the workspace only; the storefront has no dark theme. */

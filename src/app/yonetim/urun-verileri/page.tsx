@@ -25,7 +25,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
 type Tone="success"|"info"|"warning"|"error"|"neutral";
-const tones:Record<Tone,{variant:"secondary"|"outline"|"destructive";icon?:LucideIcon}>={success:{variant:"secondary",icon:CircleCheck},info:{variant:"outline",icon:Info},warning:{variant:"outline",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
+const tones:Record<Tone,{variant:"success"|"info"|"warning"|"destructive"|"outline";icon?:LucideIcon}>={success:{variant:"success",icon:CircleCheck},info:{variant:"info",icon:Info},warning:{variant:"warning",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
 const statusBadge=(tone:Tone,label:React.ReactNode)=>{const {variant,icon:Icon}=tones[tone];return <Badge variant={variant}>{Icon&&<Icon data-icon="inline-start"/>}{label}</Badge>;};
 const date=(value:Date)=>new Intl.DateTimeFormat("tr-TR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"}).format(value);
 
@@ -50,7 +50,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     {label:"Araç / motor kaydı",value:data.metrics.vehicles,icon:CarFront,note:`${number(data.metrics.oem_numbers)} OEM referansı toplandı`},
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
   ];
-  const statusTones:Record<string,Tone>={complete:"success",partial:"info",review:"warning",failed:"error",blocked:"error",not_found:"neutral",pending:"neutral"};
+  const statusTones:Record<string,Tone>={complete:"success",partial:"warning",review:"warning",failed:"error",blocked:"error",not_found:"error",pending:"neutral"};
   const tabs:[string,string,number][]=[["enriched","Zenginleştirilen",data.metrics.enriched],["review","İnceleme",counts.review||0],["partial","Kısmi veri",counts.partial||0],["not_found","Eşleşmeyen",counts.not_found||0],["pending","Bekleyen",counts.pending||0]];
   const prev=data.page>1?href({page:String(data.page-1)}):null, next=data.page<data.pages?href({page:String(data.page+1)}):null;
   return <div className="flex flex-col gap-6">
@@ -117,7 +117,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
           <TableCell className="text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id} footer={<>{row.source_url?<Button variant="outline" nativeButton={false} render={<Link href={row.source_url} target="_blank"/>}>{new URL(row.source_url).hostname}<ArrowUpRight data-icon="inline-end"/></Button>:<span className="text-sm text-muted-foreground sm:mr-auto">Henüz kaynak verisi kaydedilmedi.</span>}<Button nativeButton={false} render={<Link href={`/urun/${row.id}`}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end"/></Button></>}>
             <Table><TableBody>{([["Durum",statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)],["Eşleşme yöntemi",row.match_type==="oem_reference"?"OEM referansı":row.match_type==="exact_part"?"Doğrudan marka / parça":"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><TableRow key={label}><TableHead>{label}</TableHead><TableCell className="whitespace-normal">{value}</TableCell></TableRow>)}</TableBody></Table>
             <div className="grid grid-cols-3 gap-2">{([[row.oem_count,"OEM referansı"],[row.vehicle_count,"araç / motor"],[row.specification_count,"teknik özellik"]] as const).map(([value,label])=><Item key={label} variant="muted"><ItemContent><ItemTitle className="text-xl tabular-nums">{number(value)}</ItemTitle><ItemDescription>{label}</ItemDescription></ItemContent></Item>)}</div>
-            {row.last_error&&<Alert><TriangleAlert/><AlertDescription>Son işlem notu: {row.last_error}</AlertDescription></Alert>}
+            {row.last_error&&<Alert variant="warning"><TriangleAlert/><AlertDescription>Son işlem notu: {row.last_error}</AlertDescription></Alert>}
           </EnrichmentDetails></TableCell>
         </TableRow>)}</TableBody></Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Search/></EmptyMedia><EmptyTitle>Bu filtrelerle kayıt bulunamadı</EmptyTitle><EmptyDescription>Arama kodunu veya eşleşme yöntemini değiştirerek tekrar dene.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Tüm zenginleştirilen ürünler</Button></EmptyContent></Empty>}
       </CardContent>

@@ -30,8 +30,8 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
       <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
       <p className="max-w-3xl text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
     </div>
-    {params.created && <Alert role="status"><CircleCheck/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
-    {params.saved && <Alert role="status"><CircleCheck/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
+    {params.created && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive"><CircleAlert/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
     <Card>
       <CardHeader>
@@ -43,7 +43,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
           {accounts.map(a=>{const form=`service-${a.id}`;return <TableRow key={a.id}>
             <TableCell><div className="font-medium">{a.name}</div><div className="text-muted-foreground">{a.email}</div></TableCell>
             <TableCell>{a.contact_name ? <><div>{a.contact_name}</div><div className="text-muted-foreground">{a.phone} · {a.city}</div></> : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell>{a.approved ? <Badge variant="secondary"><CircleCheck data-icon="inline-start"/>Onaylı</Badge> : <Badge variant="outline"><TriangleAlert data-icon="inline-start"/>Onay bekliyor</Badge>}</TableCell>
+            <TableCell>{a.approved ? <Badge variant="success"><CircleCheck data-icon="inline-start"/>Onaylı</Badge> : <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Onay bekliyor</Badge>}</TableCell>
             <TableCell className="text-right"><InputGroup className="ml-auto w-28">
               <InputGroupInput className="text-right tabular-nums" form={form} aria-label={`${a.name} indirim oranı`} name="discount" type="number" min={0} max={50} defaultValue={a.discount_percent} required/>
               <InputGroupAddon align="inline-end"><InputGroupText>%</InputGroupText></InputGroupAddon>

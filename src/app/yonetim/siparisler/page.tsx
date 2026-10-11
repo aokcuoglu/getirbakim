@@ -46,7 +46,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
       <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
       <p className="max-w-3xl text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödeme iadesini TAMI portalından yapıp referansı kaydet. Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
     </div>
-    {params.saved && <Alert role="status"><CircleCheck/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">

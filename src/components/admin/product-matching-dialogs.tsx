@@ -77,7 +77,7 @@ export function SetaDialog({ title, description, products }: { title: string; de
 
 export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
   if (stock === null) return <span className="text-muted-foreground">—</span>;
-  return <Badge variant={stock ? "secondary" : "outline"}>{stock ? "Var" : "Yok"}</Badge>;
+  return <Badge variant={stock ? "success" : "outline"}>{stock ? "Var" : "Yok"}</Badge>;
 }
 
 export function DecisionHelp() {
@@ -91,7 +91,7 @@ export function DecisionHelp() {
         <div><dt className="font-medium">Ortak barkod</dt><dd className="text-muted-foreground">Dinamik’te iki markanın ürünleri aynı barkodu taşıyorsa (WENDER / WENDERPARTS) bu güçlü bir “aynı marka” kanıtıdır. Ad benzerliği düşükse barkodlar yer tutucudur; ilgisiz seçin.</dd></div>
         <div><dt className="font-medium">İlgisiz</dt><dd className="text-muted-foreground">Numaralar rastlantısal (FEBI / IBRAS). Çift tekrar önerilmez.</dd></div>
       </dl>
-      <p className="flex items-center gap-2 text-muted-foreground"><Badge variant="secondary"><CircleCheck data-icon="inline-start" aria-hidden="true"/>%15+</Badge>Ürün adı benzerliği gerçek eşlemelerde genelde %10’un üzerinde, rastlantılarda %2–5 çıkar.</p>
+      <p className="flex items-center gap-2 text-muted-foreground"><Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>%15+</Badge>Ürün adı benzerliği gerçek eşlemelerde genelde %10’un üzerinde, rastlantılarda %2–5 çıkar.</p>
     </DialogContent>
   </Dialog>;
 }

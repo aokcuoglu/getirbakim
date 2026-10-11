@@ -42,8 +42,8 @@ export function EnrichmentVehicles({ productId }: { productId: string }) {
     : !data.rows.length ? <p className="text-sm text-muted-foreground">{data.modelCount ? `${data.modelCount} model adı kaydedilmiş; motor ayrıntıları henüz aktarılmamış.` : "Bu ürün için henüz araç / motor bilgisi aktarılmamış."}</p> : <>
       <div className="flex flex-wrap gap-2">
         <Badge variant="outline" className="tabular-nums">{data.rows.length} toplam</Badge>
-        <Badge variant="secondary" className="tabular-nums"><CircleCheck data-icon="inline-start"/>{matched} eşleşen</Badge>
-        <Badge variant="outline" className="tabular-nums"><TriangleAlert data-icon="inline-start"/>{data.rows.length - matched} eşleşmeyen</Badge>
+        <Badge variant="success" className="tabular-nums"><CircleCheck data-icon="inline-start"/>{matched} eşleşen</Badge>
+        <Badge variant="warning" className="tabular-nums"><TriangleAlert data-icon="inline-start"/>{data.rows.length - matched} eşleşmeyen</Badge>
       </div>
       <div className="flex flex-col gap-2 sm:flex-row">
         <InputGroup className="flex-1"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput type="search" aria-label="Araç, motor veya tip kimliği ara" value={query} onChange={event => setQuery(event.target.value)} placeholder="Araç, motor kodu veya tip kimliği ara…"/></InputGroup>
@@ -55,7 +55,7 @@ export function EnrichmentVehicles({ productId }: { productId: string }) {
           <TableCell className="whitespace-normal"><div className="font-semibold">{row.source.model}</div><div>{row.source.engineAndCodes}</div>{row.catalog && <div className="text-muted-foreground">Katalog: {row.catalog.brand} {row.catalog.model} · {row.catalog.engine}<br/>Araç tipi #{row.catalog.typeId}</div>}</TableCell>
           <TableCell className="tabular-nums">{row.source.ps} PS · {row.source.kw} kW{row.source.cc > 0 && <div>{row.source.cc} cm³</div>}<div className="text-muted-foreground">{row.source.fuel}</div></TableCell>
           <TableCell className="tabular-nums">{row.source.from}<div>– {row.source.to || "Bitiş belirtilmemiş"}</div></TableCell>
-          <TableCell className="whitespace-normal">{row.catalog ? <Badge variant="secondary"><CircleCheck data-icon="inline-start"/>{fitmentStatusLabels[row.status] || row.status}</Badge> : <Badge variant="outline"><TriangleAlert data-icon="inline-start"/>{fitmentStatusLabels[row.status] || row.status}</Badge>}{!row.catalog && <div className="text-muted-foreground">{fitmentStatusReasons[row.status] || "Araç kataloğunda doğrulanmış bağlantı bulunmuyor."}</div>}</TableCell>
+          <TableCell className="whitespace-normal">{row.catalog ? <Badge variant="success"><CircleCheck data-icon="inline-start"/>{fitmentStatusLabels[row.status] || row.status}</Badge> : <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>{fitmentStatusLabels[row.status] || row.status}</Badge>}{!row.catalog && <div className="text-muted-foreground">{fitmentStatusReasons[row.status] || "Araç kataloğunda doğrulanmış bağlantı bulunmuyor."}</div>}</TableCell>
         </TableRow>)}</TableBody></Table>
         {!rows.length && <p className="py-4 text-sm text-muted-foreground">Bu filtreyle eşleşen araç bulunamadı.</p>}
       </div>

@@ -63,10 +63,10 @@ function runError(reason: string) {
 }
 
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
-const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="secondary"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
   : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "warning" ? <Badge variant="outline"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "info" ? <Badge variant="outline"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
+  : tone === "warning" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
+  : tone === "info" ? <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
 
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
@@ -105,9 +105,9 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         <SupplierActivityBadge supplier="basbug" initial={activity}>{statusBadge(data.health.healthy ? "success" : "warning", data.health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor")}</SupplierActivityBadge>
       </div>
     </div>
-    {params.updated === "1" && <Alert role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
+    {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
-    {params.modeSaved === "1" && <Alert role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş veri kaynağı kaydedildi.</AlertDescription></Alert>}
+    {params.modeSaved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş veri kaynağı kaydedildi.</AlertDescription></Alert>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Başbuğ özet">
       {facts.map(([label, value, note]) => <Card key={label} size="sm">
         <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
@@ -220,11 +220,11 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
             <TableCell className="max-w-64 truncate font-medium" title={[item.product_data.ac,item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.uk}>{item.product_data.uk || "—"}</TableCell>
             <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
-            <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="outline">Eksik</Badge>}</TableCell>
+            <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="warning">Eksik</Badge>}</TableCell>
             <TableCell className="text-right font-medium tabular-nums" title={item.sale_price_kurus ? money(item.sale_price_kurus) : "Satış fiyatı yok"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
             {basbugWarehouses.map(depot => {
               const stock = basbugWarehouseStock(item.stock_data, depot);
-              return <TableCell key={depot} className="text-center"><Badge variant={stock !== null && stock > 0 ? "secondary" : "outline"} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}>{basbugStockLabel(stock)}</Badge></TableCell>;
+              return <TableCell key={depot} className="text-center"><Badge variant={stock === null ? "warning" : stock > 0 ? "success" : "outline"} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}>{basbugStockLabel(stock)}</Badge></TableCell>;
             })}
             <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell><DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>

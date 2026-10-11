@@ -68,7 +68,7 @@ export function SupplierRefreshAll({ groups }: { groups: string[] }) {
       <CollapsibleTrigger render={<Button variant="link" size="sm"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Toplu güncelleme sonuçları</CollapsibleTrigger>
       <CollapsibleContent><ul className="flex flex-col gap-1">{results.map(result => <li key={result.group} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{result.group}</span>
-        <Badge variant={result.ok ? "secondary" : "destructive"}>{result.ok ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : <CircleAlert data-icon="inline-start" aria-hidden="true"/>}{result.ok ? "Güncellendi" : "Başarısız"}</Badge>
+        <Badge variant={result.ok ? "success" : "destructive"}>{result.ok ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : <CircleAlert data-icon="inline-start" aria-hidden="true"/>}{result.ok ? "Güncellendi" : "Başarısız"}</Badge>
         {!result.ok && <span className="text-muted-foreground">{result.error === "interrupted" ? "İşlem sonucu alınamadı; çekim geçmişini ve oturumu kontrol edin. Kalan gruplar başlatılmadı." : errors[result.error || "upstream"] || errors.upstream}</span>}
       </li>)}</ul></CollapsibleContent>
     </Collapsible>}
