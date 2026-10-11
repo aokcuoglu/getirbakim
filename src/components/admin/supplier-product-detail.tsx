@@ -87,7 +87,7 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
             {statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind] ?? change.kind)}
           </CollapsibleTrigger>
           <CollapsibleContent className="flex min-w-0 flex-col gap-2">
-            {fields.length ? <div role="region" aria-label={`${supplierDate(change.changed_at)} değişen alanlar`} tabIndex={0} className="max-h-80 overflow-auto rounded-[4px] border outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {fields.length ? <div role="region" aria-label={`${supplierDate(change.changed_at)} değişen alanlar`} tabIndex={0} className="max-h-80 overflow-auto rounded-[4px] border outline-none focus-visible:ring-2 focus-visible:ring-ring [&>[data-slot=table-container]]:overflow-visible">
               <Table className="min-w-[28rem] table-fixed">
                 <TableHeader className="sticky top-0 bg-muted"><TableRow><TableHead className="w-2/5">Alan</TableHead><TableHead>Önce</TableHead><TableHead>Sonra</TableHead></TableRow></TableHeader>
                 <TableBody>{fields.map(field => <TableRow key={JSON.stringify(field.path)} className="even:bg-muted/30">
@@ -138,8 +138,8 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
       <CardHeader><CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">
-          <Card size="sm" className="min-w-0 rounded-[4px] border ring-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
-          <Card size="sm" className="min-w-0 rounded-[4px] border ring-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
+          <Card size="sm" className="min-w-0 rounded-[4px] border ring-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
+          <Card size="sm" className="min-w-0 rounded-[4px] border ring-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
           <Card size="sm" className="min-w-0 rounded-[4px] border ring-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(sale?.available && sale.price_kurus && !snapshot ? "success" : "warning", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
         </div>
         <p className="text-muted-foreground tabular-nums">Kâr %{supplierNumber(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{supplierNumber(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
