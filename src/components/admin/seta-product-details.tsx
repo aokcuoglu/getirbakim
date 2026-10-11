@@ -3,7 +3,9 @@
 import { useRef } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import type { SetaItem } from "@/modules/admin/seta";
 
 export function SetaProductDetails({ item, cost, salePrice }: { item: SetaItem; cost: string; salePrice: string }) {
@@ -20,20 +22,22 @@ export function SetaProductDetails({ item, cost, salePrice }: { item: SetaItem; 
     ["Listede bulunma", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Listede yok"],
     ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : !item.price_data ? "Fiyat eksik" : item.product_count > 1 ? "Tekrarlanan kod" : "—"],
   ];
+  const cross = Object.entries(item.product_data.cross ?? {});
   return <Dialog>
-    <DialogTrigger className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></DialogTrigger>
+    <DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger>
     {/* Cart forms submit their server action instead of the surrounding supplier filter navigation. */}
-    <DialogContent className="admin-app max-h-[85dvh] overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
-      <DialogHeader className="pr-8">
-        <DialogTitle ref={titleRef} tabIndex={-1} className="break-words leading-snug outline-none">{item.product_data.ac}</DialogTitle>
+    <DialogContent className="max-h-svh overflow-y-auto sm:max-w-xl" initialFocus={titleRef} onSubmit={event => event.stopPropagation()}>
+      <DialogHeader>
+        <DialogTitle ref={titleRef} tabIndex={-1}>{item.product_data.ac}</DialogTitle>
         <DialogDescription className="font-mono">{item.code} · SETA</DialogDescription>
       </DialogHeader>
-      <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-2">{fields.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 break-words font-medium">{value}</dd></div>)}</dl>
-      <div className="border-t pt-3">
-        <h3 className="mb-2 text-sm font-semibold">Çapraz referanslar</h3>
-        {Object.entries(item.product_data.cross ?? {}).length ? <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">{Object.entries(item.product_data.cross ?? {}).map(([brand, code]) => <div key={brand} className="min-w-0"><dt className="text-xs text-muted-foreground">{brand || "Belirtilmemiş"}</dt><dd className="break-words font-mono text-xs">{code}</dd></div>)}</dl> : <p className="text-xs text-muted-foreground">Çapraz referans bulunmuyor.</p>}
+      <dl className="grid gap-x-4 gap-y-3 sm:grid-cols-2">{fields.map(([label, value]) => <div key={label} className="flex min-w-0 flex-col gap-0.5"><dt className="text-muted-foreground">{label}</dt><dd className="font-medium break-words">{value}</dd></div>)}</dl>
+      <Separator/>
+      <div className="flex flex-col gap-2">
+        <h3 className="font-medium">Çapraz referanslar</h3>
+        {cross.length ? <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">{cross.map(([brand, code]) => <div key={brand} className="flex min-w-0 flex-col gap-0.5"><dt className="text-muted-foreground">{brand || "Belirtilmemiş"}</dt><dd className="font-mono break-words">{code}</dd></div>)}</dl> : <p className="text-muted-foreground">Çapraz referans bulunmuyor.</p>}
       </div>
-      <div className="border-t pt-1"><AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/></div>
+      <DialogFooter><AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
