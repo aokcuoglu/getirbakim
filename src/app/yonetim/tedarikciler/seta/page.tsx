@@ -5,10 +5,12 @@ import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badg
 import { db } from "@/lib/db";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
+import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { setaPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { SetaProductFilters } from "@/components/admin/seta-product-filters";
-import { ArrowUpRight, CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, History, Info, PackageSearch, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -21,7 +23,6 @@ import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, Pagi
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminSetaData } from "@/modules/admin/seta";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
-import { money } from "@/modules/store/catalog";
 import { refreshSeta } from "./actions";
 
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
@@ -128,26 +129,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>SETA listesi henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden listeyi API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : "Stok yok"}`}</span><span>NF: KDV hariç bayi fiyatı · Satış: KDV dahil · Stok: var/yok</span></div>
-        {items.length ? <Table><caption className="sr-only">SETA ürünleri, fiyatları ve stok durumları</caption>
-          <TableHeader><TableRow><TableHead>Parça kodu</TableHead><TableHead>OEM</TableHead><TableHead>Ürün adı</TableHead><TableHead>Araç</TableHead><TableHead>Çapraz referans</TableHead><TableHead title="Kaynak para birimi">PB</TableHead><TableHead className="text-right" title="KDV hariç bayi fiyatı">NF</TableHead><TableHead className="text-right">Satış (₺)</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
-          <TableBody>{items.map(item => {
-            const cross = Object.entries(item.product_data.cross ?? {}).map(([brand, code]) => `${brand || "?"} ${code}`).join(" · ");
-            const stock = item.stock_data?.stok ?? null;
-            return <TableRow key={item.id}>
-              <TableCell className="font-mono font-medium" title={item.code}><Link href={`/yonetim/tedarikciler/seta/urun/${item.id}`} className="text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.code}</Link></TableCell>
-              <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
-              <TableCell className="max-w-64 truncate font-medium" title={[item.product_data.ac, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
-              <TableCell className="max-w-32 truncate text-muted-foreground" title={[item.product_data.vehicle_brand, item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.vehicle_brand || "—"}</TableCell>
-              <TableCell className="max-w-48 truncate text-muted-foreground" title={cross}>{cross || "—"}</TableCell>
-              <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
-              <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="warning">Eksik</Badge>}</TableCell>
-              <TableCell className="text-right font-medium tabular-nums" title={item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
-              <TableCell className="text-center"><Badge variant={stock === null ? "warning" : stock > 0 ? "success" : "outline"} title="Kaynak adet değil, var/yok bildirir">{stock === null ? "Veri yok" : stock > 0 ? "Var" : "Yok"}</Badge></TableCell>
-              <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-              <TableCell><Button nativeButton={false} render={<Link href={`/yonetim/tedarikciler/seta/urun/${item.id}`}/>} variant="ghost" size="icon" aria-label={`${item.code} ürün detayı`}><ArrowUpRight aria-hidden="true"/></Button></TableCell>
-            </TableRow>;
-          })}</TableBody>
-        </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
+        <SupplierPartTable {...setaPartTableProps(items)}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>

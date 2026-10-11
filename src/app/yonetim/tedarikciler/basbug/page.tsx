@@ -3,18 +3,17 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshAll } from "@/components/admin/supplier-refresh-all";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
+import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { basbugPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
-import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
-import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, CalendarClock, CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowRight, CalendarClock, CircleAlert, CircleCheck, History, Info, PackageSearch, TriangleAlert } from "lucide-react";
 import { BasbugProductFilters } from "@/components/admin/basbug-product-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { DialogTrigger } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -29,9 +28,8 @@ import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
-import { money } from "@/modules/store/catalog";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
-import { basbugStockLabel, basbugWarehouse, basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
+import { basbugWarehouse, basbugWarehouses } from "@/modules/suppliers/basbug-stock";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 }).format(value);
 // Remove only insignificant trailing zeroes; preserve the source precision.
@@ -197,39 +195,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Bu grubun verileri henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>NF: KDV hariç maliyet · Satış: KDV dahil</span></div>
-        {items.length ? <Table><caption className="sr-only">Başbuğ ürünleri, fiyatları ve depo bazlı stok durumları</caption>
-          <TableHeader><TableRow><TableHead>Parça kodu</TableHead><TableHead>OEM</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead title="Kaynak para birimi">PB</TableHead><TableHead className="text-right" title="KDV hariç maliyet">NF</TableHead><TableHead className="text-right">Satış (₺)</TableHead>{basbugWarehouses.map(depot => <TableHead key={depot} className="text-center" title={`${depot} depo stok durumu`}>{depot === basbugWarehouse(params.warehouse) ? <strong>{depot}</strong> : depot}</TableHead>)}<TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
-          <TableBody>{items.map(item => <SupplierProductDetails key={item.id} code={item.code} title={item.product_data.ac || "Ürün bilgisi yok"} supplier="Başbuğ" detailHref={`/yonetim/tedarikciler/basbug/urun/${item.id}`}
-            fields={[
-              ["Marka", item.product_data.uk], ["OEM", item.product_data.oe],
-              ["Ek açıklama", item.product_data.ac2], ["Model", item.product_data.m],
-              ["Motor", item.product_data.mo], ["Yıl", item.product_data.y],
-              ["Birim", item.product_data.b], ["Liste grubu", item.product_data.lgk],
-              ["NF · KDV hariç maliyet", item.price_data ? `${number(item.price_data.nf)} ${item.product_data.dc}` : "Fiyat eksik"],
-              ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"],
-              ["Satış durumu", item.sale_stock_label || "Satışa kapalı"],
-              ["Listede bulunma", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Listede yok"],
-              ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : !item.price_data ? "Fiyat eksik" : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? "Tekrarlanan kod" : "—"],
-              ["Kaynak satırları", `${item.product_count} ürün · ${item.price_count} fiyat · ${item.stock_count} stok`],
-            ]}
-            stockTitle="Depo stokları" stocks={basbugWarehouses.map(depot => { const stock = basbugWarehouseStock(item.stock_data, depot); return { label: depot, available: stock === null ? null : stock > 0 }; })}
-            footer={<AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/>}>
-          <TableRow>
-            <TableCell><DialogTrigger render={<Button variant="link" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
-            <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
-            <TableCell className="max-w-64 truncate font-medium" title={[item.product_data.ac,item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
-            <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.uk}>{item.product_data.uk || "—"}</TableCell>
-            <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
-            <TableCell className="text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : <Badge variant="warning">Eksik</Badge>}</TableCell>
-            <TableCell className="text-right font-medium tabular-nums" title={item.sale_price_kurus ? money(item.sale_price_kurus) : "Satış fiyatı yok"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
-            {basbugWarehouses.map(depot => {
-              const stock = basbugWarehouseStock(item.stock_data, depot);
-              return <TableCell key={depot} className="text-center"><Badge variant={stock === null ? "warning" : stock > 0 ? "success" : "outline"} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}>{basbugStockLabel(stock)}</Badge></TableCell>;
-            })}
-            <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
-          </TableRow></SupplierProductDetails>)}</TableBody>
-        </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
+        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse))}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
