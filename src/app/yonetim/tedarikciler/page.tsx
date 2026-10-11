@@ -2,8 +2,9 @@ import { ArrowRight } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
-import { adminSupplierOverview } from "@/modules/admin/data";
+import { adminSetaOverview, adminSupplierOverview } from "@/modules/admin/data";
 import { db } from "@/lib/db";
+import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import type { ReactNode } from "react";
 import { AdminPage, AdminPageHeader, ButtonLink, StatusBadge } from "@/components/admin/ui";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,10 +16,12 @@ const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded:
 export default async function Suppliers() {
   await requireAdmin();
   const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [overview, health] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null)]);
+  const [overview, health, seta, setaHealth] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
+    adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null)]);
   const statuses = supplierStatuses();
   const basbug = statuses.find(s => s.name === "Başbuğ");
   const dinamik = statuses.find(s => s.name === "Dinamik");
+  const setaStatus = statuses.find(s => s.name === "SETA");
   const healthy = Boolean(health?.healthy);
   const last = overview.last;
   const card = (props: { id: string; letter: string; title: string; subtitle: string; badge: ReactNode; facts: [string, ReactNode, ReactNode][]; note?: string; footer: string; href: string; action: string }) =>
@@ -54,6 +57,12 @@ export default async function Suppliers() {
           ["Bağlantı değişkenleri", dinamik?.configured ? "Tanımlı" : "Eksik", "BASE · APIKEY · SECRETKEY"],
           ["Senkronizasyon", "Kapalı", "Sözleşme doğrulanana kadar istek yapılmaz"],
         ], note: dinamik?.message, footer: "Erişim IP izin listesine bağlı", href: "/yonetim/tedarikciler/dinamik", action: "Ayrıntılar" })}
+      {card({ id: "supplier-seta", letter: "S", title: "SETA API", subtitle: "Filtre ürünleri, OEM, KDV hariç bayi fiyatı ve stok durumu",
+        badge: <StatusBadge tone={!setaStatus?.configured ? "warning" : !setaHealth?.scopes.length ? "neutral" : setaHealth.healthy ? "success" : "warning"}>{!setaStatus?.configured ? "Anahtar eksik" : !setaHealth?.scopes.length ? "Henüz aktarılmadı" : setaHealth.healthy ? "Sağlıklı" : "Dikkat gerekiyor"}</StatusBadge>,
+        facts: [
+          ["Güncel ürün", number(seta.present), `${number(seta.saleable)} satışta`],
+          ["Son çekim", time(seta.last?.started_at), seta.last ? runLabels[seta.last.status] ?? seta.last.status : "Kayıt yok"],
+        ], note: setaStatus?.message, footer: setaStatus?.configured ? "SETA_API_KEY tanımlı" : "SETA_API_KEY eksik", href: "/yonetim/tedarikciler/seta", action: "Yönet" })}
     </div>
   </AdminPage>;
 }

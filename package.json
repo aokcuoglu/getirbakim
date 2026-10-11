@@ -15,6 +15,7 @@
     "supplier:basbug:inspect": "node --env-file=.env.local --import tsx scripts/inspect-basbug.ts",
     "supplier:basbug:import": "node --env-file=.env.local --import tsx scripts/import-basbug.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
+    "test:seta": "node --import tsx --test scripts/test-seta.ts",
     "verify:basbug": "node --env-file=.env.local --import tsx scripts/verify-basbug.ts",
     "db:supplier:migrate": "node --env-file=.env.local --import tsx scripts/migrate-supplier-sync.ts",
     "supplier:sync": "node --env-file=.env.local --import tsx scripts/sync-suppliers.ts",

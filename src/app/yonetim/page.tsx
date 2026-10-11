@@ -117,11 +117,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <AdminPanel title="Tedarikçi bağlantıları" actions={<Link className="font-medium text-primary hover:underline" href="/yonetim/tedarikciler">Yönet →</Link>} flush>
           <ItemGroup className="gap-0!">{supplierStatuses().map(s => {
             const isBasbug = s.name === "Başbuğ";
-            const tone = isBasbug ? basbugTone : "neutral";
-            return <Item key={s.name} size="sm" className="rounded-none border-0 px-4 py-3 hover:bg-muted/60 [&+&]:border-t" render={<Link href={isBasbug ? "/yonetim/tedarikciler/basbug" : "/yonetim/tedarikciler/dinamik"}/>}>
+            const tone = isBasbug ? basbugTone : s.verified ? "success" : "neutral";
+            return <Item key={s.name} size="sm" className="rounded-none border-0 px-4 py-3 hover:bg-muted/60 [&+&]:border-t" render={<Link href={s.href}/>}>
               <ItemMedia variant="icon" className="rounded-md bg-muted font-semibold text-muted-foreground">{s.name.slice(0, 1)}</ItemMedia>
-              <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : s.configured ? "Değişkenler tanımlı · bağlantı doğrulanmadı" : "Bağlantı değişkenleri eksik"}</ItemDescription></ItemContent>
-              <ItemActions><StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : "Hata") : "Doğrulanmadı"}</StatusBadge></ItemActions>
+              <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : s.configured ? (s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı") : "Bağlantı değişkenleri eksik"}</ItemDescription></ItemContent>
+              <ItemActions><StatusBadge tone={tone === "danger" ? "error" : tone}>{isBasbug ? (tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : "Hata") : s.verified ? "Bağlı" : "Doğrulanmadı"}</StatusBadge></ItemActions>
             </Item>;
           })}</ItemGroup>
         </AdminPanel>

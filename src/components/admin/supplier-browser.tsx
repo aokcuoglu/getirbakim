@@ -23,7 +23,7 @@ export function SupplierBrowser({ children }: { children: ReactNode }) {
       const link = (event.target as HTMLElement).closest("a");
       if (!link || link.getAttribute("target")) return;
       const url = new URL(link.href);
-      if (url.pathname !== "/yonetim/tedarikciler/basbug") return;
+      if (url.pathname !== window.location.pathname || !url.pathname.startsWith("/yonetim/tedarikciler/")) return;
       event.preventDefault();
       if (link.getAttribute("aria-disabled") !== "true") navigate(url.pathname + url.search);
     }}>

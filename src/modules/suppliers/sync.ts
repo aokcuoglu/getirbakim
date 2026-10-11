@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-export type SupplierScope = { supplier: "basbug" | "dinamik"; company: string; group: string; warehouse: string };
+export type SupplierScope = { supplier: "basbug" | "dinamik" | "seta"; company: string; group: string; warehouse: string };
 export type ObservationItem = {
   code: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null;
   stock_data: Record<string, unknown> | null; product_count: number; price_count: number;

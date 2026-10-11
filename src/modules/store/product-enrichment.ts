@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
 
@@ -17,8 +18,8 @@ export async function getCatalogProductImages(products: { id: string; code: stri
       e.payload,e.match_basis,e.image_id,COALESCE(s.product_data->>'oe','') AS current_oem
     FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
     JOIN product_media_objects m ON m.id=e.image_id
-    WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=$2`,
-  [products.map(product => product.id), process.env.BASBUG_FIRMA_ADI || "BASBUG"])).rows;
+    WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=ANY($2::text[])`,
+  [products.map(product => product.id), storefrontCompanies()])).rows;
   for (const row of rows) {
     const product = productsById.get(row.supplier_item_id);
     if (!product || row.supplier_code !== product.code || row.supplier_brand !== product.brand) continue;
@@ -81,7 +82,7 @@ export async function getProductEnrichment(product: { id: string; code: string; 
 export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){
  const details=new Map<string,{specifications:[string,string][];vehicleSpecific:boolean;partNumber:string}>();
  if(!products.length)return details;
- const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,COALESCE(s.product_data->>'oe','') AS current_oem FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=$2 AND s.presence='present'",[products.map(p=>p.id),process.env.BASBUG_FIRMA_ADI||'BASBUG'])).rows;
+ const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,COALESCE(s.product_data->>'oe','') AS current_oem FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()])).rows;
  for(const row of rows){
   const product=products.find(p=>p.id===row.supplier_item_id),data=enrichmentDataSchema.safeParse(row.payload),basis=matchBasisSchema.safeParse(row.match_basis);
   if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({...product,oem:row.current_oem},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
