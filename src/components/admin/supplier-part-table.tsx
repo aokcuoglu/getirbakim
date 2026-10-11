@@ -61,6 +61,7 @@ function PartCell({ column, cell }: { column: SupplierPartColumn; cell: Supplier
   return <TableCell
     title={cell?.title}
     className={cn(
+      "py-1",
       column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "max-w-32 truncate",
       column.width === "medium" && "max-w-48",
       column.width === "wide" && "max-w-64",
@@ -94,12 +95,12 @@ export function SupplierPartTable({ caption, columns, rows, codeLabel = "Parça 
       const codeButton = <Button variant="link" className="font-mono" title={part.code} aria-label={`${part.code} ürün ayrıntılarını aç`}/>;
       const detailButton = <Button variant="ghost" size="icon" title="Ürün detayını aç" aria-label={`${part.code} ürün detayı`}/>;
       const row = <TableRow key={part.id}>
-        <TableCell>
+        <TableCell className="py-1">
           {part.details ? <DialogTrigger render={codeButton}>{part.code}</DialogTrigger>
             : <Button nativeButton={false} render={<Link href={part.detailHref}/>} variant="link" className="font-mono" title={part.code} aria-label={`${part.code} ürün ayrıntılarını aç`}>{part.code}</Button>}
         </TableCell>
         {columns.map(column => <PartCell key={column.key} column={column} cell={part.cells[column.key]}/>)}
-        <TableCell>
+        <TableCell className="py-1">
           {part.details ? <DialogTrigger render={detailButton}><ArrowUpRight aria-hidden="true"/></DialogTrigger>
             : <Button nativeButton={false} render={<Link href={part.detailHref}/>} variant="ghost" size="icon" title="Ürün detayını aç" aria-label={`${part.code} ürün detayı`}><ArrowUpRight aria-hidden="true"/></Button>}
         </TableCell>
