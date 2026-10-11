@@ -57,7 +57,8 @@ services:
     profiles: [tools]
     env_file: ../.env.production
     environment: *app-environment
-    mem_limit: 512m
+    # Dinamik's largest brand list (ORIJINAL, ~17 MB JSON / 35k rows) peaks near 550 MB while parsed and applied.
+    mem_limit: 1g
     cpus: 1
 
   postgres:

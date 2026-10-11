@@ -14,6 +14,8 @@
     "db:assets": "node --env-file=.env.local --import tsx scripts/import-assets.ts",
     "supplier:basbug:inspect": "node --env-file=.env.local --import tsx scripts/inspect-basbug.ts",
     "supplier:basbug:import": "node --env-file=.env.local --import tsx scripts/import-basbug.ts",
+    "supplier:dinamik:import": "node --env-file=.env.local --import tsx scripts/import-dinamik.ts",
+    "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "verify:basbug": "node --env-file=.env.local --import tsx scripts/verify-basbug.ts",
     "db:supplier:migrate": "node --env-file=.env.local --import tsx scripts/migrate-supplier-sync.ts",

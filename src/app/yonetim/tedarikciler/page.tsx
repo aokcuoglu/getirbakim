@@ -2,7 +2,8 @@ import { ArrowRight } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
-import { adminSupplierOverview } from "@/modules/admin/data";
+import { adminDinamikOverview, adminSupplierOverview } from "@/modules/admin/data";
+import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { db } from "@/lib/db";
 import type { ReactNode } from "react";
 import { AdminPage, AdminPageHeader, ButtonLink, StatusBadge } from "@/components/admin/ui";
@@ -15,7 +16,7 @@ const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded:
 export default async function Suppliers() {
   await requireAdmin();
   const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [overview, health] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null)]);
+  const [overview, health, dinamikData, dinamikHealth] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null), adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null)]);
   const statuses = supplierStatuses();
   const basbug = statuses.find(s => s.name === "Başbuğ");
   const dinamik = statuses.find(s => s.name === "Dinamik");
@@ -48,12 +49,14 @@ export default async function Suppliers() {
           ["Son 24 saat", `${number(overview.runs.total)} çekim`, overview.runs.failed ? `${number(overview.runs.failed)} başarısız / inceleme` : "Hatasız"],
           ["Zamanlayıcı", health?.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", health ? `${health.issues.length} grupta sorun` : "Durum okunamadı"],
         ], note: basbug?.message, footer: basbug?.configured ? "Bağlantı değişkenleri tanımlı" : "Bağlantı değişkenleri eksik", href: "/yonetim/tedarikciler/basbug", action: "Yönet" })}
-      {card({ id: "supplier-dinamik", letter: "D", title: "Dinamik API", subtitle: "Ürün, fiyat ve stok (sözleşme doğrulanmadı)",
-        badge: <StatusBadge tone={dinamik?.verified ? "success" : dinamik?.configured ? "neutral" : "warning"}>{dinamik?.verified ? "Bağlı" : "Doğrulanmadı"}</StatusBadge>,
+      {card({ id: "supplier-dinamik", letter: "D", title: "Dinamik API", subtitle: "Marka bazlı ürün, fiyat ve bölge stok listeleri",
+        badge: <StatusBadge tone={!dinamikHealth ? "error" : dinamikHealth.healthy ? "success" : dinamikData.scopes.synced ? "warning" : "neutral"}>{!dinamikHealth ? "Okunamadı" : dinamikHealth.healthy ? "Sağlıklı" : dinamikData.scopes.synced ? "Dikkat gerekiyor" : "İlk çekim bekleniyor"}</StatusBadge>,
         facts: [
-          ["Bağlantı değişkenleri", dinamik?.configured ? "Tanımlı" : "Eksik", "BASE · APIKEY · SECRETKEY"],
-          ["Senkronizasyon", "Kapalı", "Sözleşme doğrulanana kadar istek yapılmaz"],
-        ], note: dinamik?.message, footer: "Erişim IP izin listesine bağlı", href: "/yonetim/tedarikciler/dinamik", action: "Ayrıntılar" })}
+          ["Güncel ürün", number(dinamikData.items.present), `${number(dinamikData.items.brands)} marka`],
+          ["Son başarılı", time(dinamikData.scopes.last_success), `${number(dinamikData.scopes.synced)} / ${number(dinamikData.scopes.enabled)} marka güncel`],
+          ["Son 24 saat", `${number(dinamikData.runs.total)} çekim`, dinamikData.runs.failed ? `${number(dinamikData.runs.failed)} başarısız / inceleme` : "Hatasız"],
+          ["Hata veren", number(dinamikData.scopes.failing), "marka"],
+        ], note: dinamik?.message, footer: dinamik?.configured ? "Erişim VPS IP iznine bağlı" : "Bağlantı değişkenleri eksik", href: "/yonetim/tedarikciler/dinamik", action: "Yönet" })}
     </div>
   </AdminPage>;
 }

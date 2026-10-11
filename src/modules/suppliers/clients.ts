@@ -2,7 +2,7 @@ import "server-only";
 import type { SupplierStatus } from "./contracts";
 export function supplierStatuses(): SupplierStatus[] {
  return [
- { name: "Dinamik", configured: ["DINAMIK_BASE","DINAMIK_APIKEY","DINAMIK_SECRETKEY"].every(k => Boolean(process.env[k])), verified: false, message: "Dokümantasyon isteği 401: mevcut IP adresine erişim izni yok. Ürün sözleşmesi ve canlı yanıt doğrulanmalı." },
+ { name: "Dinamik", configured: ["DINAMIK_BASE","DINAMIK_APIKEY","DINAMIK_SECRETKEY"].every(k => Boolean(process.env[k])), verified: true, message: "Marka listesi, marka bazlı stok ve fiyat listeleri sunucu IP izniyle (VPS) canlı doğrulandı ve her gece çekiliyor. Fiyatın vergi/iskonto anlamı ve bölge stok bayrakları doğrulanmadığından mağazada satışa açık değil." },
  { name: "Başbuğ", configured: ["BASBUG_BASE_URL","BASBUG_USERNAME","BASBUG_PASSWORD","BASBUG_CLIENT_ID","BASBUG_CLIENT_SECRET"].every(k => Boolean(process.env[k])), verified: false, message: "Auth ve ürün/fiyat/stok okuma çağrıları canlı doğrulandı. NF maliyet üzerinden TRY satış fiyatı hesaplanıyor. Stok bulunabilirlik sinyali olarak kullanılıyor." },
  ];
 }
