@@ -73,8 +73,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             : <span className="text-muted-foreground">{source.stock_label ?? "—"}</span>}</TableCell>
           <TableCell>{source.method === "manual" ? <Badge variant="outline">Elle</Badge> : <span className="text-muted-foreground">Otomatik</span>}</TableCell>
           <TableCell>{source.method === "manual" && product.variant > 0
-            ? <form action={undoSplitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" size="xs" variant="outline">Geri al</Button></form>
-            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" size="xs" variant="outline"><GitFork data-icon="inline-start" aria-hidden="true"/>Ayır</Button></form>}</TableCell>
+            ? <form action={undoSplitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" variant="outline">Geri al</Button></form>
+            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" variant="outline"><GitFork data-icon="inline-start" aria-hidden="true"/>Ayır</Button></form>}</TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyTitle>Bağlı kaynak yok.</EmptyTitle><EmptyDescription>Bu ürünün tedarikçi kaydı kalmadı.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
     </Card>
