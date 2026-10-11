@@ -47,7 +47,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
   <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}</div>}
   <p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/trodo/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>
-  <PurchaseForm productId={p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden"/>
+  <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden"/>
   <CompareCheckbox entry={{id:p.id,title,price,specifications}}/>
   <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/>Güvenlik ve uyumluluk bilgileri</Link>
  </div></div></article>;

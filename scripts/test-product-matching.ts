@@ -45,3 +45,11 @@ test("only check-digit-valid GTINs count as barcodes", async () => {
   assert.equal(await gtin("1617975680"), false); // OEM number stored in a barcode field
   assert.equal(await gtin("0000000000000"), false);
 });
+
+test("offer groups are listed under the Başbuğ item and never contain SETA or split items", async () => {
+  const count = (sql: string) => one(`SELECT count(*)::int AS value FROM ${sql}`, []);
+  assert.equal(await count(`product_offers o JOIN supplier_items p ON p.id=o.primary_id JOIN supplier_items i ON i.id=o.item_id
+    WHERE i.supplier='basbug' AND p.supplier<>'basbug'`), 0);
+  assert.equal(await count("product_offers o JOIN supplier_items i ON i.id=o.item_id WHERE i.supplier='seta'"), 0);
+  assert.equal(await count("product_offers o JOIN product_offer_exclusions x ON x.item_id=o.item_id"), 0);
+});

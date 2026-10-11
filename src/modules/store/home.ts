@@ -1,22 +1,23 @@
 import "server-only";
 import {db} from "@/lib/db";
-import {catalogSql, type CatalogProduct} from "./catalog";
+import {catalogSql, withBestOffers, type CatalogProduct} from "./catalog";
 import {getStoreCategories} from "./categories";
 import {storefrontCompanies} from "@/modules/suppliers/storefront-sources";
 
 // Choose a small, current set before joining the shared price/availability view.
 export async function getHomeProducts(categoryId?:number):Promise<CatalogProduct[]> {
   const categoryIds=categoryId?(await getStoreCategories()).filter(category=>category.path.includes(categoryId)).map(category=>category.id):null;
-  return (await db.query<CatalogProduct>(`WITH selected AS MATERIALIZED (
+  return withBestOffers((await db.query<CatalogProduct>(`WITH selected AS MATERIALIZED (
     SELECT s.id,e.imported_at AS updated_at FROM supplier_items s JOIN product_enrichments e ON e.supplier_item_id=s.id
     WHERE s.company=ANY($1::text[]) AND s.presence='present' AND s.code=e.supplier_code
       AND s.product_data->>'uk'=e.supplier_brand AND e.image_id IS NOT NULL
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+      AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=s.id AND o.primary_id<>o.item_id)
       AND ($2::int[] IS NULL OR s.id IN (SELECT pc.supplier_item_id FROM product_source_categories pc WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])))
     ORDER BY e.imported_at DESC,s.id LIMIT 24
   ) SELECT catalog.* FROM selected JOIN LATERAL (
     SELECT * FROM (${catalogSql}) priced WHERE priced.id=selected.id OFFSET 0
-  ) catalog ON true ORDER BY selected.updated_at DESC,selected.id`,[storefrontCompanies(),categoryIds])).rows;
+  ) catalog ON true ORDER BY selected.updated_at DESC,selected.id`,[storefrontCompanies(),categoryIds])).rows);
 }
 
 export async function getHomeProductCategories(products:{id:string}[]) {
