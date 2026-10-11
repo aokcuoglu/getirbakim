@@ -43,6 +43,8 @@ const synonymGroups = [
   ["pompa", "pump"], ["ayna", "mirror"], ["far", "headlight"], ["buji", "spark"], ["radyator", "radiator"],
   // Turkish market names of models TecDoc lists under their European name.
   ["egea", "tipo"], ["symbol", "thalia"], ["albea", "siena"],
+  // Spelled as pronounced, too far from the make for spelling correction.
+  ["renault", "reno"], ["peugeot", "pejo", "pejot"],
 ];
 const synonyms = new Map<string, string[]>();
 for (const group of synonymGroups) for (const word of group) synonyms.set(word, group.filter(other => other !== word));
@@ -91,6 +93,11 @@ export function parseSearchQuery(raw: string, options: ParseOptions = {}): Parse
 }
 
 // Values are [a-z0-9. ] after normalisation, so quoting needs no escaping.
+/** The same query matching whole words only ("hava" no longer finds "HAVAL"). */
+export function wholeWords(parsed: ParsedSearch): ParsedSearch {
+  return { ...parsed, terms: parsed.terms.map(term => ({ ...term, alternatives: term.alternatives.map(a => ({ ...a, prefix: false })) })) };
+}
+
 const lexeme = (value: string, prefix = false) => value.split(" ").map(part => `'${part}'`).join(" <-> ") + (prefix ? ":*" : "");
 
 /** All required words, each as an OR of its spellings: `'tesla':* & ('y':*)`. Null when nothing is required. */
