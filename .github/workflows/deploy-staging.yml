@@ -1,7 +1,7 @@
 name: Deploy new system staging
 on:
   push:
-    branches: [next-system]
+    branches: [dev]
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
   deploy:
     needs: check
-    if: github.ref == 'refs/heads/next-system'
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

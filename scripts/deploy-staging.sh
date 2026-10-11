@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 
 # This script owns only the isolated staging compose project. It never selects
 # the legacy production checkout, shared edge network, or production volumes.
-if [[ "$(git branch --show-current)" != "next-system" && "${STAGING_DETACHED_RELEASE:-}" != "1" ]]; then
-  echo "Staging requires next-system or an explicitly detached staging release." >&2
+if [[ "$(git branch --show-current)" != "dev" && "${STAGING_DETACHED_RELEASE:-}" != "1" ]]; then
+  echo "Staging requires dev or an explicitly detached staging release." >&2
   exit 1
 fi
 if [[ ! "${DEPLOY_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || [[ "$(git rev-parse HEAD)" != "$DEPLOY_SHA" ]]; then

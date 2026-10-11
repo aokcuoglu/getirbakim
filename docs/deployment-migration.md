@@ -5,7 +5,7 @@
 | Ortam | Repo / klasör | Yayın |
 | --- | --- | --- |
 | Eski sistem arşivi | `archive/legacy-20261005`, VPS `/opt/getirbakim` | Canlı yönlendirmeden çıkarıldı |
-| Yeni test sistemi | `next-system`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
+| Yeni test sistemi | `dev`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
 | Yeni canlı sistem | `main`, VPS `/opt/getirbakim-v2-production` | `getirbakim-v2-live:3000` edge alias'ı |
 | Geliştirme kaynağı | `/Users/void/www/getirbakim` | yerel PostgreSQL 18 ve MinIO |
 
@@ -23,7 +23,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 
 ## Otomatik staging deploy
 
-`next-system` push'u `Deploy new system staging` workflow'unu çalıştırır:
+`dev` push'u `Deploy new system staging` workflow'unu çalıştırır:
 
 1. Node 22 ile typecheck, lint, mevcut birim testleri ve production build.
 2. GitHub runner üzerinde uygulama, operasyon ve medya Docker image'larının build'i. VPS'te build yapılmaz. Hazır MinIO registry image'larına erişilemediğinden [resmi kaynak koddan build yöntemi](https://github.com/minio/minio#build-docker-image) kullanılır; MinIO `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a`, mc `7394ce0dd2a80935aded936b09fa12cbb3cb8096` commit'lerine sabitlenmiştir.
@@ -32,7 +32,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 5. Yalnızca staging veritabanının yedeği, şema kurulumu, görsel/araç kataloğu aktarımı ve uygulamanın güncellenmesi.
 6. Sağlık ve temel sayfa kontrolleri; gerçek yönetici girişi/oturumu, özel medya upload/download ve geçici sentetik kayıtlarla sepet/sipariş/iptal/erişim kontrolleri.
 
-`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` artık yeni production workflow'unu kullanır; eski Bun deploy'u çalıştırılmaz. `next-system` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
+`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` artık yeni production workflow'unu kullanır; eski Bun deploy'u çalıştırılmaz. `dev` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
 
 İlk sunucu hazırlığı ayrıca `.env.staging` oluşturmayı ve aynı repo origin'ine sahip temiz `/opt/getirbakim-v2` Git checkout'unu gerektirir. Ayar şablonu `deploy/staging.env.example` içindedir. Parolalar rastgele hexadecimal üretilir, dosya izinleri `600` olur.
 
