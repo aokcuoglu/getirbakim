@@ -1,8 +1,9 @@
 // Maintenance kit prototype (#172): shared by the live preview (browser) and the server-rendered image.
 // The kit picture is composed from layers instead of being designed per combination: a template
-// (panel, title, contents line) plus one packshot per slot. A slot shows the product photo when the
-// catalog has one (white backgrounds disappear with a multiply blend) and otherwise a generic box in
-// the brand's colours, which stands in for the brand × part type packshot library planned in the Issue.
+// (panel, title, contents line) plus one packshot per slot. Packaging looks the same for every part of a
+// brand and type, so a slot shows, in order: the brand × part type packaging cut-out from the packshot
+// library (public/kit-packshots), the product photo (white background dropped with a multiply blend),
+// or a generic box drawn in the brand's colours.
 
 export const kitSlotKeys = ["air", "oil", "cabin", "fuel", "engineOil"] as const;
 export type KitSlotKey = (typeof kitSlotKeys)[number];
@@ -19,7 +20,7 @@ export const kitSlots: Record<KitSlotKey, { label: string; short: string; lines:
 export type KitImage = { src: string; width: number; height: number };
 export type KitItem = {
   id: string; name: string; brand: string; family: string; code: string; priceKurus: number;
-  image?: KitImage; viscosity?: string; liters?: string;
+  image?: KitImage; packshot?: KitImage; viscosity?: string; liters?: string;
 };
 export type KitSlotOptions = { key: KitSlotKey; items: KitItem[]; fitted: boolean };
 export type KitSelection = Partial<Record<KitSlotKey, KitItem>>;
@@ -94,6 +95,15 @@ const floor = 905;
 
 export type KitLayer = { key: KitSlotKey; item: KitItem; x: number; y: number; width: number; height: number; z: number };
 
+/** Packaging cut-outs keep their own proportions at the slot's height; drawn boxes use the fixed size. */
+function slotSize(key: KitSlotKey, item: KitItem) {
+  const size = packshotSize[key];
+  if (!item.packshot) return size;
+  const aspect = Math.min(2.4, Math.max(0.3, item.packshot.width / item.packshot.height));
+  const width = Math.min(size.height * aspect, size.width * 1.6);
+  return { width, height: width / aspect };
+}
+
 /**
  * Places the selected packshots: filters stand in a back row (air, oil, fuel, cabin, overlapping a
  * little), the oil can stands in front of the middle. Works for any subset, so no per-combination
@@ -104,13 +114,14 @@ export function kitLayout(selection: KitSelection): KitLayer[] {
   const depth: Record<KitSlotKey, number> = { cabin: 1, air: 2, fuel: 3, oil: 4, engineOil: 5 };
   const row = rowOrder.filter(key => selection[key]);
   const overlap = 0.14;
-  const widths = row.map(key => packshotSize[key].width);
+  const sizes = row.map(key => slotSize(key, selection[key]!));
+  const widths = sizes.map(size => size.width);
   const rowWidth = widths.reduce((sum, width, index) => sum + width - (index ? overlap * Math.min(width, widths[index - 1]) : 0), 0);
   const scale = row.length ? Math.min(1.25, 880 / rowWidth) : 1;
   const layers: KitLayer[] = [];
   let x = 520 - (rowWidth * scale) / 2;
   row.forEach((key, index) => {
-    const size = packshotSize[key];
+    const size = sizes[index];
     if (index) x -= overlap * Math.min(size.width, widths[index - 1]) * scale;
     const width = size.width * scale, height = size.height * scale;
     // Small boxes stand a step forward, in front of the big air filter box.
@@ -119,12 +130,12 @@ export function kitLayout(selection: KitSelection): KitLayer[] {
     x += width;
   });
   if (selection.engineOil) {
-    const size = packshotSize.engineOil, oilScale = Math.min(1.15, Math.max(0.9, scale));
+    const size = slotSize("engineOil", selection.engineOil), oilScale = Math.min(1.15, Math.max(0.9, scale));
     const width = size.width * oilScale, height = size.height * oilScale;
     // In front of the right edge of the small boxes (or the gap between two big ones), so every box stays visible.
     const small = layers.filter(layer => layer.key === "oil" || layer.key === "fuel").at(-1);
     const anchor = small ?? (layers.length > 1 ? layers.at(-2) : undefined);
-    const centre = anchor ? Math.min(kitCanvas - width / 2 - 20, anchor.x + anchor.width + width * 0.15) : 520;
+    const centre = anchor ? Math.min(kitCanvas - width / 2 - 20, anchor.x + anchor.width + width * 0.4) : 520;
     layers.push({ key: "engineOil", item: selection.engineOil, x: centre - width / 2, y: floor + 55 - height, width, height, z: depth.engineOil });
   }
   return layers.sort((a, b) => a.z - b.z);

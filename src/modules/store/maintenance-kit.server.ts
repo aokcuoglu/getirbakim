@@ -4,6 +4,7 @@ import { staleCache } from "@/lib/stale-cache";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { catalogSql, vehicleTypeProductIds } from "./catalog";
 import { getCatalogProductImages } from "./product-enrichment";
+import { packshotFor } from "./maintenance-kit-packshots.server";
 import {
   filterBrandFamilies, familyOfRawBrand, kitSlotKeys, parseLiters, parseViscosity,
   type KitFilterKey, type KitItem, type KitSlotKey, type KitSlotOptions,
@@ -55,6 +56,11 @@ async function liveItems(ids: string[]): Promise<KitItem[]> {
   }));
 }
 
+/** Attaches the brand's packaging cut-out for the slot, when the packshot library has one. */
+async function withPackshots(slot: KitSlotKey, items: KitItem[]) {
+  return Promise.all(items.map(async item => ({ ...item, packshot: await packshotFor(item.family, slot) })));
+}
+
 /** One product per brand family: the one with a photo first, then the cheapest. */
 function onePerFamily(items: KitItem[]) {
   const best = new Map<string, KitItem>();
@@ -75,13 +81,13 @@ export async function maintenanceKitOptions(vehicleTypeId: string | null): Promi
   return Promise.all(kitSlotKeys.map(async (key): Promise<KitSlotOptions> => {
     if (key === "engineOil") {
       const items = await liveItems(await cachedIds("kit:engineOil", engineOilCandidateIds));
-      return { key, items: items.sort((a, b) => a.family.localeCompare(b.family) || a.priceKurus - b.priceKurus), fitted: false };
+      return { key, items: await withPackshots(key, items.sort((a, b) => a.family.localeCompare(b.family) || a.priceKurus - b.priceKurus)), fitted: false };
     }
     if (fitted?.length) {
       const items = onePerFamily(await liveItems(await cachedIds(`kit:${key}:type:${vehicleTypeId}`, () => filterCandidateIds(key, fitted))));
-      if (items.length) return { key, items, fitted: true };
+      if (items.length) return { key, items: await withPackshots(key, items), fitted: true };
     }
-    return { key, items: onePerFamily(await liveItems(await cachedIds(`kit:${key}`, () => filterCandidateIds(key, null)))), fitted: false };
+    return { key, items: await withPackshots(key, onePerFamily(await liveItems(await cachedIds(`kit:${key}`, () => filterCandidateIds(key, null))))), fitted: false };
   }));
 }
 
@@ -89,5 +95,7 @@ export async function maintenanceKitOptions(vehicleTypeId: string | null): Promi
 export async function maintenanceKitItems(ids: Partial<Record<KitSlotKey, string>>) {
   const items = await liveItems(Object.values(ids).filter((id): id is string => Boolean(id)));
   const byId = new Map(items.map(item => [item.id, item]));
-  return Object.fromEntries(Object.entries(ids).flatMap(([key, id]) => byId.has(id!) ? [[key, byId.get(id!)!]] : [])) as Partial<Record<KitSlotKey, KitItem>>;
+  const entries = await Promise.all(Object.entries(ids).flatMap(([key, id]) => byId.has(id!)
+    ? [withPackshots(key as KitSlotKey, [byId.get(id!)!]).then(([item]) => [key, item] as const)] : []));
+  return Object.fromEntries(entries) as Partial<Record<KitSlotKey, KitItem>>;
 }

@@ -25,10 +25,10 @@ function KitStage({ selection }: { selection: KitSelection }) {
     {/* eslint-disable-next-line @next/next/no-img-element -- generated SVG, nothing to optimise */}
     <img src={base} alt="" className="absolute inset-0 size-full" draggable={false}/>
     {/* The blend sits on the positioned layer itself: it is the stacking context that composites onto the template. */}
-    {layers.map(layer => <div key={layer.key + layer.item.id} className={cn("absolute animate-in duration-300 fade-in zoom-in-95", layer.item.image && "mix-blend-multiply")}
+    {layers.map(layer => <div key={layer.key + layer.item.id} className={cn("absolute animate-in duration-300 fade-in zoom-in-95", !layer.item.packshot && layer.item.image && "mix-blend-multiply")}
       style={{ left: percent(layer.x), top: percent(layer.y), width: percent(layer.width), height: percent(layer.height), zIndex: layer.z }}>
       {/* eslint-disable-next-line @next/next/no-img-element -- photos come from the media route, packshots are generated SVG */}
-      <img src={layer.item.image ? layer.item.image.src : svgDataUri(packshotSvg(layer.key, layer.item))} alt=""
+      <img src={layer.item.packshot?.src ?? layer.item.image?.src ?? svgDataUri(packshotSvg(layer.key, layer.item))} alt=""
         className="size-full object-contain object-bottom" draggable={false}/>
     </div>)}
   </div>;
@@ -125,7 +125,7 @@ export function KitBuilder({ options }: { options: KitSlotOptions[] }) {
               <span className="text-[12px] text-muted-foreground">{money(item.priceKurus)}</span>
             </button>)}
           </div> : <p className="text-[13px] text-muted-foreground">Bu parça için stokta ürün yok.</p>}
-          {selected && <p className="mt-3 truncate text-[12px] text-muted-foreground" title={selected.name}>{selected.brand} · {selected.code} · {selected.name}{selected.image ? "" : " · görsel: genel kutu"}</p>}
+          {selected && <p className="mt-3 truncate text-[12px] text-muted-foreground" title={selected.name}>{selected.brand} · {selected.code} · {selected.name}{selected.packshot ? " · görsel: ambalaj kütüphanesi" : selected.image ? " · görsel: ürün fotoğrafı" : " · görsel: genel kutu"}</p>}
         </fieldset>;
       })}
 

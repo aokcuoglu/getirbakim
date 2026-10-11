@@ -2,7 +2,10 @@ import "server-only";
 import sharp, { type OverlayOptions } from "sharp";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { db } from "@/lib/db";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { objectStorage } from "@/lib/object-storage";
+import { packshotDir } from "./maintenance-kit-packshots.server";
 import { kitBaseSvg, kitCanvas, kitLayout, packshotSvg, type KitLayer, type KitSelection } from "./maintenance-kit";
 
 async function productPhoto(src: string) {
@@ -22,6 +25,11 @@ async function productPhoto(src: string) {
 async function layerInput(layer: KitLayer): Promise<OverlayOptions> {
   const width = Math.round(layer.width), height = Math.round(layer.height);
   const left = Math.round(layer.x), top = Math.round(layer.y);
+  if (layer.item.packshot) {
+    const file = path.join(packshotDir, path.basename(layer.item.packshot.src));
+    const input = await sharp(await readFile(file)).resize(width, height, { fit: "contain", position: "bottom", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+    return { input, left, top };
+  }
   const photo = layer.item.image && await productPhoto(layer.item.image.src);
   if (photo) {
     const input = await sharp(photo).flatten({ background: "#ffffff" })
