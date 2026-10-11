@@ -62,3 +62,24 @@ test("product search: Turkish letters, several words, part numbers with any spac
     assert.equal(byCode.items[0]?.code, sample.code, `exact part number ranks first for "${spaced}"`);
   }
 });
+
+test("product search names a part and a vehicle: parts linked to the vehicle, else every part", async () => {
+  const sample = (await db.query<{ id: string; name: string; model: string }>(`SELECT f.supplier_item_id::text AS id,
+    i.product_data->>'ac' AS name, split_part(m.name, ' ', 1) AS model FROM product_vehicle_fitments f
+    JOIN supplier_items i ON i.id=f.supplier_item_id JOIN vehicle_types v ON v.id=f.vehicle_type_id JOIN vehicle_models m ON m.id=v.model_id
+    WHERE i.product_data->>'ac' ~ '^[A-Z]+ [A-Z]+$' AND split_part(m.name, ' ', 1) ~ '^[A-Z]{4,}$' ORDER BY 1 LIMIT 1`)).rows[0];
+  if (sample) {
+    const linked = await browseProducts({ q: `${sample.name} ${sample.model}` });
+    assert.equal(linked.vehicleScope?.fitted, true, `${sample.name} ${sample.model}`);
+    assert.ok(linked.items.some(item => item.id === sample.id));
+    const reversed = await browseProducts({ q: `${sample.model} ${sample.name}` });
+    assert.deepEqual(reversed.items.map(i => i.id).sort(), linked.items.map(i => i.id).sort());
+  }
+  const unlinked = await browseProducts({ q: "yağ filtresi qqzzvehicle" });
+  assert.equal(unlinked.vehicleScope, undefined);
+  // "hava" only starts a make (HAVAL): the typo is corrected instead of read as a vehicle.
+  const typo = await browseProducts({ q: "hava fiiltresi" });
+  assert.equal(typo.vehicleScope, undefined);
+  assert.equal(typo.correctedQuery, "hava filtresi");
+  assert.equal((await browseProducts({ q: "yağ filtresi" })).vehicleScope, undefined);
+});

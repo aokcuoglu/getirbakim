@@ -24,6 +24,19 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
+/**
+ * Condition over a vehicle_types row `alias`: required words as prefixes of its indexed search text
+ * ("y" finds "MODEL Y", not the "Y" inside "(5YJS)"), and any year in the query as a build year.
+ */
+export function vehicleTypeMatch(alias: string, parsed: ParsedSearch, bind: Bind) {
+  const where: string[] = [];
+  const query = prefixTsQuery(parsed);
+  if (query) where.push(`to_tsvector('simple', search_normalize(${alias}.search_text)) @@ to_tsquery('simple', ${bind(query)})`);
+  for (const year of parsed.years) where.push(`${bind(year)}::integer BETWEEN COALESCE(extract(year FROM ${alias}.year_of_constr_from), 0)
+    AND COALESCE(extract(year FROM ${alias}.year_of_constr_to), 9999)`);
+  return where.length ? where.join(" AND ") : "TRUE";
+}
+
 /** Same condition for the hand-entered store `products` table (small, unindexed). */
 export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
   const clauses: string[] = [];
@@ -44,7 +57,8 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
 /**
  * "Did you mean": after a search found nothing, swaps each word for the likeliest catalog word of
  * the scope — close in spelling and common, so a one-off typo in the data ("FIILTRESI") loses to
- * "FILTRESI". Null when no word changes.
+ * "FILTRESI". Below 0.45 similarity a match is noise ("qqzzvehicle" → "vehicle") rather than a typo
+ * ("sitroen" → "citroen" is 0.45). Null when no word changes.
  */
 export async function correctSearch(raw: string, scope: SearchScope, options: ParseOptions = {}) {
   const parsed = parseSearchQuery(raw, options);
@@ -53,6 +67,7 @@ export async function correctSearch(raw: string, scope: SearchScope, options: Pa
   const { rows } = await db.query<{ term: string; word: string }>(`
     SELECT t.term, c.word FROM unnest($2::text[]) t(term)
     CROSS JOIN LATERAL (SELECT v.word FROM search_vocabulary v WHERE v.scope=$1 AND v.word % t.term
+      AND similarity(v.word, t.term) >= 0.45
       ORDER BY similarity(v.word, t.term) * ln(2 + v.frequency) DESC, v.word LIMIT 1) c
     WHERE c.word <> t.term`, [scope, words]);
   if (!rows.length) return null;

@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { binder, correctSearch } from "@/modules/search/sql";
-import { exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch } from "@/modules/search/query";
+import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
+import { exactTsQuery, parseSearchQuery, type ParsedSearch } from "@/modules/search/query";
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
@@ -60,19 +60,14 @@ const vehicleDocument = `setweight(${modelDocument}, 'A') || setweight(to_tsvect
 async function rankedVehicleSearch(parsed: ParsedSearch, offset: number, limit: number) {
   const values: unknown[] = [];
   const bind = binder(values);
-  const where = ["TRUE"];
-  const query = prefixTsQuery(parsed), exact = exactTsQuery(parsed);
-  // Word prefixes over the indexed document: "y" finds "MODEL Y", not the "Y" inside "(5YJS)".
-  if (query) where.push(`to_tsvector('simple', search_normalize(v.search_text)) @@ to_tsquery('simple', ${bind(query)})`);
-  // "passat 2015": a year narrows to vehicles built that year instead of being matched as text.
-  for (const year of parsed.years) where.push(`${bind(year)}::integer BETWEEN COALESCE(extract(year FROM v.year_of_constr_from), 0)
-    AND COALESCE(extract(year FROM v.year_of_constr_to), 9999)`);
+  const exact = exactTsQuery(parsed);
+  const where = vehicleTypeMatch("v", parsed, bind);
   const rank = `COALESCE(ts_rank(${modelDocument}, to_tsquery('simple', ${bind(exact)}::text), 2) * 10
     + ts_rank(${vehicleDocument}, to_tsquery('simple', ${bind(exact)}::text)) * 0.1, 0)`;
   const page = `LIMIT ${bind(limit)} OFFSET ${bind(offset)}`;
   // Count and page share one snapshot, including when offset is beyond the last match.
   const { rows } = await db.query<{ total: number; vehicles: VehicleRow[] }>(`
-    WITH matches AS MATERIALIZED (SELECT v.id, ${rank} AS rank ${vehicleJoins} WHERE ${where.join(" AND ")})
+    WITH matches AS MATERIALIZED (SELECT v.id, ${rank} AS rank ${vehicleJoins} WHERE ${where})
     SELECT (SELECT count(*)::integer FROM matches) AS total,
       COALESCE((SELECT jsonb_agg(page ORDER BY ordinal) FROM (
         SELECT ${vehicleFields}, row_number() OVER (ORDER BY matches.rank DESC, b.display_name, m.name, v.name, v.year_of_constr_from, v.id) AS ordinal

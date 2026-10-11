@@ -7,8 +7,8 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {parseSearchQuery,type ParsedSearch} from '@/modules/search/query';
-import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {normalizeSearchText,parseSearchQuery,wholeWords,type ParsedSearch} from '@/modules/search/query';
+import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
@@ -42,7 +42,12 @@ export const categories = [
 const trustedFitments=`JOIN product_enrichments e ON e.supplier_item_id=f.supplier_item_id AND f.source_vehicle=e.payload->'vehicles'->f.source_index
     JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))`;
-type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string};
+/**
+ * `vehicle`: the query named a part and a vehicle ("fren balatası passat"). `fitted` says whether
+ * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
+ */
+export type VehicleSearchScope={productText:string;vehicleText:string;fitted:boolean};
+type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string;vehicle?:VehicleSearchScope};
 // Broad one-word prefixes ("a") stop here instead of shipping every catalog id around.
 const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
@@ -68,10 +73,61 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
   return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code"||ids.length)return {parsed,ids};
+ // Cheapest reading first: the words as typed split into part + vehicle, then the whole query
+ // spell-corrected ("hava fiiltresi"), then a split with each part corrected ("fren balatsı pasat").
+ const vehicle=await vehicleSearch(raw,hits,false);
+ if(vehicle)return vehicle;
  const corrected=await correctSearch(raw,"product");
  const correctedIds=corrected?await hits(corrected.parsed):[];
- return corrected&&correctedIds.length?{parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text}:{parsed,ids};
+ if(corrected&&correctedIds.length)return {parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text};
+ return await vehicleSearch(raw,hits,true)??{parsed,ids};
 });
+/**
+ * Product names never mention vehicles, so "fren balatası passat" matches nothing as a whole. Tries
+ * every split of the words into a leading or trailing vehicle part ("passat", "golf 7 2015") and a
+ * part that matches products. Splits whose parts are linked by fitments win, then the longest
+ * vehicle part ("buji | bmw 320d" over "buji bmw | 320d").
+ */
+async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean):Promise<CatalogSearch|null>{
+ const words=normalizeSearchText(raw.slice(0,120)).split(" ").filter(Boolean);
+ if(words.length<2||words.length>6)return null;
+ // Notices quote the shopper's own spelling ("yağ filtresi") when each typed word is one search word.
+ const typed=raw.trim().split(/\s+/),sameWords=typed.length===words.length&&typed.every((word,index)=>normalizeSearchText(word)===words[index]);
+ const display=(text:string,part:string[])=>sameWords&&text===part.join(" ")?part.map(word=>typed[words.indexOf(word)]).join(" "):text;
+ const splits=words.slice(1).flatMap((_,index)=>{const size=index+1;
+  return [{product:words.slice(0,words.length-size),vehicle:words.slice(words.length-size)},{product:words.slice(size),vehicle:words.slice(0,size)}];});
+ let best:(CatalogSearch&{vehicleWords:number})|null=null;
+ for(const split of splits){
+  if(best&&(best.vehicle?.fitted||split.vehicle.length<=best.vehicleWords))continue;
+  if(!parseSearchQuery(split.vehicle.join(" ")).terms.some(term=>term.required&&/[a-z]/.test(term.text)))continue;
+  // Each part is spell-checked against its own vocabulary: "pasat" is a vehicle word, "balatsı" a part word.
+  const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
+   return Boolean((await db.query(`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",parsed,binder(values))} LIMIT 1`,values)).rowCount);});
+  if(!vehicle)continue;
+  let ids:string[]=[];
+  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  if(!product)continue;
+  const fitValues:unknown[]=[ids],fitBind=binder(fitValues);
+  const fitted=(await db.query<{id:string}>(`SELECT DISTINCT f.supplier_item_id::text AS id FROM product_vehicle_fitments f ${trustedFitments}
+   JOIN vehicle_types v ON v.id=f.vehicle_type_id WHERE f.supplier_item_id=ANY($1::uuid[]) AND ${vehicleTypeMatch("v",vehicle.parsed,fitBind)}`,fitValues)).rows.map(row=>row.id);
+  const candidate={parsed:product.parsed,ids:fitted.length?fitted:ids,vehicleWords:split.vehicle.length,
+   vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
+  if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
+ }
+ return best&&{parsed:best.parsed,ids:best.ids,vehicle:best.vehicle};
+}
+// Vehicle words must be whole words ("passat", "golf 7"), so a part word that only starts a make
+// ("hava" → HAVAL) does not split "hava filtresi" into a vehicle and a part.
+/** The part as typed, else (when `correct`) spell-corrected, if it `matches`; null otherwise. */
+async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean,matches:(parsed:ParsedSearch)=>Promise<boolean>){
+ const options={years:scope==="vehicle"},parse=(value:string)=>scope==="vehicle"?wholeWords(parseSearchQuery(value,options)):parseSearchQuery(value,options);
+ const parsed=parse(text);
+ if(await matches(parsed))return {text,parsed};
+ if(!correct)return null;
+ const corrected=await correctSearch(text,scope,options);
+ const correctedParsed=corrected&&parse(corrected.text);
+ return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
+}
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
@@ -146,7 +202,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   : `WITH page AS MATERIALIZED (SELECT id,updated_at,${rank} AS rank ${from} ORDER BY rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
      SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
      ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
- return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery};
+ return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle};
 }
 export async function catalogBrands() {
  return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);
