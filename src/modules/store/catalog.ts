@@ -7,7 +7,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {normalizeSearchText,parseSearchQuery,wholeWords,type ParsedSearch} from '@/modules/search/query';
+import {normalizeSearchText,parseSearchQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
@@ -47,7 +47,7 @@ const trustedFitments=`JOIN product_enrichments e ON e.supplier_item_id=f.suppli
  * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
  */
 export type VehicleSearchScope={productText:string;vehicleText:string;fitted:boolean};
-type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string;vehicle?:VehicleSearchScope};
+type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 // Broad one-word prefixes ("a") stop here instead of shipping every catalog id around.
 const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
@@ -71,6 +71,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
   return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
+ if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code"||ids.length)return {parsed,ids};
  // Cheapest reading first: the words as typed split into part + vehicle, then the whole query
@@ -202,7 +203,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   : `WITH page AS MATERIALIZED (SELECT id,updated_at,${rank} AS rank ${from} ORDER BY rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
      SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
      ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
- return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle};
+ return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 export async function catalogBrands() {
  return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);

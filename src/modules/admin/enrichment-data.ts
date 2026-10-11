@@ -1,5 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { parseSearchQuery } from "@/modules/search/query";
+import { binder, supplierItemMatch } from "@/modules/search/sql";
 import type { PassPace } from "./enrichment-pace";
 
 export const enrichmentStatuses: Record<string, string> = {
@@ -16,19 +18,22 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const q = query.q?.trim().slice(0,120) || "";
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
   const match = ["oem_reference","exact_part"].includes(query.match || "") ? query.match! : "all";
-  const values: string[] = [];
+  const values: unknown[] = [];
   const conditions: string[] = [];
   if (status === "enriched") conditions.push("e.supplier_item_id IS NOT NULL");
   else if (status === "attention") conditions.push("j.status IN ('review','blocked','failed')");
   else { values.push(status); conditions.push(`j.status=$${values.length}`); }
   if (match !== "all") { values.push(match); conditions.push(`e.match_basis->>'type'=$${values.length}`); }
   if (q) {
-    values.push(`%${q.replace(/[\\%_]/g,"\\$&")}%`);
-    const key = `$${values.length}`;
-    conditions.push(`(j.supplier_code ILIKE ${key} OR j.supplier_brand ILIKE ${key} OR j.oem ILIKE ${key}
-      OR s.product_data->>'ac' ILIKE ${key} OR e.manufacturer_part_number ILIKE ${key}
+    // Same engine as the storefront: words as prefixes, part/OEM numbers with any spacing.
+    const parsed = parseSearchQuery(q), bind = binder(values);
+    const enriched = parsed.compact.length >= 3 ? (() => {
+      const key = bind(`%${parsed.compact}%`);
+      return ` OR search_compact(COALESCE(e.manufacturer_part_number,'')) LIKE ${key}
       OR EXISTS(SELECT 1 FROM jsonb_each(COALESCE(e.payload->'oemNumbers','{}'::jsonb)) r,
-        jsonb_array_elements_text(r.value) n WHERE n ILIKE ${key}))`);
+        jsonb_array_elements_text(r.value) n WHERE search_compact(n) LIKE ${key})`;
+    })() : "";
+    conditions.push(`(${supplierItemMatch("s", parsed, bind)}${enriched})`);
   }
   const from = `FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
     LEFT JOIN product_enrichments e ON e.supplier_item_id=j.supplier_item_id WHERE ${conditions.join(" AND ")}`;

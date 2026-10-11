@@ -1,6 +1,7 @@
 import type { CatalogQuery } from "@/modules/store/catalog-query";
 import { Fragment } from "react";
 import Link from "next/link";
+import { minSearchLength } from "@/modules/search/query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -40,7 +41,7 @@ function CatalogFinder({compact,home,query,category,vehicle}:{compact:boolean;ho
   <form action={home} className="flex gap-2.5 max-[600px]:w-full" role="search" aria-label="OEM numarasıyla parça ara">
    <label className={cn("flex h-14 w-[296px] overflow-hidden rounded-md border border-white bg-white min-[601px]:max-[850px]:w-60 max-[600px]:w-auto max-[600px]:min-w-0 max-[600px]:flex-1",compact&&"h-12 w-[245px]")}>
     <span aria-hidden="true" className="flex flex-[0_0_36px] items-center justify-center bg-[#003399] text-[11px] font-semibold text-white">OEM</span>
-    <input type="search" name="q" aria-label="Ürün kodu veya OEM numarası" placeholder="Ürün kodu veya OEM numarası" defaultValue={query} maxLength={120} required
+    <input type="search" name="q" aria-label="Ürün kodu veya OEM numarası" placeholder="Ürün kodu veya OEM numarası" defaultValue={query} minLength={2} maxLength={120} required
      className={cn("h-[54px] w-full min-w-0 border-0 bg-white px-2.5 py-3.5 text-sm text-[#54626e] outline-none placeholder:text-[#637381]",compact&&"h-[46px]")}/>
    </label>
    <input type="hidden" name="searchBy" value="code"/>{category&&<input type="hidden" name="category" value={category}/>}
@@ -76,6 +77,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
    :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref(params.fits?undefined:"vehicle")} scroll={false}>{params.fits?"Tüm ürünleri göster":"Yalnızca aracıma uyanları göster"}</Link></div>;
  const correction=result.correctedQuery&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
+ const tooShort=result.searchTooShort&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>;
  const scope=result.vehicleScope,partHref=scope&&`${home}?${new URLSearchParams({q:scope.productText,...(category?{category:category.slug}:{})})}`;
  // Product names never name vehicles: a "part + vehicle" query lists the parts linked to that vehicle.
  const vehicleNotice=scope&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">
@@ -110,7 +112,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
      <CatalogSidebar categories={[...categories]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="min-w-0">
-     {correction}{vehicleNotice}{fitFilter}
+     {tooShort}{correction}{vehicleNotice}{fitFilter}
     {!filtered&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
       {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :

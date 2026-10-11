@@ -14,6 +14,12 @@ export function normalizeSearchText(value: string) {
     .replace(/\s+/g, " ").trim();
 }
 
+/** Fewer letters and digits than this match too much to be useful ("a" lists 50k products, "y" every vehicle). */
+export const minSearchLength = 2;
+export function searchTooShort(raw: string) {
+  return compactSearchCode(raw.slice(0, 120)).length < minSearchLength;
+}
+
 /** Mirrors SQL search_compact: part and OEM numbers without separators. */
 export function compactSearchCode(value: string) {
   return normalizeSearchText(value).replace(/[^a-z0-9]/g, "");

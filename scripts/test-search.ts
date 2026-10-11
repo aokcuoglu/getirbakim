@@ -83,3 +83,12 @@ test("product search names a part and a vehicle: parts linked to the vehicle, el
   assert.equal(typo.correctedQuery, "hava filtresi");
   assert.equal((await browseProducts({ q: "yağ filtresi" })).vehicleScope, undefined);
 });
+
+test("searches need at least two letters or digits", async () => {
+  assert.equal((await searchVehicleCatalog("y")).total, 0);
+  assert.ok((await searchVehicleCatalog("x5")).total > 0);
+  const single = await browseProducts({ q: "a" });
+  assert.equal(single.searchTooShort, true);
+  assert.equal(single.total, 0);
+  assert.equal((await browseProducts({ q: "yağ" })).searchTooShort, undefined);
+});
