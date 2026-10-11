@@ -88,11 +88,11 @@ export const categories = [
 async function fittedProductIds(typesSql:string,values:unknown[]){
  return (await db.query<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
   fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
-  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichments e
+  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
-   WHERE e.supplier_item_id IN (SELECT supplier_item_id FROM fits))
-  SELECT DISTINCT f.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.supplier_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`,values)).rows.map(row=>row.id);
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
+   WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
+  SELECT DISTINCT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`,values)).rows.map(row=>row.id);
 }
 // Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
 const cachedFitted=staleCache<string[]>(10*60*1000);
@@ -112,10 +112,10 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
  // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
- if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichments e
+ if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichment_shared e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
-      AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(supplier_item.product_data->>'oe',''))
+      AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     CROSS JOIN LATERAL jsonb_each(e.payload->'oemNumbers') refs
     CROSS JOIN LATERAL jsonb_array_elements_text(refs.value) reference(number)
     WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}`);
@@ -221,9 +221,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    values.push(Object.entries(legacyCategoryIds).filter(([,id])=>descendants.includes(id)).map(([slug])=>slug));const legacyKey=`$${values.length}`;
    values.push(descendants);const idsKey=`$${values.length}`;
    clauses.push(`(catalog.category=ANY(${legacyKey}::text[]) OR catalog.id IN (
-    SELECT pc.supplier_item_id FROM product_source_categories pc JOIN product_enrichments e USING(supplier_item_id)
+    SELECT e.supplier_item_id FROM product_source_categories pc JOIN product_enrichment_shared e ON e.donor_item_id=pc.supplier_item_id
     JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     WHERE pc.source='trodo' AND pc.category_id=ANY(${idsKey}::int[])))`);
   }
  }
@@ -245,9 +245,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
+  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id
    AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
    WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
    AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part'))`);
@@ -409,9 +409,9 @@ async function attributeFacets(brands:string[],values:unknown[],scopedSql:string
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
  const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql})
  SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values
- FROM scoped JOIN product_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
+ FROM scoped JOIN product_enrichment_shared e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
- AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+ AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
  WHERE spec->>0 IN ('Fitting Position','Brand class','Filter type','Lamp Type','Bulb Type','Fuel Type','Shock Absorber Type','Shock Absorber System','Wiper blade type','Oil Viscosity Classification SAE','Transmission Type','Mounting Type') AND length(spec->>1)<=200
  AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')

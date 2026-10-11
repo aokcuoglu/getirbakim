@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { enrichmentImportSchema } from "../src/modules/store/enrichment-contract";
+import { enqueueProductSources } from "../src/modules/enrichment/product-queue";
 import { importEnrichments } from "../src/modules/enrichment/import";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -16,11 +17,10 @@ try {
       await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
       await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
       await client.query(await readFile("db/source-categories.sql", "utf8"));
-      const result = await client.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
-        SELECT id,code,COALESCE(product_data->>'uk',''),COALESCE(product_data->>'oe','') FROM supplier_items
-        ON CONFLICT(supplier_item_id) DO NOTHING`);
+      await client.query(await readFile("db/enrichment-products.sql", "utf8"));
+      const queued = await enqueueProductSources(client);
       await client.query("COMMIT");
-      console.log(JSON.stringify({ queued: result.rowCount }));
+      console.log(JSON.stringify({ queued }));
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
   } else if (command === "import") {
@@ -32,7 +32,7 @@ try {
     const items = entries.map(entry => enrichmentImportSchema.parse(entry));
     await importEnrichments(pool, items);
   } else if (command === "status") {
-    console.log(JSON.stringify((await pool.query("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status ORDER BY status")).rows, null, 2));
+    console.log(JSON.stringify((await pool.query("SELECT status,count(*)::int AS count FROM enrichment_product_catalog GROUP BY status ORDER BY status")).rows, null, 2));
     console.log(JSON.stringify((await pool.query("SELECT count(*)::int AS files,COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects")).rows[0]));
     console.log(JSON.stringify((await pool.query("SELECT * FROM product_enrichment_sources ORDER BY host")).rows));
   } else if (command === "probe") {

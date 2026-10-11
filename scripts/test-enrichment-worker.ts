@@ -62,7 +62,7 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
   const done=new Promise<string>((resolve,reject)=>{
    child.once('error',reject);
-   child.once('close',(code,signal)=>{if(code===0)resolve(stdout);else reject(Error(`Worker exited ${code??signal}: ${stderr}`));});
+   child.once('close',(code,signal)=>{if(code===0)resolve(stdout);else reject(Error(`Worker exited ${code??signal}: ${stderr} ${stdout.slice(-3000)}`));});
   });
   return {child,done};
  };
@@ -70,14 +70,25 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   await admin.query(`CREATE SCHEMA ${schema}`);
   // Restrict every worker query and generated artifact to this disposable fixture.
   for(const name of ['db','scripts','node_modules'])await symlink(resolve(name),join(directory,name));
-  await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code text NOT NULL,product_data jsonb NOT NULL);
+  await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code text NOT NULL,product_data jsonb NOT NULL,supplier text DEFAULT 'basbug',presence text DEFAULT 'present');
+   CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
+   CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
+   CREATE INDEX ON product_sources(product_id);CREATE TABLE product_brand_aliases(alias text PRIMARY KEY,canonical text);
    CREATE TABLE commerce_supplier_items(id uuid PRIMARY KEY,stock_data jsonb);
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
+  const matching=await readFile('db/product-matching.sql','utf8');
+  await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
   await pool.query(await readFile('db/product-enrichment.sql','utf8'));
   await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
   await pool.query(`INSERT INTO supplier_items(code,product_data) SELECT (1000000000+n)::text,'{"uk":"OTHER"}'::jsonb FROM generate_series(1,2001) AS n`);
+  await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items;INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items");
+  // A duplicate offer and an unlinked price-list row must never create additional source visits.
+  const first=(await pool.query('SELECT id,code FROM supplier_items LIMIT 1')).rows[0];
+  const duplicate=(await pool.query("INSERT INTO supplier_items(code,product_data,supplier) VALUES($1,'{\"uk\":\"OTHER\",\"marka\":\"OTHER\"}','dinamik') RETURNING id",[first.code])).rows[0].id;
+  await pool.query('INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)',[duplicate,first.id]);
+  await pool.query("INSERT INTO supplier_items(code,product_data) VALUES('price-only','{\"uk\":\"OTHER\"}')");
   const items=(await pool.query('SELECT code FROM supplier_items')).rows;
-  const paths=items.flatMap(({code})=>sourcePartQueries('OTHER',code).map(searchPath));
+  const paths=[...new Set(items.flatMap(({code})=>sourcePartQueries('OTHER',code).map(searchPath)))];
   await pool.query(`INSERT INTO enrichment_source_cache(host,path,body,expires_at) SELECT 'www.trodo.com',path,'[{"products":[]}]'::jsonb,now()+interval '1 day' FROM unnest($1::text[]) AS path`,[paths]);
   const output=await startWorker().done;
   const runs=(await pool.query('SELECT id,status,sample_size FROM enrichment_runs ORDER BY created_at')).rows;
@@ -85,8 +96,10 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   assert.match(output,/"continue":"done","batches":3/);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_request_events')).rows[0].n,0);
-  assert.equal((await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n,0);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending'")).rows[0].n,0);
+  assert.equal((await pool.query('SELECT count(DISTINCT product_id)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
   await pool.query(`INSERT INTO supplier_items(code,product_data) VALUES('2000000000','{"uk":"OTHER"}');UPDATE enrichment_source_hosts SET blocked=true WHERE host='www.trodo.com'`);
+  await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items WHERE code='2000000000';INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items WHERE code='2000000000'");
   const halted=await startWorker().done;
   assert.match(halted,/"continue":"halted".*"status":"blocked"/);
   const blocked=(await pool.query("SELECT id FROM enrichment_runs WHERE status='blocked'")).rows[0].id;
@@ -240,4 +253,69 @@ test('Cloudflare challenge pauses the host without spending attempts and resumes
   await queue.finish({id:final.id,token:final.token,httpStatus:200,elapsedMs:5,bytes:2,retryAfter:null,body:[{ok:true}]});
   assert.deepEqual(await queue.get('www.trodo.com','/rest/V1/vehicle/type/1/1'),[{ok:true}]);
  }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
+});
+
+
+test('master product sharing excludes equivalents, split offers and changed supplier identities', {skip:!process.env.DATABASE_URL}, async()=>{
+ const {reconcileProductQueue}=await import('../src/modules/enrichment/product-queue');
+ const schema='enrichment_products_test_'+randomUUID().replaceAll('-','');
+ const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
+ const admin=new Pool({connectionString:process.env.DATABASE_URL});
+ const pool=new Pool({connectionString:connection.href});
+ try {
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY,code text,product_data jsonb,supplier text,presence text DEFAULT 'present');
+   CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
+   CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
+   CREATE TABLE product_brand_aliases(alias text PRIMARY KEY,canonical text);
+   CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
+  const matching=await readFile('db/product-matching.sql','utf8');
+  await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
+  for(const file of ['product-enrichment','enrichment-worker','enrichment-products'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
+  const donor=randomUUID(),target=randomUUID(),equivalent=randomUUID(),pending=randomUUID(),duplicate=randomUUID(),unlinked=randomUUID();
+  await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES
+   ($1,'FEBI 181123','{"uk":"FEBI","oe":"12345678"}','basbug'),
+   ($2,'FEBI 181123','{"marka":"FEBI"}','dinamik'),
+   ($3,'BOS 181123','{"uk":"BOSCH"}','basbug'),
+   ($4,'FEBI 222222','{"uk":"FEBI"}','basbug'),
+   ($5,'FEBI 222222','{"uk":"FEBI","marka":"FEBI"}','dinamik'),
+   ($6,'price-only','{"uk":"OTHER"}','dinamik')`,[donor,target,equivalent,pending,duplicate,unlinked]);
+  await pool.query(`INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123'),($2,'BOSCH','181123'),($3,'FEBI','222222')`,[donor,equivalent,pending]);
+  await pool.query('INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($4,$1),($2,$2),($3,$3),($5,$3)',[donor,equivalent,pending,target,duplicate]);
+  await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status)
+   SELECT id,code,COALESCE(product_data->>'uk',product_data->>'marka',''),CASE WHEN id=$1 THEN 'complete' ELSE 'pending' END FROM supplier_items`,[donor]);
+  await pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+   VALUES($1,'FEBI 181123','FEBI','https://www.trodo.com/febi-181123','test','FEBI BILSTEIN','181123','{"vehicles":[],"specifications":[],"oemNumbers":{}}')`,[donor]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_product_catalog')).rows[0].n,3);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending'")).rows[0].n,2);
+  const shared=(await pool.query('SELECT supplier_item_id,donor_item_id FROM product_enrichment_shared ORDER BY supplier_item_id')).rows;
+  assert.deepEqual(new Set(shared.map(row=>row.supplier_item_id)),new Set([donor,target]));
+  assert.ok(shared.every(row=>row.donor_item_id===donor));
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichments')).rows[0].n,1);
+  // Preserve an interrupted product's checkpoint; duplicate offers and unlinked price rows become history.
+  const run=(await pool.query("INSERT INTO enrichment_runs(seed,sample_size) VALUES('test',3) RETURNING id")).rows[0].id;
+  await pool.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
+   SELECT $1,id,row_number() OVER(ORDER BY id)-1,code,'FEBI','',CASE WHEN id=$2 THEN 'vehicles' ELSE 'search' END,
+    CASE WHEN id=$2 THEN '{"saved":true}'::jsonb ELSE '{}'::jsonb END FROM supplier_items WHERE id=ANY($3::uuid[])`,[run,pending,[pending,duplicate,unlinked]]);
+  assert.equal(await reconcileProductQueue(pool,run),2);
+  const saved=(await pool.query('SELECT status,stage,checkpoint FROM enrichment_run_items WHERE run_id=$1 AND supplier_item_id=$2',[run,pending])).rows[0];
+  assert.deepEqual(saved,{status:'queued',stage:'vehicles',checkpoint:{saved:true}});
+  // A reviewed split immediately removes shared data from the separated offer.
+  await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123')",[target]);
+  await pool.query("UPDATE product_sources SET product_id=$1,method='manual' WHERE supplier_item_id=$1",[target]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared WHERE supplier_item_id=$1',[target])).rows[0].n,0);
+  // Automatic targets must still match the catalog key even before the next matching refresh.
+  await pool.query("UPDATE product_sources SET product_id=$1,method='auto' WHERE supplier_item_id=$2",[donor,target]);
+  await pool.query("UPDATE supplier_items SET code='FEBI 999999' WHERE id=$1",[target]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared WHERE supplier_item_id=$1',[target])).rows[0].n,0);
+  // A changed donor identity invalidates both shared access and the complete queue outcome.
+  await pool.query("UPDATE supplier_items SET code='FEBI 999998' WHERE id=$1",[donor]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared')).rows[0].n,0);
+  await pool.query("UPDATE supplier_items SET code='FEBI 181123' WHERE id=$1",[donor]);
+  await pool.query('UPDATE product_enrichments SET match_basis=$2 WHERE supplier_item_id=$1',[donor,JSON.stringify({type:'oem_reference',supplierOem:'12345678'})]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_valid_data')).rows[0].n,1);
+  await pool.query("UPDATE supplier_items SET product_data=jsonb_set(product_data,'{oe}','\"87654321\"') WHERE id=$1",[donor]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_valid_data')).rows[0].n,0);
+  assert.equal((await pool.query('SELECT status FROM enrichment_product_catalog WHERE product_id=$1',[donor])).rows[0].status,'pending');
+ } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });

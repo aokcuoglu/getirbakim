@@ -39,8 +39,9 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     await db.query(commerceSql);
     // The order line's compatibility level reads the vehicle catalog and product enrichments;
     // the full vehicle schema needs pg_trgm, which lives outside this test's search path.
-    await db.query("CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL)");
-    await db.query(await readFile(join(originalCwd,"db/product-enrichment.sql"),"utf8"));
+    await db.query("CREATE TABLE vehicle_brands(id integer PRIMARY KEY);CREATE TABLE vehicle_models(id integer PRIMARY KEY);CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL)");
+    for(const name of ["product-enrichment","product-matching","enrichment-worker","enrichment-products"])
+      await db.query(await readFile(join(originalCwd,`db/${name}.sql`),"utf8"));
     process.env.TAMI_CHECKOUT_ENABLED="true";process.env.BASBUG_BASE_URL="https://api.basbug.com.tr";
     for (const key of keys.slice(2)) process.env[key]="TEST";
     globalThis.fetch=async input=> {

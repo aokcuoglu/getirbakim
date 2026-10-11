@@ -15,10 +15,14 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
       try {
         await client.query("BEGIN");
         await lockFitmentSync(client);
-        const supplier = (await client.query(`SELECT code,product_data->>'uk' AS brand,COALESCE(product_data->>'oe','') AS oem FROM supplier_items WHERE id=$1 FOR SHARE`, [item.supplierItemId])).rows[0];
+        const supplier = (await client.query(`SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand,COALESCE(product_data->>'oe','') AS oem FROM supplier_items WHERE id=$1 FOR SHARE`, [item.supplierItemId])).rows[0];
         if (!supplier || supplier.code !== item.supplierCode || supplier.brand !== item.supplierBrand
           || !matchesEnrichment(supplier, item)) {
           throw new Error(`Manufacturer/part mismatch for ${item.supplierItemId}; nothing imported`);
+        }
+        if (item.productId) {
+          const link = (await client.query('SELECT product_id FROM product_sources WHERE supplier_item_id=$1 FOR SHARE', [item.supplierItemId])).rows[0];
+          if (link?.product_id !== item.productId) throw new Error('Master product changed during collection');
         }
         const previous = (await client.query("SELECT status FROM product_enrichment_jobs WHERE supplier_item_id=$1 FOR UPDATE", [item.supplierItemId])).rows[0];
         if (previous?.status === "complete" && item.completeness === "partial") throw new Error("Partial data cannot replace a complete enrichment");

@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {transform} from 'esbuild';
 import {z} from 'zod';
+import {enqueueProductSources,reconcileProductQueue} from '../src/modules/enrichment/product-queue';
 import {SourceQueue,SourceBlocked,WorkerStopped} from '../src/modules/enrichment/source-queue';
 import {SOURCE_HOSTS} from '../src/modules/enrichment/policy';
 import type {SourceProduct} from '../src/modules/enrichment/trodo-adapter';
@@ -18,7 +19,7 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
 const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().int().min(0).max(599),elapsedMs:z.number().int().min(0).max(120000),bytes:z.number().int().min(0).max(15*1024*1024),retryAfter:z.string().nullable(),error:z.string().max(2000).optional(),challenge:z.boolean().optional(),body:z.unknown().optional()});
 async function prepare(){
- const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+ const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query(await readFile('db/enrichment-products.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 async function report(runId:string){
  const run=(await pool.query('SELECT * FROM enrichment_runs WHERE id=$1',[runId])).rows[0];
@@ -31,12 +32,7 @@ async function report(runId:string){
  const results={run,outcomes,stages,requests,brandCount:brands.length,brands,quality};
  await mkdir(`artifacts/enrichment-pilot-${runId}`,{recursive:true});await writeFile(`artifacts/enrichment-pilot-${runId}/report.json`,JSON.stringify(results,null,2));return results;
 }
-// Supplier items that arrived after the last `enrichment:prepare` join the full catalog pass.
-async function enqueueNewSupplierItems(){
- return (await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
-  SELECT id,code,COALESCE(product_data->>'uk',''),COALESCE(product_data->>'oe','') FROM supplier_items
-  ON CONFLICT(supplier_item_id) DO NOTHING`)).rowCount??0;
-}
+// Each unmerged master product contributes at most one source visit to the full catalog pass.
 async function createRun(size:number,seed:string,allowShort=false,spreadBrands=true){
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
  const client=await pool.connect();try{
@@ -54,23 +50,23 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
    overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished)
-   INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
-    SELECT j.*,md5($2||j.supplier_item_id::text) AS hash,
+   INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
+   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
+    SELECT j.*,md5($2||j.product_id::text) AS hash,
      round(10*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)) AS yield_bucket,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
       ELSE 2 END AS priority
-    FROM product_enrichment_jobs j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+    FROM enrichment_product_catalog j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
      LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
-    WHERE j.status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
+    WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
    ) s ORDER BY priority,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
   await mkdir(`artifacts/enrichment-pilot-${run.id}`,{recursive:true});
-  const items=(await pool.query('SELECT ordinal,supplier_item_id,supplier_code,supplier_brand,oem FROM enrichment_run_items WHERE run_id=$1 ORDER BY ordinal',[run.id])).rows;
+  const items=(await pool.query('SELECT ordinal,product_id,supplier_item_id,supplier_code,supplier_brand,oem FROM enrichment_run_items WHERE run_id=$1 ORDER BY ordinal',[run.id])).rows;
   await writeFile(`artifacts/enrichment-pilot-${run.id}/manifest.json`,JSON.stringify({id:run.id,size:count,seed,strategy:'One per brand, remainder stable hash sample of pending jobs',items},null,2));return run.id;
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
@@ -113,6 +109,7 @@ async function serve(runId:string,port:number,chrome=false){
  const locked=(await owner.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0].locked;
  if(!locked){server.close();owner.release();throw Error('Run already has a worker');}
  let stopping=false;const stop=()=>{stopping=true;queue.stopping=true;};for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,stop);
+ await reconcileProductQueue(pool,runId);
  await pool.query("UPDATE enrichment_runs SET status='running',started_at=coalesce(started_at,now()),finished_at=NULL WHERE id=$1",[runId]);
  const collectors=chrome?startChromeCollectors(queue,{port:Number(process.env.ENRICHMENT_CHROME_PORT||9222),profileDir:resolve('.local/enrichment/chrome-profile'),clientCode,
   landing:{'www.trodo.com':'https://www.trodo.com/','picdn.trodo.com':'https://picdn.trodo.com/media/m2_catalog_cache/480x480%2FTecDoc%2F4657%2F210%2F52%2F445-1134mldem2.jpg?1'}}):null;
@@ -127,12 +124,17 @@ async function serve(runId:string,port:number,chrome=false){
     if(remaining){await new Promise(r=>setTimeout(r,1000));continue;}
     await pool.query("UPDATE enrichment_runs SET status='complete',finished_at=now() WHERE id=$1",[runId]);break;
    }
+   const scope=(await pool.query(`SELECT c.status FROM enrichment_product_catalog c JOIN enrichment_current_sources ps
+    ON ps.product_id=c.product_id WHERE c.product_id=$1 AND ps.supplier_item_id=$2`,[item.product_id,item.supplier_item_id])).rows[0];
+   if(scope?.status!=='pending'){
+    await pool.query("UPDATE enrichment_run_items SET status='skipped',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]);continue;
+   }
    const heartbeat=setInterval(()=>void pool.query("UPDATE enrichment_run_items SET lease_until=now()+interval '2 minutes' WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]).catch(console.error),30000);
    const cp=item.checkpoint as Record<string,unknown>;
    async function checkpoint(stage:string,value:Record<string,unknown>){Object.assign(cp,value);await pool.query('UPDATE enrichment_run_items SET stage=$4,checkpoint=$5 WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3',[runId,item.supplier_item_id,lease,stage,JSON.stringify(cp)]);}
    async function outcome(status:string,error?:string){
     const client=await pool.connect();try{await client.query('BEGIN');
-     const current=(await client.query("SELECT code,product_data->>'uk' AS brand FROM supplier_items WHERE id=$1 FOR SHARE",[item.supplier_item_id])).rows[0];
+     const current=(await client.query("SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand FROM supplier_items WHERE id=$1 FOR SHARE",[item.supplier_item_id])).rows[0];
      if(!current||current.code!==item.supplier_code||current.brand!==item.supplier_brand){status='review';error='Supplier identity changed during collection';}
      await client.query('UPDATE enrichment_run_items SET status=$4,last_error=$5,finished_at=now(),lease_until=NULL,lease_token=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3',[runId,item.supplier_item_id,lease,status,error||null]);
      if(!['complete','partial'].includes(status))await client.query("UPDATE product_enrichment_jobs SET status=$2,last_error=$3,attempts=attempts+1,last_attempt_at=now(),updated_at=now() WHERE supplier_item_id=$1 AND supplier_code=$4 AND supplier_brand=$5 AND status<>'complete'",[item.supplier_item_id,status,error||null,item.supplier_code,item.supplier_brand]);
@@ -235,7 +237,7 @@ async function serve(runId:string,port:number,chrome=false){
      }
     }catch(error){if(error instanceof SourceBlocked||error instanceof WorkerStopped)throw error;console.log(JSON.stringify({ordinal:item.ordinal+1,logo:'skipped',error:String(error)}));}
     const complete=vehicle.coverage.unresolved.length===0&&vehicle.coverage.invalid.length===0&&Boolean(imageFile);
-    const pkg={supplierItemId:item.supplier_item_id,supplierCode:item.supplier_code,supplierBrand:item.supplier_brand,source:'https://www.trodo.com/'+slug,sourceMethod:`Durable public browser adapter v2; run ${runId}; ${matchBasis.type==='exact_part'?'exact brand/part verified':'original OEM verified: '+matchBasis.reference}; source IDs covered ${vehicle.coverage.covered}/${vehicle.coverage.expected}; invalid rows ${vehicle.coverage.invalid.length}`,manufacturer:product.manufacturer,partNumber:product.tecdoc_sku,matchBasis,completeness:complete?'complete':'partial',imageFile,imageSource,brandLogo,data};
+    const pkg={supplierItemId:item.supplier_item_id,productId:item.product_id,supplierCode:item.supplier_code,supplierBrand:item.supplier_brand,source:'https://www.trodo.com/'+slug,sourceMethod:`Durable public browser adapter v2; run ${runId}; ${matchBasis.type==='exact_part'?'exact brand/part verified':'original OEM verified: '+matchBasis.reference}; source IDs covered ${vehicle.coverage.covered}/${vehicle.coverage.expected}; invalid rows ${vehicle.coverage.invalid.length}`,manufacturer:product.manufacturer,partNumber:product.tecdoc_sku,matchBasis,completeness:complete?'complete':'partial',imageFile,imageSource,brandLogo,data};
     await checkpoint('import',{package:pkg});await importEnrichments(pool,[pkg],matcher);await outcome(complete?'complete':'partial');
    }catch(error){
     if(error instanceof SourceBlocked||error instanceof WorkerStopped){await pool.query("UPDATE enrichment_run_items SET status='queued',lease_token=NULL,lease_until=NULL,last_error=$3 WHERE run_id=$1 AND supplier_item_id=$2",[runId,item.supplier_item_id,String(error)]);await pool.query("UPDATE enrichment_runs SET status=$2 WHERE id=$1",[runId,stopping?'stopped':'blocked']);console.log(stopping?'Worker stopped with checkpoint preserved':'Run paused by source circuit',String(error));break;}
@@ -272,9 +274,9 @@ async function continueAll(port:number,chrome:boolean,batchSize:number){
   const active=(await pool.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
   let runId:string=active??"";
   if(!runId){
-   const queued=await enqueueNewSupplierItems();
+   const queued=await enqueueProductSources(pool);
    if(queued)console.log(JSON.stringify({continue:'queued-new-items',queued}));
-   const pending=(await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n;
+   const pending=(await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>''")).rows[0].n;
    if(!pending){console.log(JSON.stringify({continue:'done',batches:batch-1}));return;}
    runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true,false);
   }
@@ -292,26 +294,28 @@ async function requeueReview(runId:string){
   if(!run)throw Error('Unknown run');
   const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
   if(active)throw Error('Another unfinished run exists: '+active.id);
-  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,s.id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY s.id)-1,
-    s.code,s.product_data->>'uk',COALESCE(s.product_data->>'oe','')
-   FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
-   WHERE j.status='review' AND COALESCE(s.product_data->>'oe','')<>''
-   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
+  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
+   SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
+    c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_catalog c
+   WHERE c.status='review' AND c.oem<>'' AND c.supplier_item_id IS NOT NULL
+   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
     oem=EXCLUDED.oem,status='queued',stage='search',checkpoint='{}',lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
-   WHERE enrichment_run_items.status='review'`,[runId]);
+   WHERE enrichment_run_items.status IN ('review','skipped')`,[runId]);
+  await client.query(`UPDATE product_enrichment_jobs j SET status='pending',last_error=NULL,updated_at=now()
+   FROM enrichment_current_sources ps WHERE ps.supplier_item_id=j.supplier_item_id AND j.status IN ('review','not_found','failed','blocked')
+    AND ps.product_id IN(SELECT product_id FROM enrichment_run_items WHERE run_id=$1 AND status='queued')`,[runId]);
   if(result.rowCount)await client.query("UPDATE enrichment_runs SET sample_size=(SELECT count(*) FROM enrichment_run_items WHERE run_id=$1),status=CASE WHEN status='blocked' THEN status ELSE 'prepared' END,finished_at=NULL WHERE id=$1",[runId]);
   await client.query('COMMIT');return {runId,requeued:result.rowCount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
- else if(command==='pilot'){await prepare();console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
- else if(command==='run'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
+ else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
+ else if(command==='run'){await prepare();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
  else if(command==='unblock'){await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL');console.log('Source hosts unblocked');}
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
- else if(command==='retry-review')console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));
+ else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
  else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
