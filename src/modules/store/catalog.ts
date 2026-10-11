@@ -99,6 +99,8 @@ const cachedFitted=staleCache<string[]>(10*60*1000);
 const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
  "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
 const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
+/** Product ids linked to a vehicle type (shared with the maintenance kit prototype, #172). */
+export const vehicleTypeProductIds=(typeId:string)=>typeFittedIds(Number(typeId));
 /**
  * `vehicle`: the query named a part and a vehicle ("fren balatası passat"). `fitted` says whether
  * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
