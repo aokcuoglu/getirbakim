@@ -5,14 +5,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Tab = "transfer" | "products";
 
-export function SupplierTabs({ transfer, products, initialTab = "products" }: {
+export function SupplierTabs({ transfer, products, initialTab = "products", label = "Başbuğ yönetimi" }: {
   transfer: ReactNode;
   products: ReactNode;
   initialTab?: Tab;
+  label?: string;
 }) {
   const [active, setActive] = useState<Tab>(initialTab);
   return <Tabs value={active} onValueChange={value => setActive(value as Tab)} className="gap-4">
-    <TabsList variant="line" aria-label="Başbuğ yönetimi" className="w-full justify-start border-b">
+    <TabsList variant="line" aria-label={label} className="w-full justify-start border-b">
       <TabsTrigger value="products" className="flex-none px-3">Ürünler</TabsTrigger>
       <TabsTrigger value="transfer" className="flex-none px-3">Senkronizasyon ve kalite</TabsTrigger>
     </TabsList>

@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
@@ -11,15 +12,15 @@ import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
-export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
+export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
  available: boolean; max_quantity: number; stock_label: string; pricing_snapshot: Record<string, unknown>;
 };
 // Prices and availability are calculated by the shared commerce view.
-export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=$1";
-const catalogEntriesSql = "SELECT * FROM commerce_catalog_entries WHERE source='store' OR company=$1";
-const company = () => process.env.BASBUG_FIRMA_ADI || "BASBUG";
+export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
+const catalogEntriesSql = "SELECT * FROM commerce_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+const company = storefrontCompanies;
 export async function searchProducts(code: string): Promise<CatalogProduct[]> {
  if (!code.trim()) return [];
  return (await browseProducts({q:code,searchBy:"code"})).items;

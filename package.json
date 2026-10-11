@@ -17,6 +17,7 @@
     "supplier:dinamik:import": "node --env-file=.env.local --import tsx scripts/import-dinamik.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
+    "test:seta": "node --import tsx --test scripts/test-seta.ts",
     "verify:basbug": "node --env-file=.env.local --import tsx scripts/verify-basbug.ts",
     "db:supplier:migrate": "node --env-file=.env.local --import tsx scripts/migrate-supplier-sync.ts",
     "supplier:sync": "node --env-file=.env.local --import tsx scripts/sync-suppliers.ts",

@@ -215,3 +215,37 @@ bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=AL
 `--force --supplier=dinamik` grup verilmeden tüm markaları bütçesiz çeker ve ~16 dk+ boyunca zamanlayıcı kilidini tutar; bu sürede Başbuğ fiyat/stok turları bekler. Production'da tüm markalar için zorlama yerine normal zamanlayıcıyı bekleyin veya `--group` ile sınırlayın.
 
 Yönetim: `/yonetim/tedarikciler/dinamik` güncel ürün, bölgede stokta, güncel/etkin marka, son 24 saat, son çekimler ve hata veren markaları gösterir. `/api/health/suppliers` Dinamik kapsamlarını da kapsar: hata veren ya da 36 saatten bayat marka 503 üretir.
+
+## SETA — 11 Ekim 2026
+
+SETA (Seta Filtre) tüm B2B listesini tek uç noktadan verir: `GET https://b2b-api.ismyazilim.com/seta/products`, `XApiKey` başlığı. Grup, depo, sayfalama veya kur yok; tek kapsam kullanılır: `seta / SETA / ALL / MAIN`. Canlı yanıt (1.392 satır, ~575 KB, ~3 sn) doğrulandı; adaptör `src/modules/suppliers/seta-import.ts`.
+
+| Kaynak alan | Anlamı | Saklandığı yer |
+| --- | --- | --- |
+| `product_no` | SETA kodu (boşluk içerebilir: `TRA SET 1`) | `code` |
+| `price` | **KDV hariç bayi alışı**, TRY (kullanıcı teyidi). `0.00` = fiyat yok | `price_data.nf` (0 ise `price_data` null) |
+| `stock` | Var/yok, adet değil | `stock_data.stok` 1/0 |
+| `category` | `Hava Filtreleri` vb.; birkaç satırda boş → kod önekinden (STA/STO/STF/STC) | ad (`ac`) + mağaza kategorisi `filtre` / `yedek-parca` |
+| `product_name` | Uyumlu araçlar (filtrelerde) / parça adı (`Yedek Parça`) | `ac2` veya `ac` |
+| `brand` | **Araç markası**, parça markası değil | `vehicle_brand`; parça markası `uk = SETA` |
+| `oems` | OEM numaraları | `oe` (` / ` ile) + `oems` |
+| `cross` | Rakip referansları (Mann, Mahle…); boşsa `[]` gelir | `cross` (nesne); aramaya dahil değil |
+
+Mağaza, arama ve zenginleştirme Başbuğ alan adlarını okuduğundan SETA satırları aynı adlarla (`ac`, `ac2`, `uk`, `oe`, `dc`, `nf`, `stok`) ve kendi alanlarıyla birlikte yazılır. `commerce_supplier_items` artık Başbuğ MRK + SETA'yı satar; satış fiyatı Başbuğ'la aynı formül: `nf × (1 + kâr) × (1 + KDV)` (ör. 105 TL → 163,80 TL). Mağaza sorguları firma listesini `storefrontCompanies()`'ten alır.
+
+- **Tam** çekim ürünleri keşfeder ve kayıp/pasif sayaçlarını ilerletir. **Ticari** çekim aynı isteği yapar ama yalnız mevcut ürünlerin fiyat/stoğunu yazar (ürün alanları tam çekime aittir). Sipariş anında canlı modda ticari çekim yapılır; sipariş veri kaynağı ayarı Başbuğ ile ortaktır.
+- Kilit `pg_advisory_lock(20261001,4)` (Başbuğ 1, zamanlayıcı 2, Dinamik 3); uzun bir Başbuğ turu SETA siparişlerini bekletmez. `db:setup` her ikisini de alır.
+- Sözleşme dışı yanıt (boş liste, TRY dışı para birimi, bozuk fiyat) `contract` olur, mevcut veri korunur. Göreli kalite eşikleri (ürün düşüşü %20, eksik fiyat +10 puan) Başbuğ'la aynıdır. Durdurma: `.local/seta-paused`.
+
+```sh
+# İlk aktarım (kapsamı da oluşturur) ve plan:
+npm run supplier:sync -- --force --supplier=seta
+npm run supplier:sync:configure -- --supplier=seta --group=ALL --daily-at=03:00 \
+  --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90
+# Production:
+bash scripts/production-task.sh supplier-sync --force --supplier=seta
+bash scripts/production-task.sh supplier-configure --supplier=seta --group=ALL --daily-at=03:00 \
+  --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90
+```
+
+Ortam: `SETA_API_KEY` (zorunlu), `SETA_BASE_URL` (isteğe bağlı; yalnız `https://b2b-api.ismyazilim.com`). Yönetim: `/yonetim/tedarikciler/seta`. Test: `npm run test:seta`.

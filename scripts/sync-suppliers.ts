@@ -2,13 +2,14 @@ import { Pool } from "pg";
 import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
+import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
 // Invoke every 15 minutes. Due scopes choose their own interval (default: once a day).
-// Manual run: --force [--supplier=basbug|dinamik] [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
+// Manual run: --force [--supplier=basbug|dinamik|seta] [--group=FIAT,AV] [--mode=full|commerce] ignores schedule and enabled flags.
 const args = z.object({
   force: z.literal(true).optional(),
-  supplier: z.enum(["basbug", "dinamik"]).optional(),
+  supplier: z.enum(["basbug", "dinamik", "seta"]).optional(),
   group: z.string().transform(value => value.split(",")).pipe(z.array(z.string().regex(dinamikBrandPattern))).optional(),
   mode: z.enum(["full", "commerce"]).optional(),
 }).strict().parse(Object.fromEntries(process.argv.slice(2).map(arg => {
@@ -52,11 +53,14 @@ try {
       }
     }
     const scopes = (await worker.query<{ supplier: string; company: string; list_group: string; warehouse: string; enabled:boolean; next_run_at:Date }>(
-      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier=$2 AND ($1::text[] IS NULL OR list_group=ANY($1)) AND ($1::text[] IS NOT NULL OR $2='basbug' OR enabled) ORDER BY list_group"
-        // Başbuğ first: its price/stock runs are what checkout depends on.
-        : "SELECT * FROM supplier_sync_scopes WHERE (enabled AND next_run_at<=now()) OR (commerce_enabled AND commerce_next_run_at<=now()) ORDER BY supplier<>'basbug',next_run_at,supplier,list_group",
+      args.force ? "SELECT * FROM supplier_sync_scopes WHERE supplier=$2 AND ($1::text[] IS NULL OR list_group=ANY($1)) AND ($1::text[] IS NOT NULL OR $2<>'dinamik' OR enabled) ORDER BY list_group"
+        // Dinamik last: its brands only start within a time budget, and stopping there must not skip other suppliers.
+        : "SELECT * FROM supplier_sync_scopes WHERE (enabled AND next_run_at<=now()) OR (commerce_enabled AND commerce_next_run_at<=now()) ORDER BY supplier='dinamik',next_run_at,supplier,list_group",
       args.force ? [args.group ?? null, forcedSupplier] : [],
     )).rows;
+    // SETA's single scope is created by its first successful import; a forced run may be that first import.
+    if (args.force && args.supplier === "seta" && !scopes.length && !args.group)
+      scopes.push({ supplier: "seta", company: setaScope.company, list_group: setaScope.group, warehouse: setaScope.warehouse, enabled: true, next_run_at: new Date() });
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
     let catalogWordsChanged = false;
@@ -84,9 +88,20 @@ try {
         }
         continue;
       }
+      const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
+      if (scope.supplier === "seta") {
+        try {
+          const result = await importSeta(pool, { mode });
+          console.log({ supplier: "seta", mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+          if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
+        } catch (error) {
+          console.error({ supplier: "seta", mode, reason: error instanceof SetaImportError ? error.message : "SETA import failed", seconds: Math.round((Date.now() - started) / 1000) });
+          process.exitCode = 1;
+        }
+        continue;
+      }
       try {
         if (scope.supplier !== "basbug" || scope.warehouse !== "MRK") throw new Error("No verified adapter for scope");
-        const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
         console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
@@ -95,6 +110,7 @@ try {
         const reason = error instanceof BasbugImportError ? error.message : "No verified adapter for scope";
         console.error({ group: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });
         process.exitCode = 1;
+        // Only Başbuğ's remaining groups are skipped; other suppliers do not share its outage.
         if (error instanceof BasbugImportError && stopReasons.has(error.reason)) {
           circuitOpen.add("basbug");
           const skipped = scopes.slice(index + 1).filter(next => next.supplier === "basbug").map(next => next.list_group);

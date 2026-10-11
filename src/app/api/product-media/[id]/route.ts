@@ -1,6 +1,7 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { objectStorage } from "@/lib/object-storage";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -9,7 +10,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const media = (await db.query<{ bucket: string; object_key: string; content_type: string; sha256: string; size_bytes: number }>(
     `SELECT m.* FROM product_media_objects m WHERE m.id=$1 AND EXISTS
      (SELECT 1 FROM product_enrichments e JOIN supplier_items i ON i.id=e.supplier_item_id
-      WHERE e.image_id=m.id AND i.presence='present' AND i.company=$2)`, [id, process.env.BASBUG_FIRMA_ADI || "BASBUG"])).rows[0];
+      WHERE e.image_id=m.id AND i.presence='present' AND i.company=ANY($2::text[]))`, [id, storefrontCompanies()])).rows[0];
   if (!media) return new Response(null, { status: 404 });
   try {
     const result = await objectStorage().send(new GetObjectCommand({ Bucket: media.bucket, Key: media.object_key }));

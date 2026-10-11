@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_i
 
 -- Current supplier observations and bounded change history (not one full copy per run).
 ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
-ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik'));
+ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
 ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL;
 ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP DEFAULT;
 ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
@@ -117,6 +117,11 @@ CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
  last_success_at timestamptz, consecutive_failures integer NOT NULL DEFAULT 0,
  PRIMARY KEY(supplier,company,list_group,warehouse)
 );
+-- SETA (single published list). The inline checks above only apply to new databases.
+ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
+ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
+ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
+ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
 CREATE TABLE IF NOT EXISTS supplier_sync_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
 ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS daily_at time NOT NULL DEFAULT '03:00';

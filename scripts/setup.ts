@@ -16,6 +16,8 @@ try {
    await client.query("BEGIN");
    await client.query("SET LOCAL lock_timeout = '15s'");
    await client.query("SELECT pg_advisory_xact_lock(20261001,1)");
+   // SETA imports hold their own lock (seta-import.ts); schema changes wait for both.
+   await client.query("SELECT pg_advisory_xact_lock(20261001,4)");
    await client.query(await readFile("db/schema.sql", "utf8"));
    await client.query(await readFile("db/brand-launch.sql", "utf8"));
    await client.query(await readFile("db/vehicle-schema.sql", "utf8"));

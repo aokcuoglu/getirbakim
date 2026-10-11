@@ -16,8 +16,9 @@ export type AdminNavStatus = {
   orders: number; services: number; enrichment: number;
   basbug: "success" | "warning" | "danger" | "neutral";
   dinamik: "success" | "warning" | "danger" | "neutral";
+  seta: "success" | "warning" | "danger" | "neutral";
 };
-type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik"; exact?: boolean };
+type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
 const sections: { title: string; items: Item[] }[] = [
   { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
   { title: "Satış", items: [
@@ -32,6 +33,7 @@ const sections: { title: string; items: Item[] }[] = [
     { href: "/yonetim/tedarikciler", label: "Tüm tedarikçiler", icon: PlugZap, exact: true },
     { href: "/yonetim/tedarikciler/basbug", label: "Başbuğ API", icon: Truck, dot: "basbug" },
     { href: "/yonetim/tedarikciler/dinamik", label: "Dinamik API", icon: Truck, dot: "dinamik" },
+    { href: "/yonetim/tedarikciler/seta", label: "SETA API", icon: Truck, dot: "seta" },
   ] },
 ];
 const dotStyles = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive", neutral: "bg-muted-foreground/40" };
