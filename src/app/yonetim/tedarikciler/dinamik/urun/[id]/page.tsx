@@ -14,6 +14,7 @@ const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFracti
 const changeKinds: Record<string, string> = { added: "Yeni ürün", changed: "Veri değişti", missing: "Listede bulunamadı", inactive: "Pasife alındı", restored: "Geri geldi" };
 const fieldNames: Record<string, string> = {
   product: "Ürün", price: "Fiyat", stock: "Stok", presence: "Liste durumu", conflicting: "Çelişki", variants: "Kaynak varyantları", stockListPrice: "Stok listesi fiyatı",
+  no: "Mağaza ürün kodu", ac: "Mağaza ürün adı", ac2: "Mağaza açıklaması", uk: "Mağaza üreticisi", oe: "Mağaza OEM listesi", dc: "Para birimi", nf: "Mağaza maliyeti", stok: "Mağaza stok bayrağı",
   stokKodu: "Ürün kodu", stokAdi: "Ürün adı", marka: "Marka", fiyat: "Liste fiyatı", kampanyaOrani: "Kampanya alanı",
   ingilizceAdi: "İngilizce adı", kull1s: "Araç markası (kaynak)", kull3s: "Üretici", kull7s: "Ürün grubu", kull8s: "Ürün tipi", oemListe: "OEM listesi", esdegerListe: "Eşdeğer listesi",
   barkod1: "Barkod 1", barkod2: "Barkod 2", barkod3: "Barkod 3", paketMiktari: "Paket miktarı", koliMiktari: "Koli miktarı", olcuBirimi: "Ölçü birimi", desi: "Desi", resimUrl: "Görsel adresi", kaporta: "Kaporta",
@@ -38,7 +39,7 @@ function ChangeValue({ value, path }: { value: unknown; path: string[] }) {
   if (value === null) return <span className="text-muted-foreground">Boş</span>;
   if (value === "") return <span className="text-muted-foreground">Boş metin</span>;
   if (path.at(-1) === "presence" && typeof value === "string") return ({ present: "Güncel listede var", pending_missing: "Son listede bulunamadı", inactive: "Pasif" } as Record<string, string>)[value] ?? value;
-  if (typeof value === "number") return <span className="block text-right tabular-nums">{path.at(-1) === "fiyat" ? money(Math.round(value * 100)) : number(value)}</span>;
+  if (typeof value === "number") return <span className="block text-right tabular-nums">{["fiyat", "nf", "stockListPrice"].includes(path.at(-1) ?? "") ? money(Math.round(value * 100)) : number(value)}</span>;
   if (typeof value === "boolean") return value ? "Evet" : "Hayır";
   return typeof value === "string" ? value : JSON.stringify(value);
 }
