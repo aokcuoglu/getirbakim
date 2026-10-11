@@ -36,7 +36,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     <div className="flex gap-1"><PagerLink href={data.page > 1 ? query({ page: String(data.page - 1) }) : null}><ChevronLeft/>Önceki</PagerLink><PagerLink href={data.page < data.pages ? query({ page: String(data.page + 1) }) : null}>Sonraki<ChevronRight/></PagerLink></div>
   </nav>;
   const pairs: PairRow[] = data.pairs.map(pair => ({ brand_a: pair.brand_a, brand_b: pair.brand_b, shared_parts: number(pair.shared_parts),
-    similarity: percent(pair.avg_name_similarity), strong: (pair.avg_name_similarity ?? 0) >= strongSimilarity, samples: pair.samples }));
+    shared_eans: pair.shared_eans ? number(pair.shared_eans) : null, similarity: percent(pair.avg_name_similarity),
+    strong: (pair.avg_name_similarity ?? 0) >= strongSimilarity, samples: pair.samples, ean_samples: pair.ean_samples }));
   return <AdminPage>
     <AdminPageHeader breadcrumbs={[{ label: "Yönetim", href: "/yonetim" }, { label: "Ürün eşleştirme" }]} title="Ürün eşleştirme"
       description="Başbuğ, Dinamik ve SETA'daki aynı ürünler, marka eşlemeleri ve muadil bağlantıları. Mağazayı henüz etkilemez."
@@ -49,7 +50,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         <Stat icon={Boxes} label="Tedarikçiler arası aynı ürün" value={number(stats.cross_supplier_groups)} note={`${number(stats.grouped_items)} kayıt gruplandı · ${date(data.run!.completed_at)}`}/>
         <Stat icon={Copy} label="Tedarikçi içi tekrar" value={number(stats.duplicate_groups)} note="Aynı tedarikçide aynı marka + parça no"/>
         <Stat icon={GitCompareArrows} label="İncelenecek marka çifti" value={number(data.strength.strong + data.strength.weak)} note={`${number(data.strength.strong)} güçlü · ${number(data.strength.weak)} zayıf · ${number(Object.values(data.decisions).reduce((a, b) => a + b, 0))} karar`} tone={data.strength.strong ? "warning" : "success"}/>
-        <Stat icon={Link2} label="Muadil bağlantılı SETA ürünü" value={number(stats.referenced_items)} note={`${number(stats.references)} rakip kodu / OEM referansı`}/>
+        <Stat icon={Link2} label="Muadil grubu" value={number(stats.equivalence_groups ?? 0)} note={`${number(stats.cross_supplier_equivalence_groups ?? 0)} tedarikçiler arası · ${number(stats.equivalent_items ?? 0)} kayıt · ${number(stats.references)} OEM / rakip kodu`}/>
       </StatGrid>
       <AdminPanel title="Tedarikçi kapsamı" flush>
         <Table className="table-fixed text-xs [&_td]:py-1.5"><TableHeader><TableRow className="bg-muted/40"><TableHead className="pl-4">Tedarikçi</TableHead><TableHead className="text-right">Eşleştirilen kayıt</TableHead><TableHead className="text-right">Bir grupta</TableHead><TableHead className="pr-4 text-right">Başka tedarikçide de var</TableHead></TableRow></TableHeader>
@@ -58,7 +59,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       <Card className="gap-0 py-0">
         <AdminTabs label="Eşleştirme görünümü" tabs={[
           { href: query({ tab: undefined, page: undefined, scope: undefined, supplier: undefined, q: undefined }), label: "Marka çiftleri", count: data.strength.strong + data.strength.weak, current: data.tab === "pairs" },
-          { href: query({ tab: "groups", page: undefined, strength: undefined }), label: "Ürün grupları", count: stats.groups, current: data.tab === "groups" },
+          { href: query({ tab: "groups", page: undefined, strength: undefined, scope: undefined }), label: "Ürün grupları", count: stats.groups, current: data.tab === "groups" },
+          { href: query({ tab: "equivalents", page: undefined, strength: undefined, scope: undefined }), label: "Muadiller", count: stats.equivalence_groups ?? 0, current: data.tab === "equivalents" },
         ]}/>
         {data.tab === "pairs" ? <>
           <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
@@ -68,15 +70,18 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ]}/>
             <DecisionHelp/>
           </div>
-          {pairs.length ? <div className="overflow-x-auto"><Table className="min-w-[900px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">İncelenecek marka çiftleri</caption>
-            <TableHeader><TableRow className="bg-muted/40"><TableHead className="w-32 pl-4">Marka A</TableHead><TableHead className="w-32">Marka B</TableHead><TableHead className="w-20 text-right">Ortak no</TableHead><TableHead className="w-20 text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead className="w-[13.5rem]">Karar</TableHead><TableHead className="w-10 pr-3"><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
+          {pairs.length ? <div className="overflow-x-auto"><Table className="min-w-[980px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">İncelenecek marka çiftleri</caption>
+            <TableHeader><TableRow className="bg-muted/40"><TableHead className="w-32 pl-4">Marka A</TableHead><TableHead className="w-32">Marka B</TableHead><TableHead className="w-20 text-right">Ortak no</TableHead><TableHead className="w-20 text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead className="w-20 text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead className="w-[13.5rem]">Karar</TableHead><TableHead className="w-10 pr-3"><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
             <TableBody>{pairs.map(pair => {
-              const sample = pair.samples[0];
+              // Barcode-only pairs share no part number; their first barcode match stands in as the example.
+              const ean = pair.ean_samples[0];
+              const sample = pair.samples[0] ?? (ean && { part: ean.ean, a: `${ean.part_a} ${ean.a ?? ""}`.trim(), b: `${ean.part_b} ${ean.b ?? ""}`.trim() });
               const sampleText = sample ? `${sample.part} · ${sample.a || "—"} · ${sample.b || "—"}` : "—";
               return <TableRow key={`${pair.brand_a}|${pair.brand_b}`}>
                 <TableCell className="truncate pl-4 font-medium" title={pair.brand_a}>{pair.brand_a}</TableCell>
                 <TableCell className="truncate font-medium" title={pair.brand_b}>{pair.brand_b}</TableCell>
                 <TableCell className="text-right tabular-nums">{pair.shared_parts}</TableCell>
+                <TableCell className="text-right tabular-nums">{pair.shared_eans ?? <span className="text-muted-foreground">—</span>}</TableCell>
                 <TableCell className="text-center">{pair.similarity ? <StatusBadge tone={pair.strong ? "success" : "neutral"}>{pair.similarity}</StatusBadge> : "—"}</TableCell>
                 <TableCell className="truncate text-muted-foreground" title={sampleText}>{sample ? <><span className="font-mono text-foreground">{sample.part}</span> · {sample.a || "—"} · {sample.b || "—"}</> : "—"}</TableCell>
                 <TableCell><PairDecision pair={pair} back={back}/></TableCell>
@@ -84,7 +89,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               </TableRow>;
             })}</TableBody></Table></div> : <EmptyState title="Bu görünümde incelenecek marka çifti yok." icon={<GitCompareArrows/>}/>}
           {pager}
-        </> : <>
+        </> : data.tab === "groups" ? <>
           <form className="flex items-center gap-2 overflow-x-auto border-b p-3 [&>*]:shrink-0" action="/yonetim/urun-eslestirme">
             <input type="hidden" name="tab" value="groups"/>
             <InputGroup className="w-64"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Parça no veya marka" maxLength={80}/></InputGroup>
@@ -110,6 +115,36 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
                   members={group.items.map(item => ({ id: item.supplier_item_id, supplier: suppliers[item.supplier] ?? item.supplier, code: item.code, brand: item.source_brand, name: item.name, cost: cost(item), stock: item.in_stock, sale: sale(item) }))}/></TableCell>
               </TableRow>;
             })}</TableBody></Table></div> : <EmptyState title="Filtrelere uygun grup bulunamadı." icon={<SearchX/>}/>}
+          {pager}
+        </> : <>
+          <form className="flex items-center gap-2 overflow-x-auto border-b p-3 [&>*]:shrink-0" action="/yonetim/urun-eslestirme">
+            <input type="hidden" name="tab" value="equivalents"/>
+            <InputGroup className="w-64"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="OEM / parça no veya marka" maxLength={80}/></InputGroup>
+            <NativeSelect className="w-44" aria-label="Kapsam" name="scope" defaultValue={params.scope || ""}><NativeSelectOption value="">Tedarikçiler arası</NativeSelectOption><NativeSelectOption value="single">Tek tedarikçi</NativeSelectOption><NativeSelectOption value="all">Tümü</NativeSelectOption></NativeSelect>
+            <NativeSelect className="w-36" aria-label="Tedarikçi" name="supplier" defaultValue={params.supplier || ""}><NativeSelectOption value="">Tedarikçiler</NativeSelectOption>{Object.entries(suppliers).map(([key, label]) => <NativeSelectOption key={key} value={key}>{label}</NativeSelectOption>)}</NativeSelect>
+            <Button type="submit">Filtrele</Button><ButtonLink variant="ghost" href={query({ tab: "equivalents", scope: undefined, supplier: undefined, q: undefined, page: undefined })}>Temizle</ButtonLink>
+          </form>
+          <p className="border-b px-4 py-2 text-xs text-muted-foreground">Aynı OEM numarasını veya rakip kodunu karşılayan farklı ürünler. Aynı ürün değildir; birleştirilmez, mağazada muadil olarak önerilebilir.</p>
+          {data.equivalents.length ? <div className="overflow-x-auto"><Table className="min-w-[980px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">Muadil grupları</caption>
+            <TableHeader><TableRow className="bg-muted/40"><TableHead className="w-36 pl-4">Referans no</TableHead><TableHead className="w-28">Tür</TableHead><TableHead className="w-44">Tedarikçiler</TableHead><TableHead className="w-16 text-right">Ürün</TableHead><TableHead className="w-20 text-center" title="Referans numarasını kendi kodu olarak taşıyan kayıt">Kendi no</TableHead><TableHead>Ürün adı</TableHead><TableHead className="w-20 text-center">Stok</TableHead><TableHead className="w-28 text-right">Mağaza (₺)</TableHead><TableHead className="w-10 pr-3"><span className="sr-only">Kayıtlar</span></TableHead></TableRow></TableHeader>
+            <TableBody>{data.equivalents.map(group => {
+              const kind = group.brand === "ORIJINAL" ? "OEM" : `${group.brand} kodu`;
+              const name = (group.items.find(item => item.direct && item.name) ?? group.items.find(item => item.name))?.name ?? null;
+              const inStock = group.items.filter(item => item.in_stock).length;
+              const prices = group.items.map(item => item.sale_price_kurus).filter((value): value is number => Boolean(value));
+              return <TableRow key={`${group.brand}|${group.part_number}`}>
+                <TableCell className="truncate pl-4 font-mono font-medium" title={group.part_number}>{group.part_number}</TableCell>
+                <TableCell className="truncate text-muted-foreground" title={kind}>{kind}</TableCell>
+                <TableCell className="truncate">{group.suppliers.map(s => suppliers[s] ?? s).join(" · ")}</TableCell>
+                <TableCell className="text-right tabular-nums">{number(group.products)}</TableCell>
+                <TableCell className="text-center tabular-nums">{group.direct ? number(group.direct) : <span className="text-muted-foreground">—</span>}</TableCell>
+                <TableCell className="truncate font-medium" title={name ?? ""}>{name || "—"}</TableCell>
+                <TableCell className="text-center tabular-nums"><StockLabel stock={inStock > 0}/><span className="text-muted-foreground"> {inStock}/{group.items.length}</span></TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">{prices.length ? money(Math.min(...prices)) : "—"}</TableCell>
+                <TableCell className="pr-3"><GroupDialog title={`${kind} ${group.part_number}`} description={`${group.products} farklı ürün · ${group.members} kayıt · ${group.suppliers.map(s => suppliers[s] ?? s).join(", ")} · kaynak fiyatlar dönüştürülmeden gösterilir`}
+                  members={group.items.map(item => ({ id: item.supplier_item_id, supplier: suppliers[item.supplier] ?? item.supplier, code: item.code, brand: item.source_brand, name: item.name, cost: cost(item), stock: item.in_stock, sale: sale(item), relation: item.direct ? "Kendi numarası" : "Referans veriyor" }))}/></TableCell>
+              </TableRow>;
+            })}</TableBody></Table></div> : <EmptyState title="Filtrelere uygun muadil grubu bulunamadı." icon={<SearchX/>}/>}
           {pager}
         </>}
       </Card>
