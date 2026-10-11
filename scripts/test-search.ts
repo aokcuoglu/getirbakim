@@ -3,7 +3,7 @@ import { after, test } from "node:test";
 import { db } from "../src/lib/db";
 import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
 import { searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
-import { browseProducts } from "../src/modules/store/catalog";
+import { browseProducts, suggestProducts } from "../src/modules/store/catalog";
 
 after(async () => { await db.end(); });
 
@@ -91,4 +91,13 @@ test("searches need at least two letters or digits", async () => {
   assert.equal(single.searchTooShort, true);
   assert.equal(single.total, 0);
   assert.equal((await browseProducts({ q: "yağ" })).searchTooShort, undefined);
+});
+
+test("type-ahead suggests the best distinct products, words before code fragments", async () => {
+  const oil = await suggestProducts("yag", "all");
+  assert.ok(oil.products.length > 0 && oil.products.length <= 6);
+  assert.ok(oil.products.every(p => normalizeSearchText(p.name).split(" ").some(word => word.startsWith("yag") || word.startsWith("oil"))), "a code containing YAG outranked names");
+  assert.equal(new Set(oil.products.map(p => `${p.name}|${p.brand}`)).size, oil.products.length);
+  assert.equal((await suggestProducts("a", "all")).products.length, 0);
+  assert.equal((await suggestProducts("fren balatası passat", "all")).vehicleScope?.vehicleText, "passat");
 });

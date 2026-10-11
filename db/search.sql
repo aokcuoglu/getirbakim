@@ -41,6 +41,8 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
  codes AS (SELECT search_compact(COALESCE(code, '')) AS c, search_compact(COALESCE(oem, '')) AS o)
  SELECT (CASE WHEN compact = '' THEN 0
    WHEN codes.c = compact OR codes.o = compact THEN 100
+   -- Partial code hits count only for code-like queries: "yag" is a word, not part of "YAG5YZ9".
+   WHEN compact !~ '[0-9]' THEN 0
    WHEN codes.c LIKE compact || '%' OR codes.o LIKE compact || '%' THEN 50
    WHEN length(compact) >= 3 AND (codes.c LIKE '%' || compact || '%' OR codes.o LIKE '%' || compact || '%') THEN 20
    ELSE 0 END
