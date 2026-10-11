@@ -17,7 +17,8 @@ export function ProductPricingDialog({ id, code, cost, pricing }: { id: string; 
   const initialFocus = useRef<HTMLInputElement>(null);
   return <Dialog>
     <DialogTrigger render={<Button variant="outline" className="min-h-11 w-full sm:w-auto"/>}>Kâr ve KDV oranları</DialogTrigger>
-    <DialogContent showCloseButton={false} initialFocus={initialFocus} overlayClassName="motion-reduce:animate-none motion-reduce:duration-0" className="admin-workspace max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[4px] border shadow-none ring-0 motion-reduce:animate-none motion-reduce:duration-0 sm:max-w-lg">
+    <DialogContent showCloseButton={false} initialFocus={initialFocus} overlayClassName="motion-reduce:animate-none motion-reduce:duration-0" className="admin-workspace overflow-y-auto rounded-[4px] border shadow-none ring-0 motion-reduce:animate-none motion-reduce:duration-0 sm:max-w-lg"
+      style={{ maxHeight: "calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))", maxWidth: "min(32rem, calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right)))", top: "calc((100dvh + env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 2)", left: "calc((100vw + env(safe-area-inset-left) - env(safe-area-inset-right)) / 2)" }}>
       <DialogHeader className="pr-10">
         <DialogTitle>Kâr ve KDV oranları</DialogTitle>
         <DialogDescription><span className="wrap-anywhere font-mono">{code}</span> · Değişiklikler yalnız bu ürüne uygulanır.</DialogDescription>
