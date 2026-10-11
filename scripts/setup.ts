@@ -30,6 +30,7 @@ try {
    await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
+   await client.query(await readFile("db/product-matching.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
    await client.query("COMMIT");
    break;

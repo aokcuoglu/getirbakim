@@ -45,6 +45,8 @@
     "test:fitment": "node --import tsx --test scripts/test-product-fitments.ts",
     "test:fitment-level": "node --import tsx --test scripts/test-fitment-level.ts",
     "verify:fitment": "node --env-file=.env.local --import tsx scripts/verify-product-fitments.ts",
+    "test:matching": "node --env-file=.env.local --import tsx --test scripts/test-product-matching.ts",
+    "products:match": "node --env-file=.env.local --import tsx scripts/match-products.ts",
     "supplier:health": "node --env-file=.env.local --import tsx scripts/supplier-health.ts",
     "supplier:auto:install": "node --import tsx scripts/install-supplier-launchd.ts",
     "supplier:auto:uninstall": "node --import tsx scripts/install-supplier-launchd.ts --uninstall",
