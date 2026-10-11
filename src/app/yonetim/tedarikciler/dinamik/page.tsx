@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, CircleAlert, CircleCheck, Info, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
@@ -8,21 +8,20 @@ import { supplierHealth } from "@/modules/suppliers/health";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { adminDinamikOverview } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
-import { dinamikRegion, dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
+import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
+import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { dinamikPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
-import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
 import { DinamikProductFilters } from "@/components/admin/dinamik-product-filters";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { DialogTrigger } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { money } from "@/modules/store/catalog";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
@@ -34,7 +33,6 @@ const time = (value: Date | null | undefined) => value ? value.toLocaleString("t
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
 const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
-const price = (value: number | null | undefined) => value == null ? null : new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence"] as const;
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
 const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
@@ -147,39 +145,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
       </CardHeader>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>Fiyat: KDV hariç maliyet · Satış: kâr + KDV dahil (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Stok: VAR/YOK · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
-        {rows.length ? <Table><caption className="sr-only">Dinamik ürünleri, liste fiyatları ve bölge stok durumları</caption>
-          <TableHeader><TableRow><TableHead>Stok kodu</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Araç</TableHead><TableHead>Grup</TableHead><TableHead className="text-right" title="KDV hariç maliyet (₺)">Fiyat (₺)</TableHead><TableHead className="text-right" title="Mağaza satış fiyatı, KDV dahil">Satış (₺)</TableHead><TableHead className="text-right" title="Kampanya oranı">Kamp.</TableHead>{dinamikRegions.map(r => <TableHead key={r.key} className="text-center" title={`${r.label} stok durumu (${r.key})`}>{r.key === region ? <strong>{r.short}</strong> : r.short}</TableHead>)}<TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
-          <TableBody>{rows.map(item => { const p = item.product_data; const href = `/yonetim/tedarikciler/dinamik/urun/${item.id}`; const campaign = Number(item.price_data?.kampanyaOrani ?? 0); return <SupplierProductDetails key={item.id} code={item.code} title={p.stokAdi || "Ürün bilgisi yok"} supplier="Dinamik" detailHref={href}
-            fields={[
-              ["Marka", item.list_group], ["İngilizce adı", p.ingilizceAdi],
-              ["Araç", p.kull1s], ["Üretici", p.kull3s],
-              ["Ürün grubu", p.kull7s], ["Ürün tipi", p.kull8s],
-              ["OEM listesi", p.oemListe], ["Eşdeğer listesi", p.esdegerListe],
-              ["Barkod", [p.barkod1, p.barkod2, p.barkod3].filter(Boolean).join(" · ")],
-              ["Paket / koli", p.paketMiktari !== undefined ? `${p.paketMiktari} / ${p.koliMiktari ?? "—"} ${p.olcuBirimi ?? ""}` : null],
-              ["Maliyet · KDV hariç (₺)", price(item.price_data?.fiyat) ?? "Fiyat eksik"],
-              ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : item.stock_data ? "Satışa kapalı" : "Mağazada gösterilmiyor"],
-              ["Kampanya oranı", campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"],
-              ["Listede bulunma", item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Listede yok"],
-              ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : item.price_data?.fiyat == null ? "Fiyat eksik" : !item.stock_data ? "Yalnız fiyat kaydı; stok listesinde yok" : item.price_count > 1 || item.stock_count > 1 ? "Tekrarlanan kod" : "—"],
-              ["Kaynak satırları", `${item.price_count} fiyat · ${item.stock_count} stok`],
-            ]}
-            stockTitle="Bölge stokları" stocks={dinamikRegions.map(region => ({ label: region.label, available: dinamikRegionStock(item.stock_data, region.key) }))}
-            footer={<p className="text-muted-foreground">Liste fiyatı KDV hariç maliyet kabul edilir; satış fiyatı ortak kâr + KDV ile hesaplanır, kampanya oranı uygulanmaz. Stoklar adet yerine var/yok bildirir.</p>}>
-          <TableRow>
-            <TableCell><DialogTrigger render={<Button variant="link" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
-            <TableCell className="max-w-64 truncate font-medium" title={p.stokAdi ?? "Yalnız fiyat listesinde; ürün bilgisi yok"}>{p.stokAdi || <span className="font-normal text-muted-foreground">Ürün bilgisi yok</span>}</TableCell>
-            <TableCell className="max-w-32 truncate text-muted-foreground" title={item.list_group}>{item.list_group}</TableCell>
-            <TableCell className="max-w-32 truncate text-muted-foreground" title={p.kull1s}>{p.kull1s || "—"}</TableCell>
-            <TableCell className="max-w-40 truncate text-muted-foreground" title={[p.kull7s, p.kull8s].filter(Boolean).join(" · ")}>{p.kull8s || p.kull7s || "—"}</TableCell>
-            <TableCell className="text-right tabular-nums">{price(item.price_data?.fiyat) ?? <Badge variant="warning">Eksik</Badge>}</TableCell>
-            <TableCell className="text-right font-medium tabular-nums" title={item.sale_stock_label ?? "Satışa kapalı"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
-            <TableCell className="text-right tabular-nums text-muted-foreground">{campaign ? `%${number(campaign > 1 ? campaign : campaign * 100)}` : "—"}</TableCell>
-            {dinamikRegions.map(r => { const stock = dinamikRegionStock(item.stock_data, r.key); return <TableCell key={r.key} className="text-center"><Badge variant={stock ? "success" : "outline"} title={stock === null ? `${r.label}: stok listesinde yok` : `${r.label}: ${stock ? "VAR" : "YOK"}`}>{stock === null ? "—" : stock ? "Var" : "Yok"}</Badge></TableCell>; })}
-            <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : item.price_data?.fiyat == null ? statusBadge("warning", "Fiyat eksik") : !item.stock_data ? statusBadge("neutral", "Yalnız fiyat") : item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
-          </TableRow></SupplierProductDetails>; })}</TableBody>
-        </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>{data.items.present ? "Aramayı veya filtreleri değiştirebilirsiniz." : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker."}</EmptyDescription></EmptyHeader></Empty>}
+        <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present))}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
