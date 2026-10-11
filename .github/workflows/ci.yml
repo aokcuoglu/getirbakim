@@ -12,6 +12,14 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: pricing_test
+        ports: [5432:5432]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -21,6 +29,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-supplier-checkout.ts
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       - run: npm run test:review && npm run test:basbug && npm run test:dinamik && node --import tsx --test scripts/test-supplier-changes.ts && npm run test:seta && npm run test:part-art && npm run test:brand && npm run test:fitment && npm run test:fitment-level && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts
       - run: npm run build
         env:

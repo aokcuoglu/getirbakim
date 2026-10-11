@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ChevronRight, ExternalLink, History } from "lucide-react";
 import { getProduct, money } from "@/modules/store/catalog";
 import { adminDinamikItem } from "@/modules/admin/dinamik";
+import { adminProductPricing } from "@/modules/admin/product-pricing";
+import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
 import { supplierFieldChanges } from "@/modules/admin/supplier-changes";
 import { dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
 import { AdminColumns, AdminPage, AdminPageHeader, AdminPanel, ButtonLink, EmptyState, StatusBadge, StatusMessage, TableRegion } from "@/components/admin/ui";
@@ -59,7 +61,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
   const item = await adminDinamikItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
-  const sale = await getProduct(item.id);
+  const [sale, pricing] = await Promise.all([getProduct(item.id), adminProductPricing(item.id)]);
   const listHref = `/yonetim/tedarikciler/dinamik?brand=${encodeURIComponent(item.list_group)}`;
   const price = item.price_data?.fiyat;
   const snapshot = sale?.pricing_snapshot.checkout_mode === "snapshot";
@@ -80,7 +82,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
       actions={<ButtonLink href={listHref} className="min-h-11"><ArrowLeft aria-hidden="true"/>Ürün listesine dön</ButtonLink>}/>
 
     <AdminPanel title="Fiyat ve satış durumu" footer={<>
-      <ButtonLink href="/yonetim/fiyatlandirma" className="min-h-11 w-full sm:w-auto">Kâr ve KDV oranları</ButtonLink>
+      <ProductPricingDialog id={item.id} code={item.code} cost={typeof price === "number" ? price : null} pricing={pricing}/>
       {sale && <ButtonLink href={`/urun/${sale.id}`} variant="default" className="min-h-11 w-full sm:w-auto">Katalogda aç<ExternalLink aria-hidden="true"/></ButtonLink>}
     </>}>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-4 xl:grid-cols-3">
@@ -92,6 +94,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
           <dd className="mt-2 text-sm text-muted-foreground">{sale?.stock_label ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</dd>
         </div>
       </dl>
+      <p className="mt-4 text-xs text-muted-foreground tabular-nums">Kâr %{number(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{number(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs text-muted-foreground">
         <StatusBadge tone={item.presence === "present" ? "success" : "warning"}>{presence}</StatusBadge>
         <span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>

@@ -6,6 +6,14 @@ CREATE TABLE IF NOT EXISTS commerce_settings (
  updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid REFERENCES accounts(id)
 );
 INSERT INTO commerce_settings(id) VALUES(true) ON CONFLICT DO NOTHING;
+-- Optional per-field supplier product rates. Missing values continue to follow commerce_settings.
+CREATE TABLE IF NOT EXISTS commerce_product_pricing (
+ supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ markup_percent numeric(7,2) CHECK(markup_percent BETWEEN 0 AND 1000),
+ vat_percent numeric(5,2) CHECK(vat_percent BETWEEN 0 AND 100),
+ updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid NOT NULL REFERENCES accounts(id),
+ CHECK(markup_percent IS NOT NULL OR vat_percent IS NOT NULL)
+);
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -80,7 +88,8 @@ WITH latest AS (
  SELECT supplier,company,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
  FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
 ), supplier_prices AS (
- SELECT i.*,s.markup_percent,s.vat_percent,s.max_age_hours,s.basbug_checkout_mode,
+ SELECT i.*,COALESCE(p.markup_percent,s.markup_percent) AS markup_percent,
+ COALESCE(p.vat_percent,s.vat_percent) AS vat_percent,s.max_age_hours,s.basbug_checkout_mode,
  (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
  AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
  AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute')) AS source_fresh,
@@ -88,6 +97,7 @@ WITH latest AS (
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
+ LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
 )
