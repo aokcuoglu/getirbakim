@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { startSession, tokenHash } from "@/modules/auth/session";
 import { loginSchema } from "./schemas";
 import { mergeGuestCart } from "@/modules/store/cart";
+import { adoptGuestGarage } from "@/modules/store/garage";
 export async function login(form: FormData) {
  const parsed=loginSchema.safeParse(Object.fromEntries(form));
  if (!parsed.success) redirect("/giris?error=1");
@@ -19,6 +20,7 @@ export async function login(form: FormData) {
  const old=(await cookies()).get("gb_session")?.value;
  if(old) await db.query("DELETE FROM sessions WHERE token_hash=$1",[tokenHash(old)]);
  await mergeGuestCart(rows[0].id);
+ await adoptGuestGarage(rows[0].id);
  await startSession(rows[0].id); redirect("/");
 }
 export async function logout() {
