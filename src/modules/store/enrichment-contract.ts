@@ -28,7 +28,7 @@ export const enrichmentDataSchema = z.object({
 export type EnrichmentData = z.infer<typeof enrichmentDataSchema>;
 
 export const enrichmentImportSchema = z.object({
-  supplierItemId: z.uuid(), supplierCode: z.string().min(1), supplierBrand: z.string().min(1),
+  supplierItemId: z.uuid(), productId: z.uuid().optional(), supplierCode: z.string().min(1), supplierBrand: z.string().min(1),
   source: z.url().refine(value => new URL(value).protocol === "https:", "HTTPS source required"),
   sourceMethod: z.string().min(1), manufacturer: z.string().min(1), partNumber: z.string().min(1),
   completeness: z.enum(["complete", "partial"]),

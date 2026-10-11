@@ -9,7 +9,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!z.uuid().safeParse(id).success) return new Response(null, { status: 404 });
   const media = (await db.query<{ bucket: string; object_key: string; content_type: string; sha256: string; size_bytes: number }>(
     `SELECT m.* FROM product_media_objects m WHERE m.id=$1 AND EXISTS
-     (SELECT 1 FROM product_enrichments e JOIN supplier_items i ON i.id=e.supplier_item_id
+     (SELECT 1 FROM product_enrichment_shared e JOIN supplier_items i ON i.id=e.supplier_item_id
       WHERE e.image_id=m.id AND i.presence='present' AND i.company=ANY($2::text[]))`, [id, storefrontCompanies()])).rows[0];
   if (!media) return new Response(null, { status: 404 });
   try {

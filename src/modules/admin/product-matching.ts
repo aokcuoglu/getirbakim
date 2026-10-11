@@ -134,7 +134,7 @@ async function dinamikOnly(params: MatchingParams) {
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM commerce_supplier_items i WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
   const items = (await db.query<DinamikItem>(`SELECT i.id,(SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=i.id) AS product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
-      c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=i.id) AS enriched
+      c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=i.id) AS enriched
     FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY i.changed_at DESC,i.id LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
     LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY i.changed_at DESC,i.id`, values)).rows;
   return { dinamik: items, total, page, pages };

@@ -18,6 +18,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -68,9 +69,9 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
 
     <div className="grid items-start gap-4 xl:grid-cols-2">
       <Card>
-        <CardHeader><CardTitle><h2>Katalog kapsamı</h2></CardTitle><CardDescription>{number(attempted)} / {number(total)} ürün incelendi</CardDescription><CardAction><Badge variant="secondary" className="tabular-nums">%{total?((attempted/total)*100).toLocaleString("tr-TR",{maximumFractionDigits:2}):0}</Badge></CardAction></CardHeader>
+        <CardHeader><CardTitle><h2>Katalog kapsamı</h2></CardTitle><CardDescription>{number(attempted)} / {number(total)} tekil ürün incelendi</CardDescription><CardAction><Badge variant="secondary" className="tabular-nums">%{total?((attempted/total)*100).toLocaleString("tr-TR",{maximumFractionDigits:2}):0}</Badge></CardAction></CardHeader>
         <CardContent><Progress value={total?attempted/total*100:0} aria-label="İncelenen ürünler"/></CardContent>
-        <CardFooter className="flex-wrap justify-between gap-2 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4" aria-hidden="true"/>{number(counts.pending||0)} ürün henüz incelenmedi</span><span>Son aktarım: {data.metrics.latest?date(data.metrics.latest):"Henüz yok"}</span></CardFooter>
+        <CardFooter className="flex-wrap justify-between gap-2 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4" aria-hidden="true"/>{number(counts.pending||0)} tekil ürün henüz incelenmedi</span><span>Son aktarım: {data.metrics.latest?date(data.metrics.latest):"Henüz yok"}</span></CardFooter>
       </Card>
       <Item variant="outline" render={<Link href={href({status:"attention",match:"all",q:"",page:"1"})}/>}>
         <ItemMedia variant="icon"><CircleHelp/></ItemMedia>
@@ -89,15 +90,15 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     </Card>
 
     {data.pilot&&<Card>
-      <CardHeader><CardTitle><h2>{`${number(data.pilot.sample_size)} ürünlük pilot`}</h2></CardTitle><CardDescription>{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
-      <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.processed/data.pilot.sample_size*100} aria-label="Pilot ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata</p></CardContent>
+      <CardHeader><CardTitle><h2>{`${number(data.pilot.sample_size)} ürünlük parti`}</h2></CardTitle><CardDescription>{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
+      <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.sample_size?data.pilot.processed/data.pilot.sample_size*100:0} aria-label="Pilot ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata{data.pilot.skipped>0&&` · ${number(data.pilot.skipped)} teklif kapsam dışında bırakıldı`}</p></CardContent>
       <CardFooter className="flex-wrap justify-between gap-3 text-sm text-muted-foreground"><span className="tabular-nums">{number(data.pilot.requests)} kaynak isteği · {number(data.pilot.cache_hits)} önbellek kullanımı · {number(data.pilot.rate_limits)} hız sınırı yanıtı</span><span>{data.pilot.last_response?`Son kaynak yanıtı: ${date(data.pilot.last_response)}`:"Tarayıcı bağlantısı bekleniyor"}</span></CardFooter>
     </Card>}
 
     <Card role="region" aria-labelledby="enrichment-records">
-      <CardHeader><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Eşleşmeleri ve veri kapsamını ürün bazında incele.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
+      <CardHeader><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Her ana ürün bir kez listelenir; bağlı tedarikçi teklifleri aynı doğrulanmış veriyi kullanır.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <Tabs value={data.filters.status}><TabsList variant="line" aria-label="Zenginleştirme durumları">{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList></Tabs>
+        <Tabs value={data.filters.status}><ScrollArea><TabsList variant="line" aria-label="Zenginleştirme durumları">{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList><ScrollBar orientation="horizontal"/></ScrollArea></Tabs>
         <form key={`${data.filters.status}:${data.filters.match}:${data.filters.q}`} className="flex flex-wrap items-center gap-2" method="get">
           <InputGroup className="w-full sm:w-96"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ürün, marka veya OEM ara" defaultValue={data.filters.q} placeholder="Ürün kodu, marka veya OEM ara…"/></InputGroup>
           <NativeSelect aria-label="Kayıt durumu" name="status" defaultValue={data.filters.status}><NativeSelectOption value="enriched">Zenginleştirilen ürünler</NativeSelectOption><NativeSelectOption value="attention">Kontrol bekleyen tüm kayıtlar</NativeSelectOption>{Object.entries(enrichmentStatuses).map(([key,label])=><NativeSelectOption key={key} value={key}>{label}</NativeSelectOption>)}</NativeSelect>
@@ -108,7 +109,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         {data.rows.length?<Table><TableHeader><TableRow><TableHead>Ürün / tedarikçi kodu</TableHead><TableHead>Durum</TableHead><TableHead>Eşleşme</TableHead><TableHead>Toplanan veriler</TableHead><TableHead>Son işlem</TableHead><TableHead><span className="sr-only">Ayrıntılar</span></TableHead></TableRow></TableHeader><TableBody>{data.rows.map(row=><TableRow key={row.id}>
           <TableCell><div className="flex max-w-80 items-center gap-3">
             <Avatar>{row.image_id?<AvatarImage src={`/api/product-media/${row.image_id}`} alt=""/>:null}<AvatarFallback><ImageIcon className="size-4" aria-hidden="true"/></AvatarFallback></Avatar>
-            <div className="min-w-0"><Link className="block truncate font-medium hover:underline" href={`/urun/${row.id}`}>{row.name||row.code}</Link><div className="text-sm text-muted-foreground">{row.brand} · <span className="font-mono">{row.code}</span></div></div>
+            <div className="min-w-0"><Link className="block truncate font-medium hover:underline" href={`/yonetim/urunler/${row.product_id}`}>{row.name||row.code}</Link><div className="text-sm text-muted-foreground">{row.brand} · <span className="font-mono">{row.code}</span></div></div>
           </div></TableCell>
           <TableCell>{statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}</TableCell>
           <TableCell>{row.match_type?<div><span className="flex items-center gap-2">{row.match_type==="oem_reference"?<GitCompareArrows className="size-4 text-muted-foreground" aria-hidden="true"/>:<ShieldCheck className="size-4 text-muted-foreground" aria-hidden="true"/>}{row.match_type==="oem_reference"?"OEM referansı":"Doğrudan eşleşme"}</span><div className="max-w-48 truncate font-mono text-sm text-muted-foreground">{row.reference||`${row.manufacturer} ${row.manufacturer_part_number}`}</div></div>:<span className="text-muted-foreground">Henüz doğrulanmadı</span>}</TableCell>

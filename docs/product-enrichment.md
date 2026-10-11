@@ -235,3 +235,16 @@ Masaüstünde 304 px sidebar, tek panel içindeki teknik filtreler, liste/ızgar
 yerel WebP dosyasından sunulur. İlgili kategori kartları ve alt bölüm aynı yerleşimi
 izler; bağlantılar ve ticari bilgiler mağazanın kendi verileridir. Mobilde filtreler
 kapalı başlar, ızgara kartlarının teknik ve satın alma alanları referanstaki gibi gizlenir.
+
+
+### Ana ürün bazında Trodo kuyruğu — 11.10.2026
+
+Trodo kapsamı `products` tablosundaki, başka ürüne yönlendirilmemiş ana ürünlerdir. Tedarikçi satırlarının toplamı bu kapsam değildir: aynı parçanın birden fazla teklifi ve ana kataloğa bağlanmamış fiyat listesi kayıtları ayrı kaynak ziyaretleri oluşturmaz.
+
+`enrichment:prepare` mevcut eşleştirme şemasından sonra `db/enrichment-products.sql` dosyasını uygular. `enrichment_product_catalog` her ana ürün için tek temsilci ve durum seçer; önce geçerli tamamlanmış/kısmi kayıtlar, sonra mevcut sonuçlar, en son bekleyen teklifler seçilir. Otomatik kaynak bağları güncel kanonik marka/parça numarasına göre denetlenir; elle ayırma/birleştirme kararları korunur. Kimliği veya OEM'i değişmiş bir gözlem eski başarı olarak sayılmaz.
+
+`product_enrichment_shared`, aynı ana ürünün tekliflerine özgün doğrulanmış gözlemi, görseli, kategori ve araç eşleştirmelerini paylaşır. Ham JSON ve araç satırları tedarikçi başına kopyalanmaz; doğrulama ve araç ayrıntıları özgün kaynak kaydı üzerinden okunur. Fiyat/stok ve muadil ürünler bağımsızdır. Teklif ayrılınca paylaşım anında sona erer. Ürün bağlantısı değişirse devam eden aktarım eski ana ürün adına kaydedilemez.
+
+Mevcut koşular `product_id` ile ilişkilendirilir. Başlangıçta gereksiz bekleyen tekrarlar ve kapsam dışı teklifler `skipped` olur; eski sonuçlar, checkpoint ve kaynak önbelleği silinmez. Durdur/devam komutu aynıdır: `npm run enrichment:continue -- 4318 1000 --chrome`. Yeni partiler her ana ürünü bir kez seçer. Eski `product_enrichment_jobs` tablosu tedarikçi düzeyindeki geçmişi saklar; operasyonun toplam/kalan sayacı olarak kullanılmaz.
+
+`/yonetim/urun-verileri` kapsamı, durumları, zenginleştirme metrikleri ve son 24 saat hızını tekil ana ürünlerle hesaplar. Parti kartı atlanan teklifleri ayrıca gösterir. Yerel şema geçişi için işçi önce SIGTERM ile durdurulur, `npm run enrichment:prepare` uygulanır ve aynı devam komutu yeniden başlatılır. Bu işlem deploy değildir; production şeması yalnız ayrıca istenen manuel yayın kapsamında uygulanır.

@@ -15,13 +15,13 @@ export async function adminFitmentDetails(id: string): Promise<AdminFitmentDetai
           'to',to_char(v.year_of_constr_to,'MM/YYYY')) ELSE NULL END
     ) ORDER BY source.ordinality) FILTER(WHERE source.ordinality IS NOT NULL),'[]'::jsonb) AS rows
     FROM product_enrichment_jobs j
-    LEFT JOIN product_enrichments e ON e.supplier_item_id=j.supplier_item_id
+    LEFT JOIN product_enrichment_shared e ON e.supplier_item_id=j.supplier_item_id
     LEFT JOIN LATERAL jsonb_array_elements(COALESCE(e.payload->'vehicles','[]'::jsonb))
       WITH ORDINALITY source(vehicle,ordinality) ON true
-    LEFT JOIN product_vehicle_fitments f ON f.supplier_item_id=j.supplier_item_id AND f.source_index=source.ordinality-1
+    LEFT JOIN product_vehicle_fitments f ON f.supplier_item_id=e.donor_item_id AND f.source_index=source.ordinality-1
     LEFT JOIN vehicle_types v ON v.id=f.vehicle_type_id
     LEFT JOIN vehicle_models m ON m.id=v.model_id
     LEFT JOIN vehicle_brands b ON b.id=m.brand_id
-    WHERE j.supplier_item_id=$1 GROUP BY j.supplier_item_id,e.supplier_item_id`, [id]);
+    WHERE j.supplier_item_id=$1 GROUP BY j.supplier_item_id,e.payload`, [id]);
   return result.rows[0] || null;
 }
