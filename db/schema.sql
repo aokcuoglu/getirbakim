@@ -96,6 +96,10 @@ CREATE TABLE IF NOT EXISTS supplier_items (
  UNIQUE(supplier,company,list_group,warehouse,code)
 );
 CREATE INDEX IF NOT EXISTS supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
+-- Precomputed ranking inputs (filled by a trigger defined in db/search.sql, next to the functions it uses).
+ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_doc tsvector;
+ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_code text;
+ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_oem text;
 CREATE TABLE IF NOT EXISTS supplier_item_changes (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
