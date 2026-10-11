@@ -40,7 +40,7 @@ export async function changeOrderStatus(form:FormData) {
   if(old && ['paid','none'].includes(old.payment_status) && allowed[old.status]?.includes(input.data.status)) {
    if(input.data.status==='cancelled') {
     // Only in-house stock was reserved; supplier signals are never decremented.
-    await client.query(`UPDATE products p SET stock=p.stock+i.quantity,updated_at=now() FROM commerce_order_items i WHERE i.order_id=$1 AND i.product_id=p.id`,[input.data.id]);
+    await client.query(`UPDATE store_products p SET stock=p.stock+i.quantity,updated_at=now() FROM commerce_order_items i WHERE i.order_id=$1 AND i.product_id=p.id`,[input.data.id]);
    }
    // Refunds are made in the TAMI portal; the order waits until its reference is recorded.
    await client.query(`UPDATE commerce_orders SET status=$2,payment_status=CASE WHEN $2='cancelled' AND payment_status='paid' THEN 'refund_required' ELSE payment_status END WHERE id=$1`,[input.data.id,input.data.status]);ok=true;

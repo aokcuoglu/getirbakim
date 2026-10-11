@@ -1,4 +1,4 @@
--- Cross-supplier product matching (Başbuğ, Dinamik, SETA). Data only: the storefront does not read it yet.
+-- Cross-supplier product matching (Başbuğ, Dinamik, SETA) and the master catalog (products) built from it.
 -- Identity of a physical product = (canonical brand, part number). Codes are "BRAND-PREFIX PART-NO" in Başbuğ and
 -- Dinamik with supplier-specific prefixes (SCH = SACHS), so the prefix is dropped and the brand comes from the
 -- brand field instead. Başbuğ original parts (OE-*) and SETA codes carry no prefix.
@@ -108,6 +108,86 @@ CREATE TABLE IF NOT EXISTS product_seta_references (
  brand text NOT NULL, part_number text NOT NULL, PRIMARY KEY (item_id,seta_item_id)
 );
 CREATE INDEX IF NOT EXISTS product_seta_references_seta_idx ON product_seta_references(seta_item_id);
+-- Master catalog: one row per physical product, persistent across refreshes. Supplier rows attach through
+-- product_sources; price and stock stay on the supplier rows (the store sells the cheapest available source).
+-- Identity is (brand key, part number); variant 0 is the automatic product of that key, variants above 0 were split
+-- off by an admin. A new product takes the id of its first item (Başbuğ first), so listing ids stay what they were.
+CREATE TABLE IF NOT EXISTS products (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ brand text NOT NULL, part_number text NOT NULL, variant integer NOT NULL DEFAULT 0 CHECK (variant>=0),
+ name text, brand_label text NOT NULL, code text NOT NULL,
+ -- Set when every source moved to another product (brand alias decided later); old links can redirect there.
+ merged_into uuid REFERENCES products(id) ON DELETE SET NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE (brand,part_number,variant)
+);
+CREATE INDEX IF NOT EXISTS products_part_idx ON products(part_number);
+-- Suppliers currently selling the product (saleable sources), kept by the refresh and by split/undo for list filters.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS suppliers text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS products_suppliers_idx ON products USING gin(suppliers);
+-- Which supplier row is which product. auto rows follow the brand key + part number on every refresh; manual rows
+-- are admin decisions and are never moved by a refresh.
+CREATE TABLE IF NOT EXISTS product_sources (
+ supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ method text NOT NULL DEFAULT 'auto' CHECK (method IN ('auto','manual')),
+ decided_by uuid REFERENCES accounts(id), linked_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS product_sources_product_idx ON product_sources(product_id);
+-- Equivalent (muadil) products, both directions; rebuilt by every refresh. `brand`/`part_number` is the shared
+-- reference: ORIJINAL + OEM number (oem), a competitor's number stated by a supplier (cross), or the shared part
+-- number of a brand pair decided as equivalent (brand).
+CREATE TABLE IF NOT EXISTS product_equivalents (
+ product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ equivalent_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ kind text NOT NULL CHECK (kind IN ('oem','cross','brand')), brand text NOT NULL, part_number text NOT NULL,
+ PRIMARY KEY (product_id,equivalent_id), CHECK (product_id<>equivalent_id)
+);
+
+CREATE OR REPLACE FUNCTION product_refresh_suppliers(ids uuid[]) RETURNS void LANGUAGE sql AS $$
+ UPDATE products p SET suppliers=x.suppliers, updated_at=now()
+ FROM (SELECT p.id, COALESCE((SELECT array_agg(DISTINCT i.supplier ORDER BY i.supplier) FROM product_sources s
+   JOIN commerce_supplier_items i ON i.id=s.supplier_item_id WHERE s.product_id=p.id),'{}') AS suppliers
+  FROM products p WHERE p.id=ANY(ids)) x
+ WHERE p.id=x.id AND p.suppliers IS DISTINCT FROM x.suppliers
+$$;
+-- Split a supplier row off into a product of its own (a new variant of its key) and lock the link.
+CREATE OR REPLACE FUNCTION product_split_item(item uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE k record; old_id uuid; pid uuid;
+BEGIN
+ SELECT COALESCE(a.canonical,product_brand_key(supplier_item_brand(i.supplier,i.product_data))) AS brand,
+  supplier_item_part_number(i.supplier,i.code,i.product_data) AS part_number, supplier_item_name(i.supplier,i.product_data) AS name,
+  COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
+ INTO k FROM supplier_items i LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(i.supplier,i.product_data))
+ WHERE i.id=item;
+ IF NOT FOUND OR k.brand IS NULL THEN RETURN NULL; END IF;
+ PERFORM pg_advisory_xact_lock(20261001,6);
+ SELECT product_id INTO old_id FROM product_sources WHERE supplier_item_id=item;
+ INSERT INTO products(id,brand,part_number,variant,name,brand_label,code)
+ VALUES (CASE WHEN EXISTS (SELECT 1 FROM products WHERE id=item) THEN gen_random_uuid() ELSE item END, k.brand, k.part_number,
+  (SELECT COALESCE(max(variant),0)+1 FROM products WHERE brand=k.brand AND part_number=k.part_number), k.name, k.label, k.code)
+ RETURNING id INTO pid;
+ INSERT INTO product_sources(supplier_item_id,product_id,method,decided_by) VALUES (item,pid,'manual',actor)
+ ON CONFLICT (supplier_item_id) DO UPDATE SET product_id=pid, method='manual', decided_by=actor, linked_at=now();
+ PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
+ RETURN pid;
+END $$;
+-- Undo a split: the row rejoins the automatic product of its key; the emptied split product redirects there.
+CREATE OR REPLACE FUNCTION product_unsplit_item(item uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE old_id uuid; pid uuid;
+BEGIN
+ SELECT s.product_id INTO old_id FROM product_sources s WHERE s.supplier_item_id=item AND s.method='manual';
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ SELECT p.id INTO pid FROM products o JOIN products p ON p.brand=o.brand AND p.part_number=o.part_number AND p.variant=0 WHERE o.id=old_id;
+ IF pid IS NULL OR pid=old_id THEN
+  DELETE FROM product_sources WHERE supplier_item_id=item;
+ ELSE
+  UPDATE product_sources SET product_id=pid, method='auto', decided_by=NULL, linked_at=now() WHERE supplier_item_id=item;
+  UPDATE products SET merged_into=pid, updated_at=now() WHERE id=old_id AND NOT EXISTS (SELECT 1 FROM product_sources WHERE product_id=old_id);
+ END IF;
+ PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
+ RETURN pid;
+END $$;
 CREATE TABLE IF NOT EXISTS product_match_runs (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, started_at timestamptz NOT NULL, completed_at timestamptz NOT NULL,
  stats jsonb NOT NULL
@@ -219,17 +299,62 @@ BEGIN
  SELECT ref_brand, ref_part, count(*) FILTER (WHERE direct), count(*) FILTER (WHERE NOT direct),
   count(DISTINCT (brand,part_number)), count(*), array_agg(DISTINCT supplier ORDER BY supplier)
  FROM members GROUP BY ref_brand, ref_part HAVING count(DISTINCT (brand,part_number))>1;
+ -- Master catalog. Splits decided before product_sources existed become manual products once.
+ PERFORM product_split_item(x.item_id,x.decided_by) FROM product_offer_exclusions x
+ WHERE NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=x.item_id AND s.method='manual');
+ DELETE FROM product_offer_exclusions;
+ DROP TABLE IF EXISTS linkable, auto_items, old_links;
+ -- Saleable rows with a brand key and part number; the first per key (Başbuğ, then Dinamik, then code) names it.
+ CREATE TEMP TABLE linkable ON COMMIT DROP AS
+ SELECT m.supplier_item_id AS item_id, m.supplier, m.brand, m.part_number, m.name, i.code,
+  COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label,
+  CASE m.supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 ELSE 2 END AS supplier_rank
+ FROM product_match_items m JOIN commerce_supplier_items i ON i.id=m.supplier_item_id;
+ CREATE INDEX ON linkable(item_id);
+ CREATE TEMP TABLE old_links ON COMMIT DROP AS SELECT supplier_item_id, product_id FROM product_sources;
+ CREATE TEMP TABLE auto_items ON COMMIT DROP AS
+ SELECT l.* FROM linkable l WHERE NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=l.item_id AND s.method='manual');
+ ANALYZE linkable; ANALYZE auto_items;
+ INSERT INTO products(id,brand,part_number,name,brand_label,code)
+ SELECT CASE WHEN EXISTS (SELECT 1 FROM products p WHERE p.id=f.item_id) THEN gen_random_uuid() ELSE f.item_id END,
+  f.brand, f.part_number, f.name, f.label, f.code
+ FROM (SELECT DISTINCT ON (brand,part_number) * FROM auto_items ORDER BY brand,part_number,supplier_rank,code,item_id) f
+ WHERE NOT EXISTS (SELECT 1 FROM products p WHERE p.brand=f.brand AND p.part_number=f.part_number AND p.variant=0)
+ ON CONFLICT DO NOTHING;
+ INSERT INTO product_sources(supplier_item_id,product_id)
+ SELECT a.item_id, p.id FROM auto_items a JOIN products p ON p.brand=a.brand AND p.part_number=a.part_number AND p.variant=0
+ ON CONFLICT (supplier_item_id) DO UPDATE SET product_id=excluded.product_id, linked_at=now()
+ WHERE product_sources.method='auto' AND product_sources.product_id<>excluded.product_id;
+ -- Display fields follow the product's own row (its id), else Başbuğ, Dinamik, SETA.
+ UPDATE products p SET name=r.name, brand_label=r.label, code=r.code, updated_at=now()
+ FROM (SELECT DISTINCT ON (s.product_id) s.product_id, l.name, l.label, l.code FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
+  ORDER BY s.product_id, l.item_id=s.product_id DESC, l.supplier_rank, l.code, l.item_id) r
+ WHERE p.id=r.product_id AND (p.name,p.brand_label,p.code) IS DISTINCT FROM (r.name,r.label,r.code);
+ UPDATE products p SET suppliers=COALESCE(x.suppliers,'{}'), updated_at=now()
+ FROM products q LEFT JOIN (SELECT s.product_id, array_agg(DISTINCT l.supplier ORDER BY l.supplier) AS suppliers
+  FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id GROUP BY s.product_id) x ON x.product_id=q.id
+ WHERE p.id=q.id AND p.suppliers IS DISTINCT FROM COALESCE(x.suppliers,'{}');
+ -- A product whose rows all moved elsewhere (a brand alias decided since) points to where most of them went.
+ UPDATE products p SET merged_into=t.target, updated_at=now()
+ FROM (SELECT DISTINCT ON (o.product_id) o.product_id, s.product_id AS target FROM old_links o
+  JOIN product_sources s ON s.supplier_item_id=o.supplier_item_id AND s.product_id<>o.product_id
+  GROUP BY o.product_id, s.product_id ORDER BY o.product_id, count(*) DESC, s.product_id) t
+ WHERE p.id=t.product_id AND p.merged_into IS DISTINCT FROM t.target AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
+ UPDATE products p SET merged_into=NULL, updated_at=now()
+ WHERE p.merged_into IS NOT NULL AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
+ ANALYZE products; ANALYZE product_sources;
+ -- Storefront projection until the store reads products directly: the listed row is the product's own row (else
+ -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik row of the product competes on price and stock.
  INSERT INTO product_offers
- WITH saleable AS (
-  SELECT m.supplier_item_id, m.supplier, m.brand, m.part_number, i.code FROM product_match_items m
-  JOIN commerce_supplier_items i ON i.id=m.supplier_item_id
-  WHERE m.supplier IN ('basbug','dinamik') AND NOT EXISTS (SELECT 1 FROM product_offer_exclusions x WHERE x.item_id=m.supplier_item_id)
+ WITH offers AS (
+  SELECT s.product_id, l.item_id, l.supplier_rank, l.code FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
+  WHERE l.supplier IN ('basbug','dinamik')
  ), ranked AS (
-  SELECT supplier_item_id, count(*) OVER (PARTITION BY brand,part_number) AS offers,
-   first_value(supplier_item_id) OVER (PARTITION BY brand,part_number ORDER BY supplier='basbug' DESC,code,supplier_item_id) AS primary_id
-  FROM saleable
+  SELECT item_id, count(*) OVER (PARTITION BY product_id) AS offers,
+   first_value(item_id) OVER (PARTITION BY product_id ORDER BY item_id=product_id DESC,supplier_rank,code,item_id) AS primary_id
+  FROM offers
  )
- SELECT supplier_item_id, primary_id FROM ranked WHERE offers>1;
+ SELECT item_id, primary_id FROM ranked WHERE offers>1;
  ANALYZE product_offers;
  INSERT INTO product_seta_references
  SELECT DISTINCT ON (k.item_id,r.supplier_item_id) k.item_id, r.supplier_item_id, k.brand, k.part_number
@@ -241,6 +366,42 @@ BEGIN
  JOIN product_match_items s ON s.supplier_item_id=r.supplier_item_id AND s.supplier='seta'
  ORDER BY k.item_id, r.supplier_item_id, k.brand, k.part_number;
  ANALYZE product_seta_references;
+ DELETE FROM product_equivalents;
+ INSERT INTO product_equivalents
+ WITH item_products AS (
+  SELECT s.supplier_item_id AS item_id, s.product_id FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
+ ), refs AS (
+  -- Products tied by a reference key: those owning it and those stating it. Keys shared by more than 20 products are
+  -- generic (kits, universal parts) and would link unrelated products.
+  SELECT DISTINCT r.brand, r.part_number, ip.product_id FROM product_references r JOIN item_products ip ON ip.item_id=r.supplier_item_id
+  JOIN product_equivalence_groups g ON g.brand=r.brand AND g.part_number=r.part_number
+  UNION
+  SELECT m.brand, m.part_number, ip.product_id FROM product_match_items m JOIN item_products ip ON ip.item_id=m.supplier_item_id
+  JOIN product_equivalence_groups g ON g.brand=m.brand AND g.part_number=m.part_number
+ ), keyed AS (
+  SELECT *, count(*) OVER (PARTITION BY brand,part_number) AS n FROM refs
+ ), pairs AS (
+  SELECT x.product_id, y.product_id AS equivalent_id, CASE WHEN x.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END AS kind,
+   x.brand, x.part_number, 1 AS priority
+  FROM keyed x JOIN keyed y ON y.brand=x.brand AND y.part_number=x.part_number AND y.product_id<>x.product_id WHERE x.n<=20
+  UNION ALL
+  -- SETA equivalents regardless of group size (the store shows them on the product page).
+  SELECT ip.product_id, sp.product_id, CASE WHEN r.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END, r.brand, r.part_number, 0
+  FROM product_seta_references r JOIN item_products ip ON ip.item_id=r.item_id JOIN item_products sp ON sp.item_id=r.seta_item_id
+  UNION ALL
+  SELECT sp.product_id, ip.product_id, CASE WHEN r.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END, r.brand, r.part_number, 0
+  FROM product_seta_references r JOIN item_products ip ON ip.item_id=r.item_id JOIN item_products sp ON sp.item_id=r.seta_item_id
+  UNION ALL
+  -- Brand pairs decided as equivalent (same numbering, different product): every shared part number.
+  SELECT a.id, b.id, 'brand', b.brand, b.part_number, 2
+  FROM product_brand_pair_decisions d
+  JOIN products a ON a.brand IN (d.brand_a,d.brand_b) AND a.variant=0
+  JOIN products b ON b.brand IN (d.brand_a,d.brand_b) AND b.brand<>a.brand AND b.part_number=a.part_number AND b.variant=0
+  WHERE d.status='equivalent' AND length(a.part_number)>=5
+ )
+ SELECT DISTINCT ON (product_id,equivalent_id) product_id, equivalent_id, kind, brand, part_number FROM pairs
+ WHERE product_id<>equivalent_id ORDER BY product_id, equivalent_id, priority, brand, part_number;
+ ANALYZE product_equivalents;
  SELECT jsonb_build_object(
   'offer_groups', (SELECT count(DISTINCT primary_id) FROM product_offers),
   'offer_items', (SELECT count(*) FROM product_offers),
@@ -248,7 +409,13 @@ BEGIN
     GROUP BY primary_id HAVING count(*) FILTER (WHERE i.supplier='basbug')>0 AND count(*) FILTER (WHERE i.supplier='dinamik')>0) g),
   'dinamik_only', (SELECT count(*) FROM commerce_supplier_items i WHERE i.supplier='dinamik'
     AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id IN (SELECT o2.item_id FROM product_offers o2 JOIN supplier_items b ON b.id=o2.item_id AND b.supplier='basbug'))),
-  'offer_exclusions', (SELECT count(*) FROM product_offer_exclusions),
+  'products', (SELECT count(*) FROM products),
+  'listed_products', (SELECT count(DISTINCT product_id) FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id),
+  'multi_source_products', (SELECT count(*) FROM (SELECT product_id FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
+    GROUP BY product_id HAVING count(*)>1) x),
+  'manual_sources', (SELECT count(*) FROM product_sources WHERE method='manual'),
+  'merged_products', (SELECT count(*) FROM products WHERE merged_into IS NOT NULL),
+  'product_equivalents', (SELECT count(*) FROM product_equivalents),
   'seta_linked_items', (SELECT count(DISTINCT seta_item_id) FROM product_seta_references),
   'seta_linked_products', (SELECT count(DISTINCT item_id) FROM product_seta_references),
   'items', (SELECT count(*) FROM product_match_items),

@@ -110,7 +110,7 @@ const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
-  `SELECT p.id FROM products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
+  `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
  // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
  if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
@@ -287,7 +287,7 @@ async function summarizeSearch(search:CatalogSearch){
       i.code,COALESCE(i.product_data->>'oe',''),COALESCE(i.product_data->>'ac2',''),${queries})) AS rank
    FROM commerce_supplier_items i WHERE i.id=ANY($2::uuid[]) AND i.company=ANY($1::text[])
    UNION ALL
-   SELECT p.id,p.brand,p.updated_at,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM products p WHERE p.id=ANY($2::uuid[]))
+   SELECT p.id,p.brand,p.updated_at,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM store_products p WHERE p.id=ANY($2::uuid[]))
   SELECT (SELECT array_agg(id::text ORDER BY rank DESC,updated_at DESC,id) FROM hits) AS ids,
    (SELECT array_agg(DISTINCT brand ORDER BY brand) FROM hits) AS brands`,values)).rows[0];
  return {ids:row?.ids??[],brands:row?.brands??[]};

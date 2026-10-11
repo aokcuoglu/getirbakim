@@ -51,5 +51,39 @@ test("offer groups are listed under the Başbuğ item and never contain SETA or 
   assert.equal(await count(`product_offers o JOIN supplier_items p ON p.id=o.primary_id JOIN supplier_items i ON i.id=o.item_id
     WHERE i.supplier='basbug' AND p.supplier<>'basbug'`), 0);
   assert.equal(await count("product_offers o JOIN supplier_items i ON i.id=o.item_id WHERE i.supplier='seta'"), 0);
-  assert.equal(await count("product_offers o JOIN product_offer_exclusions x ON x.item_id=o.item_id"), 0);
+  // Every offer group is exactly one master product.
+  assert.equal(await count(`product_offers o JOIN product_sources a ON a.supplier_item_id=o.item_id
+    JOIN product_sources b ON b.supplier_item_id=o.primary_id WHERE a.product_id<>b.product_id`), 0);
+});
+
+test("master products: one automatic product per key, symmetric equivalents", async () => {
+  const count = (sql: string) => one(`SELECT count(*)::int AS value FROM ${sql}`, []);
+  assert.equal(await count(`product_sources s JOIN product_match_items m ON m.supplier_item_id=s.supplier_item_id
+    JOIN products p ON p.id=s.product_id WHERE s.method='auto' AND (p.brand,p.part_number,p.variant)<>(m.brand,m.part_number,0)`), 0);
+  assert.equal(await count(`product_sources s JOIN products p ON p.id=s.product_id WHERE s.method='manual' AND p.variant=0`), 0);
+  assert.equal(await count(`product_equivalents e WHERE NOT EXISTS (SELECT 1 FROM product_equivalents r
+    WHERE r.product_id=e.equivalent_id AND r.equivalent_id=e.product_id)`), 0);
+});
+
+test("a split row gets its own locked product and rejoins on undo", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pick = (await client.query<{ item: string; product: string }>(`SELECT s.supplier_item_id AS item, s.product_id AS product
+      FROM product_sources s JOIN products p ON p.id=s.product_id AND p.variant=0
+      WHERE s.method='auto' AND s.supplier_item_id<>s.product_id LIMIT 1`)).rows[0];
+    assert.ok(pick, "expected a product with more than one source");
+    const split = (await client.query<{ id: string }>("SELECT product_split_item($1,NULL) AS id", [pick.item])).rows[0].id;
+    assert.notEqual(split, pick.product);
+    const link = (await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0];
+    assert.deepEqual(link, { product_id: split, method: "manual" });
+    assert.ok((await client.query("SELECT variant FROM products WHERE id=$1", [split])).rows[0].variant > 0);
+    assert.equal((await client.query("SELECT product_unsplit_item($1) AS id", [pick.item])).rows[0].id, pick.product);
+    assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0],
+      { product_id: pick.product, method: "auto" });
+    assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [split])).rows[0].merged_into, pick.product);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
 });

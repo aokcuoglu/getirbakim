@@ -52,7 +52,7 @@ export async function refreshMatches() {
 const backPath = z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme");
 const withFlag = (back: string, flag: string) => `${back}${back.includes("?") ? "&" : "?"}${flag}`;
 
-// "Ayır": the group's other offers become listings of their own at once and stay split on later refreshes.
+// "Ayır": the group's other rows become products of their own (locked manual sources), listed on their own at once.
 export async function splitOffers(form: FormData) {
   const admin = await requireAdmin();
   const input = z.object({ primary_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
@@ -61,8 +61,8 @@ export async function splitOffers(form: FormData) {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    await client.query(`INSERT INTO product_offer_exclusions(item_id,decided_by)
-      SELECT item_id,$2 FROM product_offers WHERE primary_id=$1 AND item_id<>primary_id ON CONFLICT DO NOTHING`, [primary_id, admin.id]);
+    await client.query("SELECT product_split_item(item_id,$2) FROM product_offers WHERE primary_id=$1 AND item_id<>primary_id",
+      [primary_id, admin.id]);
     await client.query("DELETE FROM product_offers WHERE primary_id=$1", [primary_id]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
@@ -71,12 +71,12 @@ export async function splitOffers(form: FormData) {
   redirect(withFlag(back, "split=1"));
 }
 
-// Undoing a split takes effect on the next refresh, which regroups the item.
+// The row rejoins its key's product at once; the store groups it again after the next refresh.
 export async function undoSplit(form: FormData) {
   await requireAdmin();
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
-  await db.query("DELETE FROM product_offer_exclusions WHERE item_id=$1", [input.data.item_id]);
+  await db.query("SELECT product_unsplit_item($1)", [input.data.item_id]);
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
 }

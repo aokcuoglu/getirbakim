@@ -65,10 +65,10 @@ CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_ki
 CREATE OR REPLACE VIEW commerce_supplier_items AS
 SELECT i.* FROM supplier_items i
 WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier='seta' OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
-AND NOT EXISTS(SELECT 1 FROM products p WHERE p.supplier=i.supplier AND p.code=i.code);
+AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
- ''::text AS oem,'store'::text AS source,''::text AS company FROM products
+ ''::text AS oem,'store'::text AS source,''::text AS company FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
@@ -106,7 +106,7 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
  CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
  jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot
-FROM products
+FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),

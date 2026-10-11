@@ -26,10 +26,10 @@ const percent = (value: number | null) => value === null ? null : `%${Math.round
 const price = (kurus: number | null | undefined) => kurus ? money(kurus) : "—";
 const suppliers: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
 const messages: Record<string, string> = {
-  same: "Aynı marka olarak kaydedildi; ürünler bir sonraki yenilemede birleşir.", equivalent: "Muadil olarak kaydedildi.", unrelated: "İlgisiz olarak kaydedildi; bu çift tekrar önerilmez.",
+  same: "Aynı marka olarak kaydedildi; ürünler bir sonraki yenilemede birleşir.", equivalent: "Muadil olarak kaydedildi; ortak numaralı ürünler bir sonraki yenilemede birbirine muadil bağlanır.", unrelated: "İlgisiz olarak kaydedildi; bu çift tekrar önerilmez.",
 };
 const splitMessages: Record<string, string> = {
-  "1": "Ayrıldı: Dinamik kaydı artık mağazada ayrı ürün olarak listeleniyor.", undone: "Ayırma kaldırıldı; bir sonraki yenilemede yeniden birleşir.",
+  "1": "Ayrıldı: Dinamik kaydı artık mağazada ayrı ürün olarak listeleniyor.", undone: "Ayırma kaldırıldı; kayıt ürününe döndü, mağazada bir sonraki yenilemede yeniden birleşir.",
 };
 
 function OfferCell({ offer }: { offer: Offer | undefined }) {

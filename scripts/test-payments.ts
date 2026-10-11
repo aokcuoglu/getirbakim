@@ -57,8 +57,8 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     const commerceSql = await readFile("db/commerce.sql", "utf8");
     await db.query(commerceSql); await db.query(commerceSql);
     await db.query("UPDATE commerce_settings SET shipping_fee_kurus=15000,free_shipping_threshold_kurus=150000");
-    const product = (await db.query<{ id: string }>("INSERT INTO products(supplier,code,name,brand,price_kurus,stock) VALUES('demo','PAY-1','Payment part','TEST',10000,5) RETURNING id")).rows[0].id;
-    const stock = async () => (await db.query<{ stock: number }>("SELECT stock FROM products WHERE id=$1", [product])).rows[0].stock;
+    const product = (await db.query<{ id: string }>("INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock) VALUES('demo','PAY-1','Payment part','TEST',10000,5) RETURNING id")).rows[0].id;
+    const stock = async () => (await db.query<{ stock: number }>("SELECT stock FROM store_products WHERE id=$1", [product])).rows[0].stock;
     const order = async (id: string) => (await db.query("SELECT * FROM commerce_orders WHERE id=$1", [id])).rows[0];
 
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
@@ -153,7 +153,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal((await db.query("SELECT count(*) FROM commerce_payments WHERE order_id=$1", [retry])).rows[0].count, "2");
     await db.query("UPDATE commerce_orders SET status='cancelled',payment_status='expired' WHERE id=$1", [retry]);
     await db.query("UPDATE commerce_payments SET status='abandoned' WHERE order_id=$1", [retry]);
-    await db.query("UPDATE products SET stock=stock+1 WHERE id=$1", [product]);
+    await db.query("UPDATE store_products SET stock=stock+1 WHERE id=$1", [product]);
 
     // Abandoned orders without any attempt also expire through the sweep.
     const third = await place(1);
