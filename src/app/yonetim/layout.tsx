@@ -10,6 +10,7 @@ import { supplierHealth } from "@/modules/suppliers/health";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { db } from "@/lib/db";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
+import "@/styles/admin-workspace.css";
 
 export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
 
@@ -26,19 +27,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     dinamik: !dinamik ? "danger" : dinamik.healthy ? "success" : dinamik.scopes.some(scope => scope.last_success_at) ? "warning" : "neutral",
     seta: !process.env.SETA_API_KEY ? "neutral" : !setaHealth ? "danger" : setaHealth.healthy ? "success" : "warning",
   };
-  return <div className="admin-app">
+  return <div className="admin-app admin-workspace">
     <AdminTheme/>
     <TooltipProvider>
       <SidebarProvider defaultOpen={jar.get("sidebar_state")?.value !== "false"}>
         <AdminSidebar status={status} account={{ name: account.name, email: account.email }}/>
         <SidebarInset className="min-w-0">
           <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur supports-backdrop-filter:bg-background/70 md:px-6">
-            <SidebarTrigger className="-ml-1" aria-label="Kenar çubuğunu aç/kapat"/>
+            <SidebarTrigger className="-ml-1 size-11" aria-label="Kenar çubuğunu aç/kapat"/>
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4"/>
             <span className="text-sm font-medium text-muted-foreground">Yönetim paneli</span>
             <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground md:inline">⌘B</kbd>
           </header>
-          <div className="mx-auto w-full max-w-[1320px] px-4 py-6 md:px-8 md:pb-16">{children}</div>
+          <div className="admin-content mx-auto w-full max-w-[1280px] px-5 py-6 md:px-8 md:pb-16">{children}</div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

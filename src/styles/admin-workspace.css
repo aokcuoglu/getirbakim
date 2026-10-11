@@ -1,0 +1,43 @@
+/* Operational surfaces are scoped to the workspace; storefront cards keep their own shapes. */
+:root:not(.dark):has(.admin-workspace) {
+  --foreground: #222831;
+  --card-foreground: #222831;
+  --popover-foreground: #222831;
+  --muted-foreground: #626b75;
+  --border: #e5e7eb;
+}
+
+.admin-workspace [data-slot="card"] {
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.admin-workspace :is([data-slot="card"], [data-slot="card-header"], [data-slot="card-footer"], [data-slot="button"]) {
+  border-radius: 4px;
+}
+
+:root:not(.dark) .admin-workspace [data-slot="button"].bg-primary:hover {
+  background-color: #0063b4;
+}
+
+.admin-workspace .admin-content {
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .admin-workspace .admin-content {
+    padding-left: max(32px, env(safe-area-inset-left));
+    padding-right: max(32px, env(safe-area-inset-right));
+    padding-bottom: max(64px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-workspace *, .admin-workspace *::before, .admin-workspace *::after {
+    animation-duration: 0s;
+    transition-duration: 0s;
+    scroll-behavior: auto;
+  }
+}
