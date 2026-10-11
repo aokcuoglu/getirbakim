@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS product_equivalents (
  PRIMARY KEY (product_id,equivalent_id), CHECK (product_id<>equivalent_id)
 );
 
+-- Products the automatic key missed but that look the same (same brand, part numbers differing only in a supplier
+-- prefix, leading zeros or a short suffix): a Başbuğ-only product (a, kept) and a Dinamik-only product (b). Rebuilt
+-- by every refresh; decided pairs are never suggested again.
+CREATE TABLE IF NOT EXISTS product_match_candidates (
+ product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ reason text NOT NULL CHECK (reason IN ('prefix','leading_zero','suffix')), name_similarity real,
+ PRIMARY KEY (product_a,product_b)
+);
+CREATE TABLE IF NOT EXISTS product_match_decisions (
+ product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ status text NOT NULL CHECK (status IN ('same','different')),
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (product_a,product_b)
+);
 CREATE OR REPLACE FUNCTION product_refresh_suppliers(ids uuid[]) RETURNS void LANGUAGE sql AS $$
  UPDATE products p SET suppliers=x.suppliers, updated_at=now()
  FROM (SELECT p.id, COALESCE((SELECT array_agg(DISTINCT i.supplier ORDER BY i.supplier) FROM product_sources s
@@ -172,20 +187,67 @@ BEGIN
  PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
  RETURN pid;
 END $$;
--- Undo a split: the row rejoins the automatic product of its key; the emptied split product redirects there.
-CREATE OR REPLACE FUNCTION product_unsplit_item(item uuid) RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE old_id uuid; pid uuid;
+DROP FUNCTION IF EXISTS product_unsplit_item(uuid);
+-- Recompute the storefront projection (product_offers) for a few products after a manual decision.
+CREATE OR REPLACE FUNCTION product_refresh_offers(ids uuid[]) RETURNS void LANGUAGE sql AS $$
+ DELETE FROM product_offers o USING product_sources s
+ WHERE s.product_id=ANY(ids) AND (o.item_id=s.supplier_item_id OR o.primary_id=s.supplier_item_id);
+ INSERT INTO product_offers
+ WITH offers AS (
+  SELECT s.product_id, i.id AS item_id, CASE i.supplier WHEN 'basbug' THEN 0 ELSE 1 END AS supplier_rank, i.code
+  FROM product_sources s JOIN commerce_supplier_items i ON i.id=s.supplier_item_id
+  WHERE s.product_id=ANY(ids) AND i.supplier IN ('basbug','dinamik')
+   AND EXISTS (SELECT 1 FROM product_match_items m WHERE m.supplier_item_id=i.id)
+ ), ranked AS (
+  SELECT item_id, count(*) OVER (PARTITION BY product_id) AS offers,
+   first_value(item_id) OVER (PARTITION BY product_id ORDER BY item_id=product_id DESC,supplier_rank,code,item_id) AS primary_id
+  FROM offers
+ )
+ SELECT item_id, primary_id FROM ranked WHERE offers>1 ON CONFLICT (item_id) DO UPDATE SET primary_id=excluded.primary_id
+$$;
+-- "Aynı ürün": every row of `source` joins `target` as a locked manual link; `source` redirects to `target`.
+CREATE OR REPLACE FUNCTION product_merge(source uuid, target uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+BEGIN
+ PERFORM pg_advisory_xact_lock(20261001,6);
+ -- A target merged earlier stands for the product it was merged into.
+ SELECT COALESCE(merged_into,id) INTO target FROM products WHERE id=target;
+ IF target IS NULL OR source IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM products WHERE id=source) THEN RETURN NULL; END IF;
+ UPDATE product_sources SET product_id=target, method='manual', decided_by=actor, linked_at=now() WHERE product_id=source;
+ UPDATE products SET merged_into=target, updated_at=now() WHERE id=source OR merged_into=source;
+ UPDATE products SET merged_into=NULL, updated_at=now() WHERE id=target AND merged_into IS NOT NULL;
+ PERFORM product_refresh_suppliers(ARRAY[source,target]);
+ PERFORM product_refresh_offers(ARRAY[source,target]);
+ RETURN target;
+END $$;
+-- Undo a manual decision (split or merge) for one row: it rejoins the automatic product of its own key, which is
+-- created or revived when needed; a product left without rows redirects there. A merge undone this way is recorded
+-- as "different" so the pair is not suggested again.
+CREATE OR REPLACE FUNCTION product_reset_item(item uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE k record; old_id uuid; pid uuid;
 BEGIN
  SELECT s.product_id INTO old_id FROM product_sources s WHERE s.supplier_item_id=item AND s.method='manual';
  IF NOT FOUND THEN RETURN NULL; END IF;
- SELECT p.id INTO pid FROM products o JOIN products p ON p.brand=o.brand AND p.part_number=o.part_number AND p.variant=0 WHERE o.id=old_id;
- IF pid IS NULL OR pid=old_id THEN
-  DELETE FROM product_sources WHERE supplier_item_id=item;
- ELSE
-  UPDATE product_sources SET product_id=pid, method='auto', decided_by=NULL, linked_at=now() WHERE supplier_item_id=item;
+ SELECT COALESCE(a.canonical,product_brand_key(supplier_item_brand(i.supplier,i.product_data))) AS brand,
+  supplier_item_part_number(i.supplier,i.code,i.product_data) AS part_number, supplier_item_name(i.supplier,i.product_data) AS name,
+  COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
+ INTO k FROM supplier_items i LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(i.supplier,i.product_data))
+ WHERE i.id=item;
+ IF k.brand IS NULL THEN RETURN NULL; END IF;
+ PERFORM pg_advisory_xact_lock(20261001,6);
+ SELECT id INTO pid FROM products WHERE brand=k.brand AND part_number=k.part_number AND variant=0;
+ IF pid IS NULL THEN
+  INSERT INTO products(id,brand,part_number,name,brand_label,code)
+  VALUES (CASE WHEN EXISTS (SELECT 1 FROM products WHERE id=item) THEN gen_random_uuid() ELSE item END, k.brand, k.part_number, k.name, k.label, k.code)
+  RETURNING id INTO pid;
+ END IF;
+ UPDATE products SET merged_into=NULL, updated_at=now() WHERE id=pid AND merged_into IS NOT NULL;
+ UPDATE product_sources SET product_id=pid, method='auto', decided_by=NULL, linked_at=now() WHERE supplier_item_id=item;
+ IF old_id<>pid THEN
   UPDATE products SET merged_into=pid, updated_at=now() WHERE id=old_id AND NOT EXISTS (SELECT 1 FROM product_sources WHERE product_id=old_id);
+  UPDATE product_match_decisions SET status='different', decided_at=now() WHERE status='same' AND product_a=old_id AND product_b=pid;
  END IF;
  PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
+ PERFORM product_refresh_offers(ARRAY[pid,old_id]);
  RETURN pid;
 END $$;
 CREATE TABLE IF NOT EXISTS product_match_runs (
@@ -250,7 +312,10 @@ BEGIN
      (q.name_a IS NOT NULL)::int+(q.name_b IS NOT NULL)::int AS named, jsonb_build_object('part',q.part_number,'a',q.name_a,'b',q.name_b) s
      FROM part_pairs q WHERE q.brand_a=p.brand_a AND q.brand_b=p.brand_b
      ORDER BY q.part_number, q.name_a IS NULL, q.name_b IS NULL) d ORDER BY named DESC,part LIMIT 4) t) AS samples
-  FROM part_pairs p GROUP BY p.brand_a, p.brand_b HAVING count(DISTINCT p.part_number)>=20
+  FROM part_pairs p GROUP BY p.brand_a, p.brand_b
+  -- A few shared numbers are enough when one label extends the other (VALEO / VALEO FTE).
+  HAVING count(DISTINCT p.part_number)>=20 OR (count(DISTINCT p.part_number)>=3
+   AND (starts_with(p.brand_a,p.brand_b) OR starts_with(p.brand_b,p.brand_a)))
  ), eans AS (
   SELECT e.brand_a, e.brand_b, count(*)::int AS shared_eans,
    avg(similarity(lower(e.name_a),lower(e.name_b))) FILTER (WHERE e.name_a IS NOT NULL AND e.name_b IS NOT NULL) AS similarity,
@@ -356,6 +421,24 @@ BEGIN
  )
  SELECT item_id, primary_id FROM ranked WHERE offers>1;
  ANALYZE product_offers;
+ DELETE FROM product_match_candidates;
+ DROP TABLE IF EXISTS cand_a, cand_b;
+ CREATE TEMP TABLE cand_a ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
+ FROM products WHERE suppliers='{basbug}' AND merged_into IS NULL;
+ CREATE TEMP TABLE cand_b ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
+ FROM products WHERE suppliers='{dinamik}' AND merged_into IS NULL;
+ ANALYZE cand_a; ANALYZE cand_b;
+ INSERT INTO product_match_candidates
+ SELECT DISTINCT ON (a,b) a, b, reason, similarity(lower(name_a),lower(name_b)) FROM (
+  SELECT a.id AS a, b.id AS b, 'prefix' AS reason, a.name AS name_a, b.name AS name_b, 1 AS priority FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND b.part_number=a.full_code
+  UNION ALL SELECT a.id, b.id, 'prefix', a.name, b.name, 1 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND a.part_number=b.full_code
+  UNION ALL SELECT a.id, b.id, 'leading_zero', a.name, b.name, 2 FROM cand_a a JOIN cand_b b
+   ON b.brand=a.brand AND ltrim(b.part_number,'0')=ltrim(a.part_number,'0') AND b.part_number<>a.part_number
+  UNION ALL SELECT a.id, b.id, 'suffix', a.name, b.name, 3 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND left(b.part_number,5)=left(a.part_number,5)
+   AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
+   AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
+ ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
+ ORDER BY a, b, priority;
  INSERT INTO product_seta_references
  SELECT DISTINCT ON (k.item_id,r.supplier_item_id) k.item_id, r.supplier_item_id, k.brand, k.part_number
  FROM (
@@ -371,8 +454,8 @@ BEGIN
  WITH item_products AS (
   SELECT s.supplier_item_id AS item_id, s.product_id FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
  ), refs AS (
-  -- Products tied by a reference key: those owning it and those stating it. Keys shared by more than 20 products are
-  -- generic (kits, universal parts) and would link unrelated products.
+  -- Products tied by a reference key: those owning it and those stating it. The largest real groups are ~40 products
+  -- (timing belt kits, cabin filters); a key shared by more than 100 would be a generic placeholder.
   SELECT DISTINCT r.brand, r.part_number, ip.product_id FROM product_references r JOIN item_products ip ON ip.item_id=r.supplier_item_id
   JOIN product_equivalence_groups g ON g.brand=r.brand AND g.part_number=r.part_number
   UNION
@@ -383,7 +466,7 @@ BEGIN
  ), pairs AS (
   SELECT x.product_id, y.product_id AS equivalent_id, CASE WHEN x.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END AS kind,
    x.brand, x.part_number, 1 AS priority
-  FROM keyed x JOIN keyed y ON y.brand=x.brand AND y.part_number=x.part_number AND y.product_id<>x.product_id WHERE x.n<=20
+  FROM keyed x JOIN keyed y ON y.brand=x.brand AND y.part_number=x.part_number AND y.product_id<>x.product_id WHERE x.n<=100
   UNION ALL
   -- SETA equivalents regardless of group size (the store shows them on the product page).
   SELECT ip.product_id, sp.product_id, CASE WHEN r.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END, r.brand, r.part_number, 0
@@ -416,6 +499,7 @@ BEGIN
   'manual_sources', (SELECT count(*) FROM product_sources WHERE method='manual'),
   'merged_products', (SELECT count(*) FROM products WHERE merged_into IS NOT NULL),
   'product_equivalents', (SELECT count(*) FROM product_equivalents),
+  'match_candidates', (SELECT count(*) FROM product_match_candidates),
   'seta_linked_items', (SELECT count(DISTINCT seta_item_id) FROM product_seta_references),
   'seta_linked_products', (SELECT count(DISTINCT item_id) FROM product_seta_references),
   'items', (SELECT count(*) FROM product_match_items),
