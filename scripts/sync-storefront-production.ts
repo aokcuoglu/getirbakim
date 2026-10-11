@@ -13,11 +13,13 @@ const state = resolve(".local/storefront-sync/state.json");
 // the overlap re-sends them, and the import is an idempotent upsert.
 const OVERLAP_MS = 60 * 60 * 1000;
 
-function run(command: string, args: string[], input?: string) {
-  const result = spawnSync(command, args, { stdio: ["pipe", "inherit", "inherit"], input, encoding: "utf8" });
+function run(command: string, args: string[]) {
+  const result = spawnSync(command, args, { stdio: ["ignore", "inherit", "inherit"] });
   if (result.status !== 0) throw new Error(`${command} ${args[0] ?? ""} failed with exit code ${result.status}`);
 }
-const remote = (script: string) => run("ssh", ["-o", "BatchMode=yes", host, "bash", "-s"], `set -euo pipefail\ncd ${remoteRoot}\n${script}\n`);
+// Each step is its own ssh command with no stdin: a script piped to `bash -s` was read by the backup's
+// `docker compose exec`, which swallowed the remaining steps while the run still exited 0.
+const remote = (command: string) => run("ssh", ["-n", "-o", "BatchMode=yes", host, `cd ${remoteRoot} && ${command}`]);
 
 const previous = await readFile(state, "utf8").then(text => JSON.parse(text) as { snapshotAt: string }).catch(() => null);
 const since = previous ? new Date(new Date(previous.snapshotAt).getTime() - OVERLAP_MS).toISOString() : null;
@@ -33,10 +35,10 @@ try {
   remote(`mkdir -p ${target}`);
   run("rsync", ["-a", "--delete", "--partial", "-e", "ssh -o BatchMode=yes", `${local}/`, `${host}:${target}/`]);
   // A failed dry run stops before anything is written; the bundle stays for inspection.
-  remote(`bash scripts/production-task.sh backup
-bash scripts/production-task.sh import-storefront ${target}
-bash scripts/production-task.sh import-storefront ${target} --apply
-bash scripts/production-task.sh rebuild-fitments`);
+  remote("bash scripts/production-task.sh backup");
+  remote(`bash scripts/production-task.sh import-storefront ${target}`);
+  remote(`bash scripts/production-task.sh import-storefront ${target} --apply`);
+  remote("bash scripts/production-task.sh rebuild-fitments");
   await writeFile(state, JSON.stringify({ snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), enrichments: manifest.enrichments.length }, null, 2));
   console.log(JSON.stringify({ synced: name, snapshotAt: manifest.snapshotAt }));
 } finally {
