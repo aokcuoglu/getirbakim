@@ -140,7 +140,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <CardHeader>
           <CardTitle>Siparişler · son 14 gün</CardTitle>
           <CardDescription>Oluşturulma gününe göre · toplam {number(days.reduce((sum, day) => sum + day.orders, 0))} sipariş</CardDescription>
-          <CardAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tüm siparişler</Button></CardAction>
+          <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tüm siparişler</Button></CardAction>
         </CardHeader>
         <CardContent><OrdersChart days={days}/></CardContent>
       </Card>
@@ -172,7 +172,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       <Card>
         <CardHeader>
           <CardTitle>Son siparişler</CardTitle>
-          <CardAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tümü</Button></CardAction>
+          <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tümü</Button></CardAction>
         </CardHeader>
         <CardContent>
           {recent.length ? <Table><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
@@ -191,7 +191,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           <CardHeader>
             <CardTitle>Ürün zenginleştirme</CardTitle>
             <CardDescription>{number(reviewed)} / {number(enrichmentTotal)} ürün incelendi</CardDescription>
-            <CardAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Aç</Button></CardAction>
+            <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Aç</Button></CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <Progress value={enrichmentTotal ? Math.round(reviewed / enrichmentTotal * 100) : 0}>
@@ -209,7 +209,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <Card>
           <CardHeader>
             <CardTitle>Tedarikçi bağlantıları</CardTitle>
-            <CardAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Yönet</Button></CardAction>
+            <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Yönet</Button></CardAction>
           </CardHeader>
           <CardContent>
             <ItemGroup>{supplierStatuses().map((s, index) => {
@@ -232,7 +232,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       <CardHeader>
         <CardTitle>Onay bekleyen servis başvuruları</CardTitle>
         <CardDescription>Onay, servise fiyat ve sepet erişimini hemen açar.</CardDescription>
-        <CardAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Tüm servisler</Button></CardAction>
+        <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Tüm servisler</Button></CardAction>
       </CardHeader>
       <CardContent>
         <ItemGroup>{pending.map((a, index) => <div key={a.id}>

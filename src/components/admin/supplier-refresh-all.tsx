@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronsUpDown, CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
+import { CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
 import { refreshBasbugGroup } from "@/app/yonetim/tedarikciler/basbug/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -64,13 +64,13 @@ export function SupplierRefreshAll({ groups }: { groups: string[] }) {
     </div>
     {running && <Progress value={results.length / Math.max(uniqueGroups.length, 1) * 100} aria-label="Toplu güncelleme ilerlemesi"/>}
     <p role="status" aria-live="polite" className="tabular-nums empty:hidden">{running ? `${results.length} / ${uniqueGroups.length} grup tamamlandı · Şimdi: ${current}` : finished ? `${succeeded} başarılı · ${failed} başarısız${results.length < uniqueGroups.length ? ` · ${uniqueGroups.length - results.length} grup başlatılmadı` : ""}` : ""}</p>
-    {results.length > 0 && <Collapsible defaultOpen={finished}>
-      <CollapsibleTrigger render={<Button variant="link" size="sm"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Toplu güncelleme sonuçları</CollapsibleTrigger>
-      <CollapsibleContent><ul className="flex flex-col gap-1">{results.map(result => <li key={result.group} className="flex flex-wrap items-center gap-2">
+    {results.length > 0 && <Accordion className="rounded-lg border" defaultValue={finished ? ["results"] : []}><AccordionItem value="results" className="px-4">
+      <AccordionTrigger>Toplu güncelleme sonuçları</AccordionTrigger>
+      <AccordionContent><ul className="flex flex-col gap-1">{results.map(result => <li key={result.group} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{result.group}</span>
         <Badge variant={result.ok ? "success" : "destructive"}>{result.ok ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : <CircleAlert data-icon="inline-start" aria-hidden="true"/>}{result.ok ? "Güncellendi" : "Başarısız"}</Badge>
         {!result.ok && <span className="text-muted-foreground">{result.error === "interrupted" ? "İşlem sonucu alınamadı; çekim geçmişini ve oturumu kontrol edin. Kalan gruplar başlatılmadı." : errors[result.error || "upstream"] || errors.upstream}</span>}
-      </li>)}</ul></CollapsibleContent>
-    </Collapsible>}
+      </li>)}</ul></AccordionContent>
+    </AccordionItem></Accordion>}
   </section>;
 }

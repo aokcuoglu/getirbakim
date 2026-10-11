@@ -140,7 +140,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="max-w-44 truncate font-mono" title={item.code}>{item.code}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-muted-foreground">{date(item.decided_at)}</TableCell>
-            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><Button type="submit" size="xs" variant="outline">Geri al</Button></form></TableCell>
+            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><Button type="submit" variant="outline">Geri al</Button></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Ayrılan kayıt yok." icon={<Boxes/>}/>) : <>
           {search("same", "Parça no veya kod")}
           {"same" in data && data.same.length ? <Table><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
@@ -155,7 +155,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
                 <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><ToneBadge tone={group.selling === "dinamik" ? "success" : "neutral"}>{suppliers[group.selling]}</ToneBadge>
                   <span className="tabular-nums">{price(group.selling_price)}{saving > 0 && <span className="text-muted-foreground"> · %{saving} ucuz</span>}</span></div> : <span className="text-muted-foreground">Stok yok</span>}</TableCell>
                 <TableCell><form action={splitOffers}><input type="hidden" name="primary_id" value={group.primary_id}/><input type="hidden" name="back" value={back}/>
-                  <Button type="submit" size="xs" variant="ghost" title="Yanlış eşleşme: Dinamik kaydı ayrı ürün olsun">Ayır</Button></form></TableCell>
+                  <Button type="submit" variant="ghost" title="Yanlış eşleşme: Dinamik kaydı ayrı ürün olsun">Ayır</Button></form></TableCell>
               </TableRow>;
             })}</TableBody></Table> : <EmptyState title="Bu görünümde ürün yok." icon={<SearchX/>}/>}
         </>}

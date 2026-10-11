@@ -7,7 +7,7 @@ import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
 import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, CalendarClock, ChevronsUpDown, CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarClock, CircleAlert, CircleCheck, History, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
 import { BasbugProductFilters } from "@/components/admin/basbug-product-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { DialogTrigger } from "@/components/ui/dialog";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -132,8 +132,8 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
           <CardTitle><h2>Sepet ve sipariş</h2></CardTitle>
           <CardDescription>{checkoutMode === "snapshot" ? "Kayıtlı fiyat, kur ve stok verileri kullanılıyor. Siparişte API çağrısı yapılmaz; kayıtlar stok ve fiyat teyidi bekler." : "Sipariş sırasında Başbuğ API’sinden fiyat ve stok doğrulanır. Güncellik sınırını aşan kayıtlar satışa kapanır."}</CardDescription>
           <CardAction className="flex flex-wrap gap-1">
-            <Button variant="link" size="sm" nativeButton={false} render={<Link href="/sepet"/>}>Sepet<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
-            <Button variant="link" size="sm" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Siparişler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
+            <Button variant="link" nativeButton={false} render={<Link href="/sepet"/>}>Sepet<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
+            <Button variant="link" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Siparişler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
           </CardAction>
         </CardHeader>
         <CardContent>
@@ -170,7 +170,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {([["Aktarımdaki farklı ürün", snapshot.quality.uniqueProducts, null, `${number(snapshot.quality.productRows)} kaynak satırı`], ["Eksik fiyat", snapshot.quality.missingPrices, "missing-price", null], ["Tekrarlanan kod", snapshot.quality.duplicateCodes, "duplicates", null], ["Çelişkili kod", snapshot.quality.conflictingCodes, "conflicts", null]] as const).map(([label, value, quality, note]) => <Card key={label} size="sm">
               <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="text-2xl font-semibold tabular-nums">{number(value)}</CardTitle></CardHeader>
-              <CardContent>{quality ? <Button variant="link" size="xs" nativeButton={false} render={<Link data-supplier-tab="products" href={`?${new URLSearchParams({ group: snapshot.list_group, quality })}`}/>}>Kayıtları incele<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button> : <span className="text-muted-foreground">{note}</span>}</CardContent>
+              <CardContent>{quality ? <Button variant="link" nativeButton={false} render={<Link data-supplier-tab="products" href={`?${new URLSearchParams({ group: snapshot.list_group, quality })}`}/>}>Kayıtları incele<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button> : <span className="text-muted-foreground">{note}</span>}</CardContent>
             </Card>)}
           </div>
         </CardContent>
@@ -183,10 +183,10 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
             <CardHeader><CardTitle>{c.dovizCinsi} <span className="font-normal text-muted-foreground">/ TRY</span></CardTitle></CardHeader>
             <CardContent><dl className="grid grid-cols-2 gap-2"><div><dt className="text-muted-foreground">Alış</dt><dd className="font-medium tabular-nums" title={c.alis}>{rate(c.alis)}</dd></div><div><dt className="text-muted-foreground">Satış</dt><dd className="font-medium tabular-nums" title={c.satis}>{rate(c.satis)}</dd></div></dl></CardContent>
           </Card>)}</div>
-          <Collapsible>
-            <CollapsibleTrigger render={<Button variant="link" size="sm"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Verilerin çekilme zamanları</CollapsibleTrigger>
-            <CollapsibleContent><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead>Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead>Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).filter(([key]) => key !== "StokGetir" || !snapshot.observations["StokGetir:MRK"]).map(([key,value]) => { const [service,depot,error] = key.split(":"); return <TableRow key={key}><TableCell className="font-medium"><div className="flex items-center gap-2">{({MalzemeleriGetir:"Ürünler",FiyatGetir:"Fiyatlar",StokGetir:"Stoklar",DovizBilgisiGetir:"Kurlar",ListeGrubuGetir:"Liste grupları",products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[service] || service}{error === "607" && statusBadge("warning", "Depo erişimi yok (607)")}</div></TableCell><TableCell>{snapshot.list_group} / {depot || snapshot.warehouse}</TableCell><TableCell className="tabular-nums"><time dateTime={new Date(value).toISOString()}>{date(new Date(value))}</time></TableCell></TableRow>; })}</TableBody></Table></CollapsibleContent>
-          </Collapsible>
+          <Accordion className="rounded-lg border"><AccordionItem value="observations" className="px-4">
+            <AccordionTrigger>Verilerin çekilme zamanları</AccordionTrigger>
+            <AccordionContent><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead>Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead>Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).filter(([key]) => key !== "StokGetir" || !snapshot.observations["StokGetir:MRK"]).map(([key,value]) => { const [service,depot,error] = key.split(":"); return <TableRow key={key}><TableCell className="font-medium"><div className="flex items-center gap-2">{({MalzemeleriGetir:"Ürünler",FiyatGetir:"Fiyatlar",StokGetir:"Stoklar",DovizBilgisiGetir:"Kurlar",ListeGrubuGetir:"Liste grupları",products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[service] || service}{error === "607" && statusBadge("warning", "Depo erişimi yok (607)")}</div></TableCell><TableCell>{snapshot.list_group} / {depot || snapshot.warehouse}</TableCell><TableCell className="tabular-nums"><time dateTime={new Date(value).toISOString()}>{date(new Date(value))}</time></TableCell></TableRow>; })}</TableBody></Table></AccordionContent>
+          </AccordionItem></Accordion>
         </CardContent>
       </Card>}
     </div>} products={
@@ -215,7 +215,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
             stockTitle="Depo stokları" stocks={basbugWarehouses.map(depot => { const stock = basbugWarehouseStock(item.stock_data, depot); return { label: depot, available: stock === null ? null : stock > 0 }; })}
             footer={<AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/>}>
           <TableRow>
-            <TableCell><DialogTrigger render={<Button variant="link" size="sm" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
+            <TableCell><DialogTrigger render={<Button variant="link" className="font-mono" title={item.code} aria-label={`${item.code} ürün ayrıntılarını aç`}/>}>{item.code}</DialogTrigger></TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
             <TableCell className="max-w-64 truncate font-medium" title={[item.product_data.ac,item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
             <TableCell className="max-w-32 truncate text-muted-foreground" title={item.product_data.uk}>{item.product_data.uk || "—"}</TableCell>
@@ -227,7 +227,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
               return <TableCell key={depot} className="text-center"><Badge variant={stock === null ? "warning" : stock > 0 ? "success" : "outline"} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}>{basbugStockLabel(stock)}</Badge></TableCell>;
             })}
             <TableCell>{item.presence !== "present" ? statusBadge("warning", item.presence === "inactive" ? "Pasif" : "Listede yok") : item.conflicting ? statusBadge("error", "Çelişkili") : !item.price_data ? statusBadge("warning", "Fiyat eksik") : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? statusBadge("info", "Tekrar var") : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
+            <TableCell><DialogTrigger render={<Button variant="ghost" size="icon" aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"/>}><ArrowUpRight aria-hidden="true"/></DialogTrigger></TableCell>
           </TableRow></SupplierProductDetails>)}</TableBody>
         </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchX/></EmptyMedia><EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle><EmptyDescription>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>

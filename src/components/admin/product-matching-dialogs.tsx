@@ -14,17 +14,17 @@ export type PairRow = { brand_a: string; brand_b: string; shared_parts: string; 
 const decisions = [["same", "Aynı marka", "default"], ["equivalent", "Muadil", "outline"], ["unrelated", "İlgisiz", "ghost"]] as const;
 
 /** Same / equivalent / unrelated buttons for one brand pair; `back` keeps the reviewer on the current page. */
-export function PairDecision({ pair, back, size = "xs" }: { pair: Pick<PairRow, "brand_a" | "brand_b">; back: string; size?: "xs" | "sm" }) {
+export function PairDecision({ pair, back }: { pair: Pick<PairRow, "brand_a" | "brand_b">; back: string }) {
   return <div className="flex gap-1">{decisions.map(([status, label, variant]) =>
     <form key={status} action={decideBrandPair}>
       <input type="hidden" name="brand_a" value={pair.brand_a}/><input type="hidden" name="brand_b" value={pair.brand_b}/>
       <input type="hidden" name="status" value={status}/><input type="hidden" name="back" value={back}/>
-      <Button type="submit" size={size} variant={variant}>{label}</Button>
+      <Button type="submit" variant={variant}>{label}</Button>
     </form>)}</div>;
 }
 
 function DetailTrigger({ label }: { label: string }) {
-  return <DialogTrigger render={<Button variant="ghost" size="icon-xs" aria-label={label} title={label}/>}><Maximize2 aria-hidden="true"/></DialogTrigger>;
+  return <DialogTrigger render={<Button variant="ghost" size="icon" aria-label={label} title={label}/>}><Maximize2 aria-hidden="true"/></DialogTrigger>;
 }
 
 export function PairDialog({ pair, back }: { pair: PairRow; back: string }) {
@@ -49,7 +49,7 @@ export function PairDialog({ pair, back }: { pair: PairRow; back: string }) {
             <TableCell className="whitespace-normal break-words"><span className="font-mono">{sample.part_b}</span> · {sample.b || "—"}</TableCell>
           </TableRow>)}</TableBody></Table>}
       </div>
-      <DialogFooter className="items-center sm:justify-between"><span className="text-muted-foreground">Karar markanın tüm ortak parçalarına uygulanır.</span><PairDecision pair={pair} back={back} size="sm"/></DialogFooter>
+      <DialogFooter className="items-center sm:justify-between"><span className="text-muted-foreground">Karar markanın tüm ortak parçalarına uygulanır.</span><PairDecision pair={pair} back={back}/></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
@@ -82,7 +82,7 @@ export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
 
 export function DecisionHelp() {
   return <Dialog>
-    <DialogTrigger render={<Button variant="ghost" size="sm"/>}><CircleHelp data-icon="inline-start" aria-hidden="true"/>Nasıl karar verilir?</DialogTrigger>
+    <DialogTrigger render={<Button variant="ghost"/>}><CircleHelp data-icon="inline-start" aria-hidden="true"/>Nasıl karar verilir?</DialogTrigger>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader><DialogTitle>Marka çifti kararları</DialogTitle><DialogDescription>Aynı parça numarası farklı tedarikçilerde farklı markayla geçiyor. Karar çiftin tüm ortak parçalarına uygulanır.</DialogDescription></DialogHeader>
       <dl className="flex flex-col gap-3">

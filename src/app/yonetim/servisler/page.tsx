@@ -49,7 +49,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
               <InputGroupAddon align="inline-end"><InputGroupText>%</InputGroupText></InputGroupAddon>
             </InputGroup></TableCell>
             <TableCell><NativeSelect form={form} aria-label={`${a.name} hesap durumu`} name="approved" defaultValue={String(a.approved)}><NativeSelectOption value="true">Onaylı</NativeSelectOption><NativeSelectOption value="false">Pasif / Onay bekliyor</NativeSelectOption></NativeSelect></TableCell>
-            <TableCell className="text-right"><form id={form} action={saveService}><input type="hidden" name="id" value={a.id}/><Button type="submit" variant="outline" size="sm">Kaydet</Button></form></TableCell>
+            <TableCell className="text-right"><form id={form} action={saveService}><input type="hidden" name="id" value={a.id}/><Button type="submit" variant="outline">Kaydet</Button></form></TableCell>
           </TableRow>;})}
         </TableBody></Table> : <Empty>
           <EmptyHeader>

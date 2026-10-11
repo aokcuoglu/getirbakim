@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, ChevronsUpDown, CircleAlert, CircleCheck, Inbox } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox } from "lucide-react";
 import { adminOrders, fitmentReturnReport, orderFilters, type OrderFilter } from "@/modules/admin/data";
 import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-level";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -66,18 +66,18 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
               <div className="font-medium">{o.customer_name}</div><div className="text-muted-foreground">{o.email} · {o.phone}</div>
-              <Collapsible className="mt-1">
-                <CollapsibleTrigger render={<Button variant="ghost" size="xs"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Teslimat ve ödeme</CollapsibleTrigger>
-                <CollapsibleContent>
-                  <dl className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+              <Accordion><AccordionItem value="details">
+                <AccordionTrigger>Teslimat ve ödeme</AccordionTrigger>
+                <AccordionContent>
+                  <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     <div><dt className="text-muted-foreground">Adres</dt><dd>{o.address}</dd></div>
                     {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd>{o.refund_reference}</dd></div>}
                   </dl>
-                </CollapsibleContent>
-              </Collapsible>
+                </AccordionContent>
+              </AccordionItem></Accordion>
               {o.payment_note && <p className="mt-1 text-destructive">{o.payment_note}</p>}
             </TableCell>
             <TableCell><OrderStatusBadge status={o.status}/></TableCell>
@@ -86,13 +86,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell>
               {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <form action={changeOrderStatus} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
-                <NativeSelect size="sm" name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
-                <Button type="submit" size="sm">Uygula</Button>
+                <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
+                <Button type="submit">Uygula</Button>
               </form>}
               {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
                 <Input className="w-40" name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required/>
-                <Button type="submit" size="sm">İade yapıldı</Button>
+                <Button type="submit">İade yapıldı</Button>
               </form>}
             </TableCell>
           </TableRow>)}</TableBody>
@@ -102,7 +102,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <EmptyTitle>{filter === "all" ? "Henüz sipariş yok" : "Bu durumda sipariş yok"}</EmptyTitle>
             {filter !== "all" && <EmptyDescription>Başka bir durum sekmesi seçebilir veya tüm siparişlere dönebilirsin.</EmptyDescription>}
           </EmptyHeader>
-          {filter !== "all" && <EmptyContent><Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({ status: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
+          {filter !== "all" && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={href({ status: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
         </Empty>}
       </CardContent>
       {(page > 1 || orders.length > 50) && <CardFooter className="justify-between gap-4">

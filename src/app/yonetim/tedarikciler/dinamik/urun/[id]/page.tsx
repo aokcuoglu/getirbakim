@@ -1,13 +1,11 @@
 import { notFound } from "next/navigation";
-import { ChevronsUpDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { getProduct, money } from "@/modules/store/catalog";
 import { adminDinamikItem } from "@/modules/admin/dinamik";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, supplierNumber } from "@/components/admin/supplier-product-detail";
 
 export default async function DinamikItem({ params }: { params: Promise<{ id: string }> }) {
@@ -34,10 +32,10 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
           "Koli miktarı": p.koliMiktari !== undefined ? `${supplierNumber(p.koliMiktari)}${unit}` : null,
           Desi: typeof p.desi === "number" ? supplierNumber(p.desi) : null,
         }} numeric={["Paket miktarı", "Koli miktarı", "Desi"]}/>
-        <Collapsible className="mt-3 border-t pt-2">
-          <CollapsibleTrigger render={<Button variant="ghost"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Diğer ürün alanları</CollapsibleTrigger>
-          <CollapsibleContent className="pt-2"><Fields values={{ "İngilizce adı": p.ingilizceAdi, "OEM listesi": p.oemListe, "Eşdeğer listesi": p.esdegerListe, "Görsel adresi": p.resimUrl }}/></CollapsibleContent>
-        </Collapsible>
+        <Accordion className="mt-4 rounded-lg border"><AccordionItem value="more" className="px-4">
+        <AccordionTrigger>Diğer ürün alanları</AccordionTrigger>
+        <AccordionContent><Fields values={{ "İngilizce adı": p.ingilizceAdi, "OEM listesi": p.oemListe, "Eşdeğer listesi": p.esdegerListe, "Görsel adresi": p.resimUrl }}/></AccordionContent>
+      </AccordionItem></Accordion>
       </CardContent></Card>}
     stockInfo={<Card><CardHeader><CardTitle><h2>Kaynak stokları</h2></CardTitle><CardDescription>Var / Yok, tedarikçinin stok bayrağıdır; adet veya satış teyidi değildir.</CardDescription></CardHeader><CardContent>
       {item.stock_data ? <SupplierStocks stocks={stocks}/> : <Empty><EmptyHeader><EmptyTitle>Stok satırı bulunamadı</EmptyTitle><EmptyDescription>Bu kod yalnız fiyat listesinde. Bölge stokları bilinmiyor.</EmptyDescription></EmptyHeader></Empty>}

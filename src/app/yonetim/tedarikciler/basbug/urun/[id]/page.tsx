@@ -1,12 +1,10 @@
 import { notFound } from "next/navigation";
-import { ChevronsUpDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { getProduct } from "@/modules/store/catalog";
 import { adminBasbugItem } from "@/modules/admin/basbug";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
 import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, sourceMoney, supplierNumber } from "@/components/admin/supplier-product-detail";
 
@@ -21,7 +19,7 @@ export default async function BasbugItem({ params }: { params: Promise<{ id: str
   const stocks = basbugWarehouses.map(depot => {
     const value = basbugWarehouseStock(item.stock_data, depot);
     const onWay = item.stock_data?.depolar?.[depot]?.sYol ?? (depot === "MRK" ? item.stock_data?.sYol : undefined);
-    return { label: warehouseNames[depot] ? `${warehouseNames[depot]} (${depot})` : depot, available: value === null ? null : value > 0, note: onWay === undefined ? "Yolda: veri yok" : onWay > 0 ? "Yolda: var" : "Yolda: yok" };
+    return { label: warehouseNames[depot] ? `${warehouseNames[depot]} (${depot})` : depot, available: value === null ? null : value > 0, note: onWay === undefined ? "Veri yok" : onWay > 0 ? "Var" : "Yok" };
   });
   return <SupplierProductDetail item={item} supplier="Başbuğ"
     listHref={`/yonetim/tedarikciler/basbug?group=${encodeURIComponent(item.list_group)}`}
@@ -30,10 +28,10 @@ export default async function BasbugItem({ params }: { params: Promise<{ id: str
     noSaleMessage={item.warehouse !== "MRK" ? "Mağazada yalnız merkez depo kayıtları satışa sunulur." : undefined}
     productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.</CardDescription></CardHeader><CardContent>
       <Fields values={{ Üretici: p.uk, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, Birim: p.b }}/>
-      <Collapsible className="mt-3 border-t pt-2">
-        <CollapsibleTrigger render={<Button variant="ghost"/>}><ChevronsUpDown data-icon="inline-start" aria-hidden="true"/>Diğer ürün alanları</CollapsibleTrigger>
-        <CollapsibleContent className="pt-2"><Fields values={{ "Ek açıklama": p.ac2, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/></CollapsibleContent>
-      </Collapsible>
+      <Accordion className="mt-4 rounded-lg border"><AccordionItem value="more" className="px-4">
+        <AccordionTrigger>Diğer ürün alanları</AccordionTrigger>
+        <AccordionContent><Fields values={{ "Ek açıklama": p.ac2, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/></AccordionContent>
+      </AccordionItem></Accordion>
     </CardContent></Card>}
     stockInfo={<Card><CardHeader><CardTitle><h2>Kaynak stokları</h2></CardTitle><CardDescription>Var / Yok, tedarikçinin stok sinyalidir; adet veya satış teyidi değildir.</CardDescription></CardHeader><CardContent>
       {item.stock_data ? <>
