@@ -29,3 +29,19 @@ test("names come from each supplier's own field", async () => {
   assert.equal(await one("SELECT supplier_item_name('dinamik',$1) AS value", [JSON.stringify({ stokAdi: "ROT BASI" })]), "ROT BASI");
   assert.equal(await one("SELECT supplier_item_name('basbug',$1) AS value", [JSON.stringify({ ac: "" })]), null);
 });
+
+test("OEM numbers split on , ; / but keep Ford-style spaces; short fragments are dropped", async () => {
+  const oems = (supplier: string, data: object) => one("SELECT supplier_item_oem_numbers($1,$2) AS value", [supplier, JSON.stringify(data)]);
+  assert.deepEqual(await oems("basbug", { oe: "6C11 2282 EB" }), ["6C112282EB"]);
+  assert.deepEqual(await oems("basbug", { oe: "4254.69 / 1611140880; 3M5Q 9F593 /SET" }), ["1611140880", "3M5Q9F593", "425469"]);
+  assert.deepEqual(await oems("seta", { oems: ["25500-2B000"], oe: "ignored for SETA" }), ["255002B000"]);
+  assert.deepEqual(await oems("dinamik", { oe: "1234567" }), []);
+});
+
+test("only check-digit-valid GTINs count as barcodes", async () => {
+  const gtin = (code: string) => one("SELECT gtin_valid($1) AS value", [code]);
+  assert.equal(await gtin("5414465978258"), true);
+  assert.equal(await gtin("5414465978259"), false);
+  assert.equal(await gtin("1617975680"), false); // OEM number stored in a barcode field
+  assert.equal(await gtin("0000000000000"), false);
+});
