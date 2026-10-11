@@ -34,11 +34,12 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 -- Default brand key before reviewed aliases: spelling-insensitive, "-AV" (aftermarket list) suffix dropped, and every
 -- original-equipment label (OE-PSA, PSA ORIJINAL, OPAR, GM…) folded into one ORIJINAL family keyed by OEM number.
+-- A single expression without FROM so the planner inlines it; the old subquery form cost ~3 s per catalog scan.
 CREATE OR REPLACE FUNCTION product_brand_key(brand text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
- SELECT CASE WHEN b ~ '^I?OE-' OR b ~ '(^|[^A-Z])(ORIJINAL|ORJINAL)([^A-Z]|$)' OR b IN ('GM','OPAR','MOPAR') THEN 'ORIJINAL'
-  ELSE NULLIF(regexp_replace(regexp_replace(b,'-AV$',''),'[^A-Z0-9]','','g'),'') END
- FROM (SELECT upper(trim(brand)) AS b) x
+ SELECT CASE WHEN upper(trim(brand)) ~ '^I?OE-' OR upper(trim(brand)) ~ '(^|[^A-Z])(ORIJINAL|ORJINAL)([^A-Z]|$)'
+   OR upper(trim(brand)) IN ('GM','OPAR','MOPAR') THEN 'ORIJINAL'
+  ELSE NULLIF(regexp_replace(regexp_replace(upper(trim(brand)),'-AV$',''),'[^A-Z0-9]','','g'),'') END
 $$;
 
 -- Reviewed brand decisions; the review unit is the brand pair, not individual rows.
