@@ -121,10 +121,15 @@ export type ChromeCollectorOptions={port:number;profileDir:string;clientCode:str
  challengeTimeoutMs?:number;log?:(event:Record<string,unknown>)=>void};
 
 export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorOptions){
- const state={stopped:false,wake:()=>{}};const log=options.log||(e=>console.log(JSON.stringify(e)));
+ const state={stopped:false};const log=options.log||(e=>console.log(JSON.stringify(e)));
  const challengeTimeoutMs=options.challengeTimeoutMs??45*60000;
- // Waits that end early when the collectors are stopped.
- const pause=(ms:number)=>new Promise<void>(r=>{const t=setTimeout(r,ms);const prev=state.wake;state.wake=()=>{clearTimeout(t);prev();r();};});
+ // Retain only active waits: chaining every past wake callback overflows at the end of a long batch.
+ const waits=new Set<()=>void>();
+ const pause=(ms:number)=>new Promise<void>(resolve=>{
+  if(state.stopped){resolve();return;}
+  const wake=()=>{clearTimeout(timer);waits.delete(wake);resolve();};
+  const timer=setTimeout(wake,ms);waits.add(wake);
+ });
  const pages=new Map<string,CdpPage>();
  async function collect(host:string){
   const landing=options.landing[host];
@@ -234,5 +239,5 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
  }
  // An open CDP socket keeps the process alive, so every exit path closes the tab connection.
  const done=Promise.all(Object.keys(options.landing).map(host=>collect(host).finally(()=>pages.get(host)?.close())));
- return {stop(){state.stopped=true;state.wake();return done;},done};
+ return {stop(){state.stopped=true;for(const wake of waits)wake();return done;},done};
 }
