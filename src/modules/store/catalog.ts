@@ -35,7 +35,13 @@ export const categories = [
  {slug:"silecek",name:"Silecekler",art:"wipers"},
  {slug:"aksesuar",name:"Aksesuar ve ekipman",art:"tools"},
 ] as const;
-async function catalogFilter(query:CatalogQuery) {
+// Fitments observed in the product's current, trusted enrichment payload; `f` is product_vehicle_fitments.
+const trustedFitments=`JOIN product_enrichments e ON e.supplier_item_id=f.supplier_item_id AND f.source_vehicle=e.payload->'vehicles'->f.source_index
+    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))`;
+/** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` filter matches nothing. */
+export type CatalogContext={vehicleTypeId?:string|null};
+async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: (string | number | number[] | string[])[] = [company()]; const clauses: string[] = [];
  if(query.q?.trim()) {
   values.push("%"+query.q.trim().slice(0,120).replace(/[\\%_]/g,"\\$&")+"%");
@@ -68,14 +74,18 @@ async function catalogFilter(query:CatalogQuery) {
   if(!make)clauses.push('false');
   else {
    values.push(Number(make.id));
-   // Only fitments observed in the product's current, trusted enrichment payload.
    clauses.push(`catalog.id IN (SELECT f.supplier_item_id FROM vehicle_models m
     JOIN vehicle_types v ON v.model_id=m.id
     JOIN product_vehicle_fitments f ON f.vehicle_type_id=v.id
-    JOIN product_enrichments e ON e.supplier_item_id=f.supplier_item_id AND f.source_vehicle=e.payload->'vehicles'->f.source_index
-    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+    ${trustedFitments}
     WHERE m.brand_id=$${values.length})`);
+  }
+ }
+ if(query.fits==='vehicle') {
+  if(!context.vehicleTypeId)clauses.push('false');
+  else {
+   values.push(Number(context.vehicleTypeId));
+   clauses.push(`catalog.id IN (SELECT f.supplier_item_id FROM product_vehicle_fitments f ${trustedFitments} WHERE f.vehicle_type_id=$${values.length})`);
   }
  }
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
@@ -93,8 +103,8 @@ async function catalogFilter(query:CatalogQuery) {
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from};
 }
-export async function browseProducts(query:CatalogQuery){
- const {values,where,from}=await catalogFilter(query);
+export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
+ const {values,where,from}=await catalogFilter(query,context);
  const total = Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const pageSize = 60, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
@@ -112,8 +122,19 @@ export async function catalogBrands() {
  return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);
 }
 
-export async function catalogFacets(query:CatalogQuery){
- const {values,from}=await catalogFilter({q:query.q,searchBy:query.searchBy,category:query.category,make:query.make});
+/** Products in the current search, category and make scope that are linked to the vehicle type. */
+export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
+ const {values,from}=await catalogFilter({q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:'vehicle'},{vehicleTypeId});
+ return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+}
+/** Which of the listed products are linked to the vehicle type, for the card badge. */
+export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) {
+ if(!ids.length)return new Set<string>();
+ return new Set((await db.query<{id:string}>(`SELECT DISTINCT f.supplier_item_id::text AS id FROM product_vehicle_fitments f ${trustedFitments}
+  WHERE f.vehicle_type_id=$1 AND f.supplier_item_id=ANY($2::uuid[])`,[Number(vehicleTypeId),ids])).rows.map(row=>row.id));
+}
+export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
+ const {values,from}=await catalogFilter({q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits},context);
  const brands=(await db.query<{brand:string}>(`SELECT DISTINCT brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
  const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS (SELECT catalog.id ${from})
  SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values

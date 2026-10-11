@@ -89,6 +89,11 @@ body:has(:is(.catalog-page,.store-home,.cart-page)){--ink:#212b36;--muted:#63738
 .listing-product-name:hover{color:#0077c7}
 .listing-product-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-height:30px;font-size:13px;line-height:20px;color:#637381}
 .vehicle-specific{font-size:11px;line-height:16px;color:#212b36;background:#dfe3e8;border-radius:3px;padding:2px 6px;font-weight:500;white-space:nowrap}
+.vehicle-specific.vehicle-fits{color:#1e5e3e;background:#dcf2e6}
+.catalog-vehicle-fit{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;padding:10px 14px;border:1px solid #cfe8d9;border-radius:5px;background:#f3faf6;color:#1e5e3e;font-size:13px;line-height:18px}
+.catalog-vehicle-fit p{margin:0;flex:1;min-width:220px;color:var(--ink)}
+.catalog-vehicle-fit a{font-weight:600;color:var(--blue);white-space:nowrap}
+.catalog-vehicle-fit.active{border-color:#9fd3b5;background:#e8f6ee}
 .listing-product-meta>span{padding:3px 0;overflow-wrap:anywhere}
 .listing-specs{grid-column:1;min-width:0;align-self:start;margin:16px 0}
 .listing-specs dl{margin:0;font-size:14px;line-height:20px}
