@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { cache } from "react";
+import { staleCache } from "@/lib/stale-cache";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -186,9 +187,20 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};
 }
+// Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
+// (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
+// 10-minute stale-while-revalidate cache; prices and stock are still read live for the listed ids.
+const aggregateTtl=10*60*1000;
+const cachedCounts=staleCache<number>(aggregateTtl),cachedPageIds=staleCache<string[]>(aggregateTtl);
+const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl),cachedBrands=staleCache<string[]>(aggregateTtl);
+/** Cache key of everything that narrows the listing except search, which goes uncached. */
+function filterKey(query:CatalogQuery,context:CatalogContext){
+ return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.fits?context.vehicleTypeId:null]);
+}
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  const {values,where,from,search}=await catalogFilter(query,context);
- const total = Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+ const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+ const total = search ? await count() : await cachedCounts(filterKey(query,context),count);
  const pageSize = 60, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
@@ -198,6 +210,13 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const pageValues=[...values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
  const offset=bind((page-1)*pageSize);
+ if(!search&&!pricedSort){
+  const ids=await cachedPageIds(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
+   `SELECT id::text FROM (SELECT id,updated_at ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
+  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
+   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+  return {items,total,page,pages,pageSize};
+ }
  const items = (await db.query<CatalogProduct>(pricedSort
   ? `SELECT * FROM (${catalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offset}`
   : `WITH page AS MATERIALIZED (SELECT id,updated_at,${rank} AS rank ${from} ORDER BY rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
@@ -206,13 +225,15 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  return {items,total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 export async function catalogBrands() {
- return (await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand);
+ return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
 
 /** Products in the current search, category and make scope that are linked to the vehicle type. */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
- const {values,from}=await catalogFilter({q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:'vehicle'},{vehicleTypeId});
- return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:'vehicle'};
+ const {values,from,search}=await catalogFilter(scope,{vehicleTypeId});
+ const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+ return search ? count() : cachedCounts(filterKey(scope,{vehicleTypeId}),count);
 }
 /** Which of the listed products are linked to the vehicle type, for the card badge. */
 export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) {
@@ -221,7 +242,12 @@ export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) 
   WHERE f.vehicle_type_id=$1 AND f.supplier_item_id=ANY($2::uuid[])`,[Number(vehicleTypeId),ids])).rows.map(row=>row.id));
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
- const {values,from}=await catalogFilter({q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits},context);
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits};
+ const {values,from,search}=await catalogFilter(scope,context);
+ const load=()=>facetsFor(values,from);
+ return search ? load() : cachedFacets(filterKey(scope,context),load);
+}
+async function facetsFor(values:unknown[],from:string){
  const brands=(await db.query<{brand:string}>(`SELECT DISTINCT brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
  const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (SELECT catalog.id ${from})
