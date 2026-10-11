@@ -26,5 +26,18 @@ for (const path of ['/api/health','/','/katalog','/giris','/robots.txt']) {
   console.log(`PASS production ${path}`);
 }
 JS
+# Catalog counts and facets live in a per-process cache (src/lib/stale-cache.ts) that starts empty:
+# load the category and make listings once so the first visitors do not wait for them. Never fails a deploy.
+"${compose[@]}" exec -T app node --input-type=module <<'JS' || echo "WARN catalog cache warm-up incomplete"
+const base='http://127.0.0.1:3000',started=Date.now();
+const links=async(path,pattern)=>[...new Set([...(await (await fetch(base+path,{signal:AbortSignal.timeout(30000)})).text()).matchAll(pattern)].map(m=>m[1].replaceAll('&amp;','&')))];
+const paths=[...(await links('/katalog',/href="(\/katalog\?category=[^"#]+)"/g)).slice(0,40),...(await links('/automakers',/href="(\/car-parts\/[a-z0-9-]+)"/g)).slice(0,24)];
+let warmed=0;
+const queue=[...paths];
+await Promise.all([0,1].map(async()=>{for(let path;(path=queue.shift());){
+  try{const response=await fetch(base+path,{signal:AbortSignal.timeout(60000)});await response.arrayBuffer();if(response.ok)warmed++;}catch{}
+}}));
+console.log(`Catalog cache warmed: ${warmed}/${paths.length} pages in ${Math.round((Date.now()-started)/1000)} s`);
+JS
 bash scripts/prune-release-images.sh getirbakim-v2-production-app getirbakim-v2-production-operations
 echo "Production application ready on edge alias getirbakim-v2-live and loopback :3004 (${BUILD_VERSION})."
