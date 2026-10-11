@@ -39,6 +39,7 @@ try {
     )).rows;
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
+    let catalogWordsChanged = false;
     for (const [index, scope] of scopes.entries()) {
       const started = Date.now();
       try {
@@ -46,6 +47,8 @@ try {
         const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
         console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+        // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
+        if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
       } catch (error) {
         const reason = error instanceof BasbugImportError ? error.message : "No verified adapter for scope";
         console.error({ group: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });
@@ -56,6 +59,15 @@ try {
           break;
         }
       }
+    }
+    if (catalogWordsChanged) {
+      // "Did you mean" suggestions only know words already in search_vocabulary (db/search.sql).
+      // A failed refresh keeps yesterday's words, so it is reported but does not fail the scheduler.
+      const started = Date.now();
+      try {
+        await worker.query("SELECT refresh_search_vocabulary()");
+        console.log({ searchVocabulary: "refreshed", seconds: Math.round((Date.now() - started) / 1000) });
+      } catch (error) { console.error({ searchVocabulary: "failed", code: (error as { code?: string }).code }); }
     }
     await worker.query("BEGIN");
     try {
