@@ -36,10 +36,12 @@ export async function applySupplierSnapshot(client: PoolClient, scope: SupplierS
     WHERE o.id IS NULL OR o.presence<>'present' OR
       ROW(o.product_data,o.price_data,o.stock_data,o.conflicting,o.source_variants) IS DISTINCT FROM
       ROW(n.product_data,n.price_data,n.stock_data,n.conflicting,n.source_variants)`, keys);
+  await client.query("CREATE UNIQUE INDEX ON sync_delta(code)");
   const counts = (await client.query<{ kind: "added" | "changed" | "restored"; count: string }>("SELECT kind,count(*) FROM sync_delta GROUP BY kind")).rows;
   const stats: SyncStats = { added: 0, changed: 0, restored: 0, unchanged: 0, missing: 0, inactive: 0 };
   for (const row of counts) stats[row.kind] = Number(row.count);
   stats.unchanged = items.length - stats.added - stats.changed - stats.restored;
+  // Only changed/new/restored rows enter this upsert, so changed_at always advances.
   await client.query(`INSERT INTO supplier_items
     (supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,source_variants,first_seen_at,last_seen_at,changed_at,last_import_id)
     SELECT $1,$2,$3,$4,code,product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,source_variants,$5,$5,$5,$6 FROM sync_delta
@@ -48,7 +50,7 @@ export async function applySupplierSnapshot(client: PoolClient, scope: SupplierS
       product_count=EXCLUDED.product_count,price_count=EXCLUDED.price_count,stock_count=EXCLUDED.stock_count,
       conflicting=EXCLUDED.conflicting,source_variants=EXCLUDED.source_variants,presence='present',missing_count=0,
       last_seen_at=EXCLUDED.last_seen_at,last_import_id=EXCLUDED.last_import_id,
-      changed_at=CASE WHEN EXISTS(SELECT 1 FROM sync_delta d WHERE d.code=EXCLUDED.code) THEN EXCLUDED.changed_at ELSE supplier_items.changed_at END`, [...keys, observedAt, importId]);
+      changed_at=EXCLUDED.changed_at`, [...keys, observedAt, importId]);
   // Unchanged JSON payloads stay untouched; only observation metadata and quality counts advance.
   await client.query(`UPDATE supplier_items o SET last_seen_at=$5,last_import_id=$6,
       product_count=n.product_count,price_count=n.price_count,stock_count=n.stock_count

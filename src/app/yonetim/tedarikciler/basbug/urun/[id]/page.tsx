@@ -6,6 +6,7 @@ import { ChevronRight, History } from "lucide-react";
 import { AdminColumns, AdminPage, AdminPageHeader, AdminPanel, EmptyState, StatusBadge } from "@/components/admin/ui";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
+import { basbugStockLabel, basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
 
 const date = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
 const warehouseNames: Record<string, string> = { MRK: "Merkez", IZM: "İzmir" };
@@ -21,7 +22,6 @@ export default async function SupplierItem({ params }: { params: Promise<{ id: s
   if (!item) notFound();
   const p = item.product_data;
   const sale = await getProduct(item.id);
-  const depots = Object.entries(item.stock_data?.depolar ?? {});
   const listHref = `/yonetim/tedarikciler/basbug?group=${encodeURIComponent(item.list_group)}`;
   return <AdminPage>
     <AdminPageHeader
@@ -33,12 +33,12 @@ export default async function SupplierItem({ params }: { params: Promise<{ id: s
       <AdminPanel title="Ürün bilgileri" description="Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.">
         <Fields values={{ "Ek açıklama": p.ac2, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, "Birim": p.b, "Liste grubu": p.lgk, "MKK (kaynak)": p.mkk }}/>
       </AdminPanel>
-      <AdminPanel title="Kaynak fiyat ve stok" description="NF, KDV hariç maliyettir. LF, MIF ve K satış hesaplamasında kullanılmaz. Stok sinyalleri adet değildir.">
-        <Fields values={{ "Para birimi": p.dc, LF: p.lf, "NF · KDV hariç maliyet": item.price_data?.nf ?? "Eksik", MIF: item.price_data?.mif ?? "Eksik", K: item.price_data?.k ?? "Eksik", "Yolda sinyali": item.stock_data?.sYol ?? "Eksik", "Farklı depo sinyali": item.stock_data?.sFarkliDepo ?? "Eksik" }}/>
+      <AdminPanel title="Kaynak fiyat ve stok" description="NF, KDV hariç maliyettir. LF, MIF ve K satış hesaplamasında kullanılmaz. Depolar için stok bulunabilirliği gösterilir.">
+        <Fields values={{ "Para birimi": p.dc, LF: p.lf, "NF · KDV hariç maliyet": item.price_data?.nf ?? "Eksik", MIF: item.price_data?.mif ?? "Eksik", K: item.price_data?.k ?? "Eksik", "Yolda": item.stock_data?.sYol === undefined ? "Veri yok" : item.stock_data.sYol > 0 ? "Var" : "Yok", "Diğer öncelik depoları": item.stock_data?.sFarkliDepo === undefined ? "Veri yok" : item.stock_data.sFarkliDepo > 0 ? "Stok var" : "Stok yok" }}/>
         <Separator className="my-4"/>
         <h3 className="mb-2 text-sm font-medium">Depo stokları</h3>
-        {depots.length ? <Fields values={Object.fromEntries(depots.map(([depot, signal]) => [`${warehouseNames[depot] ?? depot} (${depot})`, `${signal.stok > 0 ? "Var" : "Yok"}${signal.sYol > 0 ? " · Yolda" : ""}`]))}/>
-          : <><Fields values={{ "MRK stok sinyali": item.stock_data?.stok ?? "Eksik" }}/><p className="mt-2 text-xs text-muted-foreground">Depo bazlı stok sonraki çekimde gelecek.</p></>}
+        <Fields values={Object.fromEntries(basbugWarehouses.map(depot => [warehouseNames[depot] ? `${warehouseNames[depot]} (${depot})` : depot, `${basbugStockLabel(basbugWarehouseStock(item.stock_data, depot))}${(item.stock_data?.depolar?.[depot]?.sYol ?? (depot === "MRK" ? item.stock_data?.sYol : 0) ?? 0) > 0 ? " · Yolda" : ""}`]))}/>
+        <p className="mt-2 text-xs text-muted-foreground">“Veri yok”, stok yanıtı alınmayan veya hesabın erişemediği depoları belirtir.</p>
       </AdminPanel>
     </AdminColumns>
     <AdminPanel title="Getirbakim satış fiyatı" actions={<><Link className="font-medium text-primary hover:underline" href="/yonetim/fiyatlandirma">Kâr ve KDV oranları →</Link>{sale && <Link className="font-medium text-primary hover:underline" href={`/urun/${sale.id}`}>Katalogda aç →</Link>}</>}>

@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import type { Pool } from "pg";
 import { applySupplierSnapshot, rejectionReason } from "./sync";
+import { basbugWarehouses } from "./basbug-stock";
+export { basbugWarehouses } from "./basbug-stock";
 
 // Shared by the admin server action and CLI. Never imported by a client component.
 const productSchema = z.object({
@@ -15,9 +17,6 @@ const stockSchema = z.object({ no: z.string().min(1), stok: z.number().finite(),
 const groupsSchema = z.object({ malzemeGruplariListesi: z.array(z.object({ kod: z.string().min(1), ad: z.string() })) });
 const currenciesSchema = z.object({ dovizListesi: z.array(z.object({ dovizCinsi: z.string(), alis: z.string().regex(/^\d+(\.\d+)?$/), satis: z.string().regex(/^\d+(\.\d+)?$/) })) });
 const authSchema = z.object({ token: z.string().min(1), tokenTipi: z.literal("Bearer"), tokenBitisSuresi: z.number().positive() });
-// Warehouses this account may query; others answer HTTP 607 ("Depo Oncelik bilginiz bulunmamaktadir").
-// Values are availability flags (0/1), not quantities.
-export const basbugWarehouses = ["MRK", "IZM", "IAN", "TRK"] as const;
 export const importOptions = z.object({ mode: z.enum(["full", "commerce"]).default("full"), group: z.string().regex(/^[A-Z0-9_-]{1,30}$/), warehouse: z.literal("MRK"), company: z.string().trim().min(1).max(100).optional(), acceptAnomaly: z.string().trim().min(10).max(500).optional() });
 
 export class BasbugImportError extends Error {
@@ -66,8 +65,8 @@ export function prepareBasbugImport(input: { products: unknown; prices: unknown;
     const depotRows = depots.flatMap(([depot, rows]) => rows.has(code) ? [[depot, rows.get(code)!] as const] : []);
     const depotConflicts = Object.fromEntries(depotRows.filter(([, row]) => row.conflicting).map(([depot, row]) => [depot, row.variants]));
     // Per-warehouse flags ride inside stock_data so change history and checkout keep one stock record.
-    const stock_data = primary && depots.length
-      ? { ...primary.value, depolar: Object.fromEntries(depotRows.map(([depot, row]) => [depot, { stok: row.value.stok, sYol: row.value.sYol }])) }
+    const stock_data = depots.length && (primary || depotRows.length)
+      ? { ...primary?.value, depolar: Object.fromEntries(depotRows.map(([depot, row]) => [depot, { stok: row.value.stok, sYol: row.value.sYol }])) }
       : primary?.value ?? null;
     return {
       code, product_data: product.value, price_data: f.get(code)?.value ?? null,
@@ -85,7 +84,7 @@ export function prepareBasbugImport(input: { products: unknown; prices: unknown;
   return { items, quality: {
     productRows: products.length, priceRows: prices.length, stockRows: stock.length,
     uniqueProducts: p.size, missingPrices: items.filter(i => !i.price_data).length,
-    missingStocks: items.filter(i => !i.stock_data).length,
+    missingStocks: items.filter(i => i.stock_data?.stok === undefined).length,
     duplicateCodes: items.filter(i => i.product_count > 1 || i.price_count > 1 || i.stock_count > 1).length,
     conflictingCodes: items.filter(i => i.conflicting).length,
     orphanPrices: [...f.keys()].filter(k => !p.has(k)).length,
@@ -133,7 +132,7 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       const auth = authSchema.parse(await result.json());
       token = auth.token; expires = before + auth.tokenBitisSuresi * 1000;
     }
-    async function get(path: string, params: Record<string, string> = {}) {
+    async function get(path: string, params: Record<string, string> = {}, optionalDepot = false) {
       if (existsSync(resolve(".local/basbug-paused"))) throw new BasbugImportError("paused");
       if (Date.now() >= expires - 70_000) await login();
       progress?.(path);
@@ -141,9 +140,16 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       const url = new URL(`/material/${path}`, base);
       url.search = new URLSearchParams({ FirmaAdi: company, ...params }).toString();
       const result = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(60_000) });
+      // 607 means this account has no priority/access for this depot. It is unknown, not out of stock.
+      if (optionalDepot && result.status === 607) {
+        observations[`${path}:${params.Depo}:607`] = new Date().toISOString();
+        return undefined;
+      }
       if (!result.ok) throw new BasbugImportError("upstream", `${path} HTTP ${result.status}`);
       const data: unknown = await result.json();
-      observations[path] = new Date().toISOString();
+      const observed = new Date().toISOString();
+      observations[params.Depo ? `${path}:${params.Depo}` : path] = observed;
+      if (params.Depo === warehouse) observations[path] = observed;
       return data;
     }
     const baseline = mode === "commerce" ? (await connection.query<{
@@ -169,8 +175,9 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
     const prices = await get("FiyatGetir", { ListeGrubu: group });
     const warehouseStocks: Record<string, unknown> = {};
     for (const depot of basbugWarehouses) {
-      const data = await get("StokGetir", { ListeGrubu: group, Depo: depot });
-      if (stockList.parse(data).stokListesi.some(row => row.sDepo !== depot)) throw new BasbugImportError("contract");
+      const data = await get("StokGetir", { ListeGrubu: group, Depo: depot }, depot !== warehouse);
+      if (data === undefined) continue;
+      stockList.parse(data);
       warehouseStocks[depot] = data;
     }
     const stock = warehouseStocks[warehouse];
@@ -190,7 +197,6 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       prepared.quality.duplicateCodes = prepared.items.filter(item => item.product_count>1 || item.price_count>1 || item.stock_count>1).length;
       prepared.quality.conflictingCodes = prepared.items.filter(item => item.conflicting).length;
     }
-    if (prepared.items.some(i => i.stock_data && i.stock_data.sDepo !== warehouse)) throw new BasbugImportError("contract");
     stage = "DB";
     progress?.(stage);
     await connection.query("BEGIN"); inTransaction = true;

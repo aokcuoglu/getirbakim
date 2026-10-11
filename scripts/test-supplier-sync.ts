@@ -125,6 +125,29 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     assert.equal((await importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" })).stats.added,5);
     assert.equal((await importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" })).stats.unchanged,5);
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_import_items")).rows[0].count),0);
+    const depotFetch = globalThis.fetch;
+    const requestedDepots: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("StokGetir")) {
+        const depot = url.searchParams.get("Depo")!;
+        requestedDepots.push(depot);
+        if (depot === "KYS") return { ok:false, status:607 } as Response;
+      }
+      return depotFetch(input, init);
+    };
+    const partial = await importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" });
+    assert.deepEqual(requestedDepots, ["MRK","IZM","IAN","TRK","KYS"]);
+    const depots = (await client.query("SELECT stock_data->'depolar' AS depots FROM supplier_items LIMIT 1")).rows[0].depots;
+    assert.equal(depots.KYS, undefined);
+    assert.equal(depots.IZM.stok, 1);
+    const observations = (await client.query("SELECT observations FROM supplier_imports WHERE id=$1",[partial.id])).rows[0].observations;
+    assert.ok(observations["StokGetir:IZM"]);
+    assert.ok(observations["StokGetir:KYS:607"]);
+    globalThis.fetch = async (input, init) => String(input).includes("Depo=MRK") ? { ok:false, status:607 } as Response : depotFetch(input, init);
+    await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "upstream");
+    await client.query("DELETE FROM supplier_imports WHERE status='failed'");
+    globalThis.fetch = depotFetch;
     fail=true;
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "upstream");
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_imports WHERE status='failed'")).rows[0].count),1);
