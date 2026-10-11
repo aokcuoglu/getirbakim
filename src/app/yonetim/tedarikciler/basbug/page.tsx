@@ -4,8 +4,8 @@ import { SupplierHealthStatus } from "@/components/admin/supplier-health-status"
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import Link from "next/link";
-import { CalendarClock, ChevronLeft, ChevronRight, History, PackageSearch, Search, SearchX } from "lucide-react";
-import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
+import { ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, History, PackageSearch, SearchX } from "lucide-react";
+import { BasbugProductFilters } from "@/components/admin/basbug-product-filters";
 import { AdminPage, AdminPageHeader, AdminPanel, ButtonLink, EmptyState, PagerLink, StatusBadge, StatusMessage } from "@/components/admin/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,6 @@ import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -22,6 +21,7 @@ import { refreshBasbug, saveBasbugCheckoutMode } from "./actions";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { money } from "@/modules/store/catalog";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { basbugStockLabel, basbugWarehouse, basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 }).format(value);
 // Remove only insignificant trailing zeroes; preserve the source precision.
@@ -59,18 +59,19 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
   function pageUrl(target: number) {
     const query = new URLSearchParams({ group, page: String(target) });
-    for (const key of ["q", "brand", "currency", "stock", "quality", "presence"] as const) if (params[key]) query.set(key, params[key]!);
+    for (const key of ["q", "brand", "currency", "warehouse", "stock", "quality", "presence"] as const) if (params[key]) query.set(key, params[key]!);
     return `/yonetim/tedarikciler/basbug?${query}`;
   }
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
-  const lastCommerce = mrkScopes.map(scope => scope.commerce_last_success_at).filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0];
+  const lastCommerce = mrkScopes.map(scope => scope.commerce_last_success_at).filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0]
+    ?? (snapshot?.observations.DovizBilgisiGetir ? new Date(snapshot.observations.DovizBilgisiGetir) : undefined);
   const runTones: Record<string, "success" | "error" | "warning" | "info"> = { running: "info", succeeded: "success", failed: "error", rejected: "warning" };
   const runStatus = (status: string) => <StatusBadge tone={runTones[status] ?? "neutral"}>{({running:"Çalışıyor",succeeded:"Başarılı",failed:"Başarısız",rejected:"İnceleme gerekli"} as Record<string,string>)[status] || status}</StatusBadge>;
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>Math.max(1,Math.min(page-2,pages-4))+i),pages])).filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);
   const facts: [string, string, string][] = [
     ["Zamanlayıcı", data.health.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", `Son kontrol: ${data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "henüz yok"}`],
     ["Son fiyat · stok · kur", lastCommerce ? date(lastCommerce) : "Henüz yok", `${mrkScopes.length} grup otomatik izleniyor`],
-    ["Son tam aktarım", snapshot ? date(snapshot.completed_at) : "Henüz yok", snapshot ? `${snapshot.list_group} · ${number(snapshot.quality.uniqueProducts)} ürün` : "Grup seçilmedi"],
+    ["Son aktarım", snapshot ? date(snapshot.completed_at) : "Henüz yok", snapshot ? `${snapshot.list_group} · ${number(snapshot.quality.uniqueProducts)} ürün` : "Grup seçilmedi"],
     ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Sipariş fiyat/stok teyidi bekler" : "Siparişte API doğrulaması"],
   ];
   return <AdminPage>
@@ -86,12 +87,12 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </Card>
     <SupplierHealthStatus health={data.health} group={group} refresh={refreshBasbug}/>
     <SupplierTabs key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
-      <AdminPanel title="Kaynağı güncelle" description="Başbuğ API’sinden çekilecek grubu seç. Bu seçim ürün filtrelerinden bağımsızdır." actions={<Badge variant="outline">API · MRK deposu</Badge>}>
+      <AdminPanel title="Kaynağı güncelle" description="Başbuğ API’sinden çekilecek grubu seç. Bu seçim ürün filtrelerinden bağımsızdır." actions={<Badge variant="outline">API · Depo bazlı stok</Badge>}>
         <form action={refreshBasbug} className="flex flex-wrap items-end gap-2">
           <Field className="w-full max-w-xs gap-1.5"><FieldLabel htmlFor="refresh-group">Çekilecek liste grubu</FieldLabel><NativeSelect id="refresh-group" className="w-full" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect></Field>
           <SupplierRefreshButton/>
         </form>
-        <p className="mt-2 mb-4 text-sm text-muted-foreground">Depo: MRK · Güncelleme seçilen grubu kapsar. NF, KDV hariç maliyettir; satış fiyatı döviz kuru, yönetilebilir kâr ve KDV ile hesaplanır. Stok sinyalleri adet değildir.</p>
+        <p className="mt-2 mb-4 text-sm text-muted-foreground">{basbugWarehouses.join(" · ")} depoları ayrı ayrı sorgulanır. Erişilemeyen depo için “Veri yok” gösterilir. Güncelleme seçilen grubu kapsar. NF, KDV hariç maliyettir; satış fiyatı döviz kuru, yönetilebilir kâr ve KDV ile hesaplanır.</p>
         <SupplierRefreshAll groups={knownGroups.map(group => group.kod)}/>
       </AdminPanel>
       <AdminPanel title="Sepet ve sipariş" description={checkoutMode === "snapshot" ? "Kayıtlı fiyat, kur ve stok verileri kullanılıyor. Siparişte API çağrısı yapılmaz; kayıtlar stok ve fiyat teyidi bekler." : "Sipariş sırasında Başbuğ API’sinden fiyat ve stok doğrulanır. Güncellik sınırını aşan kayıtlar satışa kapanır."}
@@ -132,32 +133,34 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         </div>)}</div>
         <Collapsible className="mt-4">
           <CollapsibleTrigger className="group inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"><ChevronRight className="size-4 transition-transform group-data-panel-open:rotate-90" aria-hidden="true"/>Verilerin çekilme zamanları</CollapsibleTrigger>
-          <CollapsibleContent className="mt-2 overflow-hidden rounded-lg border"><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead className="pl-3">Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead className="pr-3">Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).map(([key,value]) => <TableRow key={key}><TableCell className="pl-3 font-medium">{({products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[key] || key}</TableCell><TableCell>{snapshot.list_group} / {snapshot.warehouse}</TableCell><TableCell className="pr-3 tabular-nums"><time dateTime={new Date(value).toISOString()}>{date(new Date(value))}</time></TableCell></TableRow>)}</TableBody></Table></CollapsibleContent>
+          <CollapsibleContent className="mt-2 overflow-hidden rounded-lg border"><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead className="pl-3">Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead className="pr-3">Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).filter(([key]) => key !== "StokGetir" || !snapshot.observations["StokGetir:MRK"]).map(([key,value]) => { const [service,depot,error] = key.split(":"); return <TableRow key={key}><TableCell className="pl-3 font-medium">{({MalzemeleriGetir:"Ürünler",FiyatGetir:"Fiyatlar",StokGetir:"Stoklar",DovizBilgisiGetir:"Kurlar",ListeGrubuGetir:"Liste grupları",products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[service] || service}{error === "607" && <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">Depo erişimi yok (607)</span>}</TableCell><TableCell>{snapshot.list_group} / {depot || snapshot.warehouse}</TableCell><TableCell className="pr-3 tabular-nums"><time dateTime={new Date(value).toISOString()}>{date(new Date(value))}</time></TableCell></TableRow>; })}</TableBody></Table></CollapsibleContent>
         </Collapsible>
       </AdminPanel>}
     </div>} products={
 
     <SupplierBrowser><Card className="gap-0 py-0">
-      <form key={[group,params.q,params.brand,params.currency,params.stock,params.presence,params.quality].join("|")} className="flex flex-wrap items-center gap-2 border-b p-3" action="/yonetim/tedarikciler/basbug">
-        <InputGroup className="w-full sm:w-80"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Parça kodu, OEM, ürün adı veya marka" maxLength={120}/></InputGroup>
-        <NativeSelect aria-label="Liste grubu" name="group" defaultValue={group}><NativeSelectOption value="">Tüm çekilmiş gruplar</NativeSelectOption>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad}{data.snapshots.some(s => s.list_group === g.kod) ? " · Verisi hazır" : " · Henüz çekilmedi"}</NativeSelectOption>)}</NativeSelect>
-        <NativeSelect aria-label="Marka" name="brand" defaultValue={params.brand || ""}><NativeSelectOption value="">Tüm markalar</NativeSelectOption>{brands.map(b => <NativeSelectOption key={b} value={b}>{b || "Belirtilmemiş"}</NativeSelectOption>)}</NativeSelect>
-        <NativeSelect aria-label="Para birimi" name="currency" defaultValue={params.currency || ""}><NativeSelectOption value="">Tüm para birimleri</NativeSelectOption>{currencies.map(c => <NativeSelectOption key={c} value={c}>{c}</NativeSelectOption>)}</NativeSelect>
-        <NativeSelect aria-label="MRK stok sinyali" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">MRK stok: tümü</NativeSelectOption><NativeSelectOption value="1">MRK stok sinyali: 1</NativeSelectOption><NativeSelectOption value="0">MRK stok sinyali: 0</NativeSelectOption></NativeSelect>
-        <NativeSelect aria-label="Listede bulunma" name="presence" defaultValue={params.presence || "present"}><NativeSelectOption value="present">Güncel listede var</NativeSelectOption><NativeSelectOption value="pending_missing">İlk kez bulunamadı</NativeSelectOption><NativeSelectOption value="inactive">İki çekimde bulunamadı</NativeSelectOption><NativeSelectOption value="all">Tüm kayıtlar</NativeSelectOption></NativeSelect>
-        <NativeSelect aria-label="Veri kalitesi" name="quality" defaultValue={params.quality || ""}><NativeSelectOption value="">Kalite: tümü</NativeSelectOption><NativeSelectOption value="missing-price">Fiyatı eksik</NativeSelectOption><NativeSelectOption value="duplicates">Tekrarlanan kod</NativeSelectOption><NativeSelectOption value="conflicts">Çelişkili kayıt</NativeSelectOption></NativeSelect>
-        <Button type="submit">Filtrele</Button><ButtonLink variant="ghost" href={`?group=${group}`}>Temizle</ButtonLink>
-      </form>
+      <BasbugProductFilters key={[group,params.q,params.brand,params.currency,params.warehouse,params.stock,params.presence,params.quality].join("|")} params={params} groups={knownGroups.map(g => ({ ...g, ready: data.snapshots.some(s => s.list_group === g.kod) }))} brands={brands} currencies={currencies}/>
       {!snapshot ? <EmptyState title="Bu grubun verileri henüz çekilmedi." icon={<PackageSearch/>}>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyState> : <div className="transition-opacity group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-45">
-        <div className="flex justify-between gap-3 border-b px-4 py-2.5 text-sm text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün</span><span>{group || "Tüm liste grupları"} · MRK</span></div>
-        {items.length ? <Table className="min-w-[1080px]"><caption className="sr-only">Başbuğ ürünleri ve kaynak fiyat/stok alanları</caption><TableHeader><TableRow><TableHead className="pl-4">Parça / OEM</TableHead><TableHead>Ürün / Marka</TableHead><TableHead>Para birimi</TableHead><TableHead className="text-right">LF</TableHead><TableHead className="text-right">NF</TableHead><TableHead className="text-right">MIF</TableHead><TableHead className="text-right">K</TableHead><TableHead title="Stok sinyalleri adet değildir">MRK sinyali</TableHead><TableHead>Kontrol</TableHead><TableHead className="pr-4">Satış · KDV dahil</TableHead></TableRow></TableHeader><TableBody>{items.map(item => <TableRow key={item.id} className="align-top">
-          <TableCell className="max-w-60 pl-4"><Link className="font-mono text-xs font-medium text-primary hover:underline" href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>{item.code}</Link><div className="truncate text-xs text-muted-foreground">OEM: {item.product_data.oe || "—"}</div></TableCell>
-          <TableCell className="max-w-80 whitespace-normal"><div className="font-medium">{item.product_data.ac}</div><div className="text-xs text-muted-foreground">{item.product_data.uk} · {item.product_data.ac2}</div></TableCell>
-          <TableCell>{item.product_data.dc}</TableCell><TableCell className="text-right tabular-nums">{number(item.product_data.lf)}</TableCell><TableCell className="text-right tabular-nums">{item.price_data ? number(item.price_data.nf) : "Eksik"}</TableCell><TableCell className="text-right tabular-nums">{item.price_data ? number(item.price_data.mif) : "Eksik"}</TableCell><TableCell className="text-right tabular-nums">{item.price_data?.k ?? "—"}</TableCell>
-          <TableCell title="Kaynak stok sinyali; adet doğrulanmadı"><StatusBadge tone={item.stock_data ? (Number(item.stock_data.stok) > 0 ? "success" : "neutral") : "warning"}>{item.stock_data ? `Sinyal ${item.stock_data.stok}` : "Eksik"}</StatusBadge></TableCell>
-          <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : !item.price_data ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? <StatusBadge tone="info">Tekrar var</StatusBadge> : <span className="text-muted-foreground">—</span>}<Link className="mt-1 block text-xs font-medium text-primary hover:underline" href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>Detay →</Link></TableCell>
-          <TableCell className="pr-4"><div className="font-semibold tabular-nums">{item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"}</div><div className="text-xs text-muted-foreground">{item.sale_stock_label}</div><AdminAddToCart productId={item.id} name={item.product_data.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/></TableCell>
-        </TableRow>)}</TableBody></Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyState>}
+        <div className="flex flex-wrap justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>NF: KDV hariç maliyet · Satış: KDV dahil</span></div>
+        {items.length ? <Table className="min-w-[1220px] table-fixed text-xs [&_td]:py-1.5"><caption className="sr-only">Başbuğ ürünleri, fiyatları ve depo bazlı stok durumları</caption>
+          <colgroup><col className="w-[112px]"/><col className="w-[92px]"/><col className="w-[184px]"/><col className="w-[80px]"/><col className="w-[36px]"/><col className="w-[78px]"/><col className="w-[100px]"/>{basbugWarehouses.map(depot => <col key={depot} className="w-[82px]"/>)}<col className="w-[90px]"/><col className="w-[34px]"/></colgroup>
+          <TableHeader><TableRow className="bg-muted/40"><TableHead className="pl-4">Parça kodu</TableHead><TableHead>OEM</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead title="Kaynak para birimi">PB</TableHead><TableHead className="text-right" title="KDV hariç maliyet">NF</TableHead><TableHead className="text-right">Satış (₺)</TableHead>{basbugWarehouses.map(depot => <TableHead key={depot} className={cn("text-center", depot === basbugWarehouse(params.warehouse) && "bg-primary/5")} title={`${depot} depo stok durumu`}>{depot}</TableHead>)}<TableHead>Kontrol</TableHead><TableHead><span className="sr-only">Ürün detayı</span></TableHead></TableRow></TableHeader>
+          <TableBody>{items.map(item => <TableRow key={item.id}>
+            <TableCell className="pl-4"><Link className="block truncate font-mono font-medium text-primary hover:underline" title={item.code} href={`/yonetim/tedarikciler/basbug/urun/${item.id}`}>{item.code}</Link></TableCell>
+            <TableCell className="truncate text-muted-foreground" title={item.product_data.oe}>{item.product_data.oe || "—"}</TableCell>
+            <TableCell className="truncate font-medium" title={[item.product_data.ac,item.product_data.ac2].filter(Boolean).join(" · ")}>{item.product_data.ac}</TableCell>
+            <TableCell className="truncate text-muted-foreground" title={item.product_data.uk}>{item.product_data.uk || "—"}</TableCell>
+            <TableCell className="text-muted-foreground">{item.product_data.dc}</TableCell>
+            <TableCell className="truncate text-right tabular-nums" title={item.price_data ? number(item.price_data.nf) : "Fiyat eksik"}>{item.price_data ? number(item.price_data.nf) : "Eksik"}</TableCell>
+            <TableCell className="truncate text-right font-semibold tabular-nums" title={item.sale_price_kurus ? money(item.sale_price_kurus) : "Satış fiyatı yok"}>{item.sale_price_kurus ? money(item.sale_price_kurus) : "—"}</TableCell>
+            {basbugWarehouses.map(depot => {
+              const stock = basbugWarehouseStock(item.stock_data, depot);
+              return <TableCell key={depot} className={cn("text-center", depot === basbugWarehouse(params.warehouse) && "bg-primary/5")}><span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap", stock === null ? "text-amber-700 dark:text-amber-400" : stock > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")} title={stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`}><span className={cn("size-1.5 shrink-0 rounded-full", stock === null ? "bg-amber-500" : stock > 0 ? "bg-emerald-500" : "bg-muted-foreground/40")} aria-hidden="true"/>{basbugStockLabel(stock)}</span></TableCell>;
+            })}
+            <TableCell>{item.presence !== "present" ? <StatusBadge tone="warning">{item.presence === "inactive" ? "Pasif" : "Listede yok"}</StatusBadge> : item.conflicting ? <StatusBadge tone="error">Çelişkili</StatusBadge> : !item.price_data ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : item.product_count > 1 || item.price_count > 1 || item.stock_count > 1 ? <StatusBadge tone="info">Tekrar var</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
+            <TableCell className="pr-3"><Link className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary" href={`/yonetim/tedarikciler/basbug/urun/${item.id}`} aria-label={`${item.code} ürün detayı`} title="Ürün detayını aç"><ArrowUpRight className="size-3.5" aria-hidden="true"/></Link></TableCell>
+          </TableRow>)}</TableBody>
+        </Table> : <EmptyState title="Filtrelere uygun ürün bulunamadı." icon={<SearchX/>}>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyState>}
         <nav className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm" aria-label="Ürün sayfaları">
           <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
           <div className="flex flex-wrap items-center gap-1">

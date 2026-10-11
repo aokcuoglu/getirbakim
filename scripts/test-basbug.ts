@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
+import { basbugStockLabel, basbugWarehouseStock } from "../src/modules/suppliers/basbug-stock";
 
 const product = { no: "TEST 001", ac: "Test", ac2: "", uk: "MARKA", oe: "60 607 218", lgk: "FIAT", m: "MODEL", mo: "", y: "07-", b: "ADET", dc: "EUR", lf: 4.05, mkk: "" };
 const price = { no: product.no, nf: 3.01, mif: 3.27, k: 0 };
@@ -54,4 +55,24 @@ test("warehouse stocks attach per-depot flags to the primary stock record", () =
   assert.equal(item.stock_count, 1);
   assert.equal(item.conflicting, true);
   assert.equal(item.source_variants.warehouseStocks?.IAN.length, 2);
+});
+
+test("warehouse availability distinguishes absent data from zero and uses only the MRK legacy fallback", () => {
+  assert.equal(basbugWarehouseStock(stock, "MRK"), 1);
+  assert.equal(basbugWarehouseStock({ ...stock, sDepo: "IZM" }, "IZM"), null);
+  assert.equal(basbugWarehouseStock(null, "MRK"), null);
+  const data = { ...stock, depolar: { MRK: { stok: 0, sYol: 0 }, IZM: { stok: 3, sYol: 0 } } };
+  assert.equal(basbugWarehouseStock(data, "MRK"), 0);
+  assert.equal(basbugStockLabel(basbugWarehouseStock(data, "IZM")), "Stok var");
+  assert.equal(basbugStockLabel(basbugWarehouseStock(data, "MRK")), "Stok yok");
+  assert.equal(basbugStockLabel(basbugWarehouseStock(data, "KYS")), "Veri yok");
+});
+
+test("other depot data survives a missing MRK row without pretending the primary stock is known", () => {
+  const result = prepareBasbugImport({ products: { malzemeListesi: [product] }, prices: { fiyatListesi: [price] }, stock: { stokListesi: [] },
+    warehouseStocks: { IZM: { stokListesi: [{ ...stock, sDepo: "MRK,TRK", stok: 1 }] }, KYS: { stokListesi: [] } } });
+  assert.equal(result.quality.missingStocks, 1);
+  assert.equal(basbugWarehouseStock(result.items[0].stock_data, "MRK"), null);
+  assert.equal(basbugWarehouseStock(result.items[0].stock_data, "IZM"), 1);
+  assert.equal(basbugWarehouseStock(result.items[0].stock_data, "KYS"), null);
 });

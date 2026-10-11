@@ -5,19 +5,21 @@ Admin hesabıyla `/yonetim` ekranındaki **Başbuğ verilerini incele** bağlant
 ## Görünen bilgiler
 
 - Grup bazında farklı ürün, eksik fiyat, tekrarlanan kod ve çelişkili kod sayıları.
-- Parça kodu, ham OEM referansları, ürün adı, ek açıklama, marka, kaynak para birimi, LF/NF/MIF/K alanları ve MRK stok sinyali.
+- Tek satırda parça kodu, OEM referansları, ürün adı, marka, kaynak para birimi, NF maliyeti, KDV dahil satış fiyatı ve MRK/IZM/IAN/TRK/KYS depo stokları. LF/MIF/K ve ek açıklama ürün detayında yer alır.
 - Son başarılı aktarım, her servisin çekilme zamanı, ham/tekil satır sayıları ve eşleşmeyen fiyat/stok kayıtlarının sayısı.
 - Kaynak alış/satış kur değerleri. API kurun yürürlük tarihini vermediği için böyle bir tarih gösterilmez.
-- Parça/OEM/ad/marka araması; liste grubu, marka, para birimi, 0/1 stok sinyali ve veri kalitesi filtreleri. Sayfada en fazla 50 kayıt.
+- Tek satırlık parça/OEM/ad/marka araması, liste grubu, marka, para birimi, depo ve stok durumu filtreleri. Listede bulunma ve veri kalitesi seçenekleri **Diğer filtreler** menüsündedir. Sayfada en fazla 50 kayıt; dar ekranlarda filtre çubuğu ve tablo kendi içinde yatay kaydırılır.
 - Parça koduna tıklayarak kaynak model/motor/yıl metinlerini, fiyat/depo alanlarını ve JSON alanlarını inceleme. Çelişkili tekrarların farklı değerleri saklanır ve detayda görülebilir.
 
 NF kullanıcı tarafından KDV hariç maliyet olarak doğrulandı. Satış fiyatı TRY kuru, yönetilebilir kâr ve KDV üzerinden hesaplanır. LF/MIF/K satış formülünde kullanılmaz. Stok sinyalleri adet olarak sunulmaz. Model/motor/yıl metni kesin araç uyumluluğu sayılmaz. [Satış ve sipariş yönetimi](commerce.md).
 
 ## Güncelleme
 
-İstenen liste grubunu seçip **Seçili grubu API’den güncelle** düğmesine basın. MRK, Postman koleksiyonunda doğrulanmış depo olduğu için bu sürümde sabittir. İşlem sırasında düğme devre dışı kalır. Grup, Başbuğ'un güncel grup yanıtıyla doğrulanır.
+İstenen liste grubunu seçip **Seçili grubu API’den güncelle** düğmesine basın. İşlem sırasında düğme devre dışı kalır. Grup, Başbuğ'un güncel grup yanıtıyla doğrulanır. Ana kayıt kapsamı MRK olarak kalır; her ürünün diğer depo yanıtları aynı kaydın `stock_data.depolar` alanında saklanır.
 
-İşlem Auth alır; grup listesi, ürünler, fiyatlar, MRK stokları ve kurları çeker. Tokenlar bellekte tutulur; erişim süresi dolmaya yaklaşırsa yeniden Auth alınır. Logout/refresh-token akışı bu sürümde kullanılmaz.
+İşlem Auth alır; grup listesi, ürünler, fiyatlar, kurlar ve her depo için ayrı `StokGetir?FirmaAdi=BASBUG&ListeGrubu=…&Depo=…` çağrıları yapar. Güncel Malzeme Servisi belgesindeki MRK, IZM, IAN, TRK ve KYS kodları sorgulanır. MRK dışındaki bir depoda HTTP 607 (hesabın depo önceliği/erişimi yok) diğer depoların aktarımını engellemez; bu depo “Veri yok” olarak gösterilir. Diğer servis veya veri yapısı hataları önceki kayıtları korur. Depo bazında gözlem zamanı ve 607 sonucu kaydedilir. Tokenlar bellekte tutulur; erişim süresi dolmaya yaklaşırsa yeniden Auth alınır.
+
+Pozitif stok değeri **Stok var**, sıfır veya negatif değer **Stok yok**, alınmamış veya erişilemeyen veri **Veri yok** olarak gösterilir. `sDepo` diğer öncelik depolarını belirtebildiği için hangi deponun sorgulandığı URL'deki `Depo` parametresinden belirlenir. Eski kayıtlarda yalnız MRK stok alanı kullanılabilir; diğer depo bilgisi varsayılmaz. Stok filtreleri seçilen depoya uygulanır, “stok yok” filtresi eksik veriyi kapsamaz. Sayfalama depo seçimini korur.
 
 Yanıtlar doğrulandıktan sonra güncel kayıtlar `supplier_items` tablosunda tek transaction ile güncellenir. `supplier_imports` her denemenin durumunu ve sayaçlarını; `supplier_item_changes` yalnız içerik veya listede bulunma değişikliklerini tutar. Eski `supplier_import_items` tablosuna yeni veri yazılmaz. Kayıp ürün iki başarılı çekimde pasife alınır; geri gelirse aynı kimlikle etkinleşir. Şüpheli ürün sayısı / eksik fiyat-stok artışı çekimi reddeder. Hata ve reddedilen çekimde güncel veri korunur.
 
@@ -34,7 +36,7 @@ CLI: `npm run supplier:basbug:import`. `BASBUG_SAMPLE_GROUP` ile grup değiştir
 
 `npm run verify:basbug` çalışan uygulamada admin/servis/ziyaretçi erişimini, detayları, OEM aramasını, filtreleri, sayfalamayı, Server Action yetkisini/CSRF kontrolünü, değişiklik geçmişini ve aktarım kilidini doğrular. Geçici servis ve oturumları temizler. Canlı FIAT/MRK verisi ve örnek `COR 82016529` kaydı gerekir. `VERIFY_URL` varsayılanı `http://localhost:3100`.
 
-Kaynak verileri mağaza `products` tablosundan ayrıdır. Çelişkisiz, listede mevcut Başbuğ ürünleri ortak `commerce_catalog` görünümü üzerinden müşteri kataloğu, sepet ve siparişe bağlanır. Yönetim tablosundaki **Satış · KDV dahil** sütunu aynı görünümden fiyat/stok ve sepete eklemeyi gösterir; kaynak NF/LF/MIF/K alanları korunur.
+Kaynak verileri mağaza `products` tablosundan ayrıdır. Çelişkisiz, listede mevcut Başbuğ ürünleri ortak `commerce_catalog` görünümü üzerinden müşteri kataloğu, sepet ve siparişe bağlanır. Yönetim tablosundaki **Satış (₺)** sütunu aynı görünümden KDV dahil fiyatı gösterir. Yönetim ürün listesinde miktar veya sepete ekleme işlemi bulunmaz; kaynak LF/MIF/K alanları ürün detayında korunur.
 
 7 Ekim 2026: Başbuğ bakımı nedeniyle **Kayıtlı veriler · Bakım süresince** sipariş modu eklendi ve yerelde etkinleştirildi. Son kaydedilmiş fiyat, kur ve stok sinyalleriyle sepet ve teyit bekleyen sipariş oluşturulur; API çağrısı yapılmaz. Yeni kurulumda canlı mod varsayılandır. Ayar bu sayfadaki **Sepet ve sipariş** kutusundan değiştirilebilir. Kaynak tarihlerine ve API durdurma dosyasına dokunulmaz. [Mod kuralları ve sipariş akışı](commerce.md).
 
