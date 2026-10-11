@@ -46,17 +46,26 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // Stable random sample. A pilot first takes one representative per supplier brand; the catalog pass skips that,
   // because every batch would otherwise start with hundreds of brand samples. Then saleable in-stock items, other
   // saleable items, and items no longer offered in the storefront, so linked products grow fastest where orders
-  // happen; every pending item is still reached.
-  await client.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,hash)-1,supplier_code,supplier_brand,oem FROM (
+  // happen; every pending item is still reached. Within each tier, brands the source has matched most often come
+  // first: a miss costs several rate-limited searches, so matched products per hour grow fastest this way. The yield
+  // is smoothed toward the overall rate so brands with few finished items stay in the middle until measured, and
+  // bucketed so brands of similar yield are still interleaved.
+  await client.query(`WITH finished AS (
+    SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
+    FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
+   overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished)
+   INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
+   SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
     SELECT j.*,md5($2||j.supplier_item_id::text) AS hash,
+     round(10*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)) AS yield_bucket,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
       ELSE 2 END AS priority
     FROM product_enrichment_jobs j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+     LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
     WHERE j.status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
-   ) s ORDER BY priority,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
+   ) s ORDER BY priority,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
