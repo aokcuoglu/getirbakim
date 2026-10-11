@@ -25,7 +25,7 @@ export type ProductSource = {
   saleable: boolean; price_kurus: number | null; available: boolean; stock_label: string | null; best: boolean;
 };
 export type ProductEquivalent = {
-  id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; kind: "oem" | "cross" | "brand";
+  id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; kind: "oem" | "cross" | "brand" | "manual";
   via_brand: string; via_part: string;
 };
 
@@ -109,14 +109,17 @@ export async function getMasterProduct(id: string) {
   return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null };
 }
 
-export type MergeTarget = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; same_brand: boolean };
+export type MergeTarget = {
+  id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; same_brand: boolean; equivalent: boolean;
+};
 
-/** Products to merge with `id`: part number or supplier code match, same brand first. */
+/** Products to merge with (or link as equivalent to) `id`: part number or supplier code match, same brand first. */
 export async function findMergeTargets(id: string, query: string | undefined) {
   await requireAdmin();
   const q = compact(query);
   if (q.length < 3) return { q, targets: [] as MergeTarget[] };
-  const targets = (await db.query<MergeTarget>(`SELECT p.id,p.brand_label,p.code,p.name,p.suppliers,p.brand=self.brand AS same_brand
+  const targets = (await db.query<MergeTarget>(`SELECT p.id,p.brand_label,p.code,p.name,p.suppliers,p.brand=self.brand AS same_brand,
+    EXISTS (SELECT 1 FROM product_equivalents e WHERE e.product_id=$1 AND e.equivalent_id=p.id) AS equivalent
     FROM products p, (SELECT brand FROM products WHERE id=$1) self
     WHERE p.id<>$1 AND p.merged_into IS NULL AND (p.part_number LIKE '%'||$2||'%' OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
       WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||$2||'%'))

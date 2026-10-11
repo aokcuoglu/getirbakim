@@ -143,6 +143,18 @@ CREATE TABLE IF NOT EXISTS product_equivalents (
  kind text NOT NULL CHECK (kind IN ('oem','cross','brand')), brand text NOT NULL, part_number text NOT NULL,
  PRIMARY KEY (product_id,equivalent_id), CHECK (product_id<>equivalent_id)
 );
+-- manual: an admin linked the pair as equivalent (product_equivalent_decisions).
+ALTER TABLE product_equivalents DROP CONSTRAINT IF EXISTS product_equivalents_kind_check;
+ALTER TABLE product_equivalents ADD CONSTRAINT product_equivalents_kind_check CHECK (kind IN ('oem','cross','brand','manual'));
+-- Admin decisions on a product pair, kept across refreshes: equivalent adds the link the rules missed (different
+-- brands are never merged), unrelated suppresses a wrong automatic one.
+CREATE TABLE IF NOT EXISTS product_equivalent_decisions (
+ product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ status text NOT NULL CHECK (status IN ('equivalent','unrelated')),
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (product_a,product_b), CHECK (product_a<product_b)
+);
 
 -- Products the automatic key missed but that look the same (same brand, part numbers differing only in a supplier
 -- prefix, leading zeros or a short suffix): a Başbuğ-only product (a, kept) and a Dinamik-only product (b). Rebuilt
@@ -475,15 +487,26 @@ BEGIN
   SELECT sp.product_id, ip.product_id, CASE WHEN r.brand='ORIJINAL' THEN 'oem' ELSE 'cross' END, r.brand, r.part_number, 0
   FROM product_seta_references r JOIN item_products ip ON ip.item_id=r.item_id JOIN item_products sp ON sp.item_id=r.seta_item_id
   UNION ALL
-  -- Brand pairs decided as equivalent (same numbering, different product): every shared part number.
+  -- Brand pairs decided as equivalent (same numbering, different product): every shared part number. A trailing HD
+  -- (DAYCO's heavy-duty line of the same size: 10PK1725HD) is not part of the numbering.
   SELECT a.id, b.id, 'brand', b.brand, b.part_number, 2
   FROM product_brand_pair_decisions d
   JOIN products a ON a.brand IN (d.brand_a,d.brand_b) AND a.variant=0
-  JOIN products b ON b.brand IN (d.brand_a,d.brand_b) AND b.brand<>a.brand AND b.part_number=a.part_number AND b.variant=0
-  WHERE d.status='equivalent' AND length(a.part_number)>=5
+  JOIN products b ON b.brand IN (d.brand_a,d.brand_b) AND b.brand<>a.brand AND b.variant=0
+   AND regexp_replace(b.part_number,'HD$','')=regexp_replace(a.part_number,'HD$','')
+  WHERE d.status='equivalent' AND length(regexp_replace(a.part_number,'HD$',''))>=5
+  UNION ALL
+  -- Pairs an admin linked by hand; only used when no rule ties them.
+  SELECT product_a, product_b, 'manual', p.brand_label, p.part_number, 3 FROM product_equivalent_decisions JOIN products p ON p.id=product_b
+  WHERE status='equivalent'
+  UNION ALL
+  SELECT product_b, product_a, 'manual', p.brand_label, p.part_number, 3 FROM product_equivalent_decisions JOIN products p ON p.id=product_a
+  WHERE status='equivalent'
  )
  SELECT DISTINCT ON (product_id,equivalent_id) product_id, equivalent_id, kind, brand, part_number FROM pairs
- WHERE product_id<>equivalent_id ORDER BY product_id, equivalent_id, priority, brand, part_number;
+ WHERE product_id<>equivalent_id AND NOT EXISTS (SELECT 1 FROM product_equivalent_decisions d WHERE d.status='unrelated'
+  AND d.product_a=LEAST(product_id,equivalent_id) AND d.product_b=GREATEST(product_id,equivalent_id))
+ ORDER BY product_id, equivalent_id, priority, brand, part_number;
  ANALYZE product_equivalents;
  SELECT jsonb_build_object(
   'offer_groups', (SELECT count(DISTINCT primary_id) FROM product_offers),
