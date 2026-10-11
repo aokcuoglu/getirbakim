@@ -12,7 +12,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS login_attempts (
  email text PRIMARY KEY, attempts integer NOT NULL DEFAULT 1, window_start timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS products (
+-- Store-managed items (demo/manual, own price and stock). Formerly `products`; that name now belongs to the master
+-- catalog (db/product-matching.sql). Index names move with the table so the master table can reuse them.
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='products' AND column_name='supplier') THEN
+  ALTER TABLE products RENAME TO store_products;
+  ALTER INDEX IF EXISTS products_pkey RENAME TO store_products_pkey;
+  ALTER INDEX IF EXISTS products_supplier_code_key RENAME TO store_products_supplier_code_key;
+  ALTER INDEX IF EXISTS products_category_idx RENAME TO store_products_category_idx;
+ END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS store_products (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), supplier text NOT NULL CHECK (supplier IN ('dinamik','basbug','demo')),
  code text NOT NULL, name text NOT NULL, brand text NOT NULL, description text NOT NULL DEFAULT '',
  price_kurus integer NOT NULL CHECK (price_kurus > 0), stock integer NOT NULL CHECK (stock >= 0),
@@ -20,20 +30,20 @@ CREATE TABLE IF NOT EXISTS products (
 );
 CREATE TABLE IF NOT EXISTS cart_items (
  account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
- product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ product_id uuid NOT NULL REFERENCES store_products(id) ON DELETE CASCADE,
  quantity integer NOT NULL CHECK (quantity BETWEEN 1 AND 99), PRIMARY KEY (account_id,product_id)
 );
 
 -- Iteration 2: public storefront taxonomy and guest carts.
-ALTER TABLE products ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'yedek-parca';
-CREATE INDEX IF NOT EXISTS products_category_idx ON products(category);
+ALTER TABLE store_products ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'yedek-parca';
+CREATE INDEX IF NOT EXISTS store_products_category_idx ON store_products(category);
 CREATE TABLE IF NOT EXISTS guest_carts (
  token_hash text PRIMARY KEY,
  expires_at timestamptz NOT NULL DEFAULT now() + interval '30 days'
 );
 CREATE TABLE IF NOT EXISTS guest_cart_items (
  token_hash text NOT NULL REFERENCES guest_carts(token_hash) ON DELETE CASCADE,
- product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ product_id uuid NOT NULL REFERENCES store_products(id) ON DELETE CASCADE,
  quantity integer NOT NULL CHECK (quantity BETWEEN 1 AND 99),
  PRIMARY KEY (token_hash, product_id)
 );

@@ -55,10 +55,10 @@ export async function productMatchingData(params: MatchingParams) {
  * offer sold is the cheapest available one, the Başbuğ row winning ties: the rule of withBestOffers (store catalog).
  */
 async function sameProducts(params: MatchingParams) {
-  const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_offer_exclusions")).rows[0].count;
+  const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
   if (params.scope === "split") {
-    const split = (await db.query<SplitItem>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.decided_at
-      FROM product_offer_exclusions x JOIN supplier_items i ON i.id=x.item_id ORDER BY x.decided_at DESC LIMIT 200`)).rows;
+    const split = (await db.query<SplitItem>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at
+      FROM product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id WHERE x.method='manual' ORDER BY x.linked_at DESC LIMIT 200`)).rows;
     return { split, same: [] as SameProduct[], summary: undefined, scope: "split", total: split.length, page: 1, pages: 1, exclusions };
   }
   const scope = ["dinamik", "basbug", "none"].includes(params.scope ?? "") ? params.scope! : "all";

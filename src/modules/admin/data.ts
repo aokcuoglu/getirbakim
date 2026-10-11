@@ -19,7 +19,7 @@ const serviceColumns = "id,name,email,approved,discount_percent,contact_name,pho
 export async function adminOverview() {
   await requireAdmin();
   const [counts, accounts] = await Promise.all([
-    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM products) as products"),
+    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM store_products) as products"),
     db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY approved,name`),
   ]);
   return { counts: counts.rows[0], accounts: accounts.rows };

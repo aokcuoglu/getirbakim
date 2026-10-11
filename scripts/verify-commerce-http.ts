@@ -23,7 +23,7 @@ try {
  accountId=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved,discount_percent) VALUES('HTTP verify',$1,'unused','service',true,10) RETURNING id",[`${token}@example.invalid`])).rows[0].id;
  adminId=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('HTTP verify admin',$1,'unused','admin',true) RETURNING id",[`${adminToken}@example.invalid`])).rows[0].id;
  for(const [t,id] of [[token,accountId],[adminToken,adminId]]) await db.query("INSERT INTO sessions VALUES($1,$2,now()+interval '5 minutes')",[createHash('sha256').update(t).digest('hex'),id]);
- productId=(await db.query("INSERT INTO products(supplier,code,name,brand,price_kurus,stock) VALUES('demo',$1,'HTTP verify product','VERIFY',10000,2) RETURNING id",[`HTTP-${token}`])).rows[0].id;
+ productId=(await db.query("INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock) VALUES('demo',$1,'HTTP verify product','VERIFY',10000,2) RETURNING id",[`HTTP-${token}`])).rows[0].id;
  const detail=await get(`/urun/${productId}`);assert.equal(detail.res.status,200);assert.ok(detail.html.includes('90,00'));
  const add=fields(detail.html,'productId');add.set('quantity','1');assert.equal((await post(`/urun/${productId}`,add)).status,200);
  const cart=await get('/sepet');assert.equal(cart.res.status,200);assert.ok(cart.html.includes('/siparis-olustur'));
@@ -52,8 +52,8 @@ try {
  if(payments){
  assert.equal((await db.query('SELECT total_kurus FROM commerce_orders WHERE id=$1',[orderId])).rows[0].total_kurus,'9000');
  const orders=await get('/yonetim/siparisler',adminCookie);const status=fields(orders.html,'status');status.set('id',orderId);status.set('status','cancelled');assert.equal((await post('/yonetim/siparisler',status,adminCookie)).status,303);
- assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,2);
- await post('/yonetim/siparisler',status,adminCookie);assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,2);
+ assert.equal((await db.query('SELECT stock FROM store_products WHERE id=$1',[productId])).rows[0].stock,2);
+ await post('/yonetim/siparisler',status,adminCookie);assert.equal((await db.query('SELECT stock FROM store_products WHERE id=$1',[productId])).rows[0].stock,2);
  }
  const snapshotMode=(await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode==='snapshot';
  const supplier=snapshotMode?(await db.query("SELECT id FROM commerce_catalog WHERE source='supplier' AND available AND price_kurus IS NOT NULL LIMIT 1")).rows[0]:null;
@@ -78,5 +78,5 @@ try {
  for(const id of [orderId,guestOrderId])if(uuid.test(id)){await db.query('DELETE FROM commerce_order_items WHERE order_id=$1',[id]);await db.query('DELETE FROM commerce_orders WHERE id=$1',[id]);}
  if(guestHash)await db.query('DELETE FROM guest_carts WHERE token_hash=$1',[guestHash]);
  for(const id of [accountId,adminId])if(id)await db.query('DELETE FROM accounts WHERE id=$1',[id]);
- if(productId)await db.query('DELETE FROM products WHERE id=$1',[productId]);await db.end();
+ if(productId)await db.query('DELETE FROM store_products WHERE id=$1',[productId]);await db.end();
 }

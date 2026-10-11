@@ -49,7 +49,7 @@ export function PairDialog({ pair, back }: { pair: PairRow; back: string }) {
             <TableCell className="whitespace-normal break-words"><span className="font-mono">{sample.part_b}</span> · {sample.b || "—"}</TableCell>
           </TableRow>)}</TableBody></Table>}
       </div>
-      <DialogFooter className="items-center sm:justify-between"><span className="text-muted-foreground">Karar markanın tüm ortak parçalarına uygulanır.</span><PairDecision pair={pair} back={back}/></DialogFooter>
+      <DialogFooter className="items-center sm:justify-between"><span className="text-muted-foreground">“Aynı marka” iki markanın tüm ürünlerini birleştirir.</span><PairDecision pair={pair} back={back}/></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
@@ -86,8 +86,8 @@ export function DecisionHelp() {
     <DialogContent className="sm:max-w-lg">
       <DialogHeader><DialogTitle>Marka çifti kararları</DialogTitle><DialogDescription>Aynı parça numarası farklı tedarikçilerde farklı markayla geçiyor. Karar çiftin tüm ortak parçalarına uygulanır.</DialogDescription></DialogHeader>
       <dl className="flex flex-col gap-3">
-        <div><dt className="font-medium">Aynı marka</dt><dd className="text-muted-foreground">İki etiket aynı ürünü satar (M.MARELLI / MAGNETI MARELLI, MAHLE / MAHLE FILTRE). Kayıtlar bir sonraki yenilemede tek üründe birleşir.</dd></div>
-        <div><dt className="font-medium">Muadil</dt><dd className="text-muted-foreground">Aynı numaralandırma, farklı ürün: kayış ölçüsü (CONTITECH / DAYCO) veya OEM numarasını kod olarak kullanan yan sanayi (EUROREPAR / ORIJINAL).</dd></div>
+        <div><dt className="font-medium">Aynı marka</dt><dd className="text-muted-foreground">İki etiket aynı firmanın farklı yazılışı (M.MARELLI / MAGNETI MARELLI, MAHLE / MAHLE FILTRE). Markanın tüm ürünleri bir sonraki yenilemede tek markada birleşir; ortak numaralar tek ürün olur.</dd></div>
+        <div><dt className="font-medium">Muadil</dt><dd className="text-muted-foreground">Aynı numaralandırma, farklı ürün: kayış ölçüsü (CONTITECH / DAYCO) veya OEM numarasını kod olarak kullanan yan sanayi (ITHAL, EUROREPAR / ORIJINAL). Ürünler ayrı kalır; ortak numaralılar birbirine muadil olarak bağlanır.</dd></div>
         <div><dt className="font-medium">Ortak barkod</dt><dd className="text-muted-foreground">Dinamik’te iki markanın ürünleri aynı barkodu taşıyorsa (WENDER / WENDERPARTS) bu güçlü bir “aynı marka” kanıtıdır. Ad benzerliği düşükse barkodlar yer tutucudur; ilgisiz seçin.</dd></div>
         <div><dt className="font-medium">İlgisiz</dt><dd className="text-muted-foreground">Numaralar rastlantısal (FEBI / IBRAS). Çift tekrar önerilmez.</dd></div>
       </dl>
