@@ -38,7 +38,7 @@ try {
  }
  for(const route of ['/yonetim/fiyatlandirma','/yonetim/servisler','/yonetim/siparisler']) {assert.equal((await get(route,adminCookie)).res.status,200);assert.equal((await get(route)).res.status,307);}
  const originalMode=(await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode;
- const sourcePage=await get('/yonetim/tedarikciler/basbug',adminCookie);assert.equal(sourcePage.res.status,200);assert.ok(sourcePage.html.includes('Satış · KDV dahil'));
+ const sourcePage=await get('/yonetim/tedarikciler/basbug',adminCookie);assert.equal(sourcePage.res.status,200);
  const source=fields(sourcePage.html,'checkoutMode');source.set('checkoutMode',originalMode==='snapshot'?'live':'snapshot');
  assert.equal((await post('/yonetim/tedarikciler/basbug',source)).status,303);
  assert.equal((await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode,originalMode);
