@@ -1,5 +1,12 @@
 import { useId } from "react";
 import { cn } from "@/lib/utils";
+export const partArtKinds = ["parts", "brakes", "filter", "oil", "wipers", "tools"] as const;
+/** The same drawing as a cached static file (scripts/render-part-art.tsx), for lists with many cards. */
+export function PartArtImage({kind="parts",className=""}:{kind?:string;className?:string}) {
+ const file=(partArtKinds as readonly string[]).includes(kind)?kind:"parts";
+ // eslint-disable-next-line @next/next/no-img-element -- a static SVG: next/image adds nothing here
+ return <img src={`/media/part-art/${file}.svg`} width={220} height={150} alt="" aria-hidden="true" loading="lazy" decoding="async" className={cn("block max-w-full",className)}/>;
+}
 export function PartArt({kind="parts",className=""}:{kind?:string;className?:string}) {
  const id=useId().replace(/:/g,""); const metal=`metal${id}`, dark=`dark${id}`, pleat=`pleat${id}`;
  const disc=<g transform="translate(102 78) rotate(-18)"><ellipse cx="0" cy="48" rx="61" ry="10" fill="#142637" opacity=".12"/><circle r="57" fill={`url(#${metal})`} stroke="#9ba2a8" strokeWidth="2"/><circle r="44" fill="none" stroke="#bdc1c5" strokeWidth="13"/><circle r="25" fill={`url(#${dark})`}/><circle r="14" fill="#f7f8fa" stroke="#84909a" strokeWidth="3"/>{[0,60,120,180,240,300].map(a=><g key={a} transform={`rotate(${a})`}><circle cy="-34" r="3" fill="#5b6773"/><path d="M-3 -48l10 -3" stroke="#79858e" strokeWidth="2"/></g>)}</g>;

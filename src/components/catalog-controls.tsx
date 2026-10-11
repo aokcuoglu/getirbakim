@@ -41,14 +41,21 @@ function SidebarCategoryTree({categories,selected,href}:{categories:StoreCategor
   :<ul>{shown.map(c=><li key={c.id}><Link className={item} href={href(c.slug)} aria-current={c.slug===selected?"page":undefined}><span>{c.name}</span>{categories.some(n=>n.parentId===c.id)&&<ChevronRight size={14} aria-hidden="true"/>}</Link></li>)}</ul>}
  </div>;
 }
+// Long option lists (182 makers) render their first entries until opened or searched: each checkbox
+// is ~1 kB of markup, and the box only shows about ten at a time anyway.
+const collapsedOptions=12;
 function FilterGroup({label,options,selected,onToggle,searchable=true}:{label:string;options:{value:string;label:string}[];selected:string[];onToggle:(value:string)=>void;searchable?:boolean}){
  const [search,setSearch]=useState("");
+ const [showAll,setShowAll]=useState(false);
+ const matching=options.filter(o=>o.label.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")));
+ const visible=search||showAll?matching:matching.filter((option,index)=>index<collapsedOptions||selected.includes(option.value));
  return <Collapsible defaultOpen className="border-b border-border last:border-b-0">
  <CollapsibleTrigger className="group/facet flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"><strong className="font-bold">{label}</strong><span aria-hidden="true" className="text-xl font-medium group-data-panel-open/facet:hidden">+</span><span aria-hidden="true" className="hidden text-xl font-medium group-data-panel-open/facet:inline">−</span></CollapsibleTrigger>
  <CollapsibleContent>
  {searchable&&<label className="relative mx-[25px] mb-[15px] block pt-[5px]"><Image className="absolute top-[15px] left-2.5" src="/media/trodo/icons/search.svg" width={20} height={20} alt="" unoptimized/><input type="search" className="h-10 w-full rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={label+" ara"} placeholder="Ara" value={search} onChange={e=>setSearch(e.target.value)}/></label>}
- <div className="max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px]">{options.filter(o=>o.label.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr"))).map(option=><label key={option.value} className="mb-2.5 flex min-h-5 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60">
-  <Checkbox className="size-5 rounded-[4px] border-input bg-white data-checked:border-brand data-checked:bg-brand [&_svg]:size-3.5!" checked={selected.includes(option.value)} disabled={!selected.includes(option.value)&&selected.length>=30} onCheckedChange={()=>onToggle(option.value)}/><span>{option.label}</span></label>)}</div>
+ <div className="max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px]">{visible.map(option=><label key={option.value} className="mb-2.5 flex min-h-5 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60">
+  <Checkbox className="size-5 rounded-[4px] border-input bg-white data-checked:border-brand data-checked:bg-brand [&_svg]:size-3.5!" checked={selected.includes(option.value)} disabled={!selected.includes(option.value)&&selected.length>=30} onCheckedChange={()=>onToggle(option.value)}/><span>{option.label}</span></label>)}
+  {visible.length<matching.length&&<button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-strong hover:underline" onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</button>}</div>
  {!options.length&&<p className="px-[25px] pb-[25px] text-[13px] text-muted-foreground">Bu kategoride kayıt bulunamadı.</p>}
  </CollapsibleContent>
  </Collapsible>;
