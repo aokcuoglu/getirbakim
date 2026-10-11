@@ -17,7 +17,9 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import { DialogTrigger } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
+import { GroupFreshnessChart, RunDurationChart } from "@/components/admin/basbug-sync-charts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -83,6 +85,13 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     ?? (snapshot?.observations.DovizBilgisiGetir ? new Date(snapshot.observations.DovizBilgisiGetir) : undefined);
   const runTones: Record<string, Tone> = { running: "info", succeeded: "success", failed: "error", rejected: "warning" };
   const runStatus = (status: string) => statusBadge(runTones[status] ?? "neutral", ({running:"Çalışıyor",succeeded:"Başarılı",failed:"Başarısız",rejected:"İnceleme gerekli"} as Record<string,string>)[status] || status);
+  const scopes = data.health.scopes.filter(scope => !group || scope.list_group === group);
+  const scopeState = (scope: typeof scopes[number]) => scope.catalog_stale || scope.commerce_stale ? "stale" : scope.commerce_failures || scope.consecutive_failures ? "retry" : "fresh";
+  const freshness = { fresh: 0, retry: 0, stale: 0 };
+  for (const scope of scopes) freshness[scopeState(scope)]++;
+  const runDuration = (run: typeof data.recentRuns[number]) => run.completed_at ? `${number(Math.max(0, Math.round((run.completed_at.getTime() - run.started_at.getTime()) / 1000)))} sn` : "Devam ediyor";
+  const runBars = [...data.recentRuns].reverse().map(run => ({ id: run.id, status: run.status, seconds: run.completed_at ? Math.max(0, Math.round((run.completed_at.getTime() - run.started_at.getTime()) / 1000)) : 0,
+    label: run.started_at.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }));
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>Math.max(1,Math.min(page-2,pages-4))+i),pages])).filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);
   const facts: [string, string, string][] = [
     ["Zamanlayıcı", data.health.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", `Son kontrol: ${data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "henüz yok"}`],
@@ -115,74 +124,93 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
       </Card>)}
     </div>
     <SupplierHealthStatus health={data.health} group={group} refresh={refreshBasbug}/>
-    <SupplierTabs key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader><CardTitle><h2>Kaynağı güncelle</h2></CardTitle><CardDescription>Başbuğ API’sinden çekilecek grubu seç. Bu seçim ürün filtrelerinden bağımsızdır.</CardDescription><CardAction><Badge variant="outline">API · Depo bazlı stok</Badge></CardAction></CardHeader>
+    <SupplierTabs key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<div className="flex flex-col gap-6">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle><h2>Grup güncelliği</h2></CardTitle><CardDescription>{group || "Tüm liste grupları"}</CardDescription><CardAction><Badge variant={data.sync?.enabled ? "success" : "outline"}>{data.sync?.enabled ? "Periyodik çekim etkin" : "Periyodik çekim kapalı"}</Badge></CardAction></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {scopes.length ? <div className="grid items-center gap-4 sm:grid-cols-2">
+              <GroupFreshnessChart fresh={freshness.fresh} retry={freshness.retry} stale={freshness.stale}/>
+              <ItemGroup>{([["fresh", "success", "Güncel"], ["retry", "warning", "Yeniden deneme bekliyor"], ["stale", "destructive", "Güncellik aşıldı"]] as const).map(([key, variant, label]) => <Item key={key} size="sm" variant="muted">
+                <ItemContent><ItemTitle>{label}</ItemTitle></ItemContent>
+                <ItemActions><Badge variant={variant} className="tabular-nums">{number(freshness[key])}</Badge></ItemActions>
+              </Item>)}</ItemGroup>
+            </div> : <Empty><EmptyHeader><EmptyMedia variant="icon"><CalendarClock/></EmptyMedia><EmptyTitle>Otomatik güncelleme kapsamı tanımlı değil</EmptyTitle><EmptyDescription>Zamanlayıcı yapılandırıldığında gruplar burada listelenir.</EmptyDescription></EmptyHeader></Empty>}
+            {scopes.length > 0 && <Accordion className="rounded-lg border"><AccordionItem value="plan" className="px-4">
+              <AccordionTrigger>Grup bazında plan</AccordionTrigger>
+              <AccordionContent><Table><TableHeader><TableRow><TableHead>Grup</TableHead><TableHead>Ürün listesi</TableHead><TableHead>Fiyat · stok · kur</TableHead><TableHead>Son ticari güncelleme</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>{scopes.map(scope => <TableRow key={`${scope.company}-${scope.list_group}-${scope.warehouse}`}>
+                <TableCell className="font-medium">{scope.list_group}</TableCell><TableCell>{scope.enabled ? `${scope.interval_minutes} dk` : "Kapalı"}</TableCell><TableCell>{scope.commerce_enabled ? `${scope.commerce_interval_minutes} dk` : "Kapalı"}</TableCell><TableCell className="tabular-nums">{scope.commerce_last_success_at ? date(scope.commerce_last_success_at) : "Henüz yok"}</TableCell>
+                <TableCell>{statusBadge(scopeState(scope) === "stale" ? "error" : scopeState(scope) === "retry" ? "warning" : "success", scopeState(scope) === "stale" ? "Güncellik aşıldı" : scopeState(scope) === "retry" ? "Yeniden deneme bekliyor" : "Güncel")}</TableCell>
+              </TableRow>)}</TableBody></Table></AccordionContent>
+            </AccordionItem></Accordion>}
+          </CardContent>
+          <CardFooter className="text-muted-foreground">Sonraki deneme: {data.sync ? date(data.sync.next_run_at) : "zamanlama kaydı yok"}</CardFooter>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle><h2>Son çekimler</h2></CardTitle><CardDescription>Son {data.recentRuns.length} işlemin süresi (sn)</CardDescription></CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {data.recentRuns.length ? <>
+              <RunDurationChart runs={runBars}/>
+              <ItemGroup>{data.recentRuns.slice(0, 5).map(run => <Item key={run.id} size="sm" variant="outline">
+                <ItemContent><ItemTitle>{run.list_group} · {run.run_kind === "commerce" ? "Fiyat · stok · kur" : "Tam liste"}</ItemTitle><ItemDescription className="tabular-nums"><time dateTime={run.started_at.toISOString()}>{date(run.started_at)}</time></ItemDescription></ItemContent>
+                <ItemActions><span className="text-muted-foreground tabular-nums">{runDuration(run)}</span>{runStatus(run.status)}</ItemActions>
+              </Item>)}</ItemGroup>
+              <Accordion className="rounded-lg border"><AccordionItem value="runs" className="px-4">
+                <AccordionTrigger>Tüm çekimler</AccordionTrigger>
+                <AccordionContent><Table><caption className="sr-only">Başbuğ veri çekim geçmişi</caption><TableHeader><TableRow><TableHead>Başlangıç</TableHead><TableHead>Kapsam</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Süre</TableHead><TableHead>Sonuç</TableHead></TableRow></TableHeader><TableBody>{data.recentRuns.map(run => <TableRow key={run.id} className="align-top">
+                  <TableCell className="tabular-nums"><time dateTime={run.started_at.toISOString()}>{date(run.started_at)}</time><code className="block font-mono text-muted-foreground" title={run.id}>#{run.id.slice(0,8)}</code></TableCell>
+                  <TableCell><div className="font-medium">{run.list_group}</div><div className="text-muted-foreground">{run.run_kind === "commerce" ? "Fiyat · stok · kur" : "Tam ürün listesi"} · {run.warehouse}</div></TableCell>
+                  <TableCell>{runStatus(run.status)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{runDuration(run)}</TableCell>
+                  <TableCell className="whitespace-normal">{run.status === "succeeded" ? <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-muted-foreground tabular-nums">{([["added","yeni"],["changed","değişen"],["unchanged","aynı"],["missing","kayıp"],["inactive","pasif"],["restored","geri gelen"]] as const).map(([key,label]) => <span key={key}><b className="font-medium text-foreground">{number(run.stats[key] ?? 0)}</b> {label}</span>)}</div> : run.error_reason ? runError(run.error_reason) : "İşlem sürüyor"}{run.review_note && <div className="text-muted-foreground">İnceleme notu: {run.review_note}</div>}</TableCell>
+                </TableRow>)}</TableBody></Table></AccordionContent>
+              </AccordionItem></Accordion>
+            </> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz çekim kaydı bulunmuyor</EmptyTitle><EmptyDescription>Periyodik çekim için sunucuda zamanlayıcı çalışmalı.</EmptyDescription></EmptyHeader></Empty>}
+          </CardContent>
+        </Card>
+      </div>
+      {snapshot && <Card>
+        <CardHeader><CardTitle><h2>Veri kalitesi</h2></CardTitle><CardDescription>{snapshot.list_group} / {snapshot.warehouse} · {date(snapshot.completed_at)}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <form action={refreshBasbug} className="flex flex-wrap items-end gap-2">
-            <Field className="max-w-xs"><FieldLabel htmlFor="refresh-group">Çekilecek liste grubu</FieldLabel><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect></Field>
-            <SupplierRefreshButton/>
-          </form>
-          <p className="text-muted-foreground">{basbugWarehouses.join(" · ")} depoları ayrı ayrı sorgulanır. Erişilemeyen depo için “Veri yok” gösterilir. Güncelleme seçilen grubu kapsar. NF, KDV hariç maliyettir; satış fiyatı döviz kuru, yönetilebilir kâr ve KDV ile hesaplanır.</p>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {([["Farklı ürün", snapshot.quality.uniqueProducts, null, null], ["Eksik fiyat", snapshot.quality.missingPrices, "missing-price", "warning"], ["Tekrarlanan kod", snapshot.quality.duplicateCodes, "duplicates", "warning"], ["Çelişkili kod", snapshot.quality.conflictingCodes, "conflicts", "destructive"]] as const).map(([label, value, quality, tone]) => <Card key={label} size="sm">
+              <CardHeader><CardDescription>{label}</CardDescription><CardTitle><span className="text-2xl font-semibold tabular-nums">{number(value)}</span></CardTitle>
+                <CardAction>{!tone ? <Badge variant="info">{number(snapshot.quality.productRows)} satır</Badge> : value ? <Badge variant={tone}>{tone === "destructive" ? <CircleAlert data-icon="inline-start" aria-hidden="true"/> : <TriangleAlert data-icon="inline-start" aria-hidden="true"/>}İncele</Badge> : <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Sorun yok</Badge>}</CardAction>
+              </CardHeader>
+              {quality && value > 0 && <CardContent><Button variant="link" nativeButton={false} render={<Link data-supplier-tab="products" href={`?${new URLSearchParams({ group: snapshot.list_group, quality })}`}/>}>Kayıtları incele<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardContent>}
+            </Card>)}
+          </div>
+          <p className="text-muted-foreground tabular-nums">{([["Fiyat satırı", snapshot.quality.priceRows], ["Stok satırı", snapshot.quality.stockRows], ["Eksik stok", snapshot.quality.missingStocks], ["Eşleşmeyen fiyat/stok", `${number(snapshot.quality.orphanPrices)}/${number(snapshot.quality.orphanStocks)}`]] as const).map(([label, value]) => `${label}: ${typeof value === "number" ? number(value) : value}`).join(" · ")}</p>
+        </CardContent>
+      </Card>}
+      <Card>
+        <CardHeader><CardTitle><h2>İşlemler</h2></CardTitle><CardAction className="flex flex-wrap gap-1">
+          <Button variant="link" nativeButton={false} render={<Link href="/sepet"/>}>Sepet<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
+          <Button variant="link" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Siparişler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
+        </CardAction></CardHeader>
+        <CardContent className="grid gap-6 md:grid-cols-2">
+          <form action={refreshBasbug}><Field>
+            <FieldLabel htmlFor="refresh-group">Kaynağı güncelle</FieldLabel>
+            <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton/></div>
+            <FieldDescription>Seçilen grup {basbugWarehouses.join(" · ")} depolarından çekilir.</FieldDescription>
+          </Field></form>
+          <form action={saveBasbugCheckoutMode}><Field>
+            <FieldLabel htmlFor="checkout-mode">Sipariş veri kaynağı</FieldLabel>
+            <div className="flex flex-wrap gap-2"><NativeSelect id="checkout-mode" name="checkoutMode" defaultValue={checkoutMode}><NativeSelectOption value="snapshot">Kayıtlı veriler · Bakım süresince</NativeSelectOption><NativeSelectOption value="live">Canlı API doğrulaması</NativeSelectOption></NativeSelect><Button type="submit">Kaydet</Button></div>
+            <FieldDescription>{checkoutMode === "snapshot" ? "Siparişte API çağrılmaz; kayıtlar teyit bekler." : "Siparişte fiyat ve stok API’den doğrulanır."}</FieldDescription>
+          </Field></form>
         </CardContent>
         <CardFooter><SupplierRefreshAll groups={knownGroups.map(group => group.kod)}/></CardFooter>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle><h2>Sepet ve sipariş</h2></CardTitle>
-          <CardDescription>{checkoutMode === "snapshot" ? "Kayıtlı fiyat, kur ve stok verileri kullanılıyor. Siparişte API çağrısı yapılmaz; kayıtlar stok ve fiyat teyidi bekler." : "Sipariş sırasında Başbuğ API’sinden fiyat ve stok doğrulanır. Güncellik sınırını aşan kayıtlar satışa kapanır."}</CardDescription>
-          <CardAction className="flex flex-wrap gap-1">
-            <Button variant="link" nativeButton={false} render={<Link href="/sepet"/>}>Sepet<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
-            <Button variant="link" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Siparişler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          <form action={saveBasbugCheckoutMode} className="flex flex-wrap items-end gap-2">
-            <Field className="max-w-xs"><FieldLabel htmlFor="checkout-mode">Sipariş veri kaynağı</FieldLabel><NativeSelect id="checkout-mode" name="checkoutMode" defaultValue={checkoutMode}><NativeSelectOption value="snapshot">Kayıtlı veriler · Bakım süresince</NativeSelectOption><NativeSelectOption value="live">Canlı API doğrulaması</NativeSelectOption></NativeSelect></Field>
-            <Button type="submit">Kaydet</Button>
-          </form>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle><h2>Otomatik güncelleme planı</h2></CardTitle><CardDescription>{`${data.sync?.enabled ? "Periyodik çekim etkin" : "Periyodik çekim kapalı"} · ${data.sync ? `Sonraki deneme: ${date(data.sync.next_run_at)}` : "Zamanlama kaydı bulunmuyor"} · ${group || "Tüm liste grupları"} · İstanbul saati`}</CardDescription></CardHeader>
-        <CardContent>
-          {data.health.scopes.length ? <Table><TableHeader><TableRow><TableHead>Grup</TableHead><TableHead>Ürün listesi</TableHead><TableHead>Fiyat · stok · kur</TableHead><TableHead>Son ticari güncelleme</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>{data.health.scopes.filter(scope => !group || scope.list_group===group).map(scope => <TableRow key={`${scope.company}-${scope.list_group}-${scope.warehouse}`}>
-            <TableCell className="font-medium">{scope.list_group}</TableCell><TableCell>{scope.enabled ? `${scope.interval_minutes} dakikada bir` : "Kapalı"}</TableCell><TableCell>{scope.commerce_enabled ? `${scope.commerce_interval_minutes} dakikada bir` : "Kapalı"}</TableCell><TableCell className="tabular-nums">{scope.commerce_last_success_at ? date(scope.commerce_last_success_at) : "Henüz yok"}</TableCell>
-            <TableCell>{statusBadge(scope.catalog_stale || scope.commerce_stale ? "error" : scope.commerce_failures || scope.consecutive_failures ? "warning" : "success", scope.catalog_stale || scope.commerce_stale ? "Güncellik aşıldı" : scope.commerce_failures || scope.consecutive_failures ? "Yeniden deneme bekliyor" : "Güncel")}</TableCell>
-          </TableRow>)}</TableBody></Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><CalendarClock/></EmptyMedia><EmptyTitle>Otomatik güncelleme kapsamı tanımlı değil</EmptyTitle><EmptyDescription>Zamanlayıcı yapılandırıldığında gruplar burada listelenir.</EmptyDescription></EmptyHeader></Empty>}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle><h2>Çekim geçmişi</h2></CardTitle><CardDescription>Son {data.recentRuns.length} işlem · Periyodik çekim için zamanlayıcı komutunun sunucuda çalışması gerekir.</CardDescription></CardHeader>
-        <CardContent>
-          {data.recentRuns.length ? <Table><caption className="sr-only">Başbuğ veri çekim geçmişi</caption><TableHeader><TableRow><TableHead>Başlangıç</TableHead><TableHead>Kapsam</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Süre</TableHead><TableHead>Sonuç</TableHead></TableRow></TableHeader><TableBody>{data.recentRuns.map(run => <TableRow key={run.id} className="align-top">
-            <TableCell className="tabular-nums"><time dateTime={run.started_at.toISOString()}>{date(run.started_at)}</time><code className="block font-mono text-muted-foreground" title={run.id}>#{run.id.slice(0,8)}</code></TableCell>
-            <TableCell><div className="font-medium">{run.list_group}</div><div className="text-muted-foreground">{run.run_kind === "commerce" ? "Fiyat · stok · kur" : "Tam ürün listesi"} · {run.warehouse}</div></TableCell>
-            <TableCell>{runStatus(run.status)}</TableCell>
-            <TableCell className="text-right tabular-nums">{run.completed_at ? `${number(Math.max(0,(run.completed_at.getTime()-run.started_at.getTime())/1000))} sn` : "Devam ediyor"}</TableCell>
-            <TableCell className="whitespace-normal">{run.status === "succeeded" ? <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-muted-foreground tabular-nums">{([["added","yeni"],["changed","değişen"],["unchanged","aynı"],["missing","kayıp"],["inactive","pasif"],["restored","geri gelen"]] as const).map(([key,label]) => <span key={key}><b className="font-medium text-foreground">{number(run.stats[key] ?? 0)}</b> {label}</span>)}</div> : run.error_reason ? runError(run.error_reason) : "İşlem sürüyor"}{run.review_note && <div className="text-muted-foreground">İnceleme notu: {run.review_note}</div>}</TableCell>
-          </TableRow>)}</TableBody></Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz çekim kaydı bulunmuyor</EmptyTitle></EmptyHeader></Empty>}
-        </CardContent>
-      </Card>
       {snapshot && <Card>
-        <CardHeader><CardTitle><h2>Veri kalitesi</h2></CardTitle><CardDescription>{snapshot.list_group} / {snapshot.warehouse} · Son başarılı aktarım: {date(snapshot.completed_at)} (İstanbul)</CardDescription></CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {([["Aktarımdaki farklı ürün", snapshot.quality.uniqueProducts, null, `${number(snapshot.quality.productRows)} kaynak satırı`], ["Eksik fiyat", snapshot.quality.missingPrices, "missing-price", null], ["Tekrarlanan kod", snapshot.quality.duplicateCodes, "duplicates", null], ["Çelişkili kod", snapshot.quality.conflictingCodes, "conflicts", null]] as const).map(([label, value, quality, note]) => <Card key={label} size="sm">
-              <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="text-2xl font-semibold tabular-nums">{number(value)}</CardTitle></CardHeader>
-              <CardContent>{quality ? <Button variant="link" nativeButton={false} render={<Link data-supplier-tab="products" href={`?${new URLSearchParams({ group: snapshot.list_group, quality })}`}/>}>Kayıtları incele<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button> : <span className="text-muted-foreground">{note}</span>}</CardContent>
-            </Card>)}
-          </div>
-        </CardContent>
-        <CardFooter className="text-muted-foreground">{number(snapshot.quality.priceRows)} fiyat, {number(snapshot.quality.stockRows)} stok satırı · Eksik stok: {snapshot.quality.missingStocks} · Ürünle eşleşmeyen fiyat/stok: {snapshot.quality.orphanPrices}/{snapshot.quality.orphanStocks}</CardFooter>
-      </Card>}
-      {snapshot && <Card>
-        <CardHeader><CardTitle><h2>Döviz kurları</h2></CardTitle><CardDescription>Kaynak API pariteleri · {snapshot.list_group} · Çekim: {date(snapshot.completed_at)} · Yürürlük tarihi API yanıtında bulunmuyor.</CardDescription></CardHeader>
+        <CardHeader><CardTitle><h2>Döviz kurları</h2></CardTitle><CardDescription>Kaynak API · {snapshot.list_group} · {date(snapshot.completed_at)}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{snapshot.currencies_data.dovizListesi.map(c => <Card key={c.dovizCinsi} size="sm">
-            <CardHeader><CardTitle>{c.dovizCinsi} <span className="font-normal text-muted-foreground">/ TRY</span></CardTitle></CardHeader>
-            <CardContent><dl className="grid grid-cols-2 gap-2"><div><dt className="text-muted-foreground">Alış</dt><dd className="font-medium tabular-nums" title={c.alis}>{rate(c.alis)}</dd></div><div><dt className="text-muted-foreground">Satış</dt><dd className="font-medium tabular-nums" title={c.satis}>{rate(c.satis)}</dd></div></dl></CardContent>
-          </Card>)}</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{snapshot.currencies_data.dovizListesi.map(c => <Item key={c.dovizCinsi} variant="outline" size="sm">
+            <ItemContent><ItemTitle>{c.dovizCinsi} <span className="font-normal text-muted-foreground">/ TRY</span></ItemTitle>
+              <span className="text-lg font-semibold tabular-nums" title={`Satış: ${c.satis}`}>{rate(c.satis)}</span>
+              <ItemDescription className="tabular-nums" title={c.alis}>Alış {rate(c.alis)}</ItemDescription>
+            </ItemContent>
+          </Item>)}</div>
           <Accordion className="rounded-lg border"><AccordionItem value="observations" className="px-4">
             <AccordionTrigger>Verilerin çekilme zamanları</AccordionTrigger>
             <AccordionContent><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead>Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead>Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).filter(([key]) => key !== "StokGetir" || !snapshot.observations["StokGetir:MRK"]).map(([key,value]) => { const [service,depot,error] = key.split(":"); return <TableRow key={key}><TableCell className="font-medium"><div className="flex items-center gap-2">{({MalzemeleriGetir:"Ürünler",FiyatGetir:"Fiyatlar",StokGetir:"Stoklar",DovizBilgisiGetir:"Kurlar",ListeGrubuGetir:"Liste grupları",products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[service] || service}{error === "607" && statusBadge("warning", "Depo erişimi yok (607)")}</div></TableCell><TableCell>{snapshot.list_group} / {depot || snapshot.warehouse}</TableCell><TableCell className="tabular-nums"><time dateTime={new Date(value).toISOString()}>{date(new Date(value))}</time></TableCell></TableRow>; })}</TableBody></Table></AccordionContent>
