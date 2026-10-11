@@ -94,10 +94,16 @@ test("searches need at least two letters or digits", async () => {
 });
 
 test("type-ahead suggests the best distinct products, words before code fragments", async () => {
+  // Broad: product names, most shared first.
   const oil = await suggestProducts("yag", "all");
-  assert.ok(oil.products.length > 0 && oil.products.length <= 6);
-  assert.ok(oil.products.every(p => normalizeSearchText(p.name).split(" ").some(word => word.startsWith("yag") || word.startsWith("oil"))), "a code containing YAG outranked names");
-  assert.equal(new Set(oil.products.map(p => `${p.name}|${p.brand}`)).size, oil.products.length);
+  assert.ok(oil.products.length > 0 && oil.products.length <= 6 && oil.products.every(p => p.kind === "name"));
+  assert.ok(oil.products.every(p => normalizeSearchText(p.name).split(" ").some(word => word.startsWith("yag") || word.startsWith("oil"))));
+  const shared = oil.products.map(p => p.kind === "name" ? p.products : 0);
+  assert.deepEqual(shared, [...shared].sort((a, b) => b - a));
+  // Narrow: distinct products, a code containing YAG does not outrank names.
+  const pump = await suggestProducts("yag pompa zincir seti", "all");
+  assert.ok(pump.products.length > 0 && pump.products.every(p => p.kind === "product" && normalizeSearchText(p.name).includes("yag")));
+  assert.equal(new Set(pump.products.map(p => p.kind === "product" ? `${p.name}|${p.brand}` : p.name)).size, pump.products.length);
   assert.equal((await suggestProducts("a", "all")).products.length, 0);
   assert.equal((await suggestProducts("fren balatası passat", "all")).vehicleScope?.vehicleText, "passat");
 });

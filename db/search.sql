@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS search_vocabulary (
 );
 CREATE INDEX IF NOT EXISTS search_vocabulary_trgm_idx ON search_vocabulary USING gin (word gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS search_vocabulary_prefix_idx ON search_vocabulary (scope, word text_pattern_ops);
+-- Distinct supplier product names for type-ahead: a broad prefix ("fren") matches ~15k products, far
+-- too many to rank per keystroke, but only a few hundred names. Refreshed with the vocabulary.
+CREATE TABLE IF NOT EXISTS search_product_names (
+ name text PRIMARY KEY,
+ normalized text NOT NULL,
+ products integer NOT NULL
+);
+CREATE INDEX IF NOT EXISTS search_product_names_tsv_idx ON search_product_names USING gin (to_tsvector('simple', normalized));
 CREATE OR REPLACE FUNCTION refresh_search_vocabulary() RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $$
  DELETE FROM search_vocabulary;
  INSERT INTO search_vocabulary (scope, word, frequency)
@@ -81,5 +89,9 @@ CREATE OR REPLACE FUNCTION refresh_search_vocabulary() RETURNS void LANGUAGE sql
  SELECT 'product', word, ndoc FROM ts_stat($q$SELECT to_tsvector('simple', supplier_item_search_text(code, product_data))
   FROM supplier_items WHERE presence='present'$q$)
  WHERE word ~ '^[a-z]{3,}$';
+ DELETE FROM search_product_names;
+ INSERT INTO search_product_names (name, normalized, products)
+ SELECT name, search_normalize(name), count(*) FROM (SELECT product_data->>'ac' AS name FROM supplier_items
+  WHERE presence='present' AND NOT conflicting) items WHERE name ~ '[[:alpha:]]' GROUP BY name;
 $$;
 SELECT refresh_search_vocabulary();

@@ -74,7 +74,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
   const suggestions = useSuggestions(query, mode);
   const options = suggestions ? [
     ...suggestions.categories.map(item => ({ href: item.href, label: item.name, detail: "Kategori" })),
-    ...suggestions.products.map(item => ({ href: item.href, label: item.name, detail: `${item.brand} · ${item.code}` })),
+    ...suggestions.products.map(item => ({ href: item.href, label: item.name, detail: item.detail })),
   ] : [];
   const expanded = open && options.length > 0;
   const go = (href: string) => { setOpen(false); router.push(href); };
