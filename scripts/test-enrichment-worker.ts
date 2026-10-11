@@ -87,6 +87,12 @@ test('durable request leases, restart recovery, stale acknowledgement and 429 ne
   await queue.finish({id:last.id,token:last.token,httpStatus:200,elapsedMs:10,bytes:10,retryAfter:null,body:[{valid:true}]});
   assert.deepEqual(await new SourceQueue(pool,run).get('www.trodo.com',path),[{valid:true}]);
   assert.equal((await pool.query('SELECT cache_hits FROM enrichment_runs')).rows[0].cache_hits,1);
+  // A view-data response captured from a product page is served from cache without queuing a request.
+  const view='/rest/V1/catalog-product-api/view-data/42/IE';
+  await queue.store('www.trodo.com',view,'json',{relationships:[]});
+  assert.deepEqual(await queue.get('www.trodo.com',view),{relationships:[]});
+  assert.equal((await pool.query('SELECT count(*)::int AS count FROM enrichment_source_requests WHERE path=$1',[view])).rows[0].count,0);
+  await assert.rejects(()=>queue.store('www.trodo.com','/customer/account','json',{}),/rejected/);
  }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
 });
 
