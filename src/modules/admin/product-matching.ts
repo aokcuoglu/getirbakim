@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
@@ -27,7 +28,7 @@ export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null };
 /** A Başbuğ-only product (a) and a Dinamik-only product (b) that look the same; "Aynı ürün" merges b into a. */
-export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; brand: string; a: CandidateSide; b: CandidateSide };
+export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; brand: string; a: CandidateSide; b: CandidateSide };
 /** Candidates split by whether the two part names name the same kind of part (db product_names_conflict). */
 export type CandidateNames = "consistent" | "conflict";
 export const candidateNames: Record<CandidateNames, string> = { consistent: "Tanımı uyumlu", conflict: "Tanımı farklı" };
@@ -143,13 +144,13 @@ async function matchCandidates(params: MatchingParams) {
     db.query<{ reason: CandidateReason; count: number }>(`SELECT reason,count(*)::int FROM product_match_candidates GROUP BY reason`),
     db.query<{ conflict: number; consistent: number }>(`SELECT count(*) FILTER (WHERE name_conflict)::int AS conflict,
       count(*) FILTER (WHERE name_conflict IS NOT TRUE)::int AS consistent FROM product_match_candidates WHERE $1::text IS NULL OR reason=$1`, [reason]),
-    db.query<{ count: number; consistent: number }>(`SELECT count(*)::int,count(*) FILTER (WHERE c.name_conflict IS NOT TRUE)::int AS consistent
-      FROM ${from} WHERE ${where}`, values),
+    db.query<{ count: number; acceptable: number }>(`SELECT count(*)::int,
+      count(*) FILTER (WHERE c.name_conflict IS NOT TRUE AND NOT ${sharedCandidateSql})::int AS acceptable FROM ${from} WHERE ${where}`, values),
   ]);
   const { page, pages } = pageOf(params.page, total.rows[0].count);
-  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
+  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
   const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name)`;
-  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
+  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
     ORDER BY c.name_similarity DESC NULLS LAST,a.brand,a.part_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
   // a single-supplier product; its cheapest available row stands for it.
@@ -163,7 +164,7 @@ async function matchCandidates(params: MatchingParams) {
   const priced = (item: Row["a"]): CandidateSide => ({ ...item, ...(priceOf.get(item.id) ?? { price_kurus: null, available: null }) });
   const candidates: Candidate[] = rows.map(row => ({ ...row, a: priced(row.a), b: priced(row.b) }));
   const byReason = Object.fromEntries(counts.rows.map(row => [row.reason, row.count])) as Partial<Record<CandidateReason, number>>;
-  return { candidates, reason, names, byReason, byNames: nameCounts.rows[0], total: total.rows[0].count, consistentTotal: total.rows[0].consistent,
+  return { candidates, reason, names, byReason, byNames: nameCounts.rows[0], total: total.rows[0].count, acceptableTotal: total.rows[0].acceptable,
     page, pages, brandFilter: q };
 }
 

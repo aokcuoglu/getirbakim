@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Pool } from "pg";
+import { sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -175,6 +176,21 @@ test("master brands: a label moved or split off changes only its own key; mergin
       SELECT supplier,company,list_group,warehouse,'ABA TEST1','{"uk":"ABA-AV"}',0,0,0,now(),now(),now() FROM supplier_items WHERE supplier='basbug' LIMIT 1`);
     await client.query("SELECT sync_supplier_brands()");
     assert.equal(await key("basbug", "ABA-AV"), "ABA");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("a Dinamik product suggested to several Başbuğ products is marked shared", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const [a1, a2, b, a3, b2] = (await client.query<{ id: string }>("SELECT id FROM products ORDER BY id LIMIT 5")).rows.map(row => row.id);
+    await client.query(`INSERT INTO product_match_candidates(product_a,product_b,reason) VALUES ($1,$3,'suffix'),($2,$3,'suffix'),($4,$5,'suffix')`, [a1, a2, b, a3, b2]);
+    const shared = (await client.query<{ product_a: string; shared: boolean }>(`SELECT product_a,${sharedCandidateSql} AS shared
+      FROM product_match_candidates c WHERE product_b=ANY($1) ORDER BY product_a`, [[b, b2]])).rows;
+    assert.deepEqual(shared.map(row => row.shared), [true, true, false]);
   } finally {
     await client.query("ROLLBACK");
     client.release();

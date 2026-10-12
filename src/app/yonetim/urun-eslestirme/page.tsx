@@ -190,22 +190,23 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.names === "conflict" && <CardDescription>Numaraları benziyor ama tanımları farklı parça türü söylüyor (ör. el fren tel klipsi ↔ motor subap takımı); büyük olasılıkla farklı ürün. Listeyi gözden geçirip aynı olanları tek tek kabul edin, kalanları toplu olarak farklı sayabilirsiniz.</CardDescription>}
         <div className="flex flex-wrap items-center gap-2">
           {search("candidates", "Marka (ör. CONTITECH) veya parça no")}
-          {bulkBrand && data.reason && data.names !== "conflict" && data.consistentTotal > 0 && <form action={acceptCandidates}>
+          {bulkBrand && data.reason && data.names !== "conflict" && data.acceptableTotal > 0 && <form action={acceptCandidates}>
             <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{bulkBrand} için tümünü aynı say ({number(data.consistentTotal)})</Button>
+            <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{bulkBrand} için tümünü aynı say ({number(data.acceptableTotal)})</Button>
           </form>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
             <Button type="submit" variant="outline"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Listelenen {number(data.total)} öneriyi farklı say</Button>
           </form>}
         </div>
-        {bulkBrand && data.names !== "conflict" && data.total > data.consistentTotal && <p className="text-muted-foreground">Tanımı farklı {number(data.total - data.consistentTotal)} öneri toplu kabule dahil edilmez.</p>}
+        {bulkBrand && data.names !== "conflict" && data.total > data.acceptableTotal && <p className="text-muted-foreground">Tanımı farklı ya da Dinamik ürünü birden çok Başbuğ ürününe önerilen {number(data.total - data.acceptableTotal)} öneri toplu kabule dahil edilmez; bunları tek tek seçin.</p>}
         {!bulkBrand && data.names !== "conflict" && <p className="text-muted-foreground">İpucu: bir neden seçip marka adıyla arayın (ör. CONTITECH); o markanın tüm önerilerini tek seferde kabul edebilirsiniz.</p>}
         {data.candidates.length ? <Table><caption className="sr-only">Olası aynı ürünler</caption>
           <TableHeader><TableRow><TableHead>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`} className="align-top">
             <TableCell className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
-              {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}</TableCell>
+              {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}
+              {item.shared_b && <Badge variant="warning" title="Bu Dinamik ürünü başka Başbuğ ürünlerine de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <ToneBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</ToneBadge>}</TableCell>
