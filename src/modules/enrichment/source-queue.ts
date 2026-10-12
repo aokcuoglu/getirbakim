@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
-import {cacheLifetime,sourceDecision,validSourcePath} from './policy';
+import {cacheLifetime,pacingDelayMs,quietWaitMs,sourceDecision,validSourcePath} from './policy';
 export class SourceBlocked extends Error {}
 export class WorkerStopped extends Error {}
 export class SourceQueue {
@@ -39,6 +39,8 @@ export class SourceQueue {
    if(!h||h.blocked){await client.query('COMMIT');return {blocked:true};}
    if(h.challenge_since){await client.query('COMMIT');return {challenge:true};}
    if(h.wait_ms>0){await client.query('COMMIT');return {waitMs:h.wait_ms};}
+   const quiet=quietWaitMs(Date.now(),h.quiet_start_hour,h.quiet_end_hour);
+   if(quiet>0){await client.query('COMMIT');return {waitMs:quiet};}
    const busy=(await client.query("SELECT 1 FROM enrichment_source_requests WHERE host=$1 AND status='leased' AND lease_until>now() LIMIT 1",[host])).rowCount;
    if(busy){await client.query('COMMIT');return {waitMs:1000};}
    const row=(await client.query(`SELECT * FROM enrichment_source_requests WHERE run_id=$1 AND host=$2
@@ -46,7 +48,7 @@ export class SourceQueue {
    if(!row){await client.query('COMMIT');return {waitMs:1000};}
    const token=randomUUID();
    await client.query("UPDATE enrichment_source_requests SET status='leased',lease_token=$2,lease_until=now()+interval '90 seconds',attempts=attempts+1 WHERE id=$1",[row.id,token]);
-   await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=now()+interval_ms*interval '1 millisecond' WHERE host=$1",[host]);
+   await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=now()+$2*interval '1 millisecond' WHERE host=$1",[host,pacingDelayMs(h.interval_ms,h.jitter_ms)]);
    await client.query('COMMIT');return {id:row.id,token,path:row.path,kind:row.kind};
   }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
  }

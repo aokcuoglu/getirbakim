@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
 );
 ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenge_since timestamptz;
 ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenges integer NOT NULL DEFAULT 0;
+-- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
+-- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
 INSERT INTO enrichment_source_hosts(host) VALUES('www.trodo.com'),('picdn.trodo.com') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS enrichment_source_cache (
  host text NOT NULL,path text NOT NULL,body jsonb NOT NULL,fetched_at timestamptz NOT NULL DEFAULT now(),

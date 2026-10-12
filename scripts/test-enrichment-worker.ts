@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
-import {sourceDecision,retryAfterMs,validSourcePath} from '../src/modules/enrichment/policy';
+import {sourceDecision,retryAfterMs,validSourcePath,quietWaitMs,pacingDelayMs} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
 import {SourceQueue} from '../src/modules/enrichment/source-queue';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
@@ -179,6 +179,22 @@ test('malformed vehicle dates do not become complete observations and electric c
  const seed={value:'123',label:{name:'EV',kw_ps:'100kW/136PS',ccm:'0ccm',engine_fuel:'Electric',year:'01/2020-0/0'}};
  assert.equal(parseEngine('TEST MODEL',seed).cc,0);assert.throws(()=>parseEngine('TEST MODEL',{...seed,label:{...seed.label,year:'0/0-0/0'}}));assert.throws(()=>parseEngine('TEST MODEL',{...seed,label:{...seed.label,engine_fuel:'Petrol'}}));
 });
+test('pacing adds random jitter and holds requests through a nightly Istanbul window',()=>{
+ assert.equal(pacingDelayMs(7000,4000,()=>0),7000);
+ assert.equal(pacingDelayMs(7000,4000,()=>0.999),10996);
+ assert.equal(pacingDelayMs(7000,0,()=>0.5),7000);
+ // Istanbul is UTC+3: 23:30 UTC is 02:30 local.
+ const at=(utc:string)=>Date.parse(utc);
+ assert.equal(quietWaitMs(at('2026-10-12T23:30:00Z'),2,7),270*60000);
+ assert.equal(quietWaitMs(at('2026-10-12T23:30:00Z'),null,7),0);
+ assert.equal(quietWaitMs(at('2026-10-12T23:30:00Z'),3,3),0);
+ assert.equal(quietWaitMs(at('2026-10-13T04:00:00Z'),2,7),0);
+ assert.equal(quietWaitMs(at('2026-10-12T22:59:30Z'),2,7),0);
+ // A window across midnight: 23:00-06:00 local.
+ assert.equal(quietWaitMs(at('2026-10-12T20:15:00Z'),23,6),(6*60+45)*60000);
+ assert.equal(quietWaitMs(at('2026-10-12T02:59:59Z'),23,6),1000);
+ assert.equal(quietWaitMs(at('2026-10-12T12:00:00Z'),23,6),0);
+});
 test('durable request leases, restart recovery, stale acknowledgement and 429 never mark a cache miss not-found',{skip:!process.env.DATABASE_URL},async()=>{
  const schema='enrichment_test_'+randomUUID().replaceAll('-','');
  const admin=new Pool({connectionString:process.env.DATABASE_URL});
@@ -200,7 +216,16 @@ test('durable request leases, restart recovery, stale acknowledgement and 429 ne
   assert.equal((await pool.query('SELECT status FROM enrichment_source_requests')).rows[0].status,'pending');
   assert.equal((await pool.query('SELECT interval_ms FROM enrichment_source_hosts')).rows[0].interval_ms,5000);
   assert.ok((await queue.claim('www.trodo.com')));
-  await pool.query("UPDATE enrichment_source_requests SET available_at=now();UPDATE enrichment_source_hosts SET next_allowed_at=now()");
+  // A quiet window covering every hour of the day holds the queue; jitter lengthens the gap after a claim.
+  const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Istanbul',hourCycle:'h23',hour:'numeric'}).format(Date.now()));
+  await pool.query('UPDATE enrichment_source_requests SET available_at=now()');
+  await pool.query('UPDATE enrichment_source_hosts SET next_allowed_at=now(),interval_ms=7000,jitter_ms=4000,quiet_start_hour=$1,quiet_end_hour=$2',[hour,(hour+1)%24]);
+  const quiet=await queue.claim('www.trodo.com');assert.ok('waitMs' in quiet&&quiet.waitMs>0&&quiet.waitMs<=3600000);
+  await pool.query('UPDATE enrichment_source_hosts SET quiet_start_hour=NULL,quiet_end_hour=NULL');
+  const paced=await queue.claim('www.trodo.com');if(!('id' in paced))throw Error('Lease missing');
+  const gap=(await pool.query("SELECT extract(epoch FROM next_allowed_at-now())*1000 AS ms FROM enrichment_source_hosts")).rows[0].ms;
+  assert.ok(gap>6000&&gap<11000,`gap ${gap}`);
+  await pool.query("UPDATE enrichment_source_requests SET status='pending',lease_token=NULL,available_at=now();UPDATE enrichment_source_hosts SET next_allowed_at=now()");
   const last=await queue.claim('www.trodo.com');if(!('id' in last))throw Error('Lease missing');
   await queue.finish({id:last.id,token:last.token,httpStatus:200,elapsedMs:10,bytes:10,retryAfter:null,body:[{valid:true}]});
   assert.deepEqual(await new SourceQueue(pool,run).get('www.trodo.com',path),[{valid:true}]);
