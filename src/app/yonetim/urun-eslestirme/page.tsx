@@ -268,7 +268,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         </div>)}</dl>
       </CardContent></Card>
       <Tabs value={data.tab} className="min-w-0 gap-3">
-        <ScrollArea className="pb-2">
+        <ScrollArea className="h-10">
           <TabsList aria-label="Ürün eşleştirme" activateOnFocus={false}>{[
             { value: "brands", label: "Markalar", href: tabHref() },
             { value: "candidates", label: "Öneriler", href: tabHref("candidates") },
