@@ -6,34 +6,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 
-const decision = z.object({
-  brand_a: z.string().min(1).max(120), brand_b: z.string().min(1).max(120),
-  status: z.enum(["same", "equivalent", "unrelated"]), back: z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme"),
-}).refine(value => value.brand_a < value.brand_b);
-
-// Decisions apply to the brand pair. "same" merges the master brand with fewer items into the other; grouping changes
-// on the next refresh (refreshMatches), the suggestion disappears at once.
-export async function decideBrandPair(form: FormData) {
-  const admin = await requireAdmin();
-  const input = decision.safeParse(Object.fromEntries(form));
-  if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
-  const { brand_a, brand_b, status, back } = input.data;
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(`INSERT INTO product_brand_pair_decisions(brand_a,brand_b,status,decided_by) VALUES($1,$2,$3,$4)
-      ON CONFLICT(brand_a,brand_b) DO UPDATE SET status=EXCLUDED.status,decided_by=EXCLUDED.decided_by,decided_at=now()`, [brand_a, brand_b, status, admin.id]);
-    if (status === "same") await client.query(`SELECT brand_merge(x[2],x[1],$2) FROM (SELECT array_agg(id ORDER BY items DESC,key) AS x FROM (
-        SELECT b.id,b.key,COALESCE(sum(sb.items),0) AS items FROM brands b LEFT JOIN supplier_brands sb ON sb.brand_id=b.id WHERE b.key=ANY($1) GROUP BY b.id) s) m`,
-      [[brand_a, brand_b], admin.id]);
-    await client.query("DELETE FROM product_brand_pair_suggestions WHERE brand_a=$1 AND brand_b=$2", [brand_a, brand_b]);
-    await client.query("COMMIT");
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
-  revalidatePath("/yonetim/urun-eslestirme");
-  redirect(`${back}${back.includes("?") ? "&" : "?"}decided=${status}`);
-}
-
 export async function refreshMatches() {
   await requireAdmin();
   let error = "";

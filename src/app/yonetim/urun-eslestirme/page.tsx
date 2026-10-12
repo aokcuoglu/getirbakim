@@ -4,7 +4,7 @@ import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareA
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
-import { BrandDialog, ConfirmBrand, PairDecision, PairDialog, SetaDialog, StockLabel, type BrandRow, type PairRow } from "@/components/admin/product-matching-dialogs";
+import { BrandDialog, ConfirmBrand, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
 import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/p
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { candidateNames, candidateReasons, productMatchingData, strongSimilarity, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
+import { candidateNames, candidateReasons, productMatchingData, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffers, undoSplit } from "./actions";
 
@@ -30,9 +30,6 @@ const brandMessages: Record<string, string> = {
   created: "Etiket ayrı ana marka oldu; ürünler bir sonraki yenilemede ayrılır.", merged: "Ana markalar birleşti; ürünler bir sonraki yenilemede birleşir.",
 };
 const brandSuppliers = ["basbug", "dinamik", "seta"] as const;
-const messages: Record<string, string> = {
-  same: "Aynı marka olarak kaydedildi; ana markalar birleşti, ürünler bir sonraki yenilemede birleşir.", equivalent: "Muadil olarak kaydedildi; ortak numaralı ürünler bir sonraki yenilemede birbirine muadil bağlanır.", unrelated: "İlgisiz olarak kaydedildi; bu çift tekrar önerilmez.",
-};
 const matchedMessages: Record<string, string> = {
   same: "Aynı ürün olarak birleştirildi; mağazada tek ürün olarak, en uygun teklifle satılıyor.", different: "Farklı ürün olarak kaydedildi; bu çift tekrar önerilmez.",
 };
@@ -55,27 +52,16 @@ function EmptyState({ title, icon }: { title: string; icon: ReactNode }) {
   return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader></Empty>;
 }
 
-/** URL-driven line tabs; each tab is a link so the view survives reloads and can be shared. */
-function LinkTabs({ label, tabs }: { label: string; tabs: { href: string; label: string; count?: number; current: boolean }[] }) {
-  const current = tabs.find(tab => tab.current)?.href;
-  return <Tabs value={current} className="min-w-0"><ScrollArea className="pb-2">
-    <TabsList variant="line" activateOnFocus={false} aria-label={label}>{tabs.map(tab => <TabsTrigger key={tab.href} value={tab.href} nativeButton={false} render={<Link href={tab.href} scroll={false}/>}>
-      {tab.label}{tab.count !== undefined && <Badge variant="secondary" className="tabular-nums">{number(tab.count)}</Badge>}
-    </TabsTrigger>)}</TabsList>
-    <ScrollBar orientation="horizontal"/>
-  </ScrollArea></Tabs>;
-}
-
 export default async function ProductMatching({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await productMatchingData(params);
   const stats = data.run?.stats;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, strength: params.strength, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, strength: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = data.total > 0 && <CardFooter className="flex-wrap justify-between gap-3">
@@ -90,13 +76,6 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}`}
     params={{ tab, q: params.q, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
     placeholder={placeholder} filters={filters} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
-  const brandTabs = <LinkTabs label="Markalar" tabs={[
-    { href: query({ scope: undefined, strength: undefined, page: undefined }), label: "Onay bekleyen", count: data.brandCount.pending, current: "scope" in data && data.scope === "pending" },
-    { href: query({ scope: "single", strength: undefined, page: undefined }), label: "Tek tedarikçide", count: data.brandCount.single, current: "scope" in data && data.scope === "single" },
-    { href: query({ scope: "all", strength: undefined, page: undefined }), label: "Tüm ana markalar", count: data.brandCount.all, current: "scope" in data && data.scope === "all" },
-    { href: query({ scope: "suggestions", strength: undefined, page: undefined, q: undefined }), label: "Benzer marka önerileri", count: data.brandCount.suggestions, current: "scope" in data && data.scope === "suggestions" },
-  ]}/>;
-
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
@@ -107,7 +86,6 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "", label: `Bekleyen (${number(data.brandCount.pending)})` },
           { value: "single", label: `Tek tedarikçi (${number(data.brandCount.single)})` },
           { value: "all", label: `Tüm markalar (${number(data.brandCount.all)})` },
-          { value: "suggestions", label: `Benzer markalar (${number(data.brandCount.suggestions)})` },
         ] }])}
         <datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
         {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
@@ -121,40 +99,6 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell>{brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
             <TableCell><div className="flex items-center gap-1">{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.name}|${brand.labels.map(label => `${label.supplier}:${label.label}:${label.method}`).join(",")}`} brand={brand} back={back}/></div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
-      </CardContent>
-      {pager}
-    </>;
-  } else if ("pairs" in data) {
-    const pairs: PairRow[] = data.pairs.map(pair => ({ brand_a: pair.brand_a, brand_b: pair.brand_b, name_a: pair.name_a, name_b: pair.name_b, shared_parts: number(pair.shared_parts),
-      shared_eans: pair.shared_eans ? number(pair.shared_eans) : null, similarity: percent(pair.avg_name_similarity),
-      strong: (pair.avg_name_similarity ?? 0) >= strongSimilarity, samples: pair.samples, ean_samples: pair.ean_samples }));
-    body = <>
-      <CardContent className="flex flex-col gap-4">
-        {brandTabs}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <LinkTabs label="Benzerlik" tabs={[
-            { href: query({ strength: undefined, page: undefined }), label: "Güçlü benzerlik", count: data.strength.strong, current: !data.weak },
-            { href: query({ strength: "weak", page: undefined }), label: "Zayıf benzerlik", count: data.strength.weak, current: data.weak },
-          ]}/>
-        </div>
-        {pairs.length ? <Table server><caption className="sr-only">İncelenecek marka çiftleri</caption>
-          <TableHeader><TableRow><TableHead sortKey="brand_a">Ana marka A</TableHead><TableHead sortKey="brand_b">Ana marka B</TableHead><TableHead sortKey="shared" className="text-right">Ortak no</TableHead><TableHead sortKey="eans" className="text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
-          <TableBody>{pairs.map(pair => {
-            // Barcode-only pairs share no part number; their first barcode match stands in as the example.
-            const ean = pair.ean_samples[0];
-            const sample = pair.samples[0] ?? (ean && { part: ean.ean, a: `${ean.part_a} ${ean.a ?? ""}`.trim(), b: `${ean.part_b} ${ean.b ?? ""}`.trim() });
-            const sampleText = sample ? `${sample.part} · ${sample.a || "—"} · ${sample.b || "—"}` : "—";
-            return <TableRow key={`${pair.brand_a}|${pair.brand_b}`}>
-              <TableCell className="max-w-32 truncate font-medium" title={pair.name_a}>{pair.name_a}</TableCell>
-              <TableCell className="max-w-32 truncate font-medium" title={pair.name_b}>{pair.name_b}</TableCell>
-              <TableCell className="text-right tabular-nums">{pair.shared_parts}</TableCell>
-              <TableCell className="text-right tabular-nums">{pair.shared_eans ?? <span className="text-muted-foreground">—</span>}</TableCell>
-              <TableCell className="text-center">{pair.similarity ? <ToneBadge tone={pair.strong ? "success" : "warning"}>{pair.similarity}</ToneBadge> : "—"}</TableCell>
-              <TableCell className="max-w-72 truncate text-muted-foreground" title={sampleText}>{sample ? <><span className="font-mono text-foreground">{sample.part}</span> · {sample.a || "—"} · {sample.b || "—"}</> : "—"}</TableCell>
-              <TableCell><PairDecision pair={pair} back={back}/></TableCell>
-              <TableCell><PairDialog pair={pair} back={back}/></TableCell>
-            </TableRow>;
-          })}</TableBody></Table> : <EmptyState title="Bu görünümde incelenecek marka çifti yok." icon={<GitCompareArrows/>}/>}
       </CardContent>
       {pager}
     </>;
@@ -310,7 +254,6 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       </div>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
-    {params.decided && messages[params.decided] && notice(messages[params.decided])}
     {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
     {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)

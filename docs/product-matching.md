@@ -10,19 +10,13 @@ Başbuğ, Dinamik ve SETA aynı fiziksel ürünü farklı kod, marka yazımı ve
 - **Marka anahtarı:** marka alanından (Başbuğ `uk`, Dinamik `marka`) yazım farkı ve `-AV` eki atılarak üretilir. Tüm orijinal parça etiketleri (`OE-PSA`, `IOE-HYU`, `PSA ORIJINAL`, `ORJINAL`, `OPAR`, `GM`) tek `ORIJINAL` ailesine girer; orada OEM numarası belirleyicidir.
 - **Onaylı takma adlar** (`product_brand_aliases`) marka anahtarını kanonik markaya çevirir.
 
-## Marka çifti incelemesi
+## Marka çifti kararları (arşiv)
 
-Aynı parça no farklı tedarikçilerde farklı markayla geçiyorsa çift önerilir (en az 20 ortak numara). İnceleme birimi satır değil marka çiftidir. Ürün adı benzerliği (pg_trgm) yol gösterir: ölçümde gerçek eşlemeler %15–37, rastlantılar %2–5 çıktı.
-
-| Karar | Anlamı | Etkisi |
-| --- | --- | --- |
-| Aynı marka | İki etiket aynı ürünü satar (M.MARELLI / MAGNETI MARELLI, MAHLE / MAHLE FILTRE) | Takma ad eklenir (çok kayıtlı marka kanonik olur); bir sonraki yenilemede gruplar birleşir |
-| Muadil | Aynı numaralandırma, farklı ürün (CONTITECH / DAYCO kayış ölçüsü, EUROREPAR / ORIJINAL OEM numarası) | Kaydedilir; ileride muadil bağlantısı olarak kullanılacak |
-| İlgisiz | Numaralar rastlantısal (FEBI / IBRAS) | Kaydedilir, tekrar önerilmez |
+Ortak parça numarası/barkod üzerinden marka çifti önerisi ve "Benzer marka önerileri" sekmesi, tüm ana markalar elle incelendikten sonra kaldırıldı (#218). Marka birleştirme artık Markalar sekmesindeki düzenleme dialog'undan yapılır. Önceden verilmiş kararlar `product_brand_pair_decisions`'ta durur ve yenilemede uygulanmaya devam eder: "muadil" kararları ortak numaralı ürünleri birbirine muadil bağlar (`product_equivalents`, kind `brand`).
 
 ## Tablolar ve çalıştırma
 
-`refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_brand_pair_suggestions`, `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.
+`refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.
 
 ```sh
 npm run products:match     # yeniden eşleştir
