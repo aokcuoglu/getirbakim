@@ -8,7 +8,7 @@ import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {sourceDecision,retryAfterMs,validSourcePath,quietWaitMs,pacingDelayMs} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
-import {SourceQueue} from '../src/modules/enrichment/source-queue';
+import {SourceQueue,unblockSources} from '../src/modules/enrichment/source-queue';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
 test('long-running Chrome collectors close between successive catalog batches',async t=>{
  const sockets:FakeSocket[]=[];
@@ -236,6 +236,14 @@ test('durable request leases, restart recovery, stale acknowledgement and 429 ne
   assert.deepEqual(await queue.get('www.trodo.com',view),{relationships:[]});
   assert.equal((await pool.query('SELECT count(*)::int AS count FROM enrichment_source_requests WHERE path=$1',[view])).rows[0].count,0);
   await assert.rejects(()=>queue.store('www.trodo.com','/customer/account','json',{}),/rejected/);
+  // unblock reopens the circuit and returns the tripping request of an unfinished run to the queue; finished runs keep history.
+  const done=(await pool.query("INSERT INTO enrichment_runs(seed,sample_size,status) VALUES('done',1,'complete') RETURNING id")).rows[0].id;
+  await pool.query("INSERT INTO enrichment_source_requests(run_id,host,path,kind,status,attempts,last_error) VALUES($1,'www.trodo.com','/a','html','blocked',1,'HTTP 403'),($2,'www.trodo.com','/b','html','blocked',1,'HTTP 403')",[run,done]);
+  await pool.query("UPDATE enrichment_runs SET status='blocked' WHERE id=$1",[run]);
+  await pool.query("UPDATE enrichment_source_hosts SET blocked=true,last_error='HTTP 403'");
+  assert.deepEqual(await unblockSources(pool),{hosts:1,requests:1});
+  assert.deepEqual((await pool.query("SELECT path,status,attempts FROM enrichment_source_requests WHERE path IN ('/a','/b') ORDER BY path")).rows,[{path:'/a',status:'pending',attempts:0},{path:'/b',status:'blocked',attempts:1}]);
+  assert.equal((await pool.query('SELECT blocked FROM enrichment_source_hosts')).rows[0].blocked,false);
  }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
 });
 

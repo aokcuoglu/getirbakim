@@ -6,7 +6,7 @@ import {Pool} from 'pg';
 import {transform} from 'esbuild';
 import {z} from 'zod';
 import {enqueueProductSources,reconcileProductQueue} from '../src/modules/enrichment/product-queue';
-import {SourceQueue,SourceBlocked,WorkerStopped} from '../src/modules/enrichment/source-queue';
+import {SourceQueue,SourceBlocked,WorkerStopped,unblockSources} from '../src/modules/enrichment/source-queue';
 import {SOURCE_HOSTS} from '../src/modules/enrichment/policy';
 import type {SourceProduct} from '../src/modules/enrichment/trodo-adapter';
 import {sourcePartQueries,oemSearchPath,supplierOemQueries,verifiedOemReference,searchPath,parseSearch,chooseExact,parseProduct,parseView,collectVehicles,normalizeData,imagePath,safeProductSlug,manufacturerBrandKey} from '../src/modules/enrichment/trodo-adapter';
@@ -313,7 +313,7 @@ try{
  else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
  else if(command==='run'){await prepare();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
- else if(command==='unblock'){await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL');console.log('Source hosts unblocked');}
+ else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
  else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');

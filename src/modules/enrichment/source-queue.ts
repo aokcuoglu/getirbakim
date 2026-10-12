@@ -95,3 +95,11 @@ export class SourceQueue {
  async clearChallenge(host:string){await this.pool.query('UPDATE enrichment_source_hosts SET challenge_since=NULL,next_allowed_at=greatest(next_allowed_at,now()) WHERE host=$1',[host]);}
  async blockHost(host:string,error:string){await this.pool.query('UPDATE enrichment_source_hosts SET blocked=true,challenge_since=NULL,last_error=$2 WHERE host=$1',[host,error]);}
 }
+// Reopens every host circuit and returns the requests that tripped it to the queue, so a resumed run retries them
+// instead of halting on the same blocked row. Finished runs keep their requests as history.
+export async function unblockSources(pool:Pool){
+ const hosts=await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL WHERE blocked OR challenge_since IS NOT NULL');
+ const requests=await pool.query(`UPDATE enrichment_source_requests SET status='pending',attempts=0,available_at=now(),last_error=NULL,finished_at=NULL,lease_token=NULL,lease_until=NULL
+  WHERE status='blocked' AND run_id IN (SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped'))`);
+ return {hosts:hosts.rowCount??0,requests:requests.rowCount??0};
+}
