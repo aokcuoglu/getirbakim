@@ -5,22 +5,18 @@ import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-export type MatchingParams = { tab?: string; strength?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
+export type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
-  pairs: { brand_a: "COALESCE(a.name,s.brand_a)", brand_b: "COALESCE(b.name,s.brand_b)", shared: "shared_parts", eans: "shared_eans", similarity: "avg_name_similarity" },
   same: { primary: "primary_price", selling: "selling_price" },
   candidates: { reason: "c.reason", similarity: "c.name_similarity" },
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
 };
 // Keys arrived over time; runs recorded before a key lack it.
-export type MatchStats = { items: number; pair_suggestions: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
+export type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
   seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
-export type EanSample = { ean: string; part_a: string; a: string | null; part_b: string; b: string | null };
-export type PairSuggestion = { brand_a: string; brand_b: string; name_a: string; name_b: string; shared_parts: number; shared_eans: number; avg_name_similarity: number | null;
-  samples: { part: string; a: string | null; b: string | null }[]; ean_samples: EanSample[] };
 export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string };
 /** A Başbuğ product with the Dinamik offers grouped under it; `selling` is the supplier whose offer the store sells now. */
 export type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
@@ -32,8 +28,8 @@ export type MatchingTab = "brands" | "candidates" | "same" | "dinamik" | "seta";
 export type BrandLabel = { supplier: string; label: string; items: number; method: "auto" | "manual" };
 /** A master brand and the supplier labels deduplicated into it; `pending` while any label was placed automatically. */
 export type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; labels: BrandLabel[] };
-export type BrandScope = "pending" | "single" | "all" | "suggestions";
-export const brandScopes: BrandScope[] = ["pending", "single", "all", "suggestions"];
+export type BrandScope = "pending" | "single" | "all";
+export const brandScopes: BrandScope[] = ["pending", "single", "all"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null };
@@ -43,8 +39,6 @@ export type Candidate = { reason: CandidateReason; name_similarity: number | nul
 export type CandidateNames = "consistent" | "conflict";
 export const candidateNames: Record<CandidateNames, string> = { consistent: "Tanımı uyumlu", conflict: "Tanımı farklı" };
 
-// Name similarity of real alias/rebrand pairs measured 0.15–0.37, coincidental number collisions ~0.02–0.05.
-export const strongSimilarity = 0.1;
 const pageSize = 25;
 const pageOf = (value: string | undefined, total: number) => {
   const pages = Math.max(1, Math.ceil(total / pageSize)), parsed = Number(value);
@@ -58,14 +52,12 @@ const brandRows = `SELECT b.id::text,b.key,b.name,COALESCE(sum(sb.items),0)::int
    count(DISTINCT sb.supplier) FILTER (WHERE sb.supplier IN ('basbug','dinamik') AND sb.items>0) AS sellers,bool_or(sb.supplier='seta') AS seta,
    jsonb_agg(jsonb_build_object('supplier',sb.supplier,'label',sb.label,'items',sb.items,'method',sb.method) ORDER BY sb.supplier,sb.items DESC,sb.label) AS labels
   FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id GROUP BY b.id`;
-const brandFilters: Record<Exclude<BrandScope, "suggestions">, string> = { pending: "pending", single: "sellers=1 AND NOT seta", all: "true" };
+const brandFilters: Record<BrandScope, string> = { pending: "pending", single: "sellers=1 AND NOT seta", all: "true" };
 
 export async function productMatchingData(params: MatchingParams) {
   await requireAdmin();
-  const [run, strength, candidates, brandCounts] = await Promise.all([
+  const [run, candidates, brandCounts] = await Promise.all([
     db.query<{ completed_at: Date; stats: MatchStats }>("SELECT completed_at,stats FROM product_match_runs ORDER BY id DESC LIMIT 1"),
-    db.query<{ strong: number; weak: number }>(`SELECT count(*) FILTER (WHERE avg_name_similarity>=$1)::int AS strong,
-      count(*) FILTER (WHERE avg_name_similarity IS NULL OR avg_name_similarity<$1)::int AS weak FROM product_brand_pair_suggestions`, [strongSimilarity]),
     db.query<{ count: number }>("SELECT count(*)::int FROM product_match_candidates"),
     db.query<{ pending: number; single: number; all: number }>(`SELECT count(*) FILTER (WHERE ${brandFilters.pending})::int AS pending,
       count(*) FILTER (WHERE ${brandFilters.single})::int AS single,count(*)::int AS all FROM (${brandRows}) b`),
@@ -73,26 +65,18 @@ export async function productMatchingData(params: MatchingParams) {
   // "pairs" was the brand tab before master brands.
   const tab = params.tab === "pairs" ? "brands" : tabs.includes(params.tab as MatchingTab) ? params.tab as MatchingTab : "brands";
   // Decisions remove candidates at once, so the pending count is live rather than the last run's.
-  const brandCount = { ...brandCounts.rows[0], suggestions: strength.rows[0].strong + strength.rows[0].weak };
-  const base = { run: run.rows[0] ?? null, strength: strength.rows[0], pendingCandidates: candidates.rows[0].count, brandCount, tab };
+  const brandCount = brandCounts.rows[0];
+  const base = { run: run.rows[0] ?? null, pendingCandidates: candidates.rows[0].count, brandCount, tab };
   if (tab === "candidates") return { ...base, ...await matchCandidates(params) };
   if (tab === "same") return { ...base, ...await sameProducts(params) };
   if (tab === "dinamik") return { ...base, ...await dinamikOnly(params) };
   if (tab === "seta") return { ...base, ...await setaReferences(params) };
   const scope = brandScopes.includes(params.scope as BrandScope) ? params.scope as BrandScope : "pending";
-  if (scope !== "suggestions") return { ...base, ...await masterBrands(scope, params) };
-  const weak = params.strength === "weak";
-  const filter = weak ? "avg_name_similarity IS NULL OR avg_name_similarity<$1" : "avg_name_similarity>=$1";
-  const total = weak ? base.strength.weak : base.strength.strong;
-  const { page, pages } = pageOf(params.page, total);
-  const pairs = (await db.query<PairSuggestion>(`SELECT s.*,COALESCE(a.name,s.brand_a) AS name_a,COALESCE(b.name,s.brand_b) AS name_b
-    FROM product_brand_pair_suggestions s LEFT JOIN brands a ON a.key=s.brand_a LEFT JOIN brands b ON b.key=s.brand_b WHERE ${filter}
-    ORDER BY ${sortOrder(params, sorts.pairs, "greatest(shared_parts,shared_eans) DESC,s.brand_a,s.brand_b")} LIMIT ${pageSize} OFFSET $2`, [strongSimilarity, (page - 1) * pageSize])).rows;
-  return { ...base, scope, pairs, weak, total, page, pages };
+  return { ...base, ...await masterBrands(scope, params) };
 }
 
 /** Master brands with their Başbuğ / Dinamik / SETA labels, largest first; `q` matches the name or any label. */
-async function masterBrands(scope: Exclude<BrandScope, "suggestions">, params: MatchingParams) {
+async function masterBrands(scope: BrandScope, params: MatchingParams) {
   const q = compact(params.q);
   const where = `${brandFilters[scope]} AND ($1='' OR regexp_replace(upper(name),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'
     OR EXISTS (SELECT 1 FROM jsonb_array_elements(labels) l WHERE regexp_replace(upper(l->>'label'),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'))`;
