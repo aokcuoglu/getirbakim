@@ -28,3 +28,18 @@ export function cacheLifetime(path:string,kind:string) {
  if(/\/vehicle\//.test(path))return 30*86400000;
  return /catalogsearch/.test(path)?86400000:7*86400000;
 }
+// Milliseconds until a nightly quiet window ends, or 0 outside it. Hours are local to `timeZone`; a window whose
+// start is after its end crosses midnight, and equal or missing hours mean no window.
+export function quietWaitMs(now:number,startHour:number|null,endHour:number|null,timeZone='Europe/Istanbul') {
+ if(startHour==null||endHour==null||startHour===endHour) return 0;
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone,hourCycle:'h23',hour:'numeric',minute:'numeric',second:'numeric'}).formatToParts(now).map(p=>[p.type,Number(p.value)]));
+ const minute=parts.hour*60+parts.minute,start=startHour*60,end=endHour*60;
+ const inside=start<end?minute>=start&&minute<end:minute>=start||minute<end;
+ if(!inside) return 0;
+ const left=(end-minute+1440)%1440||1440;
+ return left*60000-parts.second*1000-now%1000;
+}
+// Delay before the next request: the host interval plus a random share of its jitter.
+export function pacingDelayMs(intervalMs:number,jitterMs:number,random=Math.random) {
+ return intervalMs+Math.floor(random()*Math.max(0,jitterMs));
+}
