@@ -166,6 +166,34 @@ CREATE TABLE IF NOT EXISTS product_match_candidates (
  reason text NOT NULL CHECK (reason IN ('prefix','leading_zero','suffix')), name_similarity real,
  PRIMARY KEY (product_a,product_b)
 );
+ALTER TABLE product_match_candidates ADD COLUMN IF NOT EXISTS name_conflict boolean;
+-- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
+-- vs MOTOR SUBAP TAKIMI). Turkish letters are folded, possessive endings and position words dropped, and words cut to
+-- four letters so AYNA/AYNASI and FILTRE/FILTRESI meet; a few trade synonyms share one term (SUPAP=SUBAP,
+-- EKSANTRIK=TRIGER, MOTOR KULAGI=TAKOZ, PORYA/YATAK=RULMAN, TAPET=ITICI, MEMBRAN=DIYAFRAM, KECE=CONTA, VIRAJ=DENGE).
+CREATE OR REPLACE FUNCTION product_name_terms(name text) RETURNS text[] LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT COALESCE(array_agg(DISTINCT CASE t WHEN 'SUPA' THEN 'SUBA' WHEN 'EKSA' THEN 'TRIG' WHEN 'EKSE' THEN 'TRIG' WHEN 'KULA' THEN 'TAKO'
+   WHEN 'PORY' THEN 'RULM' WHEN 'YATA' THEN 'RULM' WHEN 'TAPE' THEN 'ITIC' WHEN 'MEBR' THEN 'DIYA' WHEN 'MEMB' THEN 'DIYA'
+   WHEN 'KECE' THEN 'CONT' WHEN 'VIRA' THEN 'DENG' ELSE t END),'{}')
+ FROM (SELECT left(CASE WHEN length(w)>3 THEN regexp_replace(w,'(LARI|LERI|SI|SU|I|U)$','') ELSE w END,4) AS t
+  FROM regexp_split_to_table(translate(upper(name),'ÇĞİÖŞÜÂ','CGIOSUA'),'[^A-Z]+') w
+  WHERE (length(w)>=3 OR w='SU') AND w NOT IN ('ARKA','SAG','SOL','UST','ALT','ORTA','DIS','KOMPLE','SET','SETI','TAKIM','TAKIMI',
+   'KIT','KITI','ADET','MOTOR','MOTORU','ICIN','ILE','TIP')) x
+$$;
+-- Words glued from several (SUPAPKAPAGICONTASI) cannot be cut into terms; they are searched for terms instead.
+CREATE OR REPLACE FUNCTION product_name_glued(name text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT COALESCE(string_agg(replace(w,'SUPAP','SUBAP'),' '),'')
+ FROM regexp_split_to_table(translate(upper(name),'ÇĞİÖŞÜÂ','CGIOSUA'),'[^A-Z]+') w WHERE length(w)>=10
+$$;
+-- Two names conflict when both name a part and share no term.
+CREATE OR REPLACE FUNCTION product_names_conflict(name_a text, name_b text) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT a<>'{}' AND b<>'{}' AND NOT a && b
+  AND NOT EXISTS (SELECT 1 FROM unnest(b) t WHERE position(t IN product_name_glued(name_a))>0)
+  AND NOT EXISTS (SELECT 1 FROM unnest(a) t WHERE position(t IN product_name_glued(name_b))>0)
+ FROM (SELECT product_name_terms(name_a) a, product_name_terms(name_b) b) x
+$$;
+UPDATE product_match_candidates c SET name_conflict=product_names_conflict(a.name,b.name) FROM products a, products b
+WHERE c.name_conflict IS NULL AND a.id=c.product_a AND b.id=c.product_b;
 CREATE TABLE IF NOT EXISTS product_match_decisions (
  product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
  product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -442,7 +470,7 @@ BEGIN
  FROM products WHERE suppliers='{dinamik}' AND merged_into IS NULL;
  ANALYZE cand_a; ANALYZE cand_b;
  INSERT INTO product_match_candidates
- SELECT DISTINCT ON (a,b) a, b, reason, similarity(lower(name_a),lower(name_b)) FROM (
+ SELECT DISTINCT ON (a,b) a, b, reason, similarity(lower(name_a),lower(name_b)), product_names_conflict(name_a,name_b) FROM (
   SELECT a.id AS a, b.id AS b, 'prefix' AS reason, a.name AS name_a, b.name AS name_b, 1 AS priority FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND b.part_number=a.full_code
   UNION ALL SELECT a.id, b.id, 'prefix', a.name, b.name, 1 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND a.part_number=b.full_code
   UNION ALL SELECT a.id, b.id, 'leading_zero', a.name, b.name, 2 FROM cand_a a JOIN cand_b b

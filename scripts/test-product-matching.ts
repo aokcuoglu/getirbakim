@@ -30,6 +30,21 @@ test("names come from each supplier's own field", async () => {
   assert.equal(await one("SELECT supplier_item_name('basbug',$1) AS value", [JSON.stringify({ ac: "" })]), null);
 });
 
+test("candidate names conflict only when they name different kinds of part", async () => {
+  const conflict = (a: string, b: string | null) => one("SELECT product_names_conflict($1,$2) AS value", [a, b]);
+  assert.equal(await conflict("EL FREN TEL KLIPSI", "MOTOR SUBAP TAKIMI MEGANE II 2003>2005"), true);
+  assert.equal(await conflict("SANZUMAN YAG FILTRESI", "ARKA AMORTISOR FOCUS II 05> 11 STATION WAGON"), true);
+  assert.equal(await conflict("DIS DIKIZ AYNASI SOL", "DIS DIKIZ AYNA SOL MEKANIK DACIA DUSTER 18>"), false);
+  assert.equal(await conflict("TRIGER SETI", "EKSANTRIK GERGI KITI (146x240) ASTRA G H J"), false); // synonyms
+  assert.equal(await conflict("PORYA ARKA", "ARKA TEKER RULMANI 4 BIJON ABSLI KANGOO"), false);
+  assert.equal(await conflict("SUPAPKAPAGICONTASI", "SUPAP KAPAK CONTASI MERCEDES W123"), false); // glued words
+  assert.equal(await conflict("CAM SU MOTORU", "SILECEK SU FISKIYE MOTORU ON"), false);
+  assert.equal(await conflict("MOTOR TAKOZU", "ALTERNATOR GERGI RULMANI R9M MOTOR"), true); // MOTOR alone is no part type
+  assert.equal(await conflict("ÖN FREN BALATASI", "FREN BALATASI ARKA"), false);
+  assert.equal(await conflict("ARKA SAG", "AMORTISOR"), false); // nothing to compare
+  assert.equal(await conflict("TERMOSTAT", null), false);
+});
+
 test("OEM numbers split on , ; / but keep Ford-style spaces; short fragments are dropped", async () => {
   const oems = (supplier: string, data: object) => one("SELECT supplier_item_oem_numbers($1,$2) AS value", [supplier, JSON.stringify(data)]);
   assert.deepEqual(await oems("basbug", { oe: "6C11 2282 EB" }), ["6C112282EB"]);

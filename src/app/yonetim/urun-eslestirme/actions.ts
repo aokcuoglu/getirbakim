@@ -115,7 +115,7 @@ export async function acceptCandidates(form: FormData) {
   try {
     await client.query("BEGIN");
     const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
-      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 LIMIT 500`, [reason, brand])).rows;
+      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 AND c.name_conflict IS NOT TRUE LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
@@ -128,4 +128,26 @@ export async function acceptCandidates(form: FormData) {
   finally { client.release(); }
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}`));
+}
+
+// Record every listed name-conflict candidate as different (a reviewed "Tanımı farklı" list); nothing is merged.
+export async function rejectCandidates(form: FormData) {
+  const admin = await requireAdmin();
+  const input = z.object({ reason: z.enum(["prefix", "leading_zero", "suffix"]).optional(), q: z.string().regex(/^[A-Z0-9]{1,80}$/).optional(), back: backPath })
+    .safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
+  const { reason, q, back } = input.data;
+  // Same filter as the list (modules/admin/product-matching matchCandidates).
+  const rejected = (await db.query(`WITH listed AS (
+      SELECT c.product_a,c.product_b FROM product_match_candidates c JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b
+      WHERE c.name_conflict AND ($1::text IS NULL OR c.reason=$1)
+       AND ($2::text IS NULL OR a.brand=$2 OR a.part_number LIKE '%'||$2||'%' OR b.part_number LIKE '%'||$2||'%')
+    ), decided AS (
+      INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) SELECT product_a,product_b,'different',$3 FROM listed
+      ON CONFLICT (product_a,product_b) DO UPDATE SET status='different',decided_by=excluded.decided_by,decided_at=now()
+    )
+    DELETE FROM product_match_candidates c USING listed l WHERE c.product_a=l.product_a AND c.product_b=l.product_b`,
+    [reason ?? null, q ?? null, admin.id])).rowCount ?? 0;
+  revalidatePath("/yonetim/urun-eslestirme");
+  redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk-different&count=${rejected}`));
 }
