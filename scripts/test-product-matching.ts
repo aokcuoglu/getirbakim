@@ -196,3 +196,20 @@ test("a Dinamik product suggested to several Başbuğ products is marked shared"
     client.release();
   }
 });
+
+test("merging a product that owns no rows changes nothing", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const rowless = (await client.query<{ id: string; merged_into: string }>(`SELECT p.id,p.merged_into FROM products p
+      WHERE p.merged_into IS NOT NULL AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id) LIMIT 1`)).rows[0];
+    assert.ok(rowless, "expected a merged product");
+    const other = (await client.query<{ id: string }>("SELECT product_id AS id FROM product_sources WHERE product_id<>$1 LIMIT 1", [rowless.merged_into])).rows[0];
+    assert.equal((await client.query("SELECT product_merge($1,$2,NULL) AS id", [rowless.id, other.id])).rows[0].id, null);
+    assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [rowless.id])).rows[0].merged_into, rowless.merged_into);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
