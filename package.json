@@ -27,6 +27,7 @@
     "supplier:rebuild": "node --env-file=.env.local --import tsx scripts/rebuild-supplier-data.ts",
     "db:vehicles": "node --env-file=.env.local --import tsx scripts/import-vehicles.ts",
     "test:part-art": "node --import tsx --test scripts/test-part-art.tsx",
+    "test:data-table": "node --import tsx --test scripts/test-data-table.tsx",
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
     "search:vocabulary": "node --env-file=.env.local --import tsx scripts/refresh-search-vocabulary.ts",
     "test:vehicles": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-catalog.ts",
