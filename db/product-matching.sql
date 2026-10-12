@@ -338,7 +338,9 @@ BEGIN
  PERFORM pg_advisory_xact_lock(20261001,6);
  -- A target merged earlier stands for the product it was merged into.
  SELECT COALESCE(merged_into,id) INTO target FROM products WHERE id=target;
- IF target IS NULL OR source IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM products WHERE id=source) THEN RETURN NULL; END IF;
+ -- A source without rows of its own (already merged elsewhere) is left alone: relinking it would point it at a
+ -- product that does not sell its rows.
+ IF target IS NULL OR source IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM product_sources WHERE product_id=source) THEN RETURN NULL; END IF;
  UPDATE product_sources SET product_id=target, method='manual', decided_by=actor, linked_at=now() WHERE product_id=source;
  UPDATE products SET merged_into=target, updated_at=now() WHERE id=source OR merged_into=source;
  UPDATE products SET merged_into=NULL, updated_at=now() WHERE id=target AND merged_into IS NOT NULL;
