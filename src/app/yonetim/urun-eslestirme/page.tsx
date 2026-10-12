@@ -72,18 +72,19 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       <PaginationItem>{next ? <Button variant="outline" size="icon" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}><ChevronRight/></Button> : <Button variant="outline" size="icon" aria-label="Sonraki sayfa" disabled><ChevronRight/></Button>}</PaginationItem>
     </PaginationContent></Pagination>
   </CardFooter>;
-  const search = (tab: string, placeholder: string, filters?: MatchingFilter[]) => <ProductMatchingFilters
+  const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
     key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}`}
-    params={{ tab, q: params.q, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
-    placeholder={placeholder} filters={filters} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
+    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
       labels: brand.labels.map(label => ({ ...label, supplierName: suppliers[label.supplier] ?? label.supplier, items: number(label.items) })) }));
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {search("brands", "Marka veya etiket", [{ name: "scope", label: "Marka durumu", value: data.scope === "pending" ? "" : data.scope, options: [
-          { value: "", label: `Bekleyen (${number(data.brandCount.pending)})` },
+        {search("brands", "Marka veya etiket", [{ name: "scope", label: "Marka durumu", value: data.scope,
+          defaultValue: data.brandCount.pending ? "pending" : "all", options: [
+          { value: "pending", label: `Bekleyen (${number(data.brandCount.pending)})` },
           { value: "single", label: `Tek tedarikçi (${number(data.brandCount.single)})` },
           { value: "all", label: `Tüm markalar (${number(data.brandCount.all)})` },
         ] }])}
@@ -161,7 +162,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "basbug", label: `Başbuğ${summary ? ` (${number(summary.basbug)})` : ""}` },
           { value: "none", label: `Stok yok${summary ? ` (${number(summary.none)})` : ""}` },
           { value: "split", label: `Elle ayrılan (${number(data.exclusions)})` },
-        ] }])}
+        ] }], !split)}
         {split ? (split.length ? <Table><caption className="sr-only">Ayrılan kayıtlar</caption>
           <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead>Kod</TableHead><TableHead>Ad</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{split.map(item => <TableRow key={item.id}>
@@ -198,7 +199,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.dinamik.length ? <Table server><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
           <TableHeader><TableRow><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="name">Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.dinamik.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
+            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-28 truncate text-muted-foreground" title={item.brand ?? ""}>{item.brand || "—"}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
@@ -218,7 +219,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.seta.length ? <Table server><caption className="sr-only">SETA muadilleri</caption>
           <TableHeader><TableRow><TableHead sortKey="code">SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead sortKey="price" className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead sortKey="linked" className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.seta.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
+            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>

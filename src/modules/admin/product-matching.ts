@@ -71,7 +71,7 @@ export async function productMatchingData(params: MatchingParams) {
   if (tab === "same") return { ...base, ...await sameProducts(params) };
   if (tab === "dinamik") return { ...base, ...await dinamikOnly(params) };
   if (tab === "seta") return { ...base, ...await setaReferences(params) };
-  const scope = brandScopes.includes(params.scope as BrandScope) ? params.scope as BrandScope : "pending";
+  const scope = brandScopes.includes(params.scope as BrandScope) ? params.scope as BrandScope : brandCount.pending ? "pending" : "all";
   return { ...base, ...await masterBrands(scope, params) };
 }
 
