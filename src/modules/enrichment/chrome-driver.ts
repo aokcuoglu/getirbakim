@@ -82,8 +82,9 @@ export async function ensureChrome(port:number,profileDir:string,startUrl:string
  const up=async()=>{try{await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(2000)});return true;}catch{return false;}};
  if(await up())return;
  await mkdir(profileDir,{recursive:true});
- // Detached so the browser session (and its clearance cookies) outlives worker restarts.
- spawn(CHROME,[`--remote-debugging-port=${port}`,`--user-data-dir=${profileDir}`,'--no-first-run','--no-default-browser-check',
+ // Detached so the browser session (and its clearance cookies) outlives worker restarts. The profile is pinned because a
+ // Guest last-used profile makes Chrome start on the profile picker, where DevTools cannot open tabs.
+ spawn(CHROME,[`--remote-debugging-port=${port}`,`--user-data-dir=${profileDir}`,'--profile-directory=Default','--no-first-run','--no-default-browser-check',
   '--disable-background-timer-throttling','--disable-renderer-backgrounding','--disable-backgrounding-occluded-windows',startUrl],{detached:true,stdio:'ignore'}).unref();
  for(let i=0;i<60;i++){if(await up())return;await sleep(500);}
  throw Error('Chrome DevTools endpoint did not start on port '+port);
