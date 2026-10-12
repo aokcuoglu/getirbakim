@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, Search, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { BrandLabelList } from "@/components/admin/brand-label-list";
 import { BrandDialog, ConfirmBrand, DecisionHelp, PairDecision, PairDialog, SetaDialog, StockLabel, type BrandRow, type PairRow } from "@/components/admin/product-matching-dialogs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -119,10 +120,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           <TableBody>{rows.map(brand => <TableRow key={brand.id} className="align-top">
             <TableCell className="max-w-48 truncate font-medium" title={brand.name}>{brand.name}</TableCell>
             {brandSuppliers.map(supplier => {
-              const labels = brand.labels.filter(label => label.supplier === supplier);
-              return <TableCell key={supplier}>{labels.length ? <div className="flex max-w-64 flex-wrap gap-1">{labels.map(label =>
-                <Badge key={label.label} variant={label.method === "auto" ? "outline" : "secondary"} title={`${label.label} · ${label.items} kayıt · ${label.method === "auto" ? "otomatik" : "onaylı"}`}>
-                  {label.label}<span className="text-muted-foreground tabular-nums">{label.items}</span></Badge>)}</div> : <span className="text-muted-foreground">—</span>}</TableCell>;
+              return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={brand.labels.filter(label => label.supplier === supplier)}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
             <TableCell>{brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
