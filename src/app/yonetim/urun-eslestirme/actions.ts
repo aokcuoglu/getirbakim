@@ -10,8 +10,8 @@ const decision = z.object({
   status: z.enum(["same", "equivalent", "unrelated"]), back: z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme"),
 }).refine(value => value.brand_a < value.brand_b);
 
-// Decisions apply to the brand pair. "same" adds an alias towards the brand with more items; grouping changes on the
-// next refresh (refreshMatches), the suggestion disappears at once.
+// Decisions apply to the brand pair. "same" merges the master brand with fewer items into the other; grouping changes
+// on the next refresh (refreshMatches), the suggestion disappears at once.
 export async function decideBrandPair(form: FormData) {
   const admin = await requireAdmin();
   const input = decision.safeParse(Object.fromEntries(form));
@@ -22,16 +22,9 @@ export async function decideBrandPair(form: FormData) {
     await client.query("BEGIN");
     await client.query(`INSERT INTO product_brand_pair_decisions(brand_a,brand_b,status,decided_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(brand_a,brand_b) DO UPDATE SET status=EXCLUDED.status,decided_by=EXCLUDED.decided_by,decided_at=now()`, [brand_a, brand_b, status, admin.id]);
-    if (status === "same") {
-      const counts = (await client.query<{ brand: string; count: number }>(
-        "SELECT brand,count(*)::int FROM product_match_items WHERE brand=ANY($1) GROUP BY brand", [[brand_a, brand_b]])).rows;
-      const size = (brand: string) => counts.find(row => row.brand === brand)?.count ?? 0;
-      const [canonical, alias] = size(brand_a) >= size(brand_b) ? [brand_a, brand_b] : [brand_b, brand_a];
-      // Keep aliases one hop deep: anything that pointed at the alias now points at the canonical brand.
-      await client.query("UPDATE product_brand_aliases SET canonical=$2,decided_by=$3,decided_at=now() WHERE canonical=$1", [alias, canonical, admin.id]);
-      await client.query(`INSERT INTO product_brand_aliases(alias,canonical,decided_by) VALUES($1,$2,$3)
-        ON CONFLICT(alias) DO UPDATE SET canonical=EXCLUDED.canonical,decided_by=EXCLUDED.decided_by,decided_at=now()`, [alias, canonical, admin.id]);
-    }
+    if (status === "same") await client.query(`SELECT brand_merge(x[2],x[1],$2) FROM (SELECT array_agg(id ORDER BY items DESC,key) AS x FROM (
+        SELECT b.id,b.key,COALESCE(sum(sb.items),0) AS items FROM brands b LEFT JOIN supplier_brands sb ON sb.brand_id=b.id WHERE b.key=ANY($1) GROUP BY b.id) s) m`,
+      [[brand_a, brand_b], admin.id]);
     await client.query("DELETE FROM product_brand_pair_suggestions WHERE brand_a=$1 AND brand_b=$2", [brand_a, brand_b]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
@@ -150,4 +143,76 @@ export async function rejectCandidates(form: FormData) {
     [reason ?? null, q ?? null, admin.id])).rowCount ?? 0;
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk-different&count=${rejected}`));
+}
+
+const brandBack = z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme");
+const brandName = z.string().trim().min(1).max(80);
+// A master brand by what an admin typed: its exact name, its key, or the brand a label of that spelling belongs to.
+const findBrand = `SELECT id FROM (
+  SELECT id,0 AS rank FROM brands WHERE upper(name)=upper(trim($1)) UNION ALL SELECT id,1 FROM brands WHERE key=product_brand_key($1)
+  UNION ALL SELECT b.id,2 FROM brand_key_aliases a JOIN brands b ON b.key=a.canonical WHERE a.alias=product_brand_key($1)) x ORDER BY rank LIMIT 1`;
+
+async function brandDecision(back: string, flag: string, run: (client: import("pg").PoolClient) => Promise<boolean>) {
+  const client = await db.connect();
+  let done = false;
+  try {
+    await client.query("BEGIN");
+    done = await run(client);
+    await client.query(done ? "COMMIT" : "ROLLBACK");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
+  revalidatePath("/yonetim/urun-eslestirme");
+  redirect(withFlag(back, done ? `brand=${flag}` : "error=brand"));
+}
+
+// "Onayla": the brand's automatically placed labels are confirmed as they are.
+export async function confirmBrand(form: FormData) {
+  const admin = await requireAdmin();
+  const input = z.object({ id: z.coerce.number().int().positive(), back: brandBack }).safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
+  await brandDecision(input.data.back, "confirmed", async client => {
+    await client.query("UPDATE supplier_brands SET method='manual',decided_by=$2,decided_at=now() WHERE brand_id=$1 AND method='auto'", [input.data.id, admin.id]);
+    return true;
+  });
+}
+
+// Display name only; the key products group by stays.
+export async function renameBrand(form: FormData) {
+  await requireAdmin();
+  const input = z.object({ id: z.coerce.number().int().positive(), name: brandName, back: brandBack }).safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
+  await brandDecision(input.data.back, "renamed", async client =>
+    (await client.query("UPDATE brands SET name=upper($2),updated_at=now() WHERE id=$1", [input.data.id, input.data.name])).rowCount === 1);
+}
+
+// One supplier label moves to another master brand ("move"), or becomes a master brand of its own ("new"). A brand
+// left without labels is removed. Products regroup on the next refresh.
+export async function moveBrandLabel(form: FormData) {
+  const admin = await requireAdmin();
+  const input = z.object({ supplier: z.enum(["basbug", "dinamik", "seta"]), label: z.string().min(1).max(120), mode: z.enum(["move", "new"]),
+    target: z.string().trim().max(80).optional(), back: brandBack }).safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
+  const { supplier, label, mode, target, back } = input.data;
+  await brandDecision(back, mode === "new" ? "created" : "moved", async client => {
+    await client.query("SELECT pg_advisory_xact_lock(20261001,7)");
+    const current = (await client.query<{ brand_id: string }>("SELECT brand_id FROM supplier_brands WHERE supplier=$1 AND label=$2", [supplier, label])).rows[0];
+    if (!current || (mode === "move" && !target)) return false;
+    const brand = mode === "new" ? (await client.query<{ id: string | null }>("SELECT brand_create($1) AS id", [label])).rows[0]?.id
+      : (await client.query<{ id: string }>(findBrand, [target])).rows[0]?.id;
+    if (!brand) return false;
+    await client.query("UPDATE supplier_brands SET brand_id=$3,method='manual',decided_by=$4,decided_at=now() WHERE supplier=$1 AND label=$2", [supplier, label, brand, admin.id]);
+    await client.query("DELETE FROM brands b WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM supplier_brands s WHERE s.brand_id=b.id)", [current.brand_id]);
+    return true;
+  });
+}
+
+// Every label of this brand joins the target brand, which keeps its name and key.
+export async function mergeBrand(form: FormData) {
+  const admin = await requireAdmin();
+  const input = z.object({ id: z.coerce.number().int().positive(), target: brandName, back: brandBack }).safeParse(Object.fromEntries(form));
+  if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
+  await brandDecision(input.data.back, "merged", async client => {
+    const target = (await client.query<{ id: string }>(findBrand, [input.data.target])).rows[0]?.id;
+    return Boolean(target) && (await client.query("SELECT brand_merge($1,$2,$3) AS id", [input.data.id, target, admin.id])).rows[0].id !== null;
+  });
 }

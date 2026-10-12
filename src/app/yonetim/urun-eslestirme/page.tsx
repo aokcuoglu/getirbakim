@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, Search, SearchX, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, Search, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
-import { DecisionHelp, PairDecision, PairDialog, SetaDialog, StockLabel, type PairRow } from "@/components/admin/product-matching-dialogs";
+import { BrandDialog, ConfirmBrand, DecisionHelp, PairDecision, PairDialog, SetaDialog, StockLabel, type BrandRow, type PairRow } from "@/components/admin/product-matching-dialogs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -25,8 +25,13 @@ const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone
 const percent = (value: number | null) => value === null ? null : `%${Math.round(value * 100)}`;
 const price = (kurus: number | null | undefined) => kurus ? money(kurus) : "—";
 const suppliers: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
+const brandMessages: Record<string, string> = {
+  confirmed: "Ana marka onaylandı.", renamed: "Ana marka adı güncellendi.", moved: "Etiket taşındı; ürünler bir sonraki yenilemede yeni ana markaya göre gruplanır.",
+  created: "Etiket ayrı ana marka oldu; ürünler bir sonraki yenilemede ayrılır.", merged: "Ana markalar birleşti; ürünler bir sonraki yenilemede birleşir.",
+};
+const brandSuppliers = ["basbug", "dinamik", "seta"] as const;
 const messages: Record<string, string> = {
-  same: "Aynı marka olarak kaydedildi; ürünler bir sonraki yenilemede birleşir.", equivalent: "Muadil olarak kaydedildi; ortak numaralı ürünler bir sonraki yenilemede birbirine muadil bağlanır.", unrelated: "İlgisiz olarak kaydedildi; bu çift tekrar önerilmez.",
+  same: "Aynı marka olarak kaydedildi; ana markalar birleşti, ürünler bir sonraki yenilemede birleşir.", equivalent: "Muadil olarak kaydedildi; ortak numaralı ürünler bir sonraki yenilemede birbirine muadil bağlanır.", unrelated: "İlgisiz olarak kaydedildi; bu çift tekrar önerilmez.",
 };
 const matchedMessages: Record<string, string> = {
   same: "Aynı ürün olarak birleştirildi; mağazada tek ürün olarak, en uygun teklifle satılıyor.", different: "Farklı ürün olarak kaydedildi; bu çift tekrar önerilmez.",
@@ -53,7 +58,7 @@ function EmptyState({ title, icon, children }: { title: string; icon: ReactNode;
 /** URL-driven line tabs; each tab is a link so the view survives reloads and can be shared. */
 function LinkTabs({ label, tabs }: { label: string; tabs: { href: string; label: string; count?: number; current: boolean }[] }) {
   const current = tabs.find(tab => tab.current)?.href;
-  return <Tabs value={current}><ScrollArea className="pb-2">
+  return <Tabs value={current} className="min-w-0"><ScrollArea className="pb-2">
     <TabsList variant="line" aria-label={label}>{tabs.map(tab => <TabsTrigger key={tab.href} value={tab.href} nativeButton={false} render={<Link href={tab.href} scroll={false}/>}>
       {tab.label}{tab.count !== undefined && <Badge variant="secondary" className="tabular-nums">{number(tab.count)}</Badge>}
     </TabsTrigger>)}</TabsList>
@@ -86,16 +91,54 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     <InputGroup className="w-full sm:w-64"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder={placeholder} maxLength={80}/></InputGroup>
     <Button type="submit">Ara</Button>{params.q && <Button variant="ghost" nativeButton={false} render={<Link href={query({ q: undefined, page: undefined })}/>}>Temizle</Button>}{extra}
   </form>;
-  const pending = data.strength.strong + data.strength.weak;
+  const brandTabs = <LinkTabs label="Markalar" tabs={[
+    { href: query({ scope: undefined, strength: undefined, page: undefined }), label: "Onay bekleyen", count: data.brandCount.pending, current: "scope" in data && data.scope === "pending" },
+    { href: query({ scope: "single", strength: undefined, page: undefined }), label: "Tek tedarikçide", count: data.brandCount.single, current: "scope" in data && data.scope === "single" },
+    { href: query({ scope: "all", strength: undefined, page: undefined }), label: "Tüm ana markalar", count: data.brandCount.all, current: "scope" in data && data.scope === "all" },
+    { href: query({ scope: "suggestions", strength: undefined, page: undefined, q: undefined }), label: "Benzer marka önerileri", count: data.brandCount.suggestions, current: "scope" in data && data.scope === "suggestions" },
+  ]}/>;
 
   let body: ReactNode = null;
-  if ("pairs" in data) {
-    const pairs: PairRow[] = data.pairs.map(pair => ({ brand_a: pair.brand_a, brand_b: pair.brand_b, shared_parts: number(pair.shared_parts),
+  if ("brands" in data) {
+    const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
+      labels: brand.labels.map(label => ({ ...label, supplierName: suppliers[label.supplier] ?? label.supplier, items: number(label.items) })) }));
+    const scopeIntro: Record<string, string> = {
+      pending: "Yenilemede otomatik bağlanan etiketleri içeren ana markalar. Doğruysa onaylayın; yanlışsa düzenleyip etiketi doğru ana markaya taşıyın.",
+      single: "Yalnız Başbuğ'da veya yalnız Dinamik'te satılan ana markalar. Diğer tedarikçide farklı yazılışla duruyor olabilir (KALE / KALE RADYATOR); öyleyse birleştirin.",
+      all: "Tüm ana markalar, en çok kayıtlı olan önce.",
+    };
+    body = <>
+      <CardContent className="flex flex-col gap-4">
+        {intro("Ana marka; Başbuğ, Dinamik ve SETA marka etiketlerinin tekilleştirilmiş hâlidir (ör. Dinamik ABA ve ABA-AV tek marka; Başbuğ FEBI, Dinamik FEBI ve FEBI-AV tek marka). Yalnız aynı ana markaya bağlı etiketlerin ürünleri aynı ürün sayılır. Değişiklikler bir sonraki yenilemede ürünlere uygulanır.")}
+        {brandTabs}
+        <p className="text-muted-foreground">{scopeIntro[data.scope]}</p>
+        {search("brands", "Marka veya etiket (ör. MAHLE)")}
+        <datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
+        {rows.length ? <Table><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
+          <TableHeader><TableRow><TableHead>Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+          <TableBody>{rows.map(brand => <TableRow key={brand.id} className="align-top">
+            <TableCell className="max-w-48 truncate font-medium" title={brand.name}>{brand.name}</TableCell>
+            {brandSuppliers.map(supplier => {
+              const labels = brand.labels.filter(label => label.supplier === supplier);
+              return <TableCell key={supplier}>{labels.length ? <div className="flex max-w-64 flex-wrap gap-1">{labels.map(label =>
+                <Badge key={label.label} variant={label.method === "auto" ? "outline" : "secondary"} title={`${label.label} · ${label.items} kayıt · ${label.method === "auto" ? "otomatik" : "onaylı"}`}>
+                  {label.label}<span className="text-muted-foreground tabular-nums">{label.items}</span></Badge>)}</div> : <span className="text-muted-foreground">—</span>}</TableCell>;
+            })}
+            <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
+            <TableCell>{brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
+            <TableCell><div className="flex items-center gap-1">{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.name}|${brand.labels.map(label => `${label.supplier}:${label.label}:${label.method}`).join(",")}`} brand={brand} back={back}/></div></TableCell>
+          </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
+      </CardContent>
+      {pager}
+    </>;
+  } else if ("pairs" in data) {
+    const pairs: PairRow[] = data.pairs.map(pair => ({ brand_a: pair.brand_a, brand_b: pair.brand_b, name_a: pair.name_a, name_b: pair.name_b, shared_parts: number(pair.shared_parts),
       shared_eans: pair.shared_eans ? number(pair.shared_eans) : null, similarity: percent(pair.avg_name_similarity),
       strong: (pair.avg_name_similarity ?? 0) >= strongSimilarity, samples: pair.samples, ean_samples: pair.ean_samples }));
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("Aynı parça numarası farklı tedarikçilerde farklı marka adıyla geçiyor. Aynı markaysa ürünler birleşir; karar tüm ortak parçalara uygulanır ve yenilemeden sonra geçerli olur.")}
+        {intro("Aynı parça numarası farklı tedarikçilerde farklı ana markayla geçiyor. Aynı markaysa ana markalar birleşir; karar tüm ortak parçalara uygulanır ve yenilemeden sonra geçerli olur.")}
+        {brandTabs}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <LinkTabs label="Benzerlik" tabs={[
             { href: query({ strength: undefined, page: undefined }), label: "Güçlü benzerlik", count: data.strength.strong, current: !data.weak },
@@ -104,15 +147,15 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           <DecisionHelp/>
         </div>
         {pairs.length ? <Table><caption className="sr-only">İncelenecek marka çiftleri</caption>
-          <TableHeader><TableRow><TableHead>Marka A</TableHead><TableHead>Marka B</TableHead><TableHead className="text-right">Ortak no</TableHead><TableHead className="text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Ana marka A</TableHead><TableHead>Ana marka B</TableHead><TableHead className="text-right">Ortak no</TableHead><TableHead className="text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
           <TableBody>{pairs.map(pair => {
             // Barcode-only pairs share no part number; their first barcode match stands in as the example.
             const ean = pair.ean_samples[0];
             const sample = pair.samples[0] ?? (ean && { part: ean.ean, a: `${ean.part_a} ${ean.a ?? ""}`.trim(), b: `${ean.part_b} ${ean.b ?? ""}`.trim() });
             const sampleText = sample ? `${sample.part} · ${sample.a || "—"} · ${sample.b || "—"}` : "—";
             return <TableRow key={`${pair.brand_a}|${pair.brand_b}`}>
-              <TableCell className="max-w-32 truncate font-medium" title={pair.brand_a}>{pair.brand_a}</TableCell>
-              <TableCell className="max-w-32 truncate font-medium" title={pair.brand_b}>{pair.brand_b}</TableCell>
+              <TableCell className="max-w-32 truncate font-medium" title={pair.name_a}>{pair.name_a}</TableCell>
+              <TableCell className="max-w-32 truncate font-medium" title={pair.name_b}>{pair.name_b}</TableCell>
               <TableCell className="text-right tabular-nums">{pair.shared_parts}</TableCell>
               <TableCell className="text-right tabular-nums">{pair.shared_eans ?? <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell className="text-center">{pair.similarity ? <ToneBadge tone={pair.strong ? "success" : "warning"}>{pair.similarity}</ToneBadge> : "—"}</TableCell>
@@ -263,8 +306,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
 
   const notice = (text: ReactNode) => <Alert variant="success" role="status"><CircleCheck/><AlertDescription>{text}</AlertDescription></Alert>;
   const statCards: { icon: LucideIcon; label: string; value: number; note: string; href: string; badge?: ReactNode }[] = stats ? [
-    { icon: GitCompareArrows, label: "1 · Marka kararı bekleyen", value: pending, note: `${number(data.strength.strong)} güçlü · ${number(data.strength.weak)} zayıf benzerlik`, href: tabHref(),
-      badge: <ToneBadge tone={data.strength.strong ? "warning" : "success"}>{data.strength.strong ? "İnceleme var" : "Güncel"}</ToneBadge> },
+    { icon: Tags, label: "1 · Onay bekleyen ana marka", value: data.brandCount.pending, note: `${number(data.brandCount.all)} ana marka · ${number(data.brandCount.suggestions)} benzer marka önerisi`, href: tabHref(),
+      badge: <ToneBadge tone={data.brandCount.pending ? "warning" : "success"}>{data.brandCount.pending ? "İnceleme var" : "Güncel"}</ToneBadge> },
     { icon: Merge, label: "2 · Olası aynı ürün", value: data.pendingCandidates, note: "Küçük kod farkı; aynı ürün mü, siz karar verin", href: tabHref("candidates"),
       badge: <ToneBadge tone={data.pendingCandidates ? "warning" : "success"}>{data.pendingCandidates ? "İnceleme var" : "Güncel"}</ToneBadge> },
     { icon: Boxes, label: "3 · Başbuğ + Dinamik aynı ürün", value: stats.basbug_dinamik_groups ?? 0, note: `Tek ürün, en uygun teklif · ${date(data.run!.completed_at)}`, href: tabHref("same") },
@@ -289,10 +332,11 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.decided && messages[params.decided] && notice(messages[params.decided])}
+    {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
     {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
       : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
-    {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
     {!stats ? <EmptyState title="Eşleştirme henüz çalıştırılmadı." icon={<Boxes/>}>Sağ üstteki düğmeyle veya <code>npm run products:match</code> ile başlatın.</EmptyState> : <>
       <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" aria-label="Eşleştirme özeti">{statCards.map(card => <Card key={card.label}>
         <CardHeader><dt><CardDescription className="flex items-center gap-2"><card.icon className="size-4" aria-hidden="true"/>{card.label}</CardDescription></dt>
@@ -303,7 +347,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       <Card>
         <CardHeader>
           <LinkTabs label="Eşleştirme adımları" tabs={[
-            { href: tabHref(), label: "1 · Marka eşleştirme", count: pending, current: data.tab === "pairs" },
+            { href: tabHref(), label: "1 · Markalar", count: data.brandCount.pending, current: data.tab === "brands" },
             { href: tabHref("candidates"), label: "2 · Olası aynı ürünler", count: data.pendingCandidates, current: data.tab === "candidates" },
             { href: tabHref("same"), label: "3 · Aynı ürünler", count: stats.basbug_dinamik_groups, current: data.tab === "same" },
             { href: tabHref("dinamik"), label: "4 · Yalnız Dinamik", count: stats.dinamik_only, current: data.tab === "dinamik" },
