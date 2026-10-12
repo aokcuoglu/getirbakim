@@ -1,22 +1,21 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, Search, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
 import { BrandDialog, ConfirmBrand, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
+import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { candidateNames, candidateReasons, productMatchingData, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffers, undoSplit } from "./actions";
@@ -49,19 +48,8 @@ function ToneBadge({ tone, children }: { tone: "success" | "warning" | "neutral"
   return <Badge variant={tone === "neutral" ? "outline" : tone}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{children}</Badge>;
 }
 
-function EmptyState({ title, icon, children }: { title: string; icon: ReactNode; children?: ReactNode }) {
-  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle>{children && <EmptyDescription>{children}</EmptyDescription>}</EmptyHeader></Empty>;
-}
-
-/** URL-driven line tabs; each tab is a link so the view survives reloads and can be shared. */
-function LinkTabs({ label, tabs }: { label: string; tabs: { href: string; label: string; count?: number; current: boolean }[] }) {
-  const current = tabs.find(tab => tab.current)?.href;
-  return <Tabs value={current} className="min-w-0"><ScrollArea className="pb-2">
-    <TabsList variant="line" aria-label={label}>{tabs.map(tab => <TabsTrigger key={tab.href} value={tab.href} nativeButton={false} render={<Link href={tab.href} scroll={false}/>}>
-      {tab.label}{tab.count !== undefined && <Badge variant="secondary" className="tabular-nums">{number(tab.count)}</Badge>}
-    </TabsTrigger>)}</TabsList>
-    <ScrollBar orientation="horizontal"/>
-  </ScrollArea></Tabs>;
+function EmptyState({ title, icon }: { title: string; icon: ReactNode }) {
+  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader></Empty>;
 }
 
 export default async function ProductMatching({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -76,44 +64,34 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
-  const pager = <CardFooter className="flex-wrap justify-between gap-3">
-    <span className="text-muted-foreground tabular-nums">{number(data.total)} kayıt · Sayfa {number(data.page)} / {number(data.pages)}</span>
+  const pager = data.total > 0 && <CardFooter className="flex-wrap justify-between gap-3">
+    <span className="text-muted-foreground tabular-nums">{number(data.total)} kayıt</span>
     <Pagination aria-label="Sayfalar" className="mx-0 w-auto"><PaginationContent>
-      <PaginationItem>{prev ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start"/>Önceki</Button> : <Button variant="ghost" disabled><ChevronLeft data-icon="inline-start"/>Önceki</Button>}</PaginationItem>
-      <PaginationItem>{next ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end"/></Button> : <Button variant="ghost" disabled>Sonraki<ChevronRight data-icon="inline-end"/></Button>}</PaginationItem>
+      <PaginationItem>{prev ? <Button variant="outline" size="icon" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft/></Button> : <Button variant="outline" size="icon" aria-label="Önceki sayfa" disabled><ChevronLeft/></Button>}</PaginationItem>
+      <PaginationItem><span className="px-2 text-muted-foreground tabular-nums" aria-label={`Sayfa ${data.page} / ${data.pages}`}>{number(data.page)} / {number(data.pages)}</span></PaginationItem>
+      <PaginationItem>{next ? <Button variant="outline" size="icon" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}><ChevronRight/></Button> : <Button variant="outline" size="icon" aria-label="Sonraki sayfa" disabled><ChevronRight/></Button>}</PaginationItem>
     </PaginationContent></Pagination>
   </CardFooter>;
-  const intro = (text: ReactNode) => <CardDescription>{text}</CardDescription>;
-  const search = (tab: string, placeholder: string, extra?: ReactNode) => <form className="flex flex-wrap items-center gap-2" action="/yonetim/urun-eslestirme">
-    <input type="hidden" name="tab" value={tab}/>{params.scope && <input type="hidden" name="scope" value={params.scope}/>}{params.names && <input type="hidden" name="names" value={params.names}/>}
-    <InputGroup className="w-full sm:w-64"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder={placeholder} maxLength={80}/></InputGroup>
-    <Button type="submit">Ara</Button>{params.q && <Button variant="ghost" nativeButton={false} render={<Link href={query({ q: undefined, page: undefined })}/>}>Temizle</Button>}{extra}
-  </form>;
-  const brandTabs = <LinkTabs label="Markalar" tabs={[
-    { href: query({ scope: undefined, page: undefined }), label: "Onay bekleyen", count: data.brandCount.pending, current: "scope" in data && data.scope === "pending" },
-    { href: query({ scope: "single", page: undefined }), label: "Tek tedarikçide", count: data.brandCount.single, current: "scope" in data && data.scope === "single" },
-    { href: query({ scope: "all", page: undefined }), label: "Tüm ana markalar", count: data.brandCount.all, current: "scope" in data && data.scope === "all" },
-  ]}/>;
-
+  const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
+    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}`}
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
+    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
       labels: brand.labels.map(label => ({ ...label, supplierName: suppliers[label.supplier] ?? label.supplier, items: number(label.items) })) }));
-    const scopeIntro: Record<string, string> = {
-      pending: "Yenilemede otomatik bağlanan etiketleri içeren ana markalar. Doğruysa onaylayın; yanlışsa düzenleyip etiketi doğru ana markaya taşıyın.",
-      single: "Yalnız Başbuğ'da veya yalnız Dinamik'te satılan ana markalar. Diğer tedarikçide farklı yazılışla duruyor olabilir (KALE / KALE RADYATOR); öyleyse birleştirin.",
-      all: "Tüm ana markalar, en çok kayıtlı olan önce.",
-    };
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("Ana marka; Başbuğ, Dinamik ve SETA marka etiketlerinin tekilleştirilmiş hâlidir (ör. Dinamik ABA ve ABA-AV tek marka; Başbuğ FEBI, Dinamik FEBI ve FEBI-AV tek marka). Yalnız aynı ana markaya bağlı etiketlerin ürünleri aynı ürün sayılır. Değişiklikler bir sonraki yenilemede ürünlere uygulanır.")}
-        {brandTabs}
-        <p className="text-muted-foreground">{scopeIntro[data.scope]}</p>
-        {search("brands", "Marka veya etiket (ör. MAHLE)")}
+        {search("brands", "Marka veya etiket", [{ name: "scope", label: "Marka durumu", value: data.scope,
+          defaultValue: data.brandCount.pending ? "pending" : "all", options: [
+          { value: "pending", label: `Bekleyen (${number(data.brandCount.pending)})` },
+          { value: "single", label: `Tek tedarikçi (${number(data.brandCount.single)})` },
+          { value: "all", label: `Tüm markalar (${number(data.brandCount.all)})` },
+        ] }])}
         <datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
         {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
           <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
-          <TableBody>{rows.map(brand => <TableRow key={brand.id} className="align-top">
+          <TableBody>{rows.map(brand => <TableRow key={brand.id}>
             <TableCell className="max-w-48 truncate font-medium" title={brand.name}>{brand.name}</TableCell>
             {brandSuppliers.map(supplier => {
               return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={brand.labels.filter(label => label.supplier === supplier)}/></TableCell>;
@@ -136,42 +114,39 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       </div>;
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("Otomatik eşleşmenin kaçırdığı, aynı markada parça numarası küçük farkla yazılmış Başbuğ ve Dinamik ürünleri. “Aynı ürün” derseniz Dinamik kaydı Başbuğ ürününe bağlanır ve mağazada tek ürün olur; karar kalıcıdır, ürün sayfasından geri alınabilir.")}
-        <LinkTabs label="Öneri nedeni" tabs={[
-          { href: query({ scope: undefined, page: undefined }), label: "Tümü", count: Object.values(data.byReason).reduce((sum, count) => sum + (count ?? 0), 0), current: !data.reason },
-          ...reasons.map(reason => ({ href: query({ scope: reason, page: undefined }), label: candidateReasons[reason], count: data.byReason[reason] ?? 0, current: data.reason === reason })),
-        ]}/>
-        <LinkTabs label="Parça tanımı" tabs={[
-          { href: query({ names: undefined, page: undefined }), label: "Her tanım", count: data.byNames.consistent + data.byNames.conflict, current: !data.names },
-          ...nameKinds.map(kind => ({ href: query({ names: kind, page: undefined }), label: candidateNames[kind], count: data.byNames[kind], current: data.names === kind })),
-        ]}/>
-        {data.names === "conflict" && <CardDescription>Numaraları benziyor ama tanımları farklı parça türü söylüyor (ör. el fren tel klipsi ↔ motor subap takımı); büyük olasılıkla farklı ürün. Listeyi gözden geçirip aynı olanları tek tek kabul edin, kalanları toplu olarak farklı sayabilirsiniz.</CardDescription>}
-        <div className="flex flex-wrap items-center gap-2">
-          {search("candidates", "Marka (ör. CONTITECH) veya parça no")}
+        {search("candidates", "Marka veya parça no", [
+          { name: "scope", label: "Öneri nedeni", value: data.reason ?? "", options: [
+            { value: "", label: "Tüm nedenler" },
+            ...reasons.map(reason => ({ value: reason, label: `${candidateReasons[reason]} (${number(data.byReason[reason] ?? 0)})` })),
+          ] },
+          { name: "names", label: "Parça tanımı", value: data.names ?? "", options: [
+            { value: "", label: "Tüm tanımlar" },
+            ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
+          ] },
+        ])}
+        {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.names !== "conflict" && data.acceptableTotal > 0 && <form action={acceptCandidates}>
             <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{bulkBrand} için tümünü aynı say ({number(data.acceptableTotal)})</Button>
+            <Button type="submit" variant="outline" title={`${bulkBrand}: yalnız uygun öneriler birleştirilir`}><CircleCheck data-icon="inline-start" aria-hidden="true"/>Tümünü birleştir ({number(data.acceptableTotal)})</Button>
           </form>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Listelenen {number(data.total)} öneriyi farklı say</Button>
+            <Button type="submit" variant="outline"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tümünü farklı say ({number(data.total)})</Button>
           </form>}
-        </div>
-        {bulkBrand && data.names !== "conflict" && data.total > data.acceptableTotal && <p className="text-muted-foreground">Tanımı farklı ya da Dinamik ürünü birden çok Başbuğ ürününe önerilen {number(data.total - data.acceptableTotal)} öneri toplu kabule dahil edilmez; bunları tek tek seçin.</p>}
-        {!bulkBrand && data.names !== "conflict" && <p className="text-muted-foreground">İpucu: bir neden seçip marka adıyla arayın (ör. CONTITECH); o markanın tüm önerilerini tek seferde kabul edebilirsiniz.</p>}
+        </div>}
         {data.candidates.length ? <Table server><caption className="sr-only">Olası aynı ürünler</caption>
           <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
-          <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`} className="align-top">
-            <TableCell className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
+          <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`}>
+            <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}
-              {item.shared_b && <Badge variant="warning" title="Bu Dinamik ürünü başka Başbuğ ürünlerine de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</TableCell>
+              {item.shared_b && <Badge variant="warning" title="Bu Dinamik ürünü başka Başbuğ ürünlerine de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <ToneBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</ToneBadge>}</TableCell>
             <TableCell><div className="flex flex-wrap gap-2">{(["same", "different"] as const).map(status => <form key={status} action={decideCandidate}>
               <input type="hidden" name="product_a" value={item.a.id}/><input type="hidden" name="product_b" value={item.b.id}/>
               <input type="hidden" name="status" value={status}/><input type="hidden" name="back" value={back}/>
-              <Button type="submit" variant={status === "same" ? "default" : "ghost"}>{status === "same" ? "Aynı ürün" : "Farklı"}</Button>
+              <Button type="submit" variant={status === "same" ? "outline" : "ghost"}>{status === "same" ? "Aynı ürün" : "Farklı"}</Button>
             </form>)}</div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="İncelenecek öneri yok." icon={<GitCompareArrows/>}/>}
       </CardContent>
@@ -181,14 +156,13 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     const summary = "summary" in data ? data.summary : undefined, split = "split" in data ? data.split : undefined;
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("Başbuğ ürününün aynısı Dinamik'te de var. Mağazada tek ürün görünür; fiyat ve stok, stokta olan en ucuz tekliften gelir. Eşleşme yanlışsa “Ayır” deyin: Dinamik kaydı ayrı ürün olur.")}
-        <LinkTabs label="Satıştaki teklif" tabs={[
-          { href: query({ scope: undefined, page: undefined }), label: "Tümü", count: summary?.all, current: data.scope === "all" },
-          { href: query({ scope: "dinamik", page: undefined }), label: "Dinamik satışta", count: summary?.dinamik, current: data.scope === "dinamik" },
-          { href: query({ scope: "basbug", page: undefined }), label: "Başbuğ satışta", count: summary?.basbug, current: data.scope === "basbug" },
-          { href: query({ scope: "none", page: undefined }), label: "Stok yok", count: summary?.none, current: data.scope === "none" },
-          { href: query({ scope: "split", page: undefined, q: undefined }), label: "Elle kararlar", count: data.exclusions, current: data.scope === "split" },
-        ]}/>
+        {search("same", "Parça no veya kod", [{ name: "scope", label: "Satıştaki teklif", value: data.scope === "all" ? "" : data.scope, options: [
+          { value: "", label: `Tüm teklifler${summary ? ` (${number(summary.all)})` : ""}` },
+          { value: "dinamik", label: `Dinamik${summary ? ` (${number(summary.dinamik)})` : ""}` },
+          { value: "basbug", label: `Başbuğ${summary ? ` (${number(summary.basbug)})` : ""}` },
+          { value: "none", label: `Stok yok${summary ? ` (${number(summary.none)})` : ""}` },
+          { value: "split", label: `Elle ayrılan (${number(data.exclusions)})` },
+        ] }], !split)}
         {split ? (split.length ? <Table><caption className="sr-only">Ayrılan kayıtlar</caption>
           <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead>Kod</TableHead><TableHead>Ad</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{split.map(item => <TableRow key={item.id}>
@@ -198,15 +172,14 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="text-muted-foreground">{date(item.decided_at)}</TableCell>
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><Button type="submit" variant="outline">Geri al</Button></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Elle karar verilmiş kayıt yok." icon={<Boxes/>}/>) : <>
-          {search("same", "Parça no veya kod")}
           {"same" in data && data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
             <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead>Dinamik</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0], dinamik = group.offers.filter(offer => offer.supplier === "dinamik");
               const saving = group.selling === "dinamik" && group.primary_price && group.selling_price ? Math.round((1 - group.selling_price / group.primary_price) * 100) : 0;
-              return <TableRow key={group.primary_id} className="align-top">
-                <TableCell className="max-w-80 whitespace-normal"><Button variant="link" className="h-auto p-0 text-left whitespace-normal" nativeButton={false} render={<a href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}/>}>{primary.name}</Button></TableCell>
+              return <TableRow key={group.primary_id}>
+                <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
                 <TableCell><OfferCell offer={primary}/></TableCell>
                 <TableCell><OfferCell offer={dinamik[0]}/>{dinamik.length > 1 && <div className="text-muted-foreground">+{dinamik.length - 1} kayıt</div>}</TableCell>
                 <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><ToneBadge tone={group.selling === "dinamik" ? "success" : "neutral"}>{suppliers[group.selling]}</ToneBadge>
@@ -222,17 +195,16 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   } else if ("dinamik" in data) {
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("Başbuğ'da karşılığı bulunmayan Dinamik ürünleri. Mağazada ayrı ürün olarak listelenir; görsel, özellik ve araç bilgisi Trodo zenginleştirmesiyle gelir. Başbuğ'da aynısı varsa “Eşleştir” ile ürün sayfasından birleştirin.")}
         {search("dinamik", "Kod veya OEM")}
         {data.dinamik.length ? <Table server><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
           <TableHeader><TableRow><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="name">Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.dinamik.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
+            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-28 truncate text-muted-foreground" title={item.brand ?? ""}>{item.brand || "—"}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>
-            <TableCell><ToneBadge tone={item.enriched ? "success" : "neutral"}>{item.enriched ? "Zenginleştirildi" : "Bekliyor"}</ToneBadge></TableCell>
+            <TableCell><ToneBadge tone={item.enriched ? "success" : "warning"}>{item.enriched ? "Hazır" : "Bekliyor"}</ToneBadge></TableCell>
             <TableCell>{item.product_id && <Button variant="ghost" nativeButton={false} render={<Link href={`/yonetim/urunler/${item.product_id}#birlestir`}/>}>Eşleştir</Button>}</TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Ürün bulunamadı." icon={<SearchX/>}/>}
       </CardContent>
@@ -241,16 +213,13 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   } else if ("seta" in data) {
     body = <>
       <CardContent className="flex flex-col gap-4">
-        {intro("SETA kendi markasıdır; aynı ürün değil muadil olarak gösterilir. Ortak OEM numarası veya SETA'nın rakip kodu üzerinden Başbuğ/Dinamik ürün sayfasında “OEM ve muadil numaraları” bölümünde yer alır.")}
-        <LinkTabs label="Bağlantı" tabs={[
-          { href: query({ scope: undefined, page: undefined }), label: "Bağlı", count: stats?.seta_linked_items, current: data.scope === "linked" },
-          { href: query({ scope: "unlinked", page: undefined }), label: "Bağlantısız", current: data.scope === "unlinked" },
-        ]}/>
-        {search("seta", "SETA kodu veya OEM")}
+        {search("seta", "SETA kodu veya OEM", [{ name: "scope", label: "Bağlantı durumu", value: data.scope === "linked" ? "" : data.scope, options: [
+          { value: "", label: "Bağlı" }, { value: "unlinked", label: "Bağlantısız" },
+        ] }])}
         {data.seta.length ? <Table server><caption className="sr-only">SETA muadilleri</caption>
           <TableHeader><TableRow><TableHead sortKey="code">SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead sortKey="price" className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead sortKey="linked" className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.seta.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
+            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>
@@ -265,29 +234,24 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   }
 
   const notice = (text: ReactNode) => <Alert variant="success" role="status"><CircleCheck/><AlertDescription>{text}</AlertDescription></Alert>;
-  const statCards: { icon: LucideIcon; label: string; value: number; note: string; href: string; badge?: ReactNode }[] = stats ? [
-    { icon: Tags, label: "1 · Onay bekleyen ana marka", value: data.brandCount.pending, note: `${number(data.brandCount.all)} ana marka`, href: tabHref(),
-      badge: <ToneBadge tone={data.brandCount.pending ? "warning" : "success"}>{data.brandCount.pending ? "İnceleme var" : "Güncel"}</ToneBadge> },
-    { icon: Merge, label: "2 · Olası aynı ürün", value: data.pendingCandidates, note: "Küçük kod farkı; aynı ürün mü, siz karar verin", href: tabHref("candidates"),
-      badge: <ToneBadge tone={data.pendingCandidates ? "warning" : "success"}>{data.pendingCandidates ? "İnceleme var" : "Güncel"}</ToneBadge> },
-    { icon: Boxes, label: "3 · Başbuğ + Dinamik aynı ürün", value: stats.basbug_dinamik_groups ?? 0, note: `Tek ürün, en uygun teklif · ${date(data.run!.completed_at)}`, href: tabHref("same") },
-    { icon: PackagePlus, label: "4 · Yalnız Dinamik'te", value: stats.dinamik_only ?? 0, note: "Ayrı ürün olarak listelenir", href: tabHref("dinamik") },
-    { icon: Link2, label: "5 · SETA muadili", value: stats.seta_linked_items ?? 0, note: `${number(stats.seta_linked_products ?? 0)} Başbuğ/Dinamik kaydında gösteriliyor`, href: tabHref("seta") },
+  const metrics: { icon: LucideIcon; label: string; value: number }[] = stats ? [
+    { icon: Tags, label: "Bekleyen markalar", value: data.brandCount.pending },
+    { icon: Merge, label: "Ürün önerileri", value: data.pendingCandidates },
+    { icon: Boxes, label: "Eşleşen ürünler", value: stats.basbug_dinamik_groups ?? 0 },
+    { icon: PackagePlus, label: "Yalnız Dinamik", value: stats.dinamik_only ?? 0 },
+    { icon: Link2, label: "SETA muadilleri", value: stats.seta_linked_items ?? 0 },
   ] : [];
 
-  return <div className="flex flex-col gap-6">
+  return <div className="flex min-w-0 flex-col gap-4">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
         <BreadcrumbSeparator/>
         <BreadcrumbItem><BreadcrumbPage>Ürün eşleştirme</BreadcrumbPage></BreadcrumbItem>
       </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex max-w-3xl flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
-          <p className="text-muted-foreground">Başbuğ ana katalogdur. Aynı ürün Dinamik&apos;te de varsa mağazada tek ürün olarak, stokta olan en ucuz fiyatla satılır. Dinamik&apos;e özgü ürünler ayrı listelenir; SETA ürünleri muadil olarak gösterilir.</p>
-        </div>
-        <form action={refreshMatches}><SupplierRefreshButton label="Eşleştirmeyi yenile" pendingLabel="Eşleştiriliyor (~1 dk)…"/></form>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
+        <form action={refreshMatches}><SupplierRefreshButton label="Yenile" pendingLabel="Eşleştiriliyor…"/></form>
       </div>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
@@ -296,26 +260,26 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
       : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : params.error === "merge" ? "Birleştirilemedi: Dinamik ürünü zaten başka bir ürüne bağlı. Ürün sayfasından kontrol edin." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
-    {!stats ? <EmptyState title="Eşleştirme henüz çalıştırılmadı." icon={<Boxes/>}>Sağ üstteki düğmeyle veya <code>npm run products:match</code> ile başlatın.</EmptyState> : <>
-      <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" aria-label="Eşleştirme özeti">{statCards.map(card => <Card key={card.label}>
-        <CardHeader><dt><CardDescription className="flex items-center gap-2"><card.icon className="size-4" aria-hidden="true"/>{card.label}</CardDescription></dt>
-          <dd><CardTitle className="text-2xl font-semibold tabular-nums">{number(card.value)}</CardTitle></dd>{card.badge && <CardAction>{card.badge}</CardAction>}</CardHeader>
-        <CardFooter className="flex-col items-start gap-1 text-sm"><span className="text-muted-foreground">{card.note}</span>
-          <Button variant="link" className="h-auto p-0" nativeButton={false} render={<Link href={card.href}/>}>İncele<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
-      </Card>)}</dl>
-      <Card>
-        <CardHeader>
-          <LinkTabs label="Eşleştirme adımları" tabs={[
-            { href: tabHref(), label: "1 · Markalar", count: data.brandCount.pending, current: data.tab === "brands" },
-            { href: tabHref("candidates"), label: "2 · Olası aynı ürünler", count: data.pendingCandidates, current: data.tab === "candidates" },
-            { href: tabHref("same"), label: "3 · Aynı ürünler", count: stats.basbug_dinamik_groups, current: data.tab === "same" },
-            { href: tabHref("dinamik"), label: "4 · Yalnız Dinamik", count: stats.dinamik_only, current: data.tab === "dinamik" },
-            { href: tabHref("seta"), label: "5 · SETA muadilleri", count: stats.seta_linked_items, current: data.tab === "seta" },
-          ]}/>
-        </CardHeader>
-        <Separator/>
-        {body}
-      </Card>
+    {!stats ? <EmptyState title="Henüz eşleştirme yok" icon={<Boxes/>}/> : <>
+      <Card size="sm"><CardContent>
+        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5" aria-label="Eşleştirme özeti">{metrics.map(metric => <div key={metric.label} className="flex flex-col gap-1">
+          <dt className="flex items-center gap-2 text-muted-foreground"><metric.icon className="size-4" aria-hidden="true"/>{metric.label}</dt>
+          <dd className="text-2xl font-semibold tabular-nums">{number(metric.value)}</dd>
+        </div>)}</dl>
+      </CardContent></Card>
+      <Tabs value={data.tab} className="min-w-0 gap-3">
+        <ScrollArea className="h-10">
+          <TabsList aria-label="Ürün eşleştirme" activateOnFocus={false}>{[
+            { value: "brands", label: "Markalar", href: tabHref() },
+            { value: "candidates", label: "Öneriler", href: tabHref("candidates") },
+            { value: "same", label: "Eşleşenler", href: tabHref("same") },
+            { value: "dinamik", label: "Dinamik", href: tabHref("dinamik") },
+            { value: "seta", label: "SETA", href: tabHref("seta") },
+          ].map(tab => <TabsTrigger key={tab.value} value={tab.value} nativeButton={false} render={<Link href={tab.href} scroll={false}/>}>{tab.label}</TabsTrigger>)}</TabsList>
+          <ScrollBar orientation="horizontal"/>
+        </ScrollArea>
+        <TabsContent value={data.tab}><Card>{body}</Card></TabsContent>
+      </Tabs>
     </>}
   </div>;
 }

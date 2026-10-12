@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CircleCheck, Maximize2, Pencil, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, Maximize2, Pencil, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -38,7 +38,8 @@ export function SetaDialog({ title, description, products }: { title: string; de
 
 export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
   if (stock === null) return <span className="text-muted-foreground">—</span>;
-  return <Badge variant={stock ? "success" : "outline"}>{stock ? "Var" : "Yok"}</Badge>;
+  const Icon = stock ? CircleCheck : CircleAlert;
+  return <Badge variant={stock ? "success" : "outline"}><Icon data-icon="inline-start" aria-hidden="true"/>{stock ? "Var" : "Yok"}</Badge>;
 }
 
 
