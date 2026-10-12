@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 
 const decision = z.object({
   brand_a: z.string().min(1).max(120), brand_b: z.string().min(1).max(120),
@@ -88,7 +89,9 @@ export async function decideCandidate(form: FormData) {
     await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,$3,$4)
       ON CONFLICT (product_a,product_b) DO UPDATE SET status=excluded.status,decided_by=excluded.decided_by,decided_at=now()`, [product_a, product_b, status, admin.id]);
     if (status === "same") await client.query("SELECT product_merge($2,$1,$3)", [product_a, product_b, admin.id]);
-    await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [product_a, product_b]);
+    // A Dinamik product joins one Başbuğ product; its other suggestions are dropped (not decided: they return if the
+    // merge is undone from the product page).
+    await client.query(`DELETE FROM product_match_candidates WHERE product_b=$2 AND (product_a=$1 OR $3)`, [product_a, product_b, status === "same"]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
@@ -108,7 +111,8 @@ export async function acceptCandidates(form: FormData) {
   try {
     await client.query("BEGIN");
     const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
-      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 AND c.name_conflict IS NOT TRUE LIMIT 500`, [reason, brand])).rows;
+      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 AND c.name_conflict IS NOT TRUE
+      AND NOT ${sharedCandidateSql} LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
