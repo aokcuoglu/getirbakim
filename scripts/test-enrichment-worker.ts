@@ -73,7 +73,7 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),code text NOT NULL,product_data jsonb NOT NULL,supplier text DEFAULT 'basbug',presence text DEFAULT 'present');
    CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
    CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
-   CREATE INDEX ON product_sources(product_id);CREATE TABLE product_brand_aliases(alias text PRIMARY KEY,canonical text);
+   CREATE INDEX ON product_sources(product_id);CREATE TABLE brands(id bigint PRIMARY KEY,key text);CREATE TABLE supplier_brands(supplier text,label text,brand_id bigint,PRIMARY KEY(supplier,label));
    CREATE TABLE commerce_supplier_items(id uuid PRIMARY KEY,stock_data jsonb);
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
@@ -267,7 +267,7 @@ test('master product sharing excludes equivalents, split offers and changed supp
   await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY,code text,product_data jsonb,supplier text,presence text DEFAULT 'present');
    CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
    CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
-   CREATE TABLE product_brand_aliases(alias text PRIMARY KEY,canonical text);
+   CREATE TABLE brands(id bigint PRIMARY KEY,key text);CREATE TABLE supplier_brands(supplier text,label text,brand_id bigint,PRIMARY KEY(supplier,label));
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));

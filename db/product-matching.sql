@@ -43,8 +43,9 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 
 -- Reviewed brand decisions; the review unit is the brand pair, not individual rows.
--- same: both labels sell the same physical parts (MAGNETI MARELLI / M.MARELLI, MAHLE / MAHLE FILTRE); `alias` then
---   maps to `canonical` and their items group together.
+-- same: both labels sell the same physical parts (MAGNETI MARELLI / M.MARELLI, MAHLE / MAHLE FILTRE); their master
+--   brands are merged (brands below). product_brand_aliases holds the decisions made before master brands existed;
+--   only sync_supplier_brands() still reads it, to place labels seen for the first time.
 -- equivalent: same numbering, different product (CONTITECH / DAYCO belt sizes, EUROREPAR / ORIJINAL OEM numbers).
 -- unrelated: the shared numbers are coincidences. Decided pairs are not suggested again.
 CREATE TABLE IF NOT EXISTS product_brand_aliases (
@@ -56,6 +57,92 @@ CREATE TABLE IF NOT EXISTS product_brand_pair_decisions (
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (brand_a,brand_b), CHECK (brand_a<brand_b)
 );
+-- Master brands: the deduplicated union of every supplier's brand labels (Başbuğ `uk`, Dinamik `marka`, SETA), one
+-- row per real manufacturer. Dinamik alone lists ABA and ABA-AV (heavy vehicle line), MAHLE and MAHLE FILTRE…; each
+-- set is one brand here. `key` is the identity products group by (products.brand) and never changes; a rename only
+-- touches `name`. Only items whose labels belong to the same master brand can be the same product.
+CREATE TABLE IF NOT EXISTS brands (
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, key text NOT NULL UNIQUE, name text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Each supplier's own label and its master brand. auto: placed by the brand key when first seen (a new label joins
+-- the brand its key already belongs to); manual: confirmed or moved by an admin. Neither is ever moved automatically.
+-- `items` counts the label's present rows at the last sync.
+CREATE TABLE IF NOT EXISTS supplier_brands (
+ supplier text NOT NULL, label text NOT NULL, brand_id bigint NOT NULL REFERENCES brands(id),
+ method text NOT NULL DEFAULT 'auto' CHECK (method IN ('auto','manual')), items integer NOT NULL DEFAULT 0,
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (supplier,label)
+);
+CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
+-- A label's spelling-insensitive key → master brand key, for brand names that are not a supplier's own label (SETA's
+-- competitor references). When labels of one key sit in different brands, the brand with more items wins.
+CREATE OR REPLACE VIEW brand_key_aliases AS
+ SELECT DISTINCT ON (product_brand_key(sb.label)) product_brand_key(sb.label) AS alias, b.key AS canonical
+ FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
+ ORDER BY product_brand_key(sb.label), sb.items DESC, b.key;
+-- Master brand key of one supplier row; the plain brand key for a label not synced yet. Bulk queries join
+-- supplier_brands directly instead (a function with a subquery is not inlined).
+CREATE OR REPLACE FUNCTION supplier_item_brand_key(supplier text, product_data jsonb) RETURNS text
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+ SELECT COALESCE((SELECT b.key FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
+   WHERE sb.supplier=$1 AND sb.label=supplier_item_brand($1,$2)), product_brand_key(supplier_item_brand($1,$2)))
+$$;
+-- A new master brand named `name`, keyed by its brand key, or by its full spelling when that key is taken (ABA-AV
+-- split off from ABA becomes ABAAV), numbered as a last resort.
+CREATE OR REPLACE FUNCTION brand_create(name text) RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE base text := product_brand_key(name); spelled text := NULLIF(regexp_replace(upper(trim(name)),'[^A-Z0-9]','','g'),'');
+ k text; n integer := 1; bid bigint;
+BEGIN
+ IF base IS NULL THEN RETURN NULL; END IF;
+ k := CASE WHEN NOT EXISTS (SELECT 1 FROM brands WHERE key=base) THEN base ELSE COALESCE(spelled,base) END;
+ WHILE EXISTS (SELECT 1 FROM brands WHERE key=k) LOOP n := n+1; k := COALESCE(spelled,base)||n; END LOOP;
+ INSERT INTO brands(key,name) VALUES (k,upper(trim(name))) RETURNING id INTO bid;
+ RETURN bid;
+END $$;
+-- Registers labels seen for the first time and refreshes item counts. A new label joins the master brand that labels
+-- with its key already belong to, else the brand of its key (through the pair decisions made before master brands
+-- existed), created when missing and named after the shortest plain label spelling that key (KALE RADYATOR, which the
+-- pair decision chose over Başbuğ's KALE).
+CREATE OR REPLACE FUNCTION sync_supplier_brands() RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE added integer;
+BEGIN
+ PERFORM pg_advisory_xact_lock(20261001,7);
+ DROP TABLE IF EXISTS brand_labels, new_brand_labels;
+ CREATE TEMP TABLE brand_labels ON COMMIT DROP AS
+ SELECT supplier, label, product_brand_key(label) AS key, count(*)::int AS items
+ FROM (SELECT supplier, supplier_item_brand(supplier,product_data) AS label FROM supplier_items WHERE presence='present') s
+ WHERE product_brand_key(label) IS NOT NULL GROUP BY supplier, label;
+ CREATE TEMP TABLE new_brand_labels ON COMMIT DROP AS
+ SELECT l.*, COALESCE(a.canonical,l.key) AS target,
+  (SELECT sb.brand_id FROM supplier_brands sb WHERE product_brand_key(sb.label)=l.key
+   GROUP BY sb.brand_id ORDER BY sum(sb.items) DESC, sb.brand_id LIMIT 1) AS existing
+ FROM brand_labels l LEFT JOIN product_brand_aliases a ON a.alias=l.key
+ WHERE NOT EXISTS (SELECT 1 FROM supplier_brands sb WHERE sb.supplier=l.supplier AND sb.label=l.label);
+ INSERT INTO brands(key,name)
+ SELECT DISTINCT ON (target) target, upper(trim(label)) FROM new_brand_labels WHERE existing IS NULL
+ ORDER BY target, upper(trim(label))<>'ORIJINAL', key<>target, upper(trim(label)) ~ '[- ]AV$', length(trim(label)), items DESC, label
+ ON CONFLICT (key) DO NOTHING;
+ INSERT INTO supplier_brands(supplier,label,brand_id,items)
+ SELECT n.supplier, n.label, COALESCE(n.existing,b.id), n.items FROM new_brand_labels n LEFT JOIN brands b ON b.key=n.target;
+ GET DIAGNOSTICS added = ROW_COUNT;
+ UPDATE supplier_brands sb SET items=COALESCE(l.items,0)
+ FROM supplier_brands s LEFT JOIN brand_labels l ON l.supplier=s.supplier AND l.label=s.label
+ WHERE sb.supplier=s.supplier AND sb.label=s.label AND sb.items IS DISTINCT FROM COALESCE(l.items,0);
+ RETURN added;
+END $$;
+-- An admin decision: every label of brand `source` moves to `target` and `source` is removed.
+CREATE OR REPLACE FUNCTION brand_merge(source bigint, target bigint, actor uuid) RETURNS bigint LANGUAGE plpgsql AS $$
+BEGIN
+ IF source IS NULL OR target IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM brands WHERE id=target) THEN RETURN NULL; END IF;
+ PERFORM pg_advisory_xact_lock(20261001,7);
+ UPDATE supplier_brands SET brand_id=target, method='manual', decided_by=actor, decided_at=now() WHERE brand_id=source;
+ DELETE FROM brands WHERE id=source;
+ UPDATE brands SET updated_at=now() WHERE id=target;
+ RETURN target;
+END $$;
+-- Master brands start from the labels already present and the pair decisions made so far.
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM brands) THEN PERFORM sync_supplier_brands(); END IF; END $$;
 -- Rebuilt by refresh_product_matches(): one row per present supplier item.
 CREATE TABLE IF NOT EXISTS product_match_items (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -211,11 +298,10 @@ $$;
 CREATE OR REPLACE FUNCTION product_split_item(item uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE k record; old_id uuid; pid uuid;
 BEGIN
- SELECT COALESCE(a.canonical,product_brand_key(supplier_item_brand(i.supplier,i.product_data))) AS brand,
+ SELECT supplier_item_brand_key(i.supplier,i.product_data) AS brand,
   supplier_item_part_number(i.supplier,i.code,i.product_data) AS part_number, supplier_item_name(i.supplier,i.product_data) AS name,
   COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
- INTO k FROM supplier_items i LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(i.supplier,i.product_data))
- WHERE i.id=item;
+ INTO k FROM supplier_items i WHERE i.id=item;
  IF NOT FOUND OR k.brand IS NULL THEN RETURN NULL; END IF;
  PERFORM pg_advisory_xact_lock(20261001,6);
  SELECT product_id INTO old_id FROM product_sources WHERE supplier_item_id=item;
@@ -268,11 +354,10 @@ DECLARE k record; old_id uuid; pid uuid;
 BEGIN
  SELECT s.product_id INTO old_id FROM product_sources s WHERE s.supplier_item_id=item AND s.method='manual';
  IF NOT FOUND THEN RETURN NULL; END IF;
- SELECT COALESCE(a.canonical,product_brand_key(supplier_item_brand(i.supplier,i.product_data))) AS brand,
+ SELECT supplier_item_brand_key(i.supplier,i.product_data) AS brand,
   supplier_item_part_number(i.supplier,i.code,i.product_data) AS part_number, supplier_item_name(i.supplier,i.product_data) AS name,
   COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
- INTO k FROM supplier_items i LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(i.supplier,i.product_data))
- WHERE i.id=item;
+ INTO k FROM supplier_items i WHERE i.id=item;
  IF k.brand IS NULL THEN RETURN NULL; END IF;
  PERFORM pg_advisory_xact_lock(20261001,6);
  SELECT id INTO pid FROM products WHERE brand=k.brand AND part_number=k.part_number AND variant=0;
@@ -305,13 +390,14 @@ BEGIN
  DELETE FROM product_match_groups; DELETE FROM product_brand_pair_suggestions; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
  DELETE FROM product_match_items;
+ -- Brand identity is the master brand of the item's label (supplier_brands); labels seen first now are placed first.
+ PERFORM sync_supplier_brands();
  INSERT INTO product_match_items
- SELECT i.id, i.supplier, COALESCE(a.canonical,k.key), supplier_item_part_number(i.supplier,i.code,i.product_data),
+ SELECT i.id, i.supplier, COALESCE(b.key,product_brand_key(i.label)), supplier_item_part_number(i.supplier,i.code,i.product_data),
   supplier_item_name(i.supplier,i.product_data)
- FROM supplier_items i
- CROSS JOIN LATERAL (SELECT product_brand_key(supplier_item_brand(i.supplier,i.product_data)) AS key) k
- LEFT JOIN product_brand_aliases a ON a.alias=k.key
- WHERE i.presence='present' AND k.key IS NOT NULL;
+ FROM (SELECT *, supplier_item_brand(supplier,product_data) AS label FROM supplier_items WHERE presence='present') i
+ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=i.label LEFT JOIN brands b ON b.id=sb.brand_id
+ WHERE COALESCE(b.key,product_brand_key(i.label)) IS NOT NULL;
  DELETE FROM product_match_items WHERE length(part_number)<4;
  ANALYZE product_match_items;
  INSERT INTO product_match_groups
@@ -373,7 +459,7 @@ BEGIN
  INSERT INTO product_references
  SELECT DISTINCT i.id, 'cross', COALESCE(a.canonical,product_brand_key(x.key)), regexp_replace(upper(x.value),'[^A-Z0-9]','','g')
  FROM supplier_items i CROSS JOIN LATERAL jsonb_each_text(COALESCE(i.product_data->'cross','{}')) x
- LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(x.key)
+ LEFT JOIN brand_key_aliases a ON a.alias=product_brand_key(x.key)
  WHERE i.supplier='seta' AND i.presence='present' AND product_brand_key(x.key) IS NOT NULL
   AND length(regexp_replace(x.value,'[^A-Za-z0-9]','','g'))>=4
  UNION

@@ -138,3 +138,45 @@ test("merging a candidate locks the rows into the Başbuğ product; resetting a 
     client.release();
   }
 });
+
+test("master brands: every present label belongs to one, and match items use its key", async () => {
+  const count = (sql: string) => one(`SELECT count(*)::int AS value FROM ${sql}`, []);
+  assert.equal(await count(`(SELECT DISTINCT supplier, supplier_item_brand(supplier,product_data) AS label FROM supplier_items
+    WHERE presence='present' AND product_brand_key(supplier_item_brand(supplier,product_data)) IS NOT NULL) l
+    WHERE NOT EXISTS (SELECT 1 FROM supplier_brands sb WHERE sb.supplier=l.supplier AND sb.label=l.label)`), 0);
+  assert.equal(await count("brands b WHERE NOT EXISTS (SELECT 1 FROM supplier_brands sb WHERE sb.brand_id=b.id)"), 0);
+  assert.equal(await count(`product_match_items m JOIN supplier_items i ON i.id=m.supplier_item_id
+    JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_item_brand(i.supplier,i.product_data)
+    JOIN brands b ON b.id=sb.brand_id WHERE m.brand<>b.key`), 0);
+  // Dinamik's heavy-vehicle labels (ABA-AV) share the brand of the plain label.
+  assert.equal(await count(`supplier_brands av JOIN supplier_brands plain ON plain.supplier=av.supplier
+    AND upper(plain.label)=regexp_replace(upper(av.label),'-AV$','') AND plain.brand_id<>av.brand_id
+    WHERE av.label ~* '-AV$' AND av.method='auto' AND plain.method='auto'`), 0);
+});
+
+test("master brands: a label moved or split off changes only its own key; merging moves every label", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const key = async (supplier: string, label: string) => (await client.query("SELECT supplier_item_brand_key($1,$2) AS key",
+      [supplier, JSON.stringify(supplier === "dinamik" ? { marka: label } : { uk: label })])).rows[0].key;
+    assert.equal(await key("dinamik", "ABA-AV"), await key("dinamik", "ABA"));
+    const own = (await client.query("SELECT brand_create('ABA-AV') AS id")).rows[0].id;
+    assert.equal((await client.query("SELECT key FROM brands WHERE id=$1", [own])).rows[0].key, "ABAAV");
+    await client.query("UPDATE supplier_brands SET brand_id=$1,method='manual' WHERE supplier='dinamik' AND label='ABA-AV'", [own]);
+    assert.equal(await key("dinamik", "ABA-AV"), "ABAAV");
+    assert.equal(await key("dinamik", "ABA"), "ABA");
+    const aba = (await client.query("SELECT id FROM brands WHERE key='ABA'")).rows[0].id;
+    assert.equal((await client.query("SELECT brand_merge($1,$2,NULL) AS id", [own, aba])).rows[0].id, aba);
+    assert.equal(await key("dinamik", "ABA-AV"), "ABA");
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM brands WHERE id=$1", [own])).rows[0].n, 0);
+    // A label seen for the first time joins the brand its key already belongs to.
+    await client.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+      SELECT supplier,company,list_group,warehouse,'ABA TEST1','{"uk":"ABA-AV"}',0,0,0,now(),now(),now() FROM supplier_items WHERE supplier='basbug' LIMIT 1`);
+    await client.query("SELECT sync_supplier_brands()");
+    assert.equal(await key("basbug", "ABA-AV"), "ABA");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});

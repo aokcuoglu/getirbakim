@@ -2,9 +2,10 @@
 CREATE OR REPLACE VIEW enrichment_current_sources AS
  SELECT ps.* FROM product_sources ps JOIN products p ON p.id=ps.product_id
  JOIN supplier_items s ON s.id=ps.supplier_item_id
- LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(s.supplier,s.product_data))
+ LEFT JOIN supplier_brands sb ON sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)
+ LEFT JOIN brands b ON b.id=sb.brand_id
  WHERE p.merged_into IS NULL AND (ps.method='manual' OR
-  (p.brand=COALESCE(a.canonical,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
+  (p.brand=COALESCE(b.key,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
    AND p.part_number=supplier_item_part_number(s.supplier,s.code,s.product_data)));
 
 -- A source observation stays on its original supplier row. Only current, identical master products share it.
@@ -24,7 +25,7 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
   s.id AS supplier_item_id,s.code AS supplier_code,
   COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS supplier_brand,
   COALESCE(s.product_data->>'oe','') AS oem,
-  (ps.method='manual' OR (p.brand=COALESCE(a.canonical,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
+  (ps.method='manual' OR (p.brand=COALESCE(b.key,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
    AND p.part_number=supplier_item_part_number(s.supplier,s.code,s.product_data))) AS coherent,
   CASE WHEN e.supplier_item_id IS NOT NULL THEN e.status
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
@@ -36,7 +37,8 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
   e.imported_at,e.source_url,e.manufacturer,e.manufacturer_part_number,e.image_id,e.payload,e.match_basis
  FROM product_sources ps JOIN products p ON p.id=ps.product_id AND p.merged_into IS NULL
  JOIN supplier_items s ON s.id=ps.supplier_item_id
- LEFT JOIN product_brand_aliases a ON a.alias=product_brand_key(supplier_item_brand(s.supplier,s.product_data))
+ LEFT JOIN supplier_brands sb ON sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)
+ LEFT JOIN brands b ON b.id=sb.brand_id
  LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
  LEFT JOIN enrichment_valid_data e ON e.supplier_item_id=s.id;
 
