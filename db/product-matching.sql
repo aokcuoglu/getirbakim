@@ -155,14 +155,9 @@ CREATE TABLE IF NOT EXISTS product_match_groups (
  brand text NOT NULL, part_number text NOT NULL, members integer NOT NULL, suppliers text[] NOT NULL,
  PRIMARY KEY (brand,part_number)
 );
--- Same part number under different brand keys in different suppliers: pending brand-pair review.
--- Also suggested when both brands carry the same barcodes (Dinamik is the only supplier with EANs).
-CREATE TABLE IF NOT EXISTS product_brand_pair_suggestions (
- brand_a text NOT NULL, brand_b text NOT NULL, shared_parts integer NOT NULL, avg_name_similarity real,
- samples jsonb NOT NULL, PRIMARY KEY (brand_a,brand_b)
-);
-ALTER TABLE product_brand_pair_suggestions ADD COLUMN IF NOT EXISTS shared_eans integer NOT NULL DEFAULT 0,
- ADD COLUMN IF NOT EXISTS ean_samples jsonb NOT NULL DEFAULT '[]';
+-- Brand-pair suggestions (same part number or barcode under two master brands) were retired once every master brand
+-- had been reviewed (#218); the table only ever held what the last refresh computed. Past pair decisions still apply.
+DROP TABLE IF EXISTS product_brand_pair_suggestions;
 -- Equivalents (muadil), not the same product: SETA's competitor references and OEM numbers from SETA and Başbuğ.
 CREATE TABLE IF NOT EXISTS product_references (
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -383,13 +378,13 @@ CREATE TABLE IF NOT EXISTS product_match_runs (
  stats jsonb NOT NULL
 );
 
--- Short part numbers ("1", "12") collide across unrelated brands; they never form groups or suggestions.
+-- Short part numbers ("1", "12") collide across unrelated brands; they never form groups.
 CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE started timestamptz := clock_timestamp(); result jsonb;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
- DELETE FROM product_match_groups; DELETE FROM product_brand_pair_suggestions; DELETE FROM product_equivalence_groups;
+ DELETE FROM product_match_groups; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
  DELETE FROM product_match_items;
  -- Brand identity is the master brand of the item's label (supplier_brands); labels seen first now are placed first.
@@ -405,16 +400,7 @@ BEGIN
  INSERT INTO product_match_groups
  SELECT brand, part_number, count(*), array_agg(DISTINCT supplier ORDER BY supplier)
  FROM product_match_items GROUP BY brand, part_number HAVING count(*)>1;
- -- One representative per (supplier, key) keeps duplicate rows from inflating pair counts.
- DROP TABLE IF EXISTS part_pairs, barcodes, ean_items, ean_pairs;
- CREATE TEMP TABLE part_pairs ON COMMIT DROP AS
- WITH reps AS (
-  SELECT DISTINCT ON (supplier,brand,part_number) supplier,brand,part_number,name FROM product_match_items
-  WHERE length(part_number)>=5 ORDER BY supplier,brand,part_number,name NULLS LAST
- )
- SELECT least(x.brand,y.brand) AS brand_a, greatest(x.brand,y.brand) AS brand_b, x.part_number,
-  CASE WHEN x.brand<y.brand THEN x.name ELSE y.name END AS name_a, CASE WHEN x.brand<y.brand THEN y.name ELSE x.name END AS name_b
- FROM reps x JOIN reps y ON y.part_number=x.part_number AND y.supplier<>x.supplier AND y.brand<>x.brand AND x.supplier<y.supplier;
+ DROP TABLE IF EXISTS barcodes;
  -- Dinamik barcode fields, split into real GTINs and other codes (stock codes, OEM numbers).
  CREATE TEMP TABLE barcodes ON COMMIT DROP AS
  SELECT m.supplier_item_id, m.brand, m.part_number, m.name, b.code, gtin_valid(b.code) AS gtin
@@ -422,42 +408,6 @@ BEGIN
  CROSS JOIN LATERAL (SELECT DISTINCT regexp_replace(upper(v),'[^A-Z0-9]','','g') FROM unnest(ARRAY[i.product_data->>'barkod1',
   i.product_data->>'barkod2',i.product_data->>'barkod3']) v) b(code)
  WHERE m.supplier='dinamik' AND length(b.code)>=7;
- -- GTINs shared by different brand keys. One spread over more than three brands is a generic label (ITHAL, TAIWAN,
- -- MUHTELIF…) or a placeholder and is not evidence.
- CREATE TEMP TABLE ean_items ON COMMIT DROP AS SELECT DISTINCT brand, part_number, name, code AS ean FROM barcodes WHERE gtin;
- DELETE FROM ean_items WHERE ean IN (SELECT ean FROM ean_items GROUP BY ean HAVING count(DISTINCT brand)=1 OR count(DISTINCT brand)>3);
- CREATE TEMP TABLE ean_pairs ON COMMIT DROP AS
- SELECT DISTINCT ON (brand_a,brand_b,ean) * FROM (
-  SELECT least(x.brand,y.brand) AS brand_a, greatest(x.brand,y.brand) AS brand_b, x.ean,
-   CASE WHEN x.brand<y.brand THEN x.part_number ELSE y.part_number END AS part_a, CASE WHEN x.brand<y.brand THEN x.name ELSE y.name END AS name_a,
-   CASE WHEN x.brand<y.brand THEN y.part_number ELSE x.part_number END AS part_b, CASE WHEN x.brand<y.brand THEN y.name ELSE x.name END AS name_b
-  FROM ean_items x JOIN ean_items y ON y.ean=x.ean AND y.brand<>x.brand) p
- ORDER BY brand_a,brand_b,ean,part_a,part_b;
- INSERT INTO product_brand_pair_suggestions(brand_a,brand_b,shared_parts,avg_name_similarity,samples,shared_eans,ean_samples)
- WITH parts AS (
-  SELECT p.brand_a, p.brand_b, count(DISTINCT p.part_number)::int AS shared_parts,
-   avg(similarity(lower(p.name_a),lower(p.name_b))) FILTER (WHERE p.name_a IS NOT NULL AND p.name_b IS NOT NULL) AS similarity,
-   (SELECT jsonb_agg(s ORDER BY named DESC,part) FROM (SELECT * FROM (SELECT DISTINCT ON (q.part_number) q.part_number AS part,
-     (q.name_a IS NOT NULL)::int+(q.name_b IS NOT NULL)::int AS named, jsonb_build_object('part',q.part_number,'a',q.name_a,'b',q.name_b) s
-     FROM part_pairs q WHERE q.brand_a=p.brand_a AND q.brand_b=p.brand_b
-     ORDER BY q.part_number, q.name_a IS NULL, q.name_b IS NULL) d ORDER BY named DESC,part LIMIT 4) t) AS samples
-  FROM part_pairs p GROUP BY p.brand_a, p.brand_b
-  -- A few shared numbers are enough when one label extends the other (VALEO / VALEO FTE).
-  HAVING count(DISTINCT p.part_number)>=20 OR (count(DISTINCT p.part_number)>=3
-   AND (starts_with(p.brand_a,p.brand_b) OR starts_with(p.brand_b,p.brand_a)))
- ), eans AS (
-  SELECT e.brand_a, e.brand_b, count(*)::int AS shared_eans,
-   avg(similarity(lower(e.name_a),lower(e.name_b))) FILTER (WHERE e.name_a IS NOT NULL AND e.name_b IS NOT NULL) AS similarity,
-   (SELECT jsonb_agg(jsonb_build_object('ean',q.ean,'part_a',q.part_a,'a',q.name_a,'part_b',q.part_b,'b',q.name_b) ORDER BY q.ean)
-    FROM (SELECT * FROM ean_pairs q WHERE q.brand_a=e.brand_a AND q.brand_b=e.brand_b ORDER BY q.ean LIMIT 4) q) AS samples
-  FROM ean_pairs e GROUP BY e.brand_a, e.brand_b HAVING count(*)>=5
- )
- SELECT * FROM (
-  SELECT brand_a, brand_b, COALESCE(p.shared_parts,0), COALESCE(p.similarity,e.similarity), COALESCE(p.samples,'[]'::jsonb),
-   COALESCE(e.shared_eans,0), COALESCE(e.samples,'[]'::jsonb)
-  FROM parts p FULL JOIN eans e USING (brand_a,brand_b)
- ) s(brand_a,brand_b,shared_parts,similarity,samples,shared_eans,ean_samples)
- WHERE NOT EXISTS (SELECT 1 FROM product_brand_pair_decisions d WHERE d.brand_a=s.brand_a AND d.brand_b=s.brand_b);
  INSERT INTO product_references
  SELECT DISTINCT i.id, 'cross', COALESCE(a.canonical,product_brand_key(x.key)), regexp_replace(upper(x.value),'[^A-Z0-9]','','g')
  FROM supplier_items i CROSS JOIN LATERAL jsonb_each_text(COALESCE(i.product_data->'cross','{}')) x
@@ -647,8 +597,6 @@ BEGIN
   'cross_supplier_groups', (SELECT count(*) FROM product_match_groups WHERE cardinality(suppliers)>1),
   'duplicate_groups', (SELECT count(*) FROM product_match_groups WHERE cardinality(suppliers)=1),
   'grouped_items', (SELECT COALESCE(sum(members),0) FROM product_match_groups),
-  'pair_suggestions', (SELECT count(*) FROM product_brand_pair_suggestions),
-  'ean_pair_suggestions', (SELECT count(*) FROM product_brand_pair_suggestions WHERE shared_eans>0),
   'references', (SELECT count(*) FROM product_references),
   'oem_references', (SELECT count(*) FROM product_references WHERE kind='oem'),
   'referenced_items', (SELECT count(DISTINCT r.supplier_item_id) FROM product_references r
