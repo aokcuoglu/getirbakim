@@ -23,7 +23,7 @@ export default async function Products({ searchParams }: { searchParams: Promise
   const data = await listProducts(params);
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ filter: params.filter, q: params.q, page: undefined, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ filter: params.filter, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urunler${next.size ? `?${next}` : ""}`;
   };
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
@@ -52,7 +52,7 @@ export default async function Products({ searchParams }: { searchParams: Promise
           <ScrollBar orientation="horizontal"/>
         </ScrollArea></Tabs>
         <form className="flex flex-wrap items-center gap-2" action="/yonetim/urunler">
-          {params.filter && <input type="hidden" name="filter" value={params.filter}/>}
+          {(["filter", "sort", "dir"] as const).map(key => params[key] && <input key={key} type="hidden" name={key} value={params[key]}/>)}
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="q" aria-label="Parça numarası veya tedarikçi kodu" defaultValue={params.q} placeholder="Parça no veya tedarikçi kodu" maxLength={60}/></InputGroup>
           <Button type="submit">Ara</Button>
@@ -61,8 +61,9 @@ export default async function Products({ searchParams }: { searchParams: Promise
       </CardHeader>
       <Separator/>
       <CardContent>
-        {data.products.length ? <Table><caption className="sr-only">Ürünler</caption>
-          <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead className="text-right">Satış fiyatı</TableHead><TableHead>Satan</TableHead></TableRow></TableHeader>
+        {data.products.length ? <Table server><caption className="sr-only">Ürünler</caption>
+          <TableHeader><TableRow><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
+            <TableHead filter={{ param: "filter", options: (Object.keys(productFilters) as ProductFilter[]).filter(filter => filter !== "all").map(filter => ({ value: filter, label: productFilters[filter].label })) }}>Kaynaklar</TableHead><TableHead className="text-right">Satış fiyatı</TableHead><TableHead>Satan</TableHead></TableRow></TableHeader>
           <TableBody>{data.products.map(product => <TableRow key={product.id}>
             <TableCell className="max-w-32 truncate font-medium" title={product.brand_label}>{product.brand_label || product.brand}</TableCell>
             <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${product.id}`}>{product.code}</Link>

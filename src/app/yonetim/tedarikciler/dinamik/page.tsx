@@ -33,7 +33,7 @@ const time = (value: Date | null | undefined) => value ? value.toLocaleString("t
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
 const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
-const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence"] as const;
+const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence", "sort", "dir"] as const;
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
 const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
   : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
@@ -145,7 +145,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
       </CardHeader>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>Fiyat: KDV hariç maliyet · Satış: kâr + KDV dahil (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Stok: VAR/YOK · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
-        <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present))}/>
+        <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present), { brands: list.brands, groups: list.groups })}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>

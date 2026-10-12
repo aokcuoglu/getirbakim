@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { sortOrder } from "@/lib/table-sort";
 
 /** Master catalog (db/product-matching.sql): one product, the supplier rows it is sold from, and its equivalents. */
 export const productFilters = {
@@ -15,6 +16,8 @@ export const productFilters = {
 export type ProductFilter = keyof typeof productFilters;
 export const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
 const pageSize = 50;
+// Header sorting on the products list (TableHead sortKey → column).
+const productSorts = { brand: "p.brand_label", code: "p.part_number", name: "p.name" };
 
 export type ProductRow = {
   id: string; brand: string; brand_label: string; part_number: string; variant: number; code: string; name: string | null;
@@ -42,7 +45,7 @@ const offersSql = `WITH sources AS (
    JOIN commerce_catalog c ON c.id=s.supplier_item_id AND c.id=ANY(ARRAY(SELECT supplier_item_id FROM sources))
  )`;
 
-export async function listProducts(params: { q?: string; filter?: string; page?: string }) {
+export async function listProducts(params: { q?: string; filter?: string; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
   const filter: ProductFilter = params.filter && params.filter in productFilters ? params.filter as ProductFilter : "all";
   const q = compact(params.q);
@@ -69,7 +72,7 @@ export async function listProducts(params: { q?: string; filter?: string; page?:
   const requested = Number(params.page), page = Math.min(Number.isSafeInteger(requested) && requested > 0 ? requested : 1, pages);
   const rows = (await db.query<Omit<ProductRow, "best_price" | "best_supplier" | "available" | "sources">>(`SELECT p.id,p.brand,p.brand_label,p.part_number,
     p.variant,p.code,p.name,p.suppliers,p.merged_into FROM products p WHERE ${sql}
-    ORDER BY p.brand_label,p.part_number,p.variant LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+    ORDER BY ${sortOrder(params, productSorts, "p.brand_label,p.part_number,p.variant")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   const offers = rows.length ? (await db.query<{ product_id: string; sources: number; best_price: number | null; best_supplier: string | null; available: boolean }>(
     `${offersSql}, counted AS (SELECT product_id, count(*)::int AS sources FROM sources GROUP BY product_id)
     SELECT c.product_id, c.sources, b.price_kurus AS best_price, b.supplier AS best_supplier, COALESCE(b.available,false) AS available FROM counted c

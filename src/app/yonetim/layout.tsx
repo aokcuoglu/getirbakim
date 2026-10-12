@@ -4,6 +4,7 @@ import { AdminSidebar, type AdminNavStatus } from "@/components/admin/admin-nav"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
+import { TableControls } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { requireAdmin } from "@/modules/auth/session";
 import { adminNavCounts } from "@/modules/admin/data";
@@ -16,7 +17,7 @@ export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false
 
 // The workspace replaces the storefront header and footer with its own shell (see StorefrontChrome); .admin-app also
 // scopes the stock shadcn neutral theme in globals.css. Every page and data loader still checks the session itself:
-// layouts do not re-run on client navigation.
+// layouts do not re-run on client navigation. TableControls gives every table sorting, header filters and search.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const account = await requireAdmin();
   const [counts, health, dinamik, setaHealth, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
@@ -39,7 +40,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <span className="text-sm font-medium">Yönetim paneli</span>
             <Kbd className="ml-auto hidden md:inline-flex">⌘B</Kbd>
           </header>
-          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col p-4 md:p-6">{children}</div>
+          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col p-4 md:p-6"><TableControls>{children}</TableControls></div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

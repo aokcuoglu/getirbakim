@@ -3,11 +3,14 @@ import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
+import { sortOrder } from "@/lib/table-sort";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { z } from "zod";
 import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbug-stock";
 
-export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; updated?: string; error?: string };
+export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
+// Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
+const itemSorts = { code: "code", name: "product_data->>'ac'", brand: "product_data->>'uk'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
 export type ImportSummary = {
   run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null; stats: Record<string, number>;
   id: string; company: string; list_group: string; warehouse: string;
@@ -80,11 +83,12 @@ export async function adminBasbugData(params: BasbugParams) {
   const total = Number(count.rows[0].count), pages = Math.max(1, Math.ceil(total / 50));
   const parsedPage = Number(params.page);
   const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
+  const order = sortOrder(params, itemSorts, "code,id");
   const items = await db.query<AdminSupplierItem>(`WITH page AS MATERIALIZED (
-    SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT 50 OFFSET $${values.length + 1}
+    SELECT * FROM supplier_items WHERE ${where} ORDER BY ${order} LIMIT 50 OFFSET $${values.length + 1}
   ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
     FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
-    ORDER BY page.code,page.id`, [...values, (page - 1) * 50]);
+    ORDER BY ${order}`, [...values, (page - 1) * 50]);
   return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: items.rows, brands: brands.rows.map(r => r.value), currencies: currencies.rows.map(r => r.value), total, page, pages };
 }
 

@@ -1,12 +1,15 @@
 import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { sortOrder } from "@/lib/table-sort";
 import { requireAdmin } from "@/modules/auth/session";
 import { binder, dinamikItemMatch } from "@/modules/search/sql";
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { dinamikRegion, dinamikRegions, type DinamikStockData } from "@/modules/suppliers/dinamik-stock";
 
-export type DinamikParams = { q?: string; brand?: string; group?: string; region?: string; stock?: string; quality?: string; presence?: string; page?: string };
+export type DinamikParams = { q?: string; brand?: string; group?: string; region?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string };
+// Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
+const itemSorts = { code: "code", name: "product_data->>'stokAdi'", brand: "list_group", cost: "CASE WHEN jsonb_typeof(price_data->'fiyat')='number' THEN (price_data->>'fiyat')::numeric END" };
 export type DinamikItem = {
   id: string; code: string; list_group: string;
   product_data: { stokKodu: string; marka: string; stokAdi?: string | null; ingilizceAdi?: string | null; kull1s?: string; kull3s?: string; kull7s?: string; kull8s?: string;
@@ -61,11 +64,12 @@ export async function adminDinamikItems(params: DinamikParams) {
   const parsedPage = Number(params.page);
   const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
   // Same join as the Başbuğ list: the storefront price for just this page of rows.
+  const order = sortOrder(params, itemSorts, "code,id");
   const items = await db.query<DinamikItem>(`WITH page AS MATERIALIZED (
-    SELECT * FROM supplier_items WHERE ${where} ORDER BY code,id LIMIT ${pageSize} OFFSET $${values.length + 1}
+    SELECT * FROM supplier_items WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length + 1}
   ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
     FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
-    ORDER BY page.code,page.id`, [...values, (page - 1) * pageSize]);
+    ORDER BY ${order}`, [...values, (page - 1) * pageSize]);
   return { items: items.rows, total, page, pages, brands: brands.rows.map(row => row.list_group), groups: groups ? groups.rows.map(row => row.value) : allGroups!.values };
 }
 

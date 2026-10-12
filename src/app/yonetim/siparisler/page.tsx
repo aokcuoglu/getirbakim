@@ -27,11 +27,13 @@ const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaitin
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [{ orders, page, filter, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status), fitmentReturnReport()]);
+  const [{ orders, page, filter, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params), fitmentReturnReport()]);
   const href = (changes: { status?: string; page?: number }) => {
     const query = new URLSearchParams();
     const status = changes.status ?? filter;
     if (status !== "all") query.set("status", status);
+    if (params.sort) query.set("sort", params.sort);
+    if (params.dir) query.set("dir", params.dir);
     if (changes.page && changes.page > 1) query.set("page", String(changes.page));
     return `/yonetim/siparisler${query.size ? `?${query}` : ""}`;
   };
@@ -60,8 +62,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
 
     <Card>
       <CardContent>
-        {shown.length ? <Table>
-          <TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
+        {shown.length ? <Table server>
+          <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer">Müşteri</TableHead>
+            <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
           <TableBody>{shown.map(o => <TableRow key={o.id} className="align-top">
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
