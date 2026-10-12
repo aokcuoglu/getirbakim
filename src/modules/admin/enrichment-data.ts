@@ -57,7 +57,10 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     })() : "";
     conditions.push(`(${supplierItemMatch("s", parsed, bind)}${enriched})`);
   }
-  const catalog=status==='enriched'?`(SELECT DISTINCT ON (product_id) * FROM enrichment_product_candidates
+  // A payload only comes from product_enrichments, so start there and look each source up; over the whole view the
+  // planner underestimates the coherence filter and re-runs the enrichment subplan per source row (never finishes).
+  const catalog=status==='enriched'?`(SELECT DISTINCT ON (product_id) c.* FROM (SELECT supplier_item_id AS id FROM product_enrichments) t
+    CROSS JOIN LATERAL (SELECT * FROM enrichment_product_candidates c WHERE c.supplier_item_id=t.id OFFSET 0) c
     WHERE coherent AND payload IS NOT NULL ORDER BY product_id,priority,present DESC,oem<>'' DESC,supplier_item_id=product_id DESC,supplier_item_id)`:status==='pending'?'enrichment_product_catalog':activeCatalog(`$${values.push(drifted)}`);
   const from = `FROM ${catalog} j ${q?"LEFT JOIN supplier_items s ON s.id=j.supplier_item_id":""} WHERE ${conditions.join(" AND ")}`;
   const [active, products, metrics, sources, total, pilot, pass] = await Promise.all([
