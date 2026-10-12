@@ -1,10 +1,20 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { sortOrder } from "@/lib/table-sort";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-export type MatchingParams = { tab?: string; strength?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string };
+export type MatchingParams = { tab?: string; strength?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
+// Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
+const sorts = {
+  brands: { name: "name", items: "items" },
+  pairs: { brand_a: "COALESCE(a.name,s.brand_a)", brand_b: "COALESCE(b.name,s.brand_b)", shared: "shared_parts", eans: "shared_eans", similarity: "avg_name_similarity" },
+  same: { primary: "primary_price", selling: "selling_price" },
+  candidates: { reason: "c.reason", similarity: "c.name_similarity" },
+  dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
+  seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
+};
 // Keys arrived over time; runs recorded before a key lack it.
 export type MatchStats = { items: number; pair_suggestions: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
   seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
@@ -77,7 +87,7 @@ export async function productMatchingData(params: MatchingParams) {
   const { page, pages } = pageOf(params.page, total);
   const pairs = (await db.query<PairSuggestion>(`SELECT s.*,COALESCE(a.name,s.brand_a) AS name_a,COALESCE(b.name,s.brand_b) AS name_b
     FROM product_brand_pair_suggestions s LEFT JOIN brands a ON a.key=s.brand_a LEFT JOIN brands b ON b.key=s.brand_b WHERE ${filter}
-    ORDER BY greatest(shared_parts,shared_eans) DESC,brand_a,brand_b LIMIT ${pageSize} OFFSET $2`, [strongSimilarity, (page - 1) * pageSize])).rows;
+    ORDER BY ${sortOrder(params, sorts.pairs, "greatest(shared_parts,shared_eans) DESC,s.brand_a,s.brand_b")} LIMIT ${pageSize} OFFSET $2`, [strongSimilarity, (page - 1) * pageSize])).rows;
   return { ...base, scope, pairs, weak, total, page, pages };
 }
 
@@ -89,7 +99,7 @@ async function masterBrands(scope: Exclude<BrandScope, "suggestions">, params: M
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q])).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
   const brands = (await db.query<MasterBrand>(`SELECT id,key,name,items,pending,labels FROM (${brandRows}) b WHERE ${where}
-    ORDER BY items DESC,name LIMIT ${pageSize} OFFSET $2`, [q, (page - 1) * pageSize])).rows;
+    ORDER BY ${sortOrder(params, sorts.brands, "items DESC,name")} LIMIT ${pageSize} OFFSET $2`, [q, (page - 1) * pageSize])).rows;
   // Names for the move/merge inputs' suggestions.
   const names = (await db.query<{ name: string }>("SELECT DISTINCT name FROM brands ORDER BY name")).rows.map(row => row.name);
   return { scope, brands, names, total, page, pages };
@@ -125,7 +135,7 @@ async function sameProducts(params: MatchingParams) {
     SELECT (SELECT jsonb_build_object('all',count(*),'dinamik',count(*) FILTER (WHERE selling='dinamik'),'basbug',count(*) FILTER (WHERE selling='basbug'),
        'none',count(*) FILTER (WHERE selling IS NULL)) FROM grouped) AS summary,
      (SELECT count(*)::int FROM filtered) AS total,
-     (SELECT jsonb_agg(f) FROM (SELECT * FROM filtered ORDER BY (primary_price-selling_price) DESC NULLS LAST,primary_id LIMIT ${pageSize} OFFSET $3) f) AS groups`,
+     (SELECT jsonb_agg(f) FROM (SELECT * FROM filtered ORDER BY ${sortOrder(params, sorts.same, "(primary_price-selling_price) DESC NULLS LAST,primary_id")} LIMIT ${pageSize} OFFSET $3) f) AS groups`,
     [scope, q, (page - 1) * pageSize])).rows[0];
   const { pages } = pageOf(String(page), row.total);
   return { same: row.groups ?? [], summary: row.summary, scope, total: row.total, page: Math.min(page, pages), pages, exclusions };
@@ -151,7 +161,7 @@ async function matchCandidates(params: MatchingParams) {
   type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
   const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name)`;
   const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
-    ORDER BY c.name_similarity DESC NULLS LAST,a.brand,a.part_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+    ORDER BY ${sortOrder(params, sorts.candidates, "c.name_similarity DESC NULLS LAST,a.brand,a.part_number")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
   // a single-supplier product; its cheapest available row stands for it.
   const ids = rows.flatMap(row => [row.a.id, row.b.id]);
@@ -176,10 +186,11 @@ async function dinamikOnly(params: MatchingParams) {
     ${q ? "AND supplier_item_search_codes(i.code,i.product_data) LIKE '%'||$2||'%'" : ""}`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM commerce_supplier_items i WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
+  const order = sortOrder(params, sorts.dinamik, "i.changed_at DESC,i.id");
   const items = (await db.query<DinamikItem>(`SELECT i.id,(SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=i.id) AS product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
       c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=i.id) AS enriched
-    FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY i.changed_at DESC,i.id LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
-    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY i.changed_at DESC,i.id`, values)).rows;
+    FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
+    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
   return { dinamik: items, total, page, pages };
 }
 
@@ -195,7 +206,7 @@ async function setaReferences(params: MatchingParams) {
   const items = (await db.query<Omit<SetaItem, "products">>(`SELECT s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,
       (SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked
     FROM supplier_items s LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true
-    WHERE ${where} ORDER BY linked DESC,s.code LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+    WHERE ${where} ORDER BY ${sortOrder(params, sorts.seta, "linked DESC,s.code")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Listings, not raw rows: a Dinamik offer grouped under a Başbuğ product shows as that product.
   const products = items.length ? (await db.query<SetaProduct & { seta_item_id: string }>(`SELECT * FROM (
       SELECT DISTINCT ON (r.seta_item_id,p.id) r.seta_item_id::text,p.id::text,p.supplier,p.code,supplier_item_name(p.supplier,p.product_data) AS name,

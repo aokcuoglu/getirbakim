@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
 import type { PassPace } from "./enrichment-pace";
@@ -34,7 +35,7 @@ const activeCatalog=(ids:string)=>`(SELECT c.* FROM (SELECT ps.product_id FROM p
   (SELECT supplier_item_id FROM product_enrichment_jobs WHERE status<>'pending' UNION ALL SELECT supplier_item_id FROM product_enrichments)
   UNION SELECT unnest(${ids}::uuid[])) t(product_id)
   CROSS JOIN LATERAL (SELECT * FROM enrichment_product_catalog c WHERE c.product_id=t.product_id OFFSET 0) c)`;
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; page?: string }) {
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; page?: string; sort?: string; dir?: string }) {
   const q = query.q?.trim().slice(0,120) || "";
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
   const match = ["oem_reference","exact_part"].includes(query.match || "") ? query.match! : "all";
@@ -116,8 +117,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     COALESCE((SELECT sum(jsonb_array_length(value)) FROM jsonb_each(j.payload->'oemNumbers')),0)::int AS oem_count,
     COALESCE(jsonb_array_length(j.payload->'vehicles'),0) AS vehicle_count,
     COALESCE(jsonb_array_length(j.payload->'specifications'),0) AS specification_count
-    ${from} ORDER BY COALESCE(j.imported_at,j.updated_at) DESC,j.supplier_item_id
+    ${from} ORDER BY ${sortOrder(query, { updated: "COALESCE(j.imported_at,j.updated_at)" }, "COALESCE(j.imported_at,j.updated_at) DESC,j.supplier_item_id")}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
   return { pass:pass.rows[0], pilot:pilot.rows[0]??null, counts:counts.rows, metrics:summary, sources:sources.rows, rows:rows.rows,
-    total:totalCount, page,pages,pageSize, filters:{q,status,match} };
+    total:totalCount, page,pages,pageSize, filters:{q,status,match,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
 }

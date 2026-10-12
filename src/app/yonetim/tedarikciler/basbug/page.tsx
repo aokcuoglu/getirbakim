@@ -75,7 +75,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
   function pageUrl(target: number) {
     const query = new URLSearchParams({ group, page: String(target) });
-    for (const key of ["q", "brand", "currency", "warehouse", "stock", "quality", "presence"] as const) if (params[key]) query.set(key, params[key]!);
+    for (const key of ["q", "brand", "currency", "warehouse", "stock", "quality", "presence", "sort", "dir"] as const) if (params[key]) query.set(key, params[key]!);
     return `/yonetim/tedarikciler/basbug?${query}`;
   }
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
@@ -223,7 +223,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Bu grubun verileri henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>NF: KDV hariç maliyet · Satış: KDV dahil</span></div>
-        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse))}/>
+        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>

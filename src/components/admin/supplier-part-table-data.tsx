@@ -27,20 +27,24 @@ function checkCell(item: { presence: string; conflicting: boolean }, missingPric
 }
 
 const saleColumn: SupplierPartColumn = { key: "sale", label: "Satış (₺)", align: "right", numeric: true, emphasized: true };
-const checkColumn: SupplierPartColumn = { key: "check", label: "Kontrol", width: "medium" };
-const nameColumn: SupplierPartColumn = { key: "name", label: "Ürün adı", width: "wide", emphasized: true };
-const costColumn: SupplierPartColumn = { key: "cost", label: "NF", title: "KDV hariç maliyet", align: "right", numeric: true, missingLabel: "Eksik" };
+const nameColumn: SupplierPartColumn = { key: "name", label: "Ürün adı", width: "wide", emphasized: true, sortKey: "name" };
+const costColumn: SupplierPartColumn = { key: "cost", label: "NF", title: "KDV hariç maliyet", align: "right", numeric: true, missingLabel: "Eksik", sortKey: "cost" };
+const options = (values: string[]) => values.map(value => ({ value, label: value }));
+// The "Kontrol" header filters by the list's ?quality= values.
+const checkColumn = (qualities: [string, string][]): SupplierPartColumn => ({ key: "check", label: "Kontrol", width: "medium",
+  filter: { param: "quality", options: qualities.map(([value, label]) => ({ value, label })) } });
+const stockOptions = [{ value: "1", label: "Stok var" }, { value: "0", label: "Stok yok" }];
 
-export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: BasbugWarehouse): SupplierPartTableProps {
+export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: BasbugWarehouse, lists: { brands: string[]; currencies: string[] } = { brands: [], currencies: [] }): SupplierPartTableProps {
   return {
     caption: "Başbuğ ürünleri, fiyatları ve depo bazlı stok durumları",
     columns: [
       { key: "oem", label: "OEM" }, nameColumn,
-      { key: "brand", label: "Marka" },
-      { key: "currency", label: "PB", title: "Kaynak para birimi" },
+      { key: "brand", label: "Marka", sortKey: "brand", filter: { param: "brand", options: options(lists.brands) } },
+      { key: "currency", label: "PB", title: "Kaynak para birimi", filter: { param: "currency", options: options(lists.currencies) } },
       costColumn, saleColumn,
       ...basbugWarehouses.map(depot => ({ key: depot, label: depot === warehouse ? <strong>{depot}</strong> : depot, align: "center" as const, title: `${depot} depo stok durumu` })),
-      checkColumn,
+      checkColumn([["missing-price", "Fiyatı eksik"], ["duplicates", "Tekrarlanan kod"], ["conflicts", "Çelişkili kayıt"]]),
     ],
     rows: items.map(item => {
       const p = item.product_data;
@@ -88,7 +92,8 @@ export function setaPartTableProps(items: SetaItem[]): SupplierPartTableProps {
       { key: "vehicle", label: "Araç" }, { key: "cross", label: "Çapraz referans", width: "medium" },
       { key: "currency", label: "PB", title: "Kaynak para birimi" },
       { ...costColumn, title: "KDV hariç bayi fiyatı" }, saleColumn,
-      { key: "stock", label: "Stok", align: "center" }, checkColumn,
+      { key: "stock", label: "Stok", align: "center", filter: { param: "stock", options: stockOptions } },
+      checkColumn([["missing-price", "Fiyatı eksik"], ["conflicts", "Çelişkili kayıt"]]),
     ],
     rows: items.map(item => {
       const p = item.product_data;
@@ -109,18 +114,19 @@ export function setaPartTableProps(items: SetaItem[]): SupplierPartTableProps {
   };
 }
 
-export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegionKey | "any", hasProducts: boolean): SupplierPartTableProps {
+export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegionKey | "any", hasProducts: boolean, lists: { brands: string[]; groups: string[] } = { brands: [], groups: [] }): SupplierPartTableProps {
   return {
     caption: "Dinamik ürünleri, liste fiyatları ve bölge stok durumları",
     codeLabel: "Stok kodu",
     emptyDescription: hasProducts ? "Aramayı veya filtreleri değiştirebilirsiniz." : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker.",
     columns: [
-      nameColumn, { key: "brand", label: "Marka" }, { key: "vehicle", label: "Araç" }, { key: "group", label: "Grup", width: "medium" },
+      nameColumn, { key: "brand", label: "Marka", sortKey: "brand", filter: { param: "brand", options: options(lists.brands) } }, { key: "vehicle", label: "Araç" },
+      { key: "group", label: "Grup", width: "medium", filter: lists.groups.length <= 200 ? { param: "group", options: options(lists.groups) } : { param: "group", placeholder: "Grup adı" } },
       { ...costColumn, label: "Fiyat (₺)", title: "KDV hariç maliyet (₺)" },
       { ...saleColumn, title: "Mağaza satış fiyatı, KDV dahil" },
       { key: "campaign", label: "Kamp.", title: "Kampanya oranı", align: "right", numeric: true },
       ...dinamikRegions.map(r => ({ key: r.key, label: r.key === region ? <strong>{r.short}</strong> : r.short, align: "center" as const, title: `${r.label} stok durumu (${r.key})` })),
-      checkColumn,
+      checkColumn([["missing-price", "Fiyatı eksik"], ["price-only", "Yalnız fiyat"], ["campaign", "Kampanyalı"], ["duplicates", "Tekrarlanan kod"], ["conflicts", "Çelişkili kayıt"]]),
     ],
     rows: items.map(item => {
       const p = item.product_data;

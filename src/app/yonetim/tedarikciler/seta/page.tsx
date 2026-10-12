@@ -61,7 +61,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
   const scope = health.scopes[0];
   const pageUrl = (target: number) => {
     const query = new URLSearchParams({ page: String(target) });
-    for (const key of ["q", "category", "stock", "quality", "presence"] as const) if (params[key]) query.set(key, params[key]!);
+    for (const key of ["q", "category", "stock", "quality", "presence", "sort", "dir"] as const) if (params[key]) query.set(key, params[key]!);
     return `/yonetim/tedarikciler/seta?${query}`;
   };
   const pageNumbers = Array.from(new Set([1, ...Array.from({ length: 5 }, (_, i) => Math.max(1, Math.min(page - 2, pages - 4)) + i), pages])).filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);

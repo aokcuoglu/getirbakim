@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DialogTrigger } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableHeadFilter } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 type PartBadgeVariant = "success" | "warning" | "destructive" | "info" | "outline";
@@ -26,6 +26,9 @@ export type SupplierPartColumn = {
   numeric?: boolean;
   emphasized?: boolean;
   missingLabel?: string;
+  /** The list is paginated: header sorting and filtering go to the URL (see TableHead). */
+  sortKey?: string;
+  filter?: TableHeadFilter;
 };
 
 export type SupplierPartRow = {
@@ -82,12 +85,12 @@ export function SupplierPartTable({ caption, columns, rows, codeLabel = "Parça 
     </EmptyHeader>
   </Empty>;
 
-  return <Table>
+  return <Table server>
     <caption className="sr-only">{caption}</caption>
     <TableHeader>
       <TableRow>
-        <TableHead scope="col">{codeLabel}</TableHead>
-        {columns.map(column => <TableHead key={column.key} scope="col" title={column.title} className={cn(column.align === "right" && "text-right", column.align === "center" && "text-center")}>{column.label}</TableHead>)}
+        <TableHead scope="col" sortKey="code">{codeLabel}</TableHead>
+        {columns.map(column => <TableHead key={column.key} scope="col" title={column.title} sortKey={column.sortKey} filter={column.filter} className={cn(column.align === "right" && "text-right", column.align === "center" && "text-center")}>{column.label}</TableHead>)}
         <TableHead scope="col"><span className="sr-only">Ürün detayı</span></TableHead>
       </TableRow>
     </TableHeader>

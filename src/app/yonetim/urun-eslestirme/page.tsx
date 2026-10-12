@@ -72,10 +72,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   const stats = data.run?.stats;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, strength: params.strength, scope: params.scope, names: params.names, q: params.q, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, strength: params.strength, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, strength: undefined, scope: undefined, names: undefined, q: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, strength: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = <CardFooter className="flex-wrap justify-between gap-3">
@@ -114,8 +114,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         <p className="text-muted-foreground">{scopeIntro[data.scope]}</p>
         {search("brands", "Marka veya etiket (ör. MAHLE)")}
         <datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
-        {rows.length ? <Table><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
-          <TableHeader><TableRow><TableHead>Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+        {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
+          <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(brand => <TableRow key={brand.id} className="align-top">
             <TableCell className="max-w-48 truncate font-medium" title={brand.name}>{brand.name}</TableCell>
             {brandSuppliers.map(supplier => {
@@ -146,8 +146,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           ]}/>
           <DecisionHelp/>
         </div>
-        {pairs.length ? <Table><caption className="sr-only">İncelenecek marka çiftleri</caption>
-          <TableHeader><TableRow><TableHead>Ana marka A</TableHead><TableHead>Ana marka B</TableHead><TableHead className="text-right">Ortak no</TableHead><TableHead className="text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
+        {pairs.length ? <Table server><caption className="sr-only">İncelenecek marka çiftleri</caption>
+          <TableHeader><TableRow><TableHead sortKey="brand_a">Ana marka A</TableHead><TableHead sortKey="brand_b">Ana marka B</TableHead><TableHead sortKey="shared" className="text-right">Ortak no</TableHead><TableHead sortKey="eans" className="text-right" title="Dinamik'te ortak barkod">Ortak barkod</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Örnek (parça no · A · B)</TableHead><TableHead>Karar</TableHead><TableHead><span className="sr-only">Örnekler</span></TableHead></TableRow></TableHeader>
           <TableBody>{pairs.map(pair => {
             // Barcode-only pairs share no part number; their first barcode match stands in as the example.
             const ean = pair.ean_samples[0];
@@ -201,8 +201,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         </div>
         {bulkBrand && data.names !== "conflict" && data.total > data.acceptableTotal && <p className="text-muted-foreground">Tanımı farklı ya da Dinamik ürünü birden çok Başbuğ ürününe önerilen {number(data.total - data.acceptableTotal)} öneri toplu kabule dahil edilmez; bunları tek tek seçin.</p>}
         {!bulkBrand && data.names !== "conflict" && <p className="text-muted-foreground">İpucu: bir neden seçip marka adıyla arayın (ör. CONTITECH); o markanın tüm önerilerini tek seferde kabul edebilirsiniz.</p>}
-        {data.candidates.length ? <Table><caption className="sr-only">Olası aynı ürünler</caption>
-          <TableHeader><TableRow><TableHead>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
+        {data.candidates.length ? <Table server><caption className="sr-only">Olası aynı ürünler</caption>
+          <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`} className="align-top">
             <TableCell className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}
@@ -241,8 +241,9 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><Button type="submit" variant="outline">Geri al</Button></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Elle karar verilmiş kayıt yok." icon={<Boxes/>}/>) : <>
           {search("same", "Parça no veya kod")}
-          {"same" in data && data.same.length ? <Table><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead>Mağazada satılan</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+          {"same" in data && data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead>Dinamik</TableHead>
+              <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0], dinamik = group.offers.filter(offer => offer.supplier === "dinamik");
               const saving = group.selling === "dinamik" && group.primary_price && group.selling_price ? Math.round((1 - group.selling_price / group.primary_price) * 100) : 0;
@@ -265,8 +266,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       <CardContent className="flex flex-col gap-4">
         {intro("Başbuğ'da karşılığı bulunmayan Dinamik ürünleri. Mağazada ayrı ürün olarak listelenir; görsel, özellik ve araç bilgisi Trodo zenginleştirmesiyle gelir. Başbuğ'da aynısı varsa “Eşleştir” ile ürün sayfasından birleştirin.")}
         {search("dinamik", "Kod veya OEM")}
-        {data.dinamik.length ? <Table><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
-          <TableHeader><TableRow><TableHead>Kod</TableHead><TableHead>Marka</TableHead><TableHead>Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+        {data.dinamik.length ? <Table server><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
+          <TableHeader><TableRow><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="name">Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.dinamik.map(item => <TableRow key={item.id}>
             <TableCell className="max-w-44 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
             <TableCell className="max-w-28 truncate text-muted-foreground" title={item.brand ?? ""}>{item.brand || "—"}</TableCell>
@@ -288,8 +289,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { href: query({ scope: "unlinked", page: undefined }), label: "Bağlantısız", current: data.scope === "unlinked" },
         ]}/>
         {search("seta", "SETA kodu veya OEM")}
-        {data.seta.length ? <Table><caption className="sr-only">SETA muadilleri</caption>
-          <TableHeader><TableRow><TableHead>SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
+        {data.seta.length ? <Table server><caption className="sr-only">SETA muadilleri</caption>
+          <TableHeader><TableRow><TableHead sortKey="code">SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead sortKey="price" className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead sortKey="linked" className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.seta.map(item => <TableRow key={item.id}>
             <TableCell className="max-w-36 truncate font-mono" title={item.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${item.id}`} target="_blank" rel="noreferrer"/>}>{item.code}</Button></TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>

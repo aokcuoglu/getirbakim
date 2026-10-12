@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { sortOrder } from "@/lib/table-sort";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import type { CommerceOrder } from "@/modules/store/orders";
 
@@ -52,8 +53,10 @@ export const orderFilters = {
   cancelled: { label: "İptal", where: "o.status='cancelled'" },
 } as const;
 export type OrderFilter = keyof typeof orderFilters;
+// Header sorting on the orders list (TableHead sortKey → column).
+const orderSorts = { created: "o.created_at", customer: "o.customer_name", total: "o.total_kurus" };
 
-export async function adminOrders(rawPage?: string, rawFilter?: string) {
+export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}) {
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
@@ -63,7 +66,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string) {
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
-     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY o.created_at DESC,o.id DESC LIMIT 51 OFFSET $1`,
+     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
   return { orders: orders.rows, page, filter, counts: counts.rows[0] };

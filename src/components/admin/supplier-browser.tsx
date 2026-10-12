@@ -17,6 +17,9 @@ export function SupplierBrowser({ children }: { children: ReactNode }) {
       event.preventDefault();
       const query = new URLSearchParams();
       new FormData(form).forEach((value,key) => { if (typeof value === "string" && value) query.set(key,value); });
+      // A filter form keeps the column the table is sorted by (TableHead sortKey).
+      const current = new URLSearchParams(window.location.search);
+      for (const key of ["sort","dir"]) { const value = current.get(key); if (value && !query.has(key)) query.set(key,value); }
       navigate(`${form.getAttribute("action")}?${query}`);
     }}
     onClickCapture={event => {
