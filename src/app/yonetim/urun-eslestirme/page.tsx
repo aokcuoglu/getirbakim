@@ -16,9 +16,9 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { candidateReasons, productMatchingData, strongSimilarity, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
+import { candidateNames, candidateReasons, productMatchingData, strongSimilarity, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
-import { acceptCandidates, decideCandidate, refreshMatches, splitOffers, undoSplit } from "./actions";
+import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffers, undoSplit } from "./actions";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -67,10 +67,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   const stats = data.run?.stats;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, strength: params.strength, scope: params.scope, q: params.q, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, strength: params.strength, scope: params.scope, names: params.names, q: params.q, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, strength: undefined, scope: undefined, q: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, strength: undefined, scope: undefined, names: undefined, q: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = <CardFooter className="flex-wrap justify-between gap-3">
@@ -82,7 +82,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   </CardFooter>;
   const intro = (text: ReactNode) => <CardDescription>{text}</CardDescription>;
   const search = (tab: string, placeholder: string, extra?: ReactNode) => <form className="flex flex-wrap items-center gap-2" action="/yonetim/urun-eslestirme">
-    <input type="hidden" name="tab" value={tab}/>{params.scope && <input type="hidden" name="scope" value={params.scope}/>}
+    <input type="hidden" name="tab" value={tab}/>{params.scope && <input type="hidden" name="scope" value={params.scope}/>}{params.names && <input type="hidden" name="names" value={params.names}/>}
     <InputGroup className="w-full sm:w-64"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder={placeholder} maxLength={80}/></InputGroup>
     <Button type="submit">Ara</Button>{params.q && <Button variant="ghost" nativeButton={false} render={<Link href={query({ q: undefined, page: undefined })}/>}>Temizle</Button>}{extra}
   </form>;
@@ -125,7 +125,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       {pager}
     </>;
   } else if ("candidates" in data) {
-    const reasons = Object.keys(candidateReasons) as CandidateReason[];
+    const reasons = Object.keys(candidateReasons) as CandidateReason[], nameKinds = Object.keys(candidateNames) as CandidateNames[];
     const bulkBrand = data.brandFilter && data.reason && data.candidates.length > 0 && data.candidates.every(item => item.brand === data.brandFilter) ? data.brandFilter : null;
     const side = (item: { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null }) =>
       <div className="flex min-w-0 flex-col gap-1">
@@ -140,18 +140,29 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { href: query({ scope: undefined, page: undefined }), label: "Tümü", count: Object.values(data.byReason).reduce((sum, count) => sum + (count ?? 0), 0), current: !data.reason },
           ...reasons.map(reason => ({ href: query({ scope: reason, page: undefined }), label: candidateReasons[reason], count: data.byReason[reason] ?? 0, current: data.reason === reason })),
         ]}/>
+        <LinkTabs label="Parça tanımı" tabs={[
+          { href: query({ names: undefined, page: undefined }), label: "Her tanım", count: data.byNames.consistent + data.byNames.conflict, current: !data.names },
+          ...nameKinds.map(kind => ({ href: query({ names: kind, page: undefined }), label: candidateNames[kind], count: data.byNames[kind], current: data.names === kind })),
+        ]}/>
+        {data.names === "conflict" && <CardDescription>Numaraları benziyor ama tanımları farklı parça türü söylüyor (ör. el fren tel klipsi ↔ motor subap takımı); büyük olasılıkla farklı ürün. Listeyi gözden geçirip aynı olanları tek tek kabul edin, kalanları toplu olarak farklı sayabilirsiniz.</CardDescription>}
         <div className="flex flex-wrap items-center gap-2">
           {search("candidates", "Marka (ör. CONTITECH) veya parça no")}
-          {bulkBrand && data.reason && <form action={acceptCandidates}>
+          {bulkBrand && data.reason && data.names !== "conflict" && data.consistentTotal > 0 && <form action={acceptCandidates}>
             <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{bulkBrand} için tümünü aynı say ({number(data.total)})</Button>
+            <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{bulkBrand} için tümünü aynı say ({number(data.consistentTotal)})</Button>
+          </form>}
+          {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
+            {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
+            <Button type="submit" variant="outline"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Listelenen {number(data.total)} öneriyi farklı say</Button>
           </form>}
         </div>
-        {!bulkBrand && <p className="text-muted-foreground">İpucu: bir neden seçip marka adıyla arayın (ör. CONTITECH); o markanın tüm önerilerini tek seferde kabul edebilirsiniz.</p>}
+        {bulkBrand && data.names !== "conflict" && data.total > data.consistentTotal && <p className="text-muted-foreground">Tanımı farklı {number(data.total - data.consistentTotal)} öneri toplu kabule dahil edilmez.</p>}
+        {!bulkBrand && data.names !== "conflict" && <p className="text-muted-foreground">İpucu: bir neden seçip marka adıyla arayın (ör. CONTITECH); o markanın tüm önerilerini tek seferde kabul edebilirsiniz.</p>}
         {data.candidates.length ? <Table><caption className="sr-only">Olası aynı ürünler</caption>
           <TableHeader><TableRow><TableHead>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`} className="align-top">
-            <TableCell className="flex flex-col gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span></TableCell>
+            <TableCell className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
+              {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}</TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <ToneBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</ToneBadge>}</TableCell>
@@ -279,7 +290,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.decided && messages[params.decided] && notice(messages[params.decided])}
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
-    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
+    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
+      : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
     {!stats ? <EmptyState title="Eşleştirme henüz çalıştırılmadı." icon={<Boxes/>}>Sağ üstteki düğmeyle veya <code>npm run products:match</code> ile başlatın.</EmptyState> : <>
       <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" aria-label="Eşleştirme özeti">{statCards.map(card => <Card key={card.label}>
