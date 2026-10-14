@@ -248,3 +248,24 @@ Trodo kapsamı `products` tablosundaki, başka ürüne yönlendirilmemiş ana ü
 Mevcut koşular `product_id` ile ilişkilendirilir. Başlangıçta gereksiz bekleyen tekrarlar ve kapsam dışı teklifler `skipped` olur; eski sonuçlar, checkpoint ve kaynak önbelleği silinmez. Durdur/devam komutu aynıdır: `npm run enrichment:continue -- 4318 1000 --chrome`. Yeni partiler her ana ürünü bir kez seçer. Eski `product_enrichment_jobs` tablosu tedarikçi düzeyindeki geçmişi saklar; operasyonun toplam/kalan sayacı olarak kullanılmaz.
 
 `/yonetim/urun-verileri` kapsamı, durumları, zenginleştirme metrikleri ve son 24 saat hızını tekil ana ürünlerle hesaplar. Parti kartı atlanan teklifleri ayrıca gösterir. Yerel şema geçişi için işçi önce SIGTERM ile durdurulur, `npm run enrichment:prepare` uygulanır ve aynı devam komutu yeniden başlatılır. Bu işlem deploy değildir; production şeması yalnız ayrıca istenen manuel yayın kapsamında uygulanır.
+
+## otoparcasan.com ikinci kaynak — 14.10.2026
+
+Trodo'da bulunamayan (`product_enrichment_jobs.status='not_found'`) ürünler otoparcasan.com'dan tamamlanır (#222). Kaynak düz HTTP ile okunur; tarayıcı gerekmez. İstekler sıralıdır, aralarında 1,5 sn + rastgele 0–0,75 sn beklenir (`OTOPARCASAN_INTERVAL_MS`). 403/429/503 ya da Cloudflare sayfası çalışmayı durdurur.
+
+1. `POST Ajax/searchAll/` (CSRF'li; token her yanıtta yenilenir) ürün kodunu, bulunamazsa tedarikçi OEM'ini arar. Kod aramasında yalnız adresi stok koduyla **biten** ürünler aday olur: `FEBI 8098`'in araması `…-zp8098fmbp`'yi de döndürür.
+2. Ürün sayfasından marka, stok kodu, "OEM Kodları" ve değeri olan "Teknik Bilgiler" satırları okunur. Kimlik Trodo ile aynı sözleşmeyle (`matchesEnrichment`) doğrulanır: marka + parça, OE- tedarikçilerde orijinal parça numarası ya da tedarikçi OEM'inin sayfada kanıtlanması.
+3. `POST Ajax/getCarsByStokAndMarkaAndModel` her araç markası için TecDoc araç satırlarını verir. Yakıtı boş satırlar TecDoc'un ticari araç ağacındandır (kamyon, çekici, beton mikseri) ve atılır; araç kataloğu yalnız binek ve hafif ticari araçları içerir. IVECO DAILY gibi kamyonetler binek ağacından gelir ve kalır.
+4. Araçlar `strict-v2` eşleştiricisine model adı (`MARKA MODEL`) ve tip adıyla verilir. Sitenin `typeId` alanı katalog id'si değildir.
+
+Kaynak, araç üreticisini OEM numarasıyla birlikte vermez. Bu yüzden numaralar tek araç markası varsa o markanın, "PSA ORJINAL" gibi orijinal parçalarda o üreticinin, aksi halde `OE` başlığı altında tutulur. Kısaltılmış listelemeler atılır (`544103E100` yanında `544103`). Kaynak görselleri "temsilî" olduğu için alınmaz.
+
+```bash
+npm run enrichment:otoparcasan -- collect --limit 100   # yalnız okur; paketler artifacts/otoparcasan/results.jsonl'e
+npm run enrichment:otoparcasan -- report                # bulunan/OEM/özellik/araç ve katalogla eşleşen araç sayıları
+npm run enrichment:otoparcasan -- import                # paketleri importEnrichments ile yazar (iş hâlâ not_found ise)
+```
+
+`collect` kaldığı yerden devam eder; `--retry` önceki sonuçları (içe aktarılanlar hariç) yeniden dener, `--ids <dosya>` belirli ürünleri işler. `import` yerel veritabanına yazar ve bu veri gece `storefront:sync` ile canlıya gider.
+
+İlk 26 ürünlük örneklemde 19 ürün bulundu, yanlış eşleşme olmadı. 1.613 ticari araç satırı atıldı. Kalan 228 binek araç satırının 190'ı katalogdaki tek bir tiple eşleşti. Eşleşmeyenlerin nedenleri: modelin katalogda olmaması (20), sitenin bitiş tarihini açık bırakması (14), güç ya da motor adı farkı (4).

@@ -15,11 +15,14 @@ test("supplier prefix and manufacturer aliases can match the same part", () => {
   assert.equal(matchesSupplierPart("DAYCO", "DAY 6PK1570HD", "DAYCO", "6PK1570HD"), true);
   assert.equal(matchesSupplierPart("TEXTAR", "TX 2614201", "TEXTAR", "2614201"), true);
   assert.equal(matchesSupplierPart("BLUE PRINT", "BLU ADBP210047", "BLUE PRINT", "ADBP210047"), true);
+  assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "BOSCH", "0 986 424 533"), true);
+  assert.equal(matchesSupplierPart("TEKNOROT", "TEKNOROT HY-1044K", "TEKNOROT", "HY1044K"), true);
 });
 test("exact-part matching rejects a different part or manufacturer", () => {
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134LMLDEM2"), false);
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "TYC", "445-1134RMLDEM2"), false);
   assert.equal(matchesSupplierPart("OTHER", "ABC 104620", "OTHER", "104620"), false);
+  assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "TRW", "0986424533"), false);
   assert.equal(matchesSupplierPart("MANN", "MANN W 7041", "MAHLE", "W 7041"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "HART", "OE672/10"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "FILTRON", "OE672/11"), false);
