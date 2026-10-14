@@ -30,7 +30,7 @@ Tarayıcı DOM'u ve `getComputedStyle` ile DevTools'un gösterdiği render edilm
 
 `theme.css`, `inter.css`, `flag-icon.css` ve `flags.css` referans arşividir. Bunlar uygulamaya import edilmez; yeni bileşenler Getirbakim kodunda yazılmıştır. Arşivdeki göreli URL'lerin kopyalanması çalışma zamanında uzaktan çağrı oluşturmaz.
 
-`assets.json` toplam 56 dosyayı kaydeder: 49 görsel/ikon, 3 font, 4 referans CSS. `media_assets` tablosu 52 görsel/font dosyasının metadata kaydıdır. Dosyalar `public/media/trodo` altında saklanır. Inter lisansı `fonts/LICENSE.txt` içindedir.
+`assets.json` toplam 56 dosyayı kaydeder: 49 görsel/ikon, 3 font, 4 referans CSS. `media_assets` tablosu 52 görsel/font dosyasının metadata kaydıdır. Dosyalar `public/media/site` altında saklanır. Inter lisansı `fonts/LICENSE.txt` içindedir.
 
 Eşleştirme görsel bileşenleri ve etkileşimleri kapsar. Araç kataloğu, kayıt sistemi, Trustpilot, ülke/para birimi seçimi, ödeme ve kampanya altyapısı Trodo'dan aktarılmaz. Getirbakim'in B2C/B2B modeli ve mevcut sunucu kontrolleri korunur.
 

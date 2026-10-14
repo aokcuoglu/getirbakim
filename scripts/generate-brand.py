@@ -7,7 +7,7 @@ from fontTools.pens.svgPathPen import SVGPathPen
 root = Path(__file__).resolve().parents[1]
 out = root / 'public/brand'
 out.mkdir(exist_ok=True)
-font = TTFont(root / 'public/media/trodo/fonts/Inter-SemiBold.woff2')
+font = TTFont(root / 'public/media/site/fonts/Inter-SemiBold.woff2')
 glyphs = font.getGlyphSet()
 cmap = font.getBestCmap()
 units = font['head'].unitsPerEm

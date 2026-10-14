@@ -27,7 +27,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  return <article className="product-card">
  <div className="product-card-media">
   <div className="product-card-labels">
-   {brandClass&&<span className={cn("product-card-class",brandClass==="Premium"?"bg-[#d72b2b]":brandClass==="Budget"?"bg-[#f59e0b]":"bg-[#2e7d32]")} title={specificationValue(brandClass)} aria-label={specificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/trodo/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}
+   {brandClass&&<span className={cn("product-card-class",brandClass==="Premium"?"bg-[#d72b2b]":brandClass==="Budget"?"bg-[#f59e0b]":"bg-[#2e7d32]")} title={specificationValue(brandClass)} aria-label={specificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/site/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}
    <ManufacturerBadge brand={p.brand} logo={logo} className="product-card-maker"/>
   </div>
   <Link className="product-card-picture" href={"/urun/"+p.id} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={image.width} height={image.height} alt={title} loading="lazy" unoptimized/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
@@ -46,7 +46,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  <div className="product-card-buy">
   <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}</div>}
-  <p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/trodo/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>
+  <p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>
   <PurchaseForm productId={p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden"/>
   <CompareCheckbox entry={{id:p.id,title,price,specifications}}/>
   <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/>Güvenlik ve uyumluluk bilgileri</Link>

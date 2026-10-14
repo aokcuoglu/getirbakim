@@ -18,7 +18,7 @@ export default async function Automakers() {
  const groups=[...Map.groupBy(brands,brand=>initial(brand.name))].sort(([a],[b])=>a.localeCompare(b));
  const popular=popularVehicleMakes.flatMap(name=>brands.filter(brand=>brand.name===name));
  const tile=(brand:typeof brands[number])=>{const logo=getVehicleLogo(brand.name);
-  return <li key={brand.id}><Link href={"/car-parts/"+vehicleBrandSlug(brand.name)} aria-label={brand.name+" yedek parçaları"} className="flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20">
+  return <li key={brand.id}><Link prefetch={false} href={"/car-parts/"+vehicleBrandSlug(brand.name)} aria-label={brand.name+" yedek parçaları"} className="flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20">
    {logo?<Image src={logo.src} width={logo.width} height={logo.height} alt="" unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>:<span className="grid size-[42px] place-items-center rounded-full bg-muted text-sm font-semibold tracking-[.5px] text-muted-foreground" aria-hidden="true">{displayName(brand.name).slice(0,2)}</span>}
    <span className="max-w-full wrap-anywhere">{displayName(brand.name)}</span>
   </Link></li>;};
