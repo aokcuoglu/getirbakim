@@ -61,7 +61,9 @@ export function matchesSupplierPart(supplierBrand: string, supplierCode: string,
   if (brand !== brandKey(manufacturer)) return false;
   if (normalize(supplierCode) === normalize(partNumber)) return true;
   const [prefix, ...rest] = supplierCode.trim().split(/\s+/);
-  return (prefixes[brand] || []).includes(prefix.toUpperCase()) && normalize(rest.join(" ")) === normalize(partNumber);
+  // Dinamik also prefixes codes with the brand's own name ("BOSCH 0986424533", "TEKNOROT HY-1044K").
+  const known = (prefixes[brand] || []).includes(prefix.toUpperCase()) || brandKey(prefix) === brand;
+  return known && rest.length > 0 && normalize(rest.join(" ")) === normalize(partNumber);
 }
 
 export function matchesEnrichment(supplier: { brand: string; code: string; oem: string }, source: {
