@@ -5,9 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Inter, self-hosted (weights used by the design: 400, 500, 600). */
-@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("/media/trodo/fonts/Inter-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
 
 /* Payment dialog progress shimmer (animate-[payment-progress_…]). */
 @keyframes payment-progress { to { background-position: -200% 0; } }
