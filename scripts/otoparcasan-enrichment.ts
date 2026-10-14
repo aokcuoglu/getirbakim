@@ -1,7 +1,9 @@
 // Enriches products the Trodo pass could not find ("not_found") from otoparcasan.com.
-//   collect [--limit N] [--ids file] [--retry]  fetches and verifies; writes packages to the checkpoint only
-//   import                                     imports collected packages whose job is still not_found
-//   report                                     summarises the checkpoint
+//   collect [--limit N] [--ids file] [--retry] [--dry-run]
+//                 fetches, verifies and writes each product as it is found, like the Trodo worker; --dry-run only
+//                 appends packages to the checkpoint. Packages left unwritten by an earlier run are written first.
+//   import        writes collected packages whose job is still not_found
+//   report        summarises the checkpoint
 import {appendFile,mkdir,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
@@ -14,6 +16,8 @@ import {loadFitmentMatcher} from '../src/modules/store/fitment-sync';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
+// A dropped idle connection must not crash the run; the next query reconnects.
+pool.on('error',error=>console.error('Database connection lost:',String(error)));
 const [command='report',...args]=process.argv.slice(2);
 const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[at+1]:undefined;};
 const checkpoint=resolve(option('out')||'artifacts/otoparcasan/results.jsonl');
@@ -30,6 +34,35 @@ async function entries(){
 }
 const supplierSql=`SELECT j.supplier_item_id AS id,s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,
  COALESCE(s.product_data->>'oe','') AS oem FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE j.status='not_found'`;
+
+class DatabaseUnavailable extends Error {}
+const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
+const connectionError=(error:unknown)=>{const e=error as {code?:string;message?:string};
+ return /^(08|57P0)/.test(e.code||'')||['ECONNREFUSED','ECONNRESET','ETIMEDOUT','EPIPE','ENOTFOUND','EHOSTUNREACH'].includes(e.code||'')
+  ||/Connection terminated|connection timeout|Client has encountered a connection error|terminating connection/i.test(e.message||'');};
+const matcher=createMatcherCache();
+/** Writes one collected package. The package is already in the checkpoint, so a database outage loses nothing:
+ *  connection errors are retried with backoff and then stop the run; a contract rejection skips the product. */
+async function write(entry:{supplierItemId:string;package?:unknown}){
+ for(const [attempt,delay] of [0,5000,30000,120000].entries()){
+  if(delay){console.error(`Veritabanına yazılamadı, ${delay/1000} sn sonra tekrar (${attempt}/3)`);await sleep(delay);}
+  try{
+   const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status='not_found' AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
+   if(!open){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer not_found'});return 'skipped';}
+   await importEnrichments(pool,[entry.package],matcher);
+   await record({supplierItemId:entry.supplierItemId,outcome:'imported'});return 'imported';
+  }catch(error){
+   if(connectionError(error))continue;
+   await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:String(error)});console.error(entry.supplierItemId,String(error));return 'skipped';
+  }
+ }
+ throw new DatabaseUnavailable('Database unavailable; collected packages stay in the checkpoint and are written on the next run');
+}
+async function flush(){
+ const pending=[...(await entries()).values()].filter(e=>e.outcome==='collected'&&e.package);
+ const counts={imported:0,skipped:0};for(const entry of pending)counts[await write(entry)]++;
+ return counts;
+}
 
 async function find(client:OtoparcasanClient,supplier:Supplier){
  const searched=new Set<string>();
@@ -52,6 +85,8 @@ async function find(client:OtoparcasanClient,supplier:Supplier){
 }
 
 async function collect(){
+ const dryRun=args.includes('--dry-run');
+ if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
  const done=await entries(),limit=Number(option('limit')||50),retry=args.includes('--retry');
  const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
  const rows=(await pool.query<Supplier&{id:string}>(supplierSql+(ids?' AND j.supplier_item_id=ANY($1::uuid[])':'')+' ORDER BY j.supplier_item_id',ids?[ids]:[])).rows
@@ -76,26 +111,18 @@ async function collect(){
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
    const counts={oems:Object.values(data.oemNumbers).flat().length,specifications:data.specifications.length,vehicles:data.vehicles.length,commercial:vehicle.commercial,invalid:vehicle.invalid.length,matched};
    await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
-   console.log(`${index+1}/${rows.length} ${supplier.code} → ${pkg.source} [${found.basis.type}] OEM ${counts.oems} · özellik ${counts.specifications} · araç ${counts.matched}/${counts.vehicles} eşleşti · kamyon ${counts.commercial} atıldı`);
+   const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?'yazıldı':'yazılmadı';
+   console.log(`${index+1}/${rows.length} ${supplier.code} → ${pkg.source} [${found.basis.type}] OEM ${counts.oems} · özellik ${counts.specifications} · araç ${counts.matched}/${counts.vehicles} eşleşti · kamyon ${counts.commercial} atıldı · ${written}`);
   }catch(error){
-   if(error instanceof SourceBlocked){console.error(String(error));process.exitCode=2;break;}
+   if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;break;}
+   if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
    await record({supplierItemId:supplier.id,outcome:'error',error:String(error)});console.log(`${index+1}/${rows.length} ${supplier.code} → hata: ${error}`);
   }
  }
  console.log(JSON.stringify({requests:client.requests}));
 }
 
-async function runImport(){
- const pending=[...(await entries()).values()].filter(e=>e.outcome==='collected'&&e.package);
- const open=new Set((await pool.query<{id:string}>("SELECT supplier_item_id AS id FROM product_enrichment_jobs WHERE status='not_found' AND supplier_item_id=ANY($1::uuid[])",[pending.map(e=>e.supplierItemId)])).rows.map(r=>r.id));
- const matcher=createMatcherCache();let imported=0,skipped=0;
- for(const entry of pending){
-  if(!open.has(entry.supplierItemId)){skipped++;await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer not_found'});continue;}
-  try{await importEnrichments(pool,[entry.package],matcher);imported++;await record({supplierItemId:entry.supplierItemId,outcome:'imported'});}
-  catch(error){skipped++;await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:String(error)});console.error(entry.supplierItemId,String(error));}
- }
- console.log(JSON.stringify({imported,skipped}));
-}
+async function runImport(){console.log(JSON.stringify(await flush()));}
 
 async function report(){
  const all=[...(await entries()).values()],by=(outcome:string)=>all.filter(e=>e.outcome===outcome).length;
