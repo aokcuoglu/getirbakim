@@ -227,7 +227,7 @@ Kontroller:
 - `node --import tsx --test scripts/test-catalog-filters.ts`
 - `node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog-filters.ts`
 
-Trodo kartlarının görünür kalite/stok SVG simgeleri `/public/media/trodo/icons/` altında yerel olarak saklanır.
+Trodo kartlarının görünür kalite/stok SVG simgeleri `/public/media/site/icons/` altında yerel olarak saklanır.
 
 Katalog yerleşimi Trodo fren diskleri sayfası ile tarayıcıda karşılaştırılarak düzenlendi.
 Masaüstünde 304 px sidebar, tek panel içindeki teknik filtreler, liste/ızgara kartları,

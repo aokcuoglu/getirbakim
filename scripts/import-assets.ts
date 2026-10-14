@@ -11,5 +11,5 @@ try {
   await pool.query("INSERT INTO media_assets(id,name,kind,source_url,local_path,content_type,sha256,size_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO UPDATE SET local_path=EXCLUDED.local_path,sha256=EXCLUDED.sha256,size_bytes=EXCLUDED.size_bytes",[a.key,a.name,a.kind,a.sourceUrl,a.localPath,a.contentType,a.sha256,a.bytes]);
   count++;
  }
- console.log(`${count} local image/font assets verified and registered. Binary files remain in public/media/trodo.`);
+ console.log(`${count} local image/font assets verified and registered. Binary files remain in public/media/site.`);
 } finally { await pool.end(); }

@@ -69,7 +69,7 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
       <DialogPrimitive.Popup ref={popup} initialFocus={() => popup.current?.querySelector<HTMLInputElement>("input") ?? true} finalFocus={false}
         className="fixed inset-0 z-50 m-auto h-fit max-h-[calc(100dvh-48px)] w-[1020px] max-w-[calc(100vw-48px)] overflow-auto overscroll-contain rounded-xl bg-white p-0 text-sm leading-5 text-foreground outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 max-[700px]:h-dvh max-[700px]:max-h-dvh max-[700px]:w-full max-[700px]:max-w-[100vw] max-[700px]:rounded-none">
         <div className="grid min-h-[622px] grid-cols-2 max-[700px]:block max-[700px]:min-h-full">
-          <aside className="flex flex-col justify-center bg-[url('/media/trodo/images/register-img-v2.webp')] bg-cover bg-center p-12 text-white max-[1000px]:p-8 max-[700px]:hidden">
+          <aside className="flex flex-col justify-center bg-[url('/media/site/images/register-img-v2.webp')] bg-cover bg-center p-12 text-white max-[1000px]:p-8 max-[700px]:hidden">
             <h2 className="mt-0 mb-10 text-2xl leading-8 font-semibold tracking-[-.5px] max-[1000px]:text-[21px] max-[1000px]:leading-[29px]">Hesabınla daha fazlası</h2>
             <ul className="m-0 flex list-none flex-col gap-8 p-0">{benefits.map(({ icon: Icon, title, description }) => <li key={title} className="flex items-start gap-4">
               <span className="flex h-12 flex-[0_0_48px] items-center justify-center rounded-md bg-white/16"><Icon size={32} strokeWidth={1.5} /></span>
