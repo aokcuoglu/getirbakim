@@ -8,6 +8,30 @@ import { enrichmentImportSchema, matchesEnrichment } from "../store/enrichment-c
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../store/fitment-sync";
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
 
+/** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
+export async function storeProductImage(client: PoolClient, file: string, source: string) {
+  const bytes = await readFile(resolve(file));
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
+  const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
+  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+  const extension = webp ? "webp" : jpeg ? "jpg" : png ? "png" : null;
+  if (!extension) throw new Error("Only verified WebP, JPEG and PNG images can be imported");
+  const contentType = webp ? "image/webp" : jpeg ? "image/jpeg" : "image/png";
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) throw new Error("S3_BUCKET is required");
+  const key = `products/${hash.slice(0, 2)}/${hash}.${extension}`;
+  const storage = objectStorage();
+  const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
+  if (!existing) await storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
+  const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  if (head.ContentLength !== bytes.length || head.Metadata?.sha256 !== hash) throw new Error("Object verification failed");
+  return (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,
+    [bucket, key, hash, contentType, bytes.length, source])).rows[0].id as string;
+}
+
 export async function importEnrichments(pool: Pool, entries: unknown[], matcher: (client: PoolClient)=>ReturnType<typeof loadFitmentMatcher> = loadFitmentMatcher) {
  const items = entries.map(entry => enrichmentImportSchema.parse(entry));
     for (const item of items) {
@@ -29,26 +53,7 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
         let imageId: string | null = null;
         if (item.imageFile) {
           if (!item.imageSource) throw new Error("Image source URL is required");
-          const bytes = await readFile(resolve(item.imageFile));
-          if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
-          const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
-          const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-          const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-          const extension = webp ? "webp" : jpeg ? "jpg" : png ? "png" : null;
-          if (!extension) throw new Error("Only verified WebP, JPEG and PNG images can be imported");
-          const contentType = webp ? "image/webp" : jpeg ? "image/jpeg" : "image/png";
-          const hash = createHash("sha256").update(bytes).digest("hex");
-          const bucket = process.env.S3_BUCKET;
-          if (!bucket) throw new Error("S3_BUCKET is required");
-          const key = `products/${hash.slice(0, 2)}/${hash}.${extension}`;
-          const storage = objectStorage();
-          const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
-          if (!existing) await storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
-          const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-          if (head.ContentLength !== bytes.length || head.Metadata?.sha256 !== hash) throw new Error("Object verification failed");
-          imageId = (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
-            VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,
-            [bucket, key, hash, contentType, bytes.length, item.imageSource])).rows[0].id;
+          imageId = await storeProductImage(client, item.imageFile, item.imageSource);
         }
         await client.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,match_basis)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(supplier_item_id) DO UPDATE SET

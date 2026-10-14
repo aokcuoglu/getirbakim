@@ -258,15 +258,18 @@ Trodo'da bulunamayan (`product_enrichment_jobs.status='not_found'`) ürünler ot
 3. `POST Ajax/getCarsByStokAndMarkaAndModel` her araç markası için TecDoc araç satırlarını verir. Yakıtı boş satırlar TecDoc'un ticari araç ağacındandır (kamyon, çekici, beton mikseri) ve atılır; araç kataloğu yalnız binek ve hafif ticari araçları içerir. IVECO DAILY gibi kamyonetler binek ağacından gelir ve kalır.
 4. Araçlar `strict-v2` eşleştiricisine model adı (`MARKA MODEL`) ve tip adıyla verilir. Sitenin `typeId` alanı katalog id'si değildir.
 
-Kaynak, araç üreticisini OEM numarasıyla birlikte vermez. Bu yüzden numaralar tek araç markası varsa o markanın, "PSA ORJINAL" gibi orijinal parçalarda o üreticinin, aksi halde `OE` başlığı altında tutulur. Kısaltılmış listelemeler atılır (`544103E100` yanında `544103`). Kaynak görselleri "temsilî" olduğu için alınmaz.
+Kaynak, araç üreticisini OEM numarasıyla birlikte vermez. Bu yüzden numaralar tek araç markası varsa o markanın, "PSA ORJINAL" gibi orijinal parçalarda o üreticinin, aksi halde `OE` başlığı altında tutulur. Kısaltılmış listelemeler atılır (`544103E100` yanında `544103`).
+
+Ürün görseli sayfanın `og:image` adresidir (#227). Yalnız `image.otoparcasan.com/…/products/…` kabul edilir; görseli olmayan ürünlerde site istemci tarafında "ürün görseli hazırlanmaktadır" yer tutucusunu gösterir, bu kaydedilmez. İndirilen içerik PNG, JPEG ya da WebP olarak doğrulanır, gerçek genişlik/yükseklik başlıktan okunur ve görsel Trodo'yla aynı yoldan (`storeProductImage`, sha256 ile tekil) S3'e yazılır. Site uzantıdan bağımsız olarak WebP döndürebilir.
 
 ```bash
 npm run enrichment:otoparcasan -- collect --limit 2000  # bulunan her ürünü anında yazar (Trodo işçisi gibi)
 npm run enrichment:otoparcasan -- collect --dry-run     # yazmaz; paketler yalnız artifacts/otoparcasan/results.jsonl'e
 npm run enrichment:otoparcasan -- report                # bulunan/OEM/özellik/araç ve katalogla eşleşen araç sayıları
 npm run enrichment:otoparcasan -- import                # yazılmamış paketleri yazar (iş hâlâ not_found ise)
+npm run enrichment:otoparcasan -- images                # görselsiz yazılmış otoparcasan ürünlerine görsel ekler
 ```
 
-Her paket önce checkpoint'e eklenir, sonra `importEnrichments` ile yazılır (#224). Bağlantı hatasında 5 sn, 30 sn ve 2 dk sonra tekrar denenir. Yine olmazsa çalışma durur; paket checkpoint'te kalır ve bir sonraki `collect` ya da `import` önce bekleyenleri yazar. Sözleşmenin reddettiği ya da artık `not_found` olmayan ürün atlanır. `collect` kaldığı yerden devam eder; `--retry` önceki sonuçları (yazılanlar hariç) yeniden dener, `--ids <dosya>` belirli ürünleri işler. Yazılan veri gece `storefront:sync` ile canlıya gider.
+Her paket önce checkpoint'e eklenir, sonra `importEnrichments` ile yazılır (#224). Bağlantı hatasında 5 sn, 30 sn ve 2 dk sonra tekrar denenir. Yine olmazsa çalışma durur; paket checkpoint'te kalır ve bir sonraki `collect` ya da `import` önce bekleyenleri yazar. Sözleşmenin reddettiği ya da artık `not_found` olmayan ürün atlanır. `collect` kaldığı yerden devam eder; `--retry` önceki sonuçları (yazılanlar hariç) yeniden dener, `--ids <dosya>` belirli ürünleri işler. `images` görseli bulunmayan ürünleri `artifacts/otoparcasan/images.jsonl`'e yazar ve tekrar denemez; eklenen görselde `imported_at` güncellenir. Yazılan veri gece `storefront:sync` ile canlıya gider.
 
 İlk 26 ürünlük örneklemde 19 ürün bulundu, yanlış eşleşme olmadı. 1.613 ticari araç satırı atıldı. Kalan 228 binek araç satırının 190'ı katalogdaki tek bir tiple eşleşti. Eşleşmeyenlerin nedenleri: modelin katalogda olmaması (20), sitenin bitiş tarihini açık bırakması (14), güç ya da motor adı farkı (4).

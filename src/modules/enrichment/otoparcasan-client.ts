@@ -8,11 +8,11 @@ const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 export class OtoparcasanClient {
  private cookies=new Map<string,string>();private csrf:z.infer<typeof csrfSchema>|null=null;private last=0;requests=0;
  constructor(readonly intervalMs=1500,readonly jitterMs=750){}
+ private async pace(){const wait=this.last+this.intervalMs+Math.random()*this.jitterMs-Date.now();if(wait>0)await sleep(wait);this.last=Date.now();this.requests++;}
  private async request(path:string,form?:Record<string,string>){
   if(!/^[A-Za-z0-9/_.-]*$/.test(path))throw Error('Source path rejected: '+path);
-  const wait=this.last+this.intervalMs+Math.random()*this.jitterMs-Date.now();if(wait>0)await sleep(wait);
   for(let attempt=0;;attempt++){
-   this.last=Date.now();this.requests++;
+   await this.pace();
    try{
     const response=await fetch(OTOPARCASAN+path,{method:form?'POST':'GET',redirect:'follow',signal:AbortSignal.timeout(40000),
      headers:{'User-Agent':UA,'Accept-Language':'tr-TR,tr;q=0.9',Referer:OTOPARCASAN,...(form?{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'}:{}),
@@ -31,6 +31,17 @@ export class OtoparcasanClient {
   }
  }
  async page(slug:string){return this.request(slug);}
+ /** Downloads a product photo from the site's image host; null when it has none or answers something else. */
+ async image(url:string):Promise<Buffer|null>{
+  const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.hostname!=='image.otoparcasan.com')throw Error('Image host rejected: '+url);
+  await this.pace();
+  const response=await fetch(parsed,{redirect:'error',signal:AbortSignal.timeout(40000),headers:{'User-Agent':UA,Referer:OTOPARCASAN,Accept:'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.5'}});
+  if([403,429,503].includes(response.status))throw new SourceBlocked(`image.otoparcasan.com answered HTTP ${response.status}`);
+  const type=response.headers.get('content-type')||'',length=Number(response.headers.get('content-length')||0);
+  if(!response.ok||!type.startsWith('image/')||length>10*1024*1024){await response.body?.cancel();return null;}
+  const bytes=Buffer.from(await response.arrayBuffer());
+  return bytes.length&&bytes.length<=10*1024*1024?bytes:null;
+ }
  /** POSTs a site AJAX form; the CSRF token rotates with every answer. */
  async post(path:string,form:Record<string,string>):Promise<unknown>{
   for(let attempt=0;;attempt++){
