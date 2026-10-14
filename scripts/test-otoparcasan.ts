@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildData, codeCandidates, fuelMap, identify, parseProductPage, parseSearch, parseVehicles, toSourceVehicles, uniqueOems } from "../src/modules/enrichment/otoparcasan-adapter";
+import { buildData, codeCandidates, fuelMap, identify, imageSize, parseProductPage, productImage, parseSearch, parseVehicles, toSourceVehicles, uniqueOems } from "../src/modules/enrichment/otoparcasan-adapter";
 import { createFitmentMatcher } from "../src/modules/store/fitment-matcher";
 
 // Trimmed from https://otoparcasan.com/salincak-on-ust-sol-teknorot-ki-209 (2026-10-14).
-const page = `<title>Salıncak Rotilli Ön Üst Sol TEKNOROT KI-209 | Otoparcasan.com</title>
+const photo = "https://image.otoparcasan.com/2o5zlnwgSrjo7Ies4fbg8w8dmv8=/fit-in/0x0/filters:fill(fff0)/products/salincak-on-ust-sol-teknorot-ki-209.png";
+const page = `<meta property="og:image" content="${photo}" /><title>Salıncak Rotilli Ön Üst Sol TEKNOROT KI-209 | Otoparcasan.com</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Anasayfa"},{"@type":"ListItem","position":2,"name":"Yedek Parçalar"},{"@type":"ListItem","position":3,"name":"Süspansiyon ve Direksiyon"},{"@type":"ListItem","position":4,"name":"Salıncak"},{"@type":"ListItem","position":5,"name":"Salıncak Rotilli Ön Üst Sol TEKNOROT KI-209"}]}</script>
 <div class="info-box-body"> <p class="oems">Bu ürüne ait bazı OEM kodları <span>544103E100</span> <span>54410-3E100</span> <span>544103</span> vb. şeklindedir.</p> </div>
 <ul class="kriter-list"> <li><span>Montaj tarafı</span><span>Ön aksın solu</span></li> <li><span>Ağırlık [kg]</span><span>2,604</span></li>
@@ -70,4 +71,25 @@ test("identity follows the import contract: brand/part, original part code or pr
   const original = { ...parsed, brand: "PSA ORJINAL", partNumber: "9827578080" };
   assert.deepEqual(identify({ brand: "OE-PSA", code: "9827578080", oem: "" }, original, { oemNumbers: {}, crossReferences: {} }),
     { type: "oem_reference", reference: "9827578080", supplierOem: "", referenceSource: "original_manufacturer_part_code" });
+});
+
+test("the product photo is the og:image on the site's image host, never a placeholder or another host", () => {
+  assert.equal(parseProductPage(page).image, photo);
+  const meta = (url: string) => `<meta property="og:image" content="${url}" />`;
+  assert.equal(productImage(meta("https://image.otoparcasan.com/x=/fit-in/400x400/filters:fill(fff0)/categories/urun-gorseli-hazirlanmaktadir.webp")), null);
+  assert.equal(productImage(meta("https://image.otoparcasan.com/x=/fit-in/0x0/products/urun-gorseli-hazirlanmaktadir.webp")), null);
+  assert.equal(productImage(meta("https://evil.example/products/a.png")), null);
+  assert.equal(productImage(meta("http://image.otoparcasan.com/products/a.png")), null);
+  assert.equal(productImage("<html></html>"), null);
+});
+test("image size is read from PNG, JPEG and WebP headers and rejects other bytes", () => {
+  const png = Buffer.alloc(33); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(png); png.write("IHDR", 12); png.writeUInt32BE(600, 16); png.writeUInt32BE(399, 20);
+  assert.deepEqual(imageSize(png), { width: 600, height: 399 });
+  // SOI, an APP0 segment, then SOF2 (progressive) with height 300 and width 480.
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc2, 0x00, 0x11, 0x08, 0x01, 0x2c, 0x01, 0xe0, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(imageSize(jpeg), { width: 480, height: 300 });
+  const webp = Buffer.alloc(40); webp.write("RIFF", 0); webp.write("WEBP", 8); webp.write("VP8X", 12); webp.writeUIntLE(799, 24, 3); webp.writeUIntLE(599, 27, 3);
+  assert.deepEqual(imageSize(webp), { width: 800, height: 600 });
+  assert.equal(imageSize(Buffer.from("<!doctype html><html>error</html>")), null);
+  assert.equal(imageSize(Buffer.alloc(0)), null);
 });

@@ -3,14 +3,15 @@
 //                 fetches, verifies and writes each product as it is found, like the Trodo worker; --dry-run only
 //                 appends packages to the checkpoint. Packages left unwritten by an earlier run are written first.
 //   import        writes collected packages whose job is still not_found
+//   images        adds the product photo to otoparcasan enrichments written without one
 //   report        summarises the checkpoint
-import {appendFile,mkdir,readFile} from 'node:fs/promises';
+import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
-import {OTOPARCASAN,buildData,codeCandidates,fuelMap,identify,parseProductPage,parseSearch,parseVehicles,supplierOemQueries,toSourceVehicles,uniqueOems,type SourceRow,type Supplier} from '../src/modules/enrichment/otoparcasan-adapter';
+import {OTOPARCASAN,buildData,codeCandidates,fuelMap,identify,imageSize,parseProductPage,parseSearch,parseVehicles,supplierOemQueries,toSourceVehicles,uniqueOems,type SourceRow,type Supplier} from '../src/modules/enrichment/otoparcasan-adapter';
 import {OtoparcasanClient,SourceBlocked} from '../src/modules/enrichment/otoparcasan-client';
-import {importEnrichments} from '../src/modules/enrichment/import';
+import {importEnrichments,storeProductImage} from '../src/modules/enrichment/import';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {loadFitmentMatcher} from '../src/modules/store/fitment-sync';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
@@ -22,7 +23,7 @@ const [command='report',...args]=process.argv.slice(2);
 const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[at+1]:undefined;};
 const checkpoint=resolve(option('out')||'artifacts/otoparcasan/results.jsonl');
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
- counts?:{oems:number;specifications:number;vehicles:number;commercial:number;invalid:number;matched:number};package?:unknown};
+ counts?:{image?:boolean;oems:number;specifications:number;vehicles:number;commercial:number;invalid:number;matched:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');};
 async function entries(){
  const latest=new Map<string,Entry>();
@@ -62,6 +63,16 @@ async function flush(){
  const pending=[...(await entries()).values()].filter(e=>e.outcome==='collected'&&e.package);
  const counts={imported:0,skipped:0};for(const entry of pending)counts[await write(entry)]++;
  return counts;
+}
+
+/** Saves the page's product photo beside the checkpoint; the package references it until it is written. */
+async function downloadImage(client:OtoparcasanClient,url:string|null,id:string){
+ if(!url)return null;
+ const bytes=await client.image(url),size=bytes&&imageSize(bytes);
+ if(!bytes||!size)return null;
+ const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
+ const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
+ return {file,source:url,...size};
 }
 
 async function find(client:OtoparcasanClient,supplier:Supplier){
@@ -105,14 +116,16 @@ async function collect(){
     catch(error){if(error instanceof SourceBlocked)throw error;failedMakers++;}
    }
    const vehicle=toSourceVehicles(sourceRows,fuels),data=buildData(found.page,vehicle.vehicles);
+   const image=await downloadImage(client,found.page.image,supplier.id);
+   if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
    const pkg=enrichmentImportSchema.parse({supplierItemId:supplier.id,supplierCode:supplier.code,supplierBrand:supplier.brand,source:OTOPARCASAN+found.url,
     sourceMethod:`otoparcasan.com public HTTP adapter v1; ${found.basis.type==='exact_part'?'exact brand/part verified':'original OEM verified: '+found.basis.reference}; commercial vehicles dropped ${vehicle.commercial}; invalid rows ${vehicle.invalid.length}; failed makes ${failedMakers}`,
-    manufacturer:found.page.brand,partNumber:found.page.partNumber,matchBasis:found.basis,completeness:failedMakers||vehicle.invalid.length?'partial':'complete',data});
+    manufacturer:found.page.brand,partNumber:found.page.partNumber,matchBasis:found.basis,imageFile:image?.file,imageSource:image?.source,completeness:failedMakers||vehicle.invalid.length?'partial':'complete',data});
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
-   const counts={oems:Object.values(data.oemNumbers).flat().length,specifications:data.specifications.length,vehicles:data.vehicles.length,commercial:vehicle.commercial,invalid:vehicle.invalid.length,matched};
+   const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,specifications:data.specifications.length,vehicles:data.vehicles.length,commercial:vehicle.commercial,invalid:vehicle.invalid.length,matched};
    await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?'yazıldı':'yazılmadı';
-   console.log(`${index+1}/${rows.length} ${supplier.code} → ${pkg.source} [${found.basis.type}] OEM ${counts.oems} · özellik ${counts.specifications} · araç ${counts.matched}/${counts.vehicles} eşleşti · kamyon ${counts.commercial} atıldı · ${written}`);
+   console.log(`${index+1}/${rows.length} ${supplier.code} → ${pkg.source} [${found.basis.type}] OEM ${counts.oems} · özellik ${counts.specifications} · araç ${counts.matched}/${counts.vehicles} eşleşti · görsel ${image?'var':'yok'} · kamyon ${counts.commercial} atıldı · ${written}`);
   }catch(error){
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;break;}
    if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
@@ -124,15 +137,50 @@ async function collect(){
 
 async function runImport(){console.log(JSON.stringify(await flush()));}
 
+// Photos for products written before the source adapter fetched them. Products whose page has no usable photo are
+// logged in images.jsonl and not retried; imported_at moves so storefront:sync ships the change.
+async function images(){
+ const log=resolve(checkpoint,'..','images.jsonl'),tried=new Set<string>();
+ try{for(const line of (await readFile(log,'utf8')).split('\n'))if(line.trim())tried.add(JSON.parse(line).supplierItemId);}
+ catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ const rows=(await pool.query<{id:string;url:string}>(`SELECT supplier_item_id AS id,source_url AS url FROM product_enrichments
+  WHERE source_url LIKE $1 AND image_id IS NULL ORDER BY supplier_item_id`,[OTOPARCASAN+'%'])).rows.filter(row=>!tried.has(row.id)).slice(0,Number(option('limit')||100000));
+ const client=new OtoparcasanClient(Number(process.env.OTOPARCASAN_INTERVAL_MS||1500));let added=0,missing=0;
+ console.log(JSON.stringify({images:rows.length}));
+ for(const [index,row] of rows.entries()){
+  try{
+   const slug=row.url.slice(OTOPARCASAN.length),html=await client.page(slug);
+   const image=html?await downloadImage(client,parseProductPage(html).image,row.id):null;
+   if(!image){missing++;await appendFile(log,JSON.stringify({supplierItemId:row.id,outcome:'no_image',at:new Date().toISOString()})+'\n');console.log(`${index+1}/${rows.length} ${slug} → görsel yok`);continue;}
+   const db=await pool.connect();
+   try{
+    await db.query('BEGIN');
+    const current=(await db.query('SELECT image_id FROM product_enrichments WHERE supplier_item_id=$1 FOR UPDATE',[row.id])).rows[0];
+    if(current&&!current.image_id){
+     const imageId=await storeProductImage(db,image.file,image.source);
+     await db.query(`UPDATE product_enrichments SET image_id=$2,payload=payload||jsonb_build_object('imageWidth',$3::int,'imageHeight',$4::int),imported_at=now() WHERE supplier_item_id=$1`,[row.id,imageId,image.width,image.height]);
+    }
+    await db.query('COMMIT');
+   }catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
+   added++;await appendFile(log,JSON.stringify({supplierItemId:row.id,outcome:'image',at:new Date().toISOString()})+'\n');
+   console.log(`${index+1}/${rows.length} ${slug} → görsel eklendi (${image.width}×${image.height})`);
+  }catch(error){
+   if(error instanceof SourceBlocked||connectionError(error)){console.error(String(error));process.exitCode=2;break;}
+   console.log(`${index+1}/${rows.length} ${row.url} → hata: ${error}`);
+  }
+ }
+ console.log(JSON.stringify({added,missing,requests:client.requests}));
+}
+
 async function report(){
  const all=[...(await entries()).values()],by=(outcome:string)=>all.filter(e=>e.outcome===outcome).length;
- const counts=all.flatMap(e=>e.counts?[e.counts]:[]),sum=(key:keyof NonNullable<Entry['counts']>)=>counts.reduce((total,c)=>total+c[key],0);
+ const counts=all.flatMap(e=>e.counts?[e.counts]:[]),sum=(key:Exclude<keyof NonNullable<Entry['counts']>,'image'>)=>counts.reduce((total,c)=>total+c[key],0);
  console.log(JSON.stringify({checkpoint,total:all.length,collected:by('collected'),imported:by('imported'),skipped:by('skipped'),notFound:by('not_found'),errors:by('error'),
-  withOems:counts.filter(c=>c.oems).length,withSpecifications:counts.filter(c=>c.specifications).length,withVehicles:counts.filter(c=>c.vehicles).length,
+  withImages:counts.filter(c=>c.image).length,withOems:counts.filter(c=>c.oems).length,withSpecifications:counts.filter(c=>c.specifications).length,withVehicles:counts.filter(c=>c.vehicles).length,
   vehicles:sum('vehicles'),matchedVehicles:sum('matched'),commercialDropped:sum('commercial'),invalidRows:sum('invalid')},null,1));
 }
 
 try{
- if(command==='collect')await collect();else if(command==='import')await runImport();else if(command==='report')await report();
- else throw Error('Usage: otoparcasan-enrichment.ts collect|import|report');
+ if(command==='collect')await collect();else if(command==='import')await runImport();else if(command==='report')await report();else if(command==='images')await images();
+ else throw Error('Usage: otoparcasan-enrichment.ts collect|import|images|report');
 }finally{await pool.end();}
