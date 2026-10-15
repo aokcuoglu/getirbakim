@@ -86,6 +86,13 @@ npm run verify:fitment
 
 Eşleşmeyen satırlar silinmez: `model_missing`, `attributes_missing`, `dates_differ`, `engine_name_differs` veya `ambiguous` durumuyla saklanır. Tarih farkları, yaklaşık ad eşleştirmeleri ve elle incelenmiş model takma adları otomatik olarak kabul edilmez. Ürün sayfası bağlı satırların marka/model ve teknik değerlerini katalogdan okur; diğer satırları “Kaynak kaydı” olarak gösterir. Kaynak gözlemi artık ürün payload'ıyla aynı değilse eski bağlantı gösterilmez. Garajdaki tip kimliği bağlı listede yer alıyorsa sayfada bu bilgi belirtilir.
 
+`strict-v3` (#231) iki istisna ekler; diğer kurallar aynen geçerlidir:
+
+- **Türkçe model adları.** Kaynaktaki model adı katalogda yoksa Türkçe seri ve gövde adları TecDoc İngilizcesine çevrilip tekrar aranır: `C-SERISI`→`C-CLASS`, `Station wagon`→`Estate`, `Sedan`→`Saloon`, `Cabrio`→`Convertible`, `Panelvan/Van`→`Van`, `Minibüs/Otobüs`→`Bus`, `Platform şasi`→`Platform/Chassis`, `Kasa/büyük limuzin`→`Box Body/MPV`, `Kombi van`→`Estate Van`, `Pick-up`→`Pickup`. Bazı katalog adlarında Türkçe kalıp durduğu için (`MEGANE I Kombi van (KA_)`) önce verilen ad denenir.
+- **Açık bitiş tarihi.** Tam tarih eşleşmesi yoksa ve kaynak üretimi süren (bitişi boş) bir araç bildiriyorsa, başlangıç ayı aynı ve kataloğa göre üretimi kapanmış tipler aday olur. Öznitelik, motor adı ve tekillik kuralları değişmez: birden çok aday `ambiguous` kalır. Kaynak kapalı, katalog açık durumu eşleşmez.
+
+15.10.2026'da tüm bağlantılar `rebuild-product-fitments` ile yeniden hesaplandı. Sonuç: otoparcasan satırlarında eşleşme %49,9'dan %90,7'ye (+1.601), Trodo'da 569.705'ten 569.898'e (+193) çıktı.
+
 Tekrar veri çekerken mevcut `enrichmentImportSchema` formatını kullanın: model adı marka ve kasa koduyla birlikte; motor bilgisi ayrı `engineAndCodes`; `kw`, `ps`, `cc` sayısal; tarihler `MM/YYYY`, bilinmeyen bitiş `null`. Yalnızca model adları bulunan ürünlerde motor/type bağlantısı kurulmaz; ayrıntılı `vehicles` satırları geldiğinde otomatik olarak değerlendirilir.
 
 ## Kalıcı pilot işçisi — 04.10.2026
@@ -256,7 +263,7 @@ Trodo'da bulunamayan (`product_enrichment_jobs.status='not_found'`) ürünler ot
 1. `POST Ajax/searchAll/` (CSRF'li; token her yanıtta yenilenir) ürün kodunu, bulunamazsa tedarikçi OEM'ini arar. Kod aramasında yalnız adresi stok koduyla **biten** ürünler aday olur: `FEBI 8098`'in araması `…-zp8098fmbp`'yi de döndürür.
 2. Ürün sayfasından marka, stok kodu, "OEM Kodları" ve değeri olan "Teknik Bilgiler" satırları okunur. Kimlik Trodo ile aynı sözleşmeyle (`matchesEnrichment`) doğrulanır: marka + parça, OE- tedarikçilerde orijinal parça numarası ya da tedarikçi OEM'inin sayfada kanıtlanması.
 3. `POST Ajax/getCarsByStokAndMarkaAndModel` her araç markası için TecDoc araç satırlarını verir. Yakıtı boş satırlar TecDoc'un ticari araç ağacındandır (kamyon, çekici, beton mikseri) ve atılır; araç kataloğu yalnız binek ve hafif ticari araçları içerir. IVECO DAILY gibi kamyonetler binek ağacından gelir ve kalır.
-4. Araçlar `strict-v2` eşleştiricisine model adı (`MARKA MODEL`) ve tip adıyla verilir. Sitenin `typeId` alanı katalog id'si değildir.
+4. Araçlar ortak katı eşleştiriciye (`strict-v3`) model adı (`MARKA MODEL`) ve tip adıyla verilir. Sitenin `typeId` alanı katalog id'si değildir.
 
 Kaynak, araç üreticisini OEM numarasıyla birlikte vermez. Bu yüzden numaralar tek araç markası varsa o markanın, "PSA ORJINAL" gibi orijinal parçalarda o üreticinin, aksi halde `OE` başlığı altında tutulur. Kısaltılmış listelemeler atılır (`544103E100` yanında `544103`).
 
