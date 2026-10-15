@@ -23,6 +23,13 @@ test("exact-part matching rejects a different part or manufacturer", () => {
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "TYC", "445-1134RMLDEM2"), false);
   assert.equal(matchesSupplierPart("OTHER", "ABC 104620", "OTHER", "104620"), false);
   assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "TRW", "0986424533"), false);
+  // A label's reviewed master brand also identifies the manufacturer, never a different one.
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372"), false);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372", "KRAFTVOLL"), true);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "WAGENBURG", "07010372", "KRAFTVOLL"), false);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010373", "KRAFTVOLL", "07010372", "KRAFTVOLL"), false);
+  assert.equal(matchesSupplierPart("MAHLE MOTOR", "MAHLE KT 1234", "MAHLE", "KT 1234", "MAHLE"), true);
+  assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134RMLDEM2", null), true);
   assert.equal(matchesSupplierPart("MANN", "MANN W 7041", "MAHLE", "W 7041"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "HART", "OE672/10"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "FILTRON", "OE672/11"), false);

@@ -65,6 +65,8 @@ test("identity follows the import contract: brand/part, original part code or pr
   const parsed = parseProductPage(page), data = { oemNumbers: { OE: uniqueOems(parsed.oems) }, crossReferences: {} };
   assert.deepEqual(identify({ brand: "TEKNOROT", code: "TEKNOROT KI-209", oem: "" }, parsed, data), { type: "exact_part" });
   assert.equal(identify({ brand: "TEKNOROT", code: "TEKNOROT KI-208", oem: "" }, parsed, data), null);
+  assert.equal(identify({ brand: "TEKNOROT SALINCAK", code: "TEKNOROT KI-209", oem: "" }, parsed, data), null);
+  assert.deepEqual(identify({ brand: "TEKNOROT SALINCAK", code: "TEKNOROT KI-209", oem: "", masterBrand: "TEKNOROT" }, parsed, data), { type: "exact_part" });
   assert.deepEqual(identify({ brand: "MOOG", code: "MOOG HY-WP-1234", oem: "54410-3E100" }, parsed, data),
     { type: "oem_reference", reference: "54410-3E100", supplierOem: "54410-3E100", referenceSource: "supplier_oem" });
   assert.equal(identify({ brand: "MOOG", code: "MOOG HY-WP-1234", oem: "99999-9E999" }, parsed, data), null);

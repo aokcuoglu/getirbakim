@@ -10,7 +10,10 @@ CREATE OR REPLACE VIEW enrichment_current_sources AS
 
 -- A source observation stays on its original supplier row. Only current, identical master products share it.
 CREATE OR REPLACE VIEW enrichment_valid_data AS
- SELECT e.*,j.status,COALESCE(s.product_data->>'oe','') AS donor_oem
+ SELECT e.*,j.status,COALESCE(s.product_data->>'oe','') AS donor_oem,
+ -- The reviewed master brand of the source row also identifies its manufacturer (enrichment-contract.ts).
+ (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
+  WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS donor_master_brand
  FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
  JOIN product_enrichment_jobs j USING(supplier_item_id)
  WHERE e.supplier_code=s.code
@@ -61,7 +64,7 @@ CREATE OR REPLACE VIEW product_enrichment_shared AS
  SELECT target.id AS supplier_item_id,target.code AS supplier_code,
  COALESCE(NULLIF(target.product_data->>'uk',''),supplier_item_brand(target.supplier,target.product_data),'') AS supplier_brand,
  e.source_url,e.source_method,e.manufacturer,e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,
- e.supplier_item_id AS donor_item_id,e.supplier_code AS donor_code,e.supplier_brand AS donor_brand,e.donor_oem,e.status
+ e.supplier_item_id AS donor_item_id,e.supplier_code AS donor_code,e.supplier_brand AS donor_brand,e.donor_oem,e.status,e.donor_master_brand
  FROM (
   SELECT DISTINCT ON (donor.product_id) donor.product_id,e.*
   FROM enrichment_valid_data e JOIN enrichment_current_sources donor ON donor.supplier_item_id=e.supplier_item_id
@@ -72,7 +75,7 @@ CREATE OR REPLACE VIEW product_enrichment_shared AS
  JOIN supplier_items target ON target.id=ps.supplier_item_id
  UNION ALL
  SELECT e.supplier_item_id,e.supplier_code,e.supplier_brand,e.source_url,e.source_method,e.manufacturer,
- e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,e.supplier_item_id,e.supplier_code,e.supplier_brand,e.donor_oem,e.status
+ e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,e.supplier_item_id,e.supplier_code,e.supplier_brand,e.donor_oem,e.status,e.donor_master_brand
  FROM enrichment_valid_data e WHERE NOT EXISTS(SELECT 1 FROM product_sources ps WHERE ps.supplier_item_id=e.supplier_item_id);
 
 ALTER TABLE enrichment_run_items ADD COLUMN IF NOT EXISTS product_id uuid REFERENCES products(id) ON DELETE SET NULL;
