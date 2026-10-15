@@ -18,6 +18,7 @@ try {
       await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
       await client.query(await readFile("db/source-categories.sql", "utf8"));
       await client.query(await readFile("db/enrichment-products.sql", "utf8"));
+      await client.query(await readFile("db/enrichment-states.sql", "utf8"));
       const queued = await enqueueProductSources(client);
       await client.query("COMMIT");
       console.log(JSON.stringify({ queued }));

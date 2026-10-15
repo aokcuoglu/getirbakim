@@ -304,7 +304,18 @@ test('master product sharing excludes equivalents, split offers and changed supp
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
-  for(const file of ['product-enrichment','enrichment-worker','enrichment-products'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
+  for(const file of ['product-enrichment','enrichment-worker','enrichment-products','enrichment-states'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
+  // The dashboard table must equal the catalog view after every write path drains its queue.
+  const stateColumns='product_id,status,enriched,supplier_item_id,supplier_code,supplier_brand,oem,sorted_at,match_type,oem_count,vehicle_count,specification_count,attempts';
+  const queued=async()=>(await pool.query('SELECT count(*)::int AS n FROM enrichment_product_state_queue')).rows[0].n;
+  const consistent=async()=>{
+   assert.ok(await queued()>0,'a write must queue its products');
+   await pool.query('SELECT enrichment_product_states_sync()');
+   assert.equal(await queued(),0);
+   const diffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT ${stateColumns} FROM enrichment_product_state_rows EXCEPT SELECT ${stateColumns} FROM enrichment_product_states)
+    UNION ALL (SELECT ${stateColumns} FROM enrichment_product_states EXCEPT SELECT ${stateColumns} FROM enrichment_product_state_rows)) d`)).rows[0].n;
+   assert.equal(diffs,0);
+  };
   const donor=randomUUID(),target=randomUUID(),equivalent=randomUUID(),pending=randomUUID(),duplicate=randomUUID(),unlinked=randomUUID();
   await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES
    ($1,'FEBI 181123','{"uk":"FEBI","oe":"12345678"}','basbug'),
@@ -321,6 +332,11 @@ test('master product sharing excludes equivalents, split offers and changed supp
    VALUES($1,'FEBI 181123','FEBI','https://www.trodo.com/febi-181123','test','FEBI BILSTEIN','181123','{"vehicles":[],"specifications":[],"oemNumbers":{}}')`,[donor]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_product_catalog')).rows[0].n,3);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending'")).rows[0].n,2);
+  // A fresh schema queues a full rebuild; the first sync fills the table from scratch.
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_state_queue WHERE product_id='00000000-0000-0000-0000-000000000000'")).rows[0].n,1);
+  await consistent();
+  assert.deepEqual((await pool.query("SELECT status,count(*)::int AS n FROM enrichment_product_states GROUP BY status ORDER BY status")).rows,[{status:'complete',n:1},{status:'pending',n:2}]);
+  assert.equal((await pool.query('SELECT supplier_item_id FROM enrichment_product_states WHERE product_id=$1',[donor])).rows[0].supplier_item_id,donor);
   const shared=(await pool.query('SELECT supplier_item_id,donor_item_id FROM product_enrichment_shared ORDER BY supplier_item_id')).rows;
   assert.deepEqual(new Set(shared.map(row=>row.supplier_item_id)),new Set([donor,target]));
   assert.ok(shared.every(row=>row.donor_item_id===donor));
@@ -337,18 +353,41 @@ test('master product sharing excludes equivalents, split offers and changed supp
   await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123')",[target]);
   await pool.query("UPDATE product_sources SET product_id=$1,method='manual' WHERE supplier_item_id=$1",[target]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared WHERE supplier_item_id=$1',[target])).rows[0].n,0);
+  await consistent();
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_product_states')).rows[0].n,4);
   // Automatic targets must still match the catalog key even before the next matching refresh.
   await pool.query("UPDATE product_sources SET product_id=$1,method='auto' WHERE supplier_item_id=$2",[donor,target]);
   await pool.query("UPDATE supplier_items SET code='FEBI 999999' WHERE id=$1",[target]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared WHERE supplier_item_id=$1',[target])).rows[0].n,0);
+  await consistent();
   // A changed donor identity invalidates both shared access and the complete queue outcome.
   await pool.query("UPDATE supplier_items SET code='FEBI 999998' WHERE id=$1",[donor]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared')).rows[0].n,0);
+  await consistent();
+  assert.equal((await pool.query('SELECT status FROM enrichment_product_states WHERE product_id=$1',[donor])).rows[0].status,'review');
   await pool.query("UPDATE supplier_items SET code='FEBI 181123' WHERE id=$1",[donor]);
   await pool.query('UPDATE product_enrichments SET match_basis=$2 WHERE supplier_item_id=$1',[donor,JSON.stringify({type:'oem_reference',supplierOem:'12345678'})]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_valid_data')).rows[0].n,1);
   await pool.query("UPDATE supplier_items SET product_data=jsonb_set(product_data,'{oe}','\"87654321\"') WHERE id=$1",[donor]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_valid_data')).rows[0].n,0);
   assert.equal((await pool.query('SELECT status FROM enrichment_product_catalog WHERE product_id=$1',[donor])).rows[0].status,'pending');
+  await consistent();
+  assert.equal((await pool.query('SELECT status,enriched FROM enrichment_product_states WHERE product_id=$1',[donor])).rows[0].enriched,false);
+  // Job outcomes, merges and brand mapping reach the table through their own triggers; a mapping change rebuilds everything.
+  await pool.query("UPDATE product_enrichment_jobs SET status='not_found',attempts=2,updated_at=now() WHERE supplier_item_id=$1",[pending]);
+  await consistent();
+  assert.equal((await pool.query('SELECT status FROM enrichment_product_states WHERE product_id=$1',[pending])).rows[0].status,'not_found');
+  await pool.query('UPDATE products SET merged_into=$2 WHERE id=$1',[equivalent,donor]);
+  await consistent();
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_product_states WHERE product_id=$1',[equivalent])).rows[0].n,0);
+  await pool.query("INSERT INTO brands(id,key) VALUES(1,'FEBI');INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('basbug','FEBI',1)");
+  assert.equal(await queued(),0);
+  await pool.query("UPDATE supplier_brands SET brand_id=1 WHERE supplier='basbug' AND label='FEBI'");
+  assert.equal(await queued(),0);
+  await pool.query("INSERT INTO brands(id,key) VALUES(2,'FEBIBILSTEIN');UPDATE supplier_brands SET brand_id=2 WHERE supplier='basbug' AND label='FEBI'");
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_state_queue WHERE product_id='00000000-0000-0000-0000-000000000000'")).rows[0].n,1);
+  await consistent();
+  // The Başbuğ row no longer agrees with the product's brand key, so the coherent Dinamik duplicate represents it.
+  assert.deepEqual((await pool.query('SELECT status,supplier_item_id FROM enrichment_product_states WHERE product_id=$1',[pending])).rows[0],{status:'pending',supplier_item_id:duplicate});
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });
