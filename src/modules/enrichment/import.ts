@@ -39,7 +39,9 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
       try {
         await client.query("BEGIN");
         await lockFitmentSync(client);
-        const supplier = (await client.query(`SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand,COALESCE(product_data->>'oe','') AS oem FROM supplier_items WHERE id=$1 FOR SHARE`, [item.supplierItemId])).rows[0];
+        const supplier = (await client.query(`SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand,COALESCE(product_data->>'oe','') AS oem,
+          (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=i.supplier AND sb.label=supplier_item_brand(i.supplier,i.product_data)) AS "masterBrand"
+          FROM supplier_items i WHERE id=$1 FOR SHARE OF i`, [item.supplierItemId])).rows[0];
         if (!supplier || supplier.code !== item.supplierCode || supplier.brand !== item.supplierBrand
           || !matchesEnrichment(supplier, item)) {
           throw new Error(`Manufacturer/part mismatch for ${item.supplierItemId}; nothing imported`);

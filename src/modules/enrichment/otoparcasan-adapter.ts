@@ -2,7 +2,7 @@ import {z} from 'zod';
 import {enrichmentDataSchema,matchesEnrichment,matchesSupplierPart,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
 export const OTOPARCASAN='https://otoparcasan.com/';
 type MatchBasis=z.infer<typeof matchBasisSchema>;
-export type Supplier={brand:string;code:string;oem:string};
+export type Supplier={brand:string;code:string;oem:string;masterBrand?:string|null};
 const normalize=(value:string)=>value.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Z0-9]/g,'');
 const decode=(value:string)=>value.replace(/<[^>]+>/g,'').replace(/&(#\d+|#x[\da-f]+|amp|lt|gt|quot|apos|#039);/gi,(_,code:string)=>
  code[0]==='#'?String.fromCodePoint(code[1].toLowerCase()==='x'?parseInt(code.slice(2),16):Number(code.slice(1))):({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"} as Record<string,string>)[code.toLowerCase()]).replace(/\s+/g,' ').trim();
@@ -123,6 +123,6 @@ export function identify(supplier:Supplier,page:ProductPage,data:Pick<Enrichment
  const bases:MatchBasis[]=[{type:'exact_part'}];
  if(/^OE-/.test(supplier.brand))bases.push({type:'oem_reference',reference:supplier.code,supplierOem:supplier.oem,referenceSource:'original_manufacturer_part_code'});
  for(const reference of references(supplier.oem))bases.push({type:'oem_reference',reference,supplierOem:supplier.oem,referenceSource:'supplier_oem'});
- if(matchesSupplierPart(supplier.brand,supplier.code,page.brand,page.partNumber))return bases[0];
+ if(matchesSupplierPart(supplier.brand,supplier.code,page.brand,page.partNumber,supplier.masterBrand))return bases[0];
  return bases.slice(1).find(basis=>matchesEnrichment(supplier,source(basis)))||null;
 }

@@ -1,7 +1,8 @@
 // Enriches products the Trodo pass could not find ("not_found") from otoparcasan.com.
-//   collect [--limit N] [--ids file] [--retry] [--dry-run]
+//   collect [--limit N] [--ids file] [--status not_found|pending] [--retry] [--dry-run]
 //                 fetches, verifies and writes each product as it is found, like the Trodo worker; --dry-run only
 //                 appends packages to the checkpoint. Packages left unwritten by an earlier run are written first.
+//                 --status pending searches jobs Trodo has not visited yet, one supplier row per master product.
 //   import        writes collected packages whose job is still not_found
 //   images        adds the product photo to otoparcasan enrichments written without one
 //   report        summarises the checkpoint
@@ -33,8 +34,16 @@ async function entries(){
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return latest;
 }
-const supplierSql=`SELECT j.supplier_item_id AS id,s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,
- COALESCE(s.product_data->>'oe','') AS oem FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE j.status='not_found'`;
+const statuses=['not_found','pending'] as const;
+const status=(option('status')||'not_found') as typeof statuses[number];
+if(!statuses.includes(status))throw Error('--status must be not_found or pending');
+// One supplier row per master product (present rows first); a product already enriched through another row is skipped.
+const supplierSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,s.code,
+ COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
+ (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
+ FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_sources ps ON ps.supplier_item_id=s.id
+ WHERE j.status=$1 AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
+  WHERE other.product_id=ps.product_id AND done.status IN ('complete','partial'))`;
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -48,8 +57,9 @@ async function write(entry:{supplierItemId:string;package?:unknown}){
  for(const [attempt,delay] of [0,5000,30000,120000].entries()){
   if(delay){console.error(`Veritabanına yazılamadı, ${delay/1000} sn sonra tekrar (${attempt}/3)`);await sleep(delay);}
   try{
-   const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status='not_found' AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
-   if(!open){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer not_found'});return 'skipped';}
+   // Trodo may have completed the job meanwhile; its result is kept.
+   const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status IN ('not_found','pending') AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
+   if(!open){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer open'});return 'skipped';}
    await importEnrichments(pool,[entry.package],matcher);
    await record({supplierItemId:entry.supplierItemId,outcome:'imported'});return 'imported';
   }catch(error){
@@ -81,7 +91,7 @@ async function find(client:OtoparcasanClient,supplier:Supplier){
   return parseSearch(await client.post('Ajax/searchAll/',{trimKeywords:key}));};
  const urls:string[]=[];
  // Searches only discover candidates; identity is decided on the product page by the import contract.
- const queries=sourcePartQueries(supplier.brand,supplier.code),[head,...tail]=queries[0].split(/\s+/);
+ const queries=sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code),[head,...tail]=queries[0].split(/\s+/);
  // The slug ends with the code without an unregistered supplier prefix ("GLS T85010-00" → "…-t85010-00").
  const target=/^[A-Z]{2,5}$/i.test(head)&&/\d/.test(tail.join(''))?tail.join(' '):queries[0];
  for(const query of queries.slice(0,2)){urls.push(...codeCandidates(await search(query),target));if(urls.length)break;}
@@ -100,7 +110,8 @@ async function collect(){
  if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
  const done=await entries(),limit=Number(option('limit')||50),retry=args.includes('--retry');
  const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
- const rows=(await pool.query<Supplier&{id:string}>(supplierSql+(ids?' AND j.supplier_item_id=ANY($1::uuid[])':'')+' ORDER BY j.supplier_item_id',ids?[ids]:[])).rows
+ const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
+  ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x ORDER BY id`,ids?[status,ids]:[status])).rows
   .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
  const fuels=fuelMap((await pool.query('SELECT DISTINCT fuel_name,fuel_type FROM vehicle_types')).rows);
  const db=await pool.connect();let match;try{match=await loadFitmentMatcher(db);}finally{db.release();}

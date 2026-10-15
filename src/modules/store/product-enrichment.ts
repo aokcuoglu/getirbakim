@@ -12,10 +12,10 @@ export async function getCatalogProductImages(products: { id: string; code: stri
   if (!products.length) return images;
   const productsById = new Map(products.map(product => [product.id, product]));
   const rows = (await db.query<{
-    supplier_item_id: string; supplier_code: string; supplier_brand: string; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string;
+    supplier_item_id: string; supplier_code: string; supplier_brand: string; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string; donor_master_brand: string | null;
     manufacturer: string; manufacturer_part_number: string; payload: unknown; match_basis: unknown; image_id: string;
   }>(`SELECT e.supplier_item_id,e.supplier_code,e.supplier_brand,e.manufacturer,e.manufacturer_part_number,
-      e.payload,e.match_basis,e.image_id,e.donor_code,e.donor_brand,e.donor_item_id,e.donor_oem AS current_oem
+      e.payload,e.match_basis,e.image_id,e.donor_code,e.donor_brand,e.donor_item_id,e.donor_master_brand,e.donor_oem AS current_oem
     FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id
     JOIN product_media_objects m ON m.id=e.image_id
     WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=ANY($2::text[])`,
@@ -25,7 +25,7 @@ export async function getCatalogProductImages(products: { id: string; code: stri
     if (!product || row.supplier_code !== product.code || row.supplier_brand !== product.brand) continue;
     const parsed = enrichmentDataSchema.safeParse(row.payload);
     const basis = matchBasisSchema.safeParse(row.match_basis);
-    if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem }, {
+    if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
       manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
     })) continue;
     images.set(product.id, { src: `/api/product-media/${row.image_id}`, width: parsed.data.imageWidth, height: parsed.data.imageHeight });
@@ -36,13 +36,13 @@ export async function getCatalogProductImages(products: { id: string; code: stri
 // Supplier observations and external content have independent lifecycles.
 export async function getProductEnrichment(product: { id: string; code: string; brand: string }) {
   const row = (await db.query<{
-    supplier_code: string; supplier_brand: string; source_url: string; match_basis: unknown; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string;
+    supplier_code: string; supplier_brand: string; source_url: string; match_basis: unknown; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string; donor_master_brand: string | null;
     manufacturer: string; manufacturer_part_number: string; payload: unknown; image_id: string | null; status: string;
   }>("SELECT e.*,e.donor_oem AS current_oem FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=$1", [product.id])).rows[0];
   if (!row || row.supplier_code !== product.code || row.supplier_brand !== product.brand) return null;
   const parsed = enrichmentDataSchema.safeParse(row.payload);
   const basis = matchBasisSchema.safeParse(row.match_basis);
-  if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem }, {
+  if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
     manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
   })) return null;
   const fitments = (await db.query<{
@@ -82,10 +82,10 @@ export async function getProductEnrichment(product: { id: string; code: string; 
 export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){
  const details=new Map<string,{specifications:[string,string][];vehicleSpecific:boolean;partNumber:string}>();
  if(!products.length)return details;
- const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()])).rows;
+ const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;donor_master_brand:string|null;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()])).rows;
  for(const row of rows){
   const product=products.find(p=>p.id===row.supplier_item_id),data=enrichmentDataSchema.safeParse(row.payload),basis=matchBasisSchema.safeParse(row.match_basis);
-  if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({code:row.donor_code,brand:row.donor_brand,oem:row.current_oem},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
+  if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({code:row.donor_code,brand:row.donor_brand,oem:row.current_oem,masterBrand:row.donor_master_brand},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
   details.set(product.id,{specifications:catalogSpecifications(data.data.specifications,basis.data.type==='exact_part'),vehicleSpecific:data.data.vehicles.length>0,partNumber:basis.data.type==='exact_part'?row.manufacturer_part_number:product.code});
  }
  return details;

@@ -56,7 +56,12 @@ const prefixes: Record<string, string[]> = {
   HENGSTFILTER: ["HNG"],
 };
 
-export function matchesSupplierPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
+/** A supplier row names its brand by its own label ("KRAFTVOLL BALATA"); the reviewed master brand it belongs to
+ *  ("KRAFTVOLL") identifies the manufacturer just as well. */
+export function matchesSupplierPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string, masterBrand?: string | null) {
+  return [supplierBrand, masterBrand].some(brand => brand && matchesBrandPart(brand, supplierCode, manufacturer, partNumber));
+}
+function matchesBrandPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
   const brand = brandKey(supplierBrand);
   if (brand !== brandKey(manufacturer)) return false;
   if (normalize(supplierCode) === normalize(partNumber)) return true;
@@ -66,11 +71,11 @@ export function matchesSupplierPart(supplierBrand: string, supplierCode: string,
   return known && rest.length > 0 && normalize(rest.join(" ")) === normalize(partNumber);
 }
 
-export function matchesEnrichment(supplier: { brand: string; code: string; oem: string }, source: {
+export function matchesEnrichment(supplier: { brand: string; code: string; oem: string; masterBrand?: string | null }, source: {
   manufacturer: string; partNumber: string; data: Pick<EnrichmentData, "oemNumbers" | "crossReferences">; matchBasis: z.infer<typeof matchBasisSchema>;
 }) {
   const basis = source.matchBasis;
-  if (basis.type === "exact_part") return matchesSupplierPart(supplier.brand, supplier.code, source.manufacturer, source.partNumber);
+  if (basis.type === "exact_part") return matchesSupplierPart(supplier.brand, supplier.code, source.manufacturer, source.partNumber, supplier.masterBrand);
   if (supplier.oem !== basis.supplierOem) return false;
   const reference = normalize(basis.reference);
   if (!reference) return false;
