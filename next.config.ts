@@ -3,6 +3,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   experimental: { cpus: 2 },
+  // public/ files default to max-age=0, so the CDN revalidates every logo with the origin.
+  async headers() {
+    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800" }];
+    return [
+      { source: "/media/:path*", headers: cache },
+      { source: "/brand/:path*", headers: cache },
+    ];
+  },
   async redirects() {
     return [
       { source: "/tr", destination: "/", permanent: true },
