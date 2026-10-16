@@ -61,6 +61,18 @@ const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedP
  "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
 const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
+ * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
+ * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
+ * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
+ */
+const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
+ (await db.query<{id:string}>(`SELECT id::text FROM products WHERE category=ANY($1::text[])
+  UNION SELECT id::text FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
+  UNION SELECT pc.supplier_item_id::text FROM product_source_categories pc JOIN product_enrichments e USING(supplier_item_id)
+   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
+/**
  * `vehicle`: the query named a part and a vehicle ("fren balatası passat"). `fitted` says whether
  * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
  */
@@ -161,13 +173,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!selected)clauses.push('false');
   else {
    const descendants=(await getStoreCategories()).filter(c=>c.path.includes(selected.id)).map(c=>c.id);
-   values.push(Object.entries(legacyCategoryIds).filter(([,id])=>descendants.includes(id)).map(([slug])=>slug));const legacyKey=`$${values.length}`;
-   values.push(descendants);const idsKey=`$${values.length}`;
-   clauses.push(`(catalog.category=ANY(${legacyKey}::text[]) OR catalog.id IN (
-    SELECT pc.supplier_item_id FROM product_source_categories pc JOIN product_enrichments e USING(supplier_item_id)
-    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
-    WHERE pc.source='trodo' AND pc.category_id=ANY(${idsKey}::int[])))`);
+   const legacy=Object.entries(legacyCategoryIds).filter(([,id])=>descendants.includes(id)).map(([slug])=>slug);
+   values.push(await categoryProductIds(legacy,descendants));
+   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  if(query.make) {
