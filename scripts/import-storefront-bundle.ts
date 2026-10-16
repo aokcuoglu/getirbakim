@@ -28,6 +28,8 @@ try {
   }
   await client.query("BEGIN");
   await client.query(await readFile("db/source-categories.sql", "utf8"));
+  await client.query(await readFile("db/vehicle-model-images.sql", "utf8"));
+  const vehicleImages: unknown[] = manifest.vehicleImages ?? [];
   const json = (value: unknown) => JSON.stringify(value);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
@@ -64,6 +66,16 @@ try {
       FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r
       ON CONFLICT (brand_key) DO UPDATE SET manufacturer=EXCLUDED.manufacturer,image_data=EXCLUDED.image_data,sha256=EXCLUDED.sha256,width=EXCLUDED.width,
       height=EXCLUDED.height,source_url=EXCLUDED.source_url,evidence_product_id=EXCLUDED.evidence_product_id,evidence_source_url=EXCLUDED.evidence_source_url,imported_at=EXCLUDED.imported_at`, json(manifest.logos)),
+    // Review decisions travel with the rows; a model series missing here (older vehicle import) is skipped and counted.
+    vehicleImages: await run(`INSERT INTO vehicle_model_images(model_id,media_id,width,height,wikidata_id,wikidata_label,commons_file,source_url,license,license_url,author,match_kind,matched_query,status,imported_at,reviewed_at,reviewed_by)
+      SELECT r.model_id,bm.id,r.width,r.height,r.wikidata_id,r.wikidata_label,r.commons_file,r.source_url,r.license,r.license_url,r.author,r.match_kind,r.matched_query,r.status,r.imported_at,r.reviewed_at,
+        CASE WHEN EXISTS (SELECT 1 FROM accounts a WHERE a.id=r.reviewed_by) THEN r.reviewed_by END
+      FROM jsonb_populate_recordset(null::vehicle_model_images,$1::jsonb) r JOIN bundle_media bm ON bm.bundle_id=r.media_id
+      WHERE EXISTS (SELECT 1 FROM vehicle_models m WHERE m.id=r.model_id)
+      ON CONFLICT (model_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,wikidata_id=EXCLUDED.wikidata_id,wikidata_label=EXCLUDED.wikidata_label,
+      commons_file=EXCLUDED.commons_file,source_url=EXCLUDED.source_url,license=EXCLUDED.license,license_url=EXCLUDED.license_url,author=EXCLUDED.author,match_kind=EXCLUDED.match_kind,
+      matched_query=EXCLUDED.matched_query,status=EXCLUDED.status,imported_at=EXCLUDED.imported_at,reviewed_at=EXCLUDED.reviewed_at,reviewed_by=EXCLUDED.reviewed_by`, json(vehicleImages)),
+    skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_model_images,$1::jsonb) r WHERE NOT EXISTS (SELECT 1 FROM vehicle_models m WHERE m.id=r.model_id)`, json(vehicleImages)),
     media: manifest.media.length,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.enrichments)),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.products)),

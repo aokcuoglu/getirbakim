@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 
 // Writes storefront data produced locally (Trodo category tree, labels, images, product
-// mappings, product enrichments with their images, manufacturer logos) to a bundle that
+// mappings, product enrichments with their images, manufacturer logos, vehicle series photographs) to a bundle that
 // scripts/import-storefront-bundle.ts loads into a database with the same supplier item ids.
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
 // --since=ISO exports only enrichments imported after that time (and their mappings and images); the
@@ -36,7 +36,10 @@ try {
     // Hex bytea text survives JSON; the driver's Buffer would not.
     logos: await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
       FROM manufacturer_logos ORDER BY brand_key`),
-    media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE imported_at>$1) ORDER BY id`, changed),
+    // Series photographs are few and carry their review state, so the whole set goes every time (like logos).
+    vehicleImages: await read("SELECT * FROM vehicle_model_images ORDER BY model_id"),
+    media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE imported_at>$1
+      UNION SELECT media_id FROM vehicle_model_images) ORDER BY id`, changed),
   };
   await client.query("COMMIT");
   for (const object of manifest.media) {
@@ -49,5 +52,5 @@ try {
     await writeFile(path, bytes);
   }
   await writeFile(resolve(root, "manifest.json"), JSON.stringify(manifest));
-  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichments.length} enrichments, ${manifest.logos.length} logos, ${manifest.media.length} media objects to ${root}`);
+  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichments.length} enrichments, ${manifest.logos.length} logos, ${manifest.vehicleImages.length} vehicle images, ${manifest.media.length} media objects to ${root}`);
 } finally { client.release(); storage.destroy(); await pool.end(); }

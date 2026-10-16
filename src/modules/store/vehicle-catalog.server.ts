@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
 import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
+import { getVehicleModelImages } from "./vehicle-model-images.server";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
 function validId(value: string) {
@@ -35,20 +36,34 @@ export async function getVehicleBrandBySlug(slug: string) {
   return (await getVehicleBrands()).find(brand => vehicleBrandSlug(brand.name) === slug);
 }
 
+// Approved series photographs ride along with every model/vehicle list; absent when there is none.
+async function withImages<T extends { modelId?: string; id: string }>(items: T[], modelId: (item: T) => string) {
+  const images = await getVehicleModelImages(items.map(modelId));
+  return items.map(item => { const image = images.get(modelId(item)); return image ? { ...item, image } : item; });
+}
+
 export async function getVehicleModels(brandId: string): Promise<VehicleModel[] | null> {
   if (!validId(brandId)) return null;
   const { rows } = await db.query<VehicleModel>(`SELECT id::text, brand_id::text AS "brandId", name,
     to_char(date_from, 'YYYY-MM') AS "dateFrom", to_char(date_to, 'YYYY-MM') AS "dateTo"
     FROM vehicle_models WHERE brand_id=$1`, [brandId]);
   if (!rows.length && !(await db.query("SELECT 1 FROM vehicle_brands WHERE id=$1", [brandId])).rowCount) return null;
-  return rows.sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true }));
+  return withImages(rows.sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true })), model => model.id);
 }
 
 export async function getModelVehicles(modelId: string): Promise<CatalogVehicle[] | null> {
   if (!validId(modelId)) return null;
   const { rows } = await db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.model_id=$1`, [modelId]);
   if (!rows.length && !(await db.query("SELECT 1 FROM vehicle_models WHERE id=$1", [modelId])).rowCount) return null;
-  return rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id));
+  return withImages(rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id)), vehicle => vehicle.modelId);
+}
+
+/** One vehicle type by id, with its series photograph: the garage tab shows the saved vehicle's picture from it. */
+export async function getCatalogVehicle(id: string): Promise<CatalogVehicle | null> {
+  if (!validId(id)) return null;
+  const { rows } = await db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]);
+  if (!rows.length) return null;
+  return (await withImages(rows.map(formatVehicle), vehicle => vehicle.modelId))[0];
 }
 
 // Make + model words decide the order; dividing by their length (chassis codes in brackets left out)
@@ -74,7 +89,7 @@ async function rankedVehicleSearch(parsed: ParsedSearch, offset: number, limit: 
         ${vehicleJoins} JOIN matches ON matches.id=v.id
         ORDER BY ordinal ${page}
       ) page), '[]'::jsonb) AS vehicles`, values);
-  return { vehicles: rows[0].vehicles.map(formatVehicle), total: rows[0].total };
+  return { vehicles: await withImages(rows[0].vehicles.map(formatVehicle), vehicle => vehicle.modelId), total: rows[0].total };
 }
 
 export type VehicleSearchResult = { vehicles: CatalogVehicle[]; total: number; correctedQuery?: string };

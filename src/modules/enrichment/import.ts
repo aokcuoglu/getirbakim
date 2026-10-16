@@ -9,7 +9,7 @@ import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../sto
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
 
 /** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
-export async function storeProductImage(client: PoolClient, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage()) {
+export async function storeProductImage(client: PoolClient, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
   const bytes = await readFile(resolve(file));
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
   const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
@@ -21,7 +21,7 @@ export async function storeProductImage(client: PoolClient, file: string, source
   const hash = createHash("sha256").update(bytes).digest("hex");
   const bucket = process.env.S3_BUCKET;
   if (!bucket) throw new Error("S3_BUCKET is required");
-  const key = `products/${hash.slice(0, 2)}/${hash}.${extension}`;
+  const key = `${folder}/${hash.slice(0, 2)}/${hash}.${extension}`;
   const put = () => storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
   const verified = async () => {
     const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key })).catch(error => {
