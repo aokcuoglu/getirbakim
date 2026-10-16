@@ -79,6 +79,9 @@ DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
 CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_v2_idx ON supplier_items(company,changed_at DESC,id)
 WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta' OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
+-- Few supplier items carry a legacy category; the catalog resolves a category to ids through this index.
+CREATE INDEX IF NOT EXISTS supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
+WHERE product_data->>'category'<>'';
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
