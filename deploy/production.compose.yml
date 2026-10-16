@@ -56,9 +56,12 @@ services:
       target: operations
     profiles: [tools]
     env_file: ../.env.production
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      # Without it V8 sizes the heap from the container (~256 MB at 512 MB); Başbuğ sync died there (#253).
+      NODE_OPTIONS: --max-old-space-size=1536
     # Dinamik's largest brand list (ORIJINAL, ~17 MB JSON / 35k rows) peaks near 550 MB while parsed and applied.
-    mem_limit: 1g
+    mem_limit: 2g
     cpus: 1
 
   postgres:
