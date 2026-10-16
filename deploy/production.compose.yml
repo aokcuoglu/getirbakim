@@ -56,8 +56,11 @@ services:
       target: operations
     profiles: [tools]
     env_file: ../.env.production
-    environment: *app-environment
-    mem_limit: 512m
+    environment:
+      <<: *app-environment
+      # Without it V8 sizes the heap from the container (~256 MB at 512 MB); Başbuğ sync died there (#253).
+      NODE_OPTIONS: --max-old-space-size=1536
+    mem_limit: 2g
     cpus: 1
 
   postgres:
