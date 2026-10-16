@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.2 — 2026-10-16
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Fixed
+- Catalog and product pages intermittently returned HTTP 500 (`timeout exceeded when trying to connect`) when a few visitors loaded pages at once ([#234](https://github.com/aokcuoglu/getirbakim/issues/234), [#235](https://github.com/aokcuoglu/getirbakim/pull/235)):
+  - DB pool raised from 5 clients / 3 s acquire timeout to 15 / 10 s, overridable with `DATABASE_POOL_MAX` and `DATABASE_POOL_ACQUIRE_TIMEOUT_MS`.
+  - Idle database client errors are logged instead of crashing the app process.
+
 ## v0.22.1 — 2026-10-15
 
 Hotfix from `main`; the rest of `dev` is not included.
