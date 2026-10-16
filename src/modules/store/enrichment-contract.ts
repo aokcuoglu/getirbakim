@@ -11,7 +11,7 @@ export const enrichmentDataSchema = z.object({
     path:z.array(z.object({id:z.number().int().positive(),name:z.string().min(1).max(300)})).max(30)})).max(100).default([]),
   displayName: z.string().min(1).max(300).optional(),
   description: z.string().max(3000).optional(),
-  specifications: z.array(z.tuple([z.string().min(1).max(200), z.string().min(1).max(1000)])).max(100),
+  specifications: z.array(z.tuple([z.string().min(1).max(200), z.string().min(1).max(5000)])).max(100),
   oemNumbers: referenceNumbers,
   crossReferences: referenceNumbers,
   vehicles: z.array(z.object({
@@ -20,7 +20,7 @@ export const enrichmentDataSchema = z.object({
     from: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/), to: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/).nullable(),
   }).refine(vehicle => vehicle.cc > 0 || vehicle.fuel === "Electric", {
     message: "Zero displacement is only valid for electric vehicles", path: ["cc"],
-  })).max(10000),
+  })).max(50000),
   vehicleModels: z.array(z.string().min(1)).max(5000).default([]),
   imageWidth: z.number().int().positive().max(10000).default(480),
   imageHeight: z.number().int().positive().max(10000).default(480),

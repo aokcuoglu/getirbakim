@@ -79,7 +79,7 @@ try {
     const targets = (await client.query<{ bucket: string; object_key: string; sha256: string; content_type: string }>(
       "SELECT m.bucket,m.object_key,m.sha256,m.content_type FROM bundle_media bm JOIN product_media_objects m ON m.id=bm.id")).rows;
     for (const target of targets) {
-      await storage.send(new PutObjectCommand({ Bucket: target.bucket, Key: target.object_key, Body: files.get(target.sha256)!, ContentType: target.content_type }));
+      await storage.send(new PutObjectCommand({ Bucket: target.bucket, Key: target.object_key, Body: files.get(target.sha256)!, ContentType: target.content_type, Metadata: { sha256: target.sha256 } }));
       const saved = await (await storage.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.object_key }))).Body?.transformToByteArray();
       if (!saved || createHash("sha256").update(saved).digest("hex") !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
     }
