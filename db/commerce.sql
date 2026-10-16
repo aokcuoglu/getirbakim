@@ -66,6 +66,9 @@ SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
 CREATE INDEX IF NOT EXISTS supplier_items_catalog_order_idx ON supplier_items(company,changed_at DESC,id)
 WHERE supplier='basbug' AND warehouse='MRK' AND presence='present' AND NOT conflicting;
+-- Few supplier items carry a legacy category; the catalog resolves a category to ids through this index.
+CREATE INDEX IF NOT EXISTS supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
+WHERE product_data->>'category'<>'';
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
