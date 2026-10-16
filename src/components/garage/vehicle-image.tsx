@@ -6,7 +6,8 @@ import type { VehicleModelImage } from "@/modules/store/vehicle-model-images";
 /** The series photograph in a fixed 3:2 frame, or the generic car icon when the series has none. */
 export function VehicleImage({ image, alt, size = "md", className }: { image?: VehicleModelImage | null; alt: string; size?: "sm" | "md"; className?: string }) {
   const frame = size === "sm" ? "h-10 w-[60px]" : "h-16 w-24";
-  if (!image) return <span className={cn("grid shrink-0 place-items-center", frame, className)} aria-hidden="true"><CarFront size={size === "sm" ? 24 : 32} /></span>;
+  // Without a photograph the icon keeps its original footprint so the text does not move.
+  if (!image) return <span className={cn("grid shrink-0 place-items-center", size === "sm" ? "size-6" : "size-8", className)} aria-hidden="true"><CarFront size={size === "sm" ? 24 : 32} /></span>;
   // The store never resizes Commons files on the fly: the stored copy is already 480 px wide.
   return <span className={cn("block shrink-0 overflow-hidden rounded-[4px] bg-white", frame, className)}>
     <Image src={image.src} alt={alt} title={image.attribution} width={image.width} height={image.height} unoptimized className="size-full object-cover" />
