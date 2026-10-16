@@ -1,8 +1,9 @@
 // Enriches products the Trodo pass could not find ("not_found") from otoparcasan.com.
-//   collect [--limit N] [--ids file] [--status not_found|pending] [--retry] [--dry-run]
+//   collect [--limit N] [--ids file] [--status not_found|pending|review] [--retry] [--dry-run]
 //                 fetches, verifies and writes each product as it is found, like the Trodo worker; --dry-run only
 //                 appends packages to the checkpoint. Packages left unwritten by an earlier run are written first.
-//                 --status pending searches jobs Trodo has not visited yet, one supplier row per master product.
+//                 --status pending searches jobs Trodo has not visited yet, one supplier row per master product;
+//                 --status review searches jobs where Trodo found candidates it could not verify.
 //   import        writes collected packages whose job is still not_found
 //   images        adds the product photo to otoparcasan enrichments written without one
 //   report        summarises the checkpoint
@@ -34,9 +35,9 @@ async function entries(){
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return latest;
 }
-const statuses=['not_found','pending'] as const;
+const statuses=['not_found','pending','review'] as const;
 const status=(option('status')||'not_found') as typeof statuses[number];
-if(!statuses.includes(status))throw Error('--status must be not_found or pending');
+if(!statuses.includes(status))throw Error('--status must be not_found, pending or review');
 // One supplier row per master product (present rows first); a product already enriched through another row is skipped.
 const supplierSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
@@ -58,7 +59,7 @@ async function write(entry:{supplierItemId:string;package?:unknown}){
   if(delay){console.error(`Veritabanına yazılamadı, ${delay/1000} sn sonra tekrar (${attempt}/3)`);await sleep(delay);}
   try{
    // Trodo may have completed the job meanwhile; its result is kept.
-   const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status IN ('not_found','pending') AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
+   const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status IN ('not_found','pending','review') AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
    if(!open){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer open'});return 'skipped';}
    await importEnrichments(pool,[entry.package],matcher);
    await record({supplierItemId:entry.supplierItemId,outcome:'imported'});return 'imported';
