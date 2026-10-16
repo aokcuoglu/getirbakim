@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.4 — 2026-10-16
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Fixed
+- No product showed a price or stock since 2026-10-15: the production supplier sync crashed every run with a JavaScript heap out-of-memory (~256 MB heap in a 512 MB container), so supplier data aged past the 36 h freshness limit and the storefront hid all prices ([#253](https://github.com/aokcuoglu/getirbakim/issues/253), [#254](https://github.com/aokcuoglu/getirbakim/pull/254)). The `operations` container now has 2 GB and `NODE_OPTIONS=--max-old-space-size=1536`.
+
 ## v0.22.3 — 2026-10-16
 
 Hotfix from `main`; the rest of `dev` is not included.
