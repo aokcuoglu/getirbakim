@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.3 — 2026-10-16
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Performance
+- Category pages: the category filter is resolved to product ids before listing instead of an `OR` that forced a full scan of supplier items in each of the four listing queries (6–8 s each in production) ([#244](https://github.com/aokcuoglu/getirbakim/issues/244), [#247](https://github.com/aokcuoglu/getirbakim/pull/247)). New partial index `supplier_items_legacy_category_idx`.
+- Production Postgres: 2 GB memory, `shared_buffers=512MB`, `effective_cache_size=1536MB`, `work_mem=16MB`, `random_page_cost=1.1`, `pg_stat_statements` preloaded ([#248](https://github.com/aokcuoglu/getirbakim/pull/248)).
+
+### Operations
+- Deploy recreates the production Postgres container once (a few seconds) to apply the new settings.
+- Cloudflare Cache Rule "Cache storefront media API" caches `/api/product-media/`, `/api/category-media/`, `/api/manufacturer-logos/` (configured in the dashboard).
+
 ## v0.22.2 — 2026-10-16
 
 Hotfix from `main`; the rest of `dev` is not included.
