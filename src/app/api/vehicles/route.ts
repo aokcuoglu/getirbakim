@@ -1,4 +1,4 @@
-import { getVehicleBrands, getVehicleModels, getModelVehicles, searchVehicleCatalog } from "@/modules/store/vehicle-catalog.server";
+import { getCatalogVehicle, getVehicleBrands, getVehicleModels, getModelVehicles, searchVehicleCatalog } from "@/modules/store/vehicle-catalog.server";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -9,7 +9,11 @@ export async function GET(request: Request) {
   if (!Number.isSafeInteger(offset) || offset < 0) return Response.json({ error: "Geçersiz sayfa." }, { status: 400 });
   try {
     if (query) return Response.json(await searchVehicleCatalog(query, offset));
-    const modelId = params.get("modelId"), brandId = params.get("brandId");
+    const modelId = params.get("modelId"), brandId = params.get("brandId"), vehicleId = params.get("vehicleId");
+    if (vehicleId) {
+      const vehicle = await getCatalogVehicle(vehicleId);
+      return vehicle ? Response.json({ vehicles: [vehicle] }) : Response.json({ error: "Araç bulunamadı." }, { status: 404 });
+    }
     if (modelId) {
       const vehicles = await getModelVehicles(modelId);
       return vehicles ? Response.json({ vehicles }) : Response.json({ error: "Model bulunamadı." }, { status: 404 });

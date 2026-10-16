@@ -1,11 +1,16 @@
+import type { VehicleModelImage } from "./vehicle-model-images";
+
 export type VehicleBrand = { id: string; name: string; popular: boolean };
 export type VehicleModel = {
   id: string; brandId: string; name: string; dateFrom: string | null; dateTo: string | null;
+  /** Approved Wikimedia Commons photograph of the series, when one exists. */
+  image?: VehicleModelImage;
 };
 export type CatalogVehicle = {
   id: string; modelId: string; brandId: string; make: string; model: string; generation: string;
   from: number; to: number; dateFrom: string; dateTo: string | null;
   fuel: string; engine: string; power: string; cc: number | null;
+  image?: VehicleModelImage;
 };
 export type SavedVehicle = {
   make: string; model: string; year: number; vehicleId?: string;

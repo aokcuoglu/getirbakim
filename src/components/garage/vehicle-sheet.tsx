@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, useTransition, type RefObject } fro
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
+import { VehicleImage, VehicleImageCredit } from "./vehicle-image";
 import { Sheet, SheetClose, SheetTitle } from "@/components/ui/sheet";
 import { DialogOverlay as SheetOverlay, DialogPortal as SheetPortal } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +24,7 @@ const titles: Record<Step, string> = { brand: "Marka seç", model: "Model / kasa
 const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-input bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
-const summaryBox = "mb-[22px] flex items-start gap-3.5 rounded-[5px] border border-border bg-[#f8f9f9] p-[18px] [&>svg]:shrink-0 [&>svg]:text-muted-foreground [&_strong]:text-sm [&_strong]:leading-5 [&_strong]:font-semibold [&_p]:my-1.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
+const summaryBox = "mb-[22px] flex items-start gap-3.5 rounded-[5px] border border-border bg-[#f8f9f9] p-[18px] [&>span>svg]:text-muted-foreground [&_strong]:text-sm [&_strong]:leading-5 [&_strong]:font-semibold [&_p]:my-1.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
 const emptyBox = "py-9 text-center text-muted-foreground [&>svg]:mx-auto [&>svg]:mb-4 [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-sm [&>p]:leading-[22px] [&>p]:text-foreground [&>small]:text-xs [&>small]:leading-5";
 
 export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", finalFocus }: { open: boolean; vehicle: SavedVehicle | null; onClose: () => void; initialTab?: Tab; finalFocus?: RefObject<HTMLElement | null> }) {
@@ -62,6 +63,9 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const typesRequest = useVehicleCatalog(modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
   const tooShort = searchTooShort(query);
   const searchRequest = useVehicleCatalog(query.trim() && !tooShort ? `/api/vehicles?q=${encodeURIComponent(query.trim())}&offset=${searchOffset}` : null, 250);
+  // The saved vehicle only carries ids; its series photograph is looked up when the garage tab shows it.
+  const savedRequest = useVehicleCatalog(tab === "garage" && vehicle?.vehicleId ? `/api/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}` : null);
+  const savedImage = savedRequest.data?.vehicles?.[0]?.image;
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
@@ -196,7 +200,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
               {step === "confirm" && selected && selectedDetails && <div>
-                <div className={summaryBox}><CarFront size={32} /><div><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
+                <div className={summaryBox}><VehicleImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small><VehicleImageCredit image={selected.image} className="mt-1.5" /></div></div>
                 <label className="mb-2 block text-[13px] font-medium" htmlFor={`${id}-year`}>Model yılı</label>
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
@@ -210,7 +214,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       <TabsContent value="garage" className="p-5">
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
-          <div className={summaryBox}><CarFront size={32} /><div><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
+          <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}<VehicleImageCredit image={savedImage} className="mt-1.5" /></div></div>
           <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
           <Button className={cn(plain, "mx-auto mt-4 flex min-h-9 items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>

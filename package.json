@@ -26,6 +26,8 @@
     "supplier:sync:configure": "node --env-file=.env.local --import tsx scripts/configure-supplier-sync.ts",
     "supplier:rebuild": "node --env-file=.env.local --import tsx scripts/rebuild-supplier-data.ts",
     "db:vehicles": "node --env-file=.env.local --import tsx scripts/import-vehicles.ts",
+    "vehicles:images": "node --env-file=.env.local --conditions=react-server --import tsx scripts/vehicle-model-images.ts",
+    "test:vehicle-images": "node --import tsx --test scripts/test-vehicle-model-images.ts",
     "test:part-art": "node --import tsx --test scripts/test-part-art.tsx",
     "test:data-table": "node --import tsx --test scripts/test-data-table.tsx",
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
