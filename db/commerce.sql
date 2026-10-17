@@ -82,6 +82,13 @@ WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta' OR (supplier='
 -- Few supplier items carry a legacy category; the catalog resolves a category to ids through this index.
 CREATE INDEX IF NOT EXISTS supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
 WHERE product_data->>'category'<>'';
+-- Part numbers compared on the product page (cross references, OEM numbers): upper case, letters and
+-- digits only. Indexed so a reference lookup reads the matching rows instead of normalising every item.
+CREATE OR REPLACE FUNCTION part_number_key(value text) RETURNS text
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path FROM CURRENT AS $$ SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') $$;
+CREATE INDEX IF NOT EXISTS supplier_items_part_key_idx ON supplier_items(part_number_key(substring(code from position(' ' in code)+1)));
+CREATE INDEX IF NOT EXISTS supplier_items_oem_key_idx ON supplier_items(part_number_key(product_data->>'oe'))
+WHERE product_data->>'oe'<>'';
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
