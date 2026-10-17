@@ -126,7 +126,8 @@ async function serve(runId:string,port:number,chrome=false){
    }
    const scope=(await pool.query(`SELECT c.status FROM enrichment_product_catalog c JOIN enrichment_current_sources ps
     ON ps.product_id=c.product_id WHERE c.product_id=$1 AND ps.supplier_item_id=$2`,[item.product_id,item.supplier_item_id])).rows[0];
-   if(scope?.status!=='pending'){
+   // A partial product is re-collected only through retry-partial; its stored data is replaced, never downgraded.
+   if(!['pending','partial'].includes(scope?.status)){
     await pool.query("UPDATE enrichment_run_items SET status='skipped',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]);continue;
    }
    const heartbeat=setInterval(()=>void pool.query("UPDATE enrichment_run_items SET lease_until=now()+interval '2 minutes' WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]).catch(console.error),30000);
@@ -137,7 +138,7 @@ async function serve(runId:string,port:number,chrome=false){
      const current=(await client.query("SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand FROM supplier_items WHERE id=$1 FOR SHARE",[item.supplier_item_id])).rows[0];
      if(!current||current.code!==item.supplier_code||current.brand!==item.supplier_brand){status='review';error='Supplier identity changed during collection';}
      await client.query('UPDATE enrichment_run_items SET status=$4,last_error=$5,finished_at=now(),lease_until=NULL,lease_token=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3',[runId,item.supplier_item_id,lease,status,error||null]);
-     if(!['complete','partial'].includes(status))await client.query("UPDATE product_enrichment_jobs SET status=$2,last_error=$3,attempts=attempts+1,last_attempt_at=now(),updated_at=now() WHERE supplier_item_id=$1 AND supplier_code=$4 AND supplier_brand=$5 AND status<>'complete'",[item.supplier_item_id,status,error||null,item.supplier_code,item.supplier_brand]);
+     if(!['complete','partial'].includes(status))await client.query("UPDATE product_enrichment_jobs SET status=$2,last_error=$3,attempts=attempts+1,last_attempt_at=now(),updated_at=now() WHERE supplier_item_id=$1 AND supplier_code=$4 AND supplier_brand=$5 AND status NOT IN ('complete','partial')",[item.supplier_item_id,status,error||null,item.supplier_code,item.supplier_brand]);
      await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
     console.log(JSON.stringify({ordinal:item.ordinal+1,code:item.supplier_code,status,error}));
@@ -308,6 +309,33 @@ async function requeueReview(runId:string){
   await client.query('COMMIT');return {runId,requeued:result.rowCount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+// Re-queues Trodo-sourced partial items whose vehicle coverage can still improve (rejected engine rows or applicable
+// engines left unresolved). The stored product/view checkpoint is reused, so only vehicle listings cost requests; the
+// job keeps its partial status until the new import replaces it.
+async function requeuePartial(runId:string){
+ const client=await pool.connect();try{
+  await client.query('BEGIN');
+  const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0];
+  if(!lock.locked)throw Error('Stop the run worker before requeuing partial items');
+  const run=(await client.query('SELECT status FROM enrichment_runs WHERE id=$1 FOR UPDATE',[runId])).rows[0];
+  if(!run)throw Error('Unknown run');
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
+  if(active)throw Error('Another unfinished run exists: '+active.id);
+  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
+   SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
+    c.supplier_code,c.supplier_brand,c.oem,'vehicles',COALESCE(cp.checkpoint,'{}')
+   FROM enrichment_product_catalog c JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
+   LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status='partial'
+    AND i.checkpoint ? 'product' AND i.checkpoint ? 'view' ORDER BY i.finished_at DESC NULLS LAST LIMIT 1) cp ON true
+   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND e.source_url LIKE 'https://www.trodo.com/%'
+    AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2])
+   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
+    oem=EXCLUDED.oem,status='queued',stage='vehicles',checkpoint=EXCLUDED.checkpoint,lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
+   WHERE enrichment_run_items.status IN ('partial','skipped')`,[runId]);
+  if(result.rowCount)await client.query("UPDATE enrichment_runs SET sample_size=(SELECT count(*) FROM enrichment_run_items WHERE run_id=$1),status=CASE WHEN status='blocked' THEN status ELSE 'prepared' END,finished_at=NULL WHERE id=$1",[runId]);
+  await client.query('COMMIT');return {runId,requeued:result.rowCount};
+ }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+}
 try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
  else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
@@ -316,7 +344,8 @@ try{
  else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');
+ else if(command==='retry-partial'){await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]))));}
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);

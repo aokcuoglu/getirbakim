@@ -18,8 +18,8 @@ export const enrichmentDataSchema = z.object({
     model: z.string().min(1), engineAndCodes: z.string().min(1), fuel: z.string(),
     kw: z.number().positive(), ps: z.number().positive(), cc: z.number().nonnegative(),
     from: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/), to: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/).nullable(),
-  }).refine(vehicle => vehicle.cc > 0 || vehicle.fuel === "Electric", {
-    message: "Zero displacement is only valid for electric vehicles", path: ["cc"],
+  }).refine(vehicle => vehicle.cc > 0 || /electric|hydrogen|fuel cell/i.test(vehicle.fuel), {
+    message: "Zero displacement is only valid for electric, hydrogen and fuel-cell vehicles", path: ["cc"],
   })).max(50000),
   vehicleModels: z.array(z.string().min(1)).max(5000).default([]),
   imageWidth: z.number().int().positive().max(10000).default(480),

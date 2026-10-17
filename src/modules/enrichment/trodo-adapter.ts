@@ -30,32 +30,64 @@ export function searchPath(query:string){return '/rest/V1/catalogsearch/result/0
 // The site's OE-number page lists products whose OE references contain the number.
 export function oemSearchPath(oem:string){return '/rest/V1/catalogsearch/oem/'+oem.replace(/[^a-z0-9]/gi,'').toUpperCase()+'?is_ajax=true&customer_group_id=undefined&currency=EUR&list-type=list&country=IE';}
 export function parseSearch(raw:unknown){return z.array(z.object({products:z.array(productSchema),pagination:z.unknown().optional()})).min(1).parse(raw)[0];}
+const POWER=/^\s*([\d.]+)kW\/([\d.]+)PS\s*$/,DATES=/^(\d\d\/\d{4})-(\d\d\/\d{4}|0\/0)$/;
 export function parseEngine(model:string,raw:unknown){
- const engine=engineSchema.parse(raw),label=engine.label;
- const power=/^\s*([\d.]+)kW\/([\d.]+)PS\s*$/.exec(label.kw_ps),dates=label.year.split('-'),cc=/^\d+/.exec(String(label.ccm));
- if(!power||!cc||dates.length!==2)throw Error('Malformed source vehicle label');
- return enrichmentDataSchema.shape.vehicles.element.parse({model,engineAndCodes:(label.name+' '+(label.engine||[]).join('; ')).trim(),fuel:label.engine_fuel||engine.fuel||'',kw:Number(power[1]),ps:Number(power[2]),cc:Number(cc[0]),from:dates[0],to:dates[1]==='0/0'?null:dates[1]});
+ const engine=engineSchema.parse(raw),label=engine.label,codes=[...(label.engine||[])];
+ let power:[number,number]|null=null,dates:[string,string]|null=null,cc:number|null=null,name=label.name;
+ const labelPower=POWER.exec(label.kw_ps),labelCc=/^\d+/.exec(String(label.ccm)),labelDates=label.year.split('-');
+ if(labelPower){
+  power=[Number(labelPower[1]),Number(labelPower[2])];if(labelCc)cc=Number(labelCc[0]);if(labelDates.length===2)dates=[labelDates[0],labelDates[1]];
+ }else{
+  // The source sometimes shifts its label fields ("kw_ps":"kW/PS", "year":"64kW/87PS", "ccm":"2ccm"). The engine line
+  // ("02/2000-07/2008 1390ccm K4J 711") and the URL key still carry the real values, so the vehicle is rebuilt from
+  // them; without month-precise dates it stays invalid rather than becoming a vague observation.
+  const line=/^(?:(\d\d\/\d{4}-(?:\d\d\/\d{4}|0\/0))\s+)?(?:(\d+)ccm\b\s*)?([\s\S]*)$/.exec(codes[0]||'');
+  const yearPower=POWER.exec(label.year),key=/-(\d+)kw-\d+-cid$/.exec(String(engine.url_key||''));
+  if(yearPower)power=[Number(yearPower[1]),Number(yearPower[2])];else if(key)power=[Number(key[1]),Math.round(Number(key[1])*1.35962)];
+  const range=DATES.exec(line?.[1]||'')||DATES.exec(label.year);if(range)dates=[range[1],range[2]];
+  if(line?.[2])cc=Number(line[2]);
+  if(line&&(line[1]||line[2]))codes[0]=line[3].trim();
+  // A shifted name is cut at a comma ("1.6 (FW00, FW0E, FW0N,"); its closing part moved into the year field.
+  if(/\([^)]*$/.test(name)&&/^[^()]+\)$/.test(label.year))name+=' '+label.year;
+ }
+ if(!power||cc===null||!dates)throw Error('Malformed source vehicle label');
+ return enrichmentDataSchema.shape.vehicles.element.parse({model,engineAndCodes:(name+' '+codes.filter(Boolean).join('; ')).trim(),fuel:label.engine_fuel||engine.fuel||'',kw:power[0],ps:power[1],cc,from:dates[0],to:dates[1]==='0/0'?null:dates[1]});
 }
-export async function collectVehicles(queue:SourceQueue,view:SourceView){
- const ids=new Set(view.vehicle_ids.map(String)),covered=new Set<string>(),models:string[]=[],vehicles=[],invalid:unknown[]=[];
+// Walks the source's applicable vehicle ids through its make → model group → model → engine listings. Some applicable
+// engines come without their model node in vehicle_ids; a bounded second pass opens the remaining models of the listed
+// groups (cached listings cost no request) so those engines are collected instead of staying unresolved.
+export async function collectVehicles(queue:SourceQueue,view:SourceView,orphanLookups=60){
+ const ids=new Set(view.vehicle_ids.map(String)),covered=new Set<string>(),models:string[]=[],vehicles:ReturnType<typeof parseEngine>[]=[],invalid:unknown[]=[],unlisted:{name:string;value:string}[]=[];
+ const unresolved=()=>[...ids].filter(id=>!covered.has(id));
+ const collect=async(name:string,model:string,listed:boolean)=>{
+  const types=await queue.get('www.trodo.com','/rest/V1/vehicle/type/1/'+model);
+  const engines=z.array(z.object({relationships:z.object({data:z.array(engineSchema)})})).min(1).parse(types)[0].relationships.data;
+  const applicable=engines.filter(e=>ids.has(String(e.value)));
+  if(listed||applicable.length)models.push(name);
+  for(const engine of applicable){
+   try{vehicles.push(parseEngine(name,engine));covered.add(String(engine.value));}
+   catch(error){invalid.push({id:engine.value,raw:engine,error:String(error)});}
+  }
+  return applicable.length;
+ };
  for(const make of Object.values(view.vehicle_list.list)){
   covered.add(String(make.automaker_id));
   for(const group of make.model_list){
    covered.add(String(group.value_id));
    const raw=await queue.get('www.trodo.com','/rest/V1/vehicle/models/1/'+group.value_id);
    const rows=z.array(z.object({relationships:z.object({data:z.array(modelSchema)})})).min(1).parse(raw)[0].relationships.data;
-   for(const model of rows.filter(m=>ids.has(String(m.value)))){
-    covered.add(String(model.value));const name=make.automaker_label.name+' '+model.label.name.trim();models.push(name);
-    const types=await queue.get('www.trodo.com','/rest/V1/vehicle/type/1/'+model.value);
-    const engines=z.array(z.object({relationships:z.object({data:z.array(engineSchema)})})).min(1).parse(types)[0].relationships.data;
-    for(const engine of engines.filter(e=>ids.has(String(e.value)))){
-     try{vehicles.push(parseEngine(name,engine));covered.add(String(engine.value));}
-     catch(error){invalid.push({id:engine.value,raw:engine,error:String(error)});}
-    }
+   for(const model of rows){
+    const name=make.automaker_label.name+' '+model.label.name.trim();
+    if(!ids.has(String(model.value))){unlisted.push({name,value:String(model.value)});continue;}
+    covered.add(String(model.value));await collect(name,String(model.value),true);
    }
   }
  }
- return {vehicles,vehicleModels:[...new Set(models)],coverage:{expected:ids.size,covered:[...ids].filter(id=>covered.has(id)).length,unresolved:[...ids].filter(id=>!covered.has(id)),invalid}};
+ for(let lookups=0;unresolved().length&&lookups<orphanLookups&&lookups<unlisted.length;lookups++){
+  const {name,value}=unlisted[lookups];
+  if(await collect(name,value,false))covered.add(value);
+ }
+ return {vehicles,vehicleModels:[...new Set(models)],coverage:{expected:ids.size,covered:[...ids].filter(id=>covered.has(id)).length,unresolved:unresolved(),invalid}};
 }
 export function normalizeData(view:SourceView,vehicle:Awaited<ReturnType<typeof collectVehicles>>){
  const oemNumbers:Record<string,string[]>={},crossReferences:Record<string,string[]>={};
