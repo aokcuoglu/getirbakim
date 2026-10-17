@@ -77,6 +77,7 @@
     "enrichment:states": "node --env-file=.env.local --import tsx scripts/enrichment-states.ts",
     "test:otoparcasan": "node --import tsx --test scripts/test-otoparcasan.ts",
     "test:spareto": "node --import tsx --test scripts/test-spareto.ts",
+    "test:return-to": "node --import tsx --test scripts/test-return-to.ts",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts"
   },
   "dependencies": {
