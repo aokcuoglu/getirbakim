@@ -222,7 +222,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const total = search ? await count() : await cachedCounts(filterKey(query,context),count);
- const pageSize = 60, pages = Math.max(1,Math.ceil(total/pageSize));
+ // 30 cards keep a listing page near 0.6 MB of HTML (60 made it 1.15 MB).
+ const pageSize = 30, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  const order=query.sort === "price-asc" ? "price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "price_kurus DESC NULLS LAST,id" : "updated_at DESC,id";
