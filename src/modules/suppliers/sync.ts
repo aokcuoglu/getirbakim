@@ -18,13 +18,20 @@ export function rejectionReason(current: { uniqueProducts: number; missingPrices
   return null;
 }
 
+const snapshotChunk = 2000;
+
 // Caller owns the transaction and supplier lock. No API calls inside this transaction.
 export async function applySupplierSnapshot(client: PoolClient, scope: SupplierScope, importId: string, items: ObservationItem[], observedAt: Date, updatePresence = true): Promise<SyncStats> {
   if (!items.length || new Set(items.map(i => i.code)).size !== items.length) throw new Error("A non-empty, unique, complete snapshot is required");
   const keys = [scope.supplier, scope.company, scope.group, scope.warehouse];
-  await client.query(`CREATE TEMP TABLE sync_incoming ON COMMIT DROP AS
-    SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(code text,product_data jsonb,price_data jsonb,stock_data jsonb,
-    product_count integer,price_count integer,stock_count integer,conflicting boolean,source_variants jsonb)`, [JSON.stringify(items)]);
+  await client.query(`CREATE TEMP TABLE sync_incoming(code text,product_data jsonb,price_data jsonb,stock_data jsonb,
+    product_count integer,price_count integer,stock_count integer,conflicting boolean,source_variants jsonb) ON COMMIT DROP`);
+  // One JSON parameter for the whole snapshot peaked at +270 MB heap / +790 MB RSS for 150k items and
+  // killed the 256 MB-heap sync worker (#253, #277); chunks keep the serialised copy small.
+  for (let start = 0; start < items.length; start += snapshotChunk) {
+    await client.query(`INSERT INTO sync_incoming SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(code text,product_data jsonb,price_data jsonb,stock_data jsonb,
+      product_count integer,price_count integer,stock_count integer,conflicting boolean,source_variants jsonb)`, [JSON.stringify(items.slice(start, start + snapshotChunk))]);
+  }
   await client.query("CREATE UNIQUE INDEX ON sync_incoming(code)");
   // Keep the previous state only for actual changes. JSONB equality ignores object key order.
   await client.query(`CREATE TEMP TABLE sync_delta ON COMMIT DROP AS
