@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.8 — 2026-10-17
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Performance
+- Supplier sync loads each snapshot into the database in 2,000-item chunks instead of one JSON parameter. On a 150,000-item test the old path needed +786 MB RSS and failed under a 256 MB heap (the production crash of #253); the chunked path completes with about +120 MB ([#277](https://github.com/aokcuoglu/getirbakim/issues/277), [#278](https://github.com/aokcuoglu/getirbakim/pull/278)).
+- Sync log lines include the run's peak memory (`peakRssMB`).
+
 ## v0.22.7 — 2026-10-17
 
 Hotfix from `main`; the rest of `dev` is not included.
