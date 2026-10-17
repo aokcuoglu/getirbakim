@@ -18,6 +18,8 @@ if ((args.group || args.mode) && !args.force) throw new Error("--group and --mod
 // These failures say the supplier itself is unreachable or occupied; trying the remaining groups now only adds load.
 const stopReasons = new Set(["upstream", "config", "busy", "paused"]);
 
+// Peak resident memory of this run so far; the sync worker's limits come from these numbers (#253, #277).
+const peakRssMB = () => Math.round(process.resourceUsage().maxRSS / 1024);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const worker = await pool.connect();
 let locked = false;
@@ -46,7 +48,7 @@ try {
         if (scope.supplier !== "basbug" || scope.warehouse !== "MRK") throw new Error("No verified adapter for scope");
         const mode = args.mode ?? (args.force || (scope.enabled && scope.next_run_at.getTime() <= Date.now()) ? "full" : "commerce");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
-        console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+        console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
         if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
       } catch (error) {
