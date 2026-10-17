@@ -54,6 +54,11 @@ test('cross references never authorize another brand, a cross-reference OE numbe
   data:{oemNumbers:{},crossReferences:{CORTECO:['12018654']}},matchBasis:{type:'cross_reference',reference:'82018654',referenceBrand:'CORTECO'}}),false);
 });
 
+test('a supplier number without the leading zero is the same part',async()=>{
+ const page={...parseProductPage(await fixture('spareto-product.html')),brand:'FEBI BILSTEIN',partNumber:'02562',crossReferences:{}};
+ assert.deepEqual(identify({brand:'FEBI',code:'FEBI 2562',oem:'',masterBrand:'FEBI'},page,buildData(page)),{type:'exact_part'});
+});
+
 test('unrecognized product pages fail instead of importing guessed identities',()=>{
  assert.throws(()=>parseProductPage('<html><h1>Not a product</h1></html>'),/Unrecognized spareto product page/);
 });

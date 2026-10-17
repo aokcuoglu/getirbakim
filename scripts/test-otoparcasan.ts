@@ -35,6 +35,8 @@ test("search candidates must end with the stock code, not merely contain it", ()
     { url: "yakit-filtresi-filfiltre-zp8098fmbp", urun_adi: "FIL FILTRE ZP 8098 FMBP" }, { url: "su-radyatoru-mga-80980", urun_adi: "MGA 80980" },
     { url: "yakit-filtresi-febibilstein-8098", urun_adi: "FEBI 8098" }] } });
   assert.deepEqual(codeCandidates(results, "8098"), ["yakit-filtresi-febibilstein-8098"]);
+  // Any spelling of the part may end the slug; the zero-padded one must not pull in a different product.
+  assert.deepEqual(codeCandidates(results, ["08098", "8098"]), ["yakit-filtresi-febibilstein-8098"]);
   assert.deepEqual(parseSearch({ status: false }), []);
 });
 test("commercial-vehicle rows are dropped and passenger rows map to the shared vehicle contract", () => {

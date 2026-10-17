@@ -8,7 +8,8 @@
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {SPARETO,buildData,identify,parseProductPage,parseSearch,partQuery,searchPath,supplierOemQueries,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
+import {SPARETO,buildData,identify,parseProductPage,parseSearch,searchPath,supplierOemQueries,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
+import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
@@ -79,19 +80,22 @@ async function downloadImage(client:SparetoClient,url:string|null,id:string){
 }
 
 const rank={exact_part:0,oem_reference:1,cross_reference:2} as const;
-/** Searches only discover candidates; identity is decided on the product page. A card carrying the supplier's own
- *  brand and part is opened first, then the leading candidates of every search until a same-part or OE match. */
+/** Searches only discover candidates; identity is decided on the product page. Every spelling of the part number is
+ *  searched ("2562" does not list FEBI 02562, "02562" does) and then the supplier OEM numbers; searching stops once a
+ *  card carries the supplier's own brand and part. Such cards are opened first, then the leading candidates. */
 async function find(client:SparetoClient,supplier:Supplier){
  const cards=new Map<string,{brand:string;partNumber:string}>();
- for(const query of [...new Set([partQuery(supplier),...supplierOemQueries(supplier).slice(0,2)])]){
+ const own=(card:{brand:string;partNumber:string})=>matchesSupplierPart(supplier.brand,supplier.code,card.brand,card.partNumber,supplier.masterBrand);
+ const queries=[...new Set([...sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code),...supplierOemQueries(supplier).slice(0,2)])];
+ for(const query of queries){
   if(query.replace(/[^A-Za-z0-9]/g,'').length<3)continue;
   const html=await client.page(searchPath(query));if(!html)continue;
   for(const card of parseSearch(html).slice(0,8))if(!cards.has(card.path))cards.set(card.path,card);
+  if([...cards.values()].some(own))break;
  }
- const ordered=[...cards].sort(([,a],[,b])=>Number(!matchesSupplierPart(supplier.brand,supplier.code,a.brand,a.partNumber,supplier.masterBrand))
-  -Number(!matchesSupplierPart(supplier.brand,supplier.code,b.brand,b.partNumber,supplier.masterBrand)));
+ const ordered=[...cards].sort(([,a],[,b])=>Number(!own(a))-Number(!own(b)));
  let best:{path:string;page:ProductPage;basis:NonNullable<ReturnType<typeof identify>>}|null=null;
- for(const [path] of ordered.slice(0,5)){
+ for(const [path] of ordered.slice(0,6)){
   const html=await client.page(path);if(!html)continue;
   const page=parseProductPage(html),basis=identify(supplier,page,buildData(page));
   if(basis&&(!best||rank[basis.type]<rank[best.basis.type]))best={path,page,basis};

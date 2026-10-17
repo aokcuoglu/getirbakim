@@ -87,22 +87,25 @@ async function downloadImage(client:OtoparcasanClient,url:string|null,id:string)
 }
 
 async function find(client:OtoparcasanClient,supplier:Supplier){
- const searched=new Set<string>();
+ const searched=new Set<string>(),opened=new Set<string>();
  const search=async(query:string)=>{const key=query.toLowerCase().replace(/\s+/g,' ').trim();if(searched.has(key)||key.length<3)return [];searched.add(key);
   return parseSearch(await client.post('Ajax/searchAll/',{trimKeywords:key}));};
- const urls:string[]=[];
  // Searches only discover candidates; identity is decided on the product page by the import contract.
- const queries=sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code),[head,...tail]=queries[0].split(/\s+/);
- // The slug ends with the code without an unregistered supplier prefix ("GLS T85010-00" → "…-t85010-00").
- const target=/^[A-Z]{2,5}$/i.test(head)&&/\d/.test(tail.join(''))?tail.join(' '):queries[0];
- for(const query of queries.slice(0,2)){urls.push(...codeCandidates(await search(query),target));if(urls.length)break;}
- if(!urls.length)for(const reference of supplierOemQueries(supplier).slice(0,2))urls.push(...(await search(reference)).slice(0,3).map(r=>r.url));
- for(const url of [...new Set(urls)].slice(0,3)){
-  const html=await client.page(url);if(!html)continue;
-  const page=parseProductPage(html);
-  const basis=identify(supplier,page,{oemNumbers:{OE:uniqueOems(page.oems)},crossReferences:{}});
-  if(basis)return {url,page,basis};
- }
+ const open=async(urls:string[])=>{
+  for(const url of urls.filter(u=>!opened.has(u)).slice(0,3)){
+   opened.add(url);const html=await client.page(url);if(!html)continue;
+   const page=parseProductPage(html);
+   const basis=identify(supplier,page,{oemNumbers:{OE:uniqueOems(page.oems)},crossReferences:{}});
+   if(basis)return {url,page,basis};
+  }
+  return null;
+ };
+ // Every spelling of the part number is tried until a candidate is verified ("230 845", "230845", "02562" for a
+ // supplier's "2562"…); a slug must end with one of them ("…-sachs-230845"), an unregistered prefix dropped.
+ const spellings=sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code);
+ const targets=spellings.flatMap(q=>{const [head,...tail]=q.split(/\s+/);return /^[A-Z]{2,5}$/i.test(head)&&/\d/.test(tail.join(''))?[q,tail.join(' ')]:[q];});
+ for(const query of spellings){const found=await open(codeCandidates(await search(query),targets));if(found)return found;}
+ for(const reference of supplierOemQueries(supplier).slice(0,2)){const found=await open((await search(reference)).slice(0,3).map(r=>r.url));if(found)return found;}
  return null;
 }
 

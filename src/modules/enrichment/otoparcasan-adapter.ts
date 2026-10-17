@@ -10,8 +10,10 @@ const decode=(value:string)=>value.replace(/<[^>]+>/g,'').replace(/&(#\d+|#x[\da
 const searchSchema=z.object({status:z.boolean(),response:z.object({source:z.array(z.object({url:z.string().min(1),urun_adi:z.string()})).default([])}).partial().default({})});
 export function parseSearch(raw:unknown){return searchSchema.parse(raw).response.source||[];}
 // Product slugs end with the stock code ("…-depo-214-1219l"); search also returns products that merely contain it.
-export function codeCandidates(results:ReturnType<typeof parseSearch>,part:string){
- const code=normalize(part);return code.length<3?[]:results.filter(r=>/^[a-z0-9-]+$/.test(r.url)&&normalize(r.url).endsWith(code)).map(r=>r.url);
+/** Results whose slug ends with one of the part's spellings ("…-sachs-230845", "…-febi-02562"). */
+export function codeCandidates(results:ReturnType<typeof parseSearch>,part:string|string[]){
+ const codes=[part].flat().map(normalize).filter(code=>code.length>=3);
+ return results.filter(r=>/^[a-z0-9-]+$/.test(r.url)&&codes.some(code=>normalize(r.url).endsWith(code))).map(r=>r.url);
 }
 
 export type ProductPage={brand:string;partNumber:string;name:string;category:string;image:string|null;oems:string[];specifications:[string,string][];makers:{stok:string;manuId:string;name:string}[]};
