@@ -349,6 +349,15 @@ test('master product sharing excludes equivalents, split offers and changed supp
   assert.equal(await reconcileProductQueue(pool,run),2);
   const saved=(await pool.query('SELECT status,stage,checkpoint FROM enrichment_run_items WHERE run_id=$1 AND supplier_item_id=$2',[run,pending])).rows[0];
   assert.deepEqual(saved,{status:'queued',stage:'vehicles',checkpoint:{saved:true}});
+  // Only a retry-partial item may visit a product that already holds partial data; a plain queued item is superseded.
+  await pool.query("UPDATE product_enrichment_jobs SET status='partial',updated_at=now() WHERE supplier_item_id=$1",[donor]);
+  await pool.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
+   VALUES($1,$2,10,'FEBI 181123','FEBI','','vehicles','{"retry":"partial","product":{}}'),($1,$3,11,'FEBI 181123','FEBI','','search','{}')`,[run,donor,target]);
+  assert.equal(await reconcileProductQueue(pool,run),1);
+  assert.deepEqual((await pool.query('SELECT supplier_item_id,status FROM enrichment_run_items WHERE run_id=$1 AND ordinal>=10 ORDER BY ordinal',[run])).rows,
+   [{supplier_item_id:donor,status:'queued'},{supplier_item_id:target,status:'skipped'}]);
+  await pool.query('DELETE FROM enrichment_run_items WHERE run_id=$1 AND ordinal>=10',[run]);
+  await pool.query("UPDATE product_enrichment_jobs SET status='complete',updated_at=now() WHERE supplier_item_id=$1",[donor]);
   // A reviewed split immediately removes shared data from the separated offer.
   await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123')",[target]);
   await pool.query("UPDATE product_sources SET product_id=$1,method='manual' WHERE supplier_item_id=$1",[target]);
