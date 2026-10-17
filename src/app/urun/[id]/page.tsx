@@ -68,7 +68,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const title = enrichment?.displayName || product.name;
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
-  const displayPartNumber = enrichment?.matchBasis.type === "oem_reference" ? ownPartNumber : enrichment?.partNumber || ownPartNumber;
+  // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
+  const displayPartNumber = enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber;
   const specifications: [string, string][] = [...(enrichment?.specifications || []), ["Üretici", product.brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   const hasFitment = Boolean(enrichment && (enrichment.vehicles.length || enrichment.vehicleModels.length));

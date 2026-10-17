@@ -70,8 +70,10 @@
     "enrichment:continue": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts continue",
     "enrichment:report": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts report",
     "enrichment:otoparcasan": "node --env-file=.env.local --conditions=react-server --import tsx scripts/otoparcasan-enrichment.ts",
+    "enrichment:spareto": "node --env-file=.env.local --conditions=react-server --import tsx scripts/spareto-enrichment.ts",
     "enrichment:states": "node --env-file=.env.local --import tsx scripts/enrichment-states.ts",
     "test:otoparcasan": "node --import tsx --test scripts/test-otoparcasan.ts",
+    "test:spareto": "node --import tsx --test scripts/test-spareto.ts",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts"
   },
   "dependencies": {

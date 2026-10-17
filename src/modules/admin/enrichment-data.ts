@@ -48,7 +48,7 @@ function passPace() {
 export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; page?: string; sort?: string; dir?: string }) {
   const q = query.q?.trim().slice(0,120) || "";
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
-  const match = ["oem_reference","exact_part"].includes(query.match || "") ? query.match! : "all";
+  const match = ["oem_reference","exact_part","cross_reference"].includes(query.match || "") ? query.match! : "all";
   // One row per master product, materialized from enrichment_product_catalog (db/enrichment-states.sql). Writers queue
   // the products they touch; draining the queue here keeps the table current at read time.
   await db.query("SELECT enrichment_product_states_sync()");

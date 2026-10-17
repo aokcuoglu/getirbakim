@@ -19,7 +19,7 @@ CREATE OR REPLACE VIEW enrichment_valid_data AS
  WHERE e.supplier_code=s.code
  AND e.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
  AND j.status IN ('complete','partial')
- AND (e.match_basis->>'type'='exact_part' OR
+ AND (e.match_basis->>'type' IN ('exact_part','cross_reference') OR
    (e.match_basis->>'type'='oem_reference' AND e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe','')));
 
 -- A flat candidate view lets point lookups and legacy-batch reconciliation restrict the supplier rows first.

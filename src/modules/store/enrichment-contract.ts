@@ -5,6 +5,9 @@ export const matchBasisSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("exact_part") }),
   z.object({ type: z.literal("oem_reference"), reference: z.string().min(1), supplierOem: z.string(),
     referenceSource: z.enum(["supplier_oem", "original_manufacturer_part_code"]) }),
+  // Another manufacturer's product that lists the supplier's own brand and part number among its cross references
+  // (an equivalent part). Its image and specifications describe the same part; its part number is never shown as ours.
+  z.object({ type: z.literal("cross_reference"), reference: z.string().min(1), referenceBrand: z.string().min(1) }),
 ]);
 export const enrichmentDataSchema = z.object({
   categories: z.array(z.object({source:z.literal("trodo"),id:z.number().int().positive(),name:z.string().min(1).max(300),
@@ -44,7 +47,7 @@ export const manufacturerBrandKey = (value: string) => aliases[normalize(value)]
 const brandKey = manufacturerBrandKey;
 const prefixes: Record<string, string[]> = {
   DEPO: ["DPO"], LUK: ["LUK"], FEBIBILSTEIN: ["FEBI"], BOSCH: ["BOS", "BCH"], LEMFORDER: ["LEM"], BSG: ["BSG"],
-  DENSO: ["DEN"], MANNFILTER: ["MANN"], ELRING: ["ELR"], CONTITECH: ["C", "CT"], TRW: ["TRW"],
+  DENSO: ["DEN"], MANNFILTER: ["MANN"], ELRING: ["ELR"], CONTITECH: ["C", "CT", "CONTI"], TRW: ["TRW"],
   MOOG: ["MOOG"], SKF: ["SKF"], SACHS: ["SCH"], FAG: ["FAG"], PIERBURG: ["PRG"], CTR: ["CTR"],
   // Supplier prefixes verified against same-brand Trodo catalog candidates.
   FILTRON: ["FILT"], DAYCO: ["DAY"], TEXTAR: ["TX"], VDO: ["VDO"], ERA: ["ERA"], NGK: ["NGK"],
@@ -54,6 +57,8 @@ const prefixes: Record<string, string[]> = {
   CHAMPION: ["CHA"], SOFIMA: ["SOF"], DOLZ: ["DOLZ"], PURFLUX: ["PUR"], WAHLER: ["WHL"],
   AE: ["AE"], JURID: ["JRD"], ULO: ["ULO"],
   HENGSTFILTER: ["HNG"],
+  // Dinamik labels seen on spareto.com candidates of the same brand.
+  CORTECO: ["COR"], OSRAM: ["OSR"], MANDO: ["MND"], GLYCO: ["GLY"], TIMKEN: ["TIM"],
 };
 
 /** A supplier row names its brand by its own label ("KRAFTVOLL BALATA"); the reviewed master brand it belongs to
@@ -76,6 +81,8 @@ export function matchesEnrichment(supplier: { brand: string; code: string; oem: 
 }) {
   const basis = source.matchBasis;
   if (basis.type === "exact_part") return matchesSupplierPart(supplier.brand, supplier.code, source.manufacturer, source.partNumber, supplier.masterBrand);
+  if (basis.type === "cross_reference") return matchesSupplierPart(supplier.brand, supplier.code, basis.referenceBrand, basis.reference, supplier.masterBrand)
+    && Object.entries(source.data.crossReferences).some(([brand, values]) => brand === basis.referenceBrand && values.some(value => normalize(value) === normalize(basis.reference)));
   if (supplier.oem !== basis.supplierOem) return false;
   const reference = normalize(basis.reference);
   if (!reference) return false;
