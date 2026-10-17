@@ -304,12 +304,14 @@ async function summarizeSearch(search:CatalogSearch){
 // reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
 // it is served stale-while-revalidate for 10 minutes. Prices and stock are still read live for the listed
 // ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
-const cachedPages=10,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300);
+// 30 cards keep a listing page near 0.6 MB of HTML (60 made it 1.15 MB); 20 cached pages still cover 600 results.
+const catalogPageSize=30;
+const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300);
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
  const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);
  const {attributes}=await attributeFacets(summary.brands,[summary.ids],"SELECT unnest($1::uuid[]) AS id");
- return {ids:summary.ids.slice(0,cachedPages*60),total:summary.ids.length,brands:summary.brands,attributes,
+ return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
@@ -320,7 +322,7 @@ function isPlainSearch(query:CatalogQuery){
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
   const mode=query.searchBy==="code"?"code":"all",plain=await plainSearch(query.q!,mode);
-  const pageSize=60,total=plain.total,pages=Math.max(1,Math.ceil(total/pageSize));
+  const pageSize=catalogPageSize,total=plain.total,pages=Math.max(1,Math.ceil(total/pageSize));
   const requested=Number(query.page);
   const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
   const ranked=page<=cachedPages?plain.ids:(await summarizeSearch(await catalogSearch(query.q!,mode))).ids;
@@ -332,7 +334,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const total = search ? await count() : await cachedCounts(filterKey(query,context),count);
- const pageSize = 60, pages = Math.max(1,Math.ceil(total/pageSize));
+ const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  const order=query.sort === "price-asc" ? "price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "price_kurus DESC NULLS LAST,id" : "updated_at DESC,id";
