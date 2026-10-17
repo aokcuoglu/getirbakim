@@ -9,6 +9,7 @@ import {Pool} from 'pg';
 import {sourceDecision,retryAfterMs,validSourcePath,quietWaitMs,pacingDelayMs} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
 import {SourceQueue,unblockSources} from '../src/modules/enrichment/source-queue';
+import {matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
 test('long-running Chrome collectors close between successive catalog batches',async t=>{
  const sockets:FakeSocket[]=[];
@@ -142,6 +143,14 @@ test('Hengst supplier identity matches the source while similar search results s
  assert.equal(chooseExact('HENGST','HNG E700L',[product,{...product,entity_id:999}]),null);
  assert.deepEqual(sourcePartQueries('OTHER','ABC 104620'),['ABC 104620','104620','OTHER 104620']);assert.deepEqual(sourcePartQueries('GLASER','GLS T85010-00'),['GLS T85010-00','T85010-00','T8501000','GLASER T85010-00']);
  assert.deepEqual(sourcePartQueries('BOSCH','BCH F 026 400 093'),['F 026 400 093','F026400093','BOSCH F 026 400 093']);
+ // Suppliers drop the leading zero of FEBI's five-digit numbers; the source lists 02562, not 2562.
+ assert.deepEqual(sourcePartQueries('FEBI','FEBI 2562'),['2562','02562','FEBI 2562']);
+ assert.deepEqual(sourcePartQueries('FEBI','FEBI 950'),['950','0950','00950','FEBI 950']);
+ assert.deepEqual(sourcePartQueries('BOSCH','BOSCH 0986141592'),['0986141592','BOSCH 0986141592']);
+ assert.ok(matchesSupplierPart('FEBI','FEBI 2562','FEBI BILSTEIN','02562'));
+ assert.ok(!matchesSupplierPart('FEBI','FEBI 2562','FEBI BILSTEIN','25620'));
+ assert.ok(!matchesSupplierPart('FEBI','FEBI 2562','KAMOKA','02562'));
+ assert.ok(!matchesSupplierPart('HENGST','HNG E0700L','HENGST FILTER','E700L'));
 });
 test('rate limiting honors both Retry-After forms and opens a circuit after bounded retries',()=>{
  assert.equal(retryAfterMs('120'),120000);assert.equal(retryAfterMs('Sun, 04 Oct 2026 10:02:00 GMT',Date.parse('2026-10-04T10:00:00Z')),120000);

@@ -66,14 +66,17 @@ const prefixes: Record<string, string[]> = {
 export function matchesSupplierPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string, masterBrand?: string | null) {
   return [supplierBrand, masterBrand].some(brand => brand && matchesBrandPart(brand, supplierCode, manufacturer, partNumber));
 }
+// Suppliers drop the leading zeros of all-digit catalogue numbers ("FEBI 2562" for FEBI 02562); within one brand an
+// all-digit number names the same part with or without them.
+const partKey = (value: string) => { const key = normalize(value); return /^\d+$/.test(key) ? key.replace(/^0+(?=\d)/, "") : key; };
 function matchesBrandPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
   const brand = brandKey(supplierBrand);
   if (brand !== brandKey(manufacturer)) return false;
-  if (normalize(supplierCode) === normalize(partNumber)) return true;
+  if (partKey(supplierCode) === partKey(partNumber)) return true;
   const [prefix, ...rest] = supplierCode.trim().split(/\s+/);
   // Dinamik also prefixes codes with the brand's own name ("BOSCH 0986424533", "TEKNOROT HY-1044K").
   const known = (prefixes[brand] || []).includes(prefix.toUpperCase()) || brandKey(prefix) === brand;
-  return known && rest.length > 0 && normalize(rest.join(" ")) === normalize(partNumber);
+  return known && rest.length > 0 && partKey(rest.join(" ")) === partKey(partNumber);
 }
 
 export function matchesEnrichment(supplier: { brand: string; code: string; oem: string; masterBrand?: string | null }, source: {

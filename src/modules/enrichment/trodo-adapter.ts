@@ -21,7 +21,14 @@ export function sourcePartQueries(brand:string,code:string){
  const [head,...tail]=part.split(/\s+/),rest=tail.join(' ');
  const unprefixed=/^[A-Z]{2,5}$/i.test(head)&&/\d/.test(rest)?rest:part;
  const compact=unprefixed.replace(/[^a-z0-9]/gi,'');
- return [...new Set([part,unprefixed,compact,`${name} ${unprefixed}`].filter(Boolean))];
+ return [...new Set([part,unprefixed,compact,...numericSpellings(compact),`${name} ${unprefixed}`].filter(Boolean))];
+}
+/** Other spellings of an all-digit catalogue number: suppliers drop leading zeros ("FEBI 2562" is FEBI 02562, five
+ *  digits), so a short number is also tried with one leading zero and padded to five digits; a zero-led one without. */
+export function numericSpellings(compact:string){
+ if(!/^\d+$/.test(compact))return [];
+ const bare=compact.replace(/^0+(?=\d)/,'');
+ return [...new Set([...(compact.length<5?['0'+compact,compact.padStart(5,'0')]:[]),...(compact.length<=5?[bare]:[])])].filter(v=>v!==compact);
 }
 export function parseView(raw:unknown){return z.array(z.object({relationships:relationshipsSchema})).min(1).parse(raw)[0].relationships;}
 export function parseProduct(raw:unknown){return z.array(z.object({attributes:productSchema})).min(1).parse(raw)[0].attributes;}
