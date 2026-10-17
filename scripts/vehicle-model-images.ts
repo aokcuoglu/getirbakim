@@ -11,6 +11,7 @@ import { acceptedLicense, classifyMatch, plainAuthor, vehicleModelImageQueries, 
 // store can attribute them. Rows start as `pending`; /yonetim/arac-gorselleri (or `approve` here) publishes them.
 //
 //   npm run vehicles:images -- match [--limit=N] [--brand=RENAULT] [--retry] [--since=2005]
+//     (series with an `error` lookup are retried on every run; --retry also reopens `none`)
 //   npm run vehicles:images -- status
 //   npm run vehicles:images -- approve --kind=generation [--brand=RENAULT]
 //
@@ -34,17 +35,26 @@ const flag = (name: string) => args.includes(`--${name}`);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 let lastRequest = 0;
-async function fetchJson<T>(url: string): Promise<T> {
-  const wait = lastRequest + PAUSE_MS - Date.now();
-  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-  lastRequest = Date.now();
+const transientNetwork = (error: unknown) => /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|socket hang up|TimeoutError/.test(error instanceof Error ? `${error.name} ${error.message} ${(error.cause as Error | undefined)?.message ?? ""}` : String(error));
+async function paced<T>(request: () => Promise<Response>, read: (response: Response) => Promise<T>, what: string): Promise<T> {
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(30000) });
-    if (response.ok) return response.json() as Promise<T>;
-    if ((response.status === 429 || response.status >= 500) && attempt < 4) { await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); continue; }
-    throw new Error(`${response.status} from ${new URL(url).hostname}`);
+    const wait = lastRequest + PAUSE_MS - Date.now();
+    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+    lastRequest = Date.now();
+    try {
+      const response = await request();
+      if (response.ok) return read(response);
+      if ((response.status === 429 || response.status >= 500) && attempt < 4) { await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); continue; }
+      throw new Error(`${response.status} ${what}`);
+    } catch (error) {
+      // A dropped connection is retried with growing pauses; the caller decides when the network is really gone.
+      if (transientNetwork(error) && attempt < 5) { await new Promise(resolve => setTimeout(resolve, 3000 * attempt)); continue; }
+      throw error;
+    }
   }
 }
+const fetchJson = <T>(url: string) => paced(() => fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(30000) }),
+  response => response.json() as Promise<T>, `from ${new URL(url).hostname}`);
 const wikidata = (params: Record<string, string>) => `https://www.wikidata.org/w/api.php?${new URLSearchParams({ format: "json", ...params })}`;
 const commons = (params: Record<string, string>) => `https://commons.wikimedia.org/w/api.php?${new URLSearchParams({ format: "json", ...params })}`;
 
@@ -91,12 +101,8 @@ async function commonsFile(file: string) {
 }
 
 async function downloadThumb(url: string) {
-  const wait = lastRequest + PAUSE_MS - Date.now();
-  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-  lastRequest = Date.now();
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(60000) });
-  if (!response.ok) throw new Error(`${response.status} downloading thumbnail`);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  const bytes = await paced(() => fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(60000) }),
+    async response => Buffer.from(await response.arrayBuffer()), "downloading thumbnail");
   if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw new Error("Unexpected thumbnail size");
   return bytes;
 }
@@ -158,14 +164,14 @@ async function match() {
   const { rows: models } = await pool.query<ModelRow>(`SELECT m.id, b.name AS brand, b.display_name AS brand_name, m.name, to_char(m.date_from,'YYYY-MM-DD') AS date_from, to_char(m.date_to,'YYYY-MM-DD') AS date_to
     FROM vehicle_models m JOIN vehicle_brands b ON b.id=m.brand_id
     WHERE NOT EXISTS (SELECT 1 FROM vehicle_model_images i WHERE i.model_id=m.id)
-      AND ($3 OR NOT EXISTS (SELECT 1 FROM vehicle_model_image_lookups l WHERE l.model_id=m.id))
+      AND ($3 OR NOT EXISTS (SELECT 1 FROM vehicle_model_image_lookups l WHERE l.model_id=m.id AND l.outcome<>'error'))
       AND ($1::text IS NULL OR b.name=$1 OR b.display_name=$1)
       AND ($2::int=0 OR m.date_from >= make_date($2,1,1) OR m.date_to IS NULL)
     ORDER BY (m.date_to IS NULL) DESC, m.date_from DESC NULLS LAST, m.id ${limit > 0 ? `LIMIT ${limit}` : ""}`, [brand ?? null, since, retry]);
   console.log(`${models.length} model series to match`);
   const tmp = await mkdtemp(join(tmpdir(), "vehicle-images-"));
   const totals: Record<string, number> = { generation: 0, family: 0, none: 0, error: 0 };
-  let stopped = false;
+  let stopped = false, networkFailures = 0;
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => { stopped = true; console.log("Stopping after the current model…"); });
   try {
     for (const [index, model] of models.entries()) {
@@ -176,6 +182,7 @@ async function match() {
         const result = await matchModel(client, model, tmp);
         await client.query("COMMIT");
         totals[result]++;
+        networkFailures = 0;
         console.log(`${index + 1}/${models.length} ${model.brand_name} ${model.name} → ${result}`);
       } catch (error) {
         await client.query("ROLLBACK").catch(() => {});
@@ -184,7 +191,8 @@ async function match() {
         console.error(`${index + 1}/${models.length} ${model.brand_name} ${model.name} → error: ${detail}`);
         await pool.query(`INSERT INTO vehicle_model_image_lookups(model_id,outcome,detail,queries) VALUES($1,'error',$2,'{}')
           ON CONFLICT (model_id) DO UPDATE SET outcome='error',detail=EXCLUDED.detail,attempted_at=now()`, [model.id, detail.slice(0, 500)]).catch(() => {});
-        if (/ENOTFOUND|ECONNREFUSED|fetch failed/.test(detail)) throw error;
+        // One dropped connection is a retryable `error` row; five series in a row means the network is gone.
+        if (transientNetwork(error) && ++networkFailures >= 5) throw new Error(`Network unavailable: ${detail}`);
       } finally { client.release(); }
     }
   } finally { await rm(tmp, { recursive: true, force: true }); }
