@@ -1,6 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 
 /** Preserve all historical observations/checkpoints; retire only queued offers that no longer need a source visit. */
+// Queued items whose product no longer needs a visit are skipped before a worker starts. A retry-partial item (marked
+// in its checkpoint) is the one case that visits a product already holding partial data.
 export async function reconcileProductQueue(pool: Pool | PoolClient, runId: string) {
   await pool.query(`UPDATE enrichment_run_items i SET product_id=s.product_id FROM product_sources s
     WHERE i.run_id=$1 AND s.supplier_item_id=i.supplier_item_id AND i.product_id IS NULL`, [runId]);
@@ -18,7 +20,8 @@ export async function reconcileProductQueue(pool: Pool | PoolClient, runId: stri
    ) UPDATE enrichment_run_items i SET status='skipped',finished_at=now(),lease_token=NULL,lease_until=NULL,
     last_error='Source visit superseded by master product scope or existing product outcome'
    FROM ranked r WHERE i.run_id=$1 AND i.supplier_item_id=r.supplier_item_id AND i.status='queued'
-    AND (r.product_id IS NULL OR r.product_status<>'pending' OR r.position>1)
+    AND (r.product_id IS NULL OR r.position>1
+     OR r.product_status<>CASE WHEN i.checkpoint ? 'retry' THEN 'partial' ELSE 'pending' END)
    RETURNING i.supplier_item_id`, [runId]);
   return result.rowCount ?? 0;
 }

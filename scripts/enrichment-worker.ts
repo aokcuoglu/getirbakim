@@ -127,7 +127,8 @@ async function serve(runId:string,port:number,chrome=false){
    const scope=(await pool.query(`SELECT c.status FROM enrichment_product_catalog c JOIN enrichment_current_sources ps
     ON ps.product_id=c.product_id WHERE c.product_id=$1 AND ps.supplier_item_id=$2`,[item.product_id,item.supplier_item_id])).rows[0];
    // A partial product is re-collected only through retry-partial; its stored data is replaced, never downgraded.
-   if(!['pending','partial'].includes(scope?.status)){
+   const retry=(item.checkpoint as Record<string,unknown>).retry==='partial';
+   if(!(scope?.status==='pending'||(scope?.status==='partial'&&retry))){
     await pool.query("UPDATE enrichment_run_items SET status='skipped',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]);continue;
    }
    const heartbeat=setInterval(()=>void pool.query("UPDATE enrichment_run_items SET lease_until=now()+interval '2 minutes' WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]).catch(console.error),30000);
@@ -323,9 +324,9 @@ async function requeuePartial(runId:string){
   if(active)throw Error('Another unfinished run exists: '+active.id);
   const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
    SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
-    c.supplier_code,c.supplier_brand,c.oem,'vehicles',COALESCE(cp.checkpoint,'{}')
+    c.supplier_code,c.supplier_brand,c.oem,'vehicles',COALESCE(cp.checkpoint,'{}')||'{"retry":"partial"}'
    FROM enrichment_product_catalog c JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
-   LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status='partial'
+   LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status IN ('partial','skipped')
     AND i.checkpoint ? 'product' AND i.checkpoint ? 'view' ORDER BY i.finished_at DESC NULLS LAST LIMIT 1) cp ON true
    WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND e.source_url LIKE 'https://www.trodo.com/%'
     AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2])
