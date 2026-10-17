@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.6 — 2026-10-17
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Performance
+- Product pages: cross-reference and OEM link lookups read new expression indexes (`part_number_key()`, `supplier_items_part_key_idx`, `supplier_items_oem_key_idx`) instead of normalising every catalog item; ~2 s each in production, ~5 ms locally with the same results ([#244](https://github.com/aokcuoglu/getirbakim/issues/244), [#267](https://github.com/aokcuoglu/getirbakim/pull/267)).
+
+### Operations
+- Deploy builds two indexes on `supplier_items` (a few seconds; writes to the table wait meanwhile).
+
 ## v0.22.5 — 2026-10-17
 
 Hotfix from `main`; the rest of `dev` is not included.
