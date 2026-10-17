@@ -18,6 +18,9 @@ const outline="h-auto min-h-12 rounded-[5px] border-input bg-white px-4 py-3 tex
 export function PurchaseForm({productId,name,available,maxQuantity=99,className,variant="listing"}:{productId:string;name:string;available:boolean;maxQuantity?:number;className?:string;variant?:"listing"|"product"}) {
   const [state,action,pending]=useActionState(addToCart,initial);
   const [open,setOpen]=useState(false);
+  // A 60-card listing rendered 99 <option>s per card (~200 kB of HTML); the rest are added before the list can open.
+  const [allQuantities,setAllQuantities]=useState(false);
+  const quantities=Math.max(1,Math.min(maxQuantity,99));
   const titleId=useId();
   useEffect(()=>{
     // Opening the popup is the response to a finished add-to-cart action.
@@ -29,9 +32,10 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
       <input type="hidden" name="productId" value={productId}/>
       <select aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}
+        onPointerEnter={()=>setAllQuantities(true)} onFocus={()=>setAllQuantities(true)}
         className={cn("h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed max-[600px]:group-data-[view=grid]/listing:w-12 max-[600px]:group-data-[view=grid]/listing:flex-[0_0_48px] max-[600px]:group-data-[view=grid]/listing:px-2",
           product&&"w-16 flex-[0_0_64px] rounded-[5px] py-2.5")}>
-        {Array.from({length:Math.max(1,Math.min(maxQuantity,99))},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
+        {Array.from({length:allQuantities?quantities:Math.min(quantities,10)},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
       </select>
       <Button type="submit" disabled={!available || pending}
         className={cn("h-12 min-w-0 flex-1 rounded-md border-brand bg-brand px-2 py-[13px] text-sm font-medium text-white hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs",
