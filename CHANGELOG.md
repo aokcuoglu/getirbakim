@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.5 — 2026-10-17
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Performance
+- Listing pages: quantity selects render 10 options until hovered or focused; a 60-card category page carried ~6,000 `<option>`s (~190 kB of HTML) ([#244](https://github.com/aokcuoglu/getirbakim/issues/244), [#261](https://github.com/aokcuoglu/getirbakim/pull/261)).
+- The app no longer gzips responses (`compress: false`); edge nginx and Cloudflare compress. Production app container: 2 CPUs.
+
 ## v0.22.4 — 2026-10-16
 
 Hotfix from `main`; the rest of `dev` is not included.
