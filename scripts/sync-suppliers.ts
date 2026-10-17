@@ -27,6 +27,8 @@ const dinamikBudgetMs = z.coerce.number().positive().max(80).parse(process.env.D
 // These failures say the supplier itself is unreachable or occupied; trying the remaining groups now only adds load.
 const stopReasons = new Set(["upstream", "config", "busy", "paused"]);
 
+// Peak resident memory of this run so far; the sync worker's limits come from these numbers (#253, #277).
+const peakRssMB = () => Math.round(process.resourceUsage().maxRSS / 1024);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const worker = await pool.connect();
 let locked = false;
@@ -76,7 +78,7 @@ try {
         }
         try {
           const result = await importDinamik(pool, { brand: scope.list_group });
-          console.log({ supplier: "dinamik", brand: scope.list_group, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+          console.log({ supplier: "dinamik", brand: scope.list_group, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
           // Dinamik names are sold and searched on the storefront too.
           if (result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
         } catch (error) {
@@ -94,7 +96,7 @@ try {
       if (scope.supplier === "seta") {
         try {
           const result = await importSeta(pool, { mode });
-          console.log({ supplier: "seta", mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+          console.log({ supplier: "seta", mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
           if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
         } catch (error) {
           console.error({ supplier: "seta", mode, reason: error instanceof SetaImportError ? error.message : "SETA import failed", seconds: Math.round((Date.now() - started) / 1000) });
@@ -105,7 +107,7 @@ try {
       try {
         if (scope.supplier !== "basbug" || scope.warehouse !== "MRK") throw new Error("No verified adapter for scope");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
-        console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats });
+        console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
         if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
       } catch (error) {
