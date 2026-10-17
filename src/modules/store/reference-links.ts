@@ -12,7 +12,7 @@ const entriesSql = "SELECT id,brand,code,oem FROM commerce_catalog_entries WHERE
 // supplier_items_part_key_idx; filtering the catalog view directly normalised every item (~2 s per page).
 const partNumberCandidates = async (codes: string[]) => (await db.query<{id: string}>(
   `SELECT id::text FROM supplier_items WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])
-   UNION SELECT id::text FROM store_products WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])`,
+   UNION SELECT id::text FROM products WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])`,
   [codes])).rows.map(row => row.id);
 
 // Resolves which OEM / cross-reference numbers exist in our own catalog, so the
