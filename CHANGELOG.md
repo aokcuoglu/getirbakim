@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.9 — 2026-10-17
+
+Hotfix from `main`; the rest of `dev` is not included. Deployed together with v0.22.8.
+
+### Changed
+- Category, make and search pages show 30 products per page instead of 60; a category page drops from ~1.15 MB to ~0.6–0.8 MB of HTML ([#244](https://github.com/aokcuoglu/getirbakim/issues/244), [#281](https://github.com/aokcuoglu/getirbakim/pull/281)).
+
 ## v0.22.8 — 2026-10-17
 
 Hotfix from `main`; the rest of `dev` is not included.
