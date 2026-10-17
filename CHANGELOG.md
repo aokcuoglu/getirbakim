@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.7 — 2026-10-17
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Performance
+- Home page: the four "newest products" picks (latest + three collections) cache their product ids for 10 minutes; price and stock are still read on every request. Each pick read every enrichment (~0.4 s) ([#244](https://github.com/aokcuoglu/getirbakim/issues/244), [#274](https://github.com/aokcuoglu/getirbakim/pull/274)).
+
 ## v0.22.6 — 2026-10-17
 
 Hotfix from `main`; the rest of `dev` is not included.
