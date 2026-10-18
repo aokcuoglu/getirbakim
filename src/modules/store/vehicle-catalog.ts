@@ -3,6 +3,13 @@ import type { VehicleOilSpec } from "./vehicle-oil";
 /** Side-view picture of a vehicle type from REPXPERT, stored as WebP (vehicle_type_images). */
 export type VehicleImage = { src: string; width: number; height: number };
 
+/** Technical data of a vehicle type read from REPXPERT (vehicle_type_specs); absent fields are null or empty. */
+export type VehicleSpecs = {
+  bodyType: string | null; driveType: string | null; fuelMixture: string | null;
+  /** Valves are per cylinder. */
+  cylinders: number | null; valves: number | null; engineCodes: string[];
+};
+
 export type VehicleBrand = { id: string; name: string; popular: boolean };
 export type VehicleModel = {
   id: string; brandId: string; name: string; dateFrom: string | null; dateTo: string | null;
@@ -17,6 +24,8 @@ export type CatalogVehicle = {
   image?: VehicleImage;
   /** Recommended engine oil; only the single-vehicle lookup (getCatalogVehicle) carries it. */
   oil?: VehicleOilSpec;
+  /** REPXPERT technical data; like oil, only the single-vehicle lookup carries it. */
+  specs?: VehicleSpecs;
 };
 export type SavedVehicle = {
   make: string; model: string; year: number; vehicleId?: string;

@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
 import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
-import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
+import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleSpecs, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 import { getVehicleModelImages, getVehicleTypeImages } from "./vehicle-images.server";
 import { getVehicleOilSpec } from "./vehicle-oil.server";
 
@@ -65,13 +65,21 @@ export async function getModelVehicles(modelId: string): Promise<CatalogVehicle[
   return withImages(rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id)));
 }
 
-/** One vehicle type by id, with its picture and recommended oil: the garage tab's card of the saved vehicle. */
+async function getVehicleSpecs(id: string): Promise<VehicleSpecs | null> {
+  const { rows } = await db.query<VehicleSpecs>(`SELECT body_type AS "bodyType", drive_type AS "driveType",
+    fuel_mixture AS "fuelMixture", cylinders, valves, engine_codes AS "engineCodes"
+    FROM vehicle_type_specs WHERE vehicle_type_id=$1 AND outcome='found'`, [id]);
+  return rows[0] ?? null;
+}
+
+/** One vehicle type by id, with its picture, recommended oil and REPXPERT specs: the garage tab's card of the saved vehicle. */
 export async function getCatalogVehicle(id: string): Promise<CatalogVehicle | null> {
   if (!validId(id)) return null;
-  const [{ rows }, oil] = await Promise.all([db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]), getVehicleOilSpec(id)]);
+  const [{ rows }, oil, specs] = await Promise.all([db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]),
+    getVehicleOilSpec(id), getVehicleSpecs(id)]);
   if (!rows.length) return null;
   const vehicle = (await withImages(rows.map(formatVehicle)))[0];
-  return oil ? { ...vehicle, oil } : vehicle;
+  return { ...vehicle, ...(oil && { oil }), ...(specs && { specs }) };
 }
 
 // Make + model words decide the order; dividing by their length (chassis codes in brackets left out)

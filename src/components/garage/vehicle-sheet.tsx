@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
@@ -26,6 +26,22 @@ const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-norm
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-input bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const summaryBox = "mb-[22px] flex items-start gap-3.5 rounded-[5px] border border-border bg-[#f8f9f9] p-[18px] [&>span>svg]:text-muted-foreground [&_strong]:text-sm [&_strong]:leading-5 [&_strong]:font-semibold [&_p]:my-1.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
+// The saved vehicle's technical data, REPXPERT's where it has the type; missing values leave their row out.
+function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
+  const specs = vehicle.specs;
+  const cylinders = specs?.cylinders ? `${specs.cylinders} silindir${specs.valves ? ` · ${specs.cylinders * specs.valves} supap` : ""}` : null;
+  const rows: [string, string | null | undefined][] = [
+    ["Üretim", vehicleProductionDates(vehicle.dateFrom, vehicle.dateTo)],
+    ["Kasa tipi", specs?.bodyType],
+    ["Çekiş", specs?.driveType],
+    ["Motor kodu", specs?.engineCodes.join(", ")],
+    ["Motor hacmi", vehicle.cc ? `${vehicle.cc.toLocaleString("tr-TR")} cm³` : null],
+    ["Silindir", cylinders],
+    ["Yakıt sistemi", specs?.fuelMixture],
+  ];
+  return rows.filter((row): row is [string, string] => Boolean(row[1]));
+}
+
 const emptyBox = "py-9 text-center text-muted-foreground [&>svg]:mx-auto [&>svg]:mb-4 [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-sm [&>p]:leading-[22px] [&>p]:text-foreground [&>small]:text-xs [&>small]:leading-5";
 
 export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", finalFocus }: { open: boolean; vehicle: SavedVehicle | null; onClose: () => void; initialTab?: Tab; finalFocus?: RefObject<HTMLElement | null> }) {
@@ -67,8 +83,10 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const searchRequest = useVehicleCatalog(query.trim() && !tooShort ? `/api/vehicles?q=${encodeURIComponent(query.trim())}&offset=${searchOffset}` : null, 250);
   // The saved vehicle only carries ids; its series photograph is looked up when the garage tab shows it.
   const savedRequest = useVehicleCatalog(tab === "garage" && vehicle?.vehicleId ? `/api/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}` : null);
-  const savedImage = savedRequest.data?.vehicles?.[0]?.image;
-  const savedOil = savedRequest.data?.vehicles?.[0]?.oil;
+  const savedVehicle = savedRequest.data?.vehicles?.[0];
+  const savedImage = savedVehicle?.image;
+  const savedOil = savedVehicle?.oil;
+  const savedSpecs = savedVehicle ? vehicleSpecRows(savedVehicle) : [];
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
@@ -226,13 +244,18 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
           <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
-          {savedOil && <dl className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-[5px] border border-border px-[18px] py-3.5 text-[13px] leading-5 [&>dt]:text-muted-foreground [&>dd]:m-0 [&>dd]:wrap-anywhere" aria-label="Önerilen motor yağı">
-            <dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd>
-            <dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd>
-            {savedOil.acea.length > 0 && <><dt>ACEA</dt><dd>{savedOil.acea.join(", ")}</dd></>}
-            {savedOil.api.length > 0 && <><dt>API</dt><dd>{savedOil.api.join(", ")}</dd></>}
-            {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
-          </dl>}
+          {(savedSpecs.length > 0 || savedOil) && <div className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 rounded-[5px] border border-border px-[18px] text-[13px] leading-5 [&>dl]:col-span-2 [&>dl]:grid [&>dl]:grid-cols-subgrid [&>dl]:gap-y-1 [&>dl]:py-3.5 [&>dl+dl]:border-t [&>dl+dl]:border-border [&_dt]:text-muted-foreground [&_dd]:m-0 [&_dd]:wrap-anywhere">
+            {savedSpecs.length > 0 && <dl aria-label="Araç özellikleri">
+              {savedSpecs.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}
+            </dl>}
+            {savedOil && <dl aria-label="Önerilen motor yağı">
+              <dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd>
+              <dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd>
+              {savedOil.acea.length > 0 && <><dt>ACEA</dt><dd>{savedOil.acea.join(", ")}</dd></>}
+              {savedOil.api.length > 0 && <><dt>API</dt><dd>{savedOil.api.join(", ")}</dd></>}
+              {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
+            </dl>}
+          </div>}
           <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
           <Button className={cn(plain, "mx-auto mt-4 flex min-h-9 items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
