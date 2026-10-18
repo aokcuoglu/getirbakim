@@ -46,24 +46,10 @@ const offersSql = `WITH sources AS (
    JOIN commerce_catalog c ON c.id=s.supplier_item_id AND c.id=ANY(ARRAY(SELECT supplier_item_id FROM sources))
  )`;
 
-/** Brand labels as the list shows them, with their product counts: the choices of the brand column filter. */
-export async function productBrands() {
-  await requireAdmin();
-  return (await db.query<{ label: string; count: number }>(
-    "SELECT brand_label AS label, count(*)::int AS count FROM products WHERE merged_into IS NULL GROUP BY brand_label ORDER BY brand_label")).rows;
-}
-
 // A product's categories are the enrichment (Trodo) categories of its supplier rows, labelled in Turkish.
 const productCategoriesSql = `SELECT s.product_id, pc.category_id, l.name FROM product_source_categories pc
   JOIN product_sources s ON s.supplier_item_id=pc.supplier_item_id
   JOIN source_category_labels l ON l.source=pc.source AND l.category_id=pc.category_id AND l.locale='tr' WHERE pc.source='trodo'`;
-
-/** Categories with their product counts: the choices of the category column filter. */
-export async function productCategories() {
-  await requireAdmin();
-  return (await db.query<{ id: string; label: string; count: number }>(`SELECT c.category_id::text AS id, c.name AS label, count(DISTINCT c.product_id)::int AS count
-    FROM (${productCategoriesSql}) c JOIN products p ON p.id=c.product_id AND p.merged_into IS NULL GROUP BY c.category_id, c.name ORDER BY c.name`)).rows;
-}
 
 export async function listProducts(params: { q?: string; filter?: string; brands?: string[]; categories?: string[]; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
@@ -71,19 +57,17 @@ export async function listProducts(params: { q?: string; filter?: string; brands
   const q = compact(params.q);
   const brands = [...new Set((params.brands ?? []).map(brand => brand.trim().slice(0, 80)).filter(Boolean))].slice(0, 100);
   const categories = [...new Set((params.categories ?? []).filter(id => /^\d{1,9}$/.test(id)))].slice(0, 100);
+  // Each condition appends its value to the query's list and returns the SQL that reads it.
+  const byBrand = (values: unknown[]) => (values.push(brands), `p.brand_label=ANY($${values.length}::text[])`);
+  const byCategory = (values: unknown[]) =>
+    (values.push(categories), `p.id IN (SELECT c.product_id FROM (${productCategoriesSql}) c WHERE c.category_id=ANY($${values.length}::int[]))`);
+  // Merged products have no rows of their own; they only matter as redirects.
+  const listed = [productFilters[filter].where, ...filter !== "inactive" ? ["p.merged_into IS NULL"] : []];
   const values: unknown[] = [];
   // The brand and category filters hold across the tabs, so their counts follow them too.
-  const scope: string[] = [];
-  if (brands.length) {
-    values.push(brands);
-    scope.push(`p.brand_label=ANY($${values.length}::text[])`);
-  }
-  if (categories.length) {
-    values.push(categories);
-    scope.push(`p.id IN (SELECT c.product_id FROM (${productCategoriesSql}) c WHERE c.category_id=ANY($${values.length}::int[]))`);
-  }
+  const scope = [...brands.length ? [byBrand(values)] : [], ...categories.length ? [byCategory(values)] : []];
   const scoped = [...values];
-  const where: string[] = [productFilters[filter].where, ...scope];
+  const where: string[] = [...listed, ...scope];
   if (q) {
     values.push(q);
     const n = `$${values.length}`;
@@ -91,16 +75,23 @@ export async function listProducts(params: { q?: string; filter?: string; brands
     where.push(`(p.part_number LIKE '%'||${n}||'%' OR p.brand=${n} OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
       WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%'))`);
   }
-  // Merged products have no rows of their own; they only matter as redirects.
-  if (filter !== "inactive") where.push("p.merged_into IS NULL");
   const sql = where.join(" AND ");
-  const [total, counts] = await Promise.all([
+  // Each column filter offers the choices left by the tab and the other column filter; selected ones stay listed.
+  const brandValues: unknown[] = [brands], categoryValues: unknown[] = [categories];
+  const brandWhere = [...listed, ...categories.length ? [byCategory(brandValues)] : []].join(" AND ");
+  const categoryWhere = [...listed, ...brands.length ? [byBrand(categoryValues)] : []].join(" AND ");
+  const [total, counts, brandOptions, categoryOptions] = await Promise.all([
     db.query<{ count: number }>(`SELECT count(*)::int FROM products p WHERE ${sql}`, values),
     q ? Promise.resolve(null) : db.query<Record<ProductFilter, number>>(`SELECT count(*) FILTER (WHERE merged_into IS NULL)::int AS all,
       count(*) FILTER (WHERE cardinality(suppliers)>1)::int AS multi, count(*) FILTER (WHERE suppliers='{basbug}')::int AS basbug,
       count(*) FILTER (WHERE suppliers='{dinamik}')::int AS dinamik, count(*) FILTER (WHERE suppliers @> '{seta}')::int AS seta,
       (SELECT count(DISTINCT s.product_id) FROM product_sources s ${scope.length ? `JOIN products p ON p.id=s.product_id AND ${scope.join(" AND ")} ` : ""}WHERE s.method='manual')::int AS manual,
       count(*) FILTER (WHERE suppliers='{}' AND merged_into IS NULL)::int AS inactive FROM products p${scope.length ? ` WHERE ${scope.join(" AND ")}` : ""}`, scoped),
+    db.query<{ label: string; count: number }>(`SELECT p.brand_label AS label, count(*) FILTER (WHERE ${brandWhere})::int AS count FROM products p
+      GROUP BY p.brand_label HAVING count(*) FILTER (WHERE ${brandWhere})>0 OR p.brand_label=ANY($1::text[]) ORDER BY p.brand_label`, brandValues),
+    db.query<{ id: string; label: string; count: number }>(`SELECT c.category_id::text AS id, c.name AS label,
+      count(DISTINCT p.id) FILTER (WHERE ${categoryWhere})::int AS count FROM (${productCategoriesSql}) c JOIN products p ON p.id=c.product_id
+      GROUP BY c.category_id, c.name HAVING count(*) FILTER (WHERE ${categoryWhere})>0 OR c.category_id=ANY($1::int[]) ORDER BY c.name`, categoryValues),
   ]);
   const pages = Math.max(1, Math.ceil(total.rows[0].count / pageSize));
   const requested = Number(params.page), page = Math.min(Number.isSafeInteger(requested) && requested > 0 ? requested : 1, pages);
@@ -119,7 +110,7 @@ export async function listProducts(params: { q?: string; filter?: string; brands
   const categoriesById = new Map(labels.map(row => [row.product_id, row.categories]));
   const products: ProductRow[] = rows.map(row => ({ ...row, sources: 0, best_price: null, best_supplier: null, available: false, ...byId.get(row.id),
     categories: categoriesById.get(row.id) ?? [] }));
-  return { products, filter, q, brands, categories, total: total.rows[0].count, counts: counts?.rows[0] ?? null, page, pages };
+  return { products, filter, q, brands, categories, brandOptions: brandOptions.rows, categoryOptions: categoryOptions.rows, total: total.rows[0].count, counts: counts?.rows[0] ?? null, page, pages };
 }
 
 export async function getMasterProduct(id: string) {
