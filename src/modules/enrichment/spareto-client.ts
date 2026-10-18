@@ -1,4 +1,4 @@
-import {SPARETO} from './spareto-adapter';
+import {SPARETO,fitmentPath} from './spareto-adapter';
 export class SourceBlocked extends Error {}
 const UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -8,9 +8,9 @@ export class SparetoClient {
  private last=0;requests=0;
  constructor(readonly intervalMs=1500,readonly jitterMs=750){}
  private async pace(){const wait=this.last+this.intervalMs+Math.random()*this.jitterMs-Date.now();if(wait>0)await sleep(wait);this.last=Date.now();this.requests++;}
- /** A search or product page; null for 404. */
+ /** A search, product or vehicle fitment page; null for 404. */
  async page(path:string):Promise<string|null>{
-  if(!/^\/products(\/[a-z0-9-]+\/[a-z0-9-]+|\?utf8=%E2%9C%93&keywords=[A-Za-z0-9%._~!*'()-]*)$/.test(path))throw Error('Source path rejected: '+path);
+  if(!/^\/products(\/[a-z0-9-]+\/[a-z0-9-]+|\?utf8=%E2%9C%93&keywords=[A-Za-z0-9%._~!*'()-]*)$/.test(path)&&!fitmentPath.test(path))throw Error('Source path rejected: '+path);
   for(let attempt=0;;attempt++){
    await this.pace();
    try{
