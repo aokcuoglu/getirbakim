@@ -99,7 +99,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       (SELECT count(*)::int FROM enrichment_request_events e WHERE e.run_id=r.id) AS requests,
       (SELECT count(*)::int FROM enrichment_request_events e WHERE e.run_id=r.id AND e.http_status=429) AS rate_limits,
       (SELECT max(created_at) FROM enrichment_request_events e WHERE e.run_id=r.id) AS last_response
-      FROM (SELECT * FROM enrichment_runs ORDER BY created_at DESC LIMIT 1) r
+      FROM (SELECT * FROM enrichment_runs WHERE kind='products' ORDER BY created_at DESC LIMIT 1) r
       JOIN enrichment_run_items i ON i.run_id=r.id GROUP BY r.id,r.status,r.sample_size,r.cache_hits`),
     passPace(),
     // Trodo's searches are its run items; otoparcasan's and spareto's are their attempt rows.

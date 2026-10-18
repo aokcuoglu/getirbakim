@@ -160,6 +160,7 @@ test('rate limiting honors both Retry-After forms and opens a circuit after boun
 test('browser tasks reject third-party hosts, account endpoints and protocol-relative paths',()=>{
  assert.equal(validSourcePath('www.trodo.com','/rest/V1/customers/me','json'),false);assert.equal(validSourcePath('www.trodo.com','//evil.example/x','html'),false);assert.equal(validSourcePath('evil.example','/rest/V1/vehicle/type/1/23','json'),false);assert.equal(validSourcePath('www.trodo.com','/rest/V1/vehicle/type/1/23','json'),true);
  assert.ok(oemSearchPath('H1BC 1125 A1A').startsWith('/rest/V1/catalogsearch/oem/H1BC1125A1A?'));assert.equal(validSourcePath('www.trodo.com',oemSearchPath('H1BC 1125 A1A'),'json'),true);assert.equal(validSourcePath('www.trodo.com',searchPath('1676014280'),'json'),true);assert.equal(validSourcePath('www.trodo.com','/rest/V1/catalogsearch/oem/../customers?','json'),false);
+ assert.equal(validSourcePath('www.trodo.com','/rest/V1/catalog-category-products/engine-oil/no-filter/55679/audi-a1-8x1-8xk-8xf-1-4-tdi-66kw-55679-cid?is_ajax=true&customer_group_id=undefined','json'),true);assert.equal(validSourcePath('www.trodo.com','/rest/V1/catalog-category-products/engine-oil/no-filter/55679/../../customers-cid?is_ajax=true&customer_group_id=undefined','json'),false);
 });
 test('search results without source images remain identifiable but cannot supply an image',()=>{
  const raw={entity_id:123,manufacturer:'BOSCH',tecdoc_sku:'F026400093',media:{src:null}};

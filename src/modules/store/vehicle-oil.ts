@@ -99,3 +99,37 @@ export function parseVehicleOilRow(row: Record<string, string>) {
   return { vehicle_type_id: id, viscosities, acea, api: list(row.api, /^\s*API\s+/i), approvals: list(row.specifications),
     capacity_min_l: capacityMin, capacity_max_l: capacityMax };
 }
+
+export type VehicleOilSheetRow = { id: string; viscosity: string; acea: string; api: string; specifications: string; capacity: string; source: string };
+export type TrodoOil = { volumes: string[]; viscosities: string[]; specifications: string[] };
+
+/**
+ * Trodo's oil data for a car (TecRMI: "3,70", "SAE 5W-30", "VW 507 00" / "API SL" / "ACEA C3") as a sheet row; null
+ * without a volume or a usable SAE grade. Several volumes become a range.
+ */
+export function trodoOilSheetRow(id: number, oil: TrodoOil): VehicleOilSheetRow | null {
+  const volumes = oil.volumes.map(value => Number(value.trim().replace(",", "."))).filter(value => value > 0 && value < 1000);
+  const viscosities = unique(oil.viscosities.map(normalizeViscosity).filter(value => value !== null));
+  if (!volumes.length || !viscosities.length) return null;
+  const acea: string[] = [], api: string[] = [], approvals: string[] = [];
+  for (const raw of oil.specifications.map(value => value.trim()).filter(Boolean)) {
+    const value = upper(raw);
+    const classes = /^ACEA\s/.test(value) || /^(?:A\d\s*\/\s*B\d|C\d)(?:-\d{2})?$/.test(value) ? aceaClasses(value) : [];
+    if (/^API\s/.test(value)) api.push(...value.replace(/^API\s+/, "").split(/[/,]/).map(item => item.trim()).filter(Boolean));
+    else if (classes.length) acea.push(...classes);
+    // Truck classes (ACEA E7) and the rest are listed as approvals; a comma would split the sheet's list.
+    else approvals.push(raw.replace(/\s*,\s*/g, " "));
+  }
+  const min = Math.min(...volumes), max = Math.max(...volumes);
+  return { id: String(id), viscosity: viscosities.join(", "), acea: acea.length ? `ACEA ${unique(acea).join(", ")}` : "",
+    api: api.length ? `API ${unique(api).join(", ")}` : "", specifications: unique(approvals).join(", "),
+    capacity: min === max ? `${min} Litre` : `${min} - ${max} Litre`, source: "trodo" };
+}
+
+const sheetColumns = ["id", "viscosity", "acea", "api", "specifications", "capacity", "source"] as const;
+/** data/vehicle_type_oil_specs.csv: quoted text fields, rows in vehicle type order. */
+export function vehicleOilSheet(rows: VehicleOilSheetRow[]) {
+  const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+  return [sheetColumns.map(quote).join(","),
+    ...[...rows].sort((a, b) => Number(a.id) - Number(b.id)).map(row => sheetColumns.map(column => column === "id" ? row.id : quote(row[column])).join(","))].join("\n") + "\n";
+}
