@@ -23,10 +23,11 @@ export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
     spec.api.length ? { label: "API", value: spec.api.join(", ") } : null,
     spec.approvals.length ? { label: "Üretici onayı", value: spec.approvals.join(", ") } : null,
   ].filter(fact => fact !== null);
-  const filters: { key: OilFilter; label: string }[] = [
+  // A vehicle without ACEA classes or approvals has no approval filter: it would match no oil.
+  const filters = ([
     { key: "viscosity", label: spec.viscosities.join(" / ") },
     { key: "approval", label: oilApprovalLabel(spec) },
-  ];
+  ] satisfies { key: OilFilter; label: string }[]).filter(filter => filter.label);
   const without = (key: OilFilter) => filters.map(filter => filter.key).filter(other => active.has(other) && other !== key);
   return <section aria-label="Aracın için önerilen motor yağı" className="mb-4 flex gap-3 rounded-[5px] border border-[#f1d08a] bg-[#fff9eb] px-4 py-3.5 text-[13px] leading-5 text-foreground max-[600px]:px-3.5">
     <CircleAlert size={22} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/>
@@ -43,7 +44,7 @@ export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
             className="text-[13px] font-semibold text-primary hover:underline">+ {filter.key === "viscosity" ? "Viskoziteye" : "Onaya"} göre süz</Link>)}
           <Link scroll={false} href={href([])} className="text-[13px] font-semibold text-primary hover:underline">Tümünü temizle</Link>
           <span className="text-xs text-muted-foreground" role="status">{total.toLocaleString("tr-TR")} uygun yağ</span>
-        </> : <Link scroll={false} href={href(["viscosity", "approval"])} className={`${chip} border-brand bg-brand text-white hover:bg-brand-strong`}>Bu özelliklere uygun yağları göster</Link>}
+        </> : <Link scroll={false} href={href(filters.map(filter => filter.key))} className={`${chip} border-brand bg-brand text-white hover:bg-brand-strong`}>Bu özelliklere uygun yağları göster</Link>}
       </div>
     </div>
   </section>;
