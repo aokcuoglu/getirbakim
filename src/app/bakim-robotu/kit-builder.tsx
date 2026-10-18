@@ -56,12 +56,14 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
   return <div className="grid grid-cols-[minmax(0,1fr)_420px] items-start gap-8 max-[1000px]:grid-cols-1 max-[1000px]:gap-6">
     <div className="min-w-0">
       <section aria-labelledby="kit-package" className="mb-6">
-        <h2 id="kit-package" className="mb-1 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl">Paketini seç</h2>
+        <h2 id="kit-package" className="mb-1 flex items-center gap-2.5 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl"><span className="grid size-7 place-items-center rounded-full bg-brand text-sm font-semibold text-white">1</span>Paketini seç</h2>
         <p className="mb-4 text-[13px] leading-[18px] text-muted-foreground"><strong className="font-medium text-foreground">{vehicleName}</strong> için hazır paketlerden başla; yuvaları ekleyip çıkararak setini özelleştir.</p>
         <div className="flex flex-wrap gap-2.5" role="group" aria-label="Hazır paketler">
           {kitPackages.map(option => { const active = pack?.size === option.size; return <button key={option.size} type="button" aria-pressed={active} onClick={() => choosePackage(option.slots)}
-            className={cn("flex min-h-[64px] min-w-[180px] flex-col items-start rounded-xl border px-4 py-2.5 text-left transition-colors max-[600px]:min-w-0 max-[600px]:flex-1", active ? "border-brand bg-[#eef7fd] ring-1 ring-brand" : "border-border bg-white hover:border-[#b8d9ee]")}>
-            <span className="text-base leading-6 font-semibold">{kitCountLabel(option.size)} {kitKindLabel(option.slots)}</span><span className="text-xs leading-[18px] text-muted-foreground">{option.description}</span></button>; })}
+            className={cn("relative flex min-h-[72px] min-w-[220px] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors max-[600px]:min-w-full", active ? "border-brand bg-[#eef7fd] ring-1 ring-brand" : "border-border bg-white hover:border-[#b8d9ee]")}>
+            <span className={cn("grid size-11 shrink-0 place-items-center rounded-lg text-[15px] leading-none font-bold transition-colors", active ? "bg-brand text-white" : "bg-[#eef1f4] text-[#54626e]")}>{kitCountLabel(option.size, true)}</span>
+            <span className="min-w-0"><span className="block text-base leading-6 font-semibold">{kitCountLabel(option.size)} {kitKindLabel(option.slots)}</span><span className="block text-xs leading-[18px] text-muted-foreground">{option.description}</span></span>
+            {active && <CircleCheck size={18} className="absolute top-2 right-2 fill-brand text-white" aria-hidden="true"/>}</button>; })}
         </div>
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Set yuvaları">
           {kitSlots.map(slot => { const on = enabled.has(slot.key), count = byKey.get(slot.key)?.candidates.length ?? 0; return <button key={slot.key} type="button" aria-pressed={on} onClick={() => toggle(slot.key)} disabled={!count && !on}
@@ -69,12 +71,14 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
             {on ? <Check size={15} aria-hidden="true"/> : count ? <Plus size={15} aria-hidden="true"/> : <Minus size={15} aria-hidden="true"/>}{slot.name}{!count && <span className="text-[11px] font-normal opacity-80">(ürün yok)</span>}</button>; })}
         </div>
       </section>
+      <h2 className="mb-3 flex items-center gap-2.5 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl"><span className="grid size-7 place-items-center rounded-full bg-brand text-sm font-semibold text-white">2</span>Markaları seç</h2>
       <div className="grid gap-4">
         {activeKeys.map(key => { const slot = byKey.get(key)!, choice = choices[key], meta = kitSlot(key);
           const selected = slot.candidates.find(candidate => candidate.id === choice?.productId) ?? null;
           const inBrand = slot.candidates.filter(candidate => candidate.brand === choice?.brand);
           return <section key={key} aria-labelledby={`slot-${key}`} className="rounded-xl border border-border bg-white p-5 max-[600px]:p-4">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2"><h3 id={`slot-${key}`} className="text-lg leading-7 font-semibold">{meta.name}</h3>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h3 id={`slot-${key}`} className="flex items-center gap-3 text-lg leading-7 font-semibold"><span className="grid size-10 place-items-center rounded-lg bg-[#f2f5f8]"><PartArtImage kind={meta.art} className="size-7 object-contain"/></span>{meta.name}
+              {selected && <span className="inline-flex items-center gap-1 rounded-full bg-[#ebf5ed] px-2 py-0.5 text-xs leading-[18px] font-medium text-[#397247]"><Check size={13} aria-hidden="true"/>{selected.brand}</span>}</h3>
               {key === "engineOil" && oilCapacityLabel && <span className="text-[13px] leading-5 text-muted-foreground">Önerilen miktar {oilCapacityLabel}{oilViscosities.length ? ` · SAE ${oilViscosities.join(" / ")}` : ""}</span>}</div>
             {!slot.candidates.length ? <p className="rounded-lg bg-[#f7f8fa] px-3.5 py-3 text-[13px] leading-5 text-muted-foreground">{key === "engineOil"
                 ? "Bu araç için yağ önerisi veya uygun motor yağı henüz kayıtlı değil. Yağı katalogdan seçebilirsin."
