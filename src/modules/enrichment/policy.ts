@@ -4,7 +4,7 @@ export function validSourcePath(host:string,path:string,kind:string) {
  if(path.length>2000 || !path.startsWith('/') || path.startsWith('//') || /[\r\n\\]/.test(path)) return false;
  if(host==='picdn.trodo.com') return kind==='image' && /^\/media\/m2_catalog_cache\/(?:480|1440)x(?:480|1440)/.test(path);
  if(host!=='www.trodo.com') return false;
- if(kind==='json') return /^\/rest\/V1\/(?:catalogsearch\/(?:result\/0|oem\/[A-Z0-9]{1,60})\?|catalog-product-api\/(?:product-url\/[^/]+\/IE|view-data\/\d+\/IE)$|vehicle\/(?:models|type)\/1\/\d+$)/.test(path);
+ if(kind==='json') return /^\/rest\/V1\/(?:catalogsearch\/(?:result\/0|oem\/[A-Z0-9]{1,60})\?|catalog-product-api\/(?:product-url\/[^/]+\/IE|view-data\/\d+\/IE)$|vehicle\/(?:models|type)\/1\/\d+$|catalog-category-products\/engine-oil\/no-filter\/\d+\/[a-z0-9-]+-cid\?is_ajax=true&customer_group_id=undefined$)/.test(path);
  if(kind==='logo') return /^\/media\/manufacturer_(?:source|cache)\/\d+\//.test(path);
  return kind==='html' && /^\/[a-z0-9][a-z0-9-]+$/.test(path);
 }

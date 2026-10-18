@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS enrichment_runs (
  cache_hits integer NOT NULL DEFAULT 0, started_at timestamptz, finished_at timestamptz,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Product runs enrich supplier items; vehicle_oil runs read Trodo's engine-oil data per vehicle type (scripts/vehicle-oil-trodo.ts).
+-- Only product runs are picked up by the product worker.
+ALTER TABLE enrichment_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
 CREATE TABLE IF NOT EXISTS enrichment_run_items (
  run_id uuid NOT NULL REFERENCES enrichment_runs(id),
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id), ordinal integer NOT NULL,

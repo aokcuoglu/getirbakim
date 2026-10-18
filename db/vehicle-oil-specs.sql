@@ -13,3 +13,16 @@ CREATE TABLE IF NOT EXISTS vehicle_type_oil_specs (
  updated_at timestamptz NOT NULL DEFAULT now(),
  CHECK (capacity_max_l >= capacity_min_l)
 );
+
+-- Trodo's engine-oil data per vehicle type (scripts/vehicle-oil-trodo.ts), as the source states it: litres ("3,70"),
+-- SAE grades ("SAE 5W-30") and specifications ("VW 507 00", "API SL", "ACEA C3"). Empty arrays mean Trodo has no oil
+-- data for the car. `npm run vehicles:oil-trodo -- export` merges these rows into data/vehicle_type_oil_specs.csv.
+CREATE TABLE IF NOT EXISTS vehicle_type_trodo_oils (
+ vehicle_type_id integer PRIMARY KEY REFERENCES vehicle_types(id) ON DELETE CASCADE,
+ trodo_car_id integer NOT NULL CHECK (trodo_car_id > 0),
+ rmi_car_id text,
+ volumes text[] NOT NULL DEFAULT '{}',
+ viscosities text[] NOT NULL DEFAULT '{}',
+ specifications text[] NOT NULL DEFAULT '{}',
+ fetched_at timestamptz NOT NULL DEFAULT now()
+);

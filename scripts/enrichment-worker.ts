@@ -37,7 +37,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
  const client=await pool.connect();try{
   await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(20261004,1)');
-  const active=(await client.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
   const run=(await client.query('INSERT INTO enrichment_runs(seed,sample_size) VALUES($1,$2) RETURNING id',[seed,size])).rows[0];
   // Stable random sample. A pilot first takes one representative per supplier brand; the catalog pass skips that,
   // because every batch would otherwise start with hundreds of brand samples. Then saleable in-stock items, other
@@ -71,7 +71,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 async function serve(runId:string,port:number,chrome=false){
- const run=(await pool.query('SELECT id FROM enrichment_runs WHERE id=$1',[runId])).rows[0];if(!run)throw Error('Unknown run');
+ const run=(await pool.query("SELECT id FROM enrichment_runs WHERE id=$1 AND kind='products'",[runId])).rows[0];if(!run)throw Error('Unknown run');
  const token=randomBytes(32).toString('hex'),queue=new SourceQueue(pool,runId),matcher=createMatcherCache();
  const directory=resolve(`artifacts/enrichment-pilot-${runId}`);await mkdir(directory,{recursive:true});
  const secretDirectory=resolve('.local/enrichment');await mkdir(secretDirectory,{recursive:true});
@@ -273,7 +273,7 @@ async function serve(runId:string,port:number,chrome=false){
 async function continueAll(port:number,chrome:boolean,batchSize:number){
  await prepare();
  for(let batch=1;;batch++){
-  const active=(await pool.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
+  const active=(await pool.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
   let runId:string=active??"";
   if(!runId){
    const queued=await enqueueProductSources(pool);
@@ -294,7 +294,7 @@ async function requeueReview(runId:string){
   if(!lock.locked)throw Error('Stop the run worker before requeuing review items');
   const run=(await client.query('SELECT status FROM enrichment_runs WHERE id=$1 FOR UPDATE',[runId])).rows[0];
   if(!run)throw Error('Unknown run');
-  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
   if(active)throw Error('Another unfinished run exists: '+active.id);
   const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
    SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
@@ -320,7 +320,7 @@ async function requeuePartial(runId:string){
   if(!lock.locked)throw Error('Stop the run worker before requeuing partial items');
   const run=(await client.query('SELECT status FROM enrichment_runs WHERE id=$1 FOR UPDATE',[runId])).rows[0];
   if(!run)throw Error('Unknown run');
-  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
   if(active)throw Error('Another unfinished run exists: '+active.id);
   const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
    SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,

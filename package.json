@@ -29,6 +29,7 @@
     "db:vehicle-oils": "node --env-file=.env.local --import tsx scripts/import-vehicle-oils.ts",
     "test:vehicle-oil": "node --import tsx --test scripts/test-vehicle-oil.ts",
     "test:maintenance-kit": "node --import tsx --test scripts/test-maintenance-kit.ts",
+    "vehicles:oil-trodo": "node --env-file=.env.local --conditions=react-server --import tsx scripts/vehicle-oil-trodo.ts",
     "vehicles:repxpert": "node --env-file=.env.local --conditions=react-server --import tsx scripts/vehicle-repxpert.ts",
     "test:part-art": "node --import tsx --test scripts/test-part-art.tsx",
     "test:data-table": "node --import tsx --test scripts/test-data-table.tsx",

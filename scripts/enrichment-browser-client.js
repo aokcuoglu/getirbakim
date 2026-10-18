@@ -9,7 +9,10 @@ async function fetchSourceJob(job) {
   result.httpStatus=response.status;result.retryAfter=response.headers.get('retry-after');
   if(!response.ok&&response.headers.get('cf-mitigated')==='challenge'){result.challenge=true;result.error='Source Cloudflare challenge required (HTTP '+response.status+')';}
   if(response.ok){
-   if(job.kind==='json'){const raw=await response.text();result.bytes=new TextEncoder().encode(raw).length;if(CHALLENGE_TEXT.test(raw)){result.httpStatus=403;result.challenge=true;throw Error("Source verification required");}result.body=JSON.parse(raw);}
+   if(job.kind==='json'){const raw=await response.text();result.bytes=new TextEncoder().encode(raw).length;if(CHALLENGE_TEXT.test(raw)){result.httpStatus=403;result.challenge=true;throw Error("Source verification required");}result.body=JSON.parse(raw);
+    // An engine-oil listing carries ~340 KB of products; only the car's oil data (scripts/vehicle-oil-trodo.ts) is kept.
+    if(/\/catalog-category-products\/engine-oil\//.test(job.path)){const listing=Array.isArray(result.body)?result.body[0]:null;if(!listing||typeof listing!=='object')throw Error('Unexpected engine-oil listing');result.body=[{additional_data:{oil_data:listing.additional_data?.oil_data??null}}];}
+   }
    else if(job.kind==='html'){const raw=await response.text();result.bytes=new TextEncoder().encode(raw).length;if(CHALLENGE_TEXT.test(raw)){result.httpStatus=403;result.challenge=true;throw Error("Source verification required");}const doc=new DOMParser().parseFromString(raw,'text/html');result.body={logos:[...doc.images].map(i=>i.getAttribute('src')).filter(s=>s&&/\/media\/manufacturer_(cache|source)\//.test(s))};}
    else {
     const blob=await response.blob();if(!blob.type.startsWith('image/')||blob.size>10485760)throw Error('Invalid image response');
