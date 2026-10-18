@@ -10,7 +10,7 @@ import { objectStorage } from "../src/lib/object-storage";
 // scripts/import-storefront-bundle.ts loads into a database with the same supplier item ids.
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
 // --since=ISO exports only enrichments imported after that time (and their mappings and images); the
-// category tree and logos are small and always complete. manifest.snapshotAt is the next run's --since.
+// category tree, logos and REPXPERT vehicle data are always complete. manifest.snapshotAt is the next run's --since.
 const root = resolve(process.argv.slice(2).find(arg => !arg.startsWith("--")) || ".local/storefront-bundle");
 const sinceArg = process.argv.find(arg => arg.startsWith("--since="))?.slice(8);
 const since = sinceArg ? new Date(sinceArg) : null;
@@ -36,12 +36,13 @@ try {
     // Hex bytea text survives JSON; the driver's Buffer would not.
     logos: await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
       FROM manufacturer_logos ORDER BY brand_key`),
-    // The raw REPXPERT response stays local; the store reads the parsed columns only.
+    // REPXPERT vehicle data goes whole every time (like logos): a production still running code that ignores it
+    // must receive it again once it is updated, whatever the watermark says. The raw response stays local.
     vehicleSpecs: await read(`SELECT vehicle_type_id,outcome,detail,full_name,body_type,drive_type,engine_type,fuel_mixture,cylinders,valves,engine_codes,kba_numbers,fetched_at
-      FROM vehicle_type_specs WHERE fetched_at>$1 AND outcome<>'error' ORDER BY vehicle_type_id`, changed),
-    vehicleImages: await read("SELECT * FROM vehicle_type_images WHERE imported_at>$1 ORDER BY vehicle_type_id", changed),
+      FROM vehicle_type_specs WHERE outcome<>'error' ORDER BY vehicle_type_id`),
+    vehicleImages: await read("SELECT * FROM vehicle_type_images ORDER BY vehicle_type_id"),
     media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE imported_at>$1
-      UNION SELECT media_id FROM vehicle_type_images WHERE imported_at>$1) ORDER BY id`, changed),
+      UNION SELECT media_id FROM vehicle_type_images) ORDER BY id`, changed),
   };
   await client.query("COMMIT");
   for (const object of manifest.media) {
