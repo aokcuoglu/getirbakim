@@ -91,9 +91,11 @@ async function storeImage(page: CdpPage, id: number, url: string, tmp: string) {
   const client = await pool.connect();
   try {
     // REPXPERT image URLs are signed per request, so the source recorded is the vehicle type, not the URL.
+    // A refreshed picture is an original again; `npm run vehicles:cutout` removes its background.
     const mediaId = await storeProductImage(client, file, `${REPXPERT_ORIGIN}${repxpertVehiclePath(id)}`, undefined, "vehicle-types");
     await client.query(`INSERT INTO vehicle_type_images(vehicle_type_id,media_id,width,height,imported_at) VALUES($1,$2,$3,$4,now())
-      ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=now()`, [id, mediaId, width, height]);
+      ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=now(),
+      original_media_id=NULL`, [id, mediaId, width, height]);
   } finally {
     client.release();
     await rm(file, { force: true });
