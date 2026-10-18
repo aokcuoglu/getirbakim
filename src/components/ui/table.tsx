@@ -17,13 +17,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 type SortDir = "asc" | "desc"
 type ColumnFilter = { text: string; values: string[] }
-type FilterOption = { value: string; label: string }
+type FilterOption = { value: string; label: string; count?: number }
 export type TableHeadFilter = { param: string; options?: FilterOption[]; placeholder?: string }
 
 // Below CONTROL_ROWS rows a table is short enough to read; the toolbar search appears from SEARCH_ROWS rows.
 const CONTROL_ROWS = 3
 const SEARCH_ROWS = 8
 const FACET_LIMIT = 12
+// A long server option list (brands) is searched in the popover and shows this many matches at a time.
+const OPTION_LIMIT = 100
 
 const TableControlsContext = React.createContext(false)
 const SectionContext = React.createContext<"head" | "body" | "foot" | null>(null)
@@ -491,14 +493,7 @@ function ServerHead({ label, align, sortKey, filter, children }: {
           <FilterTrigger label={label} active={Boolean(value)} />
           <PopoverContent align={align === "end" ? "end" : "start"} className="w-64">
             {filter.options ? (
-              <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-                {[{ value: "", label: "Tümü" }, ...filter.options].map(option => (
-                  <label key={option.value} className="flex items-center gap-2 rounded-md p-1 hover:bg-muted">
-                    <Checkbox checked={value === option.value} disabled={pending} onCheckedChange={() => navigate({ [filter.param]: option.value || null })} />
-                    <span className="truncate">{option.label}</span>
-                  </label>
-                ))}
-              </div>
+              <ServerOptions label={label} options={filter.options} value={value} pending={pending} onSelect={option => navigate({ [filter.param]: option || null })} />
             ) : (
               <form className="flex flex-col gap-2" onSubmit={event => {
                 event.preventDefault()
@@ -518,6 +513,45 @@ function ServerHead({ label, align, sortKey, filter, children }: {
         </Popover>
       )}
     </HeadLayout>
+  )
+}
+
+/** The rows of a server option list: "Tümü", the selected option (kept while the list is cut) and the first matches. */
+function serverOptionList(options: FilterOption[], value: string, search: string) {
+  const needle = normalize(search.trim())
+  const matches = needle ? options.filter(option => normalize(option.label).includes(needle)) : options
+  const shown = matches.slice(0, OPTION_LIMIT)
+  const selected = options.find(option => option.value === value)
+  const list = [{ value: "", label: "Tümü" }, ...(selected && !shown.includes(selected) ? [selected] : []), ...shown]
+  return { list, more: matches.length - shown.length, matches: matches.length }
+}
+
+function ServerOptions({ label, options, value, pending, onSelect }: {
+  label: string; options: FilterOption[]; value: string; pending: boolean; onSelect: (value: string) => void
+}) {
+  const [search, setSearch] = React.useState("")
+  const searchable = options.length > FACET_LIMIT
+  const { list, more, matches } = serverOptionList(options, value, search)
+  return (
+    <div className="flex flex-col gap-2">
+      {searchable && (
+        <InputGroup>
+          <InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon>
+          <InputGroupInput type="search" autoFocus value={search} onChange={event => setSearch(event.target.value)} placeholder="Ara…" aria-label={`${label} seçeneklerinde ara`} />
+        </InputGroup>
+      )}
+      <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+        {list.map(option => (
+          <label key={option.value} className="flex items-center gap-2 rounded-md p-1 hover:bg-muted">
+            <Checkbox checked={value === option.value} disabled={pending} onCheckedChange={() => onSelect(option.value)} />
+            <span className="truncate">{option.label}</span>
+            {option.count !== undefined && <span className="ml-auto text-muted-foreground tabular-nums">{option.count.toLocaleString("tr-TR")}</span>}
+          </label>
+        ))}
+        {!matches && <span className="p-1 text-sm text-muted-foreground">Eşleşen seçenek yok.</span>}
+      </div>
+      {more > 0 && <span className="text-sm text-muted-foreground tabular-nums">{more.toLocaleString("tr-TR")} seçenek daha; aramayı daraltın.</span>}
+    </div>
   )
 }
 
@@ -561,4 +595,5 @@ export {
   TableRow,
   TableCell,
   TableCaption,
+  serverOptionList,
 }
