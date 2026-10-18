@@ -18,7 +18,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 type SortDir = "asc" | "desc"
 type ColumnFilter = { text: string; values: string[] }
 type FilterOption = { value: string; label: string; count?: number }
-export type TableHeadFilter = { param: string; options?: FilterOption[]; placeholder?: string }
+export type TableHeadFilter = {
+  param: string; options?: FilterOption[]; placeholder?: string
+  /** Several options at once, as a repeated parameter (?brand=A&brand=B). */
+  multiple?: boolean
+}
 
 // Below CONTROL_ROWS rows a table is short enough to read; the toolbar search appears from SEARCH_ROWS rows.
 const CONTROL_ROWS = 3
@@ -468,17 +472,18 @@ function ServerHead({ label, align, sortKey, filter, children }: {
   const params = useSearchParams()
   const [pending, startTransition] = React.useTransition()
   // Any change starts again from page 1; the other parameters (tab, search, filters) are kept.
-  const navigate = (changes: Record<string, string | null>) => {
+  const navigate = (changes: Record<string, string | string[] | null>) => {
     const next = new URLSearchParams(params.toString())
     next.delete("page")
     for (const [key, value] of Object.entries(changes)) {
-      if (value) next.set(key, value)
-      else next.delete(key)
+      next.delete(key)
+      for (const item of [value ?? []].flat()) if (item) next.append(key, item)
     }
     startTransition(() => router.push(next.size ? `${pathname}?${next}` : pathname, { scroll: false }))
   }
   const sorted = sortKey && params.get("sort") === sortKey ? (params.get("dir") === "desc" ? "desc" : "asc") : null
   const value = filter ? params.get(filter.param) ?? "" : ""
+  const values = filter ? params.getAll(filter.param).filter(Boolean) : []
 
   return (
     <HeadLayout align={align}>
@@ -493,7 +498,8 @@ function ServerHead({ label, align, sortKey, filter, children }: {
           <FilterTrigger label={label} active={Boolean(value)} />
           <PopoverContent align={align === "end" ? "end" : "start"} className="w-64">
             {filter.options ? (
-              <ServerOptions label={label} options={filter.options} value={value} pending={pending} onSelect={option => navigate({ [filter.param]: option || null })} />
+              <ServerOptions label={label} options={filter.options} values={values} multiple={filter.multiple} pending={pending}
+                onChange={selected => navigate({ [filter.param]: selected })} />
             ) : (
               <form className="flex flex-col gap-2" onSubmit={event => {
                 event.preventDefault()
@@ -516,22 +522,35 @@ function ServerHead({ label, align, sortKey, filter, children }: {
   )
 }
 
-/** The rows of a server option list: "Tümü", the selected option (kept while the list is cut) and the first matches. */
-function serverOptionList(options: FilterOption[], value: string, search: string) {
+/** The rows of a server option list: "Tümü", the selected options (kept while the list is cut) and the first matches. */
+function serverOptionList(options: FilterOption[], values: string[], search: string) {
   const needle = normalize(search.trim())
   const matches = needle ? options.filter(option => normalize(option.label).includes(needle)) : options
   const shown = matches.slice(0, OPTION_LIMIT)
-  const selected = options.find(option => option.value === value)
-  const list = [{ value: "", label: "Tümü" }, ...(selected && !shown.includes(selected) ? [selected] : []), ...shown]
+  const selected = options.filter(option => values.includes(option.value) && !shown.includes(option))
+  const list = [{ value: "", label: "Tümü" }, ...selected, ...shown]
   return { list, more: matches.length - shown.length, matches: matches.length }
 }
 
-function ServerOptions({ label, options, value, pending, onSelect }: {
-  label: string; options: FilterOption[]; value: string; pending: boolean; onSelect: (value: string) => void
+function ServerOptions({ label, options, values, multiple = false, pending, onChange }: {
+  label: string; options: FilterOption[]; values: string[]; multiple?: boolean; pending: boolean; onChange: (values: string[]) => void
 }) {
   const [search, setSearch] = React.useState("")
+  // A multiple choice is kept here so quick clicks add up before the URL catches up.
+  const [chosen, setChosen] = React.useState(values)
+  const key = values.join("\n")
+  const [synced, setSynced] = React.useState(key)
+  if (synced !== key) {
+    setSynced(key)
+    setChosen(values)
+  }
   const searchable = options.length > FACET_LIMIT
-  const { list, more, matches } = serverOptionList(options, value, search)
+  const { list, more, matches } = serverOptionList(options, chosen, search)
+  const select = (value: string, checked: boolean) => {
+    const next = !value ? [] : !multiple ? [value] : checked ? [...chosen.filter(item => item !== value), value] : chosen.filter(item => item !== value)
+    setChosen(next)
+    onChange(next)
+  }
   return (
     <div className="flex flex-col gap-2">
       {searchable && (
@@ -543,7 +562,8 @@ function ServerOptions({ label, options, value, pending, onSelect }: {
       <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
         {list.map(option => (
           <label key={option.value} className="flex items-center gap-2 rounded-md p-1 hover:bg-muted">
-            <Checkbox checked={value === option.value} disabled={pending} onCheckedChange={() => onSelect(option.value)} />
+            <Checkbox checked={option.value ? chosen.includes(option.value) : !chosen.length} disabled={pending && !multiple}
+              onCheckedChange={checked => select(option.value, checked)} />
             <span className="truncate">{option.label}</span>
             {option.count !== undefined && <span className="ml-auto text-muted-foreground tabular-nums">{option.count.toLocaleString("tr-TR")}</span>}
           </label>

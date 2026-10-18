@@ -19,11 +19,13 @@ import { money } from "@/modules/store/catalog";
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 
 export default async function Products({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const params = normalizeSearchParams(await searchParams);
-  const [data, brands] = await Promise.all([listProducts(params), productBrands()]);
-  const query = (changes: Record<string, string | undefined>) => {
+  const raw = await searchParams;
+  const params = normalizeSearchParams(raw);
+  const [data, brands] = await Promise.all([listProducts({ ...params, brands: [raw.brand ?? []].flat() }), productBrands()]);
+  const query = (changes: Record<string, string | string[] | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ filter: params.filter, brand: data.brand, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ filter: params.filter, brand: data.brands, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes }))
+      for (const item of [value ?? []].flat()) if (item) next.append(key, item);
     return `/yonetim/urunler${next.size ? `?${next}` : ""}`;
   };
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
@@ -52,19 +54,21 @@ export default async function Products({ searchParams }: { searchParams: Promise
           <ScrollBar orientation="horizontal"/>
         </ScrollArea></Tabs>
         <form className="flex flex-wrap items-center gap-2" action="/yonetim/urunler">
-          {(["filter", "brand", "sort", "dir"] as const).map(key => params[key] && <input key={key} type="hidden" name={key} value={params[key]}/>)}
+          {(["filter", "sort", "dir"] as const).map(key => params[key] && <input key={key} type="hidden" name={key} value={params[key]}/>)}
+          {data.brands.map(brand => <input key={`brand-${brand}`} type="hidden" name="brand" value={brand}/>)}
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="q" aria-label="Parça numarası veya tedarikçi kodu" defaultValue={params.q} placeholder="Parça no veya tedarikçi kodu" maxLength={60}/></InputGroup>
           <Button type="submit">Ara</Button>
           {params.q && <Button variant="ghost" nativeButton={false} render={<Link href={query({ q: undefined })}/>}>Temizle</Button>}
-          {data.brand && <Button variant="secondary" aria-label={`Marka filtresini kaldır: ${data.brand}`} nativeButton={false} render={<Link href={query({ brand: undefined })} scroll={false}/>}>
-            Marka: {data.brand}<X data-icon="inline-end" aria-hidden="true"/></Button>}
+          {data.brands.map(brand => <Button key={brand} variant="secondary" aria-label={`Marka filtresini kaldır: ${brand}`} nativeButton={false}
+            render={<Link href={query({ brand: data.brands.filter(item => item !== brand) })} scroll={false}/>}>Marka: {brand}<X data-icon="inline-end" aria-hidden="true"/></Button>)}
+          {data.brands.length > 1 && <Button variant="ghost" nativeButton={false} render={<Link href={query({ brand: undefined })} scroll={false}/>}>Markaları temizle</Button>}
         </form>
       </CardHeader>
       <Separator/>
       <CardContent>
         {data.products.length ? <Table server><caption className="sr-only">Ürünler</caption>
-          <TableHeader><TableRow><TableHead sortKey="brand" filter={{ param: "brand", options: brands.map(brand => ({ value: brand.label, label: brand.label, count: brand.count })) }}>Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
+          <TableHeader><TableRow><TableHead sortKey="brand" filter={{ param: "brand", multiple: true, options: brands.map(brand => ({ value: brand.label, label: brand.label, count: brand.count })) }}>Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
             <TableHead filter={{ param: "filter", options: (Object.keys(productFilters) as ProductFilter[]).filter(filter => filter !== "all").map(filter => ({ value: filter, label: productFilters[filter].label })) }}>Kaynaklar</TableHead><TableHead className="text-right">Satış fiyatı</TableHead><TableHead>Satan</TableHead></TableRow></TableHeader>
           <TableBody>{data.products.map(product => <TableRow key={product.id}>
             <TableCell className="max-w-32 truncate font-medium" title={product.brand_label}>{product.brand_label || product.brand}</TableCell>
@@ -80,7 +84,7 @@ export default async function Products({ searchParams }: { searchParams: Promise
               : <Badge variant="outline">Stok yok</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Package/></EmptyMedia><EmptyTitle>Ürün bulunamadı.</EmptyTitle>
-            <EmptyDescription>{data.q || data.brand ? "Aramayı veya filtreyi değiştirin." : <>Ürünler eşleştirme yenilemesiyle oluşur (<code>npm run products:match</code>).</>}</EmptyDescription></EmptyHeader></Empty>}
+            <EmptyDescription>{data.q || data.brands.length ? "Aramayı veya filtreyi değiştirin." : <>Ürünler eşleştirme yenilemesiyle oluşur (<code>npm run products:match</code>).</>}</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">{number(data.total)} ürün · Sayfa {number(data.page)} / {number(data.pages)}</span>

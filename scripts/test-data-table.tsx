@@ -47,16 +47,17 @@ test("server sort keys map to trusted SQL only", () => {
   assert.equal(sortOrder({ sort: "toString" }, columns, "p.id"), "p.id");
 });
 
-test("long server option lists are searched and cut, keeping the selected option", () => {
+test("long server option lists are searched and cut, keeping the selected options", () => {
   const options = Array.from({ length: 250 }, (_, i) => ({ value: `B${i}`, label: i === 7 ? "Şahin Oto" : `Marka ${i}` }));
-  const all = serverOptionList(options, "", "");
+  const all = serverOptionList(options, [], "");
   assert.equal(all.list.length, 101);
   assert.equal(all.list[0].label, "Tümü");
   assert.equal(all.more, 150);
-  const kept = serverOptionList(options, "B240", "");
-  assert.deepEqual(kept.list.slice(0, 2).map(option => option.value), ["", "B240"]);
+  const kept = serverOptionList(options, ["B240", "B3", "B245"], "");
+  assert.deepEqual(kept.list.slice(0, 3).map(option => option.value), ["", "B240", "B245"]);
+  assert.equal(kept.list.length, 103);
   // Turkish letters and case fold the same way as the client filters.
-  const found = serverOptionList(options, "", "SAHIN");
+  const found = serverOptionList(options, [], "SAHIN");
   assert.deepEqual(found.list.map(option => option.value), ["", "B7"]);
-  assert.equal(serverOptionList(options, "", "yok").matches, 0);
+  assert.equal(serverOptionList(options, [], "yok").matches, 0);
 });
