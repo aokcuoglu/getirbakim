@@ -23,6 +23,12 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+const sourceLabels:Record<string,{name:string;role:string}>={
+  trodo:{name:"Trodo",role:"Bekleyen kuyruk · birincil kaynak"},
+  otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
+  spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
+};
+const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kaynak nedeniyle durdu"};
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
 type Tone="success"|"info"|"warning"|"error"|"neutral";
@@ -83,14 +89,31 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     <Card>
       <CardHeader><CardTitle><h2>Katalog turu hızı</h2></CardTitle><CardDescription>Son 24 saat</CardDescription><CardAction><Badge variant="secondary" className="tabular-nums">{days(forecast.daysLeft)}</Badge></CardAction></CardHeader>
       <CardContent className="flex flex-col gap-2 text-sm">
-        <p className="text-muted-foreground"><span className="font-semibold text-foreground tabular-nums">{number(data.pass.finished_24h)}</span> ürün arandı · çalışırken saatte {number(Math.round(forecast.perActiveHour))}</p>
-        <p>Tarayıcı son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı (%{Math.round(forecast.uptime*100)}). Kalan {number(counts.pending||0)} ürün bu hızla {days(forecast.daysLeft)}, kesintisiz çalışırsa {days(forecast.daysLeftAlwaysOn)} sürer.</p>
+        <p className="text-muted-foreground">Trodo <span className="font-semibold text-foreground tabular-nums">{number(data.pass.finished_24h)}</span> ürün aradı · çalışırken saatte {number(Math.round(forecast.perActiveHour))}{data.pass.fallback_pending_found_24h?<> · spareto bekleyenlerden <span className="font-semibold text-foreground tabular-nums">{number(data.pass.fallback_pending_found_24h)}</span> ürün buldu</>:null}</p>
+        <p>Trodo tarayıcısı son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı (%{Math.round(forecast.uptime*100)}). Kalan {number(counts.pending||0)} ürün bu hızla {days(forecast.daysLeft)}, kesintisiz çalışırsa {days(forecast.daysLeftAlwaysOn)} sürer.</p>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3 text-sm text-muted-foreground"><span className="tabular-nums">{number(data.pass.linked_products)} ürün araç kataloğuna bağlı</span><span className="flex items-center gap-2">{statusBadge(data.pass.blocked?"error":data.pass.challenge_since?"warning":"success",sourceState)}{data.pass.interval_ms?<span className="tabular-nums">istek aralığı {hours(data.pass.interval_ms/1000)} sn</span>:null}</span></CardFooter>
     </Card>
 
+    <Card>
+      <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Her kaynağın son 24 saatteki araması; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
+      <CardContent>
+        <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
+          <TableBody>{data.sourceSummary.map(source=><TableRow key={source.source}>
+            <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span></div></TableCell>
+            <TableCell>{statusBadge(source.state==="running"?"info":source.state==="blocked"?"error":"neutral",sourceStates[source.state])}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(source.searched)}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(source.found)}</TableCell>
+            <TableCell className="text-right tabular-nums">{source.hitRate===null?"—":`%${Math.round(source.hitRate*100)}`}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(source.written)}</TableCell>
+            <TableCell className="tabular-nums text-muted-foreground">{source.last?date(source.last):"Henüz yok"}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+
     {data.pilot&&<Card>
-      <CardHeader><CardTitle><h2>{`${number(data.pilot.sample_size)} ürünlük parti`}</h2></CardTitle><CardDescription>{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
+      <CardHeader><CardTitle><h2>{`Trodo · ${number(data.pilot.sample_size)} ürünlük parti`}</h2></CardTitle><CardDescription>{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
       <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.sample_size?data.pilot.processed/data.pilot.sample_size*100:0} aria-label="Pilot ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata{data.pilot.skipped>0&&` · ${number(data.pilot.skipped)} teklif kapsam dışında bırakıldı`}</p></CardContent>
       <CardFooter className="flex-wrap justify-between gap-3 text-sm text-muted-foreground"><span className="tabular-nums">{number(data.pilot.requests)} kaynak isteği · {number(data.pilot.cache_hits)} önbellek kullanımı · {number(data.pilot.rate_limits)} hız sınırı yanıtı</span><span>{data.pilot.last_response?`Son kaynak yanıtı: ${date(data.pilot.last_response)}`:"Tarayıcı bağlantısı bekleniyor"}</span></CardFooter>
     </Card>}

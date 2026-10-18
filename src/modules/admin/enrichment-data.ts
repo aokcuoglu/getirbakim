@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
-import type { PassPace } from "./enrichment-pace";
+import { summarizeSources, type PassPace, type SourceActivity } from "./enrichment-pace";
 
 export const enrichmentStatuses: Record<string, string> = {
   complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
@@ -36,7 +36,8 @@ function passPace() {
         CROSS JOIN LATERAL (SELECT product_id FROM enrichment_current_sources ps WHERE ps.supplier_item_id=f.supplier_item_id OFFSET 0) ps) AS linked_products,
       (SELECT interval_ms FROM enrichment_source_hosts WHERE host='www.trodo.com') AS interval_ms,
       (SELECT challenge_since FROM enrichment_source_hosts WHERE host='www.trodo.com') AS challenge_since,
-      (SELECT blocked FROM enrichment_source_hosts WHERE host='www.trodo.com') AS blocked`).then(result => result.rows[0]);
+      (SELECT blocked FROM enrichment_source_hosts WHERE host='www.trodo.com') AS blocked,
+      (SELECT count(*)::int FROM enrichment_source_attempts WHERE queue='pending' AND outcome='found' AND attempted_at>now()-interval '24 hours') AS fallback_pending_found_24h`).then(result => result.rows[0]);
   if (!pace.value) { pace.at = Date.now(); pace.value = load().catch(error => { pace.value = null; throw error; }); }
   else if (Date.now() - pace.at > 60_000 && !pace.refreshing) {
     pace.refreshing = true;
@@ -72,7 +73,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     joins = " LEFT JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_enrichments e ON j.enriched AND e.supplier_item_id=j.supplier_item_id";
   }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
-  const [active, products, metrics, sources, total, pilot, pass] = await Promise.all([
+  const [active, products, metrics, sources, total, pilot, pass, activity, written] = await Promise.all([
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
       count(*) FILTER(WHERE match_type='oem_reference')::int AS oem_matches,
@@ -97,6 +98,20 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       FROM (SELECT * FROM enrichment_runs ORDER BY created_at DESC LIMIT 1) r
       JOIN enrichment_run_items i ON i.run_id=r.id GROUP BY r.id,r.status,r.sample_size,r.cache_hits`),
     passPace(),
+    // Trodo's searches are its run items; otoparcasan's and spareto's are their attempt rows.
+    db.query<SourceActivity>(`SELECT 'trodo' AS source,
+        count(*) FILTER(WHERE finished_at>now()-interval '24 hours')::int AS searched,
+        count(*) FILTER(WHERE finished_at>now()-interval '24 hours' AND status IN ('complete','partial'))::int AS found,
+        count(*) FILTER(WHERE finished_at>now()-interval '24 hours' AND status='failed')::int AS errors,
+        max(finished_at) AS last,NULL AS last_outcome
+      FROM enrichment_run_items WHERE status NOT IN ('queued','collecting','skipped')
+      UNION ALL
+      SELECT s.source,COALESCE(r.searched,0),COALESCE(r.found,0),COALESCE(r.errors,0),l.attempted_at,l.outcome
+      FROM (VALUES ('otoparcasan'),('spareto')) s(source)
+      LEFT JOIN LATERAL (SELECT attempted_at,outcome FROM enrichment_source_attempts a WHERE a.source=s.source ORDER BY attempted_at DESC LIMIT 1) l ON true
+      LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE outcome<>'blocked')::int AS searched,count(*) FILTER(WHERE outcome='found')::int AS found,
+        count(*) FILTER(WHERE outcome='error')::int AS errors FROM enrichment_source_attempts a WHERE a.source=s.source AND attempted_at>now()-interval '24 hours') r ON true`),
+    db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
   ]);
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
@@ -117,6 +132,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count
     ${from} ORDER BY ${sortOrder(query, { updated: "j.sorted_at" }, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
-  return { pass, pilot:pilot.rows[0]??null, counts:counts.rows, metrics:summary, sources:sources.rows, rows:rows.rows,
+  const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
+  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, sources:sources.rows, rows:rows.rows,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
 }
