@@ -17,6 +17,7 @@ import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
+import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {enrichmentImportSchema,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
@@ -28,7 +29,10 @@ const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[
 const checkpoint=resolve(option('out')||'artifacts/spareto/results.jsonl');
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image:boolean;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
-const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');};
+const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
+ // The admin page reads searches from the database; a dry run leaves no trace there.
+ if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
+  await recordAttempt(pool,'spareto',status,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
 async function entries(){
  const latest=new Map<string,Entry>();
  try{for(const line of (await readFile(checkpoint,'utf8')).split('\n'))if(line.trim()){const e=JSON.parse(line) as Entry;
@@ -176,6 +180,7 @@ async function collect(){
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?'yazıldı':'yazılmadı';
    console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
   }catch(error){
+   if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',status,supplier.id,'blocked');
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;break;}
    if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
    await record({supplierItemId:supplier.id,outcome:'error',error:String(error)});console.log(`${index} ${supplier.code} → hata: ${error}`);

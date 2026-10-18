@@ -62,3 +62,11 @@ DO $$ BEGIN
  CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
  END IF;
 END $$;
+-- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
+-- from it, since their checkpoints are local files. 'blocked' marks the product a run stopped on.
+CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
+ id bigserial PRIMARY KEY, source text NOT NULL CHECK(source IN ('otoparcasan','spareto')),
+ queue text NOT NULL CHECK(queue IN ('pending','not_found','review')), supplier_item_id uuid NOT NULL,
+ outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);

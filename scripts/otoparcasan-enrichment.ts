@@ -14,6 +14,7 @@ import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {OTOPARCASAN,buildData,codeCandidates,fuelMap,identify,imageSize,parseProductPage,parseSearch,parseVehicles,supplierOemQueries,toSourceVehicles,uniqueOems,type SourceRow,type Supplier} from '../src/modules/enrichment/otoparcasan-adapter';
 import {OtoparcasanClient,SourceBlocked} from '../src/modules/enrichment/otoparcasan-client';
 import {importEnrichments,storeProductImage} from '../src/modules/enrichment/import';
+import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {loadFitmentMatcher} from '../src/modules/store/fitment-sync';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
@@ -26,7 +27,10 @@ const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[
 const checkpoint=resolve(option('out')||'artifacts/otoparcasan/results.jsonl');
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image?:boolean;oems:number;specifications:number;vehicles:number;commercial:number;invalid:number;matched:number};package?:unknown};
-const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');};
+const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
+ // The admin page reads searches from the database; a dry run leaves no trace there.
+ if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
+  await recordAttempt(pool,'otoparcasan',status,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
 async function entries(){
  const latest=new Map<string,Entry>();
  try{for(const line of (await readFile(checkpoint,'utf8')).split('\n'))if(line.trim()){const e=JSON.parse(line) as Entry;
@@ -142,6 +146,7 @@ async function collect(){
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?'yazıldı':'yazılmadı';
    console.log(`${index+1}/${rows.length} ${supplier.code} → ${pkg.source} [${found.basis.type}] OEM ${counts.oems} · özellik ${counts.specifications} · araç ${counts.matched}/${counts.vehicles} eşleşti · görsel ${image?'var':'yok'} · kamyon ${counts.commercial} atıldı · ${written}`);
   }catch(error){
+   if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'otoparcasan',status,supplier.id,'blocked');
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;break;}
    if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
    await record({supplierItemId:supplier.id,outcome:'error',error:String(error)});console.log(`${index+1}/${rows.length} ${supplier.code} → hata: ${error}`);
