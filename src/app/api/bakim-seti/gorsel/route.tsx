@@ -55,7 +55,7 @@ async function render(ids: string[]) {
   const logos = await getManufacturerLogos([...new Set(items.map(item => item.brand))]);
   const pieces: Piece[] = await Promise.all(items.map(async item => ({
     name: item.name, brand: item.brand, slot: item.slot?.key ?? null, slotName: item.slot?.name ?? "Parça",
-    photo: item.media ? await productPhoto(item.media) : null,
+    photo: (item.media && await productPhoto(item.media)) ?? await partArt(item.slot?.art ?? "parts"),
     logo: await logoData(logos.get(item.brand)?.src),
   })));
   const slots = pieces.flatMap(piece => piece.slot ?? []);
@@ -78,6 +78,18 @@ async function productPhoto(media: { bucket: string; object_key: string }) {
     return { src: `data:image/png;base64,${data.toString("base64")}`, width: info.width, height: info.height };
   } catch (error) {
     console.error("Kit image: product photo skipped", error instanceof Error ? error.name : error);
+    return null;
+  }
+}
+
+/** The same generic drawing the page shows for a product without a photo (public/media/part-art, rendered by scripts/render-part-art.tsx). */
+async function partArt(kind: string): Promise<Photo | null> {
+  try {
+    const svg = await readFile(join(process.cwd(), "public/media/part-art", `${kind}.svg`));
+    const { data, info } = await sharp(svg, { density: 300 }).resize(560, 400, { fit: "inside" }).png().toBuffer({ resolveWithObject: true });
+    return { src: `data:image/png;base64,${data.toString("base64")}`, width: info.width, height: info.height };
+  } catch (error) {
+    console.error("Kit image: part art skipped", error instanceof Error ? error.message : error);
     return null;
   }
 }
