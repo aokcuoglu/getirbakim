@@ -100,13 +100,14 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 const cachedFitted=staleCache<string[]>(10*60*1000);
 const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
  "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
-const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
+/** Ids of the products linked to one vehicle type (cached per process). */
+export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
  * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
  */
-const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
+export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
  (await db.query<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id::text FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
   UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN product_enrichment_shared e ON e.donor_item_id=pc.supplier_item_id
@@ -217,7 +218,7 @@ async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }
 // Secondary offers of a product sold by several suppliers are reached through the product listing them.
-const listedOnly="NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=catalog.id AND o.primary_id<>o.item_id)";
+export const listedOnly="NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=catalog.id AND o.primary_id<>o.item_id)";
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
