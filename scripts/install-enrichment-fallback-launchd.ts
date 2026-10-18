@@ -3,7 +3,8 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 // Runs scripts/enrichment-fallback.ts every hour: otoparcasan.com and spareto.com search the products the Trodo
-// worker could not find. launchd never starts a second copy while a pass is still running.
+// worker could not find. launchd never starts a second copy while a pass is still running. A calendar slot (not
+// StartInterval, which does not fire while the Mac sleeps) is caught up on wake.
 if (process.platform !== "darwin") throw new Error("This installer requires macOS.");
 const root = resolve(import.meta.dirname, "..");
 const label = "com.getirbakim.enrichment-fallback";
@@ -22,7 +23,7 @@ await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
 <key>Label</key><string>${label}</string>
 <key>ProgramArguments</key><array>${args.map(arg => `<string>${escape(arg)}</string>`).join("")}</array>
 <key>WorkingDirectory</key><string>${escape(root)}</string>
-<key>StartInterval</key><integer>3600</integer>
+<key>StartCalendarInterval</key><dict><key>Minute</key><integer>15</integer></dict>
 <key>EnvironmentVariables</key><dict><key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string></dict>
 <key>StandardOutPath</key><string>${escape(logs)}/fallback.log</string>
 <key>StandardErrorPath</key><string>${escape(logs)}/fallback.log</string>
@@ -30,4 +31,4 @@ await writeFile(path, `<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>`, { mode: 0o600 });
 const result = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, path], { encoding: "utf8" });
 if (result.status !== 0) throw new Error(`Could not register ${label}: ${result.stderr}`);
-console.log(`${label} installed: every hour; log: .local/enrichment-fallback/fallback.log`);
+console.log(`${label} installed: every hour at :15; log: .local/enrichment-fallback/fallback.log`);
