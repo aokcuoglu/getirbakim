@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, useTransition, type RefObj
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
-import { VehicleImage, VehicleImageCredit } from "./vehicle-image";
+import { VehicleImage } from "./vehicle-image";
 import { Sheet, SheetClose, SheetTitle } from "@/components/ui/sheet";
 import { DialogOverlay as SheetOverlay, DialogPortal as SheetPortal } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -211,7 +211,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
               {step === "confirm" && selected && selectedDetails && <div>
-                <div className={summaryBox}><VehicleImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small><VehicleImageCredit image={selected.image} className="mt-1.5" /></div></div>
+                <div className={summaryBox}><VehicleImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
                 <label className="mb-2 block text-[13px] font-medium" htmlFor={`${id}-year`}>Model yılı</label>
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
@@ -225,7 +225,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       <TabsContent value="garage" className="p-5">
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
-          <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}<VehicleImageCredit image={savedImage} className="mt-1.5" /></div></div>
+          <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
           {savedOil && <dl className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-[5px] border border-border px-[18px] py-3.5 text-[13px] leading-5 [&>dt]:text-muted-foreground [&>dd]:m-0 [&>dd]:wrap-anywhere" aria-label="Önerilen motor yağı">
             <dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd>
             <dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd>

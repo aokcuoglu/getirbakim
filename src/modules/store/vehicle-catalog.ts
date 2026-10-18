@@ -1,17 +1,20 @@
-import type { VehicleModelImage } from "./vehicle-model-images";
 import type { VehicleOilSpec } from "./vehicle-oil";
+
+/** Side-view picture of a vehicle type from REPXPERT, stored as WebP (vehicle_type_images). */
+export type VehicleImage = { src: string; width: number; height: number };
 
 export type VehicleBrand = { id: string; name: string; popular: boolean };
 export type VehicleModel = {
   id: string; brandId: string; name: string; dateFrom: string | null; dateTo: string | null;
-  /** Approved Wikimedia Commons photograph of the series, when one exists. */
-  image?: VehicleModelImage;
+  /** Picture of the series' most recent type that has one. */
+  image?: VehicleImage;
 };
 export type CatalogVehicle = {
   id: string; modelId: string; brandId: string; make: string; model: string; generation: string;
   from: number; to: number; dateFrom: string; dateTo: string | null;
   fuel: string; engine: string; power: string; cc: number | null;
-  image?: VehicleModelImage;
+  /** The type's own picture, else its series' picture. */
+  image?: VehicleImage;
   /** Recommended engine oil; only the single-vehicle lookup (getCatalogVehicle) carries it. */
   oil?: VehicleOilSpec;
 };

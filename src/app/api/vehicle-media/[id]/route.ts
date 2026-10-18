@@ -3,14 +3,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { objectStorage } from "@/lib/object-storage";
 
-// Model series photographs (vehicle_model_images). The bytes are free-licensed Commons files, so pending rows are
-// served too: the admin review page shows them before the store does. ?v= pins a content version for long caching.
+// Vehicle type pictures from REPXPERT (vehicle_type_images). ?v= pins a content version for long caching.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!z.uuid().safeParse(id).success) return new Response(null, { status: 404 });
   const media = (await db.query<{ bucket: string; object_key: string; content_type: string; sha256: string; size_bytes: number }>(
     `SELECT m.bucket, m.object_key, m.content_type, m.sha256, m.size_bytes FROM product_media_objects m
-     WHERE m.id=$1 AND EXISTS (SELECT 1 FROM vehicle_model_images i WHERE i.media_id=m.id)`, [id])).rows[0];
+     WHERE m.id=$1 AND EXISTS (SELECT 1 FROM vehicle_type_images i WHERE i.media_id=m.id)`, [id])).rows[0];
   if (!media) return new Response(null, { status: 404 });
   const version = new URL(request.url).searchParams.get("v");
   if (version && !media.sha256.startsWith(version)) return new Response(null, { status: 404 });

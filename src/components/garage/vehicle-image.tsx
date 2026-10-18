@@ -1,21 +1,15 @@
 import Image from "next/image";
 import { CarFront } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { VehicleModelImage } from "@/modules/store/vehicle-model-images";
+import type { VehicleImage as VehicleImageData } from "@/modules/store/vehicle-catalog";
 
-/** The series photograph in a fixed 3:2 frame, or the generic car icon when the series has none. */
-export function VehicleImage({ image, alt, size = "md", className }: { image?: VehicleModelImage | null; alt: string; size?: "sm" | "md"; className?: string }) {
-  const frame = size === "sm" ? "h-10 w-[60px]" : "h-16 w-24";
-  // Without a photograph the icon keeps its original footprint so the text does not move.
+/** The type's side-view picture in a wide frame, or the generic car icon when there is none. */
+export function VehicleImage({ image, alt, size = "md", className }: { image?: VehicleImageData | null; alt: string; size?: "sm" | "md"; className?: string }) {
+  const frame = size === "sm" ? "h-6 w-16" : "h-10 w-28";
+  // Without a picture the icon keeps its original footprint so the text does not move.
   if (!image) return <span className={cn("grid shrink-0 place-items-center", size === "sm" ? "size-6" : "size-8", className)} aria-hidden="true"><CarFront size={size === "sm" ? 24 : 32} /></span>;
-  // The store never resizes Commons files on the fly: the stored copy is already 480 px wide.
+  // REPXPERT pictures are wide side views on white: contained, never cropped. The stored copy is already 800 px wide.
   return <span className={cn("block shrink-0 overflow-hidden rounded-[4px] bg-white", frame, className)}>
-    <Image src={image.src} alt={alt} title={image.attribution} width={image.width} height={image.height} unoptimized className="size-full object-cover" />
+    <Image src={image.src} alt={alt} width={image.width} height={image.height} unoptimized className="size-full object-contain" />
   </span>;
-}
-
-/** Author and licence line required by Creative Commons licences; links to the file page on Commons. */
-export function VehicleImageCredit({ image, className }: { image?: VehicleModelImage | null; className?: string }) {
-  if (!image) return null;
-  return <a href={image.sourceUrl} target="_blank" rel="noopener noreferrer license" className={cn("block truncate text-[11px] leading-4 text-muted-foreground hover:underline", className)}>{image.attribution}</a>;
 }

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
 import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
-import { getVehicleModelImages } from "./vehicle-model-images.server";
+import { getVehicleModelImages, getVehicleTypeImages } from "./vehicle-images.server";
 import { getVehicleOilSpec } from "./vehicle-oil.server";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
@@ -37,10 +37,16 @@ export async function getVehicleBrandBySlug(slug: string) {
   return (await getVehicleBrands()).find(brand => vehicleBrandSlug(brand.name) === slug);
 }
 
-// Approved series photographs ride along with every model/vehicle list; absent when there is none.
-async function withImages<T extends { modelId?: string; id: string }>(items: T[], modelId: (item: T) => string) {
-  const images = await getVehicleModelImages(items.map(modelId));
-  return items.map(item => { const image = images.get(modelId(item)); return image ? { ...item, image } : item; });
+// REPXPERT pictures ride along with every model/vehicle list; absent when there is none.
+async function withModelImages(models: VehicleModel[]) {
+  const images = await getVehicleModelImages(models.map(model => model.id));
+  return models.map(model => { const image = images.get(model.id); return image ? { ...model, image } : model; });
+}
+// A type without its own picture shows its series' picture.
+async function withImages(vehicles: CatalogVehicle[]) {
+  const own = await getVehicleTypeImages(vehicles.map(vehicle => vehicle.id));
+  const series = await getVehicleModelImages(vehicles.filter(vehicle => !own.has(vehicle.id)).map(vehicle => vehicle.modelId));
+  return vehicles.map(vehicle => { const image = own.get(vehicle.id) ?? series.get(vehicle.modelId); return image ? { ...vehicle, image } : vehicle; });
 }
 
 export async function getVehicleModels(brandId: string): Promise<VehicleModel[] | null> {
@@ -49,22 +55,22 @@ export async function getVehicleModels(brandId: string): Promise<VehicleModel[] 
     to_char(date_from, 'YYYY-MM') AS "dateFrom", to_char(date_to, 'YYYY-MM') AS "dateTo"
     FROM vehicle_models WHERE brand_id=$1`, [brandId]);
   if (!rows.length && !(await db.query("SELECT 1 FROM vehicle_brands WHERE id=$1", [brandId])).rowCount) return null;
-  return withImages(rows.sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true })), model => model.id);
+  return withModelImages(rows.sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true })));
 }
 
 export async function getModelVehicles(modelId: string): Promise<CatalogVehicle[] | null> {
   if (!validId(modelId)) return null;
   const { rows } = await db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.model_id=$1`, [modelId]);
   if (!rows.length && !(await db.query("SELECT 1 FROM vehicle_models WHERE id=$1", [modelId])).rowCount) return null;
-  return withImages(rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id)), vehicle => vehicle.modelId);
+  return withImages(rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id)));
 }
 
-/** One vehicle type by id, with its series photograph and recommended oil: the garage tab's card of the saved vehicle. */
+/** One vehicle type by id, with its picture and recommended oil: the garage tab's card of the saved vehicle. */
 export async function getCatalogVehicle(id: string): Promise<CatalogVehicle | null> {
   if (!validId(id)) return null;
   const [{ rows }, oil] = await Promise.all([db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]), getVehicleOilSpec(id)]);
   if (!rows.length) return null;
-  const vehicle = (await withImages(rows.map(formatVehicle), vehicle => vehicle.modelId))[0];
+  const vehicle = (await withImages(rows.map(formatVehicle)))[0];
   return oil ? { ...vehicle, oil } : vehicle;
 }
 
@@ -91,7 +97,7 @@ async function rankedVehicleSearch(parsed: ParsedSearch, offset: number, limit: 
         ${vehicleJoins} JOIN matches ON matches.id=v.id
         ORDER BY ordinal ${page}
       ) page), '[]'::jsonb) AS vehicles`, values);
-  return { vehicles: await withImages(rows[0].vehicles.map(formatVehicle), vehicle => vehicle.modelId), total: rows[0].total };
+  return { vehicles: await withImages(rows[0].vehicles.map(formatVehicle)), total: rows[0].total };
 }
 
 export type VehicleSearchResult = { vehicles: CatalogVehicle[]; total: number; correctedQuery?: string };
