@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
@@ -14,13 +14,13 @@ import { cn } from "@/lib/utils";
 import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle } from "@/app/garaj/actions";
 import type { GarageEntry } from "@/modules/store/garage";
 import { minSearchLength, searchTooShort } from "@/modules/search/query";
-import { vehicleDetails, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
+import { vehicleDetails, vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
 import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 
-type Step = "brand" | "model" | "fuel" | "engine" | "confirm";
+type Step = "brand" | "family" | "model" | "fuel" | "engine" | "confirm";
 type Tab = "search" | "garage";
-const titles: Record<Step, string> = { brand: "Marka seç", model: "Model / kasa seç", fuel: "Yakıt türü seç", engine: "Motor seç", confirm: "Aracını onayla" };
+const titles: Record<Step, string> = { brand: "Marka seç", family: "Model seç", model: "Kasa / nesil seç", fuel: "Yakıt türü seç", engine: "Motor seç", confirm: "Aracını onayla" };
 
 const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
@@ -48,6 +48,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const [tab, setTab] = useState<Tab>(initialTab);
   const [step, setStep] = useState<Step>("brand");
   const [brandId, setBrandId] = useState("");
+  const [familyKey, setFamilyKey] = useState("");
   const [modelId, setModelId] = useState("");
   const [fuel, setFuel] = useState("");
   const [selected, setSelected] = useState<CatalogVehicle | null>(null);
@@ -71,11 +72,13 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
+  const families = useMemo(() => vehicleModelFamilies(modelsRequest.data?.models ?? []), [modelsRequest.data]);
+  const family = families.find(f => f.key === familyKey);
   const brand = vehicleBrands.find(b => b.id === brandId);
   const model = vehicleModels.find(m => m.id === modelId);
   const searchResults = searchRequest.data?.vehicles ?? [];
   const searchTotal = searchRequest.data?.total ?? 0;
-  const activeRequest = query.trim() ? searchRequest : step === "brand" ? brandsRequest : step === "model" ? modelsRequest : typesRequest;
+  const activeRequest = query.trim() ? searchRequest : step === "brand" ? brandsRequest : step === "family" || step === "model" ? modelsRequest : typesRequest;
 
   useEffect(() => { busyRef.current = pending; }, [busyRef, pending]);
   const firstStep = useRef(true);
@@ -107,11 +110,12 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
 
   function go(next: Step) { setStep(next); setQuery(""); setSearchOffset(0); setError(""); }
   function pick(v: CatalogVehicle) {
-    setBrandId(v.brandId); setModelId(v.modelId); setFuel(v.fuel);
+    setBrandId(v.brandId); setFamilyKey(vehicleModelFamilyKey(v.model)); setModelId(v.modelId); setFuel(v.fuel);
     setSelected(v); setYear(v.to); go("confirm");
   }
   function back() {
-    const previous: Record<Step, Step> = { brand: "brand", model: "brand", fuel: "model", engine: "fuel", confirm: "engine" };
+    // A family with a single series skipped the series list, so going back skips it too.
+    const previous: Record<Step, Step> = { brand: "brand", family: "brand", model: "family", fuel: family?.models.length === 1 ? "family" : "model", engine: "fuel", confirm: "engine" };
     go(previous[step]);
   }
   function lookupPlate(event: React.FormEvent) {
@@ -178,7 +182,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
           </div>
           {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-6 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
             <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.name}</Button>
-            {model && step !== "model" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("model")}>{model.name}</Button></>}
+            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.name}</Button></>}
+            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.name}</Button></>}
             {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
           {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
@@ -196,9 +201,13 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             </> : <>
               {step === "brand" && [true, false].map(popular => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
                 <h4 className="mt-0 mb-2 text-[11px] leading-4 font-semibold tracking-[.3px] text-[#54626e]">{popular ? "POPÜLER MARKALAR" : "TÜM MARKALAR"}</h4>
-                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.name.toLocaleUpperCase("tr"), action: () => { setBrandId(b.id); setModelId(""); setFuel(""); go("model"); } })))}
+                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.name.toLocaleUpperCase("tr"), action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
               </div>)}
-              {step === "model" && rows(vehicleModels.map(m => ({ key: m.id, label: m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
+              {step === "family" && rows(families.map(f => ({ key: f.key, label: f.name, action: () => {
+                setFamilyKey(f.key); setFuel("");
+                if (f.models.length === 1) { setModelId(f.models[0].id); go("fuel"); } else { setModelId(""); go("model"); }
+              }, detail: `${f.models.length > 1 ? `${f.models.length} kasa / nesil · ` : ""}${vehicleProductionDates(f.dateFrom, f.dateTo)}` })))}
+              {step === "model" && rows((family?.models ?? []).map(m => ({ key: m.id, label: m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
               {step === "confirm" && selected && selectedDetails && <div>
