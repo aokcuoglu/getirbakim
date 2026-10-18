@@ -13,7 +13,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { listProducts, productBrands, productCategories, productFilters, supplierNames, type ProductFilter } from "@/modules/admin/products";
+import { listProducts, productFilters, supplierNames, type ProductFilter } from "@/modules/admin/products";
 import { money } from "@/modules/store/catalog";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
@@ -21,9 +21,8 @@ const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 export default async function Products({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const raw = await searchParams;
   const params = normalizeSearchParams(raw);
-  const [data, brands, categories] = await Promise.all([
-    listProducts({ ...params, brands: [raw.brand ?? []].flat(), categories: [raw.category ?? []].flat() }), productBrands(), productCategories()]);
-  const categoryLabel = new Map(categories.map(category => [category.id, category.label]));
+  const data = await listProducts({ ...params, brands: [raw.brand ?? []].flat(), categories: [raw.category ?? []].flat() });
+  const categoryLabel = new Map(data.categoryOptions.map(category => [category.id, category.label]));
   const query = (changes: Record<string, string | string[] | undefined>) => {
     const next = new URLSearchParams();
     for (const [key, value] of Object.entries({ filter: params.filter, brand: data.brands, category: data.categories, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes }))
@@ -74,8 +73,8 @@ export default async function Products({ searchParams }: { searchParams: Promise
       <Separator/>
       <CardContent>
         {data.products.length ? <Table server><caption className="sr-only">Ürünler</caption>
-          <TableHeader><TableRow><TableHead sortKey="brand" filter={{ param: "brand", multiple: true, options: brands.map(brand => ({ value: brand.label, label: brand.label, count: brand.count })) }}>Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
-            <TableHead filter={{ param: "category", multiple: true, options: categories.map(category => ({ value: category.id, label: category.label, count: category.count })) }}>Kategori</TableHead>
+          <TableHeader><TableRow><TableHead sortKey="brand" filter={{ param: "brand", multiple: true, options: data.brandOptions.map(brand => ({ value: brand.label, label: brand.label, count: brand.count })) }}>Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
+            <TableHead filter={{ param: "category", multiple: true, options: data.categoryOptions.map(category => ({ value: category.id, label: category.label, count: category.count })) }}>Kategori</TableHead>
             <TableHead filter={{ param: "filter", options: (Object.keys(productFilters) as ProductFilter[]).filter(filter => filter !== "all").map(filter => ({ value: filter, label: productFilters[filter].label })) }}>Kaynaklar</TableHead><TableHead className="text-right">Satış fiyatı</TableHead><TableHead>Satan</TableHead></TableRow></TableHeader>
           <TableBody>{data.products.map(product => <TableRow key={product.id}>
             <TableCell className="max-w-32 truncate font-medium" title={product.brand_label}>{product.brand_label || product.brand}</TableCell>
