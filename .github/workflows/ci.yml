@@ -32,7 +32,7 @@ jobs:
       - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-supplier-checkout.ts scripts/test-enrichment-import.ts
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
-      - run: npm run test:review && npm run test:basbug && npm run test:dinamik && node --import tsx --test scripts/test-supplier-changes.ts && npm run test:seta && npm run test:spareto && npm run test:part-art && npm run test:data-table && npm run test:brand && npm run test:fitment && npm run test:fitment-level && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && npm run test:vehicle-images && node --import tsx --test scripts/test-enrichment-worker.ts && npm run test:otoparcasan && npm run test:vehicle-oil && npm run test:maintenance-kit && npm run test:vehicle-families
+      - run: npm run test:review && npm run test:basbug && npm run test:dinamik && node --import tsx --test scripts/test-supplier-changes.ts && npm run test:seta && npm run test:spareto && npm run test:part-art && npm run test:data-table && npm run test:brand && npm run test:fitment && npm run test:fitment-level && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && npm run test:vehicle-images && node --import tsx --test scripts/test-enrichment-worker.ts && npm run test:otoparcasan && npm run test:vehicle-oil && npm run test:maintenance-kit && npm run test:vehicle-families && npm run test:vehicle-repxpert
       - run: node --import tsx --test --test-name-pattern='catalog CLI|master product' scripts/test-enrichment-worker.ts
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
