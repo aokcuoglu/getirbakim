@@ -15,6 +15,7 @@ import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalog
 import type { GarageEntry } from "@/modules/store/garage";
 import { minSearchLength, searchTooShort } from "@/modules/search/query";
 import { vehicleDetails, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
+import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 
 type Step = "brand" | "model" | "fuel" | "engine" | "confirm";
@@ -66,6 +67,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   // The saved vehicle only carries ids; its series photograph is looked up when the garage tab shows it.
   const savedRequest = useVehicleCatalog(tab === "garage" && vehicle?.vehicleId ? `/api/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}` : null);
   const savedImage = savedRequest.data?.vehicles?.[0]?.image;
+  const savedOil = savedRequest.data?.vehicles?.[0]?.oil;
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
@@ -215,6 +217,13 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
           <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}<VehicleImageCredit image={savedImage} className="mt-1.5" /></div></div>
+          {savedOil && <dl className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-[5px] border border-border px-[18px] py-3.5 text-[13px] leading-5 [&>dt]:text-muted-foreground [&>dd]:m-0 [&>dd]:wrap-anywhere" aria-label="Önerilen motor yağı">
+            <dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd>
+            <dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd>
+            {savedOil.acea.length > 0 && <><dt>ACEA</dt><dd>{savedOil.acea.join(", ")}</dd></>}
+            {savedOil.api.length > 0 && <><dt>API</dt><dd>{savedOil.api.join(", ")}</dd></>}
+            {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
+          </dl>}
           <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
           <Button className={cn(plain, "mx-auto mt-4 flex min-h-9 items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>

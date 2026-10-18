@@ -23,6 +23,7 @@ try {
    await client.query(await readFile("db/schema.sql", "utf8"));
    await client.query(await readFile("db/brand-launch.sql", "utf8"));
    await client.query(await readFile("db/vehicle-schema.sql", "utf8"));
+   await client.query(await readFile("db/vehicle-oil-specs.sql", "utf8"));
    await migrateSupplierSnapshots(client);
    await client.query(await readFile("db/commerce.sql", "utf8"));
    await client.query(await readFile("db/search.sql", "utf8"));

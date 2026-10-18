@@ -1,4 +1,5 @@
 import type { VehicleModelImage } from "./vehicle-model-images";
+import type { VehicleOilSpec } from "./vehicle-oil";
 
 export type VehicleBrand = { id: string; name: string; popular: boolean };
 export type VehicleModel = {
@@ -11,6 +12,8 @@ export type CatalogVehicle = {
   from: number; to: number; dateFrom: string; dateTo: string | null;
   fuel: string; engine: string; power: string; cc: number | null;
   image?: VehicleModelImage;
+  /** Recommended engine oil; only the single-vehicle lookup (getCatalogVehicle) carries it. */
+  oil?: VehicleOilSpec;
 };
 export type SavedVehicle = {
   make: string; model: string; year: number; vehicleId?: string;
