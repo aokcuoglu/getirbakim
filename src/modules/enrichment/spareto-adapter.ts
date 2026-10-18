@@ -1,12 +1,15 @@
 import {z} from 'zod';
 import {enrichmentDataSchema,matchBasisSchema,matchesEnrichment,matchesSupplierPart,type EnrichmentData} from '../store/enrichment-contract';
+import type {FitmentCatalogModel,FitmentCatalogType} from '../store/fitment-matcher';
 
 export const SPARETO='https://spareto.com';
 type MatchBasis=z.infer<typeof matchBasisSchema>;
 export type Supplier={brand:string;code:string;oem:string;masterBrand?:string|null};
 export type SearchCard={partNumber:string;brand:string;path:string};
+export type VehicleFrame={make:string;model:string;path:string};
+export type FitmentRow={make:string;name:string;from:string;to:string|null;kw:number;hp:number|null;cc:number|null};
 export type ProductPage={brand:string;partNumber:string;name:string;image:string|null;specifications:[string,string][];
- oemNumbers:Record<string,string[]>;crossReferences:Record<string,string[]>};
+ oemNumbers:Record<string,string[]>;crossReferences:Record<string,string[]>;vehicleFrames:VehicleFrame[]};
 
 const decode=(value:string)=>value.replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&');
 const text=(html:string)=>decode(html.replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').trim();
@@ -58,15 +61,66 @@ export function parseProductPage(html:string):ProductPage{
  const section=references<0?'':html.slice(references,end<0?undefined:end);
  const cross=section.indexOf('Cross-Reference Numbers');
  return {brand:decode(brand).trim(),partNumber:decode(partNumber).trim(),name:decode(name).trim(),image:image&&decode(image),specifications:specifications.slice(0,100),
-  oemNumbers:referenceGroups(cross<0?section:section.slice(0,cross)),crossReferences:cross<0?{}:referenceGroups(section.slice(cross))};
+  oemNumbers:referenceGroups(cross<0?section:section.slice(0,cross)),crossReferences:cross<0?{}:referenceGroups(section.slice(cross)),vehicleFrames:parseVehicleFrames(html)};
 }
 
-export function buildData(page:ProductPage):EnrichmentData{
+export const fitmentPath=/^\/products\/[a-z0-9-]+\/[a-z0-9-]+\/fitment\?manufacturer_id=\d+&model_name=[A-Za-z0-9+%._~!*'()-]+$/;
+/** "Fit Vehicles" lists makes and their models; each model's vehicles load lazily from its own fitment frame. */
+export function parseVehicleFrames(html:string):VehicleFrame[]{
+ const start=html.indexOf("id='nav-vehicles'");if(start<0)return [];
+ const end=html.indexOf('</section>',start),frames:VehicleFrame[]=[];let make='',model='';
+ for(const m of html.slice(start,end<0?undefined:end).matchAll(/<div class='col-6' style='font-weight: bold'>([^<]+)<\/div>|<div class='col-6 ps-4'>([^<]+)<\/div>|<turbo-frame\b[^>]*\ssrc="([^"]+)"/g)){
+  if(m[1])make=decode(m[1]).trim();else if(m[2])model=decode(m[2]).trim();
+  else{const path=decode(m[3]);if(make&&model&&fitmentPath.test(path)&&!frames.some(f=>f.path===path))frames.push({make,model,path});}
+ }
+ return frames;
+}
+/** Rows of one fitment frame: "<model> <engine>" as one TecDoc name, production months, kW, HP (often blank) and ccm. */
+export function parseFitment(html:string,make:string):FitmentRow[]{
+ const rows:FitmentRow[]=[],number=(value:string|undefined)=>/^\d+$/.test((value||'').trim())?Number(value):null;
+ for(const row of html.split(/(?=<tr data-model-short-name=)/).slice(1)){
+  const name=/<a\b[^>]*>([^<]+)<\/a>/.exec(row)?.[1],from=/<span class="from">(\d{4}-\d{2})<\/span>/.exec(row)?.[1],to=/<span class="to">([^<]*)<\/span>/.exec(row)?.[1];
+  const cells=/<td class="power">([^<]*)<\/td>\s*<td>([^<]*)<\/td>\s*<td class="ccm">([^<]*)<\/td>/.exec(row),kw=number(cells?.[1]);
+  if(!name||!from||!kw)continue;
+  rows.push({make,name:decode(name).replace(/\s+/g,' ').trim(),from,to:to&&/^\d{4}-\d{2}$/.test(to.trim())?to.trim():null,kw,hp:number(cells?.[2]),cc:number(cells?.[3])});
+ }
+ return rows;
+}
+const upper=(value:string)=>value.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+const monthYear=(value:string|null)=>value?`${value.slice(5)}/${value.slice(0,4)}`:null;
+/** The source names no fuel and often no HP, which the strict fitment matcher compares. A row whose model, engine name,
+ *  kW, ccm, months and any HP select exactly one catalog type takes fuel and HP from it; other rows keep a blank fuel
+ *  and stay unmatched. A row that still lists the vehicle as in production may meet a type that has since closed. */
+export function resolveVehicles(rows:FitmentRow[],models:FitmentCatalogModel[],types:FitmentCatalogType[]){
+ const byMake=new Map<string,FitmentCatalogModel[]>(),byModel=new Map<number,FitmentCatalogType[]>();
+ for(const model of models)for(const make of new Set([upper(model.brand),upper(model.display_brand)]))byMake.set(make,[...(byMake.get(make)||[]),model]);
+ for(const type of types)byModel.set(type.model_id,[...(byModel.get(type.model_id)||[]),type]);
+ const vehicles:EnrichmentData['vehicles']=[],invalid:{name:string;error:string}[]=[],seen=new Set<string>();let resolved=0;
+ for(const row of rows){
+  const name=upper(row.name),known=(byMake.get(upper(row.make))||[]).filter(m=>name.startsWith(upper(m.name)+' '));
+  const longest=Math.max(0,...known.map(m=>upper(m.name).length)),owners=known.filter(m=>upper(m.name).length===longest);
+  const engine=owners.length?name.slice(longest+1):'';
+  const fits=owners.flatMap(m=>byModel.get(m.id)||[]).filter(t=>upper(t.name)===engine&&t.kwt===row.kw&&(t.cc??0)===(row.cc??0)
+   &&(row.hp===null||t.hp===row.hp)&&t.date_from===row.from);
+  const exact=fits.filter(t=>t.date_to===row.to),dated=exact.length||row.to!==null?exact:fits.filter(t=>t.date_to!==null);
+  const type=dated.length===1?dated[0]:null,owner=type&&owners.find(m=>m.id===type.model_id);
+  if(type)resolved++;
+  const vehicle={model:owner?`${owner.brand} ${owner.name}`:owners.length?`${owners[0].brand} ${owners[0].name}`:`${row.make} ${row.name}`,
+   engineAndCodes:engine||row.name,fuel:type?.fuel_type??'',kw:row.kw,ps:type?.hp??row.hp??Math.round(row.kw*1.35962),cc:type?type.cc??0:row.cc??0,
+   from:monthYear(row.from),to:monthYear(row.to)};
+  const key=JSON.stringify(vehicle);if(seen.has(key))continue;seen.add(key);
+  const parsed=enrichmentDataSchema.shape.vehicles.element.safeParse(vehicle);
+  if(parsed.success)vehicles.push(parsed.data);else invalid.push({name:row.name,error:parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join('; ')});
+ }
+ return {vehicles,invalid,resolved};
+}
+
+export function buildData(page:ProductPage,vehicles:EnrichmentData['vehicles']=[]):EnrichmentData{
  // The donor's own number is a cross reference of ours as well.
  const crossReferences={...page.crossReferences};
  if(!Object.values(crossReferences).flat().some(v=>normalize(v)===normalize(page.partNumber)))crossReferences[page.brand]=[...(crossReferences[page.brand]||[]),page.partNumber];
  const cap=(groups:Record<string,string[]>)=>Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.slice(0,500)]));
- return enrichmentDataSchema.parse({specifications:page.specifications,oemNumbers:cap(page.oemNumbers),crossReferences:cap(crossReferences),vehicles:[],vehicleModels:[]});
+ return enrichmentDataSchema.parse({specifications:page.specifications,oemNumbers:cap(page.oemNumbers),crossReferences:cap(crossReferences),vehicles,vehicleModels:[]});
 }
 
 const references=(oem:string)=>[...new Set(oem.split(/[,;|\n]+|-(?=\d{6,})|(?<=\d{7})\s+(?=\d{7})/).map(v=>v.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i,'')).filter(v=>normalize(v).length>=4))];
