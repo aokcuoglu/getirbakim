@@ -18,7 +18,10 @@ export function sourceDecision(status:number,attempt:number,retryAfter:string|nu
  // A Cloudflare browser check is cleared by revisiting the site, not by retrying the request.
  if(challenge&&[403,429,503].includes(status)) return {action:'challenge' as const,waitMs:0};
  if([401,403].includes(status)) return {action:'block' as const,waitMs:0};
- if(status===429 || status===503 || status===0 || status>=500) {
+ // No response at all is local (the Mac slept or the network changed), not the source refusing us: keep retrying
+ // across a sleep without opening the host circuit, and give up on this request alone if it never loads.
+ if(status===0) return {action:attempt>=12?'fail' as const:'retry' as const,waitMs:Math.min(900000,60000*2**(attempt-1))};
+ if(status===429 || status===503 || status>=500) {
   return {action:attempt>=4?'block' as const:'retry' as const,waitMs:Math.max(retryAfterMs(retryAfter,now),Math.min(900000,60000*2**(attempt-1)))};
  }
  return {action:status>=200&&status<300?'complete' as const:'fail' as const,waitMs:0};

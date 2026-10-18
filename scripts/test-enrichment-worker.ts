@@ -152,9 +152,10 @@ test('Hengst supplier identity matches the source while similar search results s
  assert.ok(!matchesSupplierPart('FEBI','FEBI 2562','KAMOKA','02562'));
  assert.ok(!matchesSupplierPart('HENGST','HNG E0700L','HENGST FILTER','E700L'));
 });
-test('rate limiting honors both Retry-After forms and opens a circuit after bounded retries',()=>{
+test('rate limiting honors both Retry-After forms and opens a circuit after bounded retries, but a missing response never does',()=>{
  assert.equal(retryAfterMs('120'),120000);assert.equal(retryAfterMs('Sun, 04 Oct 2026 10:02:00 GMT',Date.parse('2026-10-04T10:00:00Z')),120000);
  assert.deepEqual(sourceDecision(429,1,'180'),{action:'retry',waitMs:180000});assert.equal(sourceDecision(429,4,null).action,'block');assert.equal(sourceDecision(403,1,null).action,'block');assert.equal(sourceDecision(404,1,null).action,'fail');assert.equal(sourceDecision(403,4,null,Date.now(),true).action,'challenge');assert.equal(sourceDecision(404,1,null,Date.now(),true).action,'fail');
+ for(let attempt=1;attempt<12;attempt++)assert.equal(sourceDecision(0,attempt,null).action,'retry');assert.equal(sourceDecision(0,12,null).action,'fail');assert.equal(sourceDecision(0,9,null).waitMs,900000);
 });
 test('browser tasks reject third-party hosts, account endpoints and protocol-relative paths',()=>{
  assert.equal(validSourcePath('www.trodo.com','/rest/V1/customers/me','json'),false);assert.equal(validSourcePath('www.trodo.com','//evil.example/x','html'),false);assert.equal(validSourcePath('evil.example','/rest/V1/vehicle/type/1/23','json'),false);assert.equal(validSourcePath('www.trodo.com','/rest/V1/vehicle/type/1/23','json'),true);
