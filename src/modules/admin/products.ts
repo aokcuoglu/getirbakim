@@ -45,17 +45,31 @@ const offersSql = `WITH sources AS (
    JOIN commerce_catalog c ON c.id=s.supplier_item_id AND c.id=ANY(ARRAY(SELECT supplier_item_id FROM sources))
  )`;
 
-export async function listProducts(params: { q?: string; filter?: string; page?: string; sort?: string; dir?: string }) {
+/** Brand labels as the list shows them, with their product counts: the choices of the brand column filter. */
+export async function productBrands() {
+  await requireAdmin();
+  return (await db.query<{ label: string; count: number }>(
+    "SELECT brand_label AS label, count(*)::int AS count FROM products WHERE merged_into IS NULL GROUP BY brand_label ORDER BY brand_label")).rows;
+}
+
+export async function listProducts(params: { q?: string; filter?: string; brand?: string; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
   const filter: ProductFilter = params.filter && params.filter in productFilters ? params.filter as ProductFilter : "all";
   const q = compact(params.q);
+  const brand = params.brand?.trim().slice(0, 80) || undefined;
   const values: unknown[] = [];
   const where: string[] = [productFilters[filter].where];
+  // The brand filter holds across the tabs, so their counts follow it too.
+  if (brand) {
+    values.push(brand);
+    where.push("p.brand_label=$1");
+  }
   if (q) {
     values.push(q);
+    const n = `$${values.length}`;
     // Part number or any supplier code of the product, ignoring punctuation and the supplier's brand prefix.
-    where.push(`(p.part_number LIKE '%'||$1||'%' OR p.brand=$1 OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
-      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'))`);
+    where.push(`(p.part_number LIKE '%'||${n}||'%' OR p.brand=${n} OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
+      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%'))`);
   }
   // Merged products have no rows of their own; they only matter as redirects.
   if (filter !== "inactive") where.push("p.merged_into IS NULL");
@@ -65,8 +79,8 @@ export async function listProducts(params: { q?: string; filter?: string; page?:
     q ? Promise.resolve(null) : db.query<Record<ProductFilter, number>>(`SELECT count(*) FILTER (WHERE merged_into IS NULL)::int AS all,
       count(*) FILTER (WHERE cardinality(suppliers)>1)::int AS multi, count(*) FILTER (WHERE suppliers='{basbug}')::int AS basbug,
       count(*) FILTER (WHERE suppliers='{dinamik}')::int AS dinamik, count(*) FILTER (WHERE suppliers @> '{seta}')::int AS seta,
-      (SELECT count(DISTINCT product_id) FROM product_sources WHERE method='manual')::int AS manual,
-      count(*) FILTER (WHERE suppliers='{}' AND merged_into IS NULL)::int AS inactive FROM products`),
+      (SELECT count(DISTINCT s.product_id) FROM product_sources s ${brand ? "JOIN products b ON b.id=s.product_id AND b.brand_label=$1 " : ""}WHERE s.method='manual')::int AS manual,
+      count(*) FILTER (WHERE suppliers='{}' AND merged_into IS NULL)::int AS inactive FROM products${brand ? " WHERE brand_label=$1" : ""}`, brand ? [brand] : []),
   ]);
   const pages = Math.max(1, Math.ceil(total.rows[0].count / pageSize));
   const requested = Number(params.page), page = Math.min(Number.isSafeInteger(requested) && requested > 0 ? requested : 1, pages);
@@ -80,7 +94,7 @@ export async function listProducts(params: { q?: string; filter?: string; page?:
       ORDER BY x.available DESC, x.price_kurus, x.id=c.product_id DESC LIMIT 1) b ON true`, [rows.map(row => row.id)])).rows : [];
   const byId = new Map(offers.map(offer => [offer.product_id, offer]));
   const products: ProductRow[] = rows.map(row => ({ ...row, sources: 0, best_price: null, best_supplier: null, available: false, ...byId.get(row.id) }));
-  return { products, filter, q, total: total.rows[0].count, counts: counts?.rows[0] ?? null, page, pages };
+  return { products, filter, q, brand, total: total.rows[0].count, counts: counts?.rows[0] ?? null, page, pages };
 }
 
 export async function getMasterProduct(id: string) {
