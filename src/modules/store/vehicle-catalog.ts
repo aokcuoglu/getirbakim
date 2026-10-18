@@ -39,6 +39,50 @@ export function matchesVehicleSearch(query: string, ...values: string[]) {
   return normalizeVehicleSearch(query).trim().split(/\s+/).every(term => haystack.includes(term));
 }
 
+export type VehicleModelFamily = { key: string; name: string; models: VehicleModel[]; dateFrom: string | null; dateTo: string | null };
+
+// Words that start a generation or body variant rather than continue the family name:
+// roman numerals ("GOLF VII"), letter generations ("A4 B8", "ANTARA A", "MK II"), body types
+// ("SUV", mixed-case "Sportback" / "T-Model") and lowercase sub-models ("A6 e-tron").
+function familyStop(word: string) {
+  return /^(?:[IVX]+|MK[IVX]*|[A-Z]\d?|SUV|MPV|VAN|BUS)$/.test(word) || /[a-z]/.test(word);
+}
+
+function familyWords(name: string) {
+  return (name.replace(/\([^)]*\)/g, " ").trim() || name).split(/\s+/);
+}
+
+/** The family a series belongs to; "GRAND" only qualifies the next word (GRAND SCÉNIC ≠ GRAND KANGOO). */
+export function vehicleModelFamilyKey(name: string) {
+  const words = familyWords(name);
+  return normalizeVehicleSearch(words.slice(0, words[0].toUpperCase() === "GRAND" ? 2 : 1).join(" "));
+}
+
+/**
+ * TecDoc only lists model series ("A1 (8X1, 8XK)", "A1 Sportback (GBA)"). The picker groups them
+ * into families the way Trodo does (AUDI › A1 › A1 (8X1, 8XK)): series sharing a first word form a
+ * family named by their common leading words, cut before the first generation/body word.
+ */
+export function vehicleModelFamilies(models: VehicleModel[]): VehicleModelFamily[] {
+  const groups = new Map<string, { words: string[][]; models: VehicleModel[] }>();
+  for (const model of models) {
+    const words = familyWords(model.name);
+    const key = vehicleModelFamilyKey(model.name);
+    const group = groups.get(key) ?? { words: [], models: [] };
+    group.words.push(words); group.models.push(model);
+    groups.set(key, group);
+  }
+  return [...groups].map(([key, group]) => {
+    const [first, ...rest] = group.words;
+    let length = key.split(" ").length;
+    while (length < first.length && !familyStop(first[length])
+      && rest.every(words => words[length] && normalizeVehicleSearch(words[length]) === normalizeVehicleSearch(first[length]))) length++;
+    const dateFrom = group.models.reduce<string | null>((min, m) => m.dateFrom && (!min || m.dateFrom < min) ? m.dateFrom : min, null);
+    const dateTo = group.models.some(m => !m.dateTo) ? null : group.models.reduce<string | null>((max, m) => !max || m.dateTo! > max ? m.dateTo : max, null);
+    return { key, name: first.slice(0, length).join(" ").toUpperCase(), models: group.models, dateFrom, dateTo };
+  }).sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true }));
+}
+
 export function vehicleProductionDates(dateFrom: string | null, dateTo: string | null) {
   const format = (date: string) => date.split("-").reverse().join(".");
   return `${dateFrom ? format(dateFrom) : "Başlangıç bilinmiyor"} – ${dateTo ? format(dateTo) : "devam ediyor"}`;

@@ -36,6 +36,7 @@
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
     "search:vocabulary": "node --env-file=.env.local --import tsx scripts/refresh-search-vocabulary.ts",
     "test:vehicles": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-catalog.ts",
+    "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "verify:catalog": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog.ts",
     "db:brand:migrate": "node --env-file=.env.local --import tsx scripts/migrate-brand-launch.ts",
     "db:commerce:migrate": "node --env-file=.env.local --import tsx scripts/migrate-commerce.ts",
