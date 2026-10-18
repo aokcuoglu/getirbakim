@@ -1,0 +1,47 @@
+import "server-only";
+import { cache } from "react";
+import { db } from "@/lib/db";
+import { staleCache } from "@/lib/stale-cache";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
+import { engineOilNameSql, notEngineOilNameSql, oilMatches, oilSpecificationKeys, plainEngineOilNameSql, productOilSpec,
+  type OilFilter, type ProductOilSpec, type VehicleOilSpec } from "./vehicle-oil";
+
+type OilRow = { viscosities: string[]; acea: string[]; api: string[]; approvals: string[]; capacity_min_l: string; capacity_max_l: string };
+
+/** The vehicle type's recommended engine oil; null when the oil sheet has no row for it. */
+export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | undefined): Promise<VehicleOilSpec | null> => {
+  if (!vehicleTypeId || !/^\d{1,9}$/.test(vehicleTypeId)) return null;
+  const row = (await db.query<OilRow>(`SELECT viscosities,acea,api,approvals,capacity_min_l::text,capacity_max_l::text
+   FROM vehicle_type_oil_specs WHERE vehicle_type_id=$1`, [vehicleTypeId])).rows[0];
+  return row ? { viscosities: row.viscosities, acea: row.acea, api: row.api, approvals: row.approvals,
+    capacityMin: Number(row.capacity_min_l), capacityMax: Number(row.capacity_max_l) } : null;
+});
+
+// Engine oils change only with supplier syncs and enrichment imports, like the catalog's other id lists.
+const cachedOils = staleCache<{ id: string; spec: ProductOilSpec }[]>(10 * 60 * 1000, 1);
+/**
+ * Every listed engine oil with the specs it states. Candidates come from one regex pass over product names
+ * (a grade such as "5W-30", or "MOTOR YAĞI"); their trusted enrichment specifications are then read by id.
+ * Expanding every enrichment's specifications to find oils instead scans the whole enrichment table.
+ */
+export const engineOils = () => cachedOils("all", async () => {
+  const rows = (await db.query<{ id: string; name: string; specs: string }>(`WITH candidates AS MATERIALIZED (
+   SELECT catalog.id,catalog.name FROM commerce_catalog_entries catalog
+   WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4)
+  SELECT c.id::text,c.name,COALESCE((SELECT string_agg(spec->>1,', ') FROM product_enrichment_shared e
+    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
+    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
+    WHERE e.supplier_item_id=c.id AND spec->>0=ANY($5::text[])),'') AS specs FROM candidates c`,
+  [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql, oilSpecificationKeys])).rows;
+  return rows.flatMap(row => { const spec = productOilSpec(row.name, row.specs); return spec ? [{ id: row.id, spec }] : []; });
+});
+
+export async function engineOilIds() { return (await engineOils()).map(oil => oil.id); }
+
+/** Engine oils meeting the vehicle's recommendation on every selected filter; none without oil data. */
+export async function vehicleOilProductIds(vehicleTypeId: string, filters: ReadonlySet<OilFilter>) {
+  const vehicle = await getVehicleOilSpec(vehicleTypeId);
+  if (!vehicle) return [];
+  return (await engineOils()).filter(oil => oilMatches(oil.spec, vehicle, filters)).map(oil => oil.id);
+}

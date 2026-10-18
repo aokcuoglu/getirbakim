@@ -4,6 +4,7 @@ import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
 import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 import { getVehicleModelImages } from "./vehicle-model-images.server";
+import { getVehicleOilSpec } from "./vehicle-oil.server";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
 function validId(value: string) {
@@ -58,12 +59,13 @@ export async function getModelVehicles(modelId: string): Promise<CatalogVehicle[
   return withImages(rows.map(formatVehicle).sort((a, b) => a.engine.localeCompare(b.engine, "tr", { numeric: true }) || a.from - b.from || Number(a.id) - Number(b.id)), vehicle => vehicle.modelId);
 }
 
-/** One vehicle type by id, with its series photograph: the garage tab shows the saved vehicle's picture from it. */
+/** One vehicle type by id, with its series photograph and recommended oil: the garage tab's card of the saved vehicle. */
 export async function getCatalogVehicle(id: string): Promise<CatalogVehicle | null> {
   if (!validId(id)) return null;
-  const { rows } = await db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]);
+  const [{ rows }, oil] = await Promise.all([db.query<VehicleRow>(`SELECT ${vehicleFields} ${vehicleJoins} WHERE v.id=$1`, [id]), getVehicleOilSpec(id)]);
   if (!rows.length) return null;
-  return (await withImages(rows.map(formatVehicle), vehicle => vehicle.modelId))[0];
+  const vehicle = (await withImages(rows.map(formatVehicle), vehicle => vehicle.modelId))[0];
+  return oil ? { ...vehicle, oil } : vehicle;
 }
 
 // Make + model words decide the order; dividing by their length (chassis codes in brackets left out)
