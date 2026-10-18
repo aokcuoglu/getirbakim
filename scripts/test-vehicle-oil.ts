@@ -23,7 +23,7 @@ test("malformed sheet values stop the import", () => {
 });
 test("the checked-in sheet parses completely", async () => {
   const rows = parseVehicleCsv(await readFile("data/vehicle_type_oil_specs.csv", "utf8")).map(parseVehicleOilRow);
-  assert.ok(rows.length > 30000);
+  assert.ok(rows.length > 7000);
   assert.equal(new Set(rows.map(row => row.vehicle_type_id)).size, rows.length);
 });
 test("supplier names state grades, ACEA classes and approvals in many spellings", () => {

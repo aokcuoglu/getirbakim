@@ -4,8 +4,8 @@ import { Pool } from "pg";
 import { parseVehicleCsv } from "../src/modules/store/vehicle-catalog-import";
 import { parseVehicleOilRow } from "../src/modules/store/vehicle-oil";
 
-// Recommended engine oil per vehicle type (data/vehicle_type_oil_specs.csv, from the TecDoc oil-capacity sheet).
-// Upserts in one transaction; rows of vehicle types the catalog does not know are skipped and counted.
+// Recommended engine oil per vehicle type (data/vehicle_type_oil_specs.csv, exported from the old getirbakim oil_capacities table).
+// Upserts and prunes in one transaction; rows of vehicle types the catalog does not know are skipped and counted.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
   const rows = parseVehicleCsv(await readFile(path.join(process.cwd(), "data", "vehicle_type_oil_specs.csv"), "utf8")).map(parseVehicleOilRow);
@@ -33,8 +33,11 @@ try {
       skipped += Number((await client.query(`SELECT count(*) FROM jsonb_to_recordset($1::jsonb) AS source(vehicle_type_id integer)
         WHERE NOT EXISTS (SELECT 1 FROM vehicle_types v WHERE v.id=source.vehicle_type_id)`, [batch])).rows[0].count);
     }
+    // The CSV is the whole list: vehicle types it no longer has lose their row.
+    const removed = (await client.query("DELETE FROM vehicle_type_oil_specs WHERE NOT (vehicle_type_id = ANY($1::integer[]))",
+      [rows.map(row => row.vehicle_type_id)])).rowCount ?? 0;
     await client.query("COMMIT");
-    console.log(`vehicle_type_oil_specs: ${rows.length} source rows, ${changed} added/updated, ${skipped} skipped (unknown vehicle type).`);
+    console.log(`vehicle_type_oil_specs: ${rows.length} source rows, ${changed} added/updated, ${removed} removed, ${skipped} skipped (unknown vehicle type).`);
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 } finally { await pool.end(); }
