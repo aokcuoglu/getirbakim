@@ -25,16 +25,20 @@ const cachedOils = staleCache<{ id: string; spec: ProductOilSpec }[]>(10 * 60 * 
  * Expanding every enrichment's specifications to find oils instead scans the whole enrichment table.
  */
 export const engineOils = () => cachedOils("all", async () => {
-  const rows = (await db.query<{ id: string; name: string; specs: string }>(`WITH candidates AS MATERIALIZED (
-   SELECT catalog.id,catalog.name FROM commerce_catalog_entries catalog
-   WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4)
-  SELECT c.id::text,c.name,COALESCE((SELECT string_agg(spec->>1,', ') FROM product_enrichment_shared e
+  const candidates = (await db.query<{ id: string; name: string }>(`SELECT catalog.id::text,catalog.name FROM commerce_catalog_entries catalog
+   WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`,
+  [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
+  if (!candidates.length) return [];
+  // One pass over the shared view for every candidate id. A correlated subquery per candidate re-sorted the
+  // whole view each time (~0.3 s × 400+ oils: two minutes on the first request of a process).
+  const specs = new Map((await db.query<{ id: string; specs: string }>(`SELECT e.supplier_item_id::text AS id,string_agg(spec->>1,', ') AS specs
+    FROM product_enrichment_shared e
     JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
-    WHERE e.supplier_item_id=c.id AND spec->>0=ANY($5::text[])),'') AS specs FROM candidates c`,
-  [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql, oilSpecificationKeys])).rows;
-  return rows.flatMap(row => { const spec = productOilSpec(row.name, row.specs); return spec ? [{ id: row.id, spec }] : []; });
+    WHERE e.supplier_item_id=ANY($1::uuid[]) AND spec->>0=ANY($2::text[]) GROUP BY e.supplier_item_id`,
+  [candidates.map(row => row.id), oilSpecificationKeys])).rows.map(row => [row.id, row.specs]));
+  return candidates.flatMap(row => { const spec = productOilSpec(row.name, specs.get(row.id) ?? ""); return spec ? [{ id: row.id, spec }] : []; });
 });
 
 export async function engineOilIds() { return (await engineOils()).map(oil => oil.id); }
