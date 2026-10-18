@@ -10,7 +10,7 @@ const CHROME=process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 
 type CdpEvent={method:string;params:any};// eslint-disable-line @typescript-eslint/no-explicit-any
-class CdpPage {
+export class CdpPage {
  private next=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
  listeners=new Set<(event:CdpEvent)=>void>();
  private constructor(private ws:WebSocket){
@@ -90,7 +90,7 @@ export async function ensureChrome(port:number,profileDir:string,startUrl:string
  throw Error('Chrome DevTools endpoint did not start on port '+port);
 }
 
-async function pageFor(port:number,host:string,landingUrl:string){
+export async function pageFor(port:number,host:string,landingUrl:string){
  let target=(await targets(port)).find(t=>t.type==='page'&&URL.canParse(t.url)&&new URL(t.url).hostname===host);
  if(!target){
   target=await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(landingUrl)}`,{method:'PUT'})).json() as Target;
