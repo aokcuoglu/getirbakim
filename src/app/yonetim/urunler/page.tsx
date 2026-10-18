@@ -13,7 +13,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { listProducts, productBrands, productFilters, supplierNames, type ProductFilter } from "@/modules/admin/products";
+import { listProducts, productBrands, productCategories, productFilters, supplierNames, type ProductFilter } from "@/modules/admin/products";
 import { money } from "@/modules/store/catalog";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
@@ -21,10 +21,12 @@ const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 export default async function Products({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const raw = await searchParams;
   const params = normalizeSearchParams(raw);
-  const [data, brands] = await Promise.all([listProducts({ ...params, brands: [raw.brand ?? []].flat() }), productBrands()]);
+  const [data, brands, categories] = await Promise.all([
+    listProducts({ ...params, brands: [raw.brand ?? []].flat(), categories: [raw.category ?? []].flat() }), productBrands(), productCategories()]);
+  const categoryLabel = new Map(categories.map(category => [category.id, category.label]));
   const query = (changes: Record<string, string | string[] | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ filter: params.filter, brand: data.brands, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes }))
+    for (const [key, value] of Object.entries({ filter: params.filter, brand: data.brands, category: data.categories, q: params.q, sort: params.sort, dir: params.dir, page: undefined, ...changes }))
       for (const item of [value ?? []].flat()) if (item) next.append(key, item);
     return `/yonetim/urunler${next.size ? `?${next}` : ""}`;
   };
@@ -56,6 +58,7 @@ export default async function Products({ searchParams }: { searchParams: Promise
         <form className="flex flex-wrap items-center gap-2" action="/yonetim/urunler">
           {(["filter", "sort", "dir"] as const).map(key => params[key] && <input key={key} type="hidden" name={key} value={params[key]}/>)}
           {data.brands.map(brand => <input key={`brand-${brand}`} type="hidden" name="brand" value={brand}/>)}
+          {data.categories.map(category => <input key={`category-${category}`} type="hidden" name="category" value={category}/>)}
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="q" aria-label="Parça numarası veya tedarikçi kodu" defaultValue={params.q} placeholder="Parça no veya tedarikçi kodu" maxLength={60}/></InputGroup>
           <Button type="submit">Ara</Button>
@@ -63,18 +66,24 @@ export default async function Products({ searchParams }: { searchParams: Promise
           {data.brands.map(brand => <Button key={brand} variant="secondary" aria-label={`Marka filtresini kaldır: ${brand}`} nativeButton={false}
             render={<Link href={query({ brand: data.brands.filter(item => item !== brand) })} scroll={false}/>}>Marka: {brand}<X data-icon="inline-end" aria-hidden="true"/></Button>)}
           {data.brands.length > 1 && <Button variant="ghost" nativeButton={false} render={<Link href={query({ brand: undefined })} scroll={false}/>}>Markaları temizle</Button>}
+          {data.categories.map(category => <Button key={category} variant="secondary" aria-label={`Kategori filtresini kaldır: ${categoryLabel.get(category) ?? category}`} nativeButton={false}
+            render={<Link href={query({ category: data.categories.filter(item => item !== category) })} scroll={false}/>}>Kategori: {categoryLabel.get(category) ?? category}<X data-icon="inline-end" aria-hidden="true"/></Button>)}
+          {data.categories.length > 1 && <Button variant="ghost" nativeButton={false} render={<Link href={query({ category: undefined })} scroll={false}/>}>Kategorileri temizle</Button>}
         </form>
       </CardHeader>
       <Separator/>
       <CardContent>
         {data.products.length ? <Table server><caption className="sr-only">Ürünler</caption>
           <TableHeader><TableRow><TableHead sortKey="brand" filter={{ param: "brand", multiple: true, options: brands.map(brand => ({ value: brand.label, label: brand.label, count: brand.count })) }}>Marka</TableHead><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="name">Ürün</TableHead>
+            <TableHead filter={{ param: "category", multiple: true, options: categories.map(category => ({ value: category.id, label: category.label, count: category.count })) }}>Kategori</TableHead>
             <TableHead filter={{ param: "filter", options: (Object.keys(productFilters) as ProductFilter[]).filter(filter => filter !== "all").map(filter => ({ value: filter, label: productFilters[filter].label })) }}>Kaynaklar</TableHead><TableHead className="text-right">Satış fiyatı</TableHead><TableHead>Satan</TableHead></TableRow></TableHeader>
           <TableBody>{data.products.map(product => <TableRow key={product.id}>
             <TableCell className="max-w-32 truncate font-medium" title={product.brand_label}>{product.brand_label || product.brand}</TableCell>
             <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${product.id}`}>{product.code}</Link>
               {product.variant > 0 && <Badge variant="outline" className="ml-2">Ayrılmış</Badge>}</TableCell>
             <TableCell className="max-w-80 truncate" title={product.name ?? ""}>{product.name ?? <span className="text-muted-foreground">Ad yok</span>}</TableCell>
+            <TableCell className="max-w-48 truncate" title={product.categories.join(", ")}>{product.categories.length
+              ? product.categories.join(", ") : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell><div className="flex flex-wrap gap-1">{product.suppliers.length
               ? product.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>)
               : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Satışta değil</Badge>}</div></TableCell>
@@ -84,7 +93,7 @@ export default async function Products({ searchParams }: { searchParams: Promise
               : <Badge variant="outline">Stok yok</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Package/></EmptyMedia><EmptyTitle>Ürün bulunamadı.</EmptyTitle>
-            <EmptyDescription>{data.q || data.brands.length ? "Aramayı veya filtreyi değiştirin." : <>Ürünler eşleştirme yenilemesiyle oluşur (<code>npm run products:match</code>).</>}</EmptyDescription></EmptyHeader></Empty>}
+            <EmptyDescription>{data.q || data.brands.length || data.categories.length ? "Aramayı veya filtreyi değiştirin." : <>Ürünler eşleştirme yenilemesiyle oluşur (<code>npm run products:match</code>).</>}</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">{number(data.total)} ürün · Sayfa {number(data.page)} / {number(data.pages)}</span>
