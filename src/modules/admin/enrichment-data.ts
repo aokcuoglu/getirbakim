@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
-import { summarizeSources, type PassPace, type SourceActivity } from "./enrichment-pace";
+import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey } from "./enrichment-pace";
 
 export const enrichmentStatuses: Record<string, string> = {
   complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
@@ -14,6 +14,8 @@ export type EnrichmentRow = {
   last_error: string | null; updated_at: Date; imported_at: Date | null; source_url: string | null;
   manufacturer: string | null; manufacturer_part_number: string | null; image_id: string | null;
   match_type: string | null; reference: string | null; oem_count: number; vehicle_count: number; specification_count: number;
+  /** Sources that already searched the product, data source included. */
+  searched: SourceKey[];
 };
 const attentionStatuses = ["review", "blocked", "failed"];
 // Every product outside this set is pending; pending rows carry no payload, so the metrics only need these.
@@ -46,7 +48,7 @@ function passPace() {
   return pace.value;
 }
 
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; page?: string; sort?: string; dir?: string }) {
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; page?: string; sort?: string; dir?: string }) {
   const q = query.q?.trim().slice(0,120) || "";
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
   const match = ["oem_reference","exact_part","cross_reference"].includes(query.match || "") ? query.match! : "all";
@@ -59,6 +61,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   else if (status === "attention") conditions.push(`j.status IN (${literal(attentionStatuses)})`);
   else { values.push(status); conditions.push(`j.status=$${values.length}`); }
   if (match !== "all") { values.push(match); conditions.push(`j.match_type=$${values.length}`); }
+  const source = query.source && query.source in sourceHosts ? query.source as SourceKey : "";
+  if (source) { values.push(sourceHosts[source]); conditions.push(`split_part(j.source_url,'/',3)=$${values.length}`); }
   let joins = "";
   if (q) {
     // Same engine as the storefront: words as prefixes, part/OEM numbers with any spacing.
@@ -83,7 +87,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
     db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
     db.query<{host:string; status:string; http_status:number|null; checked_at:Date}>("SELECT host,status,http_status,checked_at FROM product_enrichment_sources ORDER BY host"),
-    q||match!=="all"?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
+    q||match!=="all"||source?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
       count(*) FILTER(WHERE i.status NOT IN ('queued','collecting','skipped'))::int AS processed,
@@ -129,10 +133,15 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const rows=await db.query<EnrichmentRow>(`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
-    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count
+    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
+    -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
+    array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
+      AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
+     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a WHERE a.supplier_item_id=j.supplier_item_id
+      OR a.supplier_item_id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id) ORDER BY 1) AS searched
     ${from} ORDER BY ${sortOrder(query, { updated: "j.sorted_at" }, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
   return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, sources:sources.rows, rows:rows.rows,
-    total:totalCount, page,pages,pageSize, filters:{q,status,match,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
+    total:totalCount, page,pages,pageSize, filters:{q,status,match,source,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
 }

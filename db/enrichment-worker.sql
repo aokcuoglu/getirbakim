@@ -63,10 +63,13 @@ DO $$ BEGIN
  END IF;
 END $$;
 -- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
--- from it, since their checkpoints are local files. 'blocked' marks the product a run stopped on.
+-- and each product's searched sources from it, since their checkpoints are local files. 'blocked' marks the product a
+-- run stopped on. A NULL queue is a search imported from a checkpoint written before this table existed.
 CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
  id bigserial PRIMARY KEY, source text NOT NULL CHECK(source IN ('otoparcasan','spareto')),
- queue text NOT NULL CHECK(queue IN ('pending','not_found','review')), supplier_item_id uuid NOT NULL,
+ queue text CHECK(queue IN ('pending','not_found','review')), supplier_item_id uuid NOT NULL,
  outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
+CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);

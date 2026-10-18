@@ -75,6 +75,7 @@
     "enrichment:report": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts report",
     "enrichment:otoparcasan": "node --env-file=.env.local --conditions=react-server --import tsx scripts/otoparcasan-enrichment.ts",
     "enrichment:spareto": "node --env-file=.env.local --conditions=react-server --import tsx scripts/spareto-enrichment.ts",
+    "enrichment:attempts:backfill": "node --env-file=.env.local --import tsx scripts/backfill-source-attempts.ts",
     "enrichment:fallback": "node --env-file=.env.local --import tsx scripts/enrichment-fallback.ts",
     "enrichment:fallback:install": "node --import tsx scripts/install-enrichment-fallback-launchd.ts",
     "enrichment:fallback:uninstall": "node --import tsx scripts/install-enrichment-fallback-launchd.ts --uninstall",
