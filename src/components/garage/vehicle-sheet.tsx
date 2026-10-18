@@ -4,7 +4,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, t
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
-import { VehicleImage } from "./vehicle-image";
+import { VehicleHeroImage } from "./vehicle-image";
 import { Sheet, SheetClose, SheetTitle } from "@/components/ui/sheet";
 import { DialogOverlay as SheetOverlay, DialogPortal as SheetPortal } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +25,7 @@ const titles: Record<Step, string> = { brand: "Marka seç", family: "Model seç"
 const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-input bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
-const summaryBox = "mb-[22px] flex items-start gap-3.5 rounded-[5px] border border-border bg-[#f8f9f9] p-[18px] [&>span>svg]:text-muted-foreground [&_strong]:text-sm [&_strong]:leading-5 [&_strong]:font-semibold [&_p]:my-1.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
+const summaryBox = "mb-[22px] overflow-hidden rounded-[5px] border border-border bg-white [&>div]:border-t [&>div]:border-border [&>div]:px-[18px] [&>div]:py-3.5 [&_strong]:block [&_strong]:text-base [&_strong]:leading-6 [&_strong]:font-semibold [&_p]:my-0.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:block [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
 // The saved vehicle's technical data, REPXPERT's where it has the type; missing values leave their row out.
 function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
   const specs = vehicle.specs;
@@ -229,7 +229,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
               {step === "confirm" && selected && selectedDetails && <div>
-                <div className={summaryBox}><VehicleImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
+                <div className={summaryBox}><VehicleHeroImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
                 <label className="mb-2 block text-[13px] font-medium" htmlFor={`${id}-year`}>Model yılı</label>
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
@@ -243,7 +243,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       <TabsContent value="garage" className="p-5">
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
-          <div className={summaryBox}><VehicleImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
+          <div className={summaryBox}><VehicleHeroImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
           {(savedSpecs.length > 0 || savedOil) && <div className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 rounded-[5px] border border-border px-[18px] text-[13px] leading-5 [&>dl]:col-span-2 [&>dl]:grid [&>dl]:grid-cols-subgrid [&>dl]:gap-y-1 [&>dl]:py-3.5 [&>dl+dl]:border-t [&>dl+dl]:border-border [&_dt]:text-muted-foreground [&_dd]:m-0 [&_dd]:wrap-anywhere">
             {savedSpecs.length > 0 && <dl aria-label="Araç özellikleri">
               {savedSpecs.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}
