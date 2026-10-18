@@ -28,12 +28,15 @@ try {
   }
   await client.query("BEGIN");
   await client.query(await readFile("db/source-categories.sql", "utf8"));
-  await client.query(await readFile("db/vehicle-model-images.sql", "utf8"));
-  const vehicleImages: unknown[] = manifest.vehicleImages ?? [];
+  await client.query(await readFile("db/vehicle-type-specs.sql", "utf8"));
+  // Bundles written before REPXPERT carried Wikidata series photographs under vehicleImages; those are ignored.
+  const vehicleSpecs: unknown[] = manifest.vehicleSpecs ?? [];
+  const vehicleImages: unknown[] = manifest.vehicleSpecs ? manifest.vehicleImages ?? [] : [];
   const json = (value: unknown) => JSON.stringify(value);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
   const supplierItemExists = "EXISTS (SELECT 1 FROM supplier_items s WHERE s.id=r.supplier_item_id)";
+  const vehicleTypeExists = "EXISTS (SELECT 1 FROM vehicle_types t WHERE t.id=r.vehicle_type_id)";
 
   // Media rows keep their sha256 identity; an existing object with the same content is reused.
   await run(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at)
@@ -66,16 +69,19 @@ try {
       FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r
       ON CONFLICT (brand_key) DO UPDATE SET manufacturer=EXCLUDED.manufacturer,image_data=EXCLUDED.image_data,sha256=EXCLUDED.sha256,width=EXCLUDED.width,
       height=EXCLUDED.height,source_url=EXCLUDED.source_url,evidence_product_id=EXCLUDED.evidence_product_id,evidence_source_url=EXCLUDED.evidence_source_url,imported_at=EXCLUDED.imported_at`, json(manifest.logos)),
-    // Review decisions travel with the rows; a model series missing here (older vehicle import) is skipped and counted.
-    vehicleImages: await run(`INSERT INTO vehicle_model_images(model_id,media_id,width,height,wikidata_id,wikidata_label,commons_file,source_url,license,license_url,author,match_kind,matched_query,status,imported_at,reviewed_at,reviewed_by)
-      SELECT r.model_id,bm.id,r.width,r.height,r.wikidata_id,r.wikidata_label,r.commons_file,r.source_url,r.license,r.license_url,r.author,r.match_kind,r.matched_query,r.status,r.imported_at,r.reviewed_at,
-        CASE WHEN EXISTS (SELECT 1 FROM accounts a WHERE a.id=r.reviewed_by) THEN r.reviewed_by END
-      FROM jsonb_populate_recordset(null::vehicle_model_images,$1::jsonb) r JOIN bundle_media bm ON bm.bundle_id=r.media_id
-      WHERE EXISTS (SELECT 1 FROM vehicle_models m WHERE m.id=r.model_id)
-      ON CONFLICT (model_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,wikidata_id=EXCLUDED.wikidata_id,wikidata_label=EXCLUDED.wikidata_label,
-      commons_file=EXCLUDED.commons_file,source_url=EXCLUDED.source_url,license=EXCLUDED.license,license_url=EXCLUDED.license_url,author=EXCLUDED.author,match_kind=EXCLUDED.match_kind,
-      matched_query=EXCLUDED.matched_query,status=EXCLUDED.status,imported_at=EXCLUDED.imported_at,reviewed_at=EXCLUDED.reviewed_at,reviewed_by=EXCLUDED.reviewed_by`, json(vehicleImages)),
-    skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_model_images,$1::jsonb) r WHERE NOT EXISTS (SELECT 1 FROM vehicle_models m WHERE m.id=r.model_id)`, json(vehicleImages)),
+    // A vehicle type missing here (older vehicle import) is skipped and counted.
+    vehicleSpecs: await run(`INSERT INTO vehicle_type_specs(vehicle_type_id,outcome,detail,full_name,body_type,drive_type,engine_type,fuel_mixture,cylinders,valves,engine_codes,kba_numbers,fetched_at)
+      SELECT r.vehicle_type_id,r.outcome,r.detail,r.full_name,r.body_type,r.drive_type,r.engine_type,r.fuel_mixture,r.cylinders,r.valves,r.engine_codes,r.kba_numbers,r.fetched_at
+      FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE ${vehicleTypeExists}
+      ON CONFLICT (vehicle_type_id) DO UPDATE SET outcome=EXCLUDED.outcome,detail=EXCLUDED.detail,full_name=EXCLUDED.full_name,body_type=EXCLUDED.body_type,
+      drive_type=EXCLUDED.drive_type,engine_type=EXCLUDED.engine_type,fuel_mixture=EXCLUDED.fuel_mixture,cylinders=EXCLUDED.cylinders,valves=EXCLUDED.valves,
+      engine_codes=EXCLUDED.engine_codes,kba_numbers=EXCLUDED.kba_numbers,fetched_at=EXCLUDED.fetched_at`, json(vehicleSpecs)),
+    vehicleImages: await run(`INSERT INTO vehicle_type_images(vehicle_type_id,media_id,width,height,imported_at)
+      SELECT r.vehicle_type_id,bm.id,r.width,r.height,r.imported_at FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r
+      JOIN bundle_media bm ON bm.bundle_id=r.media_id WHERE ${vehicleTypeExists}
+      ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=EXCLUDED.imported_at`, json(vehicleImages)),
+    skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleSpecs)),
+    skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleImages)),
     media: manifest.media.length,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.enrichments)),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.products)),
