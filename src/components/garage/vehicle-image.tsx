@@ -3,13 +3,14 @@ import { CarFront } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VehicleImage as VehicleImageData } from "@/modules/store/vehicle-catalog";
 
-/** The type's side-view picture in a wide frame, or the generic car icon when there is none. */
-export function VehicleImage({ image, alt, size = "md", className }: { image?: VehicleImageData | null; alt: string; size?: "sm" | "md"; className?: string }) {
-  const frame = size === "sm" ? "h-6 w-16" : "h-10 w-28";
-  // Without a picture the icon keeps its original footprint so the text does not move.
-  if (!image) return <span className={cn("grid shrink-0 place-items-center", size === "sm" ? "size-6" : "size-8", className)} aria-hidden="true"><CarFront size={size === "sm" ? 24 : 32} /></span>;
-  // REPXPERT pictures are wide side views on white: contained, never cropped. The stored copy is already 800 px wide.
-  return <span className={cn("block shrink-0 overflow-hidden rounded-[4px] bg-white", frame, className)}>
-    <Image src={image.src} alt={alt} width={image.width} height={image.height} unoptimized className="size-full object-contain" />
+/** The type's side-view picture as a full-width stage above its summary, or the generic car icon when there is none. */
+export function VehicleHeroImage({ image, alt }: { image?: VehicleImageData | null; alt: string }) {
+  // REPXPERT pictures are wide side views on white: contained, never cropped, and multiplied into the stage's soft
+  // gradient so the car stands on the card instead of in a white box. The stored copy is already 800 px wide.
+  // Without a picture a short strip keeps the icon.
+  return <span className={cn("flex items-center justify-center bg-[radial-gradient(ellipse_at_50%_40%,#fff_0%,#f3f5f6_70%,#e9edef_100%)] px-4", image ? "aspect-[800/287]" : "h-20")}>
+    {image
+      ? <Image src={image.src} alt={alt} width={image.width} height={image.height} unoptimized className="size-full object-contain mix-blend-multiply" />
+      : <CarFront size={40} strokeWidth={1.25} className="text-muted-foreground opacity-60" aria-hidden="true" />}
   </span>;
 }
