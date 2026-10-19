@@ -70,8 +70,6 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const [selected, setSelected] = useState<CatalogVehicle | null>(null);
   const [year, setYear] = useState(0);
   const [query, setQuery] = useState("");
-  const [plate, setPlate] = useState("");
-  const [plateMessage, setPlateMessage] = useState("");
   const [searchOffset, setSearchOffset] = useState(0);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
@@ -136,10 +134,6 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
     const previous: Record<Step, Step> = { brand: "brand", family: "brand", model: "family", fuel: family?.models.length === 1 ? "family" : "model", engine: "fuel", confirm: "engine" };
     go(previous[step]);
   }
-  function lookupPlate(event: React.FormEvent) {
-    event.preventDefault();
-    setPlateMessage("Plakayla araç bulunamadı. Marka ve model seçerek devam edebilirsin.");
-  }
   function save() {
     if (!selected) return;
     startTransition(async () => {
@@ -175,18 +169,6 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
     </div>
     <div ref={content} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
       <TabsContent value="search">
-        <div className="bg-[#f8f9f9] p-5">
-          <form className="flex items-center gap-2" onSubmit={lookupPlate}>
-            <label className="flex h-12 min-w-0 flex-1 overflow-hidden rounded-[5px] border border-input bg-white focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand">
-              <span aria-hidden="true" className="flex w-[35px] shrink-0 flex-col items-center justify-center bg-[#003399] text-[17px] leading-[19px] text-white">🇹🇷<b className="text-[11px] leading-[15px]">TR</b></span>
-              <input aria-label="Plaka" placeholder="34 ABC 123" value={plate} onChange={event => { setPlate(event.target.value); setPlateMessage(""); }} maxLength={12}
-                className="h-[46px] w-full min-w-0 rounded-none border-0 bg-white px-3 py-2.5 text-sm text-foreground uppercase outline-none placeholder:text-sm placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none" />
-            </label>
-            <Button type="submit" disabled={!plate.trim()} aria-label="Plakayla araç ara" className="grid size-12 min-h-12 shrink-0 place-items-center rounded-[5px] border border-brand bg-brand p-0 text-white hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100 [&_svg:not([class*='size-'])]:size-5"><Search size={20} /></Button>
-          </form>
-          <p className="mt-[9px] mb-0 text-[11px] leading-[17px] text-muted-foreground">Aracını marka ve modele göre seçebilirsin.</p>
-          {plateMessage && <p role="status" className="mt-[9px] mb-0 text-[11px] leading-[17px] text-muted-foreground">{plateMessage}</p>}
-        </div>
         <div className="p-5">
           <label className="mb-8 flex h-[46px] items-center gap-3 rounded-[5px] border border-input px-3 text-foreground focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand [&>svg]:shrink-0">
             <Search size={19} aria-hidden="true" />
