@@ -81,8 +81,8 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
               {selected && <span className="inline-flex items-center gap-1 rounded-full bg-[#ebf5ed] px-2 py-0.5 text-xs leading-[18px] font-medium text-[#397247]"><Check size={13} aria-hidden="true"/>{selected.brand}</span>}</h3>
               {key === "engineOil" && oilCapacityLabel && <span className="text-[13px] leading-5 text-muted-foreground">Önerilen miktar {oilCapacityLabel}{oilViscosities.length ? ` · SAE ${oilViscosities.join(" / ")}` : ""}</span>}</div>
             {!slot.candidates.length ? <p className="rounded-lg bg-[#f7f8fa] px-3.5 py-3 text-[13px] leading-5 text-muted-foreground">{key === "engineOil"
-                ? "Bu araç için yağ önerisi veya uygun motor yağı henüz kayıtlı değil. Yağı katalogdan seçebilirsin."
-                : "Bu araca bağlı " + meta.name.toLocaleLowerCase("tr") + " henüz kayıtlı değil. Katalogda OEM numarasıyla arayabilirsin."}</p>
+                ? "Bu araç için yağ önerisi bulunamadı. Yağı katalogdan seçebilirsin."
+                : "Bu araca bağlı " + meta.name.toLocaleLowerCase("tr") + " bulunamadı. Katalogda OEM numarasıyla arayabilirsin."}</p>
               : <>
               {key === "engineOil" && slot.oilMatch === "viscosity" && <p className="mb-3 flex items-start gap-2 rounded-lg border border-[#f1d08a] bg-[#fff9eb] px-3.5 py-2.5 text-[13px] leading-5"><CircleAlert size={18} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/>Bu yağlar aracının viskozitesine uyar; üretici onayını ürün sayfasından kontrol et.</p>}
               <div className="flex flex-wrap gap-2" role="group" aria-label={`${meta.name} markası`}>

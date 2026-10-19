@@ -1,5 +1,8 @@
 export const siteUrl = (process.env.SITE_URL || "https://getirbakim.com").replace(/\/$/, "");
 
+/** Getirbakim customer contact; the seller company keeps its own address in the legal pages. */
+export const contactEmail = "hey@getirbakim.com";
+
 export const socialProfiles = {
   x: "https://x.com/getirbakim",
   linkedin: "https://www.linkedin.com/company/getirbakim",
@@ -13,6 +16,6 @@ export const organizationJsonLd = {
   legalName: "ERGUL ENERJI SAN TIC LTD STI",
   url: siteUrl,
   logo: `${siteUrl}/brand/logo-light.png`,
-  email: "info@ergulenerji.com",
+  email: contactEmail,
   sameAs: Object.values(socialProfiles),
 };
