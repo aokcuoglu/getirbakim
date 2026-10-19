@@ -258,6 +258,34 @@ test('durable request leases, restart recovery, stale acknowledgement and 429 ne
  }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
 });
 
+test('a request with no response waits alone; a second one in a row pauses the host',{skip:!process.env.DATABASE_URL},async()=>{
+ const schema='enrichment_test_'+randomUUID().replaceAll('-','');
+ const admin=new Pool({connectionString:process.env.DATABASE_URL});
+ await admin.query(`CREATE SCHEMA ${schema}`);
+ const pool=new Pool({connectionString:process.env.DATABASE_URL,options:`-c search_path=${schema},public`});
+ try{
+  for(const name of ['enrichment_runs','enrichment_source_hosts','enrichment_source_cache','enrichment_source_requests','enrichment_request_events'])await pool.query(`CREATE TABLE ${schema}.${name}(LIKE public.${name} INCLUDING ALL)`);
+  const run=(await pool.query("INSERT INTO enrichment_runs(seed,sample_size) VALUES('test',1) RETURNING id")).rows[0].id;
+  await pool.query("INSERT INTO enrichment_source_hosts(host,jitter_ms) VALUES('www.trodo.com',0)");
+  await pool.query("INSERT INTO enrichment_source_requests(run_id,host,path,kind,created_at) VALUES($1,'www.trodo.com','/rest/V1/vehicle/type/1/1','json',now()-interval '2 seconds'),($1,'www.trodo.com','/rest/V1/vehicle/type/1/2','json',now()-interval '1 second')",[run]);
+  const queue=new SourceQueue(pool,run);
+  const hostWaitMs=async()=>Number((await pool.query('SELECT extract(epoch FROM next_allowed_at-now())*1000 AS ms FROM enrichment_source_hosts')).rows[0].ms);
+  const noResponse=async()=>{
+   await pool.query('UPDATE enrichment_source_hosts SET next_allowed_at=now()');
+   const job=await queue.claim('www.trodo.com');if(!('id' in job))throw Error('Lease missing');
+   await queue.finish({id:job.id,token:job.token,httpStatus:0,elapsedMs:5,bytes:0,retryAfter:null,error:'TypeError: Failed to fetch'});
+   return job.path;
+  };
+  const first=await noResponse();
+  // Only the failed request backs off; the host keeps its pacing, so the next request is served.
+  assert.ok(await hostWaitMs()<10000);
+  assert.ok((await pool.query("SELECT available_at>now()+interval '50 seconds' AS later FROM enrichment_source_requests WHERE path=$1",[first])).rows[0].later);
+  const second=await noResponse();assert.notEqual(second,first);
+  // Two different requests without a response: the network is down, the whole host waits.
+  assert.ok(await hostWaitMs()>50000);
+ }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
+});
+
 test('catalog matcher cache is reused only while the catalog revision stays unchanged',{skip:!process.env.DATABASE_URL},async()=>{
  const {createMatcherCache}=await import('../src/modules/enrichment/matcher-cache');
  const pool=new Pool({connectionString:process.env.DATABASE_URL});const client=await pool.connect();
