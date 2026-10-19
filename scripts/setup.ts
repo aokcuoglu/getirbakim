@@ -20,6 +20,8 @@ try {
    await client.query("SELECT pg_advisory_xact_lock(20261001,4)");
    // Dinamik imports (dinamik-import.ts) too: search.sql backfills supplier_items rows.
    await client.query("SELECT pg_advisory_xact_lock(20261001,3)");
+   // Manual list imports (manual-import.ts) write the same tables.
+   await client.query("SELECT pg_advisory_xact_lock(20261001,8)");
    await client.query(await readFile("db/schema.sql", "utf8"));
    await client.query(await readFile("db/brand-launch.sql", "utf8"));
    await client.query(await readFile("db/vehicle-schema.sql", "utf8"));
@@ -29,6 +31,7 @@ try {
    await client.query(await readFile("db/search.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
+   await client.query(await readFile("db/manual-supplier.sql", "utf8"));
    await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
    await client.query(await readFile("db/vehicle-type-specs.sql", "utf8"));
    await client.query(await readFile("db/enrichment-worker.sql", "utf8"));

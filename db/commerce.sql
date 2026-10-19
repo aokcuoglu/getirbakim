@@ -60,11 +60,11 @@ CREATE TABLE IF NOT EXISTS commerce_order_items (
 );
 CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
 -- Shared eligibility, without calculating prices for every catalog row.
--- Saleable sources: Başbuğ's MRK warehouse, SETA's single list and Dinamik codes that have a stock-list row
--- (price-list-only codes carry no name). All store cost as nf and availability as stok.
+-- Saleable sources: Başbuğ's MRK warehouse, SETA's single list, Dinamik codes that have a stock-list row
+-- (price-list-only codes carry no name) and manual xlsx lists. All store cost as nf and availability as stok.
 CREATE OR REPLACE VIEW commerce_supplier_items AS
 SELECT i.* FROM supplier_items i
-WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier='seta' OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
+WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
@@ -77,8 +77,9 @@ FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
-CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_v2_idx ON supplier_items(company,changed_at DESC,id)
-WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier='seta' OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
+DROP INDEX IF EXISTS supplier_items_saleable_order_v2_idx;
+CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_v3_idx ON supplier_items(company,changed_at DESC,id)
+WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
 -- Few supplier items carry a legacy category; the catalog resolves a category to ids through this index.
 CREATE INDEX IF NOT EXISTS supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
 WHERE product_data->>'category'<>'';
@@ -100,9 +101,10 @@ WITH latest AS (
 ), supplier_prices AS (
  SELECT i.*,COALESCE(p.markup_percent,s.markup_percent) AS markup_percent,
  COALESCE(p.vat_percent,s.vat_percent) AS vat_percent,s.max_age_hours,s.basbug_checkout_mode,
- (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
+ -- A manual list's prices and stock are what an admin entered; they do not age like an API observation.
+ (i.supplier='manual' OR (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
  AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
- AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute')) AS source_fresh,
+ AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost
@@ -122,7 +124,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(product_data->>'ac2',''),
  CASE WHEN cost>0 AND exchange_rate>0
- AND (basbug_checkout_mode='snapshot' OR (rate_at>now()-make_interval(hours=>max_age_hours) AND source_fresh))
+ AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
  AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
  THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END,
  NULL::integer,changed_at,COALESCE(product_data->>'oe',''),'supplier',company,

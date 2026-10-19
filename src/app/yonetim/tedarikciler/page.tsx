@@ -4,6 +4,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { adminDinamikOverview, adminSetaOverview, adminSupplierOverview } from "@/modules/admin/data";
+import { adminManualLists } from "@/modules/admin/manual";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { db } from "@/lib/db";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
@@ -24,8 +25,9 @@ const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded:
 export default async function Suppliers() {
   await requireAdmin();
   const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [overview, health, dinamikData, dinamikHealth, seta, setaHealth] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
-    adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null)]);
+  const [overview, health, dinamikData, dinamikHealth, seta, setaHealth, manualLists] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
+    adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null), adminManualLists()]);
+  const manualLast = manualLists.reduce<Date | null>((latest, list) => list.last_import && (!latest || list.last_import > latest) ? list.last_import : latest, null);
   const statuses = supplierStatuses();
   const basbug = statuses.find(s => s.name === "Başbuğ");
   const dinamik = statuses.find(s => s.name === "Dinamik");
@@ -81,6 +83,14 @@ export default async function Suppliers() {
           ["Güncel ürün", number(seta.present), `${number(seta.saleable)} satışta`],
           ["Son çekim", time(seta.last?.started_at), seta.last ? runLabels[seta.last.status] ?? seta.last.status : "Kayıt yok"],
         ], note: setaStatus?.message, footer: setaStatus?.configured ? "SETA_API_KEY tanımlı" : "SETA_API_KEY eksik", href: "/yonetim/tedarikciler/seta", action: "Yönet" })}
+      {card({ id: "supplier-manual", letter: "M", title: "Manuel yükleme", subtitle: "Şablondaki .xlsx listeleri (madeni yağlar…)",
+        badge: statusBadge(manualLists.length ? "success" : "neutral", manualLists.length ? `${number(manualLists.length)} liste` : "Henüz liste yok"),
+        facts: [
+          ["Güncel ürün", number(manualLists.reduce((sum, list) => sum + list.present, 0)), manualLists.map(list => list.list_name).join(", ") || "—"],
+          ["Son yükleme", time(manualLast), "Elle içe aktarılır"],
+          ["Fiyatı eksik", number(manualLists.reduce((sum, list) => sum + list.missing_prices, 0)), "Satışa kapalı"],
+          ["Ambalajı eksik", number(manualLists.reduce((sum, list) => sum + list.missing_packages, 0)), "Panelden girilebilir"],
+        ], note: "API yerine yöneticinin yüklediği listeler. Dosya önce kontrol edilir, onaydan sonra mağazaya yansır.", footer: "Zamanlanmış çekim yok", href: "/yonetim/tedarikciler/manuel", action: "Yönet" })}
     </div>
   </div>;
 }

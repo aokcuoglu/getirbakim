@@ -172,7 +172,7 @@ export async function renameBrand(form: FormData) {
 // left without labels is removed. Products regroup on the next refresh.
 export async function moveBrandLabel(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ supplier: z.enum(["basbug", "dinamik", "seta"]), label: z.string().min(1).max(120), mode: z.enum(["move", "new"]),
+  const input = z.object({ supplier: z.enum(["basbug", "dinamik", "seta", "manual"]), label: z.string().min(1).max(120), mode: z.enum(["move", "new"]),
     target: z.string().trim().max(80).optional(), back: brandBack }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
   const { supplier, label, mode, target, back } = input.data;

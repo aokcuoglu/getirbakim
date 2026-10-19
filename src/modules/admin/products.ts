@@ -10,11 +10,12 @@ export const productFilters = {
   basbug: { label: "Yalnız Başbuğ", where: "p.suppliers='{basbug}'" },
   dinamik: { label: "Yalnız Dinamik", where: "p.suppliers='{dinamik}'" },
   seta: { label: "SETA", where: "p.suppliers @> '{seta}'" },
+  upload: { label: "Manuel liste", where: "p.suppliers @> '{manual}'" },
   manual: { label: "Elle ayrılan", where: "EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id AND s.method='manual')" },
   inactive: { label: "Satışta değil", where: "p.suppliers='{}'" },
 } as const;
 export type ProductFilter = keyof typeof productFilters;
-export const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
+export const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
 const pageSize = 50;
 // Header sorting on the products list (TableHead sortKey → column).
 const productSorts = { brand: "p.brand_label", code: "p.part_number", name: "p.name" };

@@ -3,6 +3,7 @@ import type { SupplierPartCell, SupplierPartColumn, SupplierPartTableProps } fro
 import type { AdminSupplierItem } from "@/modules/admin/basbug";
 import type { DinamikItem } from "@/modules/admin/dinamik";
 import type { SetaItem } from "@/modules/admin/seta";
+import type { ManualItem } from "@/modules/admin/manual";
 import { money } from "@/modules/store/catalog";
 import { basbugStockLabel, basbugWarehouses, basbugWarehouseStock, type BasbugWarehouse } from "@/modules/suppliers/basbug-stock";
 import { dinamikRegions, dinamikRegionStock, type DinamikRegionKey } from "@/modules/suppliers/dinamik-stock";
@@ -161,6 +162,39 @@ export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegio
           ],
           stockTitle: "Bölge stokları", stocks: dinamikRegions.map(r => ({ label: r.label, available: dinamikRegionStock(item.stock_data, r.key) })),
           footer: <p className="text-muted-foreground">Liste fiyatı KDV hariç maliyet kabul edilir; satış fiyatı ortak kâr + KDV ile hesaplanır, kampanya oranı uygulanmaz. Stoklar adet yerine var/yok bildirir.</p>,
+        },
+      };
+    }),
+  };
+}
+
+export function manualPartTableProps(items: ManualItem[], lists: { categories: string[] }): SupplierPartTableProps {
+  return {
+    caption: "Manuel listedeki ürünler, fiyatları ve stokları",
+    emptyDescription: "Aramayı veya filtreleri değiştirebilirsiniz.",
+    columns: [
+      nameColumn, { key: "brand", label: "Marka", sortKey: "brand" },
+      { key: "category", label: "Kategori", width: "medium", filter: { param: "category", options: options(lists.categories) } },
+      { key: "package", label: "Ambalaj", missingLabel: "Eksik" }, { key: "viscosity", label: "Viskozite" },
+      { ...costColumn, title: "KDV hariç alış fiyatı" }, saleColumn,
+      { key: "stock", label: "Stok", align: "right", numeric: true, filter: { param: "stock", options: [...stockOptions, { value: "none", label: "Stok bilgisi yok" }] } },
+      { key: "image", label: "Resim", align: "center" },
+      checkColumn([["missing-price", "Fiyatı eksik"], ["missing-package", "Ambalajı eksik"], ["missing-image", "Resmi yok"]]),
+    ],
+    rows: items.map(item => {
+      const p = item.product_data;
+      const stock = item.stock_data?.stok ?? null;
+      return {
+        id: item.id, code: item.code, detailHref: `/yonetim/tedarikciler/manuel/urun/${item.id}`,
+        cells: {
+          name: text(p.ac), brand: text(p.uk), category: text(p.category_name), package: text(p.package, p.package ?? "Ambalaj eksik"),
+          viscosity: text(p.viscosity),
+          cost: text(item.price_data ? number(item.price_data.nf) : null, item.price_data ? number(item.price_data.nf) : "Fiyat eksik"),
+          sale: text(item.sale_price_kurus ? money(item.sale_price_kurus) : null, item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"),
+          stock: stock === null ? { value: "Veri yok", variant: "warning", title: "Stok girilmemiş" } : text(number(stock)),
+          image: item.has_image ? { value: "Var", variant: "success" } : { value: "Yok", variant: "outline" },
+          check: item.presence !== "present" ? checkCell(item, false, false) : !item.price_data ? { value: "Fiyat eksik", variant: "warning" }
+            : !p.package ? { value: "Ambalaj eksik", variant: "warning" } : item.overridden ? { value: "Panelden tamamlandı", variant: "info" } : { value: null },
         },
       };
     }),

@@ -3,4 +3,6 @@
 export const setaCompany = "SETA";
 // Same value as DINAMIK_COMPANY in dinamik-import.ts, repeated here to keep this module import-free.
 export const dinamikCompany = "DINAMIK";
-export const storefrontCompanies = () => [process.env.BASBUG_FIRMA_ADI || "BASBUG", setaCompany, dinamikCompany];
+// Every manual xlsx list (manual-import.ts) shares this company; the list is the item's list_group.
+export const manualCompany = "MANUEL";
+export const storefrontCompanies = () => [process.env.BASBUG_FIRMA_ADI || "BASBUG", setaCompany, dinamikCompany, manualCompany];
