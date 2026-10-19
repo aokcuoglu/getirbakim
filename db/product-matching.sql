@@ -1,7 +1,7 @@
--- Cross-supplier product matching (Başbuğ, Dinamik, SETA) and the master catalog (products) built from it.
+-- Cross-supplier product matching (Başbuğ, Dinamik, SETA, manual xlsx lists) and the master catalog (products) built from it.
 -- Identity of a physical product = (canonical brand, part number). Codes are "BRAND-PREFIX PART-NO" in Başbuğ and
 -- Dinamik with supplier-specific prefixes (SCH = SACHS), so the prefix is dropped and the brand comes from the
--- brand field instead. Başbuğ original parts (OE-*) and SETA codes carry no prefix.
+-- brand field instead. Başbuğ original parts (OE-*), SETA and manual list codes carry no prefix.
 CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
@@ -12,7 +12,7 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 CREATE OR REPLACE FUNCTION supplier_item_part_number(supplier text, code text, product_data jsonb) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
- SELECT regexp_replace(upper(CASE WHEN supplier='seta' OR (supplier='basbug' AND product_data->>'uk' LIKE 'OE-%') THEN code
+ SELECT regexp_replace(upper(CASE WHEN supplier IN ('seta','manual') OR (supplier='basbug' AND product_data->>'uk' LIKE 'OE-%') THEN code
   ELSE regexp_replace(code,'^\S+\s+','') END),'[^A-Z0-9]','','g')
 $$;
 -- OEM numbers a supplier states for its item. Başbuğ's `oe` may list several separated by , ; or /; spaces belong to
@@ -316,9 +316,9 @@ CREATE OR REPLACE FUNCTION product_refresh_offers(ids uuid[]) RETURNS void LANGU
  WHERE s.product_id=ANY(ids) AND (o.item_id=s.supplier_item_id OR o.primary_id=s.supplier_item_id);
  INSERT INTO product_offers
  WITH offers AS (
-  SELECT s.product_id, i.id AS item_id, CASE i.supplier WHEN 'basbug' THEN 0 ELSE 1 END AS supplier_rank, i.code
+  SELECT s.product_id, i.id AS item_id, CASE i.supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 ELSE 3 END AS supplier_rank, i.code
   FROM product_sources s JOIN commerce_supplier_items i ON i.id=s.supplier_item_id
-  WHERE s.product_id=ANY(ids) AND i.supplier IN ('basbug','dinamik')
+  WHERE s.product_id=ANY(ids) AND i.supplier IN ('basbug','dinamik','manual')
    AND EXISTS (SELECT 1 FROM product_match_items m WHERE m.supplier_item_id=i.id)
  ), ranked AS (
   SELECT item_id, count(*) OVER (PARTITION BY product_id) AS offers,
@@ -380,7 +380,7 @@ CREATE TABLE IF NOT EXISTS product_match_runs (
 
 -- Short part numbers ("1", "12") collide across unrelated brands; they never form groups.
 CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
-DECLARE started timestamptz := clock_timestamp(); result jsonb;
+DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
@@ -448,11 +448,11 @@ BEGIN
  WHERE NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=x.item_id AND s.method='manual');
  DELETE FROM product_offer_exclusions;
  DROP TABLE IF EXISTS linkable, auto_items, old_links;
- -- Saleable rows with a brand key and part number; the first per key (Başbuğ, then Dinamik, then code) names it.
+ -- Saleable rows with a brand key and part number; the first per key (Başbuğ, Dinamik, SETA, manual, then code) names it.
  CREATE TEMP TABLE linkable ON COMMIT DROP AS
  SELECT m.supplier_item_id AS item_id, m.supplier, m.brand, m.part_number, m.name, i.code,
   COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label,
-  CASE m.supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 ELSE 2 END AS supplier_rank
+  CASE m.supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 WHEN 'seta' THEN 2 ELSE 3 END AS supplier_rank
  FROM product_match_items m JOIN commerce_supplier_items i ON i.id=m.supplier_item_id;
  CREATE INDEX ON linkable(item_id);
  CREATE TEMP TABLE old_links ON COMMIT DROP AS SELECT supplier_item_id, product_id FROM product_sources;
@@ -469,7 +469,7 @@ BEGIN
  SELECT a.item_id, p.id FROM auto_items a JOIN products p ON p.brand=a.brand AND p.part_number=a.part_number AND p.variant=0
  ON CONFLICT (supplier_item_id) DO UPDATE SET product_id=excluded.product_id, linked_at=now()
  WHERE product_sources.method='auto' AND product_sources.product_id<>excluded.product_id;
- -- Display fields follow the product's own row (its id), else Başbuğ, Dinamik, SETA.
+ -- Display fields follow the product's own row (its id), else Başbuğ, Dinamik, SETA, manual.
  UPDATE products p SET name=r.name, brand_label=r.label, code=r.code, updated_at=now()
  FROM (SELECT DISTINCT ON (s.product_id) s.product_id, l.name, l.label, l.code FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
   ORDER BY s.product_id, l.item_id=s.product_id DESC, l.supplier_rank, l.code, l.item_id) r
@@ -488,11 +488,11 @@ BEGIN
  WHERE p.merged_into IS NOT NULL AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
  ANALYZE products; ANALYZE product_sources;
  -- Storefront projection until the store reads products directly: the listed row is the product's own row (else
- -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik row of the product competes on price and stock.
+ -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik/manual row of the product competes on price and stock.
  INSERT INTO product_offers
  WITH offers AS (
   SELECT s.product_id, l.item_id, l.supplier_rank, l.code FROM product_sources s JOIN linkable l ON l.item_id=s.supplier_item_id
-  WHERE l.supplier IN ('basbug','dinamik')
+  WHERE l.supplier IN ('basbug','dinamik','manual')
  ), ranked AS (
   SELECT item_id, count(*) OVER (PARTITION BY product_id) AS offers,
    first_value(item_id) OVER (PARTITION BY product_id ORDER BY item_id=product_id DESC,supplier_rank,code,item_id) AS primary_id
@@ -502,22 +502,29 @@ BEGIN
  ANALYZE product_offers;
  DELETE FROM product_match_candidates;
  DROP TABLE IF EXISTS cand_a, cand_b;
- CREATE TEMP TABLE cand_a ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
- FROM products WHERE suppliers='{basbug}' AND merged_into IS NULL;
- CREATE TEMP TABLE cand_b ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
- FROM products WHERE suppliers='{dinamik}' AND merged_into IS NULL;
- ANALYZE cand_a; ANALYZE cand_b;
- INSERT INTO product_match_candidates
- SELECT DISTINCT ON (a,b) a, b, reason, similarity(lower(name_a),lower(name_b)), product_names_conflict(name_a,name_b) FROM (
-  SELECT a.id AS a, b.id AS b, 'prefix' AS reason, a.name AS name_a, b.name AS name_b, 1 AS priority FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND b.part_number=a.full_code
-  UNION ALL SELECT a.id, b.id, 'prefix', a.name, b.name, 1 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND a.part_number=b.full_code
-  UNION ALL SELECT a.id, b.id, 'leading_zero', a.name, b.name, 2 FROM cand_a a JOIN cand_b b
-   ON b.brand=a.brand AND ltrim(b.part_number,'0')=ltrim(a.part_number,'0') AND b.part_number<>a.part_number
-  UNION ALL SELECT a.id, b.id, 'suffix', a.name, b.name, 3 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND left(b.part_number,5)=left(a.part_number,5)
-   AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
-   AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
- ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
- ORDER BY a, b, priority;
+ -- Pairs: Başbuğ-only (a) with Dinamik-only (b), then a manual-list-only product (b) with any Başbuğ/Dinamik product (a).
+ -- The b side joins a when accepted (product_merge), so the API supplier's product keeps its identity.
+ FOR pairing IN 1..2 LOOP
+  DROP TABLE IF EXISTS cand_a, cand_b;
+  CREATE TEMP TABLE cand_a ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
+  FROM products WHERE merged_into IS NULL AND CASE pairing WHEN 1 THEN suppliers='{basbug}'
+   ELSE suppliers && '{basbug,dinamik}' AND NOT suppliers && '{manual}' END;
+  CREATE TEMP TABLE cand_b ON COMMIT DROP AS SELECT id, brand, part_number, name, regexp_replace(upper(code),'[^A-Z0-9]','','g') AS full_code
+  FROM products WHERE merged_into IS NULL AND suppliers=CASE pairing WHEN 1 THEN '{dinamik}'::text[] ELSE '{manual}'::text[] END;
+  ANALYZE cand_a; ANALYZE cand_b;
+  INSERT INTO product_match_candidates
+  SELECT DISTINCT ON (a,b) a, b, reason, similarity(lower(name_a),lower(name_b)), product_names_conflict(name_a,name_b) FROM (
+   SELECT a.id AS a, b.id AS b, 'prefix' AS reason, a.name AS name_a, b.name AS name_b, 1 AS priority FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND b.part_number=a.full_code
+   UNION ALL SELECT a.id, b.id, 'prefix', a.name, b.name, 1 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND a.part_number=b.full_code
+   UNION ALL SELECT a.id, b.id, 'leading_zero', a.name, b.name, 2 FROM cand_a a JOIN cand_b b
+    ON b.brand=a.brand AND ltrim(b.part_number,'0')=ltrim(a.part_number,'0') AND b.part_number<>a.part_number
+   UNION ALL SELECT a.id, b.id, 'suffix', a.name, b.name, 3 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND left(b.part_number,5)=left(a.part_number,5)
+    AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
+    AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
+  ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
+  ORDER BY a, b, priority
+  ON CONFLICT DO NOTHING;
+ END LOOP;
  INSERT INTO product_seta_references
  SELECT DISTINCT ON (k.item_id,r.supplier_item_id) k.item_id, r.supplier_item_id, k.brand, k.part_number
  FROM (

@@ -32,8 +32,9 @@ export type BrandScope = "pending" | "single" | "all";
 export const brandScopes: BrandScope[] = ["pending", "single", "all"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
-type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null };
-/** A Başbuğ-only product (a) and a Dinamik-only product (b) that look the same; "Aynı ürün" merges b into a. */
+type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
+/** A Başbuğ-only (a) and a Dinamik-only product (b), or a Başbuğ/Dinamik product (a) and a manual-list-only one (b), that
+ *  look the same; "Aynı ürün" merges b into a. */
 export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; brand: string; a: CandidateSide; b: CandidateSide };
 /** Candidates split by whether the two part names name the same kind of part (db product_names_conflict). */
 export type CandidateNames = "consistent" | "conflict";
@@ -143,7 +144,7 @@ async function matchCandidates(params: MatchingParams) {
   ]);
   const { page, pages } = pageOf(params.page, total.rows[0].count);
   type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
-  const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name)`;
+  const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name,'suppliers',${alias}.suppliers)`;
   const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.candidates, "c.name_similarity DESC NULLS LAST,a.brand,a.part_number")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is

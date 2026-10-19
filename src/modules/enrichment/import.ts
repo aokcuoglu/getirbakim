@@ -9,8 +9,11 @@ import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../sto
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
 
 /** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
-export async function storeProductImage(client: PoolClient, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
-  const bytes = await readFile(resolve(file));
+export async function storeProductImage(client: Pick<PoolClient, "query">, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
+  return storeProductImageBytes(client, await readFile(resolve(file)), source, storage, folder);
+}
+
+export async function storeProductImageBytes(client: Pick<PoolClient, "query">, bytes: Buffer, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
   const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
   const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;

@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  experimental: { cpus: 2 },
+  // Manual supplier lists are uploaded as xlsx through a server action (up to 8 MB, /yonetim/tedarikciler/manuel).
+  experimental: { cpus: 2, serverActions: { bodySizeLimit: "10mb" } },
   // The edge nginx and Cloudflare compress responses; gzip here spent the app container's CPU on every page.
   compress: false,
   // public/ files default to max-age=0, so the CDN revalidates every logo with the origin.

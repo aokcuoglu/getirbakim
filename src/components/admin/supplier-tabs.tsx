@@ -5,17 +5,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Tab = "transfer" | "products";
 
-export function SupplierTabs({ transfer, products, initialTab = "products", label = "Başbuğ yönetimi" }: {
+export function SupplierTabs({ transfer, products, initialTab = "products", label = "Başbuğ yönetimi", transferLabel = "Senkronizasyon ve kalite" }: {
   transfer: ReactNode;
   products: ReactNode;
   initialTab?: Tab;
   label?: string;
+  transferLabel?: string;
 }) {
   const [active, setActive] = useState<Tab>(initialTab);
   return <Tabs value={active} onValueChange={value => setActive(value as Tab)} className="gap-4">
     <TabsList variant="line" aria-label={label}>
       <TabsTrigger value="products">Ürünler</TabsTrigger>
-      <TabsTrigger value="transfer">Senkronizasyon ve kalite</TabsTrigger>
+      <TabsTrigger value="transfer">{transferLabel}</TabsTrigger>
     </TabsList>
     {/* Quality links in the transfer tab filter the product list, so following one also switches tabs. */}
     <TabsContent value="products" keepMounted>{products}</TabsContent>

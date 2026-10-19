@@ -24,12 +24,12 @@ const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const percent = (value: number | null) => value === null ? null : `%${Math.round(value * 100)}`;
 const price = (kurus: number | null | undefined) => kurus ? money(kurus) : "—";
-const suppliers: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
+const suppliers: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
 const brandMessages: Record<string, string> = {
   confirmed: "Ana marka onaylandı.", renamed: "Ana marka adı güncellendi.", moved: "Etiket taşındı; ürünler bir sonraki yenilemede yeni ana markaya göre gruplanır.",
   created: "Etiket ayrı ana marka oldu; ürünler bir sonraki yenilemede ayrılır.", merged: "Ana markalar birleşti; ürünler bir sonraki yenilemede birleşir.",
 };
-const brandSuppliers = ["basbug", "dinamik", "seta"] as const;
+const brandSuppliers = ["basbug", "dinamik", "seta", "manual"] as const;
 const matchedMessages: Record<string, string> = {
   same: "Aynı ürün olarak birleştirildi; mağazada tek ürün olarak, en uygun teklifle satılıyor.", different: "Farklı ürün olarak kaydedildi; bu çift tekrar önerilmez.",
 };
@@ -106,8 +106,9 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   } else if ("candidates" in data) {
     const reasons = Object.keys(candidateReasons) as CandidateReason[], nameKinds = Object.keys(candidateNames) as CandidateNames[];
     const bulkBrand = data.brandFilter && data.reason && data.candidates.length > 0 && data.candidates.every(item => item.brand === data.brandFilter) ? data.brandFilter : null;
-    const side = (item: { id: string; brand_label: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null }) =>
+    const side = (item: { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null }) =>
       <div className="flex min-w-0 flex-col gap-1">
+        <span className="flex flex-wrap gap-1">{item.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{suppliers[supplier] ?? supplier}</Badge>)}</span>
         <Link className="max-w-56 truncate font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.id}`} title={item.code}>{item.code}</Link>
         <span className="max-w-64 truncate text-muted-foreground" title={item.name ?? ""}>{item.name || "—"}</span>
         <span className="flex items-center gap-2 tabular-nums"><span className="font-medium">{price(item.price_kurus)}</span><StockLabel stock={item.available}/></span>
@@ -135,11 +136,11 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           </form>}
         </div>}
         {data.candidates.length ? <Table server><caption className="sr-only">Olası aynı ürünler</caption>
-          <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead>Başbuğ</TableHead><TableHead>Dinamik</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead title="Aynı ürün denirse bu ürün korunur">Mevcut ürün</TableHead><TableHead title="Aynı ürün denirse bu ürün mevcut ürüne katılır">Önerilen eş</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`}>
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}
-              {item.shared_b && <Badge variant="warning" title="Bu Dinamik ürünü başka Başbuğ ürünlerine de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</div></TableCell>
+              {item.shared_b && <Badge variant="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <ToneBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</ToneBadge>}</TableCell>

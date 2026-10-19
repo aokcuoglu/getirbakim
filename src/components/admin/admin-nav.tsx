@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
+import { BadgePercent, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, FileSpreadsheet, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -36,6 +36,7 @@ const sections: { title: string; items: Item[] }[] = [
     { href: "/yonetim/tedarikciler/basbug", label: "Başbuğ API", icon: Truck, dot: "basbug" },
     { href: "/yonetim/tedarikciler/dinamik", label: "Dinamik API", icon: Truck, dot: "dinamik" },
     { href: "/yonetim/tedarikciler/seta", label: "SETA API", icon: Truck, dot: "seta" },
+    { href: "/yonetim/tedarikciler/manuel", label: "Manuel yükleme", icon: FileSpreadsheet },
   ] },
 ];
 const dotIcons = { success: CircleCheck, warning: TriangleAlert, danger: CircleAlert, neutral: CircleDashed };
