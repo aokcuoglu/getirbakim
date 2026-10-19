@@ -138,7 +138,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   }
   function lookupPlate(event: React.FormEvent) {
     event.preventDefault();
-    setPlateMessage("Plaka sorgulama henüz bağlı değil. Marka ve model seçerek devam edebilirsin.");
+    setPlateMessage("Plakayla araç bulunamadı. Marka ve model seçerek devam edebilirsin.");
   }
   function save() {
     if (!selected) return;

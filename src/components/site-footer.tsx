@@ -5,6 +5,7 @@ import {getStoreCategories} from "@/modules/store/categories";
 import { CookieConsent } from "@/components/privacy/cookie-consent";
 import {ResponsiveFooterGroup} from "./responsive-footer-group";
 import {FooterVariants,RouteFrame} from "@/components/layout/store-route";
+import {contactEmail} from "@/lib/site";
 import {cn} from "@/lib/utils";
 import {SocialLinks} from "@/components/social-links";
 
@@ -68,7 +69,7 @@ export async function SiteFooter() {
  const year=new Date().getFullYear();
  const links=<footer className="border-t border-border bg-white pt-12 text-sm leading-5 text-foreground group-data-[route=home]/route:max-[600px]:pt-4">
   <div className="mx-auto grid w-full max-w-[1350px] grid-cols-[2fr_1fr_1fr] gap-5 px-[15px] pb-10 group-data-[route=standard]/route:max-[768px]:grid-cols-2 group-data-[route=standard]/route:max-[768px]:[&>*:first-child]:col-span-full group-data-[route=home]/route:max-[600px]:grid-cols-1 group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:pb-4">
-   <ResponsiveFooterGroup title="Yardıma mı ihtiyacın var?" accent><Link href="/iletisim">İletişime geç <span aria-hidden="true">›</span></Link></ResponsiveFooterGroup>
+   <ResponsiveFooterGroup title="Yardıma mı ihtiyacın var?" accent><Link href="/iletisim">İletişime geç <span aria-hidden="true">›</span></Link><a href={`mailto:${contactEmail}`}>{contactEmail}</a></ResponsiveFooterGroup>
    <ResponsiveFooterGroup title="Faydalı bilgiler">{information.map(link=><Link key={link.href} href={link.href}>{link.title}</Link>)}</ResponsiveFooterGroup>
    <ResponsiveFooterGroup title="Kategoriler">{catalogCategories.map(category=><Link key={category.id} href={"/katalog?category="+category.slug}>{category.name}</Link>)}</ResponsiveFooterGroup>
   </div>

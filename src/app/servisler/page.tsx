@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { contactEmail } from "@/lib/site";
 import { cn } from "@/lib/utils";
 export const metadata: Metadata = {
   title: "Servisler için Getirbakim | Güvenilir parça tedariki",
@@ -30,7 +31,7 @@ export default function Services() {
       <p className={panelText}>Başvuru ücretsizdir. Onay otomatik verilmez; ticari koşullar servis bazında değerlendirilir.</p>
     </Card>
     <Card className={cn(panel,"mt-6")}><h2 className={panelTitle}>Acil parça ihtiyacın mı var?</h2><p className={panelText}>Servisin için ek ücretli moto-kurye teslimatını destek ekibimize sor. Uygun stok, adres ve hizmet saatleri kontrol edilir; kurye ücreti ve teslimat zamanı gönderim öncesinde birlikte netleştirilir.</p><a className="mt-5 flex w-fit items-center gap-1.5 text-sm leading-5 text-primary hover:underline" href="tel:+902163870078">Moto-kurye için destek al: 0216 387 00 78</a></Card>
-    <Alert role="note" className="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]">Katalog ve sepet kullanıma açık. Sipariş talepleri stok ve sevkiyat teyidiyle değerlendirilir. Nihai sevkiyat hesabı ve çevrimiçi ödeme hazırlanıyor; şu anda ödeme alınmıyor.</Alert>
-    <p>Destek: <a href="tel:+902163870078" className="hover:text-primary">0216 387 00 78</a> · <a href="mailto:info@ergulenerji.com" className="hover:text-primary">info@ergulenerji.com</a></p>
+    <Alert role="note" className="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]">Katalog, sepet ve sipariş kullanıma açık. Siparişler stok ve sevkiyat teyidiyle işleme alınır.</Alert>
+    <p>Destek: <a href="tel:+902163870078" className="hover:text-primary">0216 387 00 78</a> · <a href={`mailto:${contactEmail}`} className="hover:text-primary">{contactEmail}</a></p>
   </section>;
 }
