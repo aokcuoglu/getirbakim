@@ -18,6 +18,11 @@ const duration = (minutes: number) => minutes >= 1440 ? `${Math.floor(minutes / 
   : minutes >= 60 ? `${Math.floor(minutes / 60)} sa ${minutes % 60} dk` : `${minutes} dk`;
 const share = (part: number, whole: number) => whole ? Math.round(part / whole * 100) : 0;
 const SHOWN_SPECIFICATIONS = 4;
+// Clock time `minutes` from now in Istanbul; another day's finish also names the day.
+const finishAt = (minutes: number) => {
+  const at = new Date(Date.now() + minutes * 60000), day = (value: Date) => value.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
+  return at.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", ...(day(at) === day(new Date()) ? {} : { day: "numeric", month: "short" }), hour: "2-digit", minute: "2-digit" });
+};
 
 export default async function VehicleOils({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
@@ -26,6 +31,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
   const percent = summary.target ? Math.floor(summary.collected / summary.target * 1000) / 10 : 0;
   const remaining = Math.max(0, summary.target - summary.collected);
   const running = run?.status === "running" && summary.lastTen > 0;
+  const left = summary.lastHour ? Math.round(remaining / summary.lastHour * 60) : 0;
   const withoutOil = summary.collected - summary.withOil;
 
   return <div className="flex flex-col gap-6">
@@ -54,7 +60,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
             : running ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Çalışıyor</Badge>
             : run?.status === "running" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Son 10 dk sessiz</Badge>
             : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{run ? "Durduruldu" : "Henüz koşu yok"}</Badge>}
-          <span className="tabular-nums">{running && remaining && summary.lastHour ? `Tahmini bitiş: ${duration(Math.round(remaining / summary.lastHour * 60))}` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
+          <span className="tabular-nums">{running && remaining && summary.lastHour ? `Tahmini bitiş: ${finishAt(left)} (${duration(left)})` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
           {host && <span className="tabular-nums">İstek aralığı {number(host.interval_ms / 1000)} sn + 0–{number(host.jitter_ms / 1000)} sn</span>}
         </CardContent>
       </Card>

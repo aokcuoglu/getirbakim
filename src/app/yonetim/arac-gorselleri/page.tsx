@@ -16,6 +16,11 @@ import { vehicleTypeImagesData } from "@/modules/admin/vehicle-type-images";
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
 const time = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const duration = (minutes: number) => minutes >= 60 ? `${Math.floor(minutes / 60)} sa ${minutes % 60} dk` : `${minutes} dk`;
+// Clock time `minutes` from now in Istanbul; another day's finish also names the day.
+const finishAt = (minutes: number) => {
+  const at = new Date(Date.now() + minutes * 60000), day = (value: Date) => value.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" });
+  return at.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", ...(day(at) === day(new Date()) ? {} : { day: "numeric", month: "short" }), hour: "2-digit", minute: "2-digit" });
+};
 
 export default async function VehicleImages({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
@@ -26,6 +31,7 @@ export default async function VehicleImages({ searchParams }: { searchParams: Pr
   const perMinute = summary.lastTen / 10;
   const remaining = Math.max(0, summary.types - done);
   const running = summary.lastTen > 0;
+  const left = perMinute ? Math.round(remaining / perMinute) : 0;
   const imageShare = summary.found ? Math.round(summary.images / summary.found * 100) : 0;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
@@ -53,7 +59,7 @@ export default async function VehicleImages({ searchParams }: { searchParams: Pr
           {running ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Çalışıyor</Badge>
             : remaining ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Son 10 dk sessiz</Badge>
             : <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Tamamlandı</Badge>}
-          <span className="tabular-nums">{running && remaining ? `Tahmini bitiş: ${duration(Math.round(remaining / perMinute))}` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
+          <span className="tabular-nums">{running && remaining ? `Tahmini bitiş: ${finishAt(left)} (${duration(left)})` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
         </CardContent>
       </Card>
       <Card>
