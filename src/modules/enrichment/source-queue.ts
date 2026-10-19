@@ -60,6 +60,10 @@ export class SourceQueue {
    if(!row){await client.query('ROLLBACK');throw Error('Stale request lease');}
    const decision=input.error&&input.httpStatus===200?{action:'fail' as const,waitMs:0}:sourceDecision(input.httpStatus,row.attempts,input.retryAfter,Date.now(),input.challenge);
    const error=input.error||`HTTP ${input.httpStatus}`;
+   // No response from one request is that request's problem; only when another request just failed the same way is
+   // the network down, and then the whole host waits so queued requests do not spend their attempts offline.
+   const previous=input.httpStatus===0?(await client.query('SELECT request_id,http_status FROM enrichment_request_events WHERE host=$1 ORDER BY id DESC LIMIT 1',[row.host])).rows[0]:undefined;
+   const hostWaitMs=input.httpStatus===0&&!(previous?.http_status===0&&previous.request_id!==row.id)?0:decision.waitMs;
    await client.query(`INSERT INTO enrichment_request_events(run_id,request_id,host,path,http_status,elapsed_ms,bytes,outcome,retry_after_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [this.runId,row.id,row.host,row.path,input.httpStatus,input.elapsedMs,input.bytes,decision.action,decision.waitMs]);
    if(decision.action==='complete'){
@@ -74,7 +78,7 @@ export class SourceQueue {
     await client.query('UPDATE enrichment_source_hosts SET challenge_since=coalesce(challenge_since,now()),challenges=challenges+1,last_error=$2 WHERE host=$1',[row.host,error]);
    }else if(decision.action==='retry'){
     await client.query("UPDATE enrichment_source_requests SET status='pending',available_at=now()+$2*interval '1 millisecond',last_error=$3,lease_token=NULL,lease_until=NULL WHERE id=$1",[row.id,decision.waitMs,error]);
-    await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=greatest(next_allowed_at,now()+$2*interval '1 millisecond'),last_error=$3,interval_ms=CASE WHEN $4=429 THEN least(30000,interval_ms*2) ELSE interval_ms END WHERE host=$1",[row.host,decision.waitMs,error,input.httpStatus]);
+    await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=greatest(next_allowed_at,now()+$2*interval '1 millisecond'),last_error=$3,interval_ms=CASE WHEN $4=429 THEN least(30000,interval_ms*2) ELSE interval_ms END WHERE host=$1",[row.host,hostWaitMs,error,input.httpStatus]);
    }else{
     const status=decision.action==='block'?'blocked':'failed';
     await client.query('UPDATE enrichment_source_requests SET status=$2,last_error=$3,finished_at=now(),lease_token=NULL,lease_until=NULL WHERE id=$1',[row.id,status,error]);
