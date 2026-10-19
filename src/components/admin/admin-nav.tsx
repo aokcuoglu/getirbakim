@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, Building2, CarFront, CircleAlert, CircleCheck, CircleDashed, Droplets, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
+import { BadgePercent, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -29,7 +29,6 @@ const sections: { title: string; items: Item[] }[] = [
     { href: "/yonetim/urunler", label: "Ürünler", icon: Package },
     { href: "/yonetim/urun-verileri", label: "Ürün zenginleştirme", icon: Layers3, count: "enrichment" },
     { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows },
-    { href: "/yonetim/arac-gorselleri", label: "Araç görselleri", icon: CarFront },
     { href: "/yonetim/yag-verileri", label: "Yağ verileri", icon: Droplets },
   ] },
   { title: "Entegrasyonlar", items: [
