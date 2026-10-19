@@ -23,7 +23,6 @@ const fuelLabels: Record<string, string> = {
 
 export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
   const inputId = useId();
-  const linkedCount = vehicles.filter(vehicle => vehicle.vehicleTypeId).length;
   const [query, setQuery] = useState("");
   const [make, setMake] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
@@ -39,7 +38,7 @@ export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
   return <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar" aria-labelledby="fitment-title">
     <div className="flex items-center justify-between gap-4"><div><span className="hidden">ARAÇ EŞLEŞMELERİ</span><h2 id="fitment-title" className="mb-6 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]">Uyumlu araçlar</h2></div><span className="hidden">{vehicles.length} motor seçeneği</span></div>
     <p className="hidden">Modelini seç, motor kodu ve üretim tarihini karşılaştır. Sipariş öncesinde araç bilgilerini ve OEM kodunu doğrula.</p>
-    <p className="-mt-2.5 mb-[18px] text-xs leading-5 text-[#53677d]">{linkedCount} araç kaydı araç kataloğuna bağlı{vehicles.length > linkedCount && ` · ${vehicles.length - linkedCount} kaynak kaydı henüz eşleştirilmedi`}</p>
+    <p className="-mt-2.5 mb-[18px] text-xs leading-5 text-[#53677d]">{vehicles.length} uyumlu araç kaydı</p>
     <div className="flex flex-wrap items-center gap-2 rounded-t-lg border border-[#dce2e9] bg-white p-4">
       <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç markası</span><NativeSelect className={select} value={make} onChange={event => { setMake(event.target.value); setSelectedModel(""); }}><NativeSelectOption value="">Marka</NativeSelectOption>{makes.map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}</NativeSelect></label>
       <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç modeli</span><NativeSelect className={select} value={selectedModel} onChange={event => setSelectedModel(event.target.value)}><NativeSelectOption value="">Model</NativeSelectOption>{models.filter(model => !make || model?.startsWith(`${make} `)).map(model => <NativeSelectOption key={model} value={model || ""}>{model}</NativeSelectOption>)}</NativeSelect></label>

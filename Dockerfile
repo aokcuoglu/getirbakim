@@ -21,8 +21,11 @@ FROM node:22-bookworm-slim AS app
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /app/.next/standalone ./
-COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/.next/static ./static-build
 COPY --from=builder --chown=node:node /app/public ./public
+RUN mkdir -p .next/static && chown node:node .next/static
 USER node
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Hashed assets of earlier releases stay served (production mounts a volume here): a page opened just
+# before a deploy still finds its CSS/JS instead of rendering unstyled. Files older than 14 days are dropped.
+CMD ["sh", "-c", "cp -R static-build/. .next/static/ && find .next/static -type f -mtime +14 -delete; exec node server.js"]

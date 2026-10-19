@@ -28,6 +28,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3004:3000"
+    volumes:
+      - next-static:/app/.next/static
     networks:
       default:
       edge:
@@ -154,6 +156,7 @@ services:
 volumes:
   postgres-data:
   product-media:
+  next-static:
 
 networks:
   edge:

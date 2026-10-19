@@ -60,7 +60,7 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
   function switchMode(nextMode: AuthMode) { setNotice(""); setMode(nextMode); }
   function previewSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setNotice(mode === "register" ? "Yeni üyelik kaydı henüz açılmadı. Servis hesabı için yardım merkezinden bilgi alabilirsin." : "Şifre yenileme henüz açılmadı. Servis hesabın için yardım merkezinden bilgi alabilirsin.");
+    setNotice(mode === "register" ? "Servis hesapları başvuruyla açılır. Servisler sayfasından başvurabilir veya hey@getirbakim.com adresine yazabilirsin." : "Şifreni yenilemek için kayıtlı e-posta adresinden hey@getirbakim.com adresine yazabilirsin.");
   }
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }} onOpenChangeComplete={next => { if (!next) { setNotice(""); onClosed(); } }}>

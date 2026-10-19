@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.10 — 2026-10-19
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Fixed
+- Storefront copy no longer describes the site as in development, unpublished or running locally (about, help, compatibility, services, legal pages, auth and empty states); the "Satış Hizmetinin Durumu" alert is removed ([#344](https://github.com/aokcuoglu/getirbakim/issues/344)).
+- `hey@getirbakim.com` is published on /iletisim, every legal page's company card, the footer, help, services and the Organization JSON-LD; the seller company details are unchanged ([#344](https://github.com/aokcuoglu/getirbakim/issues/344)).
+- Hashed CSS/JS of earlier releases stay served for 14 days from a `next-static` volume, so a page opened just before a deploy no longer renders unstyled ([#344](https://github.com/aokcuoglu/getirbakim/issues/344)).
+
 ## v0.22.9 — 2026-10-17
 
 Hotfix from `main`; the rest of `dev` is not included. Deployed together with v0.22.8.
