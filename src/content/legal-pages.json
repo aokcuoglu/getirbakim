@@ -3,7 +3,7 @@
     "title": "İletişim",
     "sourceUrl": "https://getirbakim.com/iletisim",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-19",
     "description": "Müşteri hizmetleri, şirket kimlik bilgileri, iletişim adresleri ve başvuru kanalları.",
     "sections": [
       {
@@ -27,10 +27,10 @@
               {
                 "tag": "a",
                 "attrs": {
-                  "href": "mailto:info@ergulenerji.com"
+                  "href": "mailto:hey@getirbakim.com"
                 },
                 "children": [
-                  "info@ergulenerji.com"
+                  "hey@getirbakim.com"
                 ]
               }
             ]
@@ -241,6 +241,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -356,7 +378,7 @@
     "title": "Teslimat ve İade Koşulları",
     "sourceUrl": "https://getirbakim.com/teslimat-ve-iade",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-19",
     "description": "Teslimat süreleri, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme ve ayıplı mal hakları.",
     "sections": [
       {
@@ -366,7 +388,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, sipariş sırasında sözleşme kurulmadan önce ayrıca sunulur."
             ]
           },
           {
@@ -811,6 +833,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -926,7 +970,7 @@
     "title": "Mesafeli Satış Sözleşmesi",
     "sourceUrl": "https://getirbakim.com/mesafeli-satis-sozlesmesi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-19",
     "description": "Tüketiciyle kurulacak mesafeli satış sözleşmesinin genel hükümleri ve tarafların hakları.",
     "sections": [
       {
@@ -936,7 +980,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, sipariş sırasında sözleşme kurulmadan önce ayrıca sunulur."
             ]
           },
           {
@@ -1056,7 +1100,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Satış hizmeti açıldığında alıcıya, ödeme yükümlülüğü doğuran sipariş işleminden önce siparişe özgü ön bilgilendirme ve sözleşme sunulur. Ön bilgilendirmenin edinildiği teyit edilir; sipariş işleminin ödeme yükümlülüğü doğurduğu açıkça belirtilir."
+              "Alıcıya, ödeme yükümlülüğü doğuran sipariş işleminden önce siparişe özgü ön bilgilendirme ve sözleşme sunulur. Ön bilgilendirmenin edinildiği teyit edilir; sipariş işleminin ödeme yükümlülüğü doğurduğu açıkça belirtilir."
             ]
           },
           {
@@ -1089,14 +1133,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Henüz aktif olmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Sunulmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Satış hizmeti açıldığında ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
+              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
             ]
           }
         ]
@@ -1534,6 +1578,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -1649,8 +1715,8 @@
     "title": "Ön Bilgilendirme Formu",
     "sourceUrl": "https://getirbakim.com/on-bilgilendirme-formu",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
-    "description": "Satış hizmeti açıldığında sipariş öncesinde sunulacak bilgilerin kapsamı ve tüketici hakları.",
+    "updatedAt": "2026-10-19",
+    "description": "Sipariş öncesinde sunulan bilgilerin kapsamı ve tüketici hakları.",
     "sections": [
       {
         "title": "Kapsam ve Bilgilendirme",
@@ -1659,7 +1725,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, satış hizmeti açıldığında sözleşme kurulmadan önce ayrıca sunulur."
+              "Bu sayfa, tüketici satışlarında uygulanacak genel koşulları açıklar. Siparişe özgü ürün, fiyat, teslimat, ödeme ve iade taşıyıcısı bilgileri, sipariş sırasında sözleşme kurulmadan önce ayrıca sunulur."
             ]
           },
           {
@@ -1820,14 +1886,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Henüz aktif olmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
+              "Ödeme yöntemleri yalnızca fiilen sunulan seçenekler üzerinden açıklanır. Sunulmayan taksit, kapıda ödeme veya başka bir ödeme yöntemi sunuluyormuş gibi gösterilmez."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Satış hizmeti açıldığında ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
+              "İlave ücret doğuran seçenekler tüketicinin açık onayı olmadan seçili sunulamaz. Ödeme aracısı ve işlem adımları ödeme ekranında açıklanır. Fatura, yürürlükteki vergi mevzuatına uygun olarak düzenlenir."
             ]
           }
         ]
@@ -2265,6 +2331,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -2380,7 +2468,7 @@
     "title": "Üyelik ve Kullanım Koşulları",
     "sourceUrl": "https://getirbakim.com/uyelik-ve-kullanim-kosullari",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-19",
     "description": "Site kullanımı, servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
     "sections": [
       {
@@ -2416,7 +2504,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sürümde servis hesapları, Getirbakim yönetiminin onayıyla oluşturulur. Açık üyelik kaydı, sosyal hesapla giriş ve şifre yenileme hizmetleri henüz etkin değildir."
+              "Bireysel müşteriler üyelik gerekmeden alışveriş yapabilir. Servis hesapları, başvuru üzerine Getirbakim yönetiminin onayıyla oluşturulur. Şifre yenileme talepleri hey@getirbakim.com adresine hesapta kayıtlı e-posta adresinden iletilir."
             ]
           },
           {
@@ -2653,6 +2741,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -2768,7 +2878,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-07",
+    "updatedAt": "2026-10-19",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -2846,7 +2956,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sürümde sipariş, ödeme, açık üyelik kaydı ve pazarlama gönderimi hizmetleri etkin değildir. Henüz sunulmayan hizmetler için veri toplandığı veya paylaşım yapıldığı varsayılmaz."
+              "Sipariş verildiğinde ad, e-posta, telefon ve teslimat adresi siparişin alınması, teyidi ve teslimi için işlenir. Pazarlama amaçlı e-posta gönderimi yapılmaz."
             ]
           }
         ]
@@ -2865,7 +2975,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bu sürümde bülten e-postası gönderilmez ve bu kayıtlar bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
+              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bülten kayıtları bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
             ]
           }
         ]
@@ -3009,7 +3119,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sürüm henüz yayımlanmamıştır ve yerel çalışma ortamında bulunmaktadır. Mevcut durumda şirket tarafından bir e-posta, ödeme veya kargo hizmet sağlayıcısına kişisel veri aktarımı yapılmamaktadır."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde ödeme kuruluşu ve kargo şirketiyle paylaşılır; bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3035,7 +3145,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Mevcut yerel sürüm için Amazon Web Services (AWS) üzerinde barındırma veya bu hizmet kapsamında yurt dışına veri aktarımı başlamamıştır. İleride AWS’nin Almanya, Frankfurt bölgesinde barındırma planlanmaktadır."
+              "Sitenin Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılması planlanmaktadır."
             ]
           },
           {
@@ -3056,7 +3166,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Henüz belirlenip uygulanmış bir aktarım mekanizması bulunmadığından bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
+              "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
             ]
           }
         ]
@@ -3082,7 +3192,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Bu yerel sürümde çerez ve tercih süreleri dışında sunucu kayıtları için tamamlanmış bir saklama ve imha takvimi bulunmamaktadır; şirket bu takvimi fiilî veri envanterine göre belirlemekle yükümlüdür."
+              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           }
         ]
@@ -3297,6 +3407,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -3412,7 +3544,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-07",
+    "updatedAt": "2026-10-19",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -3550,7 +3682,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bu sürümde bülten e-postası gönderilmez ve bu kayıtlar bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
+              "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bülten kayıtları bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
             ]
           }
         ]
@@ -3634,7 +3766,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu sürüm henüz yayımlanmamıştır ve yerel çalışma ortamında bulunmaktadır. Mevcut durumda şirket tarafından bir e-posta, ödeme veya kargo hizmet sağlayıcısına kişisel veri aktarımı yapılmamaktadır."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde ödeme kuruluşu ve kargo şirketiyle paylaşılır; bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3660,7 +3792,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Mevcut yerel sürüm için Amazon Web Services (AWS) üzerinde barındırma veya bu hizmet kapsamında yurt dışına veri aktarımı başlamamıştır. İleride AWS’nin Almanya, Frankfurt bölgesinde barındırma planlanmaktadır."
+              "Sitenin Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılması planlanmaktadır."
             ]
           },
           {
@@ -3681,7 +3813,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Henüz belirlenip uygulanmış bir aktarım mekanizması bulunmadığından bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
+              "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
             ]
           }
         ]
@@ -3707,7 +3839,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Bu yerel sürümde çerez ve tercih süreleri dışında sunucu kayıtları için tamamlanmış bir saklama ve imha takvimi bulunmamaktadır; şirket bu takvimi fiilî veri envanterine göre belirlemekle yükümlüdür."
+              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           }
         ]
@@ -3891,6 +4023,28 @@
           {
             "tag": "a",
             "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
               "href": "mailto:info@ergulenerji.com"
             },
             "children": [
@@ -4006,7 +4160,7 @@
     "title": "Çerez Politikası",
     "sourceUrl": "https://getirbakim.com/cerez-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-03",
+    "updatedAt": "2026-10-19",
     "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
     "sections": [
       {
@@ -4135,7 +4289,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Şu anda analitik veya pazarlama çerezi ve bu amaçlara yönelik entegrasyon etkin değildir. Mevcut tercih ekranında bu kategorilere seçim yapılması, henüz kurulmamış veya açıklanmamış herhangi bir hizmet sağlayıcısı için sınırsız açık rıza oluşturmaz."
+              "Şu anda analitik veya pazarlama çerezi ve bu amaçlara yönelik entegrasyon etkin değildir. Tercih ekranında bu kategorilere seçim yapılması, kurulmamış veya açıklanmamış herhangi bir hizmet sağlayıcısı için sınırsız açık rıza oluşturmaz."
             ]
           },
           {
@@ -4180,14 +4334,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Mevcut yerel sürümde analitik veya reklam amacıyla üçüncü taraf izleme entegrasyonu ve e-posta, ödeme veya kargo sağlayıcısına kişisel veri aktarımı bulunmamaktadır."
+              "Sitede analitik veya reklam amacıyla üçüncü taraf izleme entegrasyonu bulunmamaktadır."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Planlanan AWS Frankfurt barındırması henüz devreye alınmamıştır. Barındırma veya güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları açıklanmalıdır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
+              "AWS Frankfurt barındırmasına geçildiğinde veya barındırma ya da güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları açıklanmalıdır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
             ]
           },
           {
@@ -4265,6 +4419,28 @@
             "attrs": {},
             "children": [
               "E-posta: "
+            ]
+          },
+          {
+            "tag": "a",
+            "attrs": {
+              "href": "mailto:hey@getirbakim.com"
+            },
+            "children": [
+              "hey@getirbakim.com"
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "p",
+        "attrs": {},
+        "children": [
+          {
+            "tag": "span",
+            "attrs": {},
+            "children": [
+              "Şirket e-postası: "
             ]
           },
           {

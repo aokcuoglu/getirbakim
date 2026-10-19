@@ -2,7 +2,6 @@ import { createElement, Fragment } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Alert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
 
@@ -49,10 +48,6 @@ export function LegalPage({ slug }: { slug: string }) {
     </div>
     <div className="grid grid-cols-[minmax(0,1fr)_310px] items-start gap-12 max-[850px]:grid-cols-1 max-[850px]:gap-6 max-[600px]:gap-4">
       <div className="[&_li]:text-base [&_li]:leading-[1.9] [&_li]:text-[#546371] [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-3 [&_p]:text-base [&_p]:leading-[1.9] [&_p]:text-[#546371] [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6">
-        {["teslimat-ve-iade", "mesafeli-satis-sozlesmesi", "on-bilgilendirme-formu"].includes(slug) && <Alert role="note" className={cn(box, "mb-6 block text-foreground [&_p]:mt-2 [&_p]:mb-0!")}>
-          <strong className="font-semibold">Satış Hizmetinin Durumu</strong>
-          <p>İnternet üzerinden sipariş ve ödeme hizmeti henüz açık değildir. Bu sayfa genel koşulları açıklar; satış hizmeti açıldığında her sipariş için ayrıca ön bilgilendirme ve sözleşme sunulur.</p>
-        </Alert>}
         {page.sections.map((section, index) => <article key={index} id={`bolum-${index + 1}`} className={cn("mb-8 scroll-mt-6", section.title === "Kapsam ve Bilgilendirme" && box)}>
           <h2 className={cn(heading, "max-[600px]:text-lg")}>{section.title}</h2>
           {section.blocks.map(renderNode)}
