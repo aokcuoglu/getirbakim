@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.22.11 — 2026-10-19
+
+Hotfix from `main`; the rest of `dev` is not included.
+
+### Fixed
+- The garage sheet no longer shows a licence-plate search that was not connected to any service ([#350](https://github.com/aokcuoglu/getirbakim/issues/350)).
+
 ## v0.22.10 — 2026-10-19
 
 Hotfix from `main`; the rest of `dev` is not included.
