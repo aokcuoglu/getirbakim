@@ -231,8 +231,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
               {savedSpecs.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}
             </dl>}
             {savedOil && <dl aria-label="Önerilen motor yağı">
-              <dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd>
-              <dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd>
+              {oilCapacity(savedOil) && <><dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd></>}
+              {savedOil.viscosities.length > 0 && <><dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd></>}
               {savedOil.acea.length > 0 && <><dt>ACEA</dt><dd>{savedOil.acea.join(", ")}</dd></>}
               {savedOil.api.length > 0 && <><dt>API</dt><dd>{savedOil.api.join(", ")}</dd></>}
               {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
