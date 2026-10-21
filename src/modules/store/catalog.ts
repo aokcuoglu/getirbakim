@@ -7,6 +7,8 @@ export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
+import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
+import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {normalizeSearchText,parseSearchQuery,prefixTsQuery,searchTooShort,wholeWords,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
@@ -159,7 +161,7 @@ async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean
  const correctedParsed=corrected&&parse(corrected.text);
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }
-/** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` filter matches nothing. */
+/** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [];
@@ -174,7 +176,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   else {
    const descendants=(await getStoreCategories()).filter(c=>c.path.includes(selected.id)).map(c=>c.id);
    const legacy=Object.entries(legacyCategoryIds).filter(([,id])=>descendants.includes(id)).map(([slug])=>slug);
-   values.push(await categoryProductIds(legacy,descendants));
+   // Few oils carry a category yet; the engine-oil category also lists the oils read from product names.
+   const ids=await categoryProductIds(legacy,descendants);
+   values.push(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids);
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
@@ -190,6 +194,14 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
    values.push(await typeFittedIds(Number(context.vehicleTypeId)));
+   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+  }
+ }
+ const oil=parseOilFilters(query.oil);
+ if(oil.size) {
+  if(!context.vehicleTypeId)clauses.push('false');
+  else {
+   values.push(await vehicleOilProductIds(context.vehicleTypeId,oil));
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
@@ -216,7 +228,7 @@ const cachedCounts=staleCache<number>(aggregateTtl),cachedPageIds=staleCache<str
 const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl),cachedBrands=staleCache<string[]>(aggregateTtl);
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
- return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.fits?context.vehicleTypeId:null]);
+ return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
 }
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  const {values,where,from,search}=await catalogFilter(query,context);
@@ -290,7 +302,7 @@ export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) 
  return new Set(ids.filter(id=>linked.has(id)));
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits};
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits,oil:query.oil};
  const {values,from,search}=await catalogFilter(scope,context);
  const load=()=>facetsFor(values,from);
  return search ? load() : cachedFacets(filterKey(scope,context),load);

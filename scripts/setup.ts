@@ -29,6 +29,7 @@ try {
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
+   await client.query(await readFile("db/vehicle-oil-specs.sql", "utf8"));
    await client.query("COMMIT");
    break;
   } catch (error) {

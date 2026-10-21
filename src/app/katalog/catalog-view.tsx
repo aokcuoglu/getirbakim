@@ -21,6 +21,10 @@ import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import {CatalogStickyFinder} from "@/components/catalog-sticky-finder";
 import {CategoryCards} from "@/components/category-cards";
+import {VehicleOilBanner} from "@/components/vehicle-oil-banner";
+import {getVehicleOilSpec} from "@/modules/store/vehicle-oil.server";
+import {engineOilCategoryId,parseOilFilters} from "@/modules/store/vehicle-oil";
+import {legacyCategoryIds} from "@/modules/store/category-tree";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
  "yedek-parca":"Aracının bakım ve onarımı için yedek parçaları tek yerde keşfet. Motor, fren, filtre ve diğer parça gruplarında ürünleri üreticiye göre incele; doğru parçayı bulmak için ürün kodu veya OEM numarasıyla ara. Sipariş vermeden önce parçanın araç modeli, motor tipi ve üretim yılıyla uyumluluğunu kontrol et.",
@@ -57,7 +61,7 @@ export const catalogDescription=(slug:string)=>descriptions[slug];
 export async function CatalogView({params,make}:{params:CatalogQuery;make?:VehicleBrand}) {
  const vehicle=await currentVehicle();
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
- const [result,facetData,account,vehicleBrands,fitCount]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0]);
+ const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
  const products=result.items;
  const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  const categories=await getStoreCategories();
@@ -68,10 +72,16 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const makeName=make&&(make.name==="VOLKSWAGEN"?"VW":make.name);
  const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
  const home=make?`/car-parts/${params.make}`:"/katalog";
- const filtered=Boolean(params.q || params.brand || params.brands || params.attributes || params.availability || params.fits);
+ const filtered=Boolean(params.q || params.brand || params.brands || params.attributes || params.availability || params.fits || params.oil);
  // Same URL shape as the sidebar filters: the make stays in the path, a page number is dropped.
- const fitsHref=(fits:"vehicle"|undefined)=>{const query=new URLSearchParams();for(const [key,value] of Object.entries({...params,make:undefined,page:undefined,fits}))if(value)query.set(key,value);return query.size?`${home}?${query}`:home;};
+ const listingHref=(updates:Partial<CatalogQuery>)=>{const query=new URLSearchParams();for(const [key,value] of Object.entries({...params,make:undefined,page:undefined,...updates}))if(value)query.set(key,value);return query.size?`${home}?${query}`:home;};
+ const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const vehicleName=vehicle&&[vehicle.make,vehicle.model,vehicle.engine].filter(Boolean).join(" ");
+ const oilFilters=parseOilFilters(params.oil);
+ // Engine-oil listings: the oil categories, an oil filter, or a search for engine oil or a grade ("5w30").
+ const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
+ // Information only until the storefront lists enough graded oils for the filters (v0.23.0: 12 Başbuğ oils, no full match).
+ const oilBanner=oilSpec&&oilListing&&vehicleName&&<VehicleOilBanner spec={oilSpec} vehicleName={vehicleName} active={oilFilters} total={result.total}/>;
  const fitFilter=vehicleTypeId&&(params.fits||fitCount>0)&&<div className={cn("mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground",params.fits&&"border-[#9fd3b5] bg-[#e8f6ee]")} role="status"><CircleCheck size={18} aria-hidden="true"/>
   {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
    :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
@@ -112,11 +122,11 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
      <CatalogSidebar categories={[...categories]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="min-w-0">
-     {tooShort}{correction}{vehicleNotice}{fitFilter}
+     {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}
     {!filtered&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
       {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :
-       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={home}/>}>Tüm ürünlere göz at</Button></div>}
+       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={home}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
      </div>
     </div>
