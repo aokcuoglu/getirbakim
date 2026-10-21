@@ -3,10 +3,10 @@ import { cache } from "react";
 import { db } from "@/lib/db";
 import { staleCache } from "@/lib/stale-cache";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
-import { engineOilNameSql, notEngineOilNameSql, oilMatches, oilSpecificationKeys, plainEngineOilNameSql, productOilSpec,
+import { engineOilNameSql, notEngineOilNameSql, oilMatches, oilSpecificationKeys, plainEngineOilNameSql, productOilSpec, vehicleOilFilters,
   type OilFilter, type ProductOilSpec, type VehicleOilSpec } from "./vehicle-oil";
 
-type OilRow = { viscosities: string[]; acea: string[]; api: string[]; approvals: string[]; capacity_min_l: string; capacity_max_l: string };
+type OilRow = { viscosities: string[]; acea: string[]; api: string[]; approvals: string[]; capacity_min_l: string | null; capacity_max_l: string | null };
 
 /** The vehicle type's recommended engine oil; null when the oil sheet has no row for it. */
 export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | undefined): Promise<VehicleOilSpec | null> => {
@@ -14,7 +14,7 @@ export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | und
   const row = (await db.query<OilRow>(`SELECT viscosities,acea,api,approvals,capacity_min_l::text,capacity_max_l::text
    FROM vehicle_type_oil_specs WHERE vehicle_type_id=$1`, [vehicleTypeId])).rows[0];
   return row ? { viscosities: row.viscosities, acea: row.acea, api: row.api, approvals: row.approvals,
-    capacityMin: Number(row.capacity_min_l), capacityMax: Number(row.capacity_max_l) } : null;
+    capacityMin: row.capacity_min_l === null ? null : Number(row.capacity_min_l), capacityMax: row.capacity_max_l === null ? null : Number(row.capacity_max_l) } : null;
 });
 
 // Engine oils change only with supplier syncs and enrichment imports, like the catalog's other id lists.
@@ -43,9 +43,13 @@ export const engineOils = () => cachedOils("all", async () => {
 
 export async function engineOilIds() { return (await engineOils()).map(oil => oil.id); }
 
-/** Engine oils meeting the vehicle's recommendation on every selected filter; none without oil data. */
+/**
+ * Engine oils meeting the vehicle's recommendation on every selected filter the vehicle's data can answer; none
+ * without oil data or without such a filter.
+ */
 export async function vehicleOilProductIds(vehicleTypeId: string, filters: ReadonlySet<OilFilter>) {
   const vehicle = await getVehicleOilSpec(vehicleTypeId);
-  if (!vehicle) return [];
-  return (await engineOils()).filter(oil => oilMatches(oil.spec, vehicle, filters)).map(oil => oil.id);
+  const applicable = new Set(vehicle ? vehicleOilFilters(vehicle).filter(filter => filters.has(filter)) : []);
+  if (!vehicle || !applicable.size) return [];
+  return (await engineOils()).filter(oil => oilMatches(oil.spec, vehicle, applicable)).map(oil => oil.id);
 }

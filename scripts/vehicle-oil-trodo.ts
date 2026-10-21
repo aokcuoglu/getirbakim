@@ -118,20 +118,26 @@ async function status() {
   console.log(JSON.stringify({ ...row, runs, host }, null, 2));
 }
 
-// Trodo rows replace the sheet's rows of the same vehicle type; the others (oil_capacities) stay as they are.
+// Trodo rows replace the sheet's rows of the same vehicle type; the others (oil_capacities) stay as they are. A Trodo
+// row without a grade or a capacity takes that field from the oil_capacities row ("trodo+oil_capacities"); such a
+// row keeps the borrowed values in the sheet, so exporting again borrows the same ones.
 async function exportSheet() {
   const current = parseVehicleCsv(await readFile(SHEET, "utf8")).map(row => ({ ...row, source: row.source || "oil_capacities" }) as VehicleOilSheetRow);
   const merged = new Map(current.filter(row => row.source !== "trodo").map(row => [row.id, row]));
   const { rows } = await pool.query("SELECT vehicle_type_id, volumes, viscosities, specifications FROM vehicle_type_trodo_oils ORDER BY vehicle_type_id");
-  let trodo = 0, unusable = 0;
+  let trodo = 0, borrowed = 0, empty = 0, unusable = 0;
   for (const row of rows) {
     const sheetRow = trodoOilSheetRow(row.vehicle_type_id, row);
-    if (!sheetRow) { if (row.viscosities.length) unusable++; continue; }
+    if (!sheetRow) { if (row.viscosities.length || row.volumes.length || row.specifications.length) unusable++; else empty++; continue; }
+    const fallback = merged.get(sheetRow.id);
+    if (fallback && ((!sheetRow.viscosity && fallback.viscosity) || (!sheetRow.capacity && fallback.capacity))) {
+      sheetRow.viscosity ||= fallback.viscosity; sheetRow.capacity ||= fallback.capacity; sheetRow.source = "trodo+oil_capacities"; borrowed++;
+    }
     try { parseVehicleOilRow(sheetRow); } catch (error) { unusable++; console.log(JSON.stringify({ vehicleOils: "unusable", vehicleTypeId: row.vehicle_type_id, error: String(error) })); continue; }
     merged.set(sheetRow.id, sheetRow); trodo++;
   }
   await writeFile(SHEET, vehicleOilSheet([...merged.values()]));
-  console.log(JSON.stringify({ vehicleOils: "exported", rows: merged.size, trodo, oilCapacities: merged.size - trodo, unusable }));
+  console.log(JSON.stringify({ vehicleOils: "exported", rows: merged.size, trodo, borrowed, oilCapacities: merged.size - trodo, empty, unusable }));
 }
 
 try {

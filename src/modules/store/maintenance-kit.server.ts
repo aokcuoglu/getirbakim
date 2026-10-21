@@ -5,7 +5,7 @@ import { catalogSql, categoryProductIds, listedOnly, typeFittedIds, withBestOffe
 import { getCatalogProductImages, type CatalogProductImage } from "./product-enrichment";
 import { getManufacturerLogos, type ManufacturerLogo } from "./manufacturer-logos";
 import { getVehicleOilSpec, vehicleOilProductIds } from "./vehicle-oil.server";
-import { engineOilNameSql, notEngineOilNameSql, oilCapacity, plainEngineOilNameSql, type OilFilter, type VehicleOilSpec } from "./vehicle-oil";
+import { engineOilNameSql, notEngineOilNameSql, oilCapacity, plainEngineOilNameSql, vehicleOilFilters, type VehicleOilSpec } from "./vehicle-oil";
 import { kitSlots, oilPackLitres, oilPackQuantity, type KitSlotKey } from "./maintenance-kit";
 
 /** A product the shopper can put in a slot: the listing row priced by its best offer, with picture and brand logo. */
@@ -54,10 +54,11 @@ export async function maintenanceKitOptions(vehicleTypeId: string): Promise<Main
   const fittedSet = new Set(fitted);
   const slots = await Promise.all(kitSlots.map(async (slot): Promise<KitSlotOptions> => {
     if (slot.key === "engineOil") {
-      if (!oilSpec) return { key: slot.key, candidates: [], oilMatch: "none" };
-      const both: ReadonlySet<OilFilter> = new Set(["viscosity", "approval"]);
-      let ids = await vehicleOilProductIds(vehicleTypeId, both), oilMatch: KitSlotOptions["oilMatch"] = "full";
-      if (!ids.length) { ids = await vehicleOilProductIds(vehicleTypeId, new Set(["viscosity"])); oilMatch = "viscosity"; }
+      // Without a grade or an approval to match, any oil would be a guess.
+      const filters = oilSpec ? vehicleOilFilters(oilSpec) : [];
+      if (!filters.length) return { key: slot.key, candidates: [], oilMatch: "none" };
+      let ids = await vehicleOilProductIds(vehicleTypeId, new Set(filters)), oilMatch: KitSlotOptions["oilMatch"] = filters.includes("approval") ? "full" : "viscosity";
+      if (!ids.length && filters.length > 1) { ids = await vehicleOilProductIds(vehicleTypeId, new Set(["viscosity"])); oilMatch = "viscosity"; }
       const products = limitPerBrand(await sellableProducts(ids));
       return { key: slot.key, oilMatch: products.length ? oilMatch : "none", candidates: products.map(product => toCandidate(product, oilSpec)) };
     }
@@ -80,7 +81,7 @@ function toCandidate(product: CatalogProduct, oilSpec: VehicleOilSpec | null): K
     id: product.id, offerId: product.offer_id ?? product.id, name: product.name, brand: product.brand, code: product.code,
     priceKurus: product.price_kurus!, maxQuantity: Math.min(99, product.max_quantity), stockLabel: product.stock_label,
     image: null, logo: null, packLitres,
-    suggestedQuantity: oilSpec ? Math.min(Math.max(1, product.max_quantity), oilPackQuantity(oilSpec.capacityMax, packLitres)) : 1,
+    suggestedQuantity: oilSpec?.capacityMax ? Math.min(Math.max(1, product.max_quantity), oilPackQuantity(oilSpec.capacityMax, packLitres)) : 1,
   };
 }
 

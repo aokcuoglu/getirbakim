@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseVehicleCsv } from "../src/modules/store/vehicle-catalog-import";
-import { approvalKey, oilCapacity, oilFilterParam, oilMatches, parseOilFilters, parseVehicleOilRow, productOilSpec, trodoOilSheetRow, vehicleOilSheet, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
+import { approvalKey, normalizeViscosity, oilCapacity, oilFilterParam, oilMatches, parseOilFilters, parseVehicleOilRow, productOilSpec, trodoOilSheetRow, vehicleOilFilters, vehicleOilSheet, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
 
 const row = (fields: Partial<Record<string, string>>) => ({ id: "1", viscosity: "5W-30, 5W-40", acea: "ACEA C2, C3", api: "API SN, SP", specifications: "", capacity: "4.0 Litre", ...fields });
 const golf: VehicleOilSpec = { viscosities: ["5W-30", "0W-30"], acea: ["C3"], api: ["SN"], approvals: ["VW 504.00", "VW 507.00"], capacityMin: 4.5, capacityMax: 4.5 };
@@ -13,10 +13,15 @@ test("sheet rows are normalised for the table", () => {
     vehicle_type_id: 1, viscosities: ["5W-30", "5W-40"], acea: ["C2", "C3"], api: ["SN", "SP"], approvals: ["Renault RN0720", "RN17"],
     capacity_min_l: 4.5, capacity_max_l: 5.4 });
   assert.deepEqual(parseVehicleOilRow(row({ acea: "ACEA A3/B4" })).acea, ["A3/B4"]);
+  // A source may lack the grade or the capacity.
+  assert.deepEqual(parseVehicleOilRow(row({ viscosity: "", acea: "", api: "", specifications: "VW 507 00" })), {
+    vehicle_type_id: 1, viscosities: [], acea: [], api: [], approvals: ["VW 507 00"], capacity_min_l: 4, capacity_max_l: 4 });
+  assert.deepEqual(parseVehicleOilRow(row({ capacity: "" })).capacity_min_l, null);
+  assert.deepEqual(parseVehicleOilRow(row({ viscosity: "30, 0W-12" })).viscosities, ["30", "0W-12"]);
 });
 test("malformed sheet values stop the import", () => {
   assert.throws(() => parseVehicleOilRow(row({ id: "x" })), /vehicle type id/);
-  assert.throws(() => parseVehicleOilRow(row({ viscosity: "" })), /Missing viscosity/);
+  assert.throws(() => parseVehicleOilRow(row({ viscosity: "", acea: "", api: "", capacity: "" })), /Empty oil row/);
   assert.throws(() => parseVehicleOilRow(row({ viscosity: "5W30 ish" })), /Invalid viscosity/);
   assert.throws(() => parseVehicleOilRow(row({ capacity: "4 litres-ish" })), /capacity/);
   assert.throws(() => parseVehicleOilRow(row({ capacity: "5.4 - 4.5 Litre" })), /capacity/);
@@ -58,6 +63,22 @@ test("filters and litres read as the URL and the banner show them", () => {
   assert.equal(oilFilterParam(new Set()), undefined);
   assert.equal(oilCapacity({ capacityMin: 4, capacityMax: 4 }), "4,0 L");
   assert.equal(oilCapacity({ capacityMin: 4.5, capacityMax: 5.4 }), "4,5–5,4 L");
+  assert.equal(oilCapacity({ capacityMin: null, capacityMax: null }), null);
+});
+test("single grades and 0W-12 are read; a bare number in a name is not a grade", () => {
+  assert.equal(normalizeViscosity("SAE 30W"), "30");
+  assert.equal(normalizeViscosity("SAE 40"), "40");
+  assert.equal(normalizeViscosity("SAE 0W-12"), "0W-12");
+  assert.equal(normalizeViscosity("SAE 35"), null);
+  assert.deepEqual(productOilSpec("CASTROL CLASSIC SAE 30 MOTOR YAGI 4L")?.viscosities, ["30"]);
+  assert.deepEqual(productOilSpec("TOYOTA MOTOR YAGI 0W12 4L")?.viscosities, ["0W-12"]);
+  assert.equal(productOilSpec("MOTOR YAGI 40 LT VARIL"), null);
+  assert.deepEqual(productOilSpec("SAE 10W-40 MOTOR YAGI")?.viscosities, ["10W-40"]);
+});
+test("only the filters the vehicle's data can answer are offered", () => {
+  assert.deepEqual(vehicleOilFilters(golf), ["viscosity", "approval"]);
+  assert.deepEqual(vehicleOilFilters({ ...golf, viscosities: [] }), ["approval"]);
+  assert.deepEqual(vehicleOilFilters({ ...golf, acea: [], approvals: [] }), ["viscosity"]);
 });
 
 test("Trodo oil data becomes a sheet row the import accepts", () => {
@@ -69,9 +90,14 @@ test("Trodo oil data becomes a sheet row the import accepts", () => {
     specifications: "ACEA E7, Ford WSS-M2C913-B -C", capacity: "3.1 - 3.6 Litre", source: "trodo" });
   assert.deepEqual(parseVehicleOilRow(mixed), { vehicle_type_id: 26, viscosities: ["5W-30", "0W-20"], acea: ["C2", "C3", "A3/B4"], api: ["SL", "SM", "CF"],
     approvals: ["ACEA E7", "Ford WSS-M2C913-B -C"], capacity_min_l: 3.1, capacity_max_l: 3.6 });
-  // Without a volume or an SAE grade the vehicle keeps its oil_capacities row.
-  assert.equal(trodoOilSheetRow(1, { volumes: [], viscosities: ["SAE 5W-30"], specifications: [] }), null);
-  assert.equal(trodoOilSheetRow(1, { volumes: ["4,0"], viscosities: ["SAE 30"], specifications: ["API SL"] }), null);
+  // What Trodo lacks stays empty; the export borrows it from the oil_capacities row.
+  assert.deepEqual(trodoOilSheetRow(1, { volumes: [], viscosities: ["SAE 5W-30"], specifications: [] }),
+    { id: "1", viscosity: "5W-30", acea: "", api: "", specifications: "", capacity: "", source: "trodo" });
+  const approvalsOnly = trodoOilSheetRow(2, { volumes: ["4,60"], viscosities: [], specifications: ["VW 507 00"] })!;
+  assert.deepEqual(parseVehicleOilRow(approvalsOnly), { vehicle_type_id: 2, viscosities: [], acea: [], api: [], approvals: ["VW 507 00"],
+    capacity_min_l: 4.6, capacity_max_l: 4.6 });
+  assert.equal(trodoOilSheetRow(3, { volumes: ["4,0"], viscosities: ["SAE 30"], specifications: ["API SL"] })!.viscosity, "30");
+  assert.equal(trodoOilSheetRow(4, { volumes: [], viscosities: [], specifications: [] }), null);
 });
 test("the sheet is written back in vehicle type order", () => {
   const sheet = vehicleOilSheet([
