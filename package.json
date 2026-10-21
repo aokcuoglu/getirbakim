@@ -1,6 +1,6 @@
 {
   "name": "getirbakim",
-  "version": "0.22.11",
+  "version": "0.23.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,6 +14,7 @@
     "db:assets": "node --env-file=.env.local --import tsx scripts/import-assets.ts",
     "supplier:basbug:inspect": "node --env-file=.env.local --import tsx scripts/inspect-basbug.ts",
     "supplier:basbug:import": "node --env-file=.env.local --import tsx scripts/import-basbug.ts",
+    "test:vehicle-oil": "node --import tsx --test scripts/test-vehicle-oil.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "verify:basbug": "node --env-file=.env.local --import tsx scripts/verify-basbug.ts",
     "db:supplier:migrate": "node --env-file=.env.local --import tsx scripts/migrate-supplier-sync.ts",
@@ -22,6 +23,7 @@
     "supplier:sync:configure": "node --env-file=.env.local --import tsx scripts/configure-supplier-sync.ts",
     "supplier:rebuild": "node --env-file=.env.local --import tsx scripts/rebuild-supplier-data.ts",
     "db:vehicles": "node --env-file=.env.local --import tsx scripts/import-vehicles.ts",
+    "db:vehicle-oils": "node --env-file=.env.local --import tsx scripts/import-vehicle-oils.ts",
     "test:part-art": "node --import tsx --test scripts/test-part-art.tsx",
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
     "search:vocabulary": "node --env-file=.env.local --import tsx scripts/refresh-search-vocabulary.ts",

@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.23.0 — 2026-10-21
+
+Scoped port from `dev`; the rest of `dev` is not included.
+
+### Added
+- Engine-oil listings (the oil categories, a search for engine oil or an SAE grade) show the garage vehicle's recommended oil: capacity, SAE grades, ACEA/API classes and manufacturer approvals, for 23,251 vehicle types from TecRMI (via Trodo) and the earlier oil-capacity sheet ([#290](https://github.com/aokcuoglu/getirbakim/issues/290), [#315](https://github.com/aokcuoglu/getirbakim/issues/315), [#353](https://github.com/aokcuoglu/getirbakim/issues/353), [#355](https://github.com/aokcuoglu/getirbakim/issues/355)).
+- The engine-oil category also lists oils recognised by the grade in their name ([#290](https://github.com/aokcuoglu/getirbakim/issues/290)).
+- `db/vehicle-oil-specs.sql` (applied by `db:setup`) and `npm run db:vehicle-oils` load `data/vehicle_type_oil_specs.csv`.
+
+### Notes
+- The banner only informs in this release: the viscosity/approval filter buttons are hidden because the storefront lists 12 graded Başbuğ oils and none meets a vehicle's grade and approval together. The `?oil=` filter itself is in place.
+- Production's `vehicle_type_oil_specs` was loaded on 2026-10-21 (23,251 rows); no migration step is needed at deploy.
+
 ## v0.22.11 — 2026-10-19
 
 Hotfix from `main`; the rest of `dev` is not included.
