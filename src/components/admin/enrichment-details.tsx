@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 export function EnrichmentDetails({ name, code, productId, children, footer }: { name: string; code: string; productId: string; footer?: React.ReactNode; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button variant="outline" aria-label={`${code} kayıt ayrıntıları`}/>}>Ayrıntı<ChevronRight data-icon="inline-end"/></DialogTrigger>
+    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`${code} kayıt ayrıntıları`}/>}>Ayrıntı<ChevronRight data-icon="inline-end"/></DialogTrigger>
     <DialogContent className="sm:max-w-4xl">
       <DialogHeader>
         <DialogTitle>{name || code}</DialogTitle>
