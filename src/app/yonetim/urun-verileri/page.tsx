@@ -1,25 +1,24 @@
 import Link from "next/link";
 import { EnrichmentDetails } from "@/components/admin/enrichment-details";
-import { EnrichmentRefresh } from "@/components/admin/enrichment-refresh";
-import { ChevronLeft, ChevronRight, ArrowDownToLine, ArrowUpRight, Check, CircleAlert, CircleCheck, CircleHelp, Clock3, Database, ImageIcon, Info, Layers3, Search, ShieldCheck, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
+import { LiveRefresh } from "@/components/admin/live-refresh";
+import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, Database, ImageIcon, Info, Layers3, Search, ShieldCheck, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { enrichmentDashboard, enrichmentStatuses } from "@/modules/admin/enrichment-data";
-import { passForecast, sourceHosts, type SourceKey } from "@/modules/admin/enrichment-pace";
+import { partialGaps, passForecast, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -33,6 +32,8 @@ const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]
 const sourceNames=(keys:SourceKey[])=>keys.map(key=>sourceLabels[key].name).join(", ");
 const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kaynak nedeniyle durdu"};
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
+const gapLabels:Record<PartialGap,string>={image:"Görsel yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
+const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
 type Tone="success"|"info"|"warning"|"error"|"neutral";
 const tones:Record<Tone,{variant:"success"|"info"|"warning"|"destructive"|"outline";icon?:LucideIcon}>={success:{variant:"success",icon:CircleCheck},info:{variant:"info",icon:Info},warning:{variant:"warning",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
@@ -48,14 +49,12 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const forecast=passForecast(data.pass,counts.pending||0);
   const days=(value:number|null)=>value===null?"—":value<1?"1 günden az":`~${number(Math.ceil(value))} gün`;
   const hours=(value:number)=>value.toLocaleString("tr-TR",{maximumFractionDigits:1});
-  const sourceState=data.pass.blocked?"Kaynak bloke — koşu durdu":data.pass.challenge_since?`Cloudflare doğrulaması bekleniyor (${date(data.pass.challenge_since)} itibarıyla)`:"Kaynak erişilebilir";
   const href=(changes:Record<string,string>)=>{
     const params=new URLSearchParams({...data.filters,...changes});
     for(const [key,value] of [...params])if(!value||value==="all"||value==="enriched")params.delete(key);
     return `/yonetim/urun-verileri${params.size?`?${params}`:""}`;
   };
   const cards=[
-    {label:"Zenginleştirilen ürün",value:data.metrics.enriched,icon:Layers3,note:`${number(counts.complete||0)} tamamlandı · ${number(counts.partial||0)} kısmi`},
     {label:"OEM referansıyla eşleşen",value:data.metrics.oem_matches,icon:GitCompareArrows,note:`${number(data.metrics.direct_matches)} doğrudan marka / parça eşleşmesi`},
     {label:"Araç / motor kaydı",value:data.metrics.vehicles,icon:CarFront,note:`${number(data.metrics.oem_numbers)} OEM referansı toplandı`},
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
@@ -63,63 +62,81 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const statusTones:Record<string,Tone>={complete:"success",partial:"warning",review:"warning",failed:"error",blocked:"error",not_found:"error",pending:"neutral"};
   const tabs:[string,string,number][]=[["enriched","Zenginleştirilen",data.metrics.enriched],["review","İnceleme",counts.review||0],["partial","Kısmi veri",counts.partial||0],["not_found","Eşleşmeyen",counts.not_found||0],["pending","Bekleyen",counts.pending||0]];
   const prev=data.page>1?href({page:String(data.page-1)}):null, next=data.page<data.pages?href({page:String(data.page+1)}):null;
+  const trodo=data.sourceSummary.find(source=>source.source==="trodo");
+  const percent=total?attempted/total*100:0;
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/><BreadcrumbItem><BreadcrumbPage>Ürün zenginleştirme</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-muted-foreground">Parçaların bilgiye dönüşümünü tek yerden takip et.</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Badge variant="outline" className="hidden lg:inline-flex"><Database data-icon="inline-start"/>Veritabanından güncel görünüm</Badge><EnrichmentRefresh/></div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-sm text-muted-foreground">Trodo, otoparcasan ve spareto&apos;dan toplanan görsel, OEM, özellik ve araç verileri. Son aktarım: {data.metrics.latest?date(data.metrics.latest):"henüz yok"}.</p></div>
+        <LiveRefresh seconds={30}/>
       </div>
     </div>
-    <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Zenginleştirme özeti">{cards.map(card=><Card key={card.label}>
-      <CardHeader><dt><CardDescription>{card.label}</CardDescription></dt><dd><CardTitle className="text-2xl font-semibold tabular-nums">{number(card.value)}</CardTitle></dd><CardAction><card.icon className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
-      <CardFooter className="text-sm text-muted-foreground">{card.note}</CardFooter>
-    </Card>)}</dl>
+    {data.pass.blocked?<Alert variant="destructive"><CircleAlert aria-hidden="true"/><AlertTitle>Trodo erişimi engellendi</AlertTitle><AlertDescription>Koşu durdu; engel kalkınca işçi yeniden başlatılmalı.</AlertDescription></Alert>
+      :data.pass.challenge_since?<Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Cloudflare doğrulaması bekleniyor</AlertTitle><AlertDescription>{date(data.pass.challenge_since)} itibarıyla Trodo sekmesinde doğrulama bekleniyor; tamamlanınca işlem kendiliğinden sürer.</AlertDescription></Alert>:null}
 
-    <div className="grid items-start gap-4 xl:grid-cols-2">
+    <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Zenginleştirme özeti">
       <Card>
-        <CardHeader><CardTitle><h2>Katalog kapsamı</h2></CardTitle><CardDescription>{number(attempted)} / {number(total)} tekil ürün incelendi</CardDescription><CardAction><Badge variant="secondary" className="tabular-nums">%{total?((attempted/total)*100).toLocaleString("tr-TR",{maximumFractionDigits:2}):0}</Badge></CardAction></CardHeader>
-        <CardContent><Progress value={total?attempted/total*100:0} aria-label="İncelenen ürünler"/></CardContent>
-        <CardFooter className="flex-wrap justify-between gap-2 text-sm text-muted-foreground"><span className="flex items-center gap-2"><Clock3 className="size-4" aria-hidden="true"/>{number(counts.pending||0)} tekil ürün henüz incelenmedi</span><span>Son aktarım: {data.metrics.latest?date(data.metrics.latest):"Henüz yok"}</span></CardFooter>
+        <CardHeader><dt><CardDescription>Katalog kapsamı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">%{percent.toLocaleString("tr-TR",{maximumFractionDigits:2})}</CardTitle></dd><CardAction><Layers3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col gap-2"><Progress value={percent} aria-label="İncelenen ürünler"/><span className="text-sm text-muted-foreground tabular-nums">{number(attempted)} / {number(total)} ürün incelendi</span></CardContent>
       </Card>
-      <Item variant="outline" render={<Link href={href({status:"attention",match:"all",q:"",page:"1"})}/>}>
-        <ItemMedia variant="icon"><CircleHelp/></ItemMedia>
-        <ItemContent><ItemTitle>Kontrol bekleyen kayıtlar · <span className="tabular-nums">{number(attention)}</span></ItemTitle><ItemDescription>{number(counts.review||0)} inceleme · {number((counts.blocked||0)+(counts.failed||0))} erişim / işlem hatası</ItemDescription></ItemContent>
-        <ItemActions><ArrowUpRight className="size-4" aria-hidden="true"/></ItemActions>
-      </Item>
+      <Card>
+        <CardHeader><dt><CardDescription>Trodo hızı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(Math.round(forecast.perActiveHour))} / saat</CardTitle></dd><CardAction><Clock3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
+          {data.pass.blocked||trodo?.state==="blocked"?statusBadge("error","Durdu"):trodo?.state==="running"?statusBadge("success","Çalışıyor"):statusBadge("warning","Son 15 dk sessiz")}
+          <span className="tabular-nums">Kalan {number(counts.pending||0)} ürün: {days(forecast.daysLeft)} (kesintisiz {days(forecast.daysLeftAlwaysOn)})</span>
+          <span className="tabular-nums">Son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı{data.pass.interval_ms?` · istek aralığı ${hours(data.pass.interval_ms/1000)} sn`:""}</span>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><dt><CardDescription>Zenginleştirilen ürün</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(data.metrics.enriched)}</CardTitle></dd><CardAction><CircleCheck className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground tabular-nums"><span>{number(counts.complete||0)} tamamlandı · {number(counts.partial||0)} kısmi</span><span>Son 24 saatte {number(data.pass.finished_24h+data.pass.fallback_pending_found_24h)} ürün işlendi</span></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><dt><CardDescription>Kontrol bekleyen</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(attention)}</CardTitle></dd><CardAction><CircleHelp className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground tabular-nums">
+          <span>{number(counts.review||0)} inceleme · {number((counts.blocked||0)+(counts.failed||0))} erişim / işlem hatası</span>
+          {attention?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"attention",match:"all",q:"",page:"1"})} scroll={false}/>}>Kayıtları aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+        </CardContent>
+      </Card>
+    </dl>
+
+    <div className="grid items-start gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2">
+        <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Son 24 saatteki aramalar; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
+        <CardContent>
+          <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
+            <TableBody>{data.sourceSummary.map(source=><TableRow key={source.source}>
+              <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span></div></TableCell>
+              <TableCell>{statusBadge(source.state==="running"?"success":source.state==="blocked"?"error":"neutral",sourceStates[source.state])}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.searched)}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.found)}</TableCell>
+              <TableCell className="text-right tabular-nums">{source.hitRate===null?"—":`%${Math.round(source.hitRate*100)}`}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.written)}</TableCell>
+              <TableCell className="tabular-nums text-muted-foreground">{source.last?date(source.last):"Henüz yok"}</TableCell>
+            </TableRow>)}</TableBody>
+          </Table>
+        </CardContent>
+        {data.sources.length?<CardFooter className="flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
+          <span>Doğrudan HTTP kontrolü:</span>
+          {data.sources.map(source=><span key={source.host} className="flex items-center gap-2">{source.host}{statusBadge(source.status==="blocked"?"warning":source.status==="accessible"?"success":"error",source.status==="blocked"?"Engelli":source.status==="accessible"?"Erişilebilir":"Hata")}<span className="tabular-nums">{date(source.checked_at)}</span></span>)}
+        </CardFooter>:null}
+      </Card>
+      <div className="flex flex-col gap-4">
+        {data.pilot&&<Card>
+          <CardHeader><CardTitle><h2>{`Trodo partisi · ${number(data.pilot.sample_size)} ürün`}</h2></CardTitle><CardDescription className="tabular-nums">{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
+          <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.sample_size?data.pilot.processed/data.pilot.sample_size*100:0} aria-label="Parti ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata{data.pilot.skipped>0&&` · ${number(data.pilot.skipped)} kapsam dışı`}</p></CardContent>
+          <CardFooter className="text-sm text-muted-foreground tabular-nums">{data.pilot.last_response?`Son yanıt ${date(data.pilot.last_response)} · ${number(data.pilot.requests)} istek · ${number(data.pilot.cache_hits)} önbellek`:"Tarayıcı bağlantısı bekleniyor"}</CardFooter>
+        </Card>}
+        <Card>
+          <CardHeader><CardTitle><h2>Toplanan veri</h2></CardTitle><CardDescription>Veriler PostgreSQL&apos;de, görseller özel MinIO alanında.</CardDescription></CardHeader>
+          <CardContent><Table controls={false}><TableBody>{cards.map(card=><TableRow key={card.label}>
+            <TableCell className="whitespace-normal"><div className="flex flex-col"><span className="flex items-center gap-2 font-medium"><card.icon className="size-4 text-muted-foreground" aria-hidden="true"/>{card.label}</span><span className="text-sm text-muted-foreground">{card.note}</span></div></TableCell>
+            <TableCell className="text-right font-semibold tabular-nums">{number(card.value)}</TableCell>
+          </TableRow>)}</TableBody></Table></CardContent>
+        </Card>
+      </div>
     </div>
-
-    <Card>
-      <CardHeader><CardTitle><h2>Katalog turu hızı</h2></CardTitle><CardDescription>Son 24 saat</CardDescription><CardAction><Badge variant="secondary" className="tabular-nums">{days(forecast.daysLeft)}</Badge></CardAction></CardHeader>
-      <CardContent className="flex flex-col gap-2 text-sm">
-        <p className="text-muted-foreground">Trodo <span className="font-semibold text-foreground tabular-nums">{number(data.pass.finished_24h)}</span> ürün aradı · çalışırken saatte {number(Math.round(forecast.perActiveHour))}{data.pass.fallback_pending_found_24h?<> · spareto bekleyenlerden <span className="font-semibold text-foreground tabular-nums">{number(data.pass.fallback_pending_found_24h)}</span> ürün buldu</>:null}</p>
-        <p>Trodo tarayıcısı son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı (%{Math.round(forecast.uptime*100)}). Kalan {number(counts.pending||0)} ürün bu hızla {days(forecast.daysLeft)}, kesintisiz çalışırsa {days(forecast.daysLeftAlwaysOn)} sürer.</p>
-      </CardContent>
-      <CardFooter className="flex-wrap justify-between gap-3 text-sm text-muted-foreground"><span className="tabular-nums">{number(data.pass.linked_products)} ürün araç kataloğuna bağlı</span><span className="flex items-center gap-2">{statusBadge(data.pass.blocked?"error":data.pass.challenge_since?"warning":"success",sourceState)}{data.pass.interval_ms?<span className="tabular-nums">istek aralığı {hours(data.pass.interval_ms/1000)} sn</span>:null}</span></CardFooter>
-    </Card>
-
-    <Card>
-      <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Her kaynağın son 24 saatteki araması; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
-      <CardContent>
-        <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
-          <TableBody>{data.sourceSummary.map(source=><TableRow key={source.source}>
-            <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span></div></TableCell>
-            <TableCell>{statusBadge(source.state==="running"?"info":source.state==="blocked"?"error":"neutral",sourceStates[source.state])}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(source.searched)}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(source.found)}</TableCell>
-            <TableCell className="text-right tabular-nums">{source.hitRate===null?"—":`%${Math.round(source.hitRate*100)}`}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(source.written)}</TableCell>
-            <TableCell className="tabular-nums text-muted-foreground">{source.last?date(source.last):"Henüz yok"}</TableCell>
-          </TableRow>)}</TableBody>
-        </Table>
-      </CardContent>
-    </Card>
-
-    {data.pilot&&<Card>
-      <CardHeader><CardTitle><h2>{`Trodo · ${number(data.pilot.sample_size)} ürünlük parti`}</h2></CardTitle><CardDescription>{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
-      <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.sample_size?data.pilot.processed/data.pilot.sample_size*100:0} aria-label="Pilot ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata{data.pilot.skipped>0&&` · ${number(data.pilot.skipped)} teklif kapsam dışında bırakıldı`}</p></CardContent>
-      <CardFooter className="flex-wrap justify-between gap-3 text-sm text-muted-foreground"><span className="tabular-nums">{number(data.pilot.requests)} kaynak isteği · {number(data.pilot.cache_hits)} önbellek kullanımı · {number(data.pilot.rate_limits)} hız sınırı yanıtı</span><span>{data.pilot.last_response?`Son kaynak yanıtı: ${date(data.pilot.last_response)}`:"Tarayıcı bağlantısı bekleniyor"}</span></CardFooter>
-    </Card>}
 
     <Card role="region" aria-labelledby="enrichment-records">
       <CardHeader><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Her ana ürün bir kez listelenir; bağlı tedarikçi teklifleri aynı doğrulanmış veriyi kullanır.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
@@ -133,12 +150,13 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
           <Button type="submit">Filtrele</Button>
           {(data.filters.q||data.filters.match!=="all")&&<Button variant="ghost" nativeButton={false} render={<Link href={href({q:"",match:"all",page:"1"})}/>}>Temizle</Button>}
         </form>
+        {data.filters.status==="partial"&&<Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Kısmi veri mağazada yayında</AlertTitle><AlertDescription>Eşleşme doğrulandı; görsel, OEM ve özellikler ürün sayfasında görünür ve bu ürünler &quot;Zenginleştirilen&quot; sayısına dahildir. Kısmi olmasının nedeni Durum sütununda yazar: kaynağın listelediği araçların bir kısmı kataloğa bağlanamadı, araç satırı ay/yıl veya motor bilgisi eksik geldi ya da kaynakta görsel yok. Elle yapılacak bir işlem yoktur; eksik yeniden toplanabiliyorsa koşu yeniden denendiğinde ürün kendiliğinden &quot;Tamamlandı&quot;ya geçer.</AlertDescription></Alert>}
         {data.rows.length?<Table server><TableHeader><TableRow><TableHead>Ürün / tedarikçi kodu</TableHead><TableHead>Durum</TableHead><TableHead filter={{param:"source",options:[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"}]}}>Kaynak</TableHead><TableHead filter={{param:"match",options:[{value:"oem_reference",label:"OEM referansıyla"},{value:"exact_part",label:"Doğrudan marka / parça"},{value:"cross_reference",label:"Muadil referansıyla"}]}}>Eşleşme</TableHead><TableHead>Toplanan veriler</TableHead><TableHead sortKey="updated">Son işlem</TableHead><TableHead><span className="sr-only">Ayrıntılar</span></TableHead></TableRow></TableHeader><TableBody>{data.rows.map(row=><TableRow key={row.id}>
           <TableCell><div className="flex max-w-80 items-center gap-3">
             <Avatar>{row.image_id?<AvatarImage src={`/api/product-media/${row.image_id}`} alt=""/>:null}<AvatarFallback><ImageIcon className="size-4" aria-hidden="true"/></AvatarFallback></Avatar>
             <div className="min-w-0"><Link className="block truncate font-medium hover:underline" href={`/yonetim/urunler/${row.product_id}`}>{row.name||row.code}</Link><div className="text-sm text-muted-foreground">{row.brand} · <span className="font-mono">{row.code}</span></div></div>
           </div></TableCell>
-          <TableCell>{statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}</TableCell>
+          <TableCell value={enrichmentStatuses[row.status]||row.status}><div className="flex max-w-48 flex-col items-start gap-1">{statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}{gapText(row)&&<span className="whitespace-normal text-sm text-muted-foreground">{gapText(row)}</span>}</div></TableCell>
           <TableCell>{(()=>{const source=dataSource(row.source_url),others=row.searched.filter(key=>key!==source);
             return <div className="flex flex-col items-start gap-1">{source?<Badge variant="outline">{sourceLabels[source].name}</Badge>:null}
               {others.length?<span className="text-sm text-muted-foreground">{source?"Ayrıca arandı":"Arandı"}: {sourceNames(others)}</span>:source?null:<span className="text-sm text-muted-foreground">Henüz aranmadı</span>}</div>;})()}</TableCell>
@@ -146,7 +164,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
           <TableCell><div className="flex max-w-56 flex-wrap gap-1"><Badge variant="outline" className="tabular-nums" title="OEM referansı"><Database data-icon="inline-start"/>{number(row.oem_count)} OEM</Badge><Badge variant="outline" className="tabular-nums" title="Araç ve motor satırı"><CarFront data-icon="inline-start"/>{number(row.vehicle_count)} araç</Badge><Badge variant="outline" className="tabular-nums" title="Teknik özellik"><Layers3 data-icon="inline-start"/>{number(row.specification_count)} özellik</Badge></div></TableCell>
           <TableCell className="tabular-nums"><time dateTime={(row.imported_at||row.updated_at).toISOString()}>{date(row.imported_at||row.updated_at)}</time><div className="text-sm text-muted-foreground">{row.attempts} deneme</div></TableCell>
           <TableCell className="text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id} footer={<>{row.source_url?<Button variant="outline" nativeButton={false} render={<Link href={row.source_url} target="_blank"/>}>{new URL(row.source_url).hostname}<ArrowUpRight data-icon="inline-end"/></Button>:<span className="text-sm text-muted-foreground sm:mr-auto">Henüz kaynak verisi kaydedilmedi.</span>}<Button nativeButton={false} render={<Link href={`/urun/${row.id}`}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end"/></Button></>}>
-            <Table><TableBody>{([["Durum",statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)],["Eşleşme yöntemi",row.match_type==="oem_reference"?"OEM referansı":row.match_type==="cross_reference"?"Muadil referansı":row.match_type==="exact_part"?"Doğrudan marka / parça":"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Veri kaynağı",dataSource(row.source_url)?sourceLabels[dataSource(row.source_url)!].name:"Henüz yok"],["Aranan kaynaklar",row.searched.length?sourceNames(row.searched):"Henüz aranmadı"],["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><TableRow key={label}><TableHead>{label}</TableHead><TableCell className="whitespace-normal">{value}</TableCell></TableRow>)}</TableBody></Table>
+            <Table><TableBody>{([["Durum",statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)],["Eşleşme yöntemi",row.match_type==="oem_reference"?"OEM referansı":row.match_type==="cross_reference"?"Muadil referansı":row.match_type==="exact_part"?"Doğrudan marka / parça":"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Veri kaynağı",dataSource(row.source_url)?sourceLabels[dataSource(row.source_url)!].name:"Henüz yok"],["Aranan kaynaklar",row.searched.length?sourceNames(row.searched):"Henüz aranmadı"],...(row.status==="partial"?[["Eksik veri",gapText(row)||"Belirtilmemiş"]]:[]),["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><TableRow key={label}><TableHead>{label}</TableHead><TableCell className="whitespace-normal">{value}</TableCell></TableRow>)}</TableBody></Table>
             <div className="grid grid-cols-3 gap-2">{([[row.oem_count,"OEM referansı"],[row.vehicle_count,"araç / motor"],[row.specification_count,"teknik özellik"]] as const).map(([value,label])=><Item key={label} variant="muted"><ItemContent><ItemTitle className="text-xl tabular-nums">{number(value)}</ItemTitle><ItemDescription>{label}</ItemDescription></ItemContent></Item>)}</div>
             {row.last_error&&<Alert variant="warning"><TriangleAlert/><AlertDescription>Son işlem notu: {row.last_error}</AlertDescription></Alert>}
           </EnrichmentDetails></TableCell>
@@ -157,25 +175,5 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
       </CardFooter>
     </Card>
 
-    <section className="flex flex-col gap-4" aria-labelledby="enrichment-infrastructure">
-      <div><h2 id="enrichment-infrastructure" className="text-lg font-semibold">Veri kaynağı ve depolama</h2><p className="text-sm text-muted-foreground">Kaynak bağlantısının kontrol sonucu ile kaydedilmiş verileri ayrı takip et.</p></div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle><h3>Kaynak erişimi</h3></CardTitle><CardDescription>Bu sonuç doğrudan HTTP kontrolüne aittir. Tarayıcı üzerinden yapılan aktarımlar yukarıdaki kayıtlarda görünür.</CardDescription><CardAction><ArrowDownToLine className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            {data.sources.map(source=><div key={source.host}><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{source.host}</span>{statusBadge(source.status==="blocked"?"warning":source.status==="accessible"?"success":"error",source.status==="blocked"?"Doğrudan erişim engelli":source.status==="accessible"?"Erişilebilir":"Bağlantı hatası")}</div><p className="text-muted-foreground">HTTP {source.http_status??"—"} · Kontrol: {date(source.checked_at)}</p></div>)}
-            {!data.sources.length&&<p className="text-muted-foreground">Henüz kaynak kontrolü yapılmadı.</p>}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle><h3>Veri ve görsel arşivi</h3></CardTitle><CardDescription>Tedarikçi marka, kod ve fiyat bilgileri kendi kaynağında korunur.</CardDescription><CardAction><Database className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
-          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-            <p className="flex items-center gap-2"><Check className="size-4" aria-hidden="true"/>OEM, özellik ve araç bilgileri PostgreSQL’de</p>
-            <Separator/>
-            <p className="flex items-center gap-2"><Check className="size-4" aria-hidden="true"/>Görseller özel MinIO alanında</p>
-          </CardContent>
-        </Card>
-      </div>
-    </section>
   </div>;
 }

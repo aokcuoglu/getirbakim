@@ -14,6 +14,8 @@ export type EnrichmentRow = {
   last_error: string | null; updated_at: Date; imported_at: Date | null; source_url: string | null;
   manufacturer: string | null; manufacturer_part_number: string | null; image_id: string | null;
   match_type: string | null; reference: string | null; oem_count: number; vehicle_count: number; specification_count: number;
+  /** The adapter's import note, read only for partial rows to explain what is missing. */
+  source_method: string | null;
   /** Sources that already searched the product, data source included. */
   searched: SourceKey[];
 };
@@ -134,6 +136,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
     j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
+    CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
     -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
     array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
       AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
