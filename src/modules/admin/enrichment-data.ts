@@ -4,6 +4,7 @@ import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey } from "./enrichment-pace";
+import type { PartialGap } from "../enrichment/partial-gaps";
 
 export const enrichmentStatuses: Record<string, string> = {
   complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
@@ -51,10 +52,22 @@ function passPace() {
 }
 
 const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; page?: string; sort?: string; dir?: string }) {
+// SQL twins of partialGaps() over the import note, for the partial tab's header filter and its counts.
+const coveredBelow = (label: string) => `(SELECT m[1]::int < m[2]::int FROM regexp_match(g.source_method,'${label} (\\d+)/(\\d+)') m)`;
+export const gapConditions: Record<PartialGap, string> = {
+  image: "j.image_id IS NULL",
+  vehicles_not_collected: "g.source_method ~ 'vehicles not collected'",
+  no_vehicles: "g.source_method ~ 'no vehicles listed' AND g.source_method !~ 'vehicles not collected'",
+  unresolved_vehicles: `g.source_method !~ 'vehicles not collected' AND COALESCE(${coveredBelow("source IDs covered")},${coveredBelow("vehicle models")},false)`,
+  invalid_rows: "g.source_method ~ 'invalid rows [1-9]'",
+  failed_makes: "g.source_method ~ 'failed makes [1-9]'",
+};
+const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.supplier_item_id";
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string }) {
   const q = query.q?.trim().slice(0,120) || "";
   const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
   const name = text("name"), code = text("code"), brand = text("brand");
+  const gap = query.gap && Object.hasOwn(gapConditions, query.gap) ? query.gap as PartialGap : "";
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
   const match = ["oem_reference","exact_part","cross_reference"].includes(query.match || "") ? query.match! : "all";
   // One row per master product, materialized from enrichment_product_catalog (db/enrichment-states.sql). Writers queue
@@ -87,8 +100,9 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   // The brand list is counted before the brand condition so another brand can still be chosen.
   const facetFrom = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`, facetValues = [...values];
   if (brand) { values.push(brand); conditions.push(`COALESCE(j.supplier_brand,j.product_brand)=$${values.length}`); }
+  if (gap) { joins += gapJoin; conditions.push(`(${gapConditions[gap]})`); }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
-  const [active, products, metrics, total, pilot, pass, activity, written, brands] = await Promise.all([
+  const [active, products, metrics, total, pilot, pass, activity, written, brands, gaps] = await Promise.all([
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
       count(*) FILTER(WHERE match_type='oem_reference')::int AS oem_matches,
@@ -97,7 +111,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       max(imported_at) AS latest FROM enrichment_product_states WHERE status IN (${literal(attemptedStatuses)}) GROUP BY status`),
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
     db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
-    q||match!=="all"||source||name||code||brand?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
+    q||match!=="all"||source||name||code||brand||gap?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
       count(*) FILTER(WHERE i.status NOT IN ('queued','collecting','skipped'))::int AS processed,
@@ -128,6 +142,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
     db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
       ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
+    status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
+      ${facetFrom.replace(" WHERE ", `${gapJoin} WHERE `)}`, facetValues):Promise.resolve(null),
   ]);
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
@@ -157,6 +173,6 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     ${from} ORDER BY ${sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows,
-    total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
+  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows, gaps:gaps?.rows[0]??null,
+    total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
 }
