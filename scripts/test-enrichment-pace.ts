@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { passForecast, summarizeSources, type PassPace } from "../src/modules/admin/enrichment-pace";
+import { partialGaps, passForecast, summarizeSources, type PassPace } from "../src/modules/admin/enrichment-pace";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
 
@@ -35,4 +35,12 @@ test("each source gets its own row, state and hit rate", () => {
   assert.equal(rows[2].hitRate, 0.28);
   const blocked = summarizeSources([{ source: "spareto", searched: 0, found: 0, errors: 0, last: ago(1), last_outcome: "blocked" }], {}, true, now);
   assert.deepEqual(blocked.map(r => [r.state, r.hitRate, r.written]), [["blocked", null, 0], ["idle", null, 0], ["blocked", null, 0]]);
+});
+
+test("partial gaps name what each adapter could not collect", () => {
+  assert.deepEqual(partialGaps("Durable public browser adapter v2; run x; exact brand/part verified; source IDs covered 12/14; invalid rows 3", false), ["image", "unresolved_vehicles", "invalid_rows"]);
+  assert.deepEqual(partialGaps("spareto.com public HTTP adapter v1; exact brand/part verified; vehicles not collected", true), ["vehicles_not_collected"]);
+  assert.deepEqual(partialGaps("spareto.com public HTTP adapter v2; x; vehicle models 3/5; catalog-resolved 40/52; invalid rows 0", true), ["unresolved_vehicles"]);
+  assert.deepEqual(partialGaps("otoparcasan.com public HTTP adapter v1; x; commercial vehicles dropped 0; invalid rows 2; failed makes 1", true), ["invalid_rows", "failed_makes"]);
+  assert.deepEqual(partialGaps(null, true), []);
 });
