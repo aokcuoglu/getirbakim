@@ -1,6 +1,6 @@
 // spareto.com enrichment: a fallback for products Trodo and otoparcasan.com could not find, and a second worker on
 // the pending queue next to Trodo.
-//   collect [--status pending|not_found|review] [--limit N] [--ids file] [--retry] [--max-models N] [--dry-run]
+//   collect [--status pending|not_found|review|partial] [--limit N] [--ids file] [--retry] [--max-models N] [--dry-run]
 //                 searches the part number and supplier OEM numbers, verifies the identity on the product page and
 //                 writes image, specifications, reference numbers and vehicles as each product is found. Vehicles
 //                 load one fitment frame per model; past --max-models (default 150) the product stays partial.
@@ -8,11 +8,14 @@
 //                 products spareto cannot find stay pending for Trodo.
 //                 Accepted identities: the same brand/part, an OE number the supplier names in the page's OE table,
 //                 or the supplier's own brand/part in the page's cross-reference table (an equivalent part).
+//                 partial re-collects products spareto already wrote as partial (e.g. before it collected vehicles)
+//                 into its own checkpoint (artifacts/spareto/partial.jsonl); a result replaces the stored data only
+//                 when it is complete or has more vehicles.
 //   report        summarises the checkpoint
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {SPARETO,buildData,identify,parseFitment,parseProductPage,parseSearch,resolveVehicles,searchPath,supplierOemQueries,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
+import {SPARETO,buildData,identify,improvesPartial,parseFitment,parseProductPage,parseSearch,resolveVehicles,searchPath,supplierOemQueries,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
 import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
@@ -26,7 +29,10 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
 const [command='report',...args]=process.argv.slice(2);
 const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[at+1]:undefined;};
-const checkpoint=resolve(option('out')||'artifacts/spareto/results.jsonl');
+const statuses=['not_found','review','pending','partial'] as const;
+const status=(option('status')||'not_found') as typeof statuses[number];
+if(!statuses.includes(status))throw Error('--status must be pending, not_found, review or partial');
+const checkpoint=resolve(option('out')||(status==='partial'?'artifacts/spareto/partial.jsonl':'artifacts/spareto/results.jsonl'));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image:boolean;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
@@ -40,9 +46,6 @@ async function entries(){
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return latest;
 }
-const statuses=['not_found','review','pending'] as const;
-const status=(option('status')||'not_found') as typeof statuses[number];
-if(!statuses.includes(status))throw Error('--status must be pending, not_found or review');
 // One supplier row per master product (present rows first); a product already enriched through another row is skipped.
 const supplierSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
@@ -50,6 +53,14 @@ const supplierSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id
  FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_sources ps ON ps.supplier_item_id=s.id
  WHERE j.status=$1 AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
   WHERE other.product_id=ps.product_id AND done.status IN ('complete','partial'))`;
+// Partial products spareto wrote; a product another row completed is left alone.
+const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,s.code,
+ COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
+ (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
+ FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) JOIN supplier_items s ON s.id=j.supplier_item_id
+ LEFT JOIN product_sources ps ON ps.supplier_item_id=s.id
+ WHERE j.status=$1 AND e.source_url LIKE '${SPARETO}/%' AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
+  WHERE other.product_id=ps.product_id AND done.status='complete')`;
 // Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
 // Products in an unfinished Trodo run are left to it; the next chunk is read only when this one is done.
 const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
@@ -74,7 +85,12 @@ async function write(entry:{supplierItemId:string;package?:unknown}){
   try{
    // Another source may have enriched the job meanwhile; its result is kept.
    const open=(await pool.query("SELECT 1 FROM product_enrichment_jobs WHERE status IN ('pending','not_found','review') AND supplier_item_id=$1",[entry.supplierItemId])).rowCount;
-   if(!open){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer open'});return 'skipped';}
+   const stored=open?null:(await pool.query<{vehicles:number}>(`SELECT jsonb_array_length(COALESCE(e.payload->'vehicles','[]')) AS vehicles FROM product_enrichment_jobs j
+    JOIN product_enrichments e USING(supplier_item_id) WHERE j.supplier_item_id=$1 AND j.status='partial' AND e.source_url LIKE '${SPARETO}/%'`,[entry.supplierItemId])).rows[0];
+   if(!open&&!stored){await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'job is no longer open'});return 'skipped';}
+   const pkg=entry.package as {completeness:'complete'|'partial';data:{vehicles:unknown[]}};
+   if(stored&&!improvesPartial(stored,{completeness:pkg.completeness,vehicles:pkg.data.vehicles.length})){
+    await record({supplierItemId:entry.supplierItemId,outcome:'skipped',error:'no more data than the stored partial'});return 'skipped';}
    await importEnrichments(pool,[entry.package],matcher);
    await record({supplierItemId:entry.supplierItemId,outcome:'imported'});return 'imported';
   }catch(error){
@@ -128,7 +144,7 @@ const describe=(basis:NonNullable<ReturnType<typeof identify>>)=>basis.type==='e
 /** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished. */
 async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:string[]|null):AsyncGenerator<Supplier&{id:string}>{
  if(status!=='pending'){
-  const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
+  const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${status==='partial'?partialSql:supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
    ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x ORDER BY id`,ids?[status,ids]:[status])).rows
    .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
   yield* rows;return;
@@ -177,7 +193,7 @@ async function collect(){
    const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
     models:modelCount,modelsFetched:sourceRows.fetched,vehicles:data.vehicles.length,resolved:vehicle.resolved,matched,invalid:vehicle.invalid.length};
    await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
-   const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?'yazıldı':'yazılmadı';
+   const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?`yazıldı (${pkg.completeness==='complete'?'tamamlandı':'kısmi'})`:'yazılmadı';
    console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
   }catch(error){
    if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',status,supplier.id,'blocked');

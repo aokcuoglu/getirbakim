@@ -153,3 +153,9 @@ export function identify(supplier:Supplier,page:ProductPage,data:Pick<Enrichment
  }
  return null;
 }
+
+/** A re-collected partial product replaces the stored spareto data only when it is complete or brings more vehicles;
+ *  a weaker result (fewer vehicles, a source that changed) keeps what is already published. */
+export function improvesPartial(stored:{vehicles:number},collected:{completeness:'complete'|'partial';vehicles:number}){
+ return collected.completeness==='complete'||collected.vehicles>stored.vehicles;
+}
