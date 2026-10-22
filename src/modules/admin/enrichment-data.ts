@@ -50,8 +50,11 @@ function passPace() {
   return pace.value;
 }
 
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; page?: string; sort?: string; dir?: string }) {
+const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; page?: string; sort?: string; dir?: string }) {
   const q = query.q?.trim().slice(0,120) || "";
+  const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
+  const name = text("name"), code = text("code"), brand = text("brand");
   const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
   const match = ["oem_reference","exact_part","cross_reference"].includes(query.match || "") ? query.match! : "all";
   // One row per master product, materialized from enrichment_product_catalog (db/enrichment-states.sql). Writers queue
@@ -65,6 +68,9 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (match !== "all") { values.push(match); conditions.push(`j.match_type=$${values.length}`); }
   const source = query.source && query.source in sourceHosts ? query.source as SourceKey : "";
   if (source) { values.push(sourceHosts[source]); conditions.push(`split_part(j.source_url,'/',3)=$${values.length}`); }
+  // Header filters: typed text on the name and code, one brand chosen from the tab's list.
+  if (name) { values.push(like(name)); conditions.push(`j.product_name ILIKE $${values.length}`); }
+  if (code) { values.push(like(code)); conditions.push(`COALESCE(j.supplier_code,j.part_number) ILIKE $${values.length}`); }
   let joins = "";
   if (q) {
     // Same engine as the storefront: words as prefixes, part/OEM numbers with any spacing.
@@ -78,8 +84,11 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     conditions.push(`(${supplierItemMatch("s", parsed, bind)}${enriched})`);
     joins = " LEFT JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_enrichments e ON j.enriched AND e.supplier_item_id=j.supplier_item_id";
   }
+  // The brand list is counted before the brand condition so another brand can still be chosen.
+  const facetFrom = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`, facetValues = [...values];
+  if (brand) { values.push(brand); conditions.push(`COALESCE(j.supplier_brand,j.product_brand)=$${values.length}`); }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
-  const [active, products, metrics, total, pilot, pass, activity, written] = await Promise.all([
+  const [active, products, metrics, total, pilot, pass, activity, written, brands] = await Promise.all([
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
       count(*) FILTER(WHERE match_type='oem_reference')::int AS oem_matches,
@@ -88,7 +97,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       max(imported_at) AS latest FROM enrichment_product_states WHERE status IN (${literal(attemptedStatuses)}) GROUP BY status`),
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
     db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
-    q||match!=="all"||source?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
+    q||match!=="all"||source||name||code||brand?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
       count(*) FILTER(WHERE i.status NOT IN ('queued','collecting','skipped'))::int AS processed,
@@ -117,6 +126,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE outcome<>'blocked')::int AS searched,count(*) FILTER(WHERE outcome='found')::int AS found,
         count(*) FILTER(WHERE outcome='error')::int AS errors FROM enrichment_source_attempts a WHERE a.source=s.source AND attempted_at>now()-interval '24 hours') r ON true`),
     db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
+    db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
+      ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
   ]);
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
@@ -131,6 +142,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const requested=Number(query.page), page=Number.isSafeInteger(requested)?Math.max(1,Math.min(pages,requested)):1;
   // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index.
   const direction=query.sort==='updated'&&query.dir!=='desc'?'ASC':'DESC';
+  const sortColumns={updated:"j.sorted_at",name:"j.product_name",brand:"COALESCE(j.supplier_brand,j.product_brand)",code:"COALESCE(j.supplier_code,j.part_number)",
+    status:"j.status",source:"split_part(j.source_url,'/',3)",match:"j.match_type",oems:"j.oem_count",vehicles:"j.vehicle_count",specs:"j.specification_count"};
   const rows=await db.query<EnrichmentRow>(`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
@@ -141,9 +154,9 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
      ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a WHERE a.supplier_item_id=j.supplier_item_id
       OR a.supplier_item_id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id) ORDER BY 1) AS searched
-    ${from} ORDER BY ${sortOrder(query, { updated: "j.sorted_at" }, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
+    ${from} ORDER BY ${sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows,
-    total:totalCount, page,pages,pageSize, filters:{q,status,match,source,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
+  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows,
+    total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
 }
