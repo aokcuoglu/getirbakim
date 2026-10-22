@@ -29,7 +29,7 @@ export function summarizeSources(activity: SourceActivity[], written: Record<str
   });
 }
 
-export type PartialGap = "image" | "vehicles_not_collected" | "unresolved_vehicles" | "invalid_rows" | "failed_makes";
+export type PartialGap = "image" | "no_vehicles" | "vehicles_not_collected" | "unresolved_vehicles" | "invalid_rows" | "failed_makes";
 /** Why an import was saved as partial, read from the adapter's source_method note (Trodo, otoparcasan or spareto). */
 export function partialGaps(sourceMethod: string | null, hasImage: boolean): PartialGap[] {
   const gaps: PartialGap[] = [];
@@ -39,6 +39,7 @@ export function partialGaps(sourceMethod: string | null, hasImage: boolean): Par
   const count = (label: string) => Number(new RegExp(`${label} (\\d+)`).exec(sourceMethod)?.[1] ?? 0);
   const covered = pair("source IDs covered") ?? pair("vehicle models");
   if (/vehicles not collected/.test(sourceMethod)) gaps.push("vehicles_not_collected");
+  else if (/no vehicles listed/.test(sourceMethod)) gaps.push("no_vehicles");
   else if (covered && covered[0] < covered[1]) gaps.push("unresolved_vehicles");
   if (count("invalid rows")) gaps.push("invalid_rows");
   if (count("failed makes")) gaps.push("failed_makes");

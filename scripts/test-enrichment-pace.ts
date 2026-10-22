@@ -42,5 +42,6 @@ test("partial gaps name what each adapter could not collect", () => {
   assert.deepEqual(partialGaps("spareto.com public HTTP adapter v1; exact brand/part verified; vehicles not collected", true), ["vehicles_not_collected"]);
   assert.deepEqual(partialGaps("spareto.com public HTTP adapter v2; x; vehicle models 3/5; catalog-resolved 40/52; invalid rows 0", true), ["unresolved_vehicles"]);
   assert.deepEqual(partialGaps("otoparcasan.com public HTTP adapter v1; x; commercial vehicles dropped 0; invalid rows 2; failed makes 1", true), ["invalid_rows", "failed_makes"]);
+  assert.deepEqual(partialGaps("spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no image; no vehicles listed", false), ["image", "no_vehicles"]);
   assert.deepEqual(partialGaps(null, true), []);
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {buildData,identify,improvesPartial,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
+import {buildData,identify,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
@@ -110,4 +110,13 @@ test('a re-collected partial replaces stored data only when it is complete or ha
  assert.equal(improvesPartial({vehicles:40},{completeness:'complete',vehicles:30}),true);
  assert.equal(improvesPartial({vehicles:12},{completeness:'partial',vehicles:12}),false);
  assert.equal(improvesPartial({vehicles:12},{completeness:'partial',vehicles:3}),false);
+});
+
+test('a spareto import without an image or listed vehicles stays partial',()=>{
+ const full={models:2,modelsFetched:2,invalid:0,image:true,vehicles:30};
+ assert.equal(sparetoComplete(full),true);
+ assert.equal(sparetoComplete({...full,image:false}),false);
+ assert.equal(sparetoComplete({...full,models:0,modelsFetched:0,vehicles:0}),false);
+ assert.equal(sparetoComplete({...full,modelsFetched:1}),false);
+ assert.equal(sparetoComplete({...full,invalid:1}),false);
 });

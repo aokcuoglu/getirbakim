@@ -32,7 +32,7 @@ const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]
 const sourceNames=(keys:SourceKey[])=>keys.map(key=>sourceLabels[key].name).join(", ");
 const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kaynak nedeniyle durdu"};
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
-const gapLabels:Record<PartialGap,string>={image:"Görsel yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
+const gapLabels:Record<PartialGap,string>={image:"Görsel yok",no_vehicles:"Araç listesi yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
 const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
 type Tone="success"|"info"|"warning"|"error"|"neutral";
