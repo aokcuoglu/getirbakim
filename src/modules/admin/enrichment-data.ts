@@ -79,7 +79,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     joins = " LEFT JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_enrichments e ON j.enriched AND e.supplier_item_id=j.supplier_item_id";
   }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
-  const [active, products, metrics, sources, total, pilot, pass, activity, written] = await Promise.all([
+  const [active, products, metrics, total, pilot, pass, activity, written] = await Promise.all([
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
       count(*) FILTER(WHERE match_type='oem_reference')::int AS oem_matches,
@@ -88,7 +88,6 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       max(imported_at) AS latest FROM enrichment_product_states WHERE status IN (${literal(attemptedStatuses)}) GROUP BY status`),
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
     db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
-    db.query<{host:string; status:string; http_status:number|null; checked_at:Date}>("SELECT host,status,http_status,checked_at FROM product_enrichment_sources ORDER BY host"),
     q||match!=="all"||source?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
@@ -145,6 +144,6 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     ${from} ORDER BY ${sortOrder(query, { updated: "j.sorted_at" }, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
     LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, sources:sources.rows, rows:rows.rows,
+  return { pass, pilot:pilot.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,sort:query.sort==='updated'?'updated':'',dir:query.dir==='desc'?'desc':''} };
 }

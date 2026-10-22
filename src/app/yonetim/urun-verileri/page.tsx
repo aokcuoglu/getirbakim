@@ -117,10 +117,6 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
             </TableRow>)}</TableBody>
           </Table>
         </CardContent>
-        {data.sources.length?<CardFooter className="flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
-          <span>Doğrudan HTTP kontrolü:</span>
-          {data.sources.map(source=><span key={source.host} className="flex items-center gap-2">{source.host}{statusBadge(source.status==="blocked"?"warning":source.status==="accessible"?"success":"error",source.status==="blocked"?"Engelli":source.status==="accessible"?"Erişilebilir":"Hata")}<span className="tabular-nums">{date(source.checked_at)}</span></span>)}
-        </CardFooter>:null}
       </Card>
       <div className="flex flex-col gap-4">
         {data.pilot&&<Card>
