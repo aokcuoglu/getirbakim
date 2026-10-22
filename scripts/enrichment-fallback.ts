@@ -1,5 +1,6 @@
 // One pass of the fallback sources for products the Trodo worker could not find: otoparcasan.com first, then
-// spareto.com, each for jobs that are not_found or review. Both collectors skip products they already tried and
+// spareto.com, each for jobs that are not_found or review, then photos for partial products without one (both
+// sources, image only). The collectors skip products they already tried and
 // products another source has meanwhile enriched, so a scheduled pass only searches new misses.
 // A step that fails (a blocked source, a database outage) is reported and the next step still runs.
 import {spawnSync} from 'node:child_process';
@@ -9,6 +10,7 @@ const root=resolve(import.meta.dirname,'..');
 const steps:[string,string,string][]=[
  ['otoparcasan','scripts/otoparcasan-enrichment.ts','not_found'],['otoparcasan','scripts/otoparcasan-enrichment.ts','review'],
  ['spareto','scripts/spareto-enrichment.ts','not_found'],['spareto','scripts/spareto-enrichment.ts','review'],
+ ['image-fill','scripts/enrichment-image-fill.ts','partial'],
 ];
 const limit=process.env.ENRICHMENT_FALLBACK_LIMIT||'1000';
 console.log(JSON.stringify({fallback:'start',at:new Date().toISOString()}));

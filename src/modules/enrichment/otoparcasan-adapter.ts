@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {sourcePartQueries} from './trodo-adapter';
 import {enrichmentDataSchema,matchesEnrichment,matchesSupplierPart,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
 export const OTOPARCASAN='https://otoparcasan.com/';
 type MatchBasis=z.infer<typeof matchBasisSchema>;
@@ -127,4 +128,30 @@ export function identify(supplier:Supplier,page:ProductPage,data:Pick<Enrichment
  for(const reference of references(supplier.oem))bases.push({type:'oem_reference',reference,supplierOem:supplier.oem,referenceSource:'supplier_oem'});
  if(matchesSupplierPart(supplier.brand,supplier.code,page.brand,page.partNumber,supplier.masterBrand))return bases[0];
  return bases.slice(1).find(basis=>matchesEnrichment(supplier,source(basis)))||null;
+}
+
+export type SourceClient={page(slug:string):Promise<string|null>;post(path:string,form:Record<string,string>):Promise<unknown>};
+/** Searches the part number spellings, then the supplier OEM numbers, and opens candidates until one is verified
+ *  by the import contract (exact brand/part or an OE number of the supplier's own). */
+export async function findProduct(client:SourceClient,supplier:Supplier){
+ const searched=new Set<string>(),opened=new Set<string>();
+ const search=async(query:string)=>{const key=query.toLowerCase().replace(/\s+/g,' ').trim();if(searched.has(key)||key.length<3)return [];searched.add(key);
+  return parseSearch(await client.post('Ajax/searchAll/',{trimKeywords:key}));};
+ // Searches only discover candidates; identity is decided on the product page by the import contract.
+ const open=async(urls:string[])=>{
+  for(const url of urls.filter(u=>!opened.has(u)).slice(0,3)){
+   opened.add(url);const html=await client.page(url);if(!html)continue;
+   const page=parseProductPage(html);
+   const basis=identify(supplier,page,{oemNumbers:{OE:uniqueOems(page.oems)},crossReferences:{}});
+   if(basis)return {url,page,basis};
+  }
+  return null;
+ };
+ // Every spelling of the part number is tried until a candidate is verified ("230 845", "230845", "02562" for a
+ // supplier's "2562"…); a slug must end with one of them ("…-sachs-230845"), an unregistered prefix dropped.
+ const spellings=sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code);
+ const targets=spellings.flatMap(q=>{const [head,...tail]=q.split(/\s+/);return /^[A-Z]{2,5}$/i.test(head)&&/\d/.test(tail.join(''))?[q,tail.join(' ')]:[q];});
+ for(const query of spellings){const found=await open(codeCandidates(await search(query),targets));if(found)return found;}
+ for(const reference of supplierOemQueries(supplier).slice(0,2)){const found=await open((await search(reference)).slice(0,3).map(r=>r.url));if(found)return found;}
+ return null;
 }

@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {sourcePartQueries} from './trodo-adapter';
 import {enrichmentDataSchema,matchBasisSchema,matchesEnrichment,matchesSupplierPart,type EnrichmentData} from '../store/enrichment-contract';
 import type {FitmentCatalogModel,FitmentCatalogType} from '../store/fitment-matcher';
 
@@ -163,4 +164,30 @@ export function improvesPartial(stored:{vehicles:number},collected:{completeness
 /** Complete means every fitment frame loaded without invalid rows, and the product has an image and listed vehicles. */
 export function sparetoComplete(c:{models:number;modelsFetched:number;invalid:number;image:boolean;vehicles:number}){
  return c.modelsFetched===c.models&&!c.invalid&&c.image&&c.vehicles>0;
+}
+
+export type SourceClient={page(path:string):Promise<string|null>};
+const rank={exact_part:0,oem_reference:1,cross_reference:2} as const;
+/** Searches only discover candidates; identity is decided on the product page. Every spelling of the part number is
+ *  searched ("2562" does not list FEBI 02562, "02562" does) and then the supplier OEM numbers; searching stops once a
+ *  card carries the supplier's own brand and part. Such cards are opened first, then the leading candidates. */
+export async function findProduct(client:SourceClient,supplier:Supplier){
+ const cards=new Map<string,{brand:string;partNumber:string}>();
+ const own=(card:{brand:string;partNumber:string})=>matchesSupplierPart(supplier.brand,supplier.code,card.brand,card.partNumber,supplier.masterBrand);
+ const queries=[...new Set([...sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code),...supplierOemQueries(supplier).slice(0,2)])];
+ for(const query of queries){
+  if(query.replace(/[^A-Za-z0-9]/g,'').length<3)continue;
+  const html=await client.page(searchPath(query));if(!html)continue;
+  for(const card of parseSearch(html).slice(0,8))if(!cards.has(card.path))cards.set(card.path,card);
+  if([...cards.values()].some(own))break;
+ }
+ const ordered=[...cards].sort(([,a],[,b])=>Number(!own(a))-Number(!own(b)));
+ let best:{path:string;page:ProductPage;basis:NonNullable<ReturnType<typeof identify>>}|null=null;
+ for(const [path] of ordered.slice(0,6)){
+  const html=await client.page(path);if(!html)continue;
+  const page=parseProductPage(html),basis=identify(supplier,page,buildData(page));
+  if(basis&&(!best||rank[basis.type]<rank[best.basis.type]))best={path,page,basis};
+  if(best&&best.basis.type!=='cross_reference')break;
+ }
+ return {found:best,candidates:cards.size};
 }
