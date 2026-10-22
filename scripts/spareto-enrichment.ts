@@ -15,14 +15,13 @@
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {SPARETO,buildData,identify,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,resolveVehicles,searchPath,supplierOemQueries,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
-import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
+import {SPARETO,buildData,findProduct as find,identify,improvesPartial,sparetoComplete,parseFitment,resolveVehicles,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
-import {enrichmentImportSchema,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
+import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
@@ -112,31 +111,6 @@ async function downloadImage(client:SparetoClient,url:string|null,id:string){
  const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
  const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
  return {file,source:url,...size};
-}
-
-const rank={exact_part:0,oem_reference:1,cross_reference:2} as const;
-/** Searches only discover candidates; identity is decided on the product page. Every spelling of the part number is
- *  searched ("2562" does not list FEBI 02562, "02562" does) and then the supplier OEM numbers; searching stops once a
- *  card carries the supplier's own brand and part. Such cards are opened first, then the leading candidates. */
-async function find(client:SparetoClient,supplier:Supplier){
- const cards=new Map<string,{brand:string;partNumber:string}>();
- const own=(card:{brand:string;partNumber:string})=>matchesSupplierPart(supplier.brand,supplier.code,card.brand,card.partNumber,supplier.masterBrand);
- const queries=[...new Set([...sourcePartQueries(supplier.masterBrand||supplier.brand,supplier.code),...supplierOemQueries(supplier).slice(0,2)])];
- for(const query of queries){
-  if(query.replace(/[^A-Za-z0-9]/g,'').length<3)continue;
-  const html=await client.page(searchPath(query));if(!html)continue;
-  for(const card of parseSearch(html).slice(0,8))if(!cards.has(card.path))cards.set(card.path,card);
-  if([...cards.values()].some(own))break;
- }
- const ordered=[...cards].sort(([,a],[,b])=>Number(!own(a))-Number(!own(b)));
- let best:{path:string;page:ProductPage;basis:NonNullable<ReturnType<typeof identify>>}|null=null;
- for(const [path] of ordered.slice(0,6)){
-  const html=await client.page(path);if(!html)continue;
-  const page=parseProductPage(html),basis=identify(supplier,page,buildData(page));
-  if(basis&&(!best||rank[basis.type]<rank[best.basis.type]))best={path,page,basis};
-  if(best&&best.basis.type!=='cross_reference')break;
- }
- return {found:best,candidates:cards.size};
 }
 
 const describe=(basis:NonNullable<ReturnType<typeof identify>>)=>basis.type==='exact_part'?'exact brand/part verified'
