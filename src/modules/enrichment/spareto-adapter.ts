@@ -159,3 +159,8 @@ export function identify(supplier:Supplier,page:ProductPage,data:Pick<Enrichment
 export function improvesPartial(stored:{vehicles:number},collected:{completeness:'complete'|'partial';vehicles:number}){
  return collected.completeness==='complete'||collected.vehicles>stored.vehicles;
 }
+
+/** Complete means every fitment frame loaded without invalid rows, and the product has an image and listed vehicles. */
+export function sparetoComplete(c:{models:number;modelsFetched:number;invalid:number;image:boolean;vehicles:number}){
+ return c.modelsFetched===c.models&&!c.invalid&&c.image&&c.vehicles>0;
+}

@@ -15,7 +15,7 @@
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {SPARETO,buildData,identify,improvesPartial,parseFitment,parseProductPage,parseSearch,resolveVehicles,searchPath,supplierOemQueries,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
+import {SPARETO,buildData,identify,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,resolveVehicles,searchPath,supplierOemQueries,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
 import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
@@ -185,9 +185,10 @@ async function collect(){
    const sourceRows=await vehicleRows(client,found.page,maxModels),vehicle=resolveVehicles(sourceRows.rows,models,types);
    const data=buildData(found.page,vehicle.vehicles),image=await downloadImage(client,found.page.image,supplier.id);
    if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
-   const modelCount=found.page.vehicleFrames.length,complete=sourceRows.fetched===modelCount&&!vehicle.invalid.length;
+   const modelCount=found.page.vehicleFrames.length;
+   const complete=sparetoComplete({models:modelCount,modelsFetched:sourceRows.fetched,invalid:vehicle.invalid.length,image:Boolean(image),vehicles:data.vehicles.length});
    const pkg=enrichmentImportSchema.parse({supplierItemId:supplier.id,supplierCode:supplier.code,supplierBrand:supplier.brand,source:SPARETO+found.path,
-    sourceMethod:`spareto.com public HTTP adapter v2; ${describe(found.basis)}; vehicle models ${sourceRows.fetched}/${modelCount}; catalog-resolved ${vehicle.resolved}/${sourceRows.rows.length}; invalid rows ${vehicle.invalid.length}`,
+    sourceMethod:`spareto.com public HTTP adapter v2; ${describe(found.basis)}; vehicle models ${sourceRows.fetched}/${modelCount}; catalog-resolved ${vehicle.resolved}/${sourceRows.rows.length}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
     manufacturer:found.page.brand,partNumber:found.page.partNumber,matchBasis:found.basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
    const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
