@@ -70,9 +70,12 @@ END $$;
 -- run stopped on. A NULL queue is a search imported from a checkpoint written before this table existed.
 CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
  id bigserial PRIMARY KEY, source text NOT NULL CHECK(source IN ('otoparcasan','spareto')),
- queue text CHECK(queue IN ('pending','not_found','review')), supplier_item_id uuid NOT NULL,
+ queue text CHECK(queue IN ('pending','not_found','review','partial')), supplier_item_id uuid NOT NULL,
  outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
+-- spareto re-collects its own partial products (queue 'partial').
+ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
+ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);

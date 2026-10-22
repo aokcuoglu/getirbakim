@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {buildData,identify,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
+import {buildData,identify,improvesPartial,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
@@ -103,4 +103,11 @@ test('a row takes fuel and HP only from a single catalog type; others stay unmat
  assert.equal(result.vehicles.length,5,'the repeated row is stored once');
  const match=createFitmentMatcher(models,types);
  assert.deepEqual(result.vehicles.map(match).map(m=>m.status),['matched','matched','attributes_missing','matched','model_missing']);
+});
+
+test('a re-collected partial replaces stored data only when it is complete or has more vehicles',()=>{
+ assert.equal(improvesPartial({vehicles:0},{completeness:'partial',vehicles:12}),true);
+ assert.equal(improvesPartial({vehicles:40},{completeness:'complete',vehicles:30}),true);
+ assert.equal(improvesPartial({vehicles:12},{completeness:'partial',vehicles:12}),false);
+ assert.equal(improvesPartial({vehicles:12},{completeness:'partial',vehicles:3}),false);
 });
