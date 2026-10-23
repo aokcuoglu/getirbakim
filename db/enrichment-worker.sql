@@ -79,3 +79,18 @@ ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_sour
 ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+-- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
+-- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
+-- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
+-- re-checked in the worker.
+CREATE TABLE IF NOT EXISTS enrichment_search_products (
+ part_key text NOT NULL, entity_id text NOT NULL, brand_key text NOT NULL,
+ product jsonb NOT NULL CHECK(jsonb_typeof(product)='object'), seen_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(part_key,entity_id)
+);
+CREATE OR REPLACE FUNCTION enrichment_part_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+ SELECT CASE WHEN k ~ '^[0-9]+$' THEN regexp_replace(k,'^0+(?=[0-9])','') ELSE k END
+ FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+CREATE OR REPLACE FUNCTION enrichment_brand_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+ SELECT CASE k WHEN 'FEBI' THEN 'FEBIBILSTEIN' WHEN 'MANN' THEN 'MANNFILTER' WHEN 'HENGST' THEN 'HENGSTFILTER' ELSE k END
+ FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;

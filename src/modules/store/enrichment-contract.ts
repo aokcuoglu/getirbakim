@@ -68,7 +68,7 @@ export function matchesSupplierPart(supplierBrand: string, supplierCode: string,
 }
 // Suppliers drop the leading zeros of all-digit catalogue numbers ("FEBI 2562" for FEBI 02562); within one brand an
 // all-digit number names the same part with or without them.
-const partKey = (value: string) => { const key = normalize(value); return /^\d+$/.test(key) ? key.replace(/^0+(?=\d)/, "") : key; };
+export const partKey = (value: string) => { const key = normalize(value); return /^\d+$/.test(key) ? key.replace(/^0+(?=\d)/, "") : key; };
 function matchesBrandPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
   const brand = brandKey(supplierBrand);
   if (brand !== brandKey(manufacturer)) return false;
