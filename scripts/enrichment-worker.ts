@@ -15,6 +15,7 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {productCategories} from '../src/modules/enrichment/source-categories';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
+import {recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
 const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().int().min(0).max(599),elapsedMs:z.number().int().min(0).max(120000),bytes:z.number().int().min(0).max(15*1024*1024),retryAfter:z.string().nullable(),error:z.string().max(2000).optional(),challenge:z.boolean().optional(),body:z.unknown().optional()});
@@ -45,15 +46,18 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // happen; every pending item is still reached. Within each tier, brands the source has matched most often come
   // first: a miss costs several rate-limited searches, so matched products per hour grow fastest this way. The yield
   // is smoothed toward the overall rate so brands with few finished items stay in the middle until measured, and
-  // bucketed so brands of similar yield are still interleaved.
+  // bucketed so brands of similar yield are still interleaved. Items an earlier search already listed come first in
+  // their tier: they cost no search of their own (#376).
   await client.query(`WITH finished AS (
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
    overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished)
    INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
+   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,listed DESC,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
     SELECT j.*,md5($2||j.product_id::text) AS hash,
      round(10*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)) AS yield_bucket,
+     EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=enrichment_brand_key(j.supplier_brand)
+      AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) AS listed,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
@@ -61,7 +65,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
     FROM enrichment_product_catalog j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
      LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
     WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
-   ) s ORDER BY priority,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
+   ) s ORDER BY priority,listed DESC,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
@@ -171,8 +175,20 @@ async function serve(runId:string,port:number,chrome=false){
     }
     // Searches saved before "By name" / OE-number page searching (v2) are not reused.
     if(cp.searchVersion!==2&&!cp.product){delete cp.search;delete cp.partSearches;delete cp.oemSearch;cp.searchVersion=2;}
+    // Every search also lists products of other pending items; they are kept so those items can skip their search.
+    const sourceSearch=async(path:string)=>{const result=parseSearch(await queue.get('www.trodo.com',path));await recordSearchProducts(pool,result.products);return result;};
     const queries=sourcePartQueries(item.supplier_brand,item.supplier_code);
-    if(!cp.search){const search=parseSearch(await queue.get('www.trodo.com',searchPath(queries[0])));await checkpoint('identity',{search});}
+    // A product an earlier search already listed is opened directly. Its page must still pass the exact part check;
+    // a stale or mismatching page falls back to the item's own search.
+    if(!cp.search&&!cp.product){
+     const known=chooseExact(item.supplier_brand,item.supplier_code,await knownSearchProducts(pool,item.supplier_code));
+     if(known)try{
+      const product=parseProduct(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/product-url/'+encodeURIComponent(safeProductSlug(known))+'/IE'));
+      if(String(product.entity_id)===String(known.entity_id)&&matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku))
+       await checkpoint('view',{search:{products:[known]},product,discovered:true});
+     }catch(error){if(error instanceof SourceBlocked||error instanceof WorkerStopped)throw error;}
+    }
+    if(!cp.search){const search=await sourceSearch(searchPath(queries[0]));await checkpoint('identity',{search});}
     const search=parseSearch([cp.search]);
     const fallbackSearches=cp.partSearches?z.array(z.object({query:z.string()}).passthrough()).parse(cp.partSearches):[];
     const partCandidates=()=>[...search.products,...fallbackSearches.flatMap(s=>parseSearch([s]).products)];
@@ -185,14 +201,14 @@ async function serve(runId:string,port:number,chrome=false){
     if(!exact&&oemSource){
      for(const q of [...supplierOemQueries(supplierOem).slice(0,3),...supplierOemQueries(ownCode)]){
       if(oemSearches.some(s=>s.query===q))continue;
-      oemSearches.push({query:q,...parseSearch(await queue.get('www.trodo.com',oemSearchPath(q)))});
+      oemSearches.push({query:q,...await sourceSearch(oemSearchPath(q))});
       await checkpoint('review',{oemSearch:oemSearches});
      }
      exact=exactMatch()||await verifyByOem(ranked(),5);
     }
     if(!exact){
      for(const query of queries.slice(1)){
-      if(!fallbackSearches.some(s=>s.query===query)){fallbackSearches.push({query,...parseSearch(await queue.get('www.trodo.com',searchPath(query)))});await checkpoint('identity',{partSearches:fallbackSearches});}
+      if(!fallbackSearches.some(s=>s.query===query)){fallbackSearches.push({query,...await sourceSearch(searchPath(query))});await checkpoint('identity',{partSearches:fallbackSearches});}
       exact=exactMatch();
       // Only newly ranked candidates cost requests; already checked product pages come from cache.
       if(!exact&&oemCandidates().length)exact=await verifyByOem(ranked(),5);
@@ -342,18 +358,32 @@ async function requeuePartial(runId:string,source:RetrySource='trodo'){
   await client.query('COMMIT');return {runId,requeued:result.rowCount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+// Indexes the products of searches fetched before #376 (request bodies and cached responses).
+async function indexSearches(){
+ let searches=0,products=0;
+ for(const table of ['enrichment_source_requests','enrichment_source_cache']){
+  const rows=(await pool.query(`SELECT body FROM ${table} WHERE host='www.trodo.com' AND body IS NOT NULL
+   AND (path LIKE '/rest/V1/catalogsearch/result/%' OR path LIKE '/rest/V1/catalogsearch/oem/%')`)).rows;
+  for(const row of rows){
+   let search;try{search=parseSearch(row.body);}catch{continue;}
+   await recordSearchProducts(pool,search.products);searches++;products+=search.products.length;
+  }
+ }
+ return {searches,products,stored:(await pool.query('SELECT count(*)::int AS n FROM enrichment_search_products')).rows[0].n};
+}
 try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
  else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
  else if(command==='run'){await prepare();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
+ else if(command==='index-searches'){await prepare();console.log(JSON.stringify(await indexSearches()));}
  else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
  else if(command==='retry-partial'){
   const at=process.argv.indexOf('--source'),source=z.enum(['trodo','spareto','otoparcasan','all']).parse(at>=0?process.argv[at+1]:'trodo');
   await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | index-searches | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);
