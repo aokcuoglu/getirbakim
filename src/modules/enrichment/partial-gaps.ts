@@ -22,3 +22,8 @@ export const completeWithImage = (sourceMethod: string | null) => partialGaps(so
 
 /** The import note after an image from another source: the "no image" mark goes, the image's origin is recorded. */
 export const imageNote = (sourceMethod: string, imageSource: string) => `${sourceMethod.replace(/; no image\b/, "")}; image from ${new URL(imageSource).hostname}`;
+
+/** A partial package from another source is refused when the stored partial lists more vehicles; the same source may
+ *  always rewrite its own partial (a re-collect is its newer view). Complete packages are never refused here. */
+export const keepsRicherPartial = (stored: { source: string; vehicles: number }, next: { source: string; vehicles: number }) =>
+  new URL(stored.source).hostname !== new URL(next.source).hostname && stored.vehicles > next.vehicles;

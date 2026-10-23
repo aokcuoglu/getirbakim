@@ -80,6 +80,8 @@
     "enrichment:attempts:backfill": "node --env-file=.env.local --import tsx scripts/backfill-source-attempts.ts",
     "enrichment:image-fill": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-image-fill.ts",
     "enrichment:fallback": "node --env-file=.env.local --import tsx scripts/enrichment-fallback.ts",
+    "enrichment:spareto:install": "node --import tsx scripts/install-spareto-pending-launchd.ts",
+    "enrichment:spareto:uninstall": "node --import tsx scripts/install-spareto-pending-launchd.ts --uninstall",
     "enrichment:fallback:install": "node --import tsx scripts/install-enrichment-fallback-launchd.ts",
     "enrichment:fallback:uninstall": "node --import tsx scripts/install-enrichment-fallback-launchd.ts --uninstall",
     "enrichment:states": "node --env-file=.env.local --import tsx scripts/enrichment-states.ts",

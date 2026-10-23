@@ -313,7 +313,11 @@ async function requeueReview(runId:string){
 // Re-queues Trodo-sourced partial items whose vehicle coverage can still improve (rejected engine rows or applicable
 // engines left unresolved). The stored product/view checkpoint is reused, so only vehicle listings cost requests; the
 // job keeps its partial status until the new import replaces it.
-async function requeuePartial(runId:string){
+const retrySources={trodo:'www.trodo.com',spareto:'spareto.com',otoparcasan:'otoparcasan.com'} as const;
+type RetrySource=keyof typeof retrySources|'all';
+/** Trodo's own partials are re-collected only when their note shows a gap it can close; another source's partials are
+ *  all offered to Trodo (a complete result replaces them, a weaker partial is refused at import). */
+async function requeuePartial(runId:string,source:RetrySource='trodo'){
  const client=await pool.connect();try{
   await client.query('BEGIN');
   const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0];
@@ -328,8 +332,9 @@ async function requeuePartial(runId:string){
    FROM enrichment_product_catalog c JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
    LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status IN ('partial','skipped')
     AND i.checkpoint ? 'product' AND i.checkpoint ? 'view' ORDER BY i.finished_at DESC NULLS LAST LIMIT 1) cp ON true
-   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND e.source_url LIKE 'https://www.trodo.com/%'
-    AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2])
+   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND (${(source==='trodo'||source==='all')?`(e.source_url LIKE 'https://www.trodo.com/%'
+    AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2]))`:'false'}
+    OR ${source==='all'?`split_part(e.source_url,'/',3) IN ('spareto.com','otoparcasan.com')`:source!=='trodo'?`split_part(e.source_url,'/',3)='${retrySources[source]}'`:'false'})
    ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
     oem=EXCLUDED.oem,status='queued',stage='vehicles',checkpoint=EXCLUDED.checkpoint,lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
    WHERE enrichment_run_items.status IN ('partial','skipped')`,[runId]);
@@ -345,8 +350,10 @@ try{
  else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
- else if(command==='retry-partial'){await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]))));}
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID');
+ else if(command==='retry-partial'){
+  const at=process.argv.indexOf('--source'),source=z.enum(['trodo','spareto','otoparcasan','all']).parse(at>=0?process.argv[at+1]:'trodo');
+  await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);

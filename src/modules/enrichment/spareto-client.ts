@@ -14,7 +14,9 @@ export class SparetoClient {
   for(let attempt=0;;attempt++){
    await this.pace();
    try{
-    const response=await fetch(SPARETO+path,{redirect:'follow',signal:AbortSignal.timeout(40000),headers:{'User-Agent':UA,'Accept-Language':'en',Accept:'text/html'}});
+    // Cloudflare challenges a bare request to the search page (2026-10-23); a navigation's own headers pass.
+    const response=await fetch(SPARETO+path,{redirect:'follow',signal:AbortSignal.timeout(40000),headers:{'User-Agent':UA,'Accept-Language':'en',
+     Accept:'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',Referer:SPARETO+'/','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document','Sec-Fetch-Site':'same-origin','Upgrade-Insecure-Requests':'1'}});
     const body=await response.text();
     if([403,429,503].includes(response.status)||/cf-chl|challenge-platform|Just a moment|Attention Required/i.test(body.slice(0,4000)))throw new SourceBlocked(`spareto.com answered HTTP ${response.status} for ${path}`);
     if(response.status===404)return null;
