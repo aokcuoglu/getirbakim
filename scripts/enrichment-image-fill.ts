@@ -15,6 +15,7 @@ import {SPARETO,findProduct as findSpareto} from '../src/modules/enrichment/spar
 import {SparetoClient,SourceBlocked as SparetoBlocked} from '../src/modules/enrichment/spareto-client';
 import {attachProductImage,type ImageFillResult} from '../src/modules/enrichment/image-fill';
 import {recordAttempt,type FallbackSource} from '../src/modules/enrichment/source-attempts';
+import {withSourceLock} from '../src/modules/enrichment/source-lock';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:2});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -65,12 +66,12 @@ function setup(){
   const image=found.page.image?await saveImage(await otoparcasan.image(found.page.image),found.page.image,supplier.id):null;
   return {url:OTOPARCASAN+found.url,basis:found.basis.type,image};
  }});
- sources.push({key:'spareto',host:new URL(SPARETO).hostname,blocked:error=>error instanceof SparetoBlocked,async search(supplier){
+ sources.push({key:'spareto',host:new URL(SPARETO).hostname,blocked:error=>error instanceof SparetoBlocked,search:supplier=>withSourceLock(pool,'spareto-source',async()=>{
   const {found}=await findSpareto(spareto,supplier);
   if(!found)return null;
   const image=found.page.image?await saveImage(await spareto.image(found.page.image),found.page.image,supplier.id):null;
   return {url:SPARETO+found.path,basis:found.basis.type,image};
- }});
+ })});
  return {requests:()=>({otoparcasan:otoparcasan.requests,spareto:spareto.requests})};
 }
 

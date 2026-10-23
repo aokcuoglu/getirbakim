@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { partialGaps, passForecast, summarizeSources, type PassPace } from "../src/modules/admin/enrichment-pace";
-import { completeWithImage, imageNote } from "../src/modules/enrichment/partial-gaps";
+import { completeWithImage, imageNote, keepsRicherPartial } from "../src/modules/enrichment/partial-gaps";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
 
@@ -56,4 +56,12 @@ test("an image completes a partial product only when it was the last gap", () =>
   assert.equal(note, "spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no vehicles listed; image from cdn.spareto.com");
   assert.equal(completeWithImage(note), false);
   assert.deepEqual(partialGaps(note, true), ["no_vehicles"]);
+});
+
+test("a partial from another source is refused only when it lists fewer vehicles", () => {
+  const spareto = { source: "https://spareto.com/products/x/y", vehicles: 40 };
+  assert.equal(keepsRicherPartial(spareto, { source: "https://www.trodo.com/x", vehicles: 12 }), true);
+  assert.equal(keepsRicherPartial(spareto, { source: "https://www.trodo.com/x", vehicles: 40 }), false);
+  assert.equal(keepsRicherPartial(spareto, { source: "https://www.trodo.com/x", vehicles: 90 }), false);
+  assert.equal(keepsRicherPartial(spareto, { source: "https://spareto.com/products/x/z", vehicles: 0 }), false);
 });

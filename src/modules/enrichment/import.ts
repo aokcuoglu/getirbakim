@@ -7,6 +7,7 @@ import { objectStorage } from "../../lib/object-storage";
 import { enrichmentImportSchema, matchesEnrichment } from "../store/enrichment-contract";
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../store/fitment-sync";
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
+import { keepsRicherPartial } from "./partial-gaps";
 
 /** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
 export async function storeProductImage(client: Pick<PoolClient, "query">, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
@@ -67,6 +68,11 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
         }
         const previous = (await client.query("SELECT status FROM product_enrichment_jobs WHERE supplier_item_id=$1 FOR UPDATE", [item.supplierItemId])).rows[0];
         if (previous?.status === "complete" && item.completeness === "partial") throw new Error("Partial data cannot replace a complete enrichment");
+        if (previous?.status === "partial" && item.completeness === "partial") {
+          const stored = (await client.query("SELECT source_url,jsonb_array_length(COALESCE(payload->'vehicles','[]'))::int AS vehicles FROM product_enrichments WHERE supplier_item_id=$1", [item.supplierItemId])).rows[0];
+          if (stored && keepsRicherPartial({ source: stored.source_url, vehicles: stored.vehicles }, { source: item.source, vehicles: item.data.vehicles.length }))
+            throw new Error("Partial data with fewer vehicles cannot replace another source's partial enrichment");
+        }
         let imageId: string | null = null;
         if (item.imageFile) {
           if (!item.imageSource) throw new Error("Image source URL is required");
