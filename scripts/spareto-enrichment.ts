@@ -4,8 +4,9 @@
 //                 searches the part number and supplier OEM numbers, verifies the identity on the product page and
 //                 writes image, specifications, reference numbers and vehicles as each product is found. Vehicles
 //                 load one fitment frame per model; past --max-models (default 150) the product stays partial.
-//                 pending follows the Trodo catalog pass's tiers (in stock first) but walks each tier from the
-//                 other end, skips Trodo's unfinished run and runs alone (spareto-pending lock);
+//                 pending follows the Trodo catalog pass's tiers (in stock first), takes brands it has found before
+//                 first and walks the rest of each tier from the other end, skips Trodo's unfinished run and runs
+//                 alone (spareto-pending lock);
 //                 products spareto cannot find stay pending for Trodo.
 //                 Accepted identities: the same brand/part, an OE number the supplier names in the page's OE table,
 //                 or the supplier's own brand/part in the page's cross-reference table (an equivalent part).
@@ -63,15 +64,22 @@ const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)
  WHERE j.status=$1 AND e.source_url LIKE '${SPARETO}/%' AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
   WHERE other.product_id=ps.product_id AND done.status='complete')`;
 // Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
-// Products in an unfinished Trodo run are left to it; the next chunk is read only when this one is done.
-const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
+// Within a tier, brands spareto has found before come first (its searches so far, from enrichment_source_attempts;
+// a brand searched fewer than 5 times counts as unknown and sits between the known-good and the known-absent), then
+// the tier's reverse hash order. Products in an unfinished Trodo run are left to it; the next chunk is read only when
+// this one is done.
+const pendingSql=`WITH rate AS (SELECT b.supplier_brand AS brand,count(*) FILTER (WHERE a.outcome='found')::float/count(*) AS hit,count(*) AS searches
+  FROM enrichment_source_attempts a JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id
+  WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1)
+ SELECT j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
  FROM enrichment_product_catalog j JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+ LEFT JOIN rate ON rate.brand=j.supplier_brand AND rate.searches>=5
  WHERE j.status='pending' AND j.supplier_brand<>'' AND NOT (j.supplier_item_id=ANY($1::uuid[]))
   AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
  ORDER BY CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END,
-  md5(j.product_id::text) DESC LIMIT $2`;
+  COALESCE(rate.hit,0.5) DESC,md5(j.product_id::text) DESC LIMIT $2`;
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
