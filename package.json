@@ -89,7 +89,8 @@
     "test:spareto": "node --import tsx --test scripts/test-spareto.ts",
     "test:return-to": "node --import tsx --test scripts/test-return-to.ts",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts",
-    "test:manual": "node --import tsx --test scripts/test-manual-template.ts"
+    "test:manual": "node --import tsx --test scripts/test-manual-template.ts",
+    "test:storefront-split": "node --import tsx --test scripts/test-storefront-split.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
