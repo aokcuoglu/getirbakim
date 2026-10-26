@@ -64,15 +64,20 @@ const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)
  WHERE j.status=$1 AND e.source_url LIKE '${SPARETO}/%' AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
   WHERE other.product_id=ps.product_id AND done.status='complete')`;
 // Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
-// Within a tier, brands spareto has found before come first (its searches so far, from enrichment_source_attempts;
-// a brand searched fewer than 5 times counts as unknown and sits between the known-good and the known-absent), then
-// the tier's reverse hash order. The brand rates travel as one jsonb parameter: a join would make the planner walk the
-// rate list once per pending row (37 s a chunk, or minutes once the tried-id list is long). Products in an unfinished
-// Trodo run are left to it; the next chunk is read only when this one is done.
+// Within a tier, brands spareto finds and Trodo does not come first (#380): spareto's hit rate (its searches so far,
+// from enrichment_source_attempts) times Trodo's miss rate (its finished run items), so brands Trodo matches well are
+// left to it and both sources add products the other would not. A brand either source tried fewer than 5 times
+// counts as 0.5 for that source, between the known-good and the known-absent; then the tier's reverse hash order.
+// The brand rates travel as jsonb parameters: a join would make the planner walk the rate list once per pending row
+// (37 s a chunk, or minutes once the tried-id list is long). Products in an unfinished Trodo run are left to it; the
+// next chunk is read only when this one is done.
 const brandRateSql=`SELECT COALESCE(jsonb_object_agg(brand,hit),'{}'::jsonb) AS rates FROM (SELECT b.supplier_brand AS brand,
   count(*) FILTER (WHERE a.outcome='found')::float/count(*) AS hit FROM enrichment_source_attempts a
   JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id
   WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
+const trodoRateSql=`SELECT COALESCE(jsonb_object_agg(supplier_brand,hit),'{}'::jsonb) AS rates FROM (SELECT supplier_brand,
+  count(*) FILTER (WHERE status IN ('complete','partial'))::float/count(*) AS hit FROM enrichment_run_items
+  WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
 const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
@@ -80,7 +85,7 @@ const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
  WHERE j.status='pending' AND j.supplier_brand<>'' AND NOT (j.supplier_item_id=ANY($1::uuid[]))
   AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
  ORDER BY CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END,
-  COALESCE(($3::jsonb->>j.supplier_brand)::float,0.5) DESC,md5(j.product_id::text) DESC LIMIT $2`;
+  COALESCE(($3::jsonb->>j.supplier_brand)::float,0.5)*(1-COALESCE(($4::jsonb->>j.supplier_brand)::float,0.5)) DESC,md5(j.product_id::text) DESC LIMIT $2`;
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -137,7 +142,8 @@ async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:
  const tried=new Set(done.keys());let left=limit;
  while(left>0){
   const rates=(await pool.query<{rates:unknown}>(brandRateSql)).rows[0].rates;
-  const rows=(await pool.query<Supplier&{id:string}>(pendingSql,[[...tried],Math.min(left,200),JSON.stringify(rates)])).rows;
+  const trodoRates=(await pool.query<{rates:unknown}>(trodoRateSql)).rows[0].rates;
+  const rows=(await pool.query<Supplier&{id:string}>(pendingSql,[[...tried],Math.min(left,200),JSON.stringify(rates),JSON.stringify(trodoRates)])).rows;
   if(!rows.length)return;
   for(const row of rows){tried.add(row.id);left--;yield row;}
  }
