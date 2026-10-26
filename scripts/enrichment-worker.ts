@@ -43,19 +43,25 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // Stable random sample. A pilot first takes one representative per supplier brand; the catalog pass skips that,
   // because every batch would otherwise start with hundreds of brand samples. Then saleable in-stock items, other
   // saleable items, and items no longer offered in the storefront, so linked products grow fastest where orders
-  // happen; every pending item is still reached. Within each tier, brands the source has matched most often come
-  // first: a miss costs several rate-limited searches, so matched products per hour grow fastest this way. The yield
-  // is smoothed toward the overall rate so brands with few finished items stay in the middle until measured, and
-  // bucketed so brands of similar yield are still interleaved. Items an earlier search already listed come first in
-  // their tier: they cost no search of their own (#376).
+  // happen; every pending item is still reached. Within each tier, items Trodo is likely to match and spareto is not
+  // come first: a miss costs several rate-limited searches, and spareto works the same queue, so Trodo's scarce
+  // requests go where only it adds products (#380). Trodo's brand yield is smoothed toward the overall rate so brands
+  // with few finished items stay in the middle until measured; spareto's counts once it searched a brand 5 times
+  // (else 0.5, as in spareto-enrichment.ts) and is 0 for an item spareto already missed. The product is bucketed
+  // so brands of similar value are still interleaved. Items an earlier search already listed come first in their
+  // tier: they cost no search of their own (#376).
   await client.query(`WITH finished AS (
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
-   overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished)
+   overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished),
+   spareto AS (SELECT b.supplier_brand,count(*) FILTER(WHERE a.outcome='found')::numeric/count(*) AS rate FROM enrichment_source_attempts a
+    JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id WHERE a.source='spareto' AND a.outcome IN ('found','not_found')
+    GROUP BY 1 HAVING count(*)>=5),
+   spareto_missed AS (SELECT DISTINCT supplier_item_id FROM enrichment_source_attempts WHERE source='spareto' AND outcome='not_found')
    INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
    SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,listed DESC,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
     SELECT j.*,md5($2||j.product_id::text) AS hash,
-     round(10*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)) AS yield_bucket,
+     round(20*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)*(1-CASE WHEN m.supplier_item_id IS NULL THEN COALESCE(sp.rate,0.5) ELSE 0 END)) AS yield_bucket,
      EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=enrichment_brand_key(j.supplier_brand)
       AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) AS listed,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
@@ -64,6 +70,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
       ELSE 2 END AS priority
     FROM enrichment_product_catalog j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
      LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
+     LEFT JOIN spareto sp ON sp.supplier_brand=j.supplier_brand LEFT JOIN spareto_missed m ON m.supplier_item_id=j.supplier_item_id
     WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
    ) s ORDER BY priority,listed DESC,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
