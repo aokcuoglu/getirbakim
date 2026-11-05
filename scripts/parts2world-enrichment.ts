@@ -129,8 +129,9 @@ async function match(){
 
 type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number};
 // One supplier row per master product (present rows first). A product another row already enriched is skipped; for the
-// partial queue only a complete one. Pending goes in the Trodo pass's stock tiers and leaves products in an unfinished
-// Trodo run to it.
+// partial queue only a complete one. Pending, like Trodo and spareto, takes only storefront catalog products still
+// pending there (a supplier row linked to no master product is not in the catalog, #386), goes in the Trodo pass's
+// stock tiers and leaves products in an unfinished Trodo run to it.
 const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,"masterBrand","articleId","linkId","vehicleTypeId" FROM (
  SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,${supplierColumns},
   a.article_id::text AS "articleId",a.link_id::text AS "linkId",a.vehicle_type_id AS "vehicleTypeId",
@@ -141,7 +142,8 @@ const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,"masterBrand","artic
  WHERE j.status=$1${withIds?' AND j.supplier_item_id=ANY($2::uuid[])':''}
   AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
    WHERE other.product_id=ps.product_id AND done.status IN (${status==='partial'?"'complete'":"'complete','partial'"}))
-  ${status==='pending'?`AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id
+  ${status==='pending'?`AND EXISTS(SELECT 1 FROM enrichment_product_catalog pc WHERE pc.product_id=ps.product_id AND pc.status='pending')
+   AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id
    WHERE i.product_id=ps.product_id AND r.status IN ('prepared','running','blocked','stopped'))`:''}
  ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x
  ORDER BY tier,md5(id::text)`;
