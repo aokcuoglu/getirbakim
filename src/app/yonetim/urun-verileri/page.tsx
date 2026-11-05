@@ -3,7 +3,7 @@ import { EnrichmentDetails } from "@/components/admin/enrichment-details";
 import { LiveRefresh } from "@/components/admin/live-refresh";
 import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
-import { enrichmentDashboard, enrichmentStatuses } from "@/modules/admin/enrichment-data";
+import { enrichmentDashboard, enrichmentStatuses, type RecordTab } from "@/modules/admin/enrichment-data";
 import { partialGaps, passForecast, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -54,7 +54,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const hours=(value:number)=>value.toLocaleString("tr-TR",{maximumFractionDigits:1});
   const href=(changes:Record<string,string>)=>{
     const params=new URLSearchParams({...data.filters,...changes});
-    for(const [key,value] of [...params])if(!value||value==="all"||value==="enriched")params.delete(key);
+    for(const [key,value] of [...params])if(!value||value==="all"||value==="complete")params.delete(key);
     return `/yonetim/urun-verileri${params.size?`?${params}`:""}`;
   };
   const cards=[
@@ -63,7 +63,9 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
   ];
   const statusTones:Record<string,Tone>={complete:"success",partial:"warning",review:"warning",failed:"error",blocked:"error",not_found:"error",pending:"neutral"};
-  const tabs:[string,string,number][]=[["enriched","Zenginleştirilen",data.metrics.enriched],["review","İnceleme",counts.review||0],["partial","Kısmi veri",counts.partial||0],["not_found","Eşleşmeyen",counts.not_found||0],["pending","Bekleyen",counts.pending||0]];
+  // Every product is in exactly one tab (#388); the status column repeats it per row.
+  const errors=(counts.blocked||0)+(counts.failed||0);
+  const tabs:[RecordTab,string,number][]=[["complete","Tamamlanan",counts.complete||0],["partial","Kısmi veri",counts.partial||0],["review","İnceleme",counts.review||0],["not_found","Eşleşmeyen",counts.not_found||0],["error","Hatalı",errors],["pending","Bekleyen",counts.pending||0]];
   const prev=data.page>1?href({page:String(data.page-1)}):null, next=data.page<data.pages?href({page:String(data.page+1)}):null;
   const trodo=data.sourceSummary.find(source=>source.source==="trodo");
   const percent=total?attempted/total*100:0;
@@ -98,8 +100,11 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
       <Card>
         <CardHeader><dt><CardDescription>Kontrol bekleyen</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(attention)}</CardTitle></dd><CardAction><CircleHelp className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
         <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground tabular-nums">
-          <span>{number(counts.review||0)} inceleme · {number((counts.blocked||0)+(counts.failed||0))} erişim / işlem hatası</span>
-          {attention?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"attention",match:"all",q:"",page:"1"})} scroll={false}/>}>Kayıtları aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+          <span>{number(counts.review||0)} inceleme · {number(errors)} erişim / işlem hatası</span>
+          {attention?<div className="flex flex-wrap gap-2">
+            {counts.review?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"review",match:"all",q:"",page:"1"})} scroll={false}/>}>İncelemeyi aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+            {errors?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"error",match:"all",q:"",page:"1"})} scroll={false}/>}>Hataları aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+          </div>:null}
         </CardContent>
       </Card>
     </dl>
@@ -142,9 +147,8 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
       <CardContent className="flex flex-col gap-4">
         <Tabs value={data.filters.status}><ScrollArea><TabsList variant="line" aria-label="Zenginleştirme durumları">{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList><ScrollBar orientation="horizontal"/></ScrollArea></Tabs>
         <form key={`${data.filters.status}:${data.filters.match}:${data.filters.q}`} className="flex flex-wrap items-center gap-2" method="get">
-          {(["sort","dir","source","name","code","brand","gap"] as const).map(key=>data.filters[key]&&<input key={key} type="hidden" name={key} value={data.filters[key]}/>)}
+          {(["status","sort","dir","source","name","code","brand","gap"] as const).map(key=>data.filters[key]&&<input key={key} type="hidden" name={key} value={data.filters[key]}/>)}
           <InputGroup className="w-full sm:w-96"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ürün, marka veya OEM ara" defaultValue={data.filters.q} placeholder="Ürün kodu, marka veya OEM ara…"/></InputGroup>
-          <NativeSelect aria-label="Kayıt durumu" name="status" defaultValue={data.filters.status}><NativeSelectOption value="enriched">Zenginleştirilen ürünler</NativeSelectOption><NativeSelectOption value="attention">Kontrol bekleyen tüm kayıtlar</NativeSelectOption>{Object.entries(enrichmentStatuses).map(([key,label])=><NativeSelectOption key={key} value={key}>{label}</NativeSelectOption>)}</NativeSelect>
           <NativeSelect aria-label="Eşleşme yöntemi" name="match" defaultValue={data.filters.match}><NativeSelectOption value="all">Tüm eşleşme yöntemleri</NativeSelectOption><NativeSelectOption value="oem_reference">OEM referansıyla</NativeSelectOption><NativeSelectOption value="exact_part">Doğrudan marka / parça</NativeSelectOption><NativeSelectOption value="cross_reference">Muadil referansıyla</NativeSelectOption></NativeSelect>
           <Button type="submit">Filtrele</Button>
           {(data.filters.q||data.filters.match!=="all")&&<Button variant="ghost" nativeButton={false} render={<Link href={href({q:"",match:"all",page:"1"})}/>}>Temizle</Button>}

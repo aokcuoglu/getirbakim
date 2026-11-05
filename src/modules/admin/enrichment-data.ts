@@ -20,7 +20,13 @@ export type EnrichmentRow = {
   /** Sources that already searched the product, data source included. */
   searched: SourceKey[];
 };
-const attentionStatuses = ["review", "blocked", "failed"];
+/** The record tabs: every product is in exactly one (#388). "error" groups the access and processing failures. */
+export const recordTabs = ["complete", "partial", "review", "not_found", "error", "pending"] as const;
+export type RecordTab = typeof recordTabs[number];
+const errorStatuses = ["blocked", "failed"];
+// Links from before #388: "enriched" (complete + partial) and "attention" (review + errors) overlapped the other tabs.
+const legacyTabs: Record<string, RecordTab> = { enriched: "complete", attention: "review" };
+const tabStatuses = (tab: RecordTab) => tab === "error" ? errorStatuses : [tab];
 // Every product outside this set is pending; pending rows carry no payload, so the metrics only need these.
 const attemptedStatuses = Object.keys(enrichmentStatuses).filter(status => status !== "pending");
 const literal = (statuses: string[]) => statuses.map(status => `'${status}'`).join(",");
@@ -68,15 +74,14 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
   const name = text("name"), code = text("code"), brand = text("brand");
   const gap = query.gap && Object.hasOwn(gapConditions, query.gap) ? query.gap as PartialGap : "";
-  const status = query.status && (enrichmentStatuses[query.status] || query.status === "attention") ? query.status : "enriched";
+  const status: RecordTab = legacyTabs[query.status || ""] ?? ((recordTabs as readonly string[]).includes(query.status || "") ? query.status as RecordTab : "complete");
   const match = ["oem_reference","exact_part","cross_reference"].includes(query.match || "") ? query.match! : "all";
   // One row per master product, materialized from enrichment_product_catalog (db/enrichment-states.sql). Writers queue
   // the products they touch; draining the queue here keeps the table current at read time.
   await db.query("SELECT enrichment_product_states_sync()");
   const values: unknown[] = [];
   const conditions: string[] = [];
-  if (status === "enriched") conditions.push("j.enriched");
-  else if (status === "attention") conditions.push(`j.status IN (${literal(attentionStatuses)})`);
+  if (status === "error") conditions.push(`j.status IN (${literal(errorStatuses)})`);
   else { values.push(status); conditions.push(`j.status=$${values.length}`); }
   if (match !== "all") { values.push(match); conditions.push(`j.match_type=$${values.length}`); }
   const source = query.source && query.source in sourceHosts ? query.source as SourceKey : "";
@@ -153,7 +158,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     for(const key of ['enriched','oem_matches','direct_matches','images','oem_numbers','vehicles'] as const)summary[key]+=row[key];
     if(row.latest&&(!summary.latest||row.latest>summary.latest))summary.latest=row.latest;
   }
-  const totalCount=total?.rows[0].count??(status==='enriched'?summary.enriched:counts.rows.filter(row=>status==='attention'?attentionStatuses.includes(row.status):row.status===status).reduce((sum,row)=>sum+row.count,0));
+  const totalCount=total?.rows[0].count??counts.rows.filter(row=>tabStatuses(status).includes(row.status)).reduce((sum,row)=>sum+row.count,0);
   const pageSize=25, pages=Math.max(1,Math.ceil(totalCount/pageSize));
   const requested=Number(query.page), page=Number.isSafeInteger(requested)?Math.max(1,Math.min(pages,requested)):1;
   // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index.
