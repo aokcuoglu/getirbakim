@@ -24,8 +24,13 @@ export function createFitmentMatcher(models: FitmentCatalogModel[], types: Fitme
       modelsByName.set(name, [...(modelsByName.get(name) || []), model.id]);
     }
   }
+  const typesById = new Map(types.map(type => [type.id, type]));
   for (const type of types) typesByModel.set(type.model_id, [...(typesByModel.get(type.model_id) || []), type]);
   return (source: SourceVehicle, sourceIndex: number): FitmentMatch => {
+    // A source that names the TecDoc type id itself (parts2world) is linked to that catalog type; one the catalog does
+    // not know yet falls through to the name rules below.
+    if (source.typeId && typesById.has(source.typeId))
+      return { sourceIndex, source, status: "matched", typeId: source.typeId, candidateTypeIds: [source.typeId] };
     const modelIds = modelsByName.get(normalize(source.model)) || modelsByName.get(englishModelName(source.model)) || [];
     const candidates = modelIds.flatMap(id => typesByModel.get(id) || []);
     const attributes = candidates.filter(type => (type.cc === source.cc || (type.cc === null && source.cc === 0 && source.fuel === "Electric")) && type.hp === source.ps && type.kwt === source.kw && type.fuel_type === source.fuel);

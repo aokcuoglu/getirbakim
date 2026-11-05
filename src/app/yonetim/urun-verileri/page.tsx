@@ -25,6 +25,7 @@ const sourceLabels:Record<string,{name:string;role:string}>={
   trodo:{name:"Trodo",role:"Bekleyen kuyruk · birincil kaynak"},
   otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
   spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
+  parts2world:{name:"parts2world",role:"Arşivlenmiş TecDoc ürünleri · tam araç listesi"},
 };
 // The source that wrote a product's data, from its source URL.
 const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]).find(key=>sourceHosts[key]===new URL(url).hostname)??null:null;
@@ -33,7 +34,7 @@ const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemed
 const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
 const gapLabels:Record<PartialGap,string>={image:"Görsel yok",no_vehicles:"Araç listesi yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
 const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
-const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"}];
+const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"},{value:"parts2world",label:"parts2world"}];
 const matchOptions=[{value:"oem_reference",label:"OEM referansıyla"},{value:"exact_part",label:"Doğrudan marka / parça"},{value:"cross_reference",label:"Muadil referansıyla"}];
 const matchLabels:Record<string,string>={oem_reference:"OEM referansı",exact_part:"Doğrudan",cross_reference:"Muadil"};
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
@@ -70,7 +71,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/><BreadcrumbItem><BreadcrumbPage>Ürün zenginleştirme</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-sm text-muted-foreground">Trodo, otoparcasan ve spareto&apos;dan toplanan görsel, OEM, özellik ve araç verileri. Son aktarım: {data.metrics.latest?date(data.metrics.latest):"henüz yok"}.</p></div>
+        <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-sm text-muted-foreground">Trodo, otoparcasan, spareto ve parts2world&apos;den toplanan görsel, OEM, özellik ve araç verileri. Son aktarım: {data.metrics.latest?date(data.metrics.latest):"henüz yok"}.</p></div>
         <LiveRefresh seconds={30}/>
       </div>
     </div>

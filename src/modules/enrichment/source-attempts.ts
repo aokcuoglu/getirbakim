@@ -1,5 +1,5 @@
 import type {Pool} from 'pg';
-export type FallbackSource='otoparcasan'|'spareto';
+export type FallbackSource='otoparcasan'|'spareto'|'parts2world';
 export type AttemptOutcome='found'|'not_found'|'error'|'blocked';
 /** Records one product search for the admin page; a failed write is logged and never stops a run. */
 export async function recordAttempt(pool:Pool,source:FallbackSource,queue:string,supplierItemId:string,outcome:AttemptOutcome){
