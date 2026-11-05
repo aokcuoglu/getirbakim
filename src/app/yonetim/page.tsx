@@ -71,7 +71,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
     { href: "/yonetim/siparisler?status=shipping", icon: Truck, tone: "neutral", title: "Sevk bekleyen sipariş", note: "Onaylandı, kargoya verilmeyi bekliyor", count: orders.shipping },
     { href: "/yonetim/siparisler?status=refund", icon: RotateCcw, tone: "danger", title: "İade bekleyen ödeme", note: "TAMI portalından iade edip referansı kaydet", count: orders.refund },
     { href: "/yonetim/servisler", icon: Building2, tone: "warning", title: "Onay bekleyen servis başvurusu", note: "Onay, fiyat ve sepet erişimini açar", count: pending.length },
-    { href: "/yonetim/urun-verileri?status=attention", icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },
+    { href: `/yonetim/urun-verileri?status=${enrichment.review ? "review" : "error"}`, icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },
     { href: "/yonetim/tedarikciler/basbug", icon: AlertTriangle, tone: "danger", title: "Başbuğ senkronizasyon sorunu", note: health && !health.heartbeat?.alive ? "Zamanlayıcıdan çalışma sinyali alınamıyor" : "Güncelliği aşılan veya hata veren grup", count: health ? health.issues.length + (health.heartbeat?.alive ? 0 : 1) : 1 },
   ];
   const open = attention.filter(item => item.count > 0);
