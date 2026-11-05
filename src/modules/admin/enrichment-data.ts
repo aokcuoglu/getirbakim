@@ -126,7 +126,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       FROM (SELECT * FROM enrichment_runs WHERE kind='products' ORDER BY created_at DESC LIMIT 1) r
       JOIN enrichment_run_items i ON i.run_id=r.id GROUP BY r.id,r.status,r.sample_size,r.cache_hits`),
     passPace(),
-    // Trodo's searches are its run items; otoparcasan's and spareto's are their attempt rows.
+    // Trodo's searches are its run items; the other sources' are their attempt rows.
     db.query<SourceActivity>(`SELECT 'trodo' AS source,
         count(*) FILTER(WHERE finished_at>now()-interval '24 hours')::int AS searched,
         count(*) FILTER(WHERE finished_at>now()-interval '24 hours' AND status IN ('complete','partial'))::int AS found,
@@ -135,7 +135,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       FROM enrichment_run_items WHERE status NOT IN ('queued','collecting','skipped')
       UNION ALL
       SELECT s.source,COALESCE(r.searched,0),COALESCE(r.found,0),COALESCE(r.errors,0),l.attempted_at,l.outcome
-      FROM (VALUES ('otoparcasan'),('spareto')) s(source)
+      FROM (VALUES ('otoparcasan'),('spareto'),('parts2world')) s(source)
       LEFT JOIN LATERAL (SELECT attempted_at,outcome FROM enrichment_source_attempts a WHERE a.source=s.source ORDER BY attempted_at DESC LIMIT 1) l ON true
       LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE outcome<>'blocked')::int AS searched,count(*) FILTER(WHERE outcome='found')::int AS found,
         count(*) FILTER(WHERE outcome='error')::int AS errors FROM enrichment_source_attempts a WHERE a.source=s.source AND attempted_at>now()-interval '24 hours') r ON true`),

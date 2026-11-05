@@ -32,10 +32,10 @@ test("each source gets its own row, state and hit rate", () => {
     { source: "trodo", searched: 527, found: 480, errors: 2, last: ago(3), last_outcome: null },
     { source: "otoparcasan", searched: 12, found: 3, errors: 0, last: ago(50), last_outcome: "found" },
   ], { "www.trodo.com": 8655, "otoparcasan.com": 4381, "spareto.com": 212, "": 3 }, false, now);
-  assert.deepEqual(rows.map(r => [r.source, r.state, r.written]), [["trodo", "running", 8655], ["otoparcasan", "idle", 4381], ["spareto", "running", 212]]);
+  assert.deepEqual(rows.map(r => [r.source, r.state, r.written]), [["trodo", "running", 8655], ["otoparcasan", "idle", 4381], ["spareto", "running", 212], ["parts2world", "idle", 0]]);
   assert.equal(rows[2].hitRate, 0.28);
   const blocked = summarizeSources([{ source: "spareto", searched: 0, found: 0, errors: 0, last: ago(1), last_outcome: "blocked" }], {}, true, now);
-  assert.deepEqual(blocked.map(r => [r.state, r.hitRate, r.written]), [["blocked", null, 0], ["idle", null, 0], ["blocked", null, 0]]);
+  assert.deepEqual(blocked.map(r => [r.state, r.hitRate, r.written]), [["blocked", null, 0], ["idle", null, 0], ["blocked", null, 0], ["idle", null, 0]]);
 });
 
 test("partial gaps name what each adapter could not collect", () => {

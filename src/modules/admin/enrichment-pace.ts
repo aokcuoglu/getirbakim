@@ -14,10 +14,10 @@ export function passForecast(pace: PassPace, pending: number) {
   };
 }
 
-export type SourceKey = "trodo" | "otoparcasan" | "spareto";
+export type SourceKey = "trodo" | "otoparcasan" | "spareto" | "parts2world";
 export type SourceActivity = { source: SourceKey; searched: number; found: number; errors: number; last: Date | null; last_outcome: string | null };
 export type SourceSummary = SourceActivity & { written: number; hitRate: number | null; state: "running" | "idle" | "blocked" };
-export const sourceHosts: Record<SourceKey, string> = { trodo: "www.trodo.com", otoparcasan: "otoparcasan.com", spareto: "spareto.com" };
+export const sourceHosts: Record<SourceKey, string> = { trodo: "www.trodo.com", otoparcasan: "otoparcasan.com", spareto: "spareto.com", parts2world: "www.parts2world.com" };
 /** One row per source in a fixed order. A source runs when it finished a search in the last 15 minutes; Trodo is
  *  blocked when its host circuit is open, a fallback source when its last run stopped on a block answer. */
 export function summarizeSources(activity: SourceActivity[], written: Record<string, number>, trodoBlocked: boolean, now = Date.now()): SourceSummary[] {

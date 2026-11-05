@@ -21,6 +21,9 @@ export const enrichmentDataSchema = z.object({
     model: z.string().min(1), engineAndCodes: z.string().min(1), fuel: z.string(),
     kw: z.number().positive(), ps: z.number().positive(), cc: z.number().nonnegative(),
     from: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/), to: z.string().regex(/^(0[1-9]|1[0-2])\/\d{4}$/).nullable(),
+    // The source's own TecDoc vehicle type id (KType), which is our vehicle_types.id; the matcher links it directly
+    // when the catalog has it instead of comparing names.
+    typeId: z.number().int().positive().optional(),
   }).refine(vehicle => vehicle.cc > 0 || /electric|hydrogen|fuel cell/i.test(vehicle.fuel), {
     message: "Zero displacement is only valid for electric, hydrogen and fuel-cell vehicles", path: ["cc"],
   })).max(50000),
@@ -42,7 +45,10 @@ export const enrichmentImportSchema = z.object({
 });
 
 const normalize = (value: string) => value.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
-const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER" };
+const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER",
+  // TecDoc data-supplier names (parts2world) of brands our suppliers list under their short name.
+  SCHAEFFLERINA: "INA", SCHAEFFLERLUK: "LUK", SCHAEFFLERFAG: "FAG", AVACLEVERCHOICE: "AVA", BORGWARNERBERU: "BERU",
+  VDOCONTINENTAL: "VDO", AMSOSRAM: "OSRAM" };
 export const manufacturerBrandKey = (value: string) => aliases[normalize(value)] || normalize(value);
 const brandKey = manufacturerBrandKey;
 const prefixes: Record<string, string[]> = {

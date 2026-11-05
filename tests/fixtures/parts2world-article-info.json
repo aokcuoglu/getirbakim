@@ -1,0 +1,132 @@
+{
+ "data": {
+  "id": 689320334,
+  "name": "171209",
+  "brand": "FEBI BILSTEIN",
+  "brandId": 101,
+  "spareInfo": "Radiator Hose",
+  "partProperties": {
+   "Cooling Hose": "from engine to oil cooler and engine cooler",
+   "Inner Diameter 1 [mm]": "15",
+   "Inner Diameter 2 [mm]": "15",
+   "Supplementary Article/Supplementary Info": "with quick coupling",
+   "Observe service information": "",
+   "Guarantee": "3 years guarantee"
+  },
+  "partInfo": [
+   "These products are designed to be used as originally<br>intended and not modified for purpose. Please ensure the<br>products are installed by a competent individual. N.B.<br>products are usually supplied without fitting instructions."
+  ],
+  "partImages": [
+   {
+    "image": "/_debug/tecdoc-images/ea/4f/a8/ea4fa8f64f322f3bf05de83fa69b18ec.jpg",
+    "thumb": "/_debug/tecdoc-images/1e/e0/13/1ee01341a9b7f19fe0782b3a3bdde83a.jpg"
+   }
+  ],
+  "eanNumbers": [
+   "4054224712092"
+  ],
+  "oenNumbers": [
+   {
+    "brand": "BMW",
+    "code": "11 53 7 522 999"
+   }
+  ],
+  "documents": [],
+  "applicability": [
+   {
+    "manuId": 16,
+    "manuName": "BMW",
+    "modId": 4993,
+    "modelName": "5 (E60)",
+    "modificationId": 19013,
+    "modificationName": "523 i",
+    "cc": 2497,
+    "fuelType": "Petrol",
+    "hp": 177,
+    "kwt": 130,
+    "yearOfConstrFrom": "2004-10",
+    "yearOfConstrTo": "2007-02"
+   },
+   {
+    "manuId": 16,
+    "manuName": "BMW",
+    "modId": 4993,
+    "modelName": "5 (E60)",
+    "modificationId": 22659,
+    "modificationName": "523 i",
+    "cc": 2497,
+    "fuelType": "Petrol",
+    "hp": 190,
+    "kwt": 140,
+    "yearOfConstrFrom": "2007-03",
+    "yearOfConstrTo": "2009-12"
+   },
+   {
+    "manuId": 16,
+    "manuName": "BMW",
+    "modId": 4993,
+    "modelName": "5 (E60)",
+    "modificationId": 118554,
+    "modificationName": "523 i",
+    "cc": 2497,
+    "fuelType": "Petrol",
+    "hp": 190,
+    "kwt": 140,
+    "yearOfConstrFrom": "2007-03",
+    "yearOfConstrTo": "2009-12"
+   }
+  ],
+  "compabilityParts": [
+   {
+    "brand": "BGA",
+    "article": "DS6732R"
+   },
+   {
+    "brand": "BORG & BECK",
+    "article": "BDS1050"
+   },
+   {
+    "brand": "COMLINE",
+    "article": "CDS317"
+   },
+   {
+    "brand": "FAI AutoParts",
+    "article": "FPDS155"
+   },
+   {
+    "brand": "GATES",
+    "article": "02-1778"
+   },
+   {
+    "brand": "LPR",
+    "article": "DS52291"
+   },
+   {
+    "brand": "Metalcaucho",
+    "article": "99246"
+   },
+   {
+    "brand": "MEYLE",
+    "article": "11-14 498 0031"
+   },
+   {
+    "brand": "Open Parts",
+    "article": "DRS6391.00"
+   },
+   {
+    "brand": "Saleri SIL",
+    "article": "D2394"
+   },
+   {
+    "brand": "SKF",
+    "article": "VKJC 4843"
+   },
+   {
+    "brand": "SWAG",
+    "article": "33 10 0779"
+   }
+  ],
+  "brandLogoUrl": "/_debug/tecdoc-images/30/02/fe/3002feac6079fedeae73915a812ad113.jpg",
+  "inBasket": false
+ }
+}

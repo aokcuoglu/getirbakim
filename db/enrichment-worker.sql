@@ -92,5 +92,24 @@ CREATE OR REPLACE FUNCTION enrichment_part_key(value text) RETURNS text LANGUAGE
  SELECT CASE WHEN k ~ '^[0-9]+$' THEN regexp_replace(k,'^0+(?=[0-9])','') ELSE k END
  FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
 CREATE OR REPLACE FUNCTION enrichment_brand_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
- SELECT CASE k WHEN 'FEBI' THEN 'FEBIBILSTEIN' WHEN 'MANN' THEN 'MANNFILTER' WHEN 'HENGST' THEN 'HENGSTFILTER' ELSE k END
+ SELECT CASE k WHEN 'FEBI' THEN 'FEBIBILSTEIN' WHEN 'MANN' THEN 'MANNFILTER' WHEN 'HENGST' THEN 'HENGSTFILTER'
+  WHEN 'SCHAEFFLERINA' THEN 'INA' WHEN 'SCHAEFFLERLUK' THEN 'LUK' WHEN 'SCHAEFFLERFAG' THEN 'FAG' WHEN 'AVACLEVERCHOICE' THEN 'AVA'
+  WHEN 'BORGWARNERBERU' THEN 'BERU' WHEN 'VDOCONTINENTAL' THEN 'VDO' WHEN 'AMSOSRAM' THEN 'OSRAM' ELSE k END
  FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+
+-- parts2world.com (TecDoc, #382) has no part-number search: its article-info call needs the article id, the article link
+-- id and a vehicle type the link belongs to. The ids come from the archive of the old v1 parts2world catalog crawl
+-- (public.parts / part_vehicle_types), loaded by `parts2world-enrichment.ts index`. Keys follow manufacturerBrandKey()
+-- and partKey() in enrichment-contract.ts; identity is re-checked on the live answer.
+CREATE TABLE IF NOT EXISTS parts2world_articles (
+ brand_key text NOT NULL, part_key text NOT NULL, brand text NOT NULL, part_number text NOT NULL,
+ article_id bigint NOT NULL, link_id bigint NOT NULL, vehicle_type_id integer NOT NULL,
+ PRIMARY KEY(brand_key,part_key)
+);
+-- Open enrichment jobs whose supplier brand/part names an archived article; rebuilt by `parts2world-enrichment.ts match`.
+CREATE TABLE IF NOT EXISTS parts2world_job_articles (
+ supplier_item_id uuid PRIMARY KEY, brand_key text NOT NULL, part_key text NOT NULL, matched_at timestamptz NOT NULL DEFAULT now(),
+ FOREIGN KEY(brand_key,part_key) REFERENCES parts2world_articles(brand_key,part_key) ON DELETE CASCADE
+);
+ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
+ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
