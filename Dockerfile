@@ -14,6 +14,8 @@ RUN npm run build
 
 FROM dependencies AS operations
 COPY . .
+# RDS CA bundle: DATABASE_URL on AWS uses sslmode=verify-full&sslrootcert=/app/rds-global-bundle.pem (RDS enforces TLS).
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-global-bundle.pem
 USER node
 CMD ["node", "--import", "tsx", "scripts/setup.ts"]
 
@@ -23,6 +25,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./static-build
 COPY --from=builder --chown=node:node /app/public ./public
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-global-bundle.pem
 RUN mkdir -p .next/static && chown node:node .next/static
 USER node
 EXPOSE 3000
