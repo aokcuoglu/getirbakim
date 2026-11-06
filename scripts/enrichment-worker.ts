@@ -310,6 +310,25 @@ async function continueAll(port:number,chrome:boolean,batchSize:number){
   if(status!=='complete'){console.log(JSON.stringify({continue:'halted',runId,status}));return;}
  }
 }
+// Gives up the unfinished product runs (#390): their queued items are skipped and the runs closed, so spareto and
+// parts2world, which leave products in an unfinished run to Trodo, take them from the shared pending pool. Products
+// stay pending; a later `continue` builds new batches from whatever is still pending then. The run lock guards against
+// a live worker.
+async function retireRuns(){
+ const client=await pool.connect();try{
+  await client.query('BEGIN');
+  const runs=(await client.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') ORDER BY created_at FOR UPDATE")).rows as {id:string}[];
+  let items=0;
+  for(const {id} of runs){
+   const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[id])).rows[0];
+   if(!lock.locked)throw Error('Stop the run worker before retiring its run');
+   items+=(await client.query("UPDATE enrichment_run_items SET status='skipped',last_error='retired',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND status IN ('queued','collecting')",[id])).rowCount??0;
+   await client.query("UPDATE enrichment_runs SET status='complete',finished_at=now() WHERE id=$1",[id]);
+  }
+  await client.query('COMMIT');
+  return {runs:runs.length,items};
+ }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+}
 async function requeueReview(runId:string){
  const client=await pool.connect();try{
   await client.query('BEGIN');
@@ -385,12 +404,13 @@ try{
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
  else if(command==='index-searches'){await prepare();console.log(JSON.stringify(await indexSearches()));}
  else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
+ else if(command==='retire')console.log(JSON.stringify({retired:await retireRuns()}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
  else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
  else if(command==='retry-partial'){
   const at=process.argv.indexOf('--source'),source=z.enum(['trodo','spareto','otoparcasan','all']).parse(at>=0?process.argv[at+1]:'trodo');
   await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | index-searches | unblock | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | index-searches | unblock | retire | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);

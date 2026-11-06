@@ -121,6 +121,15 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
    assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,4);
    assert.equal((await pool.query('SELECT status FROM enrichment_run_items WHERE run_id=$1',[blocked])).rows[0].status,'queued');
   }finally{if(worker.child.exitCode===null){worker.child.kill('SIGKILL');await worker.done.catch(()=>{});}}
+  // Retiring gives the stopped run's product back to the shared pending pool for the other sources (#390).
+  const retire=spawn(process.execPath,['--conditions=react-server','--import','tsx','scripts/enrichment-worker.ts','retire'],
+   {cwd:directory,env:{...process.env,DATABASE_URL:connection.href},stdio:['ignore','pipe','inherit'],timeout:30000});
+  let retired='';retire.stdout.on('data',chunk=>{retired+=chunk;});
+  assert.equal(await new Promise(resolve=>retire.once('close',resolve)),0);
+  assert.deepEqual(JSON.parse(retired),{retired:{runs:1,items:1}});
+  assert.equal((await pool.query('SELECT status FROM enrichment_runs WHERE id=$1',[blocked])).rows[0].status,'complete');
+  assert.equal((await pool.query('SELECT status FROM enrichment_run_items WHERE run_id=$1',[blocked])).rows[0].status,'skipped');
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending'")).rows[0].n,1);
  }finally{
   await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();await rm(directory,{recursive:true,force:true});
  }
