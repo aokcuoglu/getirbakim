@@ -111,5 +111,11 @@ CREATE TABLE IF NOT EXISTS parts2world_job_articles (
  supplier_item_id uuid PRIMARY KEY, brand_key text NOT NULL, part_key text NOT NULL, matched_at timestamptz NOT NULL DEFAULT now(),
  FOREIGN KEY(brand_key,part_key) REFERENCES parts2world_articles(brand_key,part_key) ON DELETE CASCADE
 );
+-- OE numbers of archived articles with vehicles (#394), loaded by `parts2world-enrichment.ts index-oems`: an original-part
+-- row (OE-PSA, OE-OPEL…) is reached through an aftermarket article that lists its number. Keys are upper-case A–Z0–9.
+CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link_id bigint NOT NULL, PRIMARY KEY(oem_key,link_id));
+CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
+-- The OE number a job was matched through; NULL for a brand/part match.
+ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
 ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
 ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));

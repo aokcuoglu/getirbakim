@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
+import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -62,6 +62,19 @@ test('identity is the supplier brand and part on the live answer, prefixes and T
   completeness:'partial',data:buildData(info,buildVehicles(info.applicability!,new Map()).vehicles)});
  assert.ok(matchesEnrichment({brand:'FEBI',code:'FEBI 171209',oem:''},pkg));
  assert.equal(pkg.data.vehicles[0].typeId,19013);
+});
+
+test('an original-part row matched through an OE number needs that number on the live answer (#394)',async()=>{
+ const info=parseArticleInfo(await fixture())!;
+ const row={brand:'OE-BMW',code:'11537522999',oem:'',oemReference:'11537522999'};
+ const basis=identifyBasis(row,info);
+ assert.deepEqual(basis,{type:'oem_reference',reference:'11537522999',supplierOem:'',referenceSource:'original_manufacturer_part_code'});
+ assert.equal(identifyBasis({...row,code:'11537522998',oemReference:'11537522998'},info),null);
+ assert.equal(identifyBasis({...row,oemReference:null},info),null);
+ assert.equal(identifyBasis({...row,brand:'FEBI'},info),null);
+ assert.deepEqual(identifyBasis({brand:'FEBI',code:'FEBI 171209',oem:'',oemReference:null},info),{type:'exact_part'});
+ // The import contract accepts the package on that basis.
+ assert.ok(matchesEnrichment(row,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:basis!}));
 });
 
 test('complete needs an image and vehicles with no invalid rows',()=>{

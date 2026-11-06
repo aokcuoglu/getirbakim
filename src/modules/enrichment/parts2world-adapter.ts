@@ -1,5 +1,6 @@
 import {z} from 'zod';
-import {enrichmentDataSchema,matchesSupplierPart,type EnrichmentData} from '../store/enrichment-contract';
+import {enrichmentDataSchema,matchesSupplierPart,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
+type MatchBasis=z.infer<typeof matchBasisSchema>;
 
 // parts2world.com runs ABCP's TecDoc module: a public JSON API behind its vehicle catalog (#382). It has no part-number
 // search, so an article is reached by the ids of the old v1 catalog crawl (parts2world_articles), and identity is
@@ -80,6 +81,14 @@ export function buildData(info:ArticleInfo,vehicles:EnrichmentData['vehicles']=[
 /** Only the supplier's own brand and part number identify an archived article: its ids came from a catalog crawl,
  *  so the live answer must still name the same part. */
 export const identify=(supplier:Supplier,info:ArticleInfo)=>matchesSupplierPart(supplier.brand,supplier.code,info.brand,info.name,supplier.masterBrand);
+/** The import basis the live answer proves: the supplier's own brand/part, or for an original-part row matched through
+ *  an OE number (#394) the article listing that number among its OE numbers. */
+export function identifyBasis(supplier:Supplier&{oemReference?:string|null},info:ArticleInfo):MatchBasis|null{
+ if(identify(supplier,info))return {type:'exact_part'};
+ if(!supplier.oemReference||!/^OE-/.test(supplier.brand)||normalize(supplier.oemReference)!==normalize(supplier.code))return null;
+ const listed=(info.oenNumbers||[]).some(o=>normalize(o.code)===normalize(supplier.code));
+ return listed?{type:'oem_reference',reference:supplier.code,supplierOem:supplier.oem,referenceSource:'original_manufacturer_part_code'}:null;
+}
 
 /** The first product photo as an absolute URL on the site's own image path. */
 export function imageUrl(info:ArticleInfo){

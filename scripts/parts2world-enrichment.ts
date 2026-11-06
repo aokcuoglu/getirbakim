@@ -6,8 +6,13 @@
 //                     (SELECT min(v.vehicle_type_id) FROM part_vehicle_types v WHERE v.part_id=p.id)
 //                     FROM parts p JOIN part_brands b ON b.id=p.brand_id) TO STDOUT WITH (FORMAT csv)
 //                    (rows without a vehicle type are dropped: article-info needs one the link belongs to).
+//   index-oems --file F  replaces parts2world_article_oems with CSV rows of oem,link_id: the OE numbers of archived
+//                    articles with vehicles, produced on the archive DB with
+//                    COPY (SELECT DISTINCT regexp_replace(upper(o.code),'[^A-Z0-9]','','g'),o.part_id FROM part_oens o
+//                     WHERE o.part_id IN (SELECT part_id FROM part_vehicle_types)) TO STDOUT WITH (FORMAT csv)
 //   match            rebuilds parts2world_job_articles: open jobs whose supplier brand/part names an archived article,
-//                    by the import contract's own brand/part rule.
+//                    by the import contract's own brand/part rule; then original-part jobs (OE-PSA, OE-OPEL…) whose
+//                    code is an OE number of an archived article (#394).
 //   collect --status partial|pending|not_found [--limit N] [--ids file] [--retry] [--dry-run]
 //                    fetches each matched article, re-verifies brand/part on the live answer and writes image,
 //                    specifications, OE numbers, cross references and vehicles (TecDoc type ids, linked directly).
@@ -20,7 +25,7 @@ import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identify,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
+import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
@@ -90,6 +95,28 @@ async function index(){
  await match();
 }
 
+async function indexOems(){
+ const file=option('file');if(!file)throw Error('index-oems needs --file');
+ const rows=new Map<string,[string,number]>();let read=0;
+ for await(const line of createInterface({input:createReadStream(resolve(file))})){
+  if(!line.trim())continue;read++;
+  const [oem,link]=csvFields(line),key=oemKey(oem||'');
+  if(key.length<5||!/^\d+$/.test(link||''))continue;
+  rows.set(`${key}|${link}`,[key,Number(link)]);
+ }
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');await client.query('TRUNCATE parts2world_article_oems');
+  const all=[...rows.values()];
+  for(let at=0;at<all.length;at+=10000){const chunk=all.slice(at,at+10000);
+   await client.query('INSERT INTO parts2world_article_oems(oem_key,link_id) SELECT * FROM unnest($1::text[],$2::bigint[])',[chunk.map(r=>r[0]),chunk.map(r=>r[1])]);}
+  await client.query('COMMIT');
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+ console.log(JSON.stringify({read,oems:rows.size}));
+ await match();
+}
+const oemKey=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+
 /** Key pairs a supplier row can name: its label and master brand with the code as given and without a leading word
  *  (a supplier prefix such as "BCH 0986…"); matchesSupplierPart decides which of them really names the article. */
 function candidateKeys(row:Supplier){
@@ -102,7 +129,7 @@ async function match(){
  const articles=new Map<string,{brand:string;part:string}>();
  for(const row of (await pool.query<{brand_key:string;part_key:string;brand:string;part_number:string}>('SELECT brand_key,part_key,brand,part_number FROM parts2world_articles')).rows)
   articles.set(`${row.brand_key}|${row.part_key}`,{brand:row.brand,part:row.part_number});
- const found:{id:string;key:string}[]=[];let scanned=0,after='00000000-0000-0000-0000-000000000000';
+ const found:{id:string;key:string;oem:string|null}[]=[];let viaOem=0,scanned=0,after='00000000-0000-0000-0000-000000000000';
  for(;;){
   const rows=(await pool.query<Supplier&{id:string}>(`SELECT j.supplier_item_id AS id,${supplierColumns} FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
    WHERE j.status IN ('pending','partial','not_found','review') AND j.supplier_item_id>$1 ORDER BY j.supplier_item_id LIMIT 20000`,[after])).rows;
@@ -110,31 +137,40 @@ async function match(){
   for(const row of rows){
    scanned++;
    for(const key of candidateKeys(row)){const article=articles.get(key);
-    if(article&&matchesSupplierPart(row.brand,row.code,article.brand,article.part,row.masterBrand)){found.push({id:row.id,key});break;}}
+    if(article&&matchesSupplierPart(row.brand,row.code,article.brand,article.part,row.masterBrand)){found.push({id:row.id,key,oem:null});break;}}
   }
+  // An original-part row names the vehicle maker's own number, which archived aftermarket articles list as an OE
+  // number: the lowest such link with vehicles stands for it; collect re-checks the number on the live answer.
+  const matched=new Set(found.map(f=>f.id)),open=new Map<string,typeof rows>();
+  for(const row of rows)if(/^OE-/.test(row.brand)&&!matched.has(row.id)&&oemKey(row.code).length>=5)open.set(oemKey(row.code),[...(open.get(oemKey(row.code))||[]),row]);
+  if(open.size)for(const hit of (await pool.query<{key:string;article:string}>(`SELECT DISTINCT ON (o.oem_key) o.oem_key AS key,a.brand_key||'|'||a.part_key AS article
+   FROM parts2world_article_oems o JOIN parts2world_articles a ON a.link_id=o.link_id WHERE o.oem_key=ANY($1::text[]) ORDER BY o.oem_key,o.link_id`,
+   [[...open.keys()]])).rows)
+   for(const row of open.get(hit.key)||[]){found.push({id:row.id,key:hit.article,oem:row.code});viaOem++;}
   after=rows[rows.length-1].id;
  }
  const client=await pool.connect();
  try{
   await client.query('BEGIN');await client.query('TRUNCATE parts2world_job_articles');
   for(let at=0;at<found.length;at+=5000){const chunk=found.slice(at,at+5000);
-   await client.query(`INSERT INTO parts2world_job_articles(supplier_item_id,brand_key,part_key)
-    SELECT id,split_part(key,'|',1),split_part(key,'|',2) FROM unnest($1::uuid[],$2::text[]) AS r(id,key)`,[chunk.map(r=>r.id),chunk.map(r=>r.key)]);}
+   await client.query(`INSERT INTO parts2world_job_articles(supplier_item_id,brand_key,part_key,oem_reference)
+    SELECT id,split_part(key,'|',1),split_part(key,'|',2),oem FROM unnest($1::uuid[],$2::text[],$3::text[]) AS r(id,key,oem)`,
+    [chunk.map(r=>r.id),chunk.map(r=>r.key),chunk.map(r=>r.oem)]);}
   await client.query('COMMIT');
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
  const byStatus=(await pool.query<{status:string;count:number}>(`SELECT j.status,count(*)::int AS count FROM parts2world_job_articles m
   JOIN product_enrichment_jobs j USING(supplier_item_id) GROUP BY 1 ORDER BY 2 DESC`)).rows;
- console.log(JSON.stringify({articles:articles.size,scanned,matched:found.length,byStatus:Object.fromEntries(byStatus.map(r=>[r.status,r.count]))}));
+ console.log(JSON.stringify({articles:articles.size,scanned,matched:found.length,viaOem,byStatus:Object.fromEntries(byStatus.map(r=>[r.status,r.count]))}));
 }
 
-type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number};
+type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number;oemReference:string|null};
 // One supplier row per master product (present rows first). A product another row already enriched is skipped; for the
 // partial queue only a complete one. Pending, like Trodo and spareto, takes only storefront catalog products still
 // pending there (a supplier row linked to no master product is not in the catalog, #386), goes in the Trodo pass's
 // stock tiers and leaves products in an unfinished Trodo run to it.
-const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,"masterBrand","articleId","linkId","vehicleTypeId" FROM (
+const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,"masterBrand","articleId","linkId","vehicleTypeId","oemReference" FROM (
  SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,${supplierColumns},
-  a.article_id::text AS "articleId",a.link_id::text AS "linkId",a.vehicle_type_id AS "vehicleTypeId",
+  a.article_id::text AS "articleId",a.link_id::text AS "linkId",a.vehicle_type_id AS "vehicleTypeId",m.oem_reference AS "oemReference",
   CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END AS tier
  FROM parts2world_job_articles m JOIN parts2world_articles a USING(brand_key,part_key)
  JOIN product_enrichment_jobs j ON j.supplier_item_id=m.supplier_item_id JOIN supplier_items s ON s.id=j.supplier_item_id
@@ -212,7 +248,8 @@ async function collect(){
    try{
     const ids={articleId:row.articleId,linkId:row.linkId,vehicleTypeId:row.vehicleTypeId};
     const info=parseArticleInfo(await client.articleInfo(articleInfoPath(row.articleId,row.linkId,row.vehicleTypeId)));
-    if(!info||!identify(row,info)){
+    const basis=info&&identifyBasis(row,info);
+    if(!info||!basis){
      await record({supplierItemId:row.id,outcome:'not_found',error:info?`answer names ${info.brand} ${info.name}`:'no article for the archived ids'});
      console.log(`${index} ${row.code} → bulunamadı${info?` (yanıt: ${info.brand} ${info.name})`:''}`);continue;
     }
@@ -221,8 +258,8 @@ async function collect(){
     if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
     const complete=parts2worldComplete({image:Boolean(image),vehicles:data.vehicles.length,invalid:vehicle.invalid.length});
     const pkg=enrichmentImportSchema.parse({supplierItemId:row.id,supplierCode:row.code,supplierBrand:row.brand,source:productUrl(ids),
-     sourceMethod:`parts2world.com TecDoc API adapter v1; exact brand/part verified; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
-     manufacturer:info.brand,partNumber:info.name,matchBasis:{type:'exact_part'},imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
+     sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
+     manufacturer:info.brand,partNumber:info.name,matchBasis:basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
     const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
      specifications:data.specifications.length,vehicles:data.vehicles.length,known:vehicle.known,total:vehicle.total,invalid:vehicle.invalid.length};
     await record({supplierItemId:row.id,outcome:'collected',url:pkg.source,counts,package:pkg});
@@ -249,7 +286,7 @@ async function report(){
 }
 
 try{
- if(command==='index')await index();else if(command==='match')await match();
+ if(command==='index')await index();else if(command==='match')await match();else if(command==='index-oems')await indexOems();
  else if(command==='collect')await collect();else if(command==='report')await report();
  else throw Error('Usage: parts2world-enrichment.ts index --file F|match|collect --status partial|pending|not_found|report');
 }finally{await pool.end();}
