@@ -66,7 +66,8 @@ const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)
 // Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
 // Within a tier, brands spareto finds and Trodo does not come first (#380): spareto's hit rate (its searches so far,
 // from enrichment_source_attempts) times Trodo's miss rate (its finished run items), so brands Trodo matches well are
-// left to it and both sources add products the other would not. A brand either source tried fewer than 5 times
+// left to it and both sources add products the other would not. While Trodo's host is blocked it collects nothing, so
+// its rates are dropped and spareto orders by its own hit rate alone (#390). A brand either source tried fewer than 5 times
 // counts as 0.5 for that source, between the known-good and the known-absent; then the tier's reverse hash order.
 // The brand rates travel as jsonb parameters: a join would make the planner walk the rate list once per pending row
 // (37 s a chunk, or minutes once the tried-id list is long). Products in an unfinished Trodo run are left to it; the
@@ -77,7 +78,8 @@ const brandRateSql=`SELECT COALESCE(jsonb_object_agg(brand,hit),'{}'::jsonb) AS 
   WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
 const trodoRateSql=`SELECT COALESCE(jsonb_object_agg(supplier_brand,hit),'{}'::jsonb) AS rates FROM (SELECT supplier_brand,
   count(*) FILTER (WHERE status IN ('complete','partial'))::float/count(*) AS hit FROM enrichment_run_items
-  WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
+  WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r
+  WHERE NOT EXISTS(SELECT 1 FROM enrichment_source_hosts WHERE host='www.trodo.com' AND blocked)`;
 const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
