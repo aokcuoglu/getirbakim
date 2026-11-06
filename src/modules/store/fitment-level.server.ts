@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { fitmentLevel, type FitmentLevel, type FitmentVehicle } from "./fitment-level";
 import { getProductEnrichment } from "./product-enrichment";
+import { getDescriptionFitments } from "./description-fitment.server";
 import type { GarageVehicle } from "./garage";
 
 /** Resolves the garage vehicle to catalog ids; a free-text vehicle has neither. */
@@ -15,5 +16,7 @@ export async function fitmentVehicle(vehicle: GarageVehicle | null): Promise<Fit
 
 export async function productFitmentLevel(product: { id: string; code: string; brand: string }, vehicle: GarageVehicle | null): Promise<FitmentLevel> {
   const [resolved, enrichment] = await Promise.all([fitmentVehicle(vehicle), vehicle ? getProductEnrichment(product) : null]);
-  return fitmentLevel(resolved, enrichment?.vehicles ?? []);
+  if (!vehicle || enrichment?.vehicles.length || enrichment?.vehicleModels.length) return fitmentLevel(resolved, enrichment?.vehicles ?? []);
+  // Models read from the supplier's description (#392) name no engine type: at best "likely", never "mismatch".
+  return fitmentLevel(resolved, (await getDescriptionFitments(product.id)).map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
 }
