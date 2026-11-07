@@ -4,7 +4,7 @@ const referenceNumbers = z.record(z.string().min(1), z.array(z.string().min(1).m
 export const matchBasisSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("exact_part") }),
   z.object({ type: z.literal("oem_reference"), reference: z.string().min(1), supplierOem: z.string(),
-    referenceSource: z.enum(["supplier_oem", "original_manufacturer_part_code"]) }),
+    referenceSource: z.enum(["supplier_oem", "original_manufacturer_part_code", "replica_part_code"]) }),
   // Another manufacturer's product that lists the supplier's own brand and part number among its cross references
   // (an equivalent part). Its image and specifications describe the same part; its part number is never shown as ours.
   z.object({ type: z.literal("cross_reference"), reference: z.string().min(1), referenceBrand: z.string().min(1) }),
@@ -85,6 +85,26 @@ function matchesBrandPart(supplierBrand: string, supplierCode: string, manufactu
   return known && rest.length > 0 && partKey(rest.join(" ")) === partKey(partNumber);
 }
 
+export type PartCodeOem = { reference: string; source: "original_manufacturer_part_code" | "replica_part_code" };
+/** OE numbers a supplier part code itself names: an original manufacturer's own number (OE-PSA, OE-OPEL…, and
+ *  ORIJINAL's "ORJINAL 5K0807571J"), or a replica brand's code built from the OE number it copies (WENDERPARTS
+ *  "BA51117893067" = BMW 51117893067, with an optional P1/S1 variant suffix). */
+export function partCodeOems(brand: string, code: string): PartCodeOem[] {
+  const value = code.trim();
+  if (/^OE-/.test(brand)) return [{ reference: value, source: "original_manufacturer_part_code" }];
+  if (brand === "ORIJINAL") {
+    const own = value.match(/^OR[Iİ]?JINAL\s+(\S.*)$/i)?.[1];
+    return own ? [{ reference: own, source: "original_manufacturer_part_code" }] : [];
+  }
+  if (brand === "WENDERPARTS") {
+    const copied = value.match(/^WENDERPARTS\s+[A-Z]{2}_?(\S+)$/i)?.[1];
+    if (!copied) return [];
+    const base = copied.replace(/[PS]\d$/i, "");
+    return [...new Set([copied, base])].map(reference => ({ reference, source: "replica_part_code" as const }));
+  }
+  return [];
+}
+
 export function matchesEnrichment(supplier: { brand: string; code: string; oem: string; masterBrand?: string | null }, source: {
   manufacturer: string; partNumber: string; data: Pick<EnrichmentData, "oemNumbers" | "crossReferences">; matchBasis: z.infer<typeof matchBasisSchema>;
 }) {
@@ -100,8 +120,8 @@ export function matchesEnrichment(supplier: { brand: string; code: string; oem: 
     .flatMap(value => [value, value.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i, "")]).map(normalize).filter(value => value.length >= 4);
   const authorized = basis.referenceSource === "supplier_oem"
     ? supplierReferences.includes(reference)
-    // An original manufacturer's own part number is an OE number, whatever its supplier OEM field holds.
-    : /^OE-/.test(supplier.brand) && normalize(supplier.code) === reference;
+    // A part code that is (or carries) an OE number authorizes it, whatever the supplier OEM field holds.
+    : partCodeOems(supplier.brand, supplier.code).some(own => own.source === basis.referenceSource && normalize(own.reference) === reference);
   return authorized && (normalize(source.partNumber) === reference
     || [...Object.values(source.data.oemNumbers), ...Object.values(source.data.crossReferences)].flat().some(value => normalize(value) === reference));
 }

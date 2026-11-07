@@ -11,8 +11,8 @@
 //                    COPY (SELECT DISTINCT regexp_replace(upper(o.code),'[^A-Z0-9]','','g'),o.part_id FROM part_oens o
 //                     WHERE o.part_id IN (SELECT part_id FROM part_vehicle_types)) TO STDOUT WITH (FORMAT csv)
 //   match            rebuilds parts2world_job_articles: open jobs whose supplier brand/part names an archived article,
-//                    by the import contract's own brand/part rule; then original-part jobs (OE-PSA, OE-OPEL…) whose
-//                    code is an OE number of an archived article (#394).
+//                    by the import contract's own brand/part rule; then jobs whose part code carries an OE number of an
+//                    archived article: OE-PSA, OE-OPEL… (#394), ORIJINAL and WENDERPARTS (#396).
 //   collect --status partial|pending|not_found [--limit N] [--ids file] [--retry] [--dry-run]
 //                    fetches each matched article, re-verifies brand/part on the live answer and writes image,
 //                    specifications, OE numbers, cross references and vehicles (TecDoc type ids, linked directly).
@@ -32,7 +32,7 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
-import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partKey} from '../src/modules/store/enrichment-contract';
+import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey} from '../src/modules/store/enrichment-contract';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -139,14 +139,18 @@ async function match(){
    for(const key of candidateKeys(row)){const article=articles.get(key);
     if(article&&matchesSupplierPart(row.brand,row.code,article.brand,article.part,row.masterBrand)){found.push({id:row.id,key,oem:null});break;}}
   }
-  // An original-part row names the vehicle maker's own number, which archived aftermarket articles list as an OE
-  // number: the lowest such link with vehicles stands for it; collect re-checks the number on the live answer.
-  const matched=new Set(found.map(f=>f.id)),open=new Map<string,typeof rows>();
-  for(const row of rows)if(/^OE-/.test(row.brand)&&!matched.has(row.id)&&oemKey(row.code).length>=5)open.set(oemKey(row.code),[...(open.get(oemKey(row.code))||[]),row]);
-  if(open.size)for(const hit of (await pool.query<{key:string;article:string}>(`SELECT DISTINCT ON (o.oem_key) o.oem_key AS key,a.brand_key||'|'||a.part_key AS article
-   FROM parts2world_article_oems o JOIN parts2world_articles a ON a.link_id=o.link_id WHERE o.oem_key=ANY($1::text[]) ORDER BY o.oem_key,o.link_id`,
-   [[...open.keys()]])).rows)
-   for(const row of open.get(hit.key)||[]){found.push({id:row.id,key:hit.article,oem:row.code});viaOem++;}
+  // A part code that carries an OE number (OE-PSA's own number, ORIJINAL, WENDERPARTS' copied number) is listed by
+  // archived aftermarket articles: the lowest such link with vehicles stands for it; collect re-checks the number
+  // on the live answer.
+  const matched=new Set(found.map(f=>f.id)),open=rows.filter(row=>!matched.has(row.id))
+   .map(row=>({row,refs:partCodeOems(row.brand,row.code).map(r=>r.reference).filter(r=>oemKey(r).length>=5)})).filter(o=>o.refs.length);
+  if(open.length){
+   const hits=new Map((await pool.query<{key:string;article:string}>(`SELECT DISTINCT ON (o.oem_key) o.oem_key AS key,a.brand_key||'|'||a.part_key AS article
+    FROM parts2world_article_oems o JOIN parts2world_articles a ON a.link_id=o.link_id WHERE o.oem_key=ANY($1::text[]) ORDER BY o.oem_key,o.link_id`,
+    [[...new Set(open.flatMap(o=>o.refs.map(oemKey)))]])).rows.map(h=>[h.key,h.article]));
+   for(const {row,refs} of open){const ref=refs.find(r=>hits.has(oemKey(r)));
+    if(ref){found.push({id:row.id,key:hits.get(oemKey(ref))!,oem:ref});viaOem++;}}
+  }
   after=rows[rows.length-1].id;
  }
  const client=await pool.connect();
