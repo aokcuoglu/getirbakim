@@ -296,6 +296,10 @@ async function serve(runId:string,port:number,chrome=false){
 async function continueAll(port:number,chrome:boolean,batchSize:number){
  await prepare();
  for(let batch=1;;batch++){
+  // An open circuit means the site blocked us: stop before Chrome visits it again. launchd restarts this command every
+  // 15 minutes, so only a hand-run `unblock` may send the worker back to a site that blocked it.
+  const blocked=(await pool.query("SELECT host FROM enrichment_source_hosts WHERE blocked AND host LIKE '%trodo.com' ORDER BY host")).rows.map(r=>r.host as string);
+  if(blocked.length){console.log(JSON.stringify({continue:'source-blocked',hosts:blocked,next:'run `enrichment-worker.ts unblock` by hand once the block has lifted'}));return;}
   const active=(await pool.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
   let runId:string=active??"";
   if(!runId){
