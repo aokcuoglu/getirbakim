@@ -101,18 +101,19 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   assert.equal((await pool.query('SELECT count(DISTINCT product_id)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
   await pool.query(`INSERT INTO supplier_items(code,product_data) VALUES('2000000000','{"uk":"OTHER"}');UPDATE enrichment_source_hosts SET blocked=true WHERE host='www.trodo.com'`);
   await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items WHERE code='2000000000';INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items WHERE code='2000000000'");
+  // An open circuit stops `continue` before it opens a batch or Chrome, so launchd never revisits a blocking site (#407).
   const halted=await startWorker().done;
-  assert.match(halted,/"continue":"halted".*"status":"blocked"/);
-  const blocked=(await pool.query("SELECT id FROM enrichment_runs WHERE status='blocked'")).rows[0].id;
-  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,4);
-  assert.equal((await pool.query('SELECT status FROM enrichment_run_items WHERE run_id=$1',[blocked])).rows[0].status,'queued');
+  assert.match(halted,/"continue":"source-blocked","hosts":\["www.trodo.com"\]/);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,3);
   // A stop while waiting for an uncached request keeps the same batch and its checkpoint.
   await pool.query('UPDATE enrichment_source_hosts SET blocked=false');
   const worker=startWorker();
+  let blocked='';
   try{
    let collecting=false;
    for(let i=0;i<100;i++){
-    collecting=(await pool.query("SELECT count(*)::int AS n FROM enrichment_run_items WHERE run_id=$1 AND status='collecting'",[blocked])).rows[0].n===1;
+    blocked=(await pool.query("SELECT run_id FROM enrichment_run_items WHERE status='collecting'")).rows[0]?.run_id??'';
+    collecting=Boolean(blocked);
     if(collecting)break;
     await new Promise(resolve=>setTimeout(resolve,50));
    }
