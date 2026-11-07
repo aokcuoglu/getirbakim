@@ -93,13 +93,15 @@ test("part codes that carry an OE number name it with their provenance (#396)", 
   assert.deepEqual(partCodeOems("WENDER", "WENDER E-BA63117214952P12").map(r => r.reference), ["63117214952P12", "63117214952"]);
   assert.deepEqual(partCodeOems("WENDER", "WENDER E-FE_71768049").map(r => r.reference), ["71768049"]);
   assert.deepEqual(partCodeOems("WENDER", "WENDERPARTS BA51128060849"), []);
+  assert.deepEqual(partCodeOems("TAIWAN", "TAIWAN 3T5945096A"), [{ reference: "3T5945096A", source: "replica_part_code" }]);
+  assert.deepEqual(partCodeOems("TAIWAN", "3T5945096A"), []);
   assert.deepEqual(partCodeOems("FEBI", "FEBI 171209"), []);
   // The contract keeps the provenance apart: a replica's copied number is not an original manufacturer's own.
   const source = { manufacturer: "FEBI BILSTEIN", partNumber: "171209", data: { oemNumbers: { MERCEDES: ["177 885 56 01"] }, crossReferences: {} } };
   const replica = { brand: "WENDERPARTS", code: "WENDERPARTS MA1778855601", oem: "" };
   assert.equal(matchesEnrichment(replica, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "replica_part_code" } }), true);
   assert.equal(matchesEnrichment(replica, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "original_manufacturer_part_code" } }), false);
-  assert.equal(matchesEnrichment({ ...replica, brand: "TAIWAN" }, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "replica_part_code" } }), false);
+  assert.equal(matchesEnrichment({ ...replica, brand: "LOCAL" }, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "replica_part_code" } }), false);
 });
 
 test("Opel supplier item can use BLIC data with persisted OEM proof while preserving supplier identity", () => {

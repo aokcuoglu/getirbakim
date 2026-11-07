@@ -45,17 +45,18 @@ const OE_MAKERS:Record<string,string[]>={'OE-PSA':[...PSA,'OPEL','VAUXHALL'],'OE
 const PREFIX_MAKERS:Record<string,string[]>={BA:BMW,BN:BMW,MA:MERCEDES,MN:MERCEDES,RR:['LAND ROVER'],DG:['LAND ROVER'],FE:FIAT,RG:RENAULT,PP:['PORSCHE']};
 const MAKE_MAKERS:Record<string,string[]>={VAG:['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE'],PSA,'PSA ELEKTRIKLI':PSA,RENAULT,'RENAULT ESKI':RENAULT,DACIA:RENAULT,
  HYUNDAI:['HYUNDAI','KIA'],KIA:['KIA','HYUNDAI'],OPEL:['OPEL','VAUXHALL'],FIAT,TOFAS:FIAT,FORD:['FORD'],NISSAN:['NISSAN'],TOYOTA:['TOYOTA','LEXUS'],
- BMW,MINI:BMW,MERCEDES,VOLVO:['VOLVO'],CHEVROLET:['CHEVROLET','DAEWOO'],HONDA:['HONDA'],MITSUBISHI:['MITSUBISHI'],JEEP:['JEEP']};
+ BMW,MINI:BMW,MERCEDES,VOLVO:['VOLVO'],CHEVROLET:['CHEVROLET','DAEWOO'],HONDA:['HONDA'],MITSUBISHI:['MITSUBISHI'],'MITSUBISHI TICARI':['MITSUBISHI'],
+ JEEP:['JEEP'],MAZDA:['MAZDA'],SUBARU:['SUBARU'],SUZUKI:['SUZUKI'],DAIHATSU:['DAIHATSU']};
 const plain=(value:string)=>value.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-/** Vehicle makers a part code belongs to (#401): an OE-* label's maker, a Wender code's maker prefix, ORIJINAL's supplier
- *  make group. A match through that code's OE number keeps only their vehicles; null when the maker is unknown. */
+/** Vehicle makers a part code belongs to (#401): an OE-* label's maker, a Wender code's maker prefix, ORIJINAL's and
+ *  TAIWAN's supplier make group. A match through that code's OE number keeps only their vehicles; null when the maker is unknown. */
 export function partCodeMakers(supplier:Supplier):string[]|null{
  if(OE_MAKERS[supplier.brand])return OE_MAKERS[supplier.brand];
  if(supplier.brand==='WENDER'||supplier.brand==='WENDERPARTS'){
   const prefix=supplier.code.trim().match(supplier.brand==='WENDER'?/^WENDER\s+E-([A-Z]{2})/i:/^WENDERPARTS\s+([A-Z]{2})/i)?.[1]?.toUpperCase();
   return prefix?PREFIX_MAKERS[prefix]??null:null;
  }
- if(supplier.brand==='ORIJINAL')return MAKE_MAKERS[plain(supplier.make||'')]??null;
+ if(supplier.brand==='ORIJINAL'||supplier.brand==='TAIWAN')return MAKE_MAKERS[plain(supplier.make||'')]??null;
  return null;
 }
 /** A vehicle (catalog brand or source "maker model" name) belongs to one of the makers: "FORD OTOSAN", "MINI (GB)". */
