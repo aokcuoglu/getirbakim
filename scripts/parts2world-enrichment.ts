@@ -12,7 +12,7 @@
 //                     WHERE o.part_id IN (SELECT part_id FROM part_vehicle_types)) TO STDOUT WITH (FORMAT csv)
 //   match            rebuilds parts2world_job_articles: open jobs whose supplier brand/part names an archived article,
 //                    by the import contract's own brand/part rule; then jobs whose part code carries an OE number of an
-//                    archived article: OE-PSA, OE-OPEL… (#394), ORIJINAL and WENDERPARTS (#396).
+//                    archived article: OE-PSA, OE-OPEL… (#394), ORIJINAL, WENDERPARTS (#396) and WENDER (#399).
 //   collect --status partial|pending|not_found [--limit N] [--ids file] [--retry] [--dry-run]
 //                    fetches each matched article, re-verifies brand/part on the live answer and writes image,
 //                    specifications, OE numbers, cross references and vehicles (TecDoc type ids, linked directly).
