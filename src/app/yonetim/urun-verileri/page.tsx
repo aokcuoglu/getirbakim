@@ -4,7 +4,7 @@ import { LiveRefresh } from "@/components/admin/live-refresh";
 import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { enrichmentDashboard, enrichmentStatuses, type RecordTab } from "@/modules/admin/enrichment-data";
-import { partialGaps, passForecast, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
+import { partialGaps, runProgress, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const sourceLabels:Record<string,{name:string;role:string}>={
-  trodo:{name:"Trodo",role:"Bekleyen kuyruk · birincil kaynak"},
+  trodo:{name:"Trodo",role:"Eski birincil kaynak · emekliye ayrıldı"},
   otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
   spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
   parts2world:{name:"parts2world",role:"Arşivlenmiş TecDoc ürünleri · tam araç listesi"},
@@ -30,8 +30,8 @@ const sourceLabels:Record<string,{name:string;role:string}>={
 // The source that wrote a product's data, from its source URL.
 const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]).find(key=>sourceHosts[key]===new URL(url).hostname)??null:null;
 const sourceNames=(keys:SourceKey[])=>keys.map(key=>sourceLabels[key].name).join(", ");
-const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kaynak nedeniyle durdu"};
-const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
+const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kapalı · kaynak engelledi"};
+const runStates:Record<string,[Tone,string]>={running:["success","Çalışıyor"],quiet:["warning","Son 15 dk sessiz"],complete:["success","Bitti"],blocked:["error","Kaynak engelledi"],stopped:["neutral","Durduruldu"],failed:["error","Hatayla durdu"]};
 const gapLabels:Record<PartialGap,string>={image:"Görsel yok",no_vehicles:"Araç listesi yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
 const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
 const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"},{value:"parts2world",label:"parts2world"}];
@@ -49,9 +49,12 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const counts=Object.fromEntries(data.counts.map(row=>[row.status,row.count]));
   const total=data.counts.reduce((sum,row)=>sum+row.count,0);
   const attempted=total-(counts.pending||0), attention=(counts.review||0)+(counts.blocked||0)+(counts.failed||0);
-  const forecast=passForecast(data.pass,counts.pending||0);
-  const days=(value:number|null)=>value===null?"—":value<1?"1 günden az":`~${number(Math.ceil(value))} gün`;
-  const hours=(value:number)=>value.toLocaleString("tr-TR",{maximumFractionDigits:1});
+  // Time left at the last hour's pace: hours up to two days, days beyond.
+  const eta=(hours:number|null)=>hours===null?"—":hours<1?"1 saatten az":hours<48?`~${number(Math.ceil(hours))} saat`:`~${number(Math.round(hours/24*10)/10)} gün`;
+  const perHour=data.sourceSummary.reduce((sum,source)=>sum+source.last_hour,0);
+  const runningSources=data.sourceSummary.filter(source=>source.state==="running");
+  const parts2world=data.sourceSummary.find(source=>source.source==="parts2world");
+  const run=data.run?{...data.run,...runProgress(data.run,parts2world?.last_hour??0)}:null;
   const href=(changes:Record<string,string>)=>{
     const params=new URLSearchParams({...data.filters,...changes});
     for(const [key,value] of [...params])if(!value||value==="all"||value==="complete")params.delete(key);
@@ -67,7 +70,6 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const errors=(counts.blocked||0)+(counts.failed||0);
   const tabs:[RecordTab,string,number][]=[["complete","Tamamlanan",counts.complete||0],["partial","Kısmi veri",counts.partial||0],["review","İnceleme",counts.review||0],["not_found","Eşleşmeyen",counts.not_found||0],["error","Hatalı",errors],["pending","Bekleyen",counts.pending||0]];
   const prev=data.page>1?href({page:String(data.page-1)}):null, next=data.page<data.pages?href({page:String(data.page+1)}):null;
-  const trodo=data.sourceSummary.find(source=>source.source==="trodo");
   const percent=total?attempted/total*100:0;
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
@@ -77,8 +79,6 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         <LiveRefresh seconds={30}/>
       </div>
     </div>
-    {data.pass.blocked?<Alert variant="destructive"><CircleAlert aria-hidden="true"/><AlertTitle>Trodo erişimi engellendi</AlertTitle><AlertDescription>Koşu durdu; engel kalkınca işçi yeniden başlatılmalı.</AlertDescription></Alert>
-      :data.pass.challenge_since?<Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Cloudflare doğrulaması bekleniyor</AlertTitle><AlertDescription>{date(data.pass.challenge_since)} itibarıyla Trodo sekmesinde doğrulama bekleniyor; tamamlanınca işlem kendiliğinden sürer.</AlertDescription></Alert>:null}
 
     <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Zenginleştirme özeti">
       <Card>
@@ -86,11 +86,11 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         <CardContent className="flex flex-col gap-2"><Progress value={percent} aria-label="İncelenen ürünler"/><span className="text-sm text-muted-foreground tabular-nums">{number(attempted)} / {number(total)} ürün incelendi</span></CardContent>
       </Card>
       <Card>
-        <CardHeader><dt><CardDescription>Trodo hızı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(Math.round(forecast.perActiveHour))} / saat</CardTitle></dd><CardAction><Clock3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardHeader><dt><CardDescription>Toplama hızı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(perHour)} / saat</CardTitle></dd><CardAction><Clock3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
         <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
-          {data.pass.blocked||trodo?.state==="blocked"?statusBadge("error","Durdu"):trodo?.state==="running"?statusBadge("success","Çalışıyor"):statusBadge("warning","Son 15 dk sessiz")}
-          <span className="tabular-nums">Kalan {number(counts.pending||0)} ürün: {days(forecast.daysLeft)} (kesintisiz {days(forecast.daysLeftAlwaysOn)})</span>
-          <span className="tabular-nums">Son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı{data.pass.interval_ms?` · istek aralığı ${hours(data.pass.interval_ms/1000)} sn`:""}</span>
+          {runningSources.length?statusBadge("success",`${runningSources.length} kaynak çalışıyor`):statusBadge("warning","Çalışan kaynak yok")}
+          {runningSources.length?<span className="tabular-nums">{runningSources.map(source=>`${sourceLabels[source.source].name} ${number(source.last_hour)}`).join(" · ")} (son 1 saat)</span>:null}
+          <span className="tabular-nums">Son 24 saatte {number(data.sourceSummary.reduce((sum,source)=>sum+source.searched,0))} arama · {number(data.sourceSummary.reduce((sum,source)=>sum+source.found,0))} bulundu</span>
         </CardContent>
       </Card>
       <Card>
@@ -111,15 +111,17 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
 
     <div className="grid items-start gap-4 xl:grid-cols-3">
       <Card className="xl:col-span-2">
-        <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Son 24 saatteki aramalar; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
+        <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Hız son 1 saatteki, diğer sayılar son 24 saatteki aramalar; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
         <CardContent>
-          <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
+          <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Hız</TableHead><TableHead className="text-right">Hata</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
             <TableBody>{data.sourceSummary.map(source=><TableRow key={source.source}>
-              <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span></div></TableCell>
+              <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span>{source.source==="parts2world"&&run&&!data.run?.finished_at?<span className="text-sm text-muted-foreground tabular-nums">Tur %{Math.floor(run.percent)} · kalan {number(run.remaining)} · {eta(run.hoursLeft)}</span>:null}</div></TableCell>
               <TableCell>{statusBadge(source.state==="running"?"success":source.state==="blocked"?"error":"neutral",sourceStates[source.state])}</TableCell>
               <TableCell className="text-right tabular-nums">{number(source.searched)}</TableCell>
               <TableCell className="text-right tabular-nums">{number(source.found)}</TableCell>
               <TableCell className="text-right tabular-nums">{source.hitRate===null?"—":`%${Math.round(source.hitRate*100)}`}</TableCell>
+              <TableCell className="text-right tabular-nums">{source.last_hour?`${number(source.last_hour)} / saat`:"—"}</TableCell>
+              <TableCell className={`text-right tabular-nums${source.errors?" text-warning":""}`}>{number(source.errors)}</TableCell>
               <TableCell className="text-right tabular-nums">{number(source.written)}</TableCell>
               <TableCell className="tabular-nums text-muted-foreground">{source.last?date(source.last):"Henüz yok"}</TableCell>
             </TableRow>)}</TableBody>
@@ -127,10 +129,10 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         </CardContent>
       </Card>
       <div className="flex flex-col gap-4">
-        {data.pilot&&<Card>
-          <CardHeader><CardTitle><h2>{`Trodo partisi · ${number(data.pilot.sample_size)} ürün`}</h2></CardTitle><CardDescription className="tabular-nums">{number(data.pilot.processed)} / {number(data.pilot.sample_size)} ürün işlendi</CardDescription><CardAction>{statusBadge(data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral",pilotStatuses[data.pilot.status]||data.pilot.status)}</CardAction></CardHeader>
-          <CardContent className="flex flex-col gap-3"><Progress value={data.pilot.sample_size?data.pilot.processed/data.pilot.sample_size*100:0} aria-label="Parti ürünleri"/><p className="text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata{data.pilot.skipped>0&&` · ${number(data.pilot.skipped)} kapsam dışı`}</p></CardContent>
-          <CardFooter className="text-sm text-muted-foreground tabular-nums">{data.pilot.last_response?`Son yanıt ${date(data.pilot.last_response)} · ${number(data.pilot.requests)} istek · ${number(data.pilot.cache_hits)} önbellek`:"Tarayıcı bağlantısı bekleniyor"}</CardFooter>
+        {run&&<Card>
+          <CardHeader><CardTitle><h2>{`parts2world turu · ${number(run.total)} ürün`}</h2></CardTitle><CardDescription className="tabular-nums">{number(run.processed)} / {number(run.total)} ürün işlendi</CardDescription><CardAction>{statusBadge(...runStates[run.state])}</CardAction></CardHeader>
+          <CardContent className="flex flex-col gap-3"><Progress value={run.percent} aria-label="parts2world turu"/><p className="text-sm tabular-nums">{run.finished_at?`Kalan ${number(run.remaining)} ürün`:`Kalan ${number(run.remaining)} ürün · ${eta(run.hoursLeft)}${parts2world?.last_hour?` (saatte ${number(parts2world.last_hour)})`:""}`} · {number(run.errors)} hata</p></CardContent>
+          <CardFooter className="text-sm text-muted-foreground tabular-nums">{`Başladı ${date(run.started_at)}${run.finished_at?` · bitti ${date(run.finished_at)}`:""} · son yanıt ${run.last?date(run.last):"henüz yok"}`}</CardFooter>
         </Card>}
         <Card>
           <CardHeader><CardTitle><h2>Toplanan veri</h2></CardTitle><CardDescription>Veriler PostgreSQL&apos;de, görseller özel MinIO alanında.</CardDescription></CardHeader>
