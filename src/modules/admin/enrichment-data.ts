@@ -137,7 +137,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
         count(*) FILTER(WHERE finished_at>now()-interval '24 hours' AND status IN ('complete','partial'))::int AS found,
         count(*) FILTER(WHERE finished_at>now()-interval '24 hours' AND status='failed')::int AS errors,
         count(*) FILTER(WHERE finished_at>now()-interval '1 hour')::int AS last_hour,
-        max(finished_at) AS last,NULL AS last_outcome
+        -- A product with a long vehicle list takes many requests, so a finished request also counts as activity.
+        GREATEST(max(finished_at),(SELECT max(finished_at) FROM enrichment_source_requests WHERE host='www.trodo.com' AND status='complete')) AS last,NULL AS last_outcome
       FROM enrichment_run_items WHERE status NOT IN ('queued','collecting','skipped')
       UNION ALL
       SELECT s.source,COALESCE(r.searched,0),COALESCE(r.found,0),COALESCE(r.errors,0),COALESCE(r.last_hour,0),l.attempted_at,l.outcome
