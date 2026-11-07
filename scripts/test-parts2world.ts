@@ -77,6 +77,23 @@ test('an original-part row matched through an OE number needs that number on the
  assert.ok(matchesEnrichment(row,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:basis!}));
 });
 
+test('ORIJINAL and WENDERPARTS rows reach articles through the OE number in their part code (#396)',async()=>{
+ const info=parseArticleInfo(await fixture())!;
+ const genuine={brand:'ORIJINAL',code:'ORJINAL 11537522999',oem:'',oemReference:'11537522999'};
+ const genuineBasis=identifyBasis(genuine,info);
+ assert.deepEqual(genuineBasis,{type:'oem_reference',reference:'11537522999',supplierOem:'',referenceSource:'original_manufacturer_part_code'});
+ assert.ok(matchesEnrichment(genuine,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:genuineBasis!}));
+ // A replica's code: maker prefix + the OE number it copies + a variant suffix.
+ const replica={brand:'WENDERPARTS',code:'WENDERPARTS BA11537522999P1',oem:'',oemReference:'11537522999'};
+ const replicaBasis=identifyBasis(replica,info);
+ assert.deepEqual(replicaBasis,{type:'oem_reference',reference:'11537522999',supplierOem:'',referenceSource:'replica_part_code'});
+ assert.ok(matchesEnrichment(replica,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:replicaBasis!}));
+ // Brands outside the rule and numbers the live answer does not list stay unmatched.
+ assert.equal(identifyBasis({...replica,brand:'WENDER',code:'WENDER E-BA11537522999'},info),null);
+ assert.equal(identifyBasis({...genuine,code:'ORJINAL 11537522998',oemReference:'11537522998'},info),null);
+ assert.equal(identifyBasis({...genuine,oemReference:'11537522998'},info),null);
+});
+
 test('complete needs an image and vehicles with no invalid rows',()=>{
  assert.ok(parts2worldComplete({image:true,vehicles:3,invalid:0}));
  assert.ok(!parts2worldComplete({image:false,vehicles:3,invalid:0}));
