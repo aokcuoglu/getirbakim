@@ -28,7 +28,7 @@ export const articleInfoSchema=z.object({data:z.object({
 }).nullable()});
 export type ArticleInfo=NonNullable<z.infer<typeof articleInfoSchema>['data']>;
 export type SourceVehicle=z.infer<typeof vehicleSchema>;
-export type Supplier={brand:string;code:string;oem:string;masterBrand?:string|null};
+export type Supplier={brand:string;code:string;oem:string;masterBrand?:string|null;make?:string|null};
 /** Our catalog's view of a vehicle type, for the vehicle rows' text. */
 export type CatalogType={id:number;brand:string;model:string;name:string;fuel_type:string;cc:number|null;hp:number;kwt:number;date_from:string;date_to:string|null};
 
@@ -39,6 +39,31 @@ const monthYear=(value:string|null|undefined)=>{const m=/^(\d{4})-(\d{2})/.exec(
 const normalize=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,'');
 /** Vehicle rows: a type our catalog knows is written with the catalog's names and figures (the matcher links it by
  *  its id either way); an unknown one keeps the source's, so it stays visible for review. */
+const PSA=['PEUGEOT','CITROEN','DS'],MERCEDES=['MERCEDES-BENZ','SMART'],BMW=['BMW','MINI'],FIAT=['FIAT','ALFA ROMEO','LANCIA'],RENAULT=['RENAULT','DACIA'];
+// Stellantis: recent Opels are PSA-based and carry PSA numbers; Opel's GM-era parts are shared with Chevrolet/Daewoo.
+const OE_MAKERS:Record<string,string[]>={'OE-PSA':[...PSA,'OPEL','VAUXHALL'],'OE-OPEL':['OPEL','VAUXHALL','CHEVROLET','DAEWOO'],'OE-FD':['FORD'],'OE-HYU':['HYUNDAI','KIA'],'OE-MB':MERCEDES};
+const PREFIX_MAKERS:Record<string,string[]>={BA:BMW,BN:BMW,MA:MERCEDES,MN:MERCEDES,RR:['LAND ROVER'],DG:['LAND ROVER'],FE:FIAT,RG:RENAULT,PP:['PORSCHE']};
+const MAKE_MAKERS:Record<string,string[]>={VAG:['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE'],PSA,'PSA ELEKTRIKLI':PSA,RENAULT,'RENAULT ESKI':RENAULT,DACIA:RENAULT,
+ HYUNDAI:['HYUNDAI','KIA'],KIA:['KIA','HYUNDAI'],OPEL:['OPEL','VAUXHALL'],FIAT,TOFAS:FIAT,FORD:['FORD'],NISSAN:['NISSAN'],TOYOTA:['TOYOTA','LEXUS'],
+ BMW,MINI:BMW,MERCEDES,VOLVO:['VOLVO'],CHEVROLET:['CHEVROLET','DAEWOO'],HONDA:['HONDA'],MITSUBISHI:['MITSUBISHI'],JEEP:['JEEP']};
+const plain=(value:string)=>value.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+/** Vehicle makers a part code belongs to (#401): an OE-* label's maker, a Wender code's maker prefix, ORIJINAL's supplier
+ *  make group. A match through that code's OE number keeps only their vehicles; null when the maker is unknown. */
+export function partCodeMakers(supplier:Supplier):string[]|null{
+ if(OE_MAKERS[supplier.brand])return OE_MAKERS[supplier.brand];
+ if(supplier.brand==='WENDER'||supplier.brand==='WENDERPARTS'){
+  const prefix=supplier.code.trim().match(supplier.brand==='WENDER'?/^WENDER\s+E-([A-Z]{2})/i:/^WENDERPARTS\s+([A-Z]{2})/i)?.[1]?.toUpperCase();
+  return prefix?PREFIX_MAKERS[prefix]??null:null;
+ }
+ if(supplier.brand==='ORIJINAL')return MAKE_MAKERS[plain(supplier.make||'')]??null;
+ return null;
+}
+/** A vehicle (catalog brand or source "maker model" name) belongs to one of the makers: "FORD OTOSAN", "MINI (GB)". */
+export const madeBy=(makers:string[],name:string)=>{const value=plain(name);return makers.some(maker=>value===maker||value.startsWith(maker+' '));};
+/** The application rows of the makers' vehicles, read by the catalog type's brand or else the source's maker name. */
+export const makerApplicability=(rows:SourceVehicle[],makers:string[],catalog:Map<number,CatalogType>)=>
+ rows.filter(row=>madeBy(makers,catalog.get(row.modificationId)?.brand??row.manuName));
+
 export function buildVehicles(applicability:SourceVehicle[],catalog:Map<number,CatalogType>){
  const vehicles:EnrichmentData['vehicles']=[],invalid:{typeId:number;error:string}[]=[],seen=new Set<number>();let known=0;
  for(const row of applicability){
