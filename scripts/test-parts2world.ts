@@ -90,7 +90,8 @@ test('ORIJINAL, WENDERPARTS and WENDER rows reach articles through the OE number
  assert.ok(matchesEnrichment(replica,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:replicaBasis!}));
  // Brands outside the rule and numbers the live answer does not list stay unmatched.
  assert.deepEqual(identifyBasis({...replica,brand:'WENDER',code:'WENDER E-BA11537522999'},info),replicaBasis);
- assert.equal(identifyBasis({...replica,brand:'TAIWAN',code:'TAIWAN BA11537522999'},info),null);
+ assert.deepEqual(identifyBasis({...replica,brand:'TAIWAN',code:'TAIWAN 11537522999'},info),replicaBasis);
+ assert.equal(identifyBasis({...replica,brand:'LOCAL',code:'LOCAL 11537522999'},info),null);
  assert.equal(identifyBasis({...genuine,code:'ORJINAL 11537522998',oemReference:'11537522998'},info),null);
  assert.equal(identifyBasis({...genuine,oemReference:'11537522998'},info),null);
 });
@@ -102,6 +103,8 @@ test('an OE-number match keeps only the part code maker\'s vehicles (#401)',()=>
  assert.ok(partCodeMakers({brand:'OE-PSA',code:'9805463680',oem:''})!.includes('CITROEN'));
  assert.deepEqual(partCodeMakers({brand:'ORIJINAL',code:'ORJINAL 5K0807571J',oem:'',make:'VAG'}),['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE']);
  assert.equal(partCodeMakers({brand:'ORIJINAL',code:'ORJINAL 5K0807571J',oem:'',make:''}),null);
+ assert.deepEqual(partCodeMakers({brand:'TAIWAN',code:'TAIWAN 55703231',oem:'',make:'OPEL'}),['OPEL','VAUXHALL']);
+ assert.equal(partCodeMakers({brand:'TAIWAN',code:'TAIWAN 55703231',oem:'',make:'TESLA ELEKTRIKLI'}),null);
  assert.equal(partCodeMakers({brand:'FEBI',code:'FEBI 171209',oem:''}),null);
  assert.ok(madeBy(['CITROEN'],'CITROËN C4 II'));assert.ok(madeBy(['FORD'],'FORD OTOSAN'));assert.ok(madeBy(['MINI'],'MINI (GB) R56'));
  assert.ok(!madeBy(['MINI'],'MINIBUS X'));assert.ok(!madeBy(['DS'],'DSK 1'));
