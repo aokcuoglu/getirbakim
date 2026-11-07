@@ -22,7 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const sourceLabels:Record<string,{name:string;role:string}>={
-  trodo:{name:"Trodo",role:"Eski birincil kaynak · emekliye ayrıldı"},
+  trodo:{name:"Trodo",role:"Birincil kaynak · bekleyen kuyruk"},
   otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
   spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
   parts2world:{name:"parts2world",role:"Arşivlenmiş TecDoc ürünleri · tam araç listesi"},
