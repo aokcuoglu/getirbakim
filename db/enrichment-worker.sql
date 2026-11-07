@@ -119,3 +119,11 @@ CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles
 ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
 ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
 ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+-- One row per fallback-source run over a fixed queue (#403); the admin page counts its progress from the source's
+-- attempts since started_at. A run that ends without closing (process killed) is closed as stopped by the next one.
+CREATE TABLE IF NOT EXISTS enrichment_source_runs (
+ id bigserial PRIMARY KEY, source text NOT NULL, queue text NOT NULL, total integer NOT NULL CHECK(total>=0),
+ started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ outcome text CHECK(outcome IN ('complete','blocked','stopped','failed'))
+);
+CREATE INDEX IF NOT EXISTS enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);

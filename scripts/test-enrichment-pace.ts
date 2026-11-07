@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { partialGaps, passForecast, summarizeSources, type PassPace } from "../src/modules/admin/enrichment-pace";
+import { partialGaps, passForecast, runProgress, summarizeSources, type PassPace, type SourceRun } from "../src/modules/admin/enrichment-pace";
 import { completeWithImage, imageNote, keepsRicherPartial } from "../src/modules/enrichment/partial-gaps";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
@@ -28,14 +28,26 @@ test("products spareto found in the pending queue shorten the forecast; Trodo's 
 test("each source gets its own row, state and hit rate", () => {
   const now = Date.parse("2026-10-18T12:00:00Z"), ago = (minutes: number) => new Date(now - minutes * 60_000);
   const rows = summarizeSources([
-    { source: "spareto", searched: 300, found: 84, errors: 1, last: ago(1), last_outcome: "not_found" },
-    { source: "trodo", searched: 527, found: 480, errors: 2, last: ago(3), last_outcome: null },
-    { source: "otoparcasan", searched: 12, found: 3, errors: 0, last: ago(50), last_outcome: "found" },
+    { source: "spareto", searched: 300, found: 84, errors: 1, last_hour: 0, last: ago(1), last_outcome: "not_found" },
+    { source: "trodo", searched: 527, found: 480, errors: 2, last_hour: 0, last: ago(3), last_outcome: null },
+    { source: "otoparcasan", searched: 12, found: 3, errors: 0, last_hour: 0, last: ago(50), last_outcome: "found" },
   ], { "www.trodo.com": 8655, "otoparcasan.com": 4381, "spareto.com": 212, "": 3 }, false, now);
   assert.deepEqual(rows.map(r => [r.source, r.state, r.written]), [["trodo", "running", 8655], ["otoparcasan", "idle", 4381], ["spareto", "running", 212], ["parts2world", "idle", 0]]);
   assert.equal(rows[2].hitRate, 0.28);
-  const blocked = summarizeSources([{ source: "spareto", searched: 0, found: 0, errors: 0, last: ago(1), last_outcome: "blocked" }], {}, true, now);
+  const blocked = summarizeSources([{ source: "spareto", searched: 0, found: 0, errors: 0, last_hour: 0, last: ago(1), last_outcome: "blocked" }], {}, true, now);
   assert.deepEqual(blocked.map(r => [r.state, r.hitRate, r.written]), [["blocked", null, 0], ["idle", null, 0], ["blocked", null, 0], ["idle", null, 0]]);
+});
+
+test("a source run shows its progress, state and time left at the last hour's pace (#403)", () => {
+  const now = Date.parse("2026-11-07T12:00:00Z"), ago = (minutes: number) => new Date(now - minutes * 60_000);
+  const run: SourceRun = { queue: "pending", total: 63794, processed: 1794, errors: 3, started_at: ago(200), finished_at: null, outcome: null, last: ago(1) };
+  const going = runProgress(run, 560, now);
+  assert.deepEqual([going.state, going.processed, going.remaining], ["running", 1794, 62000]);
+  assert.equal(Math.round(going.hoursLeft!), 111);
+  assert.deepEqual([runProgress({ ...run, last: ago(40) }, 0, now).state, runProgress({ ...run, last: ago(40) }, 0, now).hoursLeft], ["quiet", null]);
+  assert.equal(runProgress({ ...run, finished_at: ago(5), outcome: "blocked" }, 560, now).state, "blocked");
+  const done = runProgress({ ...run, processed: 63800, finished_at: ago(5), outcome: "complete" }, 0, now);
+  assert.deepEqual([done.state, done.remaining, done.percent], ["complete", 0, 100]);
 });
 
 test("partial gaps name what each adapter could not collect", () => {

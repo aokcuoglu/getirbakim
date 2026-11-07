@@ -31,7 +31,7 @@ import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageU
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
-import {recordAttempt} from '../src/modules/enrichment/source-attempts';
+import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun} from '../src/modules/enrichment/source-lock';
 import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
@@ -249,7 +249,10 @@ async function collect(){
    to_char(t.year_of_constr_from,'YYYY-MM') AS date_from,to_char(t.year_of_constr_to,'YYYY-MM') AS date_to
    FROM vehicle_types t JOIN vehicle_models m ON m.id=t.model_id JOIN vehicle_brands b ON b.id=m.brand_id`)).rows.map(t=>[t.id,t]));
   console.log(JSON.stringify({collecting:rows.length,status,checkpoint,intervalMs:client.intervalMs}));
-  let index=0;
+  // A full queue pass is shown with its progress on the admin page (#403); an --ids pick is not a run.
+  const finishRun=dryRun||ids?null:await startSourceRun(pool,'parts2world',status,rows.length);
+  let index=0,outcome:RunOutcome='failed';
+  try{
   for(const row of rows){
    index++;
    try{
@@ -280,11 +283,13 @@ async function collect(){
     const written=dryRun?'toplandı':await write({supplierItemId:row.id,package:pkg})==='imported'?`yazıldı (${complete?'tamamlandı':'kısmi'})`:'yazılmadı';
     console.log(`${index} ${row.code} → ${info.brand} ${info.name} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${vehicle.known}/${vehicle.total} katalogda · görsel ${image?'var':'yok'} · ${written}`);
    }catch(error){
-    if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',status,row.id,'blocked');console.error(String(error));process.exitCode=2;break;}
+    if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',status,row.id,'blocked');console.error(String(error));process.exitCode=2;outcome='blocked';break;}
     if(error instanceof DatabaseUnavailable||connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
     await record({supplierItemId:row.id,outcome:'error',error:String(error)});console.log(`${index} ${row.code} → hata: ${error}`);
    }
   }
+  if(!process.exitCode)outcome='complete';
+  }finally{await finishRun?.(outcome);}
  }finally{await lock.release();await alone.release();}
  console.log(JSON.stringify({requests:client.requests}));
 }
