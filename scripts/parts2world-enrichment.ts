@@ -19,18 +19,21 @@
 //                    pending goes in stock order; a partial product is replaced only by a complete result or one with
 //                    more vehicles. One request every PARTS2WORLD_INTERVAL_MS (default 2500) + up to 1 s; HTTP 403/429/503
 //                    stops the run, collected packages stay in the checkpoint and are written on the next run.
+//   trim-oem-vehicles [--dry-run]  products written through an OE number keep only the part code's maker's vehicles
+//                    (#401; collect filters new ones the same way)
 //   report           summarises the checkpoint
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
+import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun} from '../src/modules/enrichment/source-lock';
+import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey} from '../src/modules/store/enrichment-contract';
 
@@ -54,7 +57,7 @@ async function entries(){
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return latest;
 }
-const supplierColumns=`s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
+const supplierColumns=`s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,COALESCE(s.product_data->>'kull1s','') AS make,
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"`;
 
 /** CSV line with optional double-quoted fields (PostgreSQL's csv format). */
@@ -172,7 +175,7 @@ type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number
 // partial queue only a complete one. Pending, like Trodo and spareto, takes only storefront catalog products still
 // pending there (a supplier row linked to no master product is not in the catalog, #386), goes in the Trodo pass's
 // stock tiers and leaves products in an unfinished Trodo run to it.
-const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,"masterBrand","articleId","linkId","vehicleTypeId","oemReference" FROM (
+const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,make,"masterBrand","articleId","linkId","vehicleTypeId","oemReference" FROM (
  SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,${supplierColumns},
   a.article_id::text AS "articleId",a.link_id::text AS "linkId",a.vehicle_type_id AS "vehicleTypeId",m.oem_reference AS "oemReference",
   CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END AS tier
@@ -257,12 +260,19 @@ async function collect(){
      await record({supplierItemId:row.id,outcome:'not_found',error:info?`answer names ${info.brand} ${info.name}`:'no article for the archived ids'});
      console.log(`${index} ${row.code} → bulunamadı${info?` (yanıt: ${info.brand} ${info.name})`:''}`);continue;
     }
-    const vehicle=buildVehicles(info.applicability||[],catalog),data=buildData(info,vehicle.vehicles);
+    // Through an OE number only the part code's maker's vehicles apply (#401): the article may serve many makers.
+    const makers=basis.type==='oem_reference'?partCodeMakers(row):null,listed=info.applicability||[];
+    const applicability=makers?makerApplicability(listed,makers,catalog):listed;
+    if(makers&&listed.length&&!applicability.length){
+     await record({supplierItemId:row.id,outcome:'not_found',error:`no ${makers.join('/')} vehicle among the ${listed.length} of ${info.brand} ${info.name}`});
+     console.log(`${index} ${row.code} → bulunamadı (${info.brand} ${info.name}: ${makers.join('/')} aracı yok)`);continue;
+    }
+    const vehicle=buildVehicles(applicability,catalog),data=buildData(info,vehicle.vehicles);
     const image=await downloadImage(client,imageUrl(info),row.id);
     if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
     const complete=parts2worldComplete({image:Boolean(image),vehicles:data.vehicles.length,invalid:vehicle.invalid.length});
     const pkg=enrichmentImportSchema.parse({supplierItemId:row.id,supplierCode:row.code,supplierBrand:row.brand,source:productUrl(ids),
-     sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
+     sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${makers?`; vehicles of ${makers.join('/')} only`:''}${data.vehicles.length?'':'; no vehicles listed'}`,
      manufacturer:info.brand,partNumber:info.name,matchBasis:basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
     const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
      specifications:data.specifications.length,vehicles:data.vehicles.length,known:vehicle.known,total:vehicle.total,invalid:vehicle.invalid.length};
@@ -279,6 +289,42 @@ async function collect(){
  console.log(JSON.stringify({requests:client.requests}));
 }
 
+/** Products already written through an OE number keep only the part code's maker's vehicles (#401). The stored
+ *  package is imported again with the filtered list (its image stays); one left with none goes back to pending. */
+async function trimOemVehicles(){
+ const dryRun=args.includes('--dry-run'),counts={checked:0,unknownMaker:0,unchanged:0,trimmed:0,removedVehicles:0,noneLeft:0};
+ const rows=(await pool.query(`SELECT e.supplier_item_id AS id,e.supplier_code,e.supplier_brand,e.source_url,e.source_method,e.manufacturer,
+   e.manufacturer_part_number,e.payload,e.match_basis,j.status,${supplierColumns}
+  FROM product_enrichments e JOIN product_enrichment_jobs j USING(supplier_item_id) JOIN supplier_items s ON s.id=e.supplier_item_id
+  WHERE e.source_url LIKE 'https://www.parts2world.com/%' AND e.match_basis->>'type'='oem_reference' ORDER BY 1`)).rows;
+ const noneLeft:string[]=[];
+ for(const row of rows){
+  counts.checked++;
+  const makers=partCodeMakers(row);if(!makers){counts.unknownMaker++;continue;}
+  const vehicles=row.payload.vehicles as {model:string}[],kept=vehicles.filter(v=>madeBy(makers,v.model));
+  if(kept.length===vehicles.length){counts.unchanged++;continue;}
+  if(!kept.length){
+   // None of the article's vehicles is the maker's: the number belongs to another maker. The product goes back to
+   // pending without this data; collect now answers it as not found.
+   counts.noneLeft++;noneLeft.push(`${row.id} ${row.code} → ${row.manufacturer} ${row.manufacturer_part_number} (${vehicles.length})`);
+   if(!dryRun){const client=await pool.connect();
+    try{await client.query('BEGIN');await lockFitmentSync(client);
+     for(const table of ['product_vehicle_fitments','product_source_categories','product_enrichments'])
+      await client.query(`DELETE FROM ${table} WHERE supplier_item_id=$1`,[row.id]);
+     await client.query(`UPDATE product_enrichment_jobs SET status='pending',last_error=$2,updated_at=now() WHERE supplier_item_id=$1`,
+      [row.id,`parts2world OE match lists no ${makers.join('/')} vehicle (#401)`]);
+     await client.query('COMMIT');
+    }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+   continue;
+  }
+  counts.trimmed++;counts.removedVehicles+=vehicles.length-kept.length;
+  if(!dryRun)await importEnrichments(pool,[{supplierItemId:row.id,supplierCode:row.supplier_code,supplierBrand:row.supplier_brand,source:row.source_url,
+   sourceMethod:`${row.source_method}; vehicles of ${makers.join('/')} only`,manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,
+   matchBasis:row.match_basis,completeness:row.status==='complete'?'complete':'partial',data:{...row.payload,vehicles:kept}}],matcher);
+ }
+ console.log(JSON.stringify({dryRun,...counts,noneLeft},null,1));
+}
+
 async function report(){
  const all=[...(await entries()).values()],by=(outcome:string)=>all.filter(e=>e.outcome===outcome).length;
  const counts=all.flatMap(e=>e.counts?[e.counts]:[]),sum=(key:'vehicles'|'known'|'total'|'invalid')=>counts.reduce((total,c)=>total+c[key],0);
@@ -291,6 +337,6 @@ async function report(){
 
 try{
  if(command==='index')await index();else if(command==='match')await match();else if(command==='index-oems')await indexOems();
- else if(command==='collect')await collect();else if(command==='report')await report();
+ else if(command==='collect')await collect();else if(command==='trim-oem-vehicles')await trimOemVehicles();else if(command==='report')await report();
  else throw Error('Usage: parts2world-enrichment.ts index --file F|match|collect --status partial|pending|not_found|report');
 }finally{await pool.end();}

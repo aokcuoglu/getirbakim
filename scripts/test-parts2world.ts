@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
+import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -93,6 +93,21 @@ test('ORIJINAL, WENDERPARTS and WENDER rows reach articles through the OE number
  assert.equal(identifyBasis({...replica,brand:'TAIWAN',code:'TAIWAN BA11537522999'},info),null);
  assert.equal(identifyBasis({...genuine,code:'ORJINAL 11537522998',oemReference:'11537522998'},info),null);
  assert.equal(identifyBasis({...genuine,oemReference:'11537522998'},info),null);
+});
+
+test('an OE-number match keeps only the part code maker\'s vehicles (#401)',()=>{
+ assert.deepEqual(partCodeMakers({brand:'WENDERPARTS',code:'WENDERPARTS BA66209274428',oem:''}),['BMW','MINI']);
+ assert.deepEqual(partCodeMakers({brand:'WENDER',code:'WENDER E-MA2928855422',oem:''}),['MERCEDES-BENZ','SMART']);
+ assert.equal(partCodeMakers({brand:'WENDERPARTS',code:'WENDERPARTS JX7B13W029CF',oem:''}),null);
+ assert.ok(partCodeMakers({brand:'OE-PSA',code:'9805463680',oem:''})!.includes('CITROEN'));
+ assert.deepEqual(partCodeMakers({brand:'ORIJINAL',code:'ORJINAL 5K0807571J',oem:'',make:'VAG'}),['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE']);
+ assert.equal(partCodeMakers({brand:'ORIJINAL',code:'ORJINAL 5K0807571J',oem:'',make:''}),null);
+ assert.equal(partCodeMakers({brand:'FEBI',code:'FEBI 171209',oem:''}),null);
+ assert.ok(madeBy(['CITROEN'],'CITROËN C4 II'));assert.ok(madeBy(['FORD'],'FORD OTOSAN'));assert.ok(madeBy(['MINI'],'MINI (GB) R56'));
+ assert.ok(!madeBy(['MINI'],'MINIBUS X'));assert.ok(!madeBy(['DS'],'DSK 1'));
+ // The catalog type's brand decides; a type the catalog lacks is read by the source's maker name.
+ const rows=[{modificationId:19013,manuName:'X'},{modificationId:1,manuName:'VW'},{modificationId:2,manuName:'MINI'}] as SourceVehicle[];
+ assert.deepEqual(makerApplicability(rows,['BMW','MINI'],new Map([[19013,catalogType]])).map(r=>r.modificationId),[19013,2]);
 });
 
 test('complete needs an image and vehicles with no invalid rows',()=>{
