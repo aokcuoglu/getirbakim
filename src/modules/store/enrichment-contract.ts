@@ -88,7 +88,7 @@ function matchesBrandPart(supplierBrand: string, supplierCode: string, manufactu
 export type PartCodeOem = { reference: string; source: "original_manufacturer_part_code" | "replica_part_code" };
 /** OE numbers a supplier part code itself names: an original manufacturer's own number (OE-PSA, OE-OPEL…, and
  *  ORIJINAL's "ORJINAL 5K0807571J"), or a replica brand's code built from the OE number it copies (WENDERPARTS
- *  "BA51117893067" = BMW 51117893067, with an optional P1/S1 variant suffix). */
+ *  "BA51117893067" = BMW 51117893067, WENDER "E-BA51117893067", with an optional P1/S12 variant suffix). */
 export function partCodeOems(brand: string, code: string): PartCodeOem[] {
   const value = code.trim();
   if (/^OE-/.test(brand)) return [{ reference: value, source: "original_manufacturer_part_code" }];
@@ -96,10 +96,10 @@ export function partCodeOems(brand: string, code: string): PartCodeOem[] {
     const own = value.match(/^OR[Iİ]?JINAL\s+(\S.*)$/i)?.[1];
     return own ? [{ reference: own, source: "original_manufacturer_part_code" }] : [];
   }
-  if (brand === "WENDERPARTS") {
-    const copied = value.match(/^WENDERPARTS\s+[A-Z]{2}_?(\S+)$/i)?.[1];
+  if (brand === "WENDERPARTS" || brand === "WENDER") {
+    const copied = value.match(brand === "WENDER" ? /^WENDER\s+E-[A-Z]{2}_?(\S+)$/i : /^WENDERPARTS\s+[A-Z]{2}_?(\S+)$/i)?.[1];
     if (!copied) return [];
-    const base = copied.replace(/[PS]\d$/i, "");
+    const base = copied.replace(/[PS]\d{1,2}$/i, "");
     return [...new Set([copied, base])].map(reference => ({ reference, source: "replica_part_code" as const }));
   }
   return [];
