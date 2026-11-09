@@ -1,5 +1,6 @@
-# Supplier egress proxy (#411). Runs on the Contabo VPS, outside the application stack:
-#   docker compose -f infra/squid/compose.yml up -d
+# Supplier egress proxy (#411). Runs on the Contabo VPS from /opt/getirbakim-egress, outside the
+# application stack and its checkout (README.md):
+#   docker compose -f compose.yml up -d
 name: getirbakim-egress
 
 services:
