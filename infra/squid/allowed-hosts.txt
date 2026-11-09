@@ -1,0 +1,4 @@
+# Supplier API hosts the application may tunnel to (port 443 only).
+dinamikapp-api.dinamik.online
+api.basbug.com.tr
+b2b-api.ismyazilim.com

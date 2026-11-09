@@ -3,6 +3,7 @@ import { rootCertificates } from "node:tls";
 import { z } from "zod";
 import type { Pool } from "pg";
 import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
+import { EgressProxyError, egressProxyFor, TunnelAgent } from "./egress-proxy";
 
 // Shared by the scheduler and CLI. Dinamik publishes one stock list (product + regional availability)
 // and one price list per brand; there is no paging, so each brand is one complete scope.
@@ -81,6 +82,7 @@ export type DinamikFetch = (path: string, body?: unknown) => Promise<unknown>;
  * Production egress is the VPS address Dinamik allow-lists. Local development can reach the API
  * through `ssh -N -L 18443:dinamikapp-api.dinamik.online:443 root@<vps>` with
  * DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443; SNI, certificate check and Host header keep the real name.
+ * Away from the VPS (AWS, #411) SUPPLIER_EGRESS_PROXY tunnels the same TLS session through the VPS proxy.
  */
 export function dinamikClient(): DinamikFetch {
   const required = (key: string) => {
@@ -95,11 +97,16 @@ export function dinamikClient(): DinamikFetch {
   const apiKey = required("DINAMIK_APIKEY"), secretKey = required("DINAMIK_SECRETKEY");
   const tunnel = process.env.DINAMIK_DIRECT_TUNNEL?.trim().match(/^(127\.0\.0\.1|localhost):(\d{2,5})$/);
   if (process.env.DINAMIK_DIRECT_TUNNEL?.trim() && !tunnel) throw new DinamikImportError("config", "DINAMIK_DIRECT_TUNNEL");
+  let proxy: ReturnType<typeof egressProxyFor>;
+  try { proxy = egressProxyFor("dinamik"); }
+  catch (error) { throw error instanceof EgressProxyError ? new DinamikImportError("config", error.setting) : error; }
+  if (proxy && tunnel) throw new DinamikImportError("config", "DINAMIK_DIRECT_TUNNEL with SUPPLIER_EGRESS_PROXY");
+  const agent = proxy ? new TunnelAgent(proxy) : undefined;
   const ca = [...rootCertificates, SECTIGO_DV_R36];
   return (path, body) => new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = request({
-      host: tunnel?.[1] ?? DINAMIK_HOST, port: tunnel ? Number(tunnel[2]) : 443, servername: DINAMIK_HOST, ca,
+      host: tunnel?.[1] ?? DINAMIK_HOST, port: tunnel ? Number(tunnel[2]) : 443, servername: DINAMIK_HOST, ca, agent,
       path: `/api/Dnmk_Customer/${path}`, method: payload ? "POST" : "GET", timeout: payload ? 20_000 : 120_000,
       headers: { Host: DINAMIK_HOST, Accept: "application/json", ApiKey: apiKey, SecretKey: secretKey,
         ...(payload ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(payload)) } : {}) },
