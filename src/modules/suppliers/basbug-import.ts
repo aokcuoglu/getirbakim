@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import { applySupplierSnapshot, rejectionReason } from "./sync";
 import { basbugWarehouses } from "./basbug-stock";
+import { egressProxyFor, supplierFetch } from "./egress-proxy";
 export { basbugWarehouses } from "./basbug-stock";
 
 // Shared by the admin server action and CLI. Never imported by a client component.
@@ -118,12 +119,13 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
     try { base = new URL(required("BASBUG_BASE_URL")); }
     catch { throw new BasbugImportError("config"); }
     if (base.protocol !== "https:" || base.hostname !== "api.basbug.com.tr" || base.username || base.password) throw new BasbugImportError("config");
+    try { egressProxyFor("basbug"); } catch { throw new BasbugImportError("config", "SUPPLIER_EGRESS_PROXY"); }
     let token = "", expires = 0;
     async function login() {
       stage = "Auth";
       progress?.("Auth");
       const before = Date.now();
-      const result = await fetch(new URL("/auth/Login", base), {
+      const result = await supplierFetch("basbug", new URL("/auth/Login", base), {
         method: "POST", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(20_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kullaniciAdi: required("BASBUG_USERNAME"), parola: required("BASBUG_PASSWORD"), clientID: required("BASBUG_CLIENT_ID"), clientSecret: required("BASBUG_CLIENT_SECRET") }),
@@ -139,7 +141,7 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       stage = path;
       const url = new URL(`/material/${path}`, base);
       url.search = new URLSearchParams({ FirmaAdi: company, ...params }).toString();
-      const result = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(60_000) });
+      const result = await supplierFetch("basbug", url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(60_000) });
       // 607 means this account has no priority/access for this depot. It is unknown, not out of stock.
       if (optionalDepot && result.status === 607) {
         observations[`${path}:${params.Depo}:607`] = new Date().toISOString();

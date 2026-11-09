@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Pool } from "pg";
 import { canonical } from "./basbug-import";
 import { setaCompany } from "./storefront-sources";
+import { egressProxyFor, supplierFetch } from "./egress-proxy";
 import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
 
 // SETA (Seta Filtre) publishes its whole B2B list from one endpoint: GET /seta/products with an XApiKey header.
@@ -86,6 +87,7 @@ function endpoint() {
   try { url = new URL(process.env.SETA_BASE_URL || "https://b2b-api.ismyazilim.com/seta/products"); }
   catch { throw new SetaImportError("config"); }
   if (url.protocol !== "https:" || url.hostname !== "b2b-api.ismyazilim.com" || url.username || url.password) throw new SetaImportError("config");
+  try { egressProxyFor("seta"); } catch { throw new SetaImportError("config"); }
   return { url, key };
 }
 
@@ -122,7 +124,7 @@ export async function importSeta(pool: Pool, options: z.input<typeof optionsSche
     stage = "products";
     progress?.(stage);
     if (paused()) throw new SetaImportError("paused");
-    const response = await fetch(url, { headers: { XApiKey: key, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(60_000) });
+    const response = await supplierFetch("seta", url, { headers: { XApiKey: key, Accept: "application/json" }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(60_000) });
     if (!response.ok) throw new SetaImportError("upstream", `products HTTP ${response.status}`);
     const data: unknown = await response.json();
     observations.products = new Date().toISOString();
