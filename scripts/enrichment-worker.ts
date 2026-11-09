@@ -5,7 +5,8 @@ import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {transform} from 'esbuild';
 import {z} from 'zod';
-import {SourceQueue,SourceBlocked,WorkerStopped} from '../src/modules/enrichment/source-queue';
+import {enqueueProductSources,reconcileProductQueue} from '../src/modules/enrichment/product-queue';
+import {SourceQueue,SourceBlocked,WorkerStopped,unblockSources} from '../src/modules/enrichment/source-queue';
 import {SOURCE_HOSTS} from '../src/modules/enrichment/policy';
 import type {SourceProduct} from '../src/modules/enrichment/trodo-adapter';
 import {sourcePartQueries,oemSearchPath,supplierOemQueries,verifiedOemReference,searchPath,parseSearch,chooseExact,parseProduct,parseView,collectVehicles,normalizeData,imagePath,safeProductSlug,manufacturerBrandKey} from '../src/modules/enrichment/trodo-adapter';
@@ -14,11 +15,12 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {productCategories} from '../src/modules/enrichment/source-categories';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
+import {recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
 const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().int().min(0).max(599),elapsedMs:z.number().int().min(0).max(120000),bytes:z.number().int().min(0).max(15*1024*1024),retryAfter:z.string().nullable(),error:z.string().max(2000).optional(),challenge:z.boolean().optional(),body:z.unknown().optional()});
 async function prepare(){
- const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+ const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query(await readFile('db/enrichment-products.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 async function report(runId:string){
  const run=(await pool.query('SELECT * FROM enrichment_runs WHERE id=$1',[runId])).rows[0];
@@ -31,42 +33,56 @@ async function report(runId:string){
  const results={run,outcomes,stages,requests,brandCount:brands.length,brands,quality};
  await mkdir(`artifacts/enrichment-pilot-${runId}`,{recursive:true});await writeFile(`artifacts/enrichment-pilot-${runId}/report.json`,JSON.stringify(results,null,2));return results;
 }
-// Supplier items that arrived after the last `enrichment:prepare` join the full catalog pass.
-async function enqueueNewSupplierItems(){
- return (await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
-  SELECT id,code,COALESCE(product_data->>'uk',''),COALESCE(product_data->>'oe','') FROM supplier_items
-  ON CONFLICT(supplier_item_id) DO NOTHING`)).rowCount??0;
-}
+// Each unmerged master product contributes at most one source visit to the full catalog pass.
 async function createRun(size:number,seed:string,allowShort=false,spreadBrands=true){
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
  const client=await pool.connect();try{
   await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(20261004,1)');
-  const active=(await client.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
   const run=(await client.query('INSERT INTO enrichment_runs(seed,sample_size) VALUES($1,$2) RETURNING id',[seed,size])).rows[0];
   // Stable random sample. A pilot first takes one representative per supplier brand; the catalog pass skips that,
   // because every batch would otherwise start with hundreds of brand samples. Then saleable in-stock items, other
   // saleable items, and items no longer offered in the storefront, so linked products grow fastest where orders
-  // happen; every pending item is still reached.
-  await client.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,supplier_item_id,row_number() OVER(ORDER BY priority,hash)-1,supplier_code,supplier_brand,oem FROM (
-    SELECT j.*,md5($2||j.supplier_item_id::text) AS hash,
-     CASE WHEN $4 AND row_number() OVER(PARTITION BY supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
+  // happen; every pending item is still reached. Within each tier, items Trodo is likely to match and spareto is not
+  // come first: a miss costs several rate-limited searches, and spareto works the same queue, so Trodo's scarce
+  // requests go where only it adds products (#380). Trodo's brand yield is smoothed toward the overall rate so brands
+  // with few finished items stay in the middle until measured; spareto's counts once it searched a brand 5 times
+  // (else 0.5, as in spareto-enrichment.ts) and is 0 for an item spareto already missed. The product is bucketed
+  // so brands of similar value are still interleaved. Items an earlier search already listed come first in their
+  // tier: they cost no search of their own (#376).
+  await client.query(`WITH finished AS (
+    SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
+    FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
+   overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished),
+   spareto AS (SELECT b.supplier_brand,count(*) FILTER(WHERE a.outcome='found')::numeric/count(*) AS rate FROM enrichment_source_attempts a
+    JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id WHERE a.source='spareto' AND a.outcome IN ('found','not_found')
+    GROUP BY 1 HAVING count(*)>=5),
+   spareto_missed AS (SELECT DISTINCT supplier_item_id FROM enrichment_source_attempts WHERE source='spareto' AND outcome='not_found')
+   INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
+   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,listed DESC,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
+    SELECT j.*,md5($2||j.product_id::text) AS hash,
+     round(20*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)*(1-CASE WHEN m.supplier_item_id IS NULL THEN COALESCE(sp.rate,0.5) ELSE 0 END)) AS yield_bucket,
+     EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=enrichment_brand_key(j.supplier_brand)
+      AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) AS listed,
+     CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
       ELSE 2 END AS priority
-    FROM product_enrichment_jobs j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
-    WHERE j.status='pending' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.supplier_item_id=j.supplier_item_id AND r.status IN ('prepared','running','blocked','stopped'))
-   ) s ORDER BY priority,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
+    FROM enrichment_product_catalog j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+     LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
+     LEFT JOIN spareto sp ON sp.supplier_brand=j.supplier_brand LEFT JOIN spareto_missed m ON m.supplier_item_id=j.supplier_item_id
+    WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
+   ) s ORDER BY priority,listed DESC,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
   await mkdir(`artifacts/enrichment-pilot-${run.id}`,{recursive:true});
-  const items=(await pool.query('SELECT ordinal,supplier_item_id,supplier_code,supplier_brand,oem FROM enrichment_run_items WHERE run_id=$1 ORDER BY ordinal',[run.id])).rows;
+  const items=(await pool.query('SELECT ordinal,product_id,supplier_item_id,supplier_code,supplier_brand,oem FROM enrichment_run_items WHERE run_id=$1 ORDER BY ordinal',[run.id])).rows;
   await writeFile(`artifacts/enrichment-pilot-${run.id}/manifest.json`,JSON.stringify({id:run.id,size:count,seed,strategy:'One per brand, remainder stable hash sample of pending jobs',items},null,2));return run.id;
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 async function serve(runId:string,port:number,chrome=false){
- const run=(await pool.query('SELECT id FROM enrichment_runs WHERE id=$1',[runId])).rows[0];if(!run)throw Error('Unknown run');
+ const run=(await pool.query("SELECT id FROM enrichment_runs WHERE id=$1 AND kind='products'",[runId])).rows[0];if(!run)throw Error('Unknown run');
  const token=randomBytes(32).toString('hex'),queue=new SourceQueue(pool,runId),matcher=createMatcherCache();
  const directory=resolve(`artifacts/enrichment-pilot-${runId}`);await mkdir(directory,{recursive:true});
  const secretDirectory=resolve('.local/enrichment');await mkdir(secretDirectory,{recursive:true});
@@ -104,6 +120,7 @@ async function serve(runId:string,port:number,chrome=false){
  const locked=(await owner.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0].locked;
  if(!locked){server.close();owner.release();throw Error('Run already has a worker');}
  let stopping=false;const stop=()=>{stopping=true;queue.stopping=true;};for(const signal of ['SIGINT','SIGTERM'] as const)process.once(signal,stop);
+ await reconcileProductQueue(pool,runId);
  await pool.query("UPDATE enrichment_runs SET status='running',started_at=coalesce(started_at,now()),finished_at=NULL WHERE id=$1",[runId]);
  const collectors=chrome?startChromeCollectors(queue,{port:Number(process.env.ENRICHMENT_CHROME_PORT||9222),profileDir:resolve('.local/enrichment/chrome-profile'),clientCode,
   landing:{'www.trodo.com':'https://www.trodo.com/','picdn.trodo.com':'https://picdn.trodo.com/media/m2_catalog_cache/480x480%2FTecDoc%2F4657%2F210%2F52%2F445-1134mldem2.jpg?1'}}):null;
@@ -118,15 +135,22 @@ async function serve(runId:string,port:number,chrome=false){
     if(remaining){await new Promise(r=>setTimeout(r,1000));continue;}
     await pool.query("UPDATE enrichment_runs SET status='complete',finished_at=now() WHERE id=$1",[runId]);break;
    }
+   const scope=(await pool.query(`SELECT c.status FROM enrichment_product_catalog c JOIN enrichment_current_sources ps
+    ON ps.product_id=c.product_id WHERE c.product_id=$1 AND ps.supplier_item_id=$2`,[item.product_id,item.supplier_item_id])).rows[0];
+   // A partial product is re-collected only through retry-partial; its stored data is replaced, never downgraded.
+   const retry=(item.checkpoint as Record<string,unknown>).retry==='partial';
+   if(!(scope?.status==='pending'||(scope?.status==='partial'&&retry))){
+    await pool.query("UPDATE enrichment_run_items SET status='skipped',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]);continue;
+   }
    const heartbeat=setInterval(()=>void pool.query("UPDATE enrichment_run_items SET lease_until=now()+interval '2 minutes' WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",[runId,item.supplier_item_id,lease]).catch(console.error),30000);
    const cp=item.checkpoint as Record<string,unknown>;
    async function checkpoint(stage:string,value:Record<string,unknown>){Object.assign(cp,value);await pool.query('UPDATE enrichment_run_items SET stage=$4,checkpoint=$5 WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3',[runId,item.supplier_item_id,lease,stage,JSON.stringify(cp)]);}
    async function outcome(status:string,error?:string){
     const client=await pool.connect();try{await client.query('BEGIN');
-     const current=(await client.query("SELECT code,product_data->>'uk' AS brand FROM supplier_items WHERE id=$1 FOR SHARE",[item.supplier_item_id])).rows[0];
+     const current=(await client.query("SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand FROM supplier_items WHERE id=$1 FOR SHARE",[item.supplier_item_id])).rows[0];
      if(!current||current.code!==item.supplier_code||current.brand!==item.supplier_brand){status='review';error='Supplier identity changed during collection';}
      await client.query('UPDATE enrichment_run_items SET status=$4,last_error=$5,finished_at=now(),lease_until=NULL,lease_token=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3',[runId,item.supplier_item_id,lease,status,error||null]);
-     if(!['complete','partial'].includes(status))await client.query("UPDATE product_enrichment_jobs SET status=$2,last_error=$3,attempts=attempts+1,last_attempt_at=now(),updated_at=now() WHERE supplier_item_id=$1 AND supplier_code=$4 AND supplier_brand=$5 AND status<>'complete'",[item.supplier_item_id,status,error||null,item.supplier_code,item.supplier_brand]);
+     if(!['complete','partial'].includes(status))await client.query("UPDATE product_enrichment_jobs SET status=$2,last_error=$3,attempts=attempts+1,last_attempt_at=now(),updated_at=now() WHERE supplier_item_id=$1 AND supplier_code=$4 AND supplier_brand=$5 AND status NOT IN ('complete','partial')",[item.supplier_item_id,status,error||null,item.supplier_code,item.supplier_brand]);
      await client.query('COMMIT');
     }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
     console.log(JSON.stringify({ordinal:item.ordinal+1,code:item.supplier_code,status,error}));
@@ -158,8 +182,20 @@ async function serve(runId:string,port:number,chrome=false){
     }
     // Searches saved before "By name" / OE-number page searching (v2) are not reused.
     if(cp.searchVersion!==2&&!cp.product){delete cp.search;delete cp.partSearches;delete cp.oemSearch;cp.searchVersion=2;}
+    // Every search also lists products of other pending items; they are kept so those items can skip their search.
+    const sourceSearch=async(path:string)=>{const result=parseSearch(await queue.get('www.trodo.com',path));await recordSearchProducts(pool,result.products);return result;};
     const queries=sourcePartQueries(item.supplier_brand,item.supplier_code);
-    if(!cp.search){const search=parseSearch(await queue.get('www.trodo.com',searchPath(queries[0])));await checkpoint('identity',{search});}
+    // A product an earlier search already listed is opened directly. Its page must still pass the exact part check;
+    // a stale or mismatching page falls back to the item's own search.
+    if(!cp.search&&!cp.product){
+     const known=chooseExact(item.supplier_brand,item.supplier_code,await knownSearchProducts(pool,item.supplier_code));
+     if(known)try{
+      const product=parseProduct(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/product-url/'+encodeURIComponent(safeProductSlug(known))+'/IE'));
+      if(String(product.entity_id)===String(known.entity_id)&&matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku))
+       await checkpoint('view',{search:{products:[known]},product,discovered:true});
+     }catch(error){if(error instanceof SourceBlocked||error instanceof WorkerStopped)throw error;}
+    }
+    if(!cp.search){const search=await sourceSearch(searchPath(queries[0]));await checkpoint('identity',{search});}
     const search=parseSearch([cp.search]);
     const fallbackSearches=cp.partSearches?z.array(z.object({query:z.string()}).passthrough()).parse(cp.partSearches):[];
     const partCandidates=()=>[...search.products,...fallbackSearches.flatMap(s=>parseSearch([s]).products)];
@@ -172,14 +208,14 @@ async function serve(runId:string,port:number,chrome=false){
     if(!exact&&oemSource){
      for(const q of [...supplierOemQueries(supplierOem).slice(0,3),...supplierOemQueries(ownCode)]){
       if(oemSearches.some(s=>s.query===q))continue;
-      oemSearches.push({query:q,...parseSearch(await queue.get('www.trodo.com',oemSearchPath(q)))});
+      oemSearches.push({query:q,...await sourceSearch(oemSearchPath(q))});
       await checkpoint('review',{oemSearch:oemSearches});
      }
      exact=exactMatch()||await verifyByOem(ranked(),5);
     }
     if(!exact){
      for(const query of queries.slice(1)){
-      if(!fallbackSearches.some(s=>s.query===query)){fallbackSearches.push({query,...parseSearch(await queue.get('www.trodo.com',searchPath(query)))});await checkpoint('identity',{partSearches:fallbackSearches});}
+      if(!fallbackSearches.some(s=>s.query===query)){fallbackSearches.push({query,...await sourceSearch(searchPath(query))});await checkpoint('identity',{partSearches:fallbackSearches});}
       exact=exactMatch();
       // Only newly ranked candidates cost requests; already checked product pages come from cache.
       if(!exact&&oemCandidates().length)exact=await verifyByOem(ranked(),5);
@@ -226,7 +262,7 @@ async function serve(runId:string,port:number,chrome=false){
      }
     }catch(error){if(error instanceof SourceBlocked||error instanceof WorkerStopped)throw error;console.log(JSON.stringify({ordinal:item.ordinal+1,logo:'skipped',error:String(error)}));}
     const complete=vehicle.coverage.unresolved.length===0&&vehicle.coverage.invalid.length===0&&Boolean(imageFile);
-    const pkg={supplierItemId:item.supplier_item_id,supplierCode:item.supplier_code,supplierBrand:item.supplier_brand,source:'https://www.trodo.com/'+slug,sourceMethod:`Durable public browser adapter v2; run ${runId}; ${matchBasis.type==='exact_part'?'exact brand/part verified':'original OEM verified: '+matchBasis.reference}; source IDs covered ${vehicle.coverage.covered}/${vehicle.coverage.expected}; invalid rows ${vehicle.coverage.invalid.length}`,manufacturer:product.manufacturer,partNumber:product.tecdoc_sku,matchBasis,completeness:complete?'complete':'partial',imageFile,imageSource,brandLogo,data};
+    const pkg={supplierItemId:item.supplier_item_id,productId:item.product_id,supplierCode:item.supplier_code,supplierBrand:item.supplier_brand,source:'https://www.trodo.com/'+slug,sourceMethod:`Durable public browser adapter v2; run ${runId}; ${matchBasis.type==='exact_part'?'exact brand/part verified':'original OEM verified: '+matchBasis.reference}; source IDs covered ${vehicle.coverage.covered}/${vehicle.coverage.expected}; invalid rows ${vehicle.coverage.invalid.length}`,manufacturer:product.manufacturer,partNumber:product.tecdoc_sku,matchBasis,completeness:complete?'complete':'partial',imageFile,imageSource,brandLogo,data};
     await checkpoint('import',{package:pkg});await importEnrichments(pool,[pkg],matcher);await outcome(complete?'complete':'partial');
    }catch(error){
     if(error instanceof SourceBlocked||error instanceof WorkerStopped){await pool.query("UPDATE enrichment_run_items SET status='queued',lease_token=NULL,lease_until=NULL,last_error=$3 WHERE run_id=$1 AND supplier_item_id=$2",[runId,item.supplier_item_id,String(error)]);await pool.query("UPDATE enrichment_runs SET status=$2 WHERE id=$1",[runId,stopping?'stopped':'blocked']);console.log(stopping?'Worker stopped with checkpoint preserved':'Run paused by source circuit',String(error));break;}
@@ -240,21 +276,36 @@ async function serve(runId:string,port:number,chrome=false){
  }finally{
   for(const signal of ['SIGINT','SIGTERM'] as const)process.off(signal,stop);
   // Browser waits are bounded, but shutdown must not depend on them; state is already in the database.
-  await Promise.race([collectors?.stop(),new Promise(r=>setTimeout(r,20000))]);await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);owner.release();
-  // Keep-alive sockets from the browser bridge would otherwise hold close() open after the run finishes.
-  await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});}
+  let shutdownTimer:ReturnType<typeof setTimeout>|undefined;
+  try{
+   await Promise.race([Promise.resolve().then(()=>collectors?.stop()),new Promise<void>(resolve=>{shutdownTimer=setTimeout(resolve,20000);})]);
+  }finally{
+   clearTimeout(shutdownTimer);
+   try{await owner.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[runId]);}
+   finally{
+    owner.release();
+    // Release the owner even when collector shutdown fails, so pool.end() cannot hide the error forever.
+    // Keep-alive sockets from the browser bridge would otherwise hold close() open after the run finishes.
+    await new Promise<void>(resolve=>{server.close(()=>resolve());server.closeAllConnections();});
+   }
+  }
+ }
 }
 // Works through every pending job in batches: an unfinished run is resumed first, then new batches are drawn until the
 // queue is empty. A blocked source or a stop signal ends the loop with the batch's checkpoints preserved.
 async function continueAll(port:number,chrome:boolean,batchSize:number){
  await prepare();
  for(let batch=1;;batch++){
-  const active=(await pool.query("SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
+  // An open circuit means the site blocked us: stop before Chrome visits it again. launchd restarts this command every
+  // 15 minutes, so only a hand-run `unblock` may send the worker back to a site that blocked it.
+  const blocked=(await pool.query("SELECT host FROM enrichment_source_hosts WHERE blocked AND host LIKE '%trodo.com' ORDER BY host")).rows.map(r=>r.host as string);
+  if(blocked.length){console.log(JSON.stringify({continue:'source-blocked',hosts:blocked,next:'run `enrichment-worker.ts unblock` by hand once the block has lifted'}));return;}
+  const active=(await pool.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') ORDER BY created_at LIMIT 1")).rows[0]?.id as string|undefined;
   let runId:string=active??"";
   if(!runId){
-   const queued=await enqueueNewSupplierItems();
+   const queued=await enqueueProductSources(pool);
    if(queued)console.log(JSON.stringify({continue:'queued-new-items',queued}));
-   const pending=(await pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE status='pending'")).rows[0].n;
+   const pending=(await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>''")).rows[0].n;
    if(!pending){console.log(JSON.stringify({continue:'done',batches:batch-1}));return;}
    runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true,false);
   }
@@ -263,6 +314,25 @@ async function continueAll(port:number,chrome:boolean,batchSize:number){
   if(status!=='complete'){console.log(JSON.stringify({continue:'halted',runId,status}));return;}
  }
 }
+// Gives up the unfinished product runs (#390): their queued items are skipped and the runs closed, so spareto and
+// parts2world, which leave products in an unfinished run to Trodo, take them from the shared pending pool. Products
+// stay pending; a later `continue` builds new batches from whatever is still pending then. The run lock guards against
+// a live worker.
+async function retireRuns(){
+ const client=await pool.connect();try{
+  await client.query('BEGIN');
+  const runs=(await client.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') ORDER BY created_at FOR UPDATE")).rows as {id:string}[];
+  let items=0;
+  for(const {id} of runs){
+   const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[id])).rows[0];
+   if(!lock.locked)throw Error('Stop the run worker before retiring its run');
+   items+=(await client.query("UPDATE enrichment_run_items SET status='skipped',last_error='retired',finished_at=now(),lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND status IN ('queued','collecting')",[id])).rowCount??0;
+   await client.query("UPDATE enrichment_runs SET status='complete',finished_at=now() WHERE id=$1",[id]);
+  }
+  await client.query('COMMIT');
+  return {runs:runs.length,items};
+ }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+}
 async function requeueReview(runId:string){
  const client=await pool.connect();try{
   await client.query('BEGIN');
@@ -270,29 +340,81 @@ async function requeueReview(runId:string){
   if(!lock.locked)throw Error('Stop the run worker before requeuing review items');
   const run=(await client.query('SELECT status FROM enrichment_runs WHERE id=$1 FOR UPDATE',[runId])).rows[0];
   if(!run)throw Error('Unknown run');
-  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
   if(active)throw Error('Another unfinished run exists: '+active.id);
-  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,s.id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY s.id)-1,
-    s.code,s.product_data->>'uk',COALESCE(s.product_data->>'oe','')
-   FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
-   WHERE j.status='review' AND COALESCE(s.product_data->>'oe','')<>''
-   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
+  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
+   SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
+    c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_catalog c
+   WHERE c.status='review' AND c.oem<>'' AND c.supplier_item_id IS NOT NULL
+   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
     oem=EXCLUDED.oem,status='queued',stage='search',checkpoint='{}',lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
-   WHERE enrichment_run_items.status='review'`,[runId]);
+   WHERE enrichment_run_items.status IN ('review','skipped')`,[runId]);
+  await client.query(`UPDATE product_enrichment_jobs j SET status='pending',last_error=NULL,updated_at=now()
+   FROM enrichment_current_sources ps WHERE ps.supplier_item_id=j.supplier_item_id AND j.status IN ('review','not_found','failed','blocked')
+    AND ps.product_id IN(SELECT product_id FROM enrichment_run_items WHERE run_id=$1 AND status='queued')`,[runId]);
   if(result.rowCount)await client.query("UPDATE enrichment_runs SET sample_size=(SELECT count(*) FROM enrichment_run_items WHERE run_id=$1),status=CASE WHEN status='blocked' THEN status ELSE 'prepared' END,finished_at=NULL WHERE id=$1",[runId]);
   await client.query('COMMIT');return {runId,requeued:result.rowCount};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+// Re-queues Trodo-sourced partial items whose vehicle coverage can still improve (rejected engine rows or applicable
+// engines left unresolved). The stored product/view checkpoint is reused, so only vehicle listings cost requests; the
+// job keeps its partial status until the new import replaces it.
+const retrySources={trodo:'www.trodo.com',spareto:'spareto.com',otoparcasan:'otoparcasan.com'} as const;
+type RetrySource=keyof typeof retrySources|'all';
+/** Trodo's own partials are re-collected only when their note shows a gap it can close; another source's partials are
+ *  all offered to Trodo (a complete result replaces them, a weaker partial is refused at import). */
+async function requeuePartial(runId:string,source:RetrySource='trodo'){
+ const client=await pool.connect();try{
+  await client.query('BEGIN');
+  const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0];
+  if(!lock.locked)throw Error('Stop the run worker before requeuing partial items');
+  const run=(await client.query('SELECT status FROM enrichment_runs WHERE id=$1 FOR UPDATE',[runId])).rows[0];
+  if(!run)throw Error('Unknown run');
+  const active=(await client.query("SELECT id FROM enrichment_runs WHERE id<>$1 AND kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1",[runId])).rows[0];
+  if(active)throw Error('Another unfinished run exists: '+active.id);
+  const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
+   SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
+    c.supplier_code,c.supplier_brand,c.oem,'vehicles',COALESCE(cp.checkpoint,'{}')||'{"retry":"partial"}'
+   FROM enrichment_product_catalog c JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
+   LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status IN ('partial','skipped')
+    AND i.checkpoint ? 'product' AND i.checkpoint ? 'view' ORDER BY i.finished_at DESC NULLS LAST LIMIT 1) cp ON true
+   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND (${(source==='trodo'||source==='all')?`(e.source_url LIKE 'https://www.trodo.com/%'
+    AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2]))`:'false'}
+    OR ${source==='all'?`split_part(e.source_url,'/',3) IN ('spareto.com','otoparcasan.com')`:source!=='trodo'?`split_part(e.source_url,'/',3)='${retrySources[source]}'`:'false'})
+   ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
+    oem=EXCLUDED.oem,status='queued',stage='vehicles',checkpoint=EXCLUDED.checkpoint,lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
+   WHERE enrichment_run_items.status IN ('partial','skipped')`,[runId]);
+  if(result.rowCount)await client.query("UPDATE enrichment_runs SET sample_size=(SELECT count(*) FROM enrichment_run_items WHERE run_id=$1),status=CASE WHEN status='blocked' THEN status ELSE 'prepared' END,finished_at=NULL WHERE id=$1",[runId]);
+  await client.query('COMMIT');return {runId,requeued:result.rowCount};
+ }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+}
+// Indexes the products of searches fetched before #376 (request bodies and cached responses).
+async function indexSearches(){
+ let searches=0,products=0;
+ for(const table of ['enrichment_source_requests','enrichment_source_cache']){
+  const rows=(await pool.query(`SELECT body FROM ${table} WHERE host='www.trodo.com' AND body IS NOT NULL
+   AND (path LIKE '/rest/V1/catalogsearch/result/%' OR path LIKE '/rest/V1/catalogsearch/oem/%')`)).rows;
+  for(const row of rows){
+   let search;try{search=parseSearch(row.body);}catch{continue;}
+   await recordSearchProducts(pool,search.products);searches++;products+=search.products.length;
+  }
+ }
+ return {searches,products,stored:(await pool.query('SELECT count(*)::int AS n FROM enrichment_search_products')).rows[0].n};
+}
 try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
- else if(command==='pilot'){await prepare();console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
- else if(command==='run'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
+ else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
+ else if(command==='run'){await prepare();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
- else if(command==='unblock'){await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL');console.log('Source hosts unblocked');}
+ else if(command==='index-searches'){await prepare();console.log(JSON.stringify(await indexSearches()));}
+ else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
+ else if(command==='retire')console.log(JSON.stringify({retired:await retireRuns()}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
- else if(command==='retry-review')console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));
- else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | unblock | report RUN_ID | retry-review RUN_ID');
+ else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
+ else if(command==='retry-partial'){
+  const at=process.argv.indexOf('--source'),source=z.enum(['trodo','spareto','otoparcasan','all']).parse(at>=0?process.argv[at+1]:'trodo');
+  await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
+ else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | index-searches | unblock | retire | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.
 process.exit(process.exitCode??0);

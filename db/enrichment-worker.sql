@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS enrichment_runs (
  cache_hits integer NOT NULL DEFAULT 0, started_at timestamptz, finished_at timestamptz,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Product runs enrich supplier items; vehicle_oil runs read Trodo's engine-oil data per vehicle type (scripts/vehicle-oil-trodo.ts).
+-- Only product runs are picked up by the product worker.
+ALTER TABLE enrichment_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
 CREATE TABLE IF NOT EXISTS enrichment_run_items (
  run_id uuid NOT NULL REFERENCES enrichment_runs(id),
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id), ordinal integer NOT NULL,
@@ -24,6 +27,11 @@ CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
 );
 ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenge_since timestamptz;
 ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenges integer NOT NULL DEFAULT 0;
+-- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
+-- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
+ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
 INSERT INTO enrichment_source_hosts(host) VALUES('www.trodo.com'),('picdn.trodo.com') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS enrichment_source_cache (
  host text NOT NULL,path text NOT NULL,body jsonb NOT NULL,fetched_at timestamptz NOT NULL DEFAULT now(),
@@ -57,3 +65,65 @@ DO $$ BEGIN
  CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
  END IF;
 END $$;
+-- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
+-- and each product's searched sources from it, since their checkpoints are local files. 'blocked' marks the product a
+-- run stopped on. A NULL queue is a search imported from a checkpoint written before this table existed.
+CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
+ id bigserial PRIMARY KEY, source text NOT NULL CHECK(source IN ('otoparcasan','spareto')),
+ queue text CHECK(queue IN ('pending','not_found','review','partial')), supplier_item_id uuid NOT NULL,
+ outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
+-- spareto re-collects its own partial products (queue 'partial').
+ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
+ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
+CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
+CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+-- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
+-- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
+-- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
+-- re-checked in the worker.
+CREATE TABLE IF NOT EXISTS enrichment_search_products (
+ part_key text NOT NULL, entity_id text NOT NULL, brand_key text NOT NULL,
+ product jsonb NOT NULL CHECK(jsonb_typeof(product)='object'), seen_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(part_key,entity_id)
+);
+CREATE OR REPLACE FUNCTION enrichment_part_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+ SELECT CASE WHEN k ~ '^[0-9]+$' THEN regexp_replace(k,'^0+(?=[0-9])','') ELSE k END
+ FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+CREATE OR REPLACE FUNCTION enrichment_brand_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+ SELECT CASE k WHEN 'FEBI' THEN 'FEBIBILSTEIN' WHEN 'MANN' THEN 'MANNFILTER' WHEN 'HENGST' THEN 'HENGSTFILTER'
+  WHEN 'SCHAEFFLERINA' THEN 'INA' WHEN 'SCHAEFFLERLUK' THEN 'LUK' WHEN 'SCHAEFFLERFAG' THEN 'FAG' WHEN 'AVACLEVERCHOICE' THEN 'AVA'
+  WHEN 'BORGWARNERBERU' THEN 'BERU' WHEN 'VDOCONTINENTAL' THEN 'VDO' WHEN 'AMSOSRAM' THEN 'OSRAM' ELSE k END
+ FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+
+-- parts2world.com (TecDoc, #382) has no part-number search: its article-info call needs the article id, the article link
+-- id and a vehicle type the link belongs to. The ids come from the archive of the old v1 parts2world catalog crawl
+-- (public.parts / part_vehicle_types), loaded by `parts2world-enrichment.ts index`. Keys follow manufacturerBrandKey()
+-- and partKey() in enrichment-contract.ts; identity is re-checked on the live answer.
+CREATE TABLE IF NOT EXISTS parts2world_articles (
+ brand_key text NOT NULL, part_key text NOT NULL, brand text NOT NULL, part_number text NOT NULL,
+ article_id bigint NOT NULL, link_id bigint NOT NULL, vehicle_type_id integer NOT NULL,
+ PRIMARY KEY(brand_key,part_key)
+);
+-- Open enrichment jobs whose supplier brand/part names an archived article; rebuilt by `parts2world-enrichment.ts match`.
+CREATE TABLE IF NOT EXISTS parts2world_job_articles (
+ supplier_item_id uuid PRIMARY KEY, brand_key text NOT NULL, part_key text NOT NULL, matched_at timestamptz NOT NULL DEFAULT now(),
+ FOREIGN KEY(brand_key,part_key) REFERENCES parts2world_articles(brand_key,part_key) ON DELETE CASCADE
+);
+-- OE numbers of archived articles with vehicles (#394), loaded by `parts2world-enrichment.ts index-oems`: an original-part
+-- row (OE-PSA, OE-OPEL…) is reached through an aftermarket article that lists its number. Keys are upper-case A–Z0–9.
+CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link_id bigint NOT NULL, PRIMARY KEY(oem_key,link_id));
+CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
+-- The OE number a job was matched through; NULL for a brand/part match.
+ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
+ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
+ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+-- One row per fallback-source run over a fixed queue (#403); the admin page counts its progress from the source's
+-- attempts since started_at. A run that ends without closing (process killed) is closed as stopped by the next one.
+CREATE TABLE IF NOT EXISTS enrichment_source_runs (
+ id bigserial PRIMARY KEY, source text NOT NULL, queue text NOT NULL, total integer NOT NULL CHECK(total>=0),
+ started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
+ outcome text CHECK(outcome IN ('complete','blocked','stopped','failed'))
+);
+CREATE INDEX IF NOT EXISTS enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);

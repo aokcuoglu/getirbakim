@@ -16,20 +16,31 @@ try {
    await client.query("BEGIN");
    await client.query("SET LOCAL lock_timeout = '15s'");
    await client.query("SELECT pg_advisory_xact_lock(20261001,1)");
+   // SETA imports hold their own lock (seta-import.ts); schema changes wait for both.
+   await client.query("SELECT pg_advisory_xact_lock(20261001,4)");
+   // Dinamik imports (dinamik-import.ts) too: search.sql backfills supplier_items rows.
+   await client.query("SELECT pg_advisory_xact_lock(20261001,3)");
+   // Manual list imports (manual-import.ts) write the same tables.
+   await client.query("SELECT pg_advisory_xact_lock(20261001,8)");
    await client.query(await readFile("db/schema.sql", "utf8"));
    await client.query(await readFile("db/brand-launch.sql", "utf8"));
    await client.query(await readFile("db/vehicle-schema.sql", "utf8"));
+   await client.query(await readFile("db/vehicle-oil-specs.sql", "utf8"));
    await migrateSupplierSnapshots(client);
    await client.query(await readFile("db/commerce.sql", "utf8"));
    await client.query(await readFile("db/search.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
+   await client.query(await readFile("db/manual-supplier.sql", "utf8"));
    await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
+   await client.query(await readFile("db/vehicle-type-specs.sql", "utf8"));
    await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
+   await client.query(await readFile("db/product-matching.sql", "utf8"));
+   await client.query(await readFile("db/enrichment-products.sql", "utf8"));
+   await client.query(await readFile("db/enrichment-states.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
-   await client.query(await readFile("db/vehicle-oil-specs.sql", "utf8"));
    await client.query("COMMIT");
    break;
   } catch (error) {
@@ -40,6 +51,8 @@ try {
    await new Promise(resolve => setTimeout(resolve, attempt * 5000));
   } finally { client.release(); }
  }
+ // The dashboard's materialized catalog: a first deployment queues a full rebuild, which must not run under the schema locks.
+ await pool.query("SELECT enrichment_product_states_sync()");
  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) throw new Error("Admin credentials required");
  const password = newPasswordSchema.parse(process.env.ADMIN_PASSWORD);
  await pool.query("INSERT INTO accounts (name,email,password_hash,role,approved) VALUES ($1,$2,$3,'admin',true) ON CONFLICT (email) DO NOTHING", ["Getirbakim Yönetim", process.env.ADMIN_EMAIL, await hash(password,12)]);

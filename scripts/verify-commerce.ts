@@ -24,7 +24,7 @@ try {
  assert.equal((await getProduct(supplierFixture))?.price_kurus,null);
  const catalog=await browseProducts({q:'AE FOL214',searchBy:'code'});assert.ok(catalog.items.some(i=>i.id===p.id));
  await db.query('INSERT INTO guest_carts(token_hash) VALUES($1)',[owner.id]);
- productId=(await db.query<{id:string}>("INSERT INTO products(supplier,code,name,brand,price_kurus,stock) VALUES('demo',$1,'Commerce verification','VERIFY',10000,3) RETURNING id",['VERIFY-'+randomUUID()])).rows[0].id;
+ productId=(await db.query<{id:string}>("INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock) VALUES('demo',$1,'Commerce verification','VERIFY',10000,3) RETURNING id",['VERIFY-'+randomUUID()])).rows[0].id;
  assert.equal(await setCartQuantity(owner,productId,1,true),true);
  assert.equal(await setCartQuantity(owner,productId,1,true),true);
  assert.equal(await setCartQuantity(owner,productId,2,true),false);
@@ -38,7 +38,7 @@ try {
  // The cart is kept until the payment provider confirms the order.
  assert.equal((await cartFor(owner)).length,2);
  assert.equal((await db.query('SELECT status FROM commerce_orders WHERE id=$1',[results[0].id])).rows[0].status,'awaiting_payment');
- assert.equal((await db.query('SELECT stock FROM products WHERE id=$1',[productId])).rows[0].stock,1);
+ assert.equal((await db.query('SELECT stock FROM store_products WHERE id=$1',[productId])).rows[0].stock,1);
  assert.equal((await db.query('SELECT count(*) FROM commerce_order_items WHERE order_id=$1',[results[0].id])).rows[0].count,'2');
  const snapshot=(await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1 AND product_id=$2',[results[0].id,p.id])).rows[0].pricing_snapshot;
  assert.equal(snapshot.nf,snap.nf);assert.equal(snapshot.discount_percent,0);
@@ -46,7 +46,7 @@ try {
  assert.equal(await setCartQuantity(owner,p.id,0),true);
  // A sold-out store product cannot produce an order.
  assert.equal(await setCartQuantity(owner,productId,1),true);
- items=await cartFor(owner);await db.query('UPDATE products SET stock=0 WHERE id=$1',[productId]);
+ items=await cartFor(owner);await db.query('UPDATE store_products SET stock=0 WHERE id=$1',[productId]);
  assert.equal((await submitOrder(owner,{...input,requestKey:randomUUID(),quote:cartQuote(items,0,shipping)})).error,'stock');
  // Anonymous public HTML must contain TRY prices and supplier purchasing controls.
  const base=process.env.VERIFY_URL || 'http://localhost:3000';
@@ -59,7 +59,7 @@ try {
 } finally {
  for(const id of orderIds) {await db.query('DELETE FROM commerce_order_items WHERE order_id=$1',[id]);await db.query('DELETE FROM commerce_orders WHERE id=$1',[id]);}
  await db.query('DELETE FROM guest_carts WHERE token_hash=$1',[owner.id]);
- if(productId)await db.query('DELETE FROM products WHERE id=$1',[productId]);
+ if(productId)await db.query('DELETE FROM store_products WHERE id=$1',[productId]);
  if(supplierFixture)await db.query('DELETE FROM supplier_items WHERE id=$1',[supplierFixture]);
  await db.end();
 }

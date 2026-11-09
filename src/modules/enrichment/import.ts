@@ -2,11 +2,51 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { Pool, PoolClient } from "pg";
-import { PutObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import { objectStorage } from "../../lib/object-storage";
 import { enrichmentImportSchema, matchesEnrichment } from "../store/enrichment-contract";
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../store/fitment-sync";
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
+import { keepsRicherPartial } from "./partial-gaps";
+
+/** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
+export async function storeProductImage(client: Pick<PoolClient, "query">, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
+  return storeProductImageBytes(client, await readFile(resolve(file)), source, storage, folder);
+}
+
+export async function storeProductImageBytes(client: Pick<PoolClient, "query">, bytes: Buffer, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
+  const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
+  const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+  const extension = webp ? "webp" : jpeg ? "jpg" : png ? "png" : null;
+  if (!extension) throw new Error("Only verified WebP, JPEG and PNG images can be imported");
+  const contentType = webp ? "image/webp" : jpeg ? "image/jpeg" : "image/png";
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket) throw new Error("S3_BUCKET is required");
+  const key = `${folder}/${hash.slice(0, 2)}/${hash}.${extension}`;
+  const put = () => storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
+  const verified = async () => {
+    const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key })).catch(error => {
+      if (error?.$metadata?.httpStatusCode === 404) return null;
+      throw error;
+    });
+    return head?.ContentLength === bytes.length && head.Metadata?.sha256 === hash;
+  };
+  const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
+  if (!existing) await put();
+  // A known object can lose its sha256 metadata (or go missing) when another tool rewrites it; the key is the
+  // hash of these bytes, so rewriting it with them restores the object instead of failing the import.
+  if (!await verified()) {
+    if (!existing) throw new Error("Object verification failed");
+    await put();
+    if (!await verified()) throw new Error("Object verification failed");
+  }
+  return (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,
+    [bucket, key, hash, contentType, bytes.length, source])).rows[0].id as string;
+}
 
 export async function importEnrichments(pool: Pool, entries: unknown[], matcher: (client: PoolClient)=>ReturnType<typeof loadFitmentMatcher> = loadFitmentMatcher) {
  const items = entries.map(entry => enrichmentImportSchema.parse(entry));
@@ -15,36 +55,28 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
       try {
         await client.query("BEGIN");
         await lockFitmentSync(client);
-        const supplier = (await client.query(`SELECT code,product_data->>'uk' AS brand,COALESCE(product_data->>'oe','') AS oem FROM supplier_items WHERE id=$1 FOR SHARE`, [item.supplierItemId])).rows[0];
+        const supplier = (await client.query(`SELECT code,COALESCE(NULLIF(product_data->>'uk',''),supplier_item_brand(supplier,product_data),'') AS brand,COALESCE(product_data->>'oe','') AS oem,
+          (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=i.supplier AND sb.label=supplier_item_brand(i.supplier,i.product_data)) AS "masterBrand"
+          FROM supplier_items i WHERE id=$1 FOR SHARE OF i`, [item.supplierItemId])).rows[0];
         if (!supplier || supplier.code !== item.supplierCode || supplier.brand !== item.supplierBrand
           || !matchesEnrichment(supplier, item)) {
           throw new Error(`Manufacturer/part mismatch for ${item.supplierItemId}; nothing imported`);
         }
+        if (item.productId) {
+          const link = (await client.query('SELECT product_id FROM product_sources WHERE supplier_item_id=$1 FOR SHARE', [item.supplierItemId])).rows[0];
+          if (link?.product_id !== item.productId) throw new Error('Master product changed during collection');
+        }
         const previous = (await client.query("SELECT status FROM product_enrichment_jobs WHERE supplier_item_id=$1 FOR UPDATE", [item.supplierItemId])).rows[0];
         if (previous?.status === "complete" && item.completeness === "partial") throw new Error("Partial data cannot replace a complete enrichment");
+        if (previous?.status === "partial" && item.completeness === "partial") {
+          const stored = (await client.query("SELECT source_url,jsonb_array_length(COALESCE(payload->'vehicles','[]'))::int AS vehicles FROM product_enrichments WHERE supplier_item_id=$1", [item.supplierItemId])).rows[0];
+          if (stored && keepsRicherPartial({ source: stored.source_url, vehicles: stored.vehicles }, { source: item.source, vehicles: item.data.vehicles.length }))
+            throw new Error("Partial data with fewer vehicles cannot replace another source's partial enrichment");
+        }
         let imageId: string | null = null;
         if (item.imageFile) {
           if (!item.imageSource) throw new Error("Image source URL is required");
-          const bytes = await readFile(resolve(item.imageFile));
-          if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
-          const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
-          const jpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-          const png = bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-          const extension = webp ? "webp" : jpeg ? "jpg" : png ? "png" : null;
-          if (!extension) throw new Error("Only verified WebP, JPEG and PNG images can be imported");
-          const contentType = webp ? "image/webp" : jpeg ? "image/jpeg" : "image/png";
-          const hash = createHash("sha256").update(bytes).digest("hex");
-          const bucket = process.env.S3_BUCKET;
-          if (!bucket) throw new Error("S3_BUCKET is required");
-          const key = `products/${hash.slice(0, 2)}/${hash}.${extension}`;
-          const storage = objectStorage();
-          const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
-          if (!existing) await storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
-          const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-          if (head.ContentLength !== bytes.length || head.Metadata?.sha256 !== hash) throw new Error("Object verification failed");
-          imageId = (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
-            VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,
-            [bucket, key, hash, contentType, bytes.length, item.imageSource])).rows[0].id;
+          imageId = await storeProductImage(client, item.imageFile, item.imageSource);
         }
         await client.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,match_basis)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(supplier_item_id) DO UPDATE SET

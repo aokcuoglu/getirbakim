@@ -95,7 +95,7 @@ Cron logu döndürülmeli ve exit/heartbeat dışarıdan izlenmeli. Sistem saat 
 
 ## Mağaza, fiyatlama ve sipariş sınırı
 
-Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik erişimi ve ürün sözleşmesi doğrulanmadığından canlı adaptörü yoktur; ortak tablolar / değişiklik motoru Dinamik'i destekler, zamanlayıcı etkinleştirmeyi reddeder.
+Mağaza mevcut ticari kurallarla NF maliyet, kur, kâr ve KDV üzerinden fiyat türetiyor; kaynak stok değerleri adet yerine bulunabilirlik sinyali olarak kullanılıyor. Yeni tedarikçi entegrasyonunda alan anlamları ve ticari sözleşme doğrulanmalı. Dinamik 11 Ekim 2026'dan beri aynı tablolara çekiliyor ve mağazada satılıyor (aşağıda).
 
 Satış adaptörü açılırken uygulanması gereken sözleşme:
 
@@ -188,3 +188,65 @@ sudo systemctl enable --now getirbakim-production-sync.timer
 Acil durdurma: `supplier-configure --group=ALL --enabled=false --commerce-enabled=false` (veriler korunur, satış bayatlık kuralına göre kapanır). Servisi maskelemek yerine bunu tercih edin; maskelenmiş servis sağlık ucunda `stopped` görünür.
 
 **Dış izleme:** `GET /api/health/suppliers` zamanlayıcı durmuşsa ya da etkin bir grup bayat/başarısızsa **503** döner; gövdede yalnız toplu durum (`status`, `scheduler`, `groups`, `issues`, `oldest_commerce_success`) vardır. Bir uptime izleyicisine (ör. 5 dakikada bir, 2 ardışık 503'te alarm) bağlanmalı; macOS bildirimi yalnız yerel kurulum içindir.
+
+## Dinamik — 11 Ekim 2026
+
+Dinamik aynı motoru (`supplier_items`, `supplier_item_changes`, `supplier_imports`, `supplier_sync_scopes`) kullanır. API'de sayfalama yok; marka başına bir stok ve bir fiyat listesi döner. Bu yüzden **her marka bir kapsamdır**: `supplier='dinamik'`, `company='DINAMIK'`, `list_group=<marka>`, `warehouse='ALL'`. Bir markanın hatası diğerlerine dokunmaz; kayıp/pasif mantığı marka içinde çalışır. Sözleşme ve erişim: [integrations.md](integrations.md#dinamik).
+
+- **Kayıt biçimi:** `product_data` stok listesindeki ürün alanları (fiyat ve VAR/YOK bayrakları hariç); `price_data` fiyat listesi satırı + stok listesindeki `kampanyaOrani`; `stock_data` `varyok1..4`, `varyokAll`, `kaporta`. Yalnız fiyat listesinde olan kodda `product_data` sadece `stokKodu`/`marka`, `stock_data` `null` — eksik değer uydurulmaz. İki listenin fiyatı farklıysa kayıt çelişkili işaretlenir (`source_variants.stockListPrice`).
+- **Marka listesi:** zamanlayıcı günde bir kez `getBrandList` okur (`supplier_discovery`). Yeni markalar etkin kapsam olarak eklenir; listeden düşen markanın kapsamı kapatılır, kayıtları silinmez.
+- **Plan:** her marka günde bir, İstanbul **04:00** (Başbuğ'un 03:00 tam listesinden sonra), bayatlık 36 saat. İlk tam tarama (11 Ekim, lokal, tünel üzerinden): 786 marka, **920.830 kayıt**, 0 hata, toplam ~16 dk çekim+yazma; en büyük marka ORIJINAL (35.462 kod, 17 MB yanıt, ~36 sn, ~550 MB bellek → `operations` konteyneri 1 GB). DB'de ~750 MB güncel kayıt + ilk görülme olaylarıyla ~1 GB değişiklik geçmişi (90 günde temizlenir). Zamanlayıcı Başbuğ kapsamlarını önce işler, sonra yeni Dinamik markalarını yalnız tur başına **10 dakika** başlatır (`DINAMIK_TICK_MINUTES`); kalanlar sonraki turlara kalır. Böylece Başbuğ'un 30 dakikalık fiyat/stok işi gecikmez; gece taraması ~04:00–05:00 arasında tamamlanır.
+- **Ayrı kilit:** Dinamik aktarımı `pg_advisory_lock(20261001,3)` kullanır; Başbuğ aktarımıyla (anahtar 1) çakışmaz. Devre kesici tedarikçi başınadır: Dinamik `upstream` hatası verirse o turda kalan Dinamik markaları atlanır, Başbuğ etkilenmez.
+- **Koruma eşikleri** Başbuğ ile aynıdır (%20 ürün düşüşü, 10 puan eksik fiyat/stok artışı). Hiç ürünü olmamış marka boş liste dönebilir (başarılı, 0 kayıt); ürünü olan markanın boş dönmesi reddedilir.
+- **Mağaza satışı:** SETA gibi Dinamik satırları da Başbuğ alan adlarını taşır (`ac` ad, `uk` üretici `kull3s`, `oe` OEM listesi, `dc`=TRY, `price_data.nf`=`fiyat`, `stock_data.stok`= bölgelerden biri VAR ise 1). `fiyat` KDV hariç maliyet kabul edilir (ticari karar); satış fiyatı `nf × (1+kâr) × (1+KDV)`, oranlar `/yonetim/fiyatlandirma`'daki ortak ayarlardır. `kampanyaOrani` saklanır ama uygulanmaz. Yalnız fiyat listesinde olan (adı olmayan) kodlar `commerce_supplier_items`'a girmez. Siparişte canlı modda yalnız sepetteki Dinamik kodları tek tek yenilenir (`getStock`, `POST {STOK_KODU}`, kod başına ~0,5 sn, 4'erli paralel; eskiden marka listesinin tamamı, en büyükte ~35 sn). Yalnız fiyat/stok güncellenir, değişen satır `supplier_item_changes`'a `source: checkout` ile yazılır; artık listede olmayan kod satışa kapanır (tüm bölgeler YOK). Marka çekim kilidini beklemez.
+- **Ayrı fiyat/stok işi yok:** stok ve fiyat aynı iki çağrıyla gelir; daha sık güncellik gerekirse `--interval-minutes` kısaltılır.
+
+```sh
+# Lokal (tünel açıkken, DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443):
+npm run supplier:dinamik:import -- --discover            # marka listesi → kapsamlar
+npm run supplier:dinamik:import -- --brand="FEBI"        # tek marka
+npm run supplier:sync -- --force --supplier=dinamik --group="FEBI,BOSCH"
+
+# Production (/opt/getirbakim-v2-production):
+bash scripts/production-task.sh supplier-sync --force --supplier=dinamik --group=FEBI
+bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=ALL --enabled=false   # acil durdurma
+bash scripts/production-task.sh supplier-configure --supplier=dinamik --group=ALL --daily-at=04:00   # yeniden açma
+```
+
+`--force --supplier=dinamik` grup verilmeden tüm markaları bütçesiz çeker ve ~16 dk+ boyunca zamanlayıcı kilidini tutar; bu sürede Başbuğ fiyat/stok turları bekler. Production'da tüm markalar için zorlama yerine normal zamanlayıcıyı bekleyin veya `--group` ile sınırlayın.
+
+Yönetim: `/yonetim/tedarikciler/dinamik` Başbuğ ekranı gibi iki sekmelidir. **Ürünler:** marka, ürün grubu (`kull7s`), bölge + stok durumu, listede bulunma ve kalite (yalnız fiyat listesinde, fiyatı eksik, kampanyalı, tekrar, çelişki) filtreli, 50'şer sayfalı tablo; arama kelime başlarını ad/kod/OEM/eşdeğer/ürün tipinde arar, parça numarasını ayraçsız da bulur (Türkçe harfler desende katlanır; ~1M satırda ~0,3 sn, markayla ~20 ms). Her satır `/yonetim/tedarikciler/dinamik/urun/<id>` detayına (kaynak alanlar, bölge stokları, değişiklik geçmişi) gider. **Senkronizasyon ve kalite:** güncel ürün, bölgede stokta, güncel/etkin marka, son 24 saat, son çekimler ve hata veren markaları gösterir. `/api/health/suppliers` Dinamik kapsamlarını da kapsar: hata veren ya da 36 saatten bayat marka 503 üretir.
+
+## SETA — 11 Ekim 2026
+
+SETA (Seta Filtre) tüm B2B listesini tek uç noktadan verir: `GET https://b2b-api.ismyazilim.com/seta/products`, `XApiKey` başlığı. Grup, depo, sayfalama veya kur yok; tek kapsam kullanılır: `seta / SETA / ALL / MAIN`. Canlı yanıt (1.392 satır, ~575 KB, ~3 sn) doğrulandı; adaptör `src/modules/suppliers/seta-import.ts`.
+
+| Kaynak alan | Anlamı | Saklandığı yer |
+| --- | --- | --- |
+| `product_no` | SETA kodu (boşluk içerebilir: `TRA SET 1`) | `code` |
+| `price` | **KDV hariç bayi alışı**, TRY (kullanıcı teyidi). `0.00` = fiyat yok | `price_data.nf` (0 ise `price_data` null) |
+| `stock` | Var/yok, adet değil | `stock_data.stok` 1/0 |
+| `category` | `Hava Filtreleri` vb.; birkaç satırda boş → kod önekinden (STA/STO/STF/STC) | ad (`ac`) + mağaza kategorisi `filtre` / `yedek-parca` |
+| `product_name` | Uyumlu araçlar (filtrelerde) / parça adı (`Yedek Parça`) | `ac2` veya `ac` |
+| `brand` | **Araç markası**, parça markası değil | `vehicle_brand`; parça markası `uk = SETA` |
+| `oems` | OEM numaraları | `oe` (` / ` ile) + `oems` |
+| `cross` | Rakip referansları (Mann, Mahle…); boşsa `[]` gelir | `cross` (nesne); aramaya dahil değil |
+
+Mağaza, arama ve zenginleştirme Başbuğ alan adlarını okuduğundan SETA satırları aynı adlarla (`ac`, `ac2`, `uk`, `oe`, `dc`, `nf`, `stok`) ve kendi alanlarıyla birlikte yazılır. `commerce_supplier_items` artık Başbuğ MRK + SETA'yı satar; satış fiyatı Başbuğ'la aynı formül: `nf × (1 + kâr) × (1 + KDV)` (ör. 105 TL → 163,80 TL). Mağaza sorguları firma listesini `storefrontCompanies()`'ten alır.
+
+- **Tam** çekim ürünleri keşfeder ve kayıp/pasif sayaçlarını ilerletir. **Ticari** çekim aynı isteği yapar ama yalnız mevcut ürünlerin fiyat/stoğunu yazar (ürün alanları tam çekime aittir). Sipariş anında canlı modda ticari çekim yapılır; sipariş veri kaynağı ayarı Başbuğ ile ortaktır.
+- Kilit `pg_advisory_lock(20261001,4)` (Başbuğ 1, zamanlayıcı 2, Dinamik 3); uzun bir Başbuğ turu SETA siparişlerini bekletmez. `db:setup` her ikisini de alır.
+- Sözleşme dışı yanıt (boş liste, TRY dışı para birimi, bozuk fiyat) `contract` olur, mevcut veri korunur. Göreli kalite eşikleri (ürün düşüşü %20, eksik fiyat +10 puan) Başbuğ'la aynıdır. Durdurma: `.local/seta-paused`.
+
+```sh
+# İlk aktarım (kapsamı da oluşturur) ve plan:
+npm run supplier:sync -- --force --supplier=seta
+npm run supplier:sync:configure -- --supplier=seta --group=ALL --daily-at=03:00 \
+  --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90
+# Production:
+bash scripts/production-task.sh supplier-sync --force --supplier=seta
+bash scripts/production-task.sh supplier-configure --supplier=seta --group=ALL --daily-at=03:00 \
+  --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90
+```
+
+Ortam: `SETA_API_KEY` (zorunlu), `SETA_BASE_URL` (isteğe bağlı; yalnız `https://b2b-api.ismyazilim.com`). Yönetim: `/yonetim/tedarikciler/seta`. Test: `npm run test:seta`.

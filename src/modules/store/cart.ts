@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { randomBytes, createHash } from "node:crypto";
 const tokenHash = (token:string) => createHash("sha256").update(token).digest("hex");
 import { db } from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { PoolClient } from "pg";
 import { catalogSql, type CatalogProduct } from "./catalog";
 import type { GarageVehicle } from "./garage";
@@ -56,7 +57,7 @@ export async function cartFor(owner: CartOwner | null, connection: Pick<PoolClie
  COALESCE(p.stock_label,'Ürün artık satışta değil') stock_label,c.quantity,c.vehicle
  FROM commerce_cart_items c LEFT JOIN (${catalogSql}) p ON p.id=c.product_id
  WHERE c.owner_kind=$2 AND c.owner_id=$3 ORDER BY p.code,c.product_id`,
- [process.env.BASBUG_FIRMA_ADI || 'BASBUG',owner.kind,owner.id])).rows;
+ [storefrontCompanies(),owner.kind,owner.id])).rows;
 }
 /** `vehicle` is the garage vehicle at the time of adding; omit it to keep the line's earlier one. */
 export async function setCartQuantity(owner: CartOwner, productId: string, quantity: number, add = false, vehicle?: GarageVehicle | null) {
@@ -67,7 +68,7 @@ export async function setCartQuantity(owner: CartOwner, productId: string, quant
   if (!quantity) {
    await client.query('DELETE FROM commerce_cart_items WHERE owner_kind=$1 AND owner_id=$2 AND product_id=$3',[owner.kind,owner.id,productId]);
   } else {
-   const p=(await client.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) p WHERE id=$2`,[process.env.BASBUG_FIRMA_ADI || 'BASBUG',productId])).rows[0];
+   const p=(await client.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) p WHERE id=$2`,[storefrontCompanies(),productId])).rows[0];
    const old=(await client.query<{quantity:number}>('SELECT quantity FROM commerce_cart_items WHERE owner_kind=$1 AND owner_id=$2 AND product_id=$3',[owner.kind,owner.id,productId])).rows[0];
    const next=quantity+(add ? old?.quantity ?? 0 : 0);
    if (!p?.available || !p.price_kurus || next>p.max_quantity) { await client.query('ROLLBACK'); return false; }

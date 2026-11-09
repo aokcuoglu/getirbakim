@@ -1,6 +1,8 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { sortOrder } from "@/lib/table-sort";
+import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import type { CommerceOrder } from "@/modules/store/orders";
 
 type ServiceAccount = {
@@ -18,7 +20,7 @@ const serviceColumns = "id,name,email,approved,discount_percent,contact_name,pho
 export async function adminOverview() {
   await requireAdmin();
   const [counts, accounts] = await Promise.all([
-    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM products) as products"),
+    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM store_products) as products"),
     db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY approved,name`),
   ]);
   return { counts: counts.rows[0], accounts: accounts.rows };
@@ -51,8 +53,10 @@ export const orderFilters = {
   cancelled: { label: "İptal", where: "o.status='cancelled'" },
 } as const;
 export type OrderFilter = keyof typeof orderFilters;
+// Header sorting on the orders list (TableHead sortKey → column).
+const orderSorts = { created: "o.created_at", customer: "o.customer_name", total: "o.total_kurus" };
 
-export async function adminOrders(rawPage?: string, rawFilter?: string) {
+export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}) {
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
@@ -62,7 +66,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string) {
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
-     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY o.created_at DESC,o.id DESC LIMIT 51 OFFSET $1`,
+     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
   return { orders: orders.rows, page, filter, counts: counts.rows[0] };
@@ -97,7 +101,7 @@ export async function adminDashboard() {
       LEFT JOIN commerce_orders o ON (o.created_at AT TIME ZONE 'Europe/Istanbul')::date=d::date GROUP BY d ORDER BY d`),
     db.query<Pick<CommerceOrder, "id" | "number" | "customer_name" | "total_kurus" | "status" | "payment_status" | "created_at">>(
       "SELECT id,number,customer_name,total_kurus,status,payment_status,created_at FROM commerce_orders ORDER BY created_at DESC,id DESC LIMIT 6"),
-    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE presence='present'"),
+    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'"),
     db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status"),
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
@@ -139,4 +143,41 @@ export async function adminSupplierOverview() {
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' AND company=$1 ORDER BY started_at DESC LIMIT 1", [company]),
   ]);
   return { items: items.rows[0], runs: runs.rows[0], last: last.rows[0] ?? null };
+}
+
+export type DinamikRun = { list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number } };
+/** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
+export async function adminDinamikOverview() {
+  await requireAdmin();
+  const [items, scopes, runs, recent, failing, discovery] = await Promise.all([
+    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
+      count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
+      count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
+      FROM supplier_items WHERE supplier='dinamik' AND presence='present'`),
+    db.query<{ enabled: number; synced: number; failing: number; due: number; last_success: Date | null; oldest_success: Date | null }>(`SELECT count(*) FILTER (WHERE enabled)::int AS enabled,
+      count(*) FILTER (WHERE enabled AND last_success_at IS NOT NULL)::int AS synced,count(*) FILTER (WHERE enabled AND consecutive_failures>0)::int AS failing,
+      count(*) FILTER (WHERE enabled AND next_run_at<=now())::int AS due,max(last_success_at) AS last_success,min(last_success_at) FILTER (WHERE enabled) AS oldest_success
+      FROM supplier_sync_scopes WHERE supplier='dinamik'`),
+    db.query<{ total: number; failed: number }>(`SELECT count(*)::int AS total,count(*) FILTER (WHERE status IN ('failed','rejected'))::int AS failed
+      FROM supplier_imports WHERE supplier='dinamik' AND started_at>now()-interval '24 hours'`),
+    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT 12`),
+    db.query<{ list_group: string; consecutive_failures: number; next_run_at: Date; error_reason: string | null }>(`SELECT s.list_group,s.consecutive_failures,s.next_run_at,r.error_reason
+      FROM supplier_sync_scopes s LEFT JOIN LATERAL (SELECT error_reason FROM supplier_imports i WHERE i.supplier=s.supplier AND i.company=s.company
+        AND i.list_group=s.list_group AND i.warehouse=s.warehouse ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
+      WHERE s.supplier='dinamik' AND s.enabled AND s.consecutive_failures>0 ORDER BY s.consecutive_failures DESC,s.list_group LIMIT 20`),
+    db.query<{ checked_at: Date; listed: number }>("SELECT checked_at,listed FROM supplier_discovery WHERE supplier='dinamik'"),
+  ]);
+  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, failing: failing.rows, discovery: discovery.rows[0] ?? null };
+}
+
+export async function adminSetaOverview() {
+  await requireAdmin();
+  const [items, last] = await Promise.all([
+    db.query<{ present: number; saleable: number }>(`SELECT count(*) FILTER (WHERE i.presence='present')::int AS present,
+      count(c.id) FILTER (WHERE c.available AND c.price_kurus IS NOT NULL)::int AS saleable
+      FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id WHERE i.supplier='seta' AND i.company=$1`, [setaCompany]),
+    db.query<{ status: string; started_at: Date }>("SELECT status,started_at FROM supplier_imports WHERE supplier='seta' AND company=$1 ORDER BY started_at DESC LIMIT 1", [setaCompany]),
+  ]);
+  return { ...items.rows[0], last: last.rows[0] ?? null };
 }

@@ -2,7 +2,7 @@
 
 ## Mevcut GitHub reposuna geçiş
 
-Yeni sistem mevcut `aokcuoglu/getirbakim` reposunda hazırlanır; geliştirme klasörü `/Users/void/www/getirbakim` olur. Yerel PostgreSQL ve MinIO verileri canlıya taşınır; eski `gb` kodu/verileri arşiv olarak korunur. Contabo ortamları, otomatik deploy ve veri aktarımı: [geçiş rehberi](docs/deployment-migration.md).
+Yeni sistem mevcut `aokcuoglu/getirbakim` reposunda hazırlanır; geliştirme klasörü `/Users/void/www/getirbakim` olur. Yerel PostgreSQL ve MinIO verileri canlıya taşınır; eski `gb` kodu/verileri arşiv olarak korunur. Geliştirme, Issue/worktree/PR akışı ve sürüm kuralları: [geliştirme politikası](docs/development-workflow.md). Otomatik Contabo deploy kapalıdır; staging AWS geçişinden sonra ayrı taleple ele alınacaktır. Mevcut ortamlar ve geçmiş veri aktarımı: [geçiş rehberi](docs/deployment-migration.md).
 
 Bireysel araç sahiplerine yönelik B2C yedek parça mağazası; profesyonel servisler için ayrı B2B erişimi. Next.js, TypeScript, App Router, Tailwind ve bağımsız PostgreSQL ile sıfırdan geliştirildi. Eski `gb` kodu, şeması ve verileri kullanılmaz; yalnızca tedarikçi bağlantı değişkenleri seçilmiştir.
 

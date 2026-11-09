@@ -61,7 +61,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
-  await client.query(`SELECT p.id FROM products p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR UPDATE OF p`,[owner.kind,owner.id]);
+  await client.query(`SELECT p.id FROM store_products p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR UPDATE OF p`,[owner.kind,owner.id]);
   await client.query(`SELECT p.id FROM supplier_items p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR SHARE OF p`,[owner.kind,owner.id]);
   const account=owner.kind==='account' ? (await client.query<{role:string;discount_percent:number}>('SELECT role,discount_percent FROM accounts WHERE id=$1',[owner.id])).rows[0] : null;
   const discount=account?.role==='service' ? account.discount_percent : 0;
@@ -81,7 +81,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
    const fitment=await productFitmentLevel(p,vehicle);
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment]);
-   if(p.source==='store') await client.query('UPDATE products SET stock=stock-$2,updated_at=now() WHERE id=$1',[p.id,p.quantity]);
+   if(p.source==='store') await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1',[p.id,p.quantity]);
   }
   // The cart stays until TAMI confirms payment, so a declined card can be retried.
   await client.query('COMMIT'); return {id:order.id};

@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
+import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
 
 /** Appends a value to the statement's parameters and returns its placeholder ("$3"). */
 export type Bind = (value: unknown) => string;
@@ -21,6 +21,26 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   if (parsed.compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${parsed.compact}%`)}`);
   const query = prefixTsQuery(parsed);
   if (mode === "all" && query) clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(query)})`);
+  return clauses.length ? `(${clauses.join(" OR ")})` : "false";
+}
+
+// Turkish letters a normalized (ASCII) query letter stands for; ~* covers the ASCII case pair.
+const turkishVariants: Record<string, string> = { c: "cçÇ", g: "gğĞ", i: "iıİ", o: "oöÖ", s: "sşŞ", u: "uüÜ" };
+
+/**
+ * Dinamik rows keep their own field names (stokAdi, oemListe…), which the indexed supplier text above does not read.
+ * Every word must start a word in name, code, OEM/equivalent lists or part type ("on" finds "ON FREN", not
+ * "FRONTERA"); the part-number branch uses the shared trigram index. Folding sits in the pattern, so the row text
+ * is read as is: one regex per row stays ~0.3 s over ~1M rows (per-row search_normalize took ~6 s).
+ */
+export function dinamikItemMatch(alias: string, raw: string, bind: Bind) {
+  const words = normalizeSearchText(raw).split(" ").filter(Boolean).slice(0, 8);
+  const text = `concat_ws(' ',${alias}.product_data->>'stokAdi',${alias}.code,${alias}.product_data->>'oemListe',${alias}.product_data->>'esdegerListe',${alias}.product_data->>'kull8s')`;
+  // Normalized words are [a-z0-9.] only: "." is the one regex metacharacter to escape.
+  const pattern = words.map(word => `(?=.*\\m${[...word].map(char => char === "." ? "\\." : turkishVariants[char] ? `[${turkishVariants[char]}]` : char).join("")})`).join("");
+  const clauses = words.length ? [`${text} ~* ${bind(`^${pattern}`)}`] : [];
+  const compact = compactSearchCode(raw);
+  if (compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${compact}%`)}`);
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
@@ -49,9 +69,13 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
 
 /** Relevance of a catalog-shaped row (name, brand, code, oem, description columns), highest first. */
 export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
+  const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
   const columns = ["name", "brand", "code", "oem", "description"].map(column => `${alias}.${column}`).join(", ");
-  return `catalog_search_rank(${columns}, to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text),
-    to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text)`;
+  // Supplier rows rank their stored inputs (db/search.sql trigger): ~6 normalisations fewer per row, which
+  // turned a 23k-match search from ~0.8 s of ranking into a primary-key lookup each. Store products, and
+  // any row the trigger has not filled yet, compute the same values on the fly.
+  return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
+    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL), catalog_search_rank(${columns}, ${queries}))`;
 }
 
 /**

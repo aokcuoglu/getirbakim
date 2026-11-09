@@ -1,0 +1,33 @@
+# Supplier egress proxy (#411). Runs on the Contabo VPS from /opt/getirbakim-egress, outside the
+# application stack and its checkout (README.md):
+#   docker compose -f compose.yml up -d
+name: getirbakim-egress
+
+services:
+  squid:
+    image: ubuntu/squid:6.6-24.04_edge
+    restart: unless-stopped
+    # Host network, not a published port: Docker's published ports bypass ufw, and the AWS NAT
+    # address must be filtered twice (ufw + allowed-clients.txt, README.md). It also keeps the real
+    # client address visible to squid's src ACL.
+    network_mode: host
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+      - ./allowed-clients.txt:/etc/squid/allowed-clients.txt:ro
+      - ./allowed-hosts.txt:/etc/squid/allowed-hosts.txt:ro
+      - ${EGRESS_PASSWORDS_FILE:-/etc/getirbakim-egress/passwords}:/etc/squid/passwords:ro
+      - squid-logs:/var/log/squid
+    healthcheck:
+      test: ["CMD-SHELL", "squid -k check"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "2" }
+
+volumes:
+  squid-logs:

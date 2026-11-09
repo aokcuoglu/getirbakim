@@ -23,7 +23,7 @@ import {CatalogStickyFinder} from "@/components/catalog-sticky-finder";
 import {CategoryCards} from "@/components/category-cards";
 import {VehicleOilBanner} from "@/components/vehicle-oil-banner";
 import {getVehicleOilSpec} from "@/modules/store/vehicle-oil.server";
-import {engineOilCategoryId,parseOilFilters} from "@/modules/store/vehicle-oil";
+import {engineOilCategoryId,oilFilterParam,parseOilFilters,type OilFilter} from "@/modules/store/vehicle-oil";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
@@ -77,15 +77,15 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const listingHref=(updates:Partial<CatalogQuery>)=>{const query=new URLSearchParams();for(const [key,value] of Object.entries({...params,make:undefined,page:undefined,...updates}))if(value)query.set(key,value);return query.size?`${home}?${query}`:home;};
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const vehicleName=vehicle&&[vehicle.make,vehicle.model,vehicle.engine].filter(Boolean).join(" ");
- const oilFilters=parseOilFilters(params.oil);
- // Engine-oil listings: the oil categories, an oil filter, or a search for engine oil or a grade ("5w30").
- const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
- // Information only until the storefront lists enough graded oils for the filters (v0.23.0: 12 Başbuğ oils, no full match).
- const oilBanner=oilSpec&&oilListing&&vehicleName&&<VehicleOilBanner spec={oilSpec} vehicleName={vehicleName} active={oilFilters} total={result.total}/>;
  const fitFilter=vehicleTypeId&&(params.fits||fitCount>0)&&<div className={cn("mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground",params.fits&&"border-[#9fd3b5] bg-[#e8f6ee]")} role="status"><CircleCheck size={18} aria-hidden="true"/>
   {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
    :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref(params.fits?undefined:"vehicle")} scroll={false}>{params.fits?"Tüm ürünleri göster":"Yalnızca aracıma uyanları göster"}</Link></div>;
+ const oilFilters=parseOilFilters(params.oil);
+ // Engine-oil listings: the oil categories, an oil filter, or a search for engine oil or a grade ("5w30").
+ const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
+ const oilBanner=oilSpec&&oilListing&&vehicleName&&<VehicleOilBanner spec={oilSpec} vehicleName={vehicleName} active={oilFilters} total={result.total}
+  href={(filters:OilFilter[])=>listingHref({oil:oilFilterParam(new Set(filters))})}/>;
  const correction=result.correctedQuery&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
  const tooShort=result.searchTooShort&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>;
  const scope=result.vehicleScope,partHref=scope&&`${home}?${new URLSearchParams({q:scope.productText,...(category?{category:category.slug}:{})})}`;

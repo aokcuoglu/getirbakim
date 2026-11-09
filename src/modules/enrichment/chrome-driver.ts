@@ -10,7 +10,7 @@ const CHROME=process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 
 type CdpEvent={method:string;params:any};// eslint-disable-line @typescript-eslint/no-explicit-any
-class CdpPage {
+export class CdpPage {
  private next=1;private pending=new Map<number,{resolve:(v:unknown)=>void;reject:(e:Error)=>void}>();
  listeners=new Set<(event:CdpEvent)=>void>();
  private constructor(private ws:WebSocket){
@@ -82,14 +82,15 @@ export async function ensureChrome(port:number,profileDir:string,startUrl:string
  const up=async()=>{try{await fetch(`http://127.0.0.1:${port}/json/version`,{signal:AbortSignal.timeout(2000)});return true;}catch{return false;}};
  if(await up())return;
  await mkdir(profileDir,{recursive:true});
- // Detached so the browser session (and its clearance cookies) outlives worker restarts.
- spawn(CHROME,[`--remote-debugging-port=${port}`,`--user-data-dir=${profileDir}`,'--no-first-run','--no-default-browser-check',
+ // Detached so the browser session (and its clearance cookies) outlives worker restarts. The profile is pinned because a
+ // Guest last-used profile makes Chrome start on the profile picker, where DevTools cannot open tabs.
+ spawn(CHROME,[`--remote-debugging-port=${port}`,`--user-data-dir=${profileDir}`,'--profile-directory=Default','--no-first-run','--no-default-browser-check',
   '--disable-background-timer-throttling','--disable-renderer-backgrounding','--disable-backgrounding-occluded-windows',startUrl],{detached:true,stdio:'ignore'}).unref();
  for(let i=0;i<60;i++){if(await up())return;await sleep(500);}
  throw Error('Chrome DevTools endpoint did not start on port '+port);
 }
 
-async function pageFor(port:number,host:string,landingUrl:string){
+export async function pageFor(port:number,host:string,landingUrl:string){
  let target=(await targets(port)).find(t=>t.type==='page'&&URL.canParse(t.url)&&new URL(t.url).hostname===host);
  if(!target){
   target=await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(landingUrl)}`,{method:'PUT'})).json() as Target;
@@ -121,23 +122,29 @@ export type ChromeCollectorOptions={port:number;profileDir:string;clientCode:str
  challengeTimeoutMs?:number;log?:(event:Record<string,unknown>)=>void};
 
 export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorOptions){
- const state={stopped:false,wake:()=>{}};const log=options.log||(e=>console.log(JSON.stringify(e)));
+ const state={stopped:false};const log=options.log||(e=>console.log(JSON.stringify(e)));
  const challengeTimeoutMs=options.challengeTimeoutMs??45*60000;
- // Waits that end early when the collectors are stopped.
- const pause=(ms:number)=>new Promise<void>(r=>{const t=setTimeout(r,ms);const prev=state.wake;state.wake=()=>{clearTimeout(t);prev();r();};});
+ // Retain only active waits: chaining every past wake callback overflows at the end of a long batch.
+ const waits=new Set<()=>void>();
+ const pause=(ms:number)=>new Promise<void>(resolve=>{
+  if(state.stopped){resolve();return;}
+  const wake=()=>{clearTimeout(timer);waits.delete(wake);resolve();};
+  const timer=setTimeout(wake,ms);waits.add(wake);
+ });
  const pages=new Map<string,CdpPage>();
  async function collect(host:string){
   const landing=options.landing[host];
   let page:CdpPage|undefined;
   const connect=async()=>{page?.close();page=await pageFor(options.port,host,landing);pages.set(host,page);if(host==='www.trodo.com')await page.send('Network.enable',{});return page;};
-  // view-data responses loaded by a product page, served when the worker asks for them next.
-  const views=new Map<string,SourceResult>();
+  // view-data responses loaded by a product page; cached before the product request finishes, so the worker's
+  // follow-up view-data request is a cache hit and does not take a rate-limited slot.
+  const views=new Map<string,unknown>();
   async function run(job:{path:string;kind:string}):Promise<SourceResult>{
    const started=Date.now(),p=page!;
    const fromPage=async(url:string,wanted:Record<string,RegExp>,key:string):Promise<SourceResult>=>{
     const found=await p.visit(url,wanted,[key]);
     const view=found.view;
-    if(view?.status===200){try{const body=JSON.parse(view.body);const id=VIEW_API.exec(view.url)?.[1];if(id)views.set(`/rest/V1/catalog-product-api/view-data/${id}/IE`,{httpStatus:200,elapsedMs:0,bytes:view.body.length,retryAfter:null,body});}catch{/* fetched again on demand */}}
+    if(view?.status===200){try{const body=JSON.parse(view.body);const id=VIEW_API.exec(view.url)?.[1];if(id)views.set(`/rest/V1/catalog-product-api/view-data/${id}/IE`,body);}catch{/* fetched again on demand */}}
     const hit=found[key];
     if(!hit){
      const s=await p.evaluate<{blocked:boolean;challenge:boolean;title:string}>(PAGE_STATE,10000).catch(()=>null);
@@ -160,7 +167,6 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
    if(host==='www.trodo.com'&&job.kind==='json'&&product){
     return fromPage(`${SITE}/${decodeURIComponent(product[1])}`,{product:PRODUCT_API,view:VIEW_API},'product');
    }
-   const cachedView=views.get(job.path);if(cachedView){views.delete(job.path);return {...cachedView,elapsedMs:0};}
    if(host==='www.trodo.com'&&job.kind==='html'){
     const here=await p.evaluate<string>('location.pathname',10000);
     if(here!==job.path){await p.navigate(SITE+job.path);await pause(6000);}
@@ -215,8 +221,10 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
     let result:SourceResult;
     try{
      if(!page?.open)await connect();
+     views.clear();
      result=await run(job);
      if(/Cloudflare block page/.test(result.error||'')){await queue.release(job.id,job.token);await queue.blockHost(host,result.error!);log({chrome:'blocked',host,error:result.error});return;}
+     for(const [path,body] of views)await queue.store(host,path,'json',body).catch(error=>log({chrome:'view_cache_failed',host,path,error:String(error)}));
     }catch(error){
      // The response never arrived (navigation, closed tab, lost CDP); the request goes back unspent.
      await queue.release(job.id,job.token);log({chrome:'request_interrupted',host,error:String(error)});
@@ -232,5 +240,5 @@ export function startChromeCollectors(queue:SourceQueue,options:ChromeCollectorO
  }
  // An open CDP socket keeps the process alive, so every exit path closes the tab connection.
  const done=Promise.all(Object.keys(options.landing).map(host=>collect(host).finally(()=>pages.get(host)?.close())));
- return {stop(){state.stopped=true;state.wake();return done;},done};
+ return {stop(){state.stopped=true;for(const wake of waits)wake();return done;},done};
 }

@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
-import {cacheLifetime,sourceDecision,validSourcePath} from './policy';
+import {cacheLifetime,pacingDelayMs,quietWaitMs,sourceDecision,validSourcePath} from './policy';
 export class SourceBlocked extends Error {}
 export class WorkerStopped extends Error {}
 export class SourceQueue {
@@ -25,6 +25,12 @@ export class SourceQueue {
    await new Promise(r=>setTimeout(r,1000));
   }
  }
+ // Caches a response the source served alongside another request (a product page loads its view-data), so a later
+ // request for it is a cache hit instead of a rate-limited fetch.
+ async store(host:string,path:string,kind:string,body:unknown){
+  if(!validSourcePath(host,path,kind))throw Error('Source path rejected');
+  await this.pool.query("INSERT INTO enrichment_source_cache(host,path,body,expires_at) VALUES($1,$2,$3,now()+$4*interval '1 millisecond') ON CONFLICT(host,path) DO UPDATE SET body=EXCLUDED.body,fetched_at=now(),expires_at=EXCLUDED.expires_at",[host,path,JSON.stringify(body),cacheLifetime(path,kind)]);
+ }
  async claim(host:string):Promise<{id:string;token:string;path:string;kind:string}|{blocked:true}|{challenge:true}|{waitMs:number}>{
   const client=await this.pool.connect();
   try{
@@ -33,6 +39,8 @@ export class SourceQueue {
    if(!h||h.blocked){await client.query('COMMIT');return {blocked:true};}
    if(h.challenge_since){await client.query('COMMIT');return {challenge:true};}
    if(h.wait_ms>0){await client.query('COMMIT');return {waitMs:h.wait_ms};}
+   const quiet=quietWaitMs(Date.now(),h.quiet_start_hour,h.quiet_end_hour);
+   if(quiet>0){await client.query('COMMIT');return {waitMs:quiet};}
    const busy=(await client.query("SELECT 1 FROM enrichment_source_requests WHERE host=$1 AND status='leased' AND lease_until>now() LIMIT 1",[host])).rowCount;
    if(busy){await client.query('COMMIT');return {waitMs:1000};}
    const row=(await client.query(`SELECT * FROM enrichment_source_requests WHERE run_id=$1 AND host=$2
@@ -40,7 +48,7 @@ export class SourceQueue {
    if(!row){await client.query('COMMIT');return {waitMs:1000};}
    const token=randomUUID();
    await client.query("UPDATE enrichment_source_requests SET status='leased',lease_token=$2,lease_until=now()+interval '90 seconds',attempts=attempts+1 WHERE id=$1",[row.id,token]);
-   await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=now()+interval_ms*interval '1 millisecond' WHERE host=$1",[host]);
+   await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=now()+$2*interval '1 millisecond' WHERE host=$1",[host,pacingDelayMs(h.interval_ms,h.jitter_ms)]);
    await client.query('COMMIT');return {id:row.id,token,path:row.path,kind:row.kind};
   }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
  }
@@ -52,6 +60,10 @@ export class SourceQueue {
    if(!row){await client.query('ROLLBACK');throw Error('Stale request lease');}
    const decision=input.error&&input.httpStatus===200?{action:'fail' as const,waitMs:0}:sourceDecision(input.httpStatus,row.attempts,input.retryAfter,Date.now(),input.challenge);
    const error=input.error||`HTTP ${input.httpStatus}`;
+   // No response from one request is that request's problem; only when another request just failed the same way is
+   // the network down, and then the whole host waits so queued requests do not spend their attempts offline.
+   const previous=input.httpStatus===0?(await client.query('SELECT request_id,http_status FROM enrichment_request_events WHERE host=$1 ORDER BY id DESC LIMIT 1',[row.host])).rows[0]:undefined;
+   const hostWaitMs=input.httpStatus===0&&!(previous?.http_status===0&&previous.request_id!==row.id)?0:decision.waitMs;
    await client.query(`INSERT INTO enrichment_request_events(run_id,request_id,host,path,http_status,elapsed_ms,bytes,outcome,retry_after_ms) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [this.runId,row.id,row.host,row.path,input.httpStatus,input.elapsedMs,input.bytes,decision.action,decision.waitMs]);
    if(decision.action==='complete'){
@@ -66,7 +78,7 @@ export class SourceQueue {
     await client.query('UPDATE enrichment_source_hosts SET challenge_since=coalesce(challenge_since,now()),challenges=challenges+1,last_error=$2 WHERE host=$1',[row.host,error]);
    }else if(decision.action==='retry'){
     await client.query("UPDATE enrichment_source_requests SET status='pending',available_at=now()+$2*interval '1 millisecond',last_error=$3,lease_token=NULL,lease_until=NULL WHERE id=$1",[row.id,decision.waitMs,error]);
-    await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=greatest(next_allowed_at,now()+$2*interval '1 millisecond'),last_error=$3,interval_ms=CASE WHEN $4=429 THEN least(30000,interval_ms*2) ELSE interval_ms END WHERE host=$1",[row.host,decision.waitMs,error,input.httpStatus]);
+    await client.query("UPDATE enrichment_source_hosts SET next_allowed_at=greatest(next_allowed_at,now()+$2*interval '1 millisecond'),last_error=$3,interval_ms=CASE WHEN $4=429 THEN least(30000,interval_ms*2) ELSE interval_ms END WHERE host=$1",[row.host,hostWaitMs,error,input.httpStatus]);
    }else{
     const status=decision.action==='block'?'blocked':'failed';
     await client.query('UPDATE enrichment_source_requests SET status=$2,last_error=$3,finished_at=now(),lease_token=NULL,lease_until=NULL WHERE id=$1',[row.id,status,error]);
@@ -86,4 +98,12 @@ export class SourceQueue {
  }
  async clearChallenge(host:string){await this.pool.query('UPDATE enrichment_source_hosts SET challenge_since=NULL,next_allowed_at=greatest(next_allowed_at,now()) WHERE host=$1',[host]);}
  async blockHost(host:string,error:string){await this.pool.query('UPDATE enrichment_source_hosts SET blocked=true,challenge_since=NULL,last_error=$2 WHERE host=$1',[host,error]);}
+}
+// Reopens every host circuit and returns the requests that tripped it to the queue, so a resumed run retries them
+// instead of halting on the same blocked row. Finished runs keep their requests as history.
+export async function unblockSources(pool:Pool){
+ const hosts=await pool.query('UPDATE enrichment_source_hosts SET blocked=false,challenge_since=NULL,last_error=NULL WHERE blocked OR challenge_since IS NOT NULL');
+ const requests=await pool.query(`UPDATE enrichment_source_requests SET status='pending',attempts=0,available_at=now(),last_error=NULL,finished_at=NULL,lease_token=NULL,lease_until=NULL
+  WHERE status='blocked' AND run_id IN (SELECT id FROM enrichment_runs WHERE status IN ('prepared','running','blocked','stopped'))`);
+ return {hosts:hosts.rowCount??0,requests:requests.rowCount??0};
 }

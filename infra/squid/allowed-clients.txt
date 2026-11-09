@@ -1,0 +1,2 @@
+# AWS eu-central-1 NAT egress (Lokum Ops, 6 Nov 2026)
+18.194.217.212/32

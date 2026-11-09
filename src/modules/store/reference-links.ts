@@ -1,18 +1,19 @@
 import "server-only";
 import {db} from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 
 export type ReferenceGroup = {brand: string; kind: "oem" | "cross"; codes: string[]};
 export const compactPartNumber = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const referenceKey = (brand: string, code: string) => `${compactPartNumber(brand)}|${compactPartNumber(code)}`;
 const searchHref = (code: string) => `/katalog?q=${encodeURIComponent(compactPartNumber(code))}&searchBy=code`;
-const company = () => process.env.BASBUG_FIRMA_ADI || "BASBUG";
-const entriesSql = "SELECT id,brand,code,oem FROM commerce_catalog_entries WHERE source='store' OR company=$1";
+const company = storefrontCompanies;
+const entriesSql = "SELECT id,brand,code,oem FROM commerce_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 
 // Items whose part number (the code after the supplier prefix) is one of `codes`, read through
 // supplier_items_part_key_idx; filtering the catalog view directly normalised every item (~2 s per page).
 const partNumberCandidates = async (codes: string[]) => (await db.query<{id: string}>(
   `SELECT id::text FROM supplier_items WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])
-   UNION SELECT id::text FROM products WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])`,
+   UNION SELECT id::text FROM store_products WHERE part_number_key(substring(code from position(' ' in code)+1))=ANY($1::text[])`,
   [codes])).rows.map(row => row.id);
 
 // Resolves which OEM / cross-reference numbers exist in our own catalog, so the

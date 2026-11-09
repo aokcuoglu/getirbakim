@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchesSupplierPart, enrichmentImportSchema, matchesEnrichment } from "../src/modules/store/enrichment-contract";
+import { matchesSupplierPart, enrichmentImportSchema, matchesEnrichment, partCodeOems } from "../src/modules/store/enrichment-contract";
 import { readFileSync } from "node:fs";
 
 test("supplier prefix and manufacturer aliases can match the same part", () => {
@@ -15,11 +15,21 @@ test("supplier prefix and manufacturer aliases can match the same part", () => {
   assert.equal(matchesSupplierPart("DAYCO", "DAY 6PK1570HD", "DAYCO", "6PK1570HD"), true);
   assert.equal(matchesSupplierPart("TEXTAR", "TX 2614201", "TEXTAR", "2614201"), true);
   assert.equal(matchesSupplierPart("BLUE PRINT", "BLU ADBP210047", "BLUE PRINT", "ADBP210047"), true);
+  assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "BOSCH", "0 986 424 533"), true);
+  assert.equal(matchesSupplierPart("TEKNOROT", "TEKNOROT HY-1044K", "TEKNOROT", "HY1044K"), true);
 });
 test("exact-part matching rejects a different part or manufacturer", () => {
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134LMLDEM2"), false);
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "TYC", "445-1134RMLDEM2"), false);
   assert.equal(matchesSupplierPart("OTHER", "ABC 104620", "OTHER", "104620"), false);
+  assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "TRW", "0986424533"), false);
+  // A label's reviewed master brand also identifies the manufacturer, never a different one.
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372"), false);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372", "KRAFTVOLL"), true);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "WAGENBURG", "07010372", "KRAFTVOLL"), false);
+  assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010373", "KRAFTVOLL", "07010372", "KRAFTVOLL"), false);
+  assert.equal(matchesSupplierPart("MAHLE MOTOR", "MAHLE KT 1234", "MAHLE", "KT 1234", "MAHLE"), true);
+  assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134RMLDEM2", null), true);
   assert.equal(matchesSupplierPart("MANN", "MANN W 7041", "MAHLE", "W 7041"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "HART", "OE672/10"), false);
   assert.equal(matchesSupplierPart("FILTRON", "FILT OE 672/10", "FILTRON", "OE672/11"), false);
@@ -70,6 +80,28 @@ test("OEM matching requires current supplier reference and source proof", () => 
   assert.equal(matchesEnrichment({ brand: "LOCAL", code: "93177741", oem: "" }, {
     ...source, partNumber: "93177741", matchBasis: { ...source.matchBasis, reference: "93177741", supplierOem: "", referenceSource: "original_manufacturer_part_code" },
   }), false);
+});
+
+test("part codes that carry an OE number name it with their provenance (#396)", () => {
+  assert.deepEqual(partCodeOems("OE-PSA", "9805463680"), [{ reference: "9805463680", source: "original_manufacturer_part_code" }]);
+  assert.deepEqual(partCodeOems("ORIJINAL", "ORJINAL 5K0807571J"), [{ reference: "5K0807571J", source: "original_manufacturer_part_code" }]);
+  assert.deepEqual(partCodeOems("ORIJINAL", "5K0807571J"), []);
+  assert.deepEqual(partCodeOems("WENDERPARTS", "WENDERPARTS MA1778855601"), [{ reference: "1778855601", source: "replica_part_code" }]);
+  assert.deepEqual(partCodeOems("WENDERPARTS", "WENDERPARTS DG_LR023234"), [{ reference: "LR023234", source: "replica_part_code" }]);
+  assert.deepEqual(partCodeOems("WENDERPARTS", "WENDERPARTS BA63217435137P1").map(r => r.reference), ["63217435137P1", "63217435137"]);
+  assert.deepEqual(partCodeOems("WENDER", "WENDER E-BA51128060849"), [{ reference: "51128060849", source: "replica_part_code" }]);
+  assert.deepEqual(partCodeOems("WENDER", "WENDER E-BA63117214952P12").map(r => r.reference), ["63117214952P12", "63117214952"]);
+  assert.deepEqual(partCodeOems("WENDER", "WENDER E-FE_71768049").map(r => r.reference), ["71768049"]);
+  assert.deepEqual(partCodeOems("WENDER", "WENDERPARTS BA51128060849"), []);
+  assert.deepEqual(partCodeOems("TAIWAN", "TAIWAN 3T5945096A"), [{ reference: "3T5945096A", source: "replica_part_code" }]);
+  assert.deepEqual(partCodeOems("TAIWAN", "3T5945096A"), []);
+  assert.deepEqual(partCodeOems("FEBI", "FEBI 171209"), []);
+  // The contract keeps the provenance apart: a replica's copied number is not an original manufacturer's own.
+  const source = { manufacturer: "FEBI BILSTEIN", partNumber: "171209", data: { oemNumbers: { MERCEDES: ["177 885 56 01"] }, crossReferences: {} } };
+  const replica = { brand: "WENDERPARTS", code: "WENDERPARTS MA1778855601", oem: "" };
+  assert.equal(matchesEnrichment(replica, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "replica_part_code" } }), true);
+  assert.equal(matchesEnrichment(replica, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "original_manufacturer_part_code" } }), false);
+  assert.equal(matchesEnrichment({ ...replica, brand: "LOCAL" }, { ...source, matchBasis: { type: "oem_reference", reference: "1778855601", supplierOem: "", referenceSource: "replica_part_code" } }), false);
 });
 
 test("Opel supplier item can use BLIC data with persisted OEM proof while preserving supplier identity", () => {

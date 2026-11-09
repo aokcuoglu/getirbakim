@@ -31,25 +31,54 @@ $$;
 
 -- Relevance of one catalog row. Exact part/OEM numbers beat everything, then whole-word name hits,
 -- then prefix hits; name and brand weigh more than code and description.
+-- Split in two so the expensive half (six search_normalize calls per row) can be stored: supplier_items keeps
+-- search_doc/search_code/search_oem current through a trigger, and catalogRank() (src/modules/search/sql.ts)
+-- ranks those stored values. catalog_search_rank keeps computing everything for store products.
+CREATE OR REPLACE FUNCTION catalog_search_doc(name text, brand text, code text, oem text, description text) RETURNS tsvector
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
+ SELECT setweight(to_tsvector('simple', search_normalize(COALESCE(name, ''))), 'A')
+   || setweight(to_tsvector('simple', search_normalize(COALESCE(brand, ''))), 'B')
+   || setweight(to_tsvector('simple', search_normalize(COALESCE(code, ''))), 'C')
+   || setweight(to_tsvector('simple', search_normalize(concat_ws(' ', oem, description))), 'D')
+$$;
+-- No SET clause and a single SELECT: the planner inlines it, so ranking stored values costs ts_rank only.
+CREATE OR REPLACE FUNCTION catalog_search_rank_doc(doc tsvector, code_compact text, oem_compact text,
+ prefix_query tsquery, exact_query tsquery, compact text) RETURNS real
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT (CASE WHEN compact = '' THEN 0
+   WHEN code_compact = compact OR oem_compact = compact THEN 100
+   -- Partial code hits count only for code-like queries: "yag" is a word, not part of "YAG5YZ9".
+   WHEN compact !~ '[0-9]' THEN 0
+   WHEN code_compact LIKE compact || '%' OR oem_compact LIKE compact || '%' THEN 50
+   WHEN length(compact) >= 3 AND (code_compact LIKE '%' || compact || '%' OR oem_compact LIKE '%' || compact || '%') THEN 20
+   ELSE 0 END
+  + CASE WHEN exact_query IS NULL THEN 0 ELSE ts_rank(doc, exact_query) * 10 END
+  + CASE WHEN prefix_query IS NULL THEN 0 ELSE ts_rank(doc, prefix_query) END)::real
+$$;
 CREATE OR REPLACE FUNCTION catalog_search_rank(name text, brand text, code text, oem text, description text,
  prefix_query tsquery, exact_query tsquery, compact text) RETURNS real
 LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
- WITH doc AS (SELECT setweight(to_tsvector('simple', search_normalize(COALESCE(name, ''))), 'A')
-   || setweight(to_tsvector('simple', search_normalize(COALESCE(brand, ''))), 'B')
-   || setweight(to_tsvector('simple', search_normalize(COALESCE(code, ''))), 'C')
-   || setweight(to_tsvector('simple', search_normalize(concat_ws(' ', oem, description))), 'D') AS v),
- codes AS (SELECT search_compact(COALESCE(code, '')) AS c, search_compact(COALESCE(oem, '')) AS o)
- SELECT (CASE WHEN compact = '' THEN 0
-   WHEN codes.c = compact OR codes.o = compact THEN 100
-   -- Partial code hits count only for code-like queries: "yag" is a word, not part of "YAG5YZ9".
-   WHEN compact !~ '[0-9]' THEN 0
-   WHEN codes.c LIKE compact || '%' OR codes.o LIKE compact || '%' THEN 50
-   WHEN length(compact) >= 3 AND (codes.c LIKE '%' || compact || '%' OR codes.o LIKE '%' || compact || '%') THEN 20
-   ELSE 0 END
-  + CASE WHEN exact_query IS NULL THEN 0 ELSE ts_rank(doc.v, exact_query) * 10 END
-  + CASE WHEN prefix_query IS NULL THEN 0 ELSE ts_rank(doc.v, prefix_query) END)::real
- FROM doc, codes
+ SELECT catalog_search_rank_doc(catalog_search_doc(name, brand, code, oem, description),
+  search_compact(COALESCE(code, '')), search_compact(COALESCE(oem, '')), prefix_query, exact_query, compact)
 $$;
+-- The stored ranking inputs of a supplier row, from the same fields commerce_catalog_entries shows
+-- (db/commerce.sql: name falls back to the code, brand to 'Belirtilmemiş'). Keep both in step.
+CREATE OR REPLACE FUNCTION supplier_items_search_fields() RETURNS trigger
+LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
+BEGIN
+ NEW.search_doc := catalog_search_doc(COALESCE(NULLIF(NEW.product_data->>'ac', ''), NEW.code),
+  COALESCE(NULLIF(NEW.product_data->>'uk', ''), 'Belirtilmemiş'), NEW.code,
+  COALESCE(NEW.product_data->>'oe', ''), COALESCE(NEW.product_data->>'ac2', ''));
+ NEW.search_code := search_compact(NEW.code);
+ NEW.search_oem := search_compact(COALESCE(NEW.product_data->>'oe', ''));
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS supplier_items_search_fields ON supplier_items;
+CREATE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
+ FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
+-- One-time fill of rows written before the trigger existed (a no-op afterwards). Runs under setup's
+-- supplier locks, so no import writes these rows meanwhile.
+UPDATE supplier_items SET product_data = product_data WHERE search_doc IS NULL;
 
 CREATE INDEX IF NOT EXISTS supplier_items_search_tsv_idx ON supplier_items
  USING gin (to_tsvector('simple', supplier_item_search_text(code, product_data)));

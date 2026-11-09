@@ -17,6 +17,7 @@ import {getManufacturerLogos} from "@/modules/store/manufacturer-logos";
 import {getVehicleLogo} from "@/modules/store/storefront-logos";
 import {HomeProductCard} from "@/components/home-product-card";
 import {NewsletterSignup} from "@/components/newsletter-signup";
+import {MaintenanceRobotBanner} from "@/components/maintenance-robot-banner";
 import {Input} from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
@@ -75,7 +76,7 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
     </section>
     <section className="mb-[87px] bg-[#fafafa] pt-14 pb-[77px] max-md:mb-12 max-md:pt-10 max-md:pb-12">
       <nav className={cn(shell,"flex items-start justify-between gap-4 max-[68.75rem]:gap-2 max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-[15px] max-md:pb-[15px]")} aria-label="Popüler kategoriler">{categories.map(category=><Link key={category.id} href={"/katalog?category="+category.slug} className="flex min-w-0 flex-1 flex-col items-center text-center text-sm leading-5 font-medium text-foreground hover:text-primary">{category.imagePath&&<Image src={category.imagePath} width={135} height={90} alt="" unoptimized className="h-[90px] w-[135px] max-w-full object-contain mix-blend-darken"/>}<span className="mt-[15px] whitespace-nowrap max-[68.75rem]:min-h-10 max-[68.75rem]:whitespace-normal max-md:min-h-5">{category.id===1023?"El aletleri":category.name}</span></Link>)}</nav>
-      <div className={cn(shell,"mt-14 max-md:mt-8")}><HomeCarousel label="Öne çıkan kategoriler">{promotions.map(promotion=>{
+      <div className={cn(shell,"mt-14 max-md:mt-8")}><HomeCarousel label="Öne çıkan kategoriler"><MaintenanceRobotBanner/>{promotions.map(promotion=>{
         const category=allCategories.find(category=>category.id===promotion.category);
         return <Link className="relative block h-[292px] overflow-hidden rounded-md bg-foreground text-white after:absolute after:inset-[65%_0_0] after:bg-[linear-gradient(transparent,#0008_30%,#000_90%)] max-md:h-[250px]" key={promotion.image} href={promotion.href??(category?"/katalog?category="+category.slug:"/katalog")}><Image src={"/media/site/images/"+promotion.image} fill sizes="(max-width:768px) 100vw, (max-width:1350px) 50vw, 656px" alt="" unoptimized className="object-cover"/>{promotion.label&&<span className="absolute top-5 left-8 z-[1] rounded-[2px] bg-[#c94037] px-3 py-2 text-[17px] leading-6 font-semibold text-white max-md:left-5 max-md:px-2.5 max-md:py-1.5 max-md:text-sm">{promotion.label}</span>}<div className="absolute inset-x-0 bottom-5 z-[1] px-8 [text-shadow:1px_1px_2px_black] max-md:px-5"><h2 className="mb-1 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-md:text-xl max-md:leading-[26px]">{promotion.title}</h2><p className="text-sm leading-5">{promotion.description}</p></div></Link>;
       })}</HomeCarousel></div>

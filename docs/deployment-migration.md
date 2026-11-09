@@ -1,17 +1,19 @@
 # Mevcut repo üzerinden yeni sisteme geçiş
 
+> 11 Ekim 2026 güncel karar: otomatik Contabo deploy kapalıdır; staging AWS geçişi ve ayrı kullanıcı talebine kadar duraklatılmıştır. Production deploy yalnızca açık taleple manuel yapılır. Aşağıdaki sunucu/aktarım bilgileri mevcut altyapının ve önceki geçişin operasyon kaydıdır. Çalışma ve yayın kuralları için [geliştirme politikasını](development-workflow.md) izleyin.
+
 ## Ayrılan ortamlar
 
 | Ortam | Repo / klasör | Yayın |
 | --- | --- | --- |
 | Eski sistem arşivi | `archive/legacy-20261005`, VPS `/opt/getirbakim` | Canlı yönlendirmeden çıkarıldı |
-| Yeni test sistemi | `dev`, VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003` |
+| Önceki test sistemi | VPS `/opt/getirbakim-v2` | yalnızca `127.0.0.1:3003`; deploy duraklatıldı |
 | Yeni canlı sistem | `main`, VPS `/opt/getirbakim-v2-production` | `getirbakim-v2-live:3000` edge alias'ı |
 | Geliştirme kaynağı | `/Users/void/www/getirbakim` | yerel PostgreSQL 18 ve MinIO |
 
-Geliştirmeye `/Users/void/www/getirbakim` içinde devam edilir. Bu klasör mevcut GitHub repo geçmişine bağlanmıştır; önceki yerel ilk commit `local/pre-github-migration` branch'inde korunur. `.env.local`, yerel veritabanı ve MinIO değiştirilmez. `/Users/void/www/gb` eski projenin yerel arşividir. Canlı geçiş tamamlanınca `main` yeni sistemi yayınlar; eski kod `archive/legacy-20261005` branch'inde korunur.
+Geliştirmeye `/Users/void/www/getirbakim` içinde devam edilir. Bu klasör mevcut GitHub repo geçmişine bağlanmıştır; önceki yerel ilk commit `local/pre-github-migration` branch'inde korunur. `.env.local`, yerel veritabanı ve MinIO değiştirilmez. `/Users/void/www/gb` eski projenin yerel arşividir. Canlı geçiş tamamlandı; `main` sürüme alınan yeni sistem kodunu temsil eder ve tek başına deploy başlatmaz; eski kod `archive/legacy-20261005` branch'inde korunur.
 
-## Test ortamına erişim
+## Önceki test ortamının erişim kaydı
 
 ```sh
 ssh -N -L 3103:127.0.0.1:3003 getirbakim-prod
@@ -21,9 +23,11 @@ Tünel açıkken `http://localhost:3103` üzerinden erişilir. Yönetim girişi 
 
 Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL ve MinIO volume'ları kullanır. PostgreSQL ve MinIO dışarıya port açmaz; yalnızca uygulamanın loopback portu vardır. `robots.txt` tüm yolları engeller. Bu ilk ortamda tedarikçi ve ödeme sırları yoktur, otomatik tedarikçi işleri kurulmaz; eski müşteri/sipariş verileri taşınmaz. Araç kataloğu ve yerel görsel manifesti yüklenir.
 
-## Otomatik staging deploy
+## Önceki staging deploy süreci (duraklatıldı)
 
-`dev` push'u `Deploy new system staging` workflow'unu çalıştırır:
+`dev` push veya merge işlemi artık deploy başlatmaz. `Deploy new system staging` GitHub tarafında devre dışıdır; repo dosyası yalnızca duraklatma mesajı içerir. Aşağıdaki liste önceki Contabo sürecinin operasyon kaydıdır. AWS staging tasarlanmadan ve kullanıcı istemeden bu süreç yeniden çalıştırılmaz.
+
+Önceki workflow şu adımları uyguluyordu:
 
 1. Node 22 ile typecheck, lint, mevcut birim testleri ve production build.
 2. GitHub runner üzerinde uygulama, operasyon ve medya Docker image'larının build'i. VPS'te build yapılmaz. Hazır MinIO registry image'larına erişilemediğinden [resmi kaynak koddan build yöntemi](https://github.com/minio/minio#build-docker-image) kullanılır; MinIO `9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a`, mc `7394ce0dd2a80935aded936b09fa12cbb3cb8096` commit'lerine sabitlenmiştir.
@@ -32,7 +36,7 @@ Staging ayrı Compose projesi (`getirbakim-v2-staging`), özel ağ, PostgreSQL v
 5. Yalnızca staging veritabanının yedeği, şema kurulumu, görsel/araç kataloğu aktarımı ve uygulamanın güncellenmesi.
 6. Sağlık ve temel sayfa kontrolleri; gerçek yönetici girişi/oturumu, özel medya upload/download ve geçici sentetik kayıtlarla sepet/sipariş/iptal/erişim kontrolleri.
 
-`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. `main` artık yeni production workflow'unu kullanır; eski Bun deploy'u çalıştırılmaz. `dev` workflow'u başka branch veya etiket üzerinden staging deploy etmez.
+`VPS_PROJECT_PATH` ve `VPS_DOMAIN` kullanılmaz; mevcut canlı path veya yönlendirme seçilmez. Yeni branch'te eski Bun/Prisma/Meilisearch workflow'ları bulunmaz. Eski Bun deploy'u çalıştırılmaz. Production workflow'u yalnızca açık deploy talebiyle `main` üzerinde manuel kullanılabilir; staging workflow'u hiçbir branch veya etiket üzerinden dağıtım yapmaz.
 
 İlk sunucu hazırlığı ayrıca `.env.staging` oluşturmayı ve aynı repo origin'ine sahip temiz `/opt/getirbakim-v2` Git checkout'unu gerektirir. Ayar şablonu `deploy/staging.env.example` içindedir. Parolalar rastgele hexadecimal üretilir, dosya izinleri `600` olur.
 
@@ -54,7 +58,7 @@ Deploy scripti yalnızca checkout ile aynı tam `DEPLOY_SHA` değerini kabul ede
 
 Yeni production PostgreSQL 18 ayrı volume üzerinde kurulur; uygulama rolü superuser değildir. Dump yalnızca boş yeni veritabanına, tek transaction ile restore edilir. `scripts/verify-live-snapshot.ts` tüm tablo sayılarını; `scripts/import-live-media.ts` her nesnenin aktarım öncesi ve sonrası SHA-256 özetini doğrular. Kaynak kimlikler korunur. Restore sadece ilk hazırlıkta yapılır; sonraki deploy'lar canlı veriyi yerel dump ile ezmez.
 
-`deploy/production.compose.yml` ve `scripts/deploy-production.sh` ayrı production stack'ini yönetir. GitHub `Deploy production` workflow'u `main` push'larında image'ları runner'da derler, tam commit'e bağlı deploy yapar ve her şema güncellemesi öncesi canlı yedeği alır. İlk hazırlıkta kullanılan `launch/local-data` branch'i main'e girdikten sonra silindi. Medya image'ları daha önce doğrulanmış `STORAGE_VERSION` sürümünden kullanılır.
+`deploy/production.compose.yml` ve `scripts/deploy-production.sh` ayrı production stack'ini yönetir. GitHub `Deploy production` workflow'u açık kullanıcı talebiyle etkinleştirilip `main` üzerinde manuel başlatıldığında image'ları runner'da derler, tam commit'e bağlı deploy yapar ve her şema güncellemesi öncesi canlı yedeği alır. İlk hazırlıkta kullanılan `launch/local-data` branch'i main'e girdikten sonra silindi. Medya image'ları daha önce doğrulanmış `STORAGE_VERSION` sürümünden kullanılır.
 
 Canlı tedarikçi zamanlayıcısı yalnızca aktarım doğrulandıktan sonra kurulur. Günlük yedekler ve supplier systemd timer'ları production stack'ine aittir. Uygulamanın mevcut ödeme ve uyumluluk özellikleri aynen korunur.
 
@@ -80,7 +84,7 @@ journalctl -u getirbakim-production-sync.service --since today
 bash scripts/production-task.sh backup
 ```
 
-Canlı ayarlar `/opt/getirbakim-v2-production/.env.production` içindedir ve Git'e eklenmez. `.env.local` geliştirme ayarlarıdır. `main` push'ları kodu yayınlar; canlı veritabanı veya MinIO yerel verilerle tekrar ezilmez.
+Canlı ayarlar `/opt/getirbakim-v2-production/.env.production` içindedir ve Git'e eklenmez. `.env.local` geliştirme ayarlarıdır. `main` push/merge ve sürüm tag'leri otomatik yayın başlatmaz; açık taleple yapılan manuel deploy'da canlı veritabanı veya MinIO yerel verilerle tekrar ezilmez.
 
 ## Legacy arşivi ve geri dönüş
 

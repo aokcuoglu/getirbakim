@@ -1,10 +1,9 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, Building2, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, PlugZap, ReceiptText, Sun, Truck, type LucideIcon } from "lucide-react";
+import { BadgePercent, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, FileSpreadsheet, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
-import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -16,8 +15,9 @@ export type AdminNavStatus = {
   orders: number; services: number; enrichment: number;
   basbug: "success" | "warning" | "danger" | "neutral";
   dinamik: "success" | "warning" | "danger" | "neutral";
+  seta: "success" | "warning" | "danger" | "neutral";
 };
-type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik"; exact?: boolean };
+type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
 const sections: { title: string; items: Item[] }[] = [
   { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
   { title: "Satış", items: [
@@ -26,16 +26,22 @@ const sections: { title: string; items: Item[] }[] = [
     { href: "/yonetim/fiyatlandirma", label: "Fiyatlandırma", icon: BadgePercent },
   ] },
   { title: "Katalog", items: [
+    { href: "/yonetim/urunler", label: "Ürünler", icon: Package },
     { href: "/yonetim/urun-verileri", label: "Ürün zenginleştirme", icon: Layers3, count: "enrichment" },
+    { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows },
+    { href: "/yonetim/yag-verileri", label: "Yağ verileri", icon: Droplets },
   ] },
   { title: "Entegrasyonlar", items: [
     { href: "/yonetim/tedarikciler", label: "Tüm tedarikçiler", icon: PlugZap, exact: true },
     { href: "/yonetim/tedarikciler/basbug", label: "Başbuğ API", icon: Truck, dot: "basbug" },
     { href: "/yonetim/tedarikciler/dinamik", label: "Dinamik API", icon: Truck, dot: "dinamik" },
+    { href: "/yonetim/tedarikciler/seta", label: "SETA API", icon: Truck, dot: "seta" },
+    { href: "/yonetim/tedarikciler/manuel", label: "Manuel yükleme", icon: FileSpreadsheet },
   ] },
 ];
-const dotStyles = { success: "bg-success", warning: "bg-warning", danger: "bg-destructive", neutral: "bg-muted-foreground/40" };
+const dotIcons = { success: CircleCheck, warning: TriangleAlert, danger: CircleAlert, neutral: CircleDashed };
 const dotLabels = { success: "sağlıklı", warning: "dikkat gerekiyor", danger: "hata", neutral: "bağlı değil" };
+const dotColors = { success: "text-success", warning: "text-warning", danger: "text-destructive", neutral: "text-muted-foreground" };
 
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {
   const pathname = usePathname();
@@ -46,8 +52,8 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
     <SidebarHeader>
       <SidebarMenu><SidebarMenuItem>
         <SidebarMenuButton size="lg" render={<Link href="/yonetim"/>} tooltip="Genel bakış">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">g</span>
-          <span className="grid flex-1 text-left leading-tight"><span className="truncate font-semibold text-foreground">getirbakim</span><span className="truncate text-xs">Yönetim paneli</span></span>
+          <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">g</div>
+          <div className="grid flex-1 text-left text-sm leading-tight"><span className="truncate font-medium">getirbakim</span><span className="truncate text-xs">Yönetim paneli</span></div>
         </SidebarMenuButton>
       </SidebarMenuItem></SidebarMenu>
     </SidebarHeader>
@@ -62,10 +68,8 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
               render={<Link href={item.href} aria-current={active(item) ? "page" : undefined}/>}>
               <item.icon aria-hidden="true"/><span>{item.label}</span>
             </SidebarMenuButton>
-            {count > 0 && <SidebarMenuBadge className={cn("rounded-full px-1.5 tabular-nums", (item.count === "orders" || item.count === "services") && "bg-warning/15 text-warning")}>
-              <span className="sr-only">Bekleyen: </span>{count}
-            </SidebarMenuBadge>}
-            {tone && <SidebarMenuBadge><span className={cn("size-2 rounded-full", dotStyles[tone])} role="img" aria-label={dotLabels[tone]}/></SidebarMenuBadge>}
+            {count > 0 && <SidebarMenuBadge><span className="sr-only">Bekleyen: </span>{count}</SidebarMenuBadge>}
+            {tone && <SidebarMenuBadge><ToneIcon tone={tone}/></SidebarMenuBadge>}
           </SidebarMenuItem>;
         })}</SidebarMenu>
       </SidebarGroup>)}
@@ -77,10 +81,10 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
         </SidebarMenuItem>
         <SidebarMenuItem>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent"/>}>
-              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg bg-primary/10 text-xs font-semibold text-primary">{initials}</AvatarFallback></Avatar>
-              <span className="grid flex-1 text-left leading-tight"><span className="truncate font-medium text-foreground">{account.name}</span><span className="truncate text-xs">{account.email}</span></span>
-              <ChevronsUpDown className="ml-auto" aria-hidden="true"/>
+            <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"/>}>
+              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg">{initials}</AvatarFallback></Avatar>
+              <div className="grid flex-1 text-left text-sm leading-tight"><span className="truncate font-medium">{account.name}</span><span className="truncate text-xs">{account.email}</span></div>
+              <ChevronsUpDown className="ml-auto size-4" aria-hidden="true"/>
             </DropdownMenuTrigger>
             <DropdownMenuContent side={isMobile ? "bottom" : "right"} align="end" className="min-w-56">
               <DropdownMenuGroup><DropdownMenuLabel className="truncate">{account.email}</DropdownMenuLabel></DropdownMenuGroup>
@@ -95,6 +99,11 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
     </SidebarFooter>
     <SidebarRail/>
   </Sidebar>;
+}
+
+function ToneIcon({ tone }: { tone: keyof typeof dotIcons }) {
+  const Icon = dotIcons[tone];
+  return <Icon className={`size-3.5 ${dotColors[tone]}`} role="img" aria-label={dotLabels[tone]}/>;
 }
 
 /** Light/dark switch for the workspace only; the storefront has no dark theme. */

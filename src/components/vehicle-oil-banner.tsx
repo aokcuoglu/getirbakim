@@ -11,11 +11,11 @@ export function oilApprovalLabel(spec: VehicleOilSpec) {
 
 /**
  * The garage vehicle's recommended engine oil above oil listings. `href` builds the listing URL with the
- * given oil filters, `total` is the listing's count while a filter is on; without `href` the banner only informs.
+ * given oil filters, `total` is the listing's count while a filter is on.
  */
 export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
   spec: VehicleOilSpec; vehicleName: string; active: ReadonlySet<OilFilter>; total: number;
-  href?: (filters: OilFilter[]) => string;
+  href: (filters: OilFilter[]) => string;
 }) {
   const capacity = oilCapacity(spec);
   const facts = [
@@ -34,7 +34,7 @@ export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
         : <p className="m-0 text-[15px] leading-[22px]"><strong className="font-semibold">Aracın için önerilen motor yağı</strong></p>}
       {facts.length > 0 && <p className="mt-1.5 mb-0 wrap-anywhere">{facts.map((fact, index) => <Fragment key={fact.label}>{index > 0 && <span className="mx-1.5 text-[#c9b27a]" aria-hidden="true">|</span>}<strong className="font-semibold">{fact.label}:</strong> {fact.value}</Fragment>)}</p>}
       <p className="mt-1.5 mb-0 text-xs text-muted-foreground">{vehicleName} için. Değerler bilgi amaçlıdır; aracının kullanım kılavuzuyla karşılaştır.</p>
-      {href && filters.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2">
+      {filters.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2">
         {active.size ? <>
           {filters.filter(filter => active.has(filter.key)).map(filter => <Link key={filter.key} scroll={false} href={href(without(filter.key))}
             aria-label={`${filter.label} filtresini kaldır`} className={`${chip} border-[#d9dee3] bg-white hover:border-[#54626e]`}>

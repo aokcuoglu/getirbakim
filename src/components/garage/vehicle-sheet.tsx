@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition, type RefObject } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
+import { VehicleHeroImage } from "./vehicle-image";
 import { Sheet, SheetClose, SheetTitle } from "@/components/ui/sheet";
 import { DialogOverlay as SheetOverlay, DialogPortal as SheetPortal } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,17 +14,34 @@ import { cn } from "@/lib/utils";
 import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle } from "@/app/garaj/actions";
 import type { GarageEntry } from "@/modules/store/garage";
 import { minSearchLength, searchTooShort } from "@/modules/search/query";
-import { vehicleDetails, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
+import { vehicleDetails, vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
+import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 
-type Step = "brand" | "model" | "fuel" | "engine" | "confirm";
+type Step = "brand" | "family" | "model" | "fuel" | "engine" | "confirm";
 type Tab = "search" | "garage";
-const titles: Record<Step, string> = { brand: "Marka seç", model: "Model / kasa seç", fuel: "Yakıt türü seç", engine: "Motor seç", confirm: "Aracını onayla" };
+const titles: Record<Step, string> = { brand: "Marka seç", family: "Model seç", model: "Kasa / nesil seç", fuel: "Yakıt türü seç", engine: "Motor seç", confirm: "Aracını onayla" };
 
 const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-input bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
-const summaryBox = "mb-[22px] flex items-start gap-3.5 rounded-[5px] border border-border bg-[#f8f9f9] p-[18px] [&>svg]:shrink-0 [&>svg]:text-muted-foreground [&_strong]:text-sm [&_strong]:leading-5 [&_strong]:font-semibold [&_p]:my-1.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
+const summaryBox = "mb-[22px] overflow-hidden rounded-[5px] border border-border bg-white [&>div]:border-t [&>div]:border-border [&>div]:px-[18px] [&>div]:py-3.5 [&_strong]:block [&_strong]:text-base [&_strong]:leading-6 [&_strong]:font-semibold [&_p]:my-0.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:block [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
+// The saved vehicle's technical data, REPXPERT's where it has the type; missing values leave their row out.
+function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
+  const specs = vehicle.specs;
+  const cylinders = specs?.cylinders ? `${specs.cylinders} silindir${specs.valves ? ` · ${specs.cylinders * specs.valves} supap` : ""}` : null;
+  const rows: [string, string | null | undefined][] = [
+    ["Üretim", vehicleProductionDates(vehicle.dateFrom, vehicle.dateTo)],
+    ["Kasa tipi", specs?.bodyType],
+    ["Çekiş", specs?.driveType],
+    ["Motor kodu", specs?.engineCodes.join(", ")],
+    ["Motor hacmi", vehicle.cc ? `${vehicle.cc.toLocaleString("tr-TR")} cm³` : null],
+    ["Silindir", cylinders],
+    ["Yakıt sistemi", specs?.fuelMixture],
+  ];
+  return rows.filter((row): row is [string, string] => Boolean(row[1]));
+}
+
 const emptyBox = "py-9 text-center text-muted-foreground [&>svg]:mx-auto [&>svg]:mb-4 [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-sm [&>p]:leading-[22px] [&>p]:text-foreground [&>small]:text-xs [&>small]:leading-5";
 
 export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", finalFocus }: { open: boolean; vehicle: SavedVehicle | null; onClose: () => void; initialTab?: Tab; finalFocus?: RefObject<HTMLElement | null> }) {
@@ -46,6 +64,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const [tab, setTab] = useState<Tab>(initialTab);
   const [step, setStep] = useState<Step>("brand");
   const [brandId, setBrandId] = useState("");
+  const [familyKey, setFamilyKey] = useState("");
   const [modelId, setModelId] = useState("");
   const [fuel, setFuel] = useState("");
   const [selected, setSelected] = useState<CatalogVehicle | null>(null);
@@ -60,14 +79,22 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const typesRequest = useVehicleCatalog(modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
   const tooShort = searchTooShort(query);
   const searchRequest = useVehicleCatalog(query.trim() && !tooShort ? `/api/vehicles?q=${encodeURIComponent(query.trim())}&offset=${searchOffset}` : null, 250);
+  // The saved vehicle only carries ids; its series photograph is looked up when the garage tab shows it.
+  const savedRequest = useVehicleCatalog(tab === "garage" && vehicle?.vehicleId ? `/api/vehicles?vehicleId=${encodeURIComponent(vehicle.vehicleId)}` : null);
+  const savedVehicle = savedRequest.data?.vehicles?.[0];
+  const savedImage = savedVehicle?.image;
+  const savedOil = savedVehicle?.oil;
+  const savedSpecs = savedVehicle ? vehicleSpecRows(savedVehicle) : [];
   const vehicleBrands = brandsRequest.data?.brands ?? [];
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
+  const families = useMemo(() => vehicleModelFamilies(modelsRequest.data?.models ?? []), [modelsRequest.data]);
+  const family = families.find(f => f.key === familyKey);
   const brand = vehicleBrands.find(b => b.id === brandId);
   const model = vehicleModels.find(m => m.id === modelId);
   const searchResults = searchRequest.data?.vehicles ?? [];
   const searchTotal = searchRequest.data?.total ?? 0;
-  const activeRequest = query.trim() ? searchRequest : step === "brand" ? brandsRequest : step === "model" ? modelsRequest : typesRequest;
+  const activeRequest = query.trim() ? searchRequest : step === "brand" ? brandsRequest : step === "family" || step === "model" ? modelsRequest : typesRequest;
 
   useEffect(() => { busyRef.current = pending; }, [busyRef, pending]);
   const firstStep = useRef(true);
@@ -99,11 +126,12 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
 
   function go(next: Step) { setStep(next); setQuery(""); setSearchOffset(0); setError(""); }
   function pick(v: CatalogVehicle) {
-    setBrandId(v.brandId); setModelId(v.modelId); setFuel(v.fuel);
+    setBrandId(v.brandId); setFamilyKey(vehicleModelFamilyKey(v.model)); setModelId(v.modelId); setFuel(v.fuel);
     setSelected(v); setYear(v.to); go("confirm");
   }
   function back() {
-    const previous: Record<Step, Step> = { brand: "brand", model: "brand", fuel: "model", engine: "fuel", confirm: "engine" };
+    // A family with a single series skipped the series list, so going back skips it too.
+    const previous: Record<Step, Step> = { brand: "brand", family: "brand", model: "family", fuel: family?.models.length === 1 ? "family" : "model", engine: "fuel", confirm: "engine" };
     go(previous[step]);
   }
   function save() {
@@ -154,7 +182,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
           </div>
           {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-6 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
             <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.name}</Button>
-            {model && step !== "model" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("model")}>{model.name}</Button></>}
+            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.name}</Button></>}
+            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.name}</Button></>}
             {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
           {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
@@ -172,13 +201,17 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             </> : <>
               {step === "brand" && [true, false].map(popular => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
                 <h4 className="mt-0 mb-2 text-[11px] leading-4 font-semibold tracking-[.3px] text-[#54626e]">{popular ? "POPÜLER MARKALAR" : "TÜM MARKALAR"}</h4>
-                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.name.toLocaleUpperCase("tr"), action: () => { setBrandId(b.id); setModelId(""); setFuel(""); go("model"); } })))}
+                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.name.toLocaleUpperCase("tr"), action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
               </div>)}
-              {step === "model" && rows(vehicleModels.map(m => ({ key: m.id, label: m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
+              {step === "family" && rows(families.map(f => ({ key: f.key, label: f.name, action: () => {
+                setFamilyKey(f.key); setFuel("");
+                if (f.models.length === 1) { setModelId(f.models[0].id); go("fuel"); } else { setModelId(""); go("model"); }
+              }, detail: `${f.models.length > 1 ? `${f.models.length} kasa / nesil · ` : ""}${vehicleProductionDates(f.dateFrom, f.dateTo)}` })))}
+              {step === "model" && rows((family?.models ?? []).map(m => ({ key: m.id, label: m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
               {step === "confirm" && selected && selectedDetails && <div>
-                <div className={summaryBox}><CarFront size={32} /><div><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
+                <div className={summaryBox}><VehicleHeroImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
                 <label className="mb-2 block text-[13px] font-medium" htmlFor={`${id}-year`}>Model yılı</label>
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
@@ -192,7 +225,19 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       <TabsContent value="garage" className="p-5">
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
-          <div className={summaryBox}><CarFront size={32} /><div><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
+          <div className={summaryBox}><VehicleHeroImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
+          {(savedSpecs.length > 0 || savedOil) && <div className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 rounded-[5px] border border-border px-[18px] text-[13px] leading-5 [&>dl]:col-span-2 [&>dl]:grid [&>dl]:grid-cols-subgrid [&>dl]:gap-y-1 [&>dl]:py-3.5 [&>dl+dl]:border-t [&>dl+dl]:border-border [&_dt]:text-muted-foreground [&_dd]:m-0 [&_dd]:wrap-anywhere">
+            {savedSpecs.length > 0 && <dl aria-label="Araç özellikleri">
+              {savedSpecs.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}
+            </dl>}
+            {savedOil && <dl aria-label="Önerilen motor yağı">
+              {oilCapacity(savedOil) && <><dt>Yağ miktarı</dt><dd className="font-semibold">{oilCapacity(savedOil)}</dd></>}
+              {savedOil.viscosities.length > 0 && <><dt>Viskozite</dt><dd>SAE {savedOil.viscosities.join(", ")}</dd></>}
+              {savedOil.acea.length > 0 && <><dt>ACEA</dt><dd>{savedOil.acea.join(", ")}</dd></>}
+              {savedOil.api.length > 0 && <><dt>API</dt><dd>{savedOil.api.join(", ")}</dd></>}
+              {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
+            </dl>}
+          </div>}
           <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
           <Button className={cn(plain, "mx-auto mt-4 flex min-h-9 items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>

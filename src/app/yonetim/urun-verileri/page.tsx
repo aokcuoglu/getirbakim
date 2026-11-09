@@ -1,23 +1,46 @@
 import Link from "next/link";
-import Image from "next/image";
 import { EnrichmentDetails } from "@/components/admin/enrichment-details";
-import { EnrichmentRefresh } from "@/components/admin/enrichment-refresh";
-import { ArrowDownToLine, ArrowUpRight, Check, ChevronLeft, ChevronRight, CircleHelp, Clock3, Database, ImageIcon, Layers3, Search, ShieldCheck, GitCompareArrows, CarFront } from "lucide-react";
+import { LiveRefresh } from "@/components/admin/live-refresh";
+import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
-import { enrichmentDashboard, enrichmentStatuses } from "@/modules/admin/enrichment-data";
-import { passForecast } from "@/modules/admin/enrichment-pace";
+import { enrichmentDashboard, enrichmentStatuses, type RecordTab } from "@/modules/admin/enrichment-data";
+import { partialGaps, runProgress, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { AdminColumns, AdminPage, AdminPageHeader, AdminPanel, AdminTabs, ButtonLink, EmptyState, PagerLink, Stat, StatGrid, StatusBadge, StatusMessage } from "@/components/admin/ui";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const pilotStatuses:Record<string,string>={prepared:"Hazır",running:"Çalışıyor",complete:"Bitti",blocked:"Kaynak nedeniyle durdu",stopped:"Durduruldu"};
+const sourceLabels:Record<string,{name:string;role:string}>={
+  trodo:{name:"Trodo",role:"Birincil kaynak · bekleyen kuyruk"},
+  otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
+  spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
+  parts2world:{name:"parts2world",role:"Arşivlenmiş TecDoc ürünleri · tam araç listesi"},
+};
+// The source that wrote a product's data, from its source URL.
+const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]).find(key=>sourceHosts[key]===new URL(url).hostname)??null:null;
+const sourceNames=(keys:SourceKey[])=>keys.map(key=>sourceLabels[key].name).join(", ");
+const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kapalı · kaynak engelledi"};
+const runStates:Record<string,[Tone,string]>={running:["success","Çalışıyor"],quiet:["warning","Son 15 dk sessiz"],complete:["success","Bitti"],blocked:["error","Kaynak engelledi"],stopped:["neutral","Durduruldu"],failed:["error","Hatayla durdu"]};
+const gapLabels:Record<PartialGap,string>={image:"Görsel yok",no_vehicles:"Araç listesi yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
+const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
+const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"},{value:"parts2world",label:"parts2world"}];
+const matchOptions=[{value:"oem_reference",label:"OEM referansıyla"},{value:"exact_part",label:"Doğrudan marka / parça"},{value:"cross_reference",label:"Muadil referansıyla"}];
+const matchLabels:Record<string,string>={oem_reference:"OEM referansı",exact_part:"Doğrudan",cross_reference:"Muadil"};
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
+type Tone="success"|"info"|"warning"|"error"|"neutral";
+const tones:Record<Tone,{variant:"success"|"info"|"warning"|"destructive"|"outline";icon?:LucideIcon}>={success:{variant:"success",icon:CircleCheck},info:{variant:"info",icon:Info},warning:{variant:"warning",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
+const statusBadge=(tone:Tone,label:React.ReactNode)=>{const {variant,icon:Icon}=tones[tone];return <Badge variant={variant}>{Icon&&<Icon data-icon="inline-start"/>}{label}</Badge>;};
 const date=(value:Date)=>new Intl.DateTimeFormat("tr-TR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"}).format(value);
 
 export default async function ProductDataAdmin({searchParams}:{searchParams:Promise<SearchParams>}) {
@@ -26,98 +49,149 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const counts=Object.fromEntries(data.counts.map(row=>[row.status,row.count]));
   const total=data.counts.reduce((sum,row)=>sum+row.count,0);
   const attempted=total-(counts.pending||0), attention=(counts.review||0)+(counts.blocked||0)+(counts.failed||0);
-  const forecast=passForecast(data.pass,counts.pending||0);
-  const days=(value:number|null)=>value===null?"—":value<1?"1 günden az":`~${number(Math.ceil(value))} gün`;
-  const hours=(value:number)=>value.toLocaleString("tr-TR",{maximumFractionDigits:1});
-  const sourceState=data.pass.blocked?"Kaynak bloke — koşu durdu":data.pass.challenge_since?`Cloudflare doğrulaması bekleniyor (${date(data.pass.challenge_since)} itibarıyla)`:"Kaynak erişilebilir";
+  // Time left at the last hour's pace: hours up to two days, days beyond.
+  const eta=(hours:number|null)=>hours===null?"—":hours<1?"1 saatten az":hours<48?`~${number(Math.ceil(hours))} saat`:`~${number(Math.round(hours/24*10)/10)} gün`;
+  const perHour=data.sourceSummary.reduce((sum,source)=>sum+source.last_hour,0);
+  const runningSources=data.sourceSummary.filter(source=>source.state==="running");
+  const parts2world=data.sourceSummary.find(source=>source.source==="parts2world");
+  const run=data.run?{...data.run,...runProgress(data.run,parts2world?.last_hour??0)}:null;
   const href=(changes:Record<string,string>)=>{
     const params=new URLSearchParams({...data.filters,...changes});
-    for(const [key,value] of [...params])if(!value||value==="all"||value==="enriched")params.delete(key);
+    for(const [key,value] of [...params])if(!value||value==="all"||value==="complete")params.delete(key);
     return `/yonetim/urun-verileri${params.size?`?${params}`:""}`;
   };
   const cards=[
-    {label:"Zenginleştirilen ürün",value:data.metrics.enriched,icon:Layers3,note:`${number(counts.complete||0)} tamamlandı · ${number(counts.partial||0)} kısmi`},
     {label:"OEM referansıyla eşleşen",value:data.metrics.oem_matches,icon:GitCompareArrows,note:`${number(data.metrics.direct_matches)} doğrudan marka / parça eşleşmesi`},
     {label:"Araç / motor kaydı",value:data.metrics.vehicles,icon:CarFront,note:`${number(data.metrics.oem_numbers)} OEM referansı toplandı`},
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
   ];
-  const statusTones:Record<string,"success"|"info"|"warning"|"error"|"neutral">={complete:"success",partial:"info",review:"warning",failed:"error",blocked:"error",not_found:"neutral",pending:"neutral"};
-  const tabs:[string,string,number][]=[["enriched","Zenginleştirilen",data.metrics.enriched],["review","İnceleme",counts.review||0],["partial","Kısmi veri",counts.partial||0],["not_found","Eşleşmeyen",counts.not_found||0],["pending","Bekleyen",counts.pending||0]];
-  return <AdminPage>
-    <AdminPageHeader breadcrumbs={[{label:"Yönetim",href:"/yonetim"},{label:"Ürün zenginleştirme"}]} title="Ürün zenginleştirme" description="Parçaların bilgiye dönüşümünü tek yerden takip et."
-      actions={<><span className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-success ring-3 ring-success/20"/>Veritabanından güncel görünüm</span><EnrichmentRefresh/></>}/>
-    <StatGrid label="Zenginleştirme özeti">{cards.map(card=><Stat key={card.label} icon={card.icon} label={card.label} value={number(card.value)} note={card.note}/>)}</StatGrid>
+  const statusTones:Record<string,Tone>={complete:"success",partial:"warning",review:"warning",failed:"error",blocked:"error",not_found:"error",pending:"neutral"};
+  // Every product is in exactly one tab (#388); the status column repeats it per row.
+  const errors=(counts.blocked||0)+(counts.failed||0);
+  const tabs:[RecordTab,string,number][]=[["complete","Tamamlanan",counts.complete||0],["partial","Kısmi veri",counts.partial||0],["review","İnceleme",counts.review||0],["not_found","Eşleşmeyen",counts.not_found||0],["error","Hatalı",errors],["pending","Bekleyen",counts.pending||0]];
+  const prev=data.page>1?href({page:String(data.page-1)}):null, next=data.page<data.pages?href({page:String(data.page+1)}):null;
+  const percent=total?attempted/total*100:0;
+  return <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2">
+      <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/><BreadcrumbItem><BreadcrumbPage>Ürün zenginleştirme</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-sm text-muted-foreground">Trodo, otoparcasan, spareto ve parts2world&apos;den toplanan görsel, OEM, özellik ve araç verileri. Son aktarım: {data.metrics.latest?date(data.metrics.latest):"henüz yok"}.</p></div>
+        <LiveRefresh seconds={30}/>
+      </div>
+    </div>
 
-    <AdminColumns wide>
-      <AdminPanel title="Katalog kapsamı" actions={<span className="text-xs text-muted-foreground tabular-nums">{number(total)} ürün</span>}>
-        <div className="mb-2 flex items-baseline justify-between"><p className="text-sm text-muted-foreground"><strong className="text-xl font-semibold text-foreground tabular-nums">{number(attempted)}</strong> ürün incelendi</p><span className="font-semibold text-primary tabular-nums">%{total?((attempted/total)*100).toLocaleString("tr-TR",{maximumFractionDigits:2}):0}</span></div>
-        <Progress value={total?attempted/total*100:0} aria-label="İncelenen ürünler"/>
-        <div className="mt-3 flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Clock3 className="size-3.5" aria-hidden="true"/>{number(counts.pending||0)} ürün henüz incelenmedi</span><span>Son aktarım: {data.metrics.latest?date(data.metrics.latest):"Henüz yok"}</span></div>
-      </AdminPanel>
-      <Link href={href({status:"attention",match:"all",q:"",page:"1"})} className="group flex items-center gap-4 rounded-xl border border-warning/30 bg-warning/5 p-4 transition-colors hover:border-warning/50">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning"><CircleHelp className="size-5" aria-hidden="true"/></span>
-        <div className="flex-1"><div className="text-sm font-medium text-warning">Kontrol bekleyen kayıtlar</div><div className="text-2xl font-semibold tabular-nums">{number(attention)}</div><p className="text-xs text-muted-foreground">{number(counts.review||0)} inceleme · {number((counts.blocked||0)+(counts.failed||0))} erişim / işlem hatası</p></div>
-        <ArrowUpRight className="size-5 text-warning transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true"/>
-      </Link>
-    </AdminColumns>
+    <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Zenginleştirme özeti">
+      <Card>
+        <CardHeader><dt><CardDescription>Katalog kapsamı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">%{percent.toLocaleString("tr-TR",{maximumFractionDigits:2})}</CardTitle></dd><CardAction><Layers3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col gap-2"><Progress value={percent} aria-label="İncelenen ürünler"/><span className="text-sm text-muted-foreground tabular-nums">{number(attempted)} / {number(total)} ürün incelendi</span></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><dt><CardDescription>Toplama hızı</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(perHour)} / saat</CardTitle></dd><CardAction><Clock3 className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
+          {runningSources.length?statusBadge("success",`${runningSources.length} kaynak çalışıyor`):statusBadge("warning","Çalışan kaynak yok")}
+          {runningSources.length?<span className="tabular-nums">{runningSources.map(source=>`${sourceLabels[source.source].name} ${number(source.last_hour)}`).join(" · ")} (son 1 saat)</span>:null}
+          <span className="tabular-nums">Son 24 saatte {number(data.sourceSummary.reduce((sum,source)=>sum+source.searched,0))} arama · {number(data.sourceSummary.reduce((sum,source)=>sum+source.found,0))} bulundu</span>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><dt><CardDescription>Zenginleştirilen ürün</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(data.metrics.enriched)}</CardTitle></dd><CardAction><CircleCheck className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col gap-1 text-sm text-muted-foreground tabular-nums"><span>{number(counts.complete||0)} tamamlandı · {number(counts.partial||0)} kısmi</span><span>Son 24 saatte {number(data.pass.finished_24h+data.pass.fallback_pending_found_24h)} ürün işlendi</span></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><dt><CardDescription>Kontrol bekleyen</CardDescription></dt><dd><CardTitle className="text-2xl tabular-nums">{number(attention)}</CardTitle></dd><CardAction><CircleHelp className="size-4 text-muted-foreground" aria-hidden="true"/></CardAction></CardHeader>
+        <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground tabular-nums">
+          <span>{number(counts.review||0)} inceleme · {number(errors)} erişim / işlem hatası</span>
+          {attention?<div className="flex flex-wrap gap-2">
+            {counts.review?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"review",match:"all",q:"",page:"1"})} scroll={false}/>}>İncelemeyi aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+            {errors?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"error",match:"all",q:"",page:"1"})} scroll={false}/>}>Hataları aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+          </div>:null}
+        </CardContent>
+      </Card>
+    </dl>
 
-    <AdminPanel title="Katalog turu hızı" actions={<span className="text-xs text-muted-foreground">Son 24 saat</span>}
-      footer={<><span className="tabular-nums">{number(data.pass.linked_products)} ürün araç kataloğuna bağlı</span><span className="flex items-center gap-2"><StatusBadge tone={data.pass.blocked?"error":data.pass.challenge_since?"warning":"success"}>{sourceState}</StatusBadge>{data.pass.interval_ms?<span className="tabular-nums">istek aralığı {hours(data.pass.interval_ms/1000)} sn</span>:null}</span></>}>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2"><p className="text-sm text-muted-foreground"><strong className="text-xl font-semibold text-foreground tabular-nums">{number(data.pass.finished_24h)}</strong> ürün arandı · çalışırken saatte {number(Math.round(forecast.perActiveHour))}</p><span className="font-semibold text-primary tabular-nums">{days(forecast.daysLeft)}</span></div>
-      <p className="text-sm">Tarayıcı son 24 saatin {hours(forecast.activeHours)} saatinde çalıştı (%{Math.round(forecast.uptime*100)}). Kalan {number(counts.pending||0)} ürün bu hızla {days(forecast.daysLeft)}, kesintisiz çalışırsa {days(forecast.daysLeftAlwaysOn)} sürer.</p>
-    </AdminPanel>
+    <div className="grid items-start gap-4 xl:grid-cols-3">
+      <Card className="xl:col-span-2">
+        <CardHeader><CardTitle><h2>Veri kaynakları</h2></CardTitle><CardDescription>Hız son 1 saatteki, diğer sayılar son 24 saatteki aramalar; son 15 dakikada arama yapan kaynak çalışıyor sayılır.</CardDescription></CardHeader>
+        <CardContent>
+          <Table controls={false}><TableHeader><TableRow><TableHead>Kaynak</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Bulunan</TableHead><TableHead className="text-right">İsabet</TableHead><TableHead className="text-right">Hız</TableHead><TableHead className="text-right">Hata</TableHead><TableHead className="text-right">Toplam ürün</TableHead><TableHead>Son arama</TableHead></TableRow></TableHeader>
+            <TableBody>{data.sourceSummary.map(source=><TableRow key={source.source}>
+              <TableCell><div className="flex flex-col"><span className="font-medium">{sourceLabels[source.source].name}</span><span className="text-sm text-muted-foreground">{sourceLabels[source.source].role}</span>{source.source==="parts2world"&&run&&!data.run?.finished_at?<span className="text-sm text-muted-foreground tabular-nums">Tur %{Math.floor(run.percent)} · kalan {number(run.remaining)} · {eta(run.hoursLeft)}</span>:null}</div></TableCell>
+              <TableCell>{statusBadge(source.state==="running"?"success":source.state==="blocked"?"error":"neutral",sourceStates[source.state])}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.searched)}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.found)}</TableCell>
+              <TableCell className="text-right tabular-nums">{source.hitRate===null?"—":`%${Math.round(source.hitRate*100)}`}</TableCell>
+              <TableCell className="text-right tabular-nums">{source.last_hour?`${number(source.last_hour)} / saat`:"—"}</TableCell>
+              <TableCell className={`text-right tabular-nums${source.errors?" text-warning":""}`}>{number(source.errors)}</TableCell>
+              <TableCell className="text-right tabular-nums">{number(source.written)}</TableCell>
+              <TableCell className="tabular-nums text-muted-foreground">{source.last?date(source.last):"Henüz yok"}</TableCell>
+            </TableRow>)}</TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+      <div className="flex flex-col gap-4">
+        {run&&<Card>
+          <CardHeader><CardTitle><h2>{`parts2world turu · ${number(run.total)} ürün`}</h2></CardTitle><CardDescription className="tabular-nums">{number(run.processed)} / {number(run.total)} ürün işlendi</CardDescription><CardAction>{statusBadge(...runStates[run.state])}</CardAction></CardHeader>
+          <CardContent className="flex flex-col gap-3"><Progress value={run.percent} aria-label="parts2world turu"/><p className="text-sm tabular-nums">{run.finished_at?`Kalan ${number(run.remaining)} ürün`:`Kalan ${number(run.remaining)} ürün · ${eta(run.hoursLeft)}${parts2world?.last_hour?` (saatte ${number(parts2world.last_hour)})`:""}`} · {number(run.errors)} hata</p></CardContent>
+          <CardFooter className="text-sm text-muted-foreground tabular-nums">{`Başladı ${date(run.started_at)}${run.finished_at?` · bitti ${date(run.finished_at)}`:""} · son yanıt ${run.last?date(run.last):"henüz yok"}`}</CardFooter>
+        </Card>}
+        <Card>
+          <CardHeader><CardTitle><h2>Toplanan veri</h2></CardTitle><CardDescription>Veriler PostgreSQL&apos;de, görseller özel MinIO alanında.</CardDescription></CardHeader>
+          <CardContent><Table controls={false}><TableBody>{cards.map(card=><TableRow key={card.label}>
+            <TableCell className="whitespace-normal"><div className="flex flex-col"><span className="flex items-center gap-2 font-medium"><card.icon className="size-4 text-muted-foreground" aria-hidden="true"/>{card.label}</span><span className="text-sm text-muted-foreground">{card.note}</span></div></TableCell>
+            <TableCell className="text-right font-semibold tabular-nums">{number(card.value)}</TableCell>
+          </TableRow>)}</TableBody></Table></CardContent>
+        </Card>
+      </div>
+    </div>
 
-    {data.pilot&&<AdminPanel title={`${number(data.pilot.sample_size)} ürünlük pilot`} actions={<StatusBadge tone={data.pilot.status==="running"?"info":data.pilot.status==="complete"?"success":data.pilot.status==="blocked"?"error":"neutral"}>{pilotStatuses[data.pilot.status]||data.pilot.status}</StatusBadge>}
-      footer={<><span className="tabular-nums">{number(data.pilot.requests)} kaynak isteği · {number(data.pilot.cache_hits)} önbellek kullanımı · {number(data.pilot.rate_limits)} hız sınırı yanıtı</span><span>{data.pilot.last_response?`Son kaynak yanıtı: ${date(data.pilot.last_response)}`:"Tarayıcı bağlantısı bekleniyor"}</span></>}>
-      <p className="mb-2 text-sm text-muted-foreground"><strong className="text-xl font-semibold text-foreground tabular-nums">{number(data.pilot.processed)}</strong> / {number(data.pilot.sample_size)} ürün işlendi</p>
-      <Progress value={data.pilot.processed/data.pilot.sample_size*100} aria-label="Pilot ürünleri"/>
-      <p className="mt-3 text-sm tabular-nums">{number(data.pilot.complete)} tamamlandı · {number(data.pilot.partial)} kısmi · {number(data.pilot.review)} inceleme · {number(data.pilot.not_found)} eşleşmeyen · {number(data.pilot.failed)} hata</p>
-    </AdminPanel>}
-
-    <Card className="gap-0 py-0" role="region" aria-labelledby="enrichment-records">
-      <CardHeader className="pt-4 pb-1"><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Eşleşmeleri ve veri kapsamını ürün bazında incele.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
-      <AdminTabs label="Zenginleştirme durumları" tabs={tabs.map(([key,label,count])=>({href:href({status:key,match:"all",page:"1"}),label,count,current:data.filters.status===key}))}/>
-      <form key={`${data.filters.status}:${data.filters.match}:${data.filters.q}`} className="flex flex-wrap items-center gap-2 border-b p-3" method="get">
-        <InputGroup className="w-full sm:w-96"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ürün, marka veya OEM ara" defaultValue={data.filters.q} placeholder="Ürün kodu, marka veya OEM ara…"/></InputGroup>
-        <NativeSelect aria-label="Kayıt durumu" name="status" defaultValue={data.filters.status}><NativeSelectOption value="enriched">Zenginleştirilen ürünler</NativeSelectOption><NativeSelectOption value="attention">Kontrol bekleyen tüm kayıtlar</NativeSelectOption>{Object.entries(enrichmentStatuses).map(([key,label])=><NativeSelectOption key={key} value={key}>{label}</NativeSelectOption>)}</NativeSelect>
-        <NativeSelect aria-label="Eşleşme yöntemi" name="match" defaultValue={data.filters.match}><NativeSelectOption value="all">Tüm eşleşme yöntemleri</NativeSelectOption><NativeSelectOption value="oem_reference">OEM referansıyla</NativeSelectOption><NativeSelectOption value="exact_part">Doğrudan marka / parça</NativeSelectOption></NativeSelect>
-        <Button type="submit">Filtrele</Button>
-        {(data.filters.q||data.filters.match!=="all")&&<ButtonLink variant="ghost" href={href({q:"",match:"all",page:"1"})}>Temizle</ButtonLink>}
-      </form>
-      {data.rows.length?<Table className="min-w-[66rem]"><TableHeader><TableRow><TableHead className="pl-4">Ürün / tedarikçi kodu</TableHead><TableHead>Durum</TableHead><TableHead>Eşleşme</TableHead><TableHead>Toplanan veriler</TableHead><TableHead>Son işlem</TableHead><TableHead className="pr-4"><span className="sr-only">Ayrıntılar</span></TableHead></TableRow></TableHeader><TableBody>{data.rows.map(row=><TableRow key={row.id}>
-        <TableCell className="pl-4"><div className="flex max-w-80 items-center gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-white text-muted-foreground">{row.image_id?<Image src={`/api/product-media/${row.image_id}`} alt="" width={38} height={38} sizes="38px" loading="lazy" className="object-contain"/>:<ImageIcon className="size-4" aria-hidden="true"/>}</div>
-          <div className="min-w-0"><Link className="block truncate font-medium hover:text-primary hover:underline" href={`/urun/${row.id}`}>{row.name||row.code}</Link><span className="text-xs text-muted-foreground">{row.brand} · <code className="font-mono">{row.code}</code></span></div>
-        </div></TableCell>
-        <TableCell><StatusBadge tone={statusTones[row.status]??"neutral"}>{enrichmentStatuses[row.status]||row.status}</StatusBadge></TableCell>
-        <TableCell>{row.match_type?<div><span className="flex items-center gap-1.5 text-sm">{row.match_type==="oem_reference"?<GitCompareArrows className="size-3.5 text-muted-foreground" aria-hidden="true"/>:<ShieldCheck className="size-3.5 text-muted-foreground" aria-hidden="true"/>}{row.match_type==="oem_reference"?"OEM referansı":"Doğrudan eşleşme"}</span><code className="block max-w-48 truncate font-mono text-xs text-muted-foreground">{row.reference||`${row.manufacturer} ${row.manufacturer_part_number}`}</code></div>:<span className="text-muted-foreground">Henüz doğrulanmadı</span>}</TableCell>
-        <TableCell><div className="flex max-w-56 flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground tabular-nums"><span title="OEM referansı" className="flex items-center gap-1"><Database className="size-3" aria-hidden="true"/><b className="font-semibold text-foreground">{number(row.oem_count)}</b> OEM</span><span title="Araç ve motor satırı" className="flex items-center gap-1"><CarFront className="size-3" aria-hidden="true"/><b className="font-semibold text-foreground">{number(row.vehicle_count)}</b> araç</span><span title="Teknik özellik" className="flex items-center gap-1"><Layers3 className="size-3" aria-hidden="true"/><b className="font-semibold text-foreground">{number(row.specification_count)}</b> özellik</span></div></TableCell>
-        <TableCell className="tabular-nums"><time dateTime={(row.imported_at||row.updated_at).toISOString()}>{date(row.imported_at||row.updated_at)}</time><div className="text-xs text-muted-foreground">{row.attempts} deneme</div></TableCell>
-        <TableCell className="pr-4 text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id} footer={<div className="flex flex-wrap items-center justify-end gap-2 border-t bg-muted/50 px-5 py-3">{row.source_url?<ButtonLink variant="outline" href={row.source_url} target="_blank" className="mr-auto">{new URL(row.source_url).hostname}<ArrowUpRight/></ButtonLink>:<span className="mr-auto text-xs text-muted-foreground">Henüz kaynak verisi kaydedilmedi.</span>}<ButtonLink variant="default" href={`/urun/${row.id}`}>Ürün sayfasını aç<ArrowUpRight/></ButtonLink></div>}>
-          <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">{([["Durum",<StatusBadge key="s" tone={statusTones[row.status]??"neutral"}>{enrichmentStatuses[row.status]||row.status}</StatusBadge>],["Eşleşme yöntemi",row.match_type==="oem_reference"?"OEM referansı":row.match_type==="exact_part"?"Doğrudan marka / parça":"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-0.5 font-medium break-words">{value}</dd></div>)}</dl>
-          <div className="grid grid-cols-3 gap-3 rounded-lg border bg-muted/40 p-3">{([[row.oem_count,"OEM referansı"],[row.vehicle_count,"araç / motor"],[row.specification_count,"teknik özellik"]] as const).map(([value,label])=><div key={label}><b className="block text-xl font-semibold tabular-nums">{number(value)}</b><span className="text-xs text-muted-foreground">{label}</span></div>)}</div>
-          {row.last_error&&<StatusMessage tone="warning">Son işlem notu: {row.last_error}</StatusMessage>}
-        </EnrichmentDetails></TableCell>
-      </TableRow>)}</TableBody></Table>:<EmptyState title="Bu filtrelerle kayıt bulunamadı" icon={<Search/>}>Arama kodunu veya eşleşme yöntemini değiştirerek tekrar dene. <Link className="font-medium text-primary hover:underline" href="/yonetim/urun-verileri">Tüm zenginleştirilen ürünler</Link></EmptyState>}
-      <CardFooter className="justify-between border-t py-3 text-sm text-muted-foreground tabular-nums"><span>{data.total?`${number((data.page-1)*data.pageSize+1)}–${number(Math.min(data.page*data.pageSize,data.total))}`:"0"} / {number(data.total)} kayıt</span><div className="flex items-center gap-2"><PagerLink href={data.page>1?href({page:String(data.page-1)}):null}><ChevronLeft/><span className="sr-only">Önceki sayfa</span></PagerLink><span>Sayfa {number(data.page)} / {number(data.pages)}</span><PagerLink href={data.page<data.pages?href({page:String(data.page+1)}):null}><span className="sr-only">Sonraki sayfa</span><ChevronRight/></PagerLink></div></CardFooter>
+    <Card role="region" aria-labelledby="enrichment-records">
+      <CardHeader><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Her ana ürün bir kez listelenir; bağlı tedarikçi teklifleri aynı doğrulanmış veriyi kullanır.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Tabs value={data.filters.status}><ScrollArea><TabsList variant="line" aria-label="Zenginleştirme durumları">{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList><ScrollBar orientation="horizontal"/></ScrollArea></Tabs>
+        <form key={`${data.filters.status}:${data.filters.match}:${data.filters.q}`} className="flex flex-wrap items-center gap-2" method="get">
+          {(["status","sort","dir","source","name","code","brand","gap"] as const).map(key=>data.filters[key]&&<input key={key} type="hidden" name={key} value={data.filters[key]}/>)}
+          <InputGroup className="w-full sm:w-96"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ürün, marka veya OEM ara" defaultValue={data.filters.q} placeholder="Ürün kodu, marka veya OEM ara…"/></InputGroup>
+          <NativeSelect aria-label="Eşleşme yöntemi" name="match" defaultValue={data.filters.match}><NativeSelectOption value="all">Tüm eşleşme yöntemleri</NativeSelectOption><NativeSelectOption value="oem_reference">OEM referansıyla</NativeSelectOption><NativeSelectOption value="exact_part">Doğrudan marka / parça</NativeSelectOption><NativeSelectOption value="cross_reference">Muadil referansıyla</NativeSelectOption></NativeSelect>
+          <Button type="submit">Filtrele</Button>
+          {(data.filters.q||data.filters.match!=="all")&&<Button variant="ghost" nativeButton={false} render={<Link href={href({q:"",match:"all",page:"1"})}/>}>Temizle</Button>}
+        </form>
+        {data.filters.status==="partial"&&<Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Kısmi veri mağazada yayında</AlertTitle><AlertDescription>Eşleşme doğrulandı; görsel, OEM ve özellikler ürün sayfasında görünür ve bu ürünler &quot;Zenginleştirilen&quot; sayısına dahildir. Neden Durum başlığındaki filtreden seçilir. Kendiliğinden kapanabilen: <strong>Görsel yok</strong> (saatlik yedek görev otoparcasan ve spareto&apos;dan görsel arar). Kaynak sınırı olanlar: <strong>Araç listesi yok</strong> (kaynakta uyumluluk tablosu yok), <strong>Araçların bir kısmı eşleşmedi</strong> (kaynağın saydığı bazı araç kimlikleri kendi sayfalarında yok; yeniden deneme 22 Ekim&apos;de 305 üründe sonuç vermedi) ve <strong>Geçersiz araç satırı</strong> (kaynak yalnız yıl veriyor, sözleşme ay/yıl ister). Elle yapılacak bir işlem yoktur.</AlertDescription></Alert>}
+        {data.rows.length?<Table server><TableHeader><TableRow>
+          <TableHead sortKey="name" filter={{param:"name",placeholder:"Ürün adı içeren…"}}>Ürün</TableHead>
+          <TableHead sortKey="brand" filter={{param:"brand",options:data.brands}}>Marka</TableHead>
+          <TableHead sortKey="code" filter={{param:"code",placeholder:"Kod içeren…"}}>Kod</TableHead>
+          <TableHead sortKey="status" filter={data.gaps?{param:"gap",options:(Object.keys(gapLabels) as PartialGap[]).filter(key=>data.gaps![key]).map(key=>({value:key,label:gapLabels[key],count:data.gaps![key]}))}:undefined}>Durum</TableHead>
+          <TableHead sortKey="source" filter={{param:"source",options:sourceOptions}}>Kaynak</TableHead>
+          <TableHead sortKey="match" filter={{param:"match",options:matchOptions}}>Eşleşme</TableHead>
+          <TableHead sortKey="oems" className="text-right">OEM</TableHead>
+          <TableHead sortKey="vehicles" className="text-right">Araç</TableHead>
+          <TableHead sortKey="specs" className="text-right">Özellik</TableHead>
+          <TableHead sortKey="updated">Son işlem</TableHead>
+          <TableHead><span className="sr-only">Ayrıntılar</span></TableHead>
+        </TableRow></TableHeader><TableBody>{data.rows.map(row=>{const source=dataSource(row.source_url),others=row.searched.filter(key=>key!==source),gaps=gapText(row);
+          return <TableRow key={row.id}>
+          <TableCell className="max-w-56" value={row.name||row.code}><Link className="block truncate font-medium hover:underline" href={`/yonetim/urunler/${row.product_id}`} title={row.name||row.code}>{row.name||row.code}</Link></TableCell>
+          <TableCell className="max-w-32"><span className="block truncate" title={row.brand}>{row.brand}</span></TableCell>
+          <TableCell className="max-w-36 font-mono text-sm"><span className="block truncate" title={row.code}>{row.code}</span></TableCell>
+          <TableCell value={enrichmentStatuses[row.status]||row.status}><span title={gaps||undefined}>{statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}</span></TableCell>
+          <TableCell value={source?sourceLabels[source].name:""}>{source?<span title={others.length?`Ayrıca arandı: ${sourceNames(others)}`:undefined}>{sourceLabels[source].name}</span>
+            :<span className="text-muted-foreground" title={others.length?`Arandı: ${sourceNames(others)}`:undefined}>{others.length?`Arandı: ${sourceNames(others)}`:"Henüz aranmadı"}</span>}</TableCell>
+          <TableCell value={row.match_type?matchLabels[row.match_type]:""}>{row.match_type?<span title={row.match_type==="cross_reference"||!row.reference?`${row.manufacturer} ${row.manufacturer_part_number}`:row.reference}>{matchLabels[row.match_type]}</span>:<span className="text-muted-foreground">—</span>}</TableCell>
+          <TableCell className="text-right tabular-nums">{number(row.oem_count)}</TableCell>
+          <TableCell className="text-right tabular-nums">{number(row.vehicle_count)}</TableCell>
+          <TableCell className="text-right tabular-nums">{number(row.specification_count)}</TableCell>
+          <TableCell className="tabular-nums"><time dateTime={(row.imported_at||row.updated_at).toISOString()} title={`${row.attempts} deneme`}>{date(row.imported_at||row.updated_at)}</time></TableCell>
+          <TableCell className="text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id} footer={<>{row.source_url?<Button variant="outline" nativeButton={false} render={<Link href={row.source_url} target="_blank"/>}>{new URL(row.source_url).hostname}<ArrowUpRight data-icon="inline-end"/></Button>:<span className="text-sm text-muted-foreground sm:mr-auto">Henüz kaynak verisi kaydedilmedi.</span>}<Button nativeButton={false} render={<Link href={`/urun/${row.id}`}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end"/></Button></>}>
+            <Table><TableBody>{([["Durum",statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)],["Eşleşme yöntemi",row.match_type?matchLabels[row.match_type]:"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Veri kaynağı",source?sourceLabels[source].name:"Henüz yok"],["Aranan kaynaklar",row.searched.length?sourceNames(row.searched):"Henüz aranmadı"],...(row.status==="partial"?[["Eksik veri",gaps||"Belirtilmemiş"]]:[]),["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><TableRow key={label}><TableHead>{label}</TableHead><TableCell className="whitespace-normal">{value}</TableCell></TableRow>)}</TableBody></Table>
+            <div className="grid grid-cols-3 gap-2">{([[row.oem_count,"OEM referansı"],[row.vehicle_count,"araç / motor"],[row.specification_count,"teknik özellik"]] as const).map(([value,label])=><Item key={label} variant="muted"><ItemContent><ItemTitle className="text-xl tabular-nums">{number(value)}</ItemTitle><ItemDescription>{label}</ItemDescription></ItemContent></Item>)}</div>
+            {row.last_error&&<Alert variant="warning"><TriangleAlert/><AlertDescription>Son işlem notu: {row.last_error}</AlertDescription></Alert>}
+          </EnrichmentDetails></TableCell>
+        </TableRow>;})}</TableBody></Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Search/></EmptyMedia><EmptyTitle>Bu filtrelerle kayıt bulunamadı</EmptyTitle><EmptyDescription>Arama kodunu veya eşleşme yöntemini değiştirerek tekrar dene.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Tüm zenginleştirilen ürünler</Button></EmptyContent></Empty>}
+      </CardContent>
+      <CardFooter className="flex-col gap-2 text-sm text-muted-foreground tabular-nums sm:flex-row"><span className="shrink-0">{data.total?`${number((data.page-1)*data.pageSize+1)}–${number(Math.min(data.page*data.pageSize,data.total))}`:"0"} / {number(data.total)} kayıt · Sayfa {number(data.page)} / {number(data.pages)}</span>
+        {(prev||next)&&<Pagination aria-label="Sayfalama" className="sm:justify-end"><PaginationContent>{prev&&<PaginationItem><Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start"/>Önceki</Button></PaginationItem>}{next&&<PaginationItem><Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end"/></Button></PaginationItem>}</PaginationContent></Pagination>}
+      </CardFooter>
     </Card>
 
-    <section className="flex flex-col gap-3" aria-labelledby="enrichment-infrastructure">
-      <div><h2 id="enrichment-infrastructure" className="text-base font-semibold">Veri kaynağı ve depolama</h2><p className="text-sm text-muted-foreground">Kaynak bağlantısının kontrol sonucu ile kaydedilmiş verileri ayrı takip et.</p></div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card className="flex-row items-start gap-3 px-4"><span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><ArrowDownToLine className="size-4" aria-hidden="true"/></span><div className="flex min-w-0 flex-col gap-2 text-sm">
-          <h3 className="font-semibold">Kaynak erişimi</h3>
-          {data.sources.map(source=><div key={source.host}><div className="flex flex-wrap items-center gap-2"><strong className="font-medium">{source.host}</strong><StatusBadge tone={source.status==="blocked"?"warning":source.status==="accessible"?"success":"error"}>{source.status==="blocked"?"Doğrudan erişim engelli":source.status==="accessible"?"Erişilebilir":"Bağlantı hatası"}</StatusBadge></div><p className="text-xs text-muted-foreground">HTTP {source.http_status??"—"} · Kontrol: {date(source.checked_at)}</p></div>)}
-          {!data.sources.length&&<p className="text-muted-foreground">Henüz kaynak kontrolü yapılmadı.</p>}
-          <p className="text-xs text-muted-foreground">Bu sonuç doğrudan HTTP kontrolüne aittir. Tarayıcı üzerinden yapılan aktarımlar yukarıdaki kayıtlarda görünür.</p>
-        </div></Card>
-        <Card className="flex-row items-start gap-3 px-4"><span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Database className="size-4" aria-hidden="true"/></span><div className="flex flex-col gap-2 text-sm">
-          <h3 className="font-semibold">Veri ve görsel arşivi</h3>
-          <p className="flex items-center gap-2 text-muted-foreground"><Check className="size-4 text-success" aria-hidden="true"/>OEM, özellik ve araç bilgileri PostgreSQL’de</p>
-          <p className="flex items-center gap-2 text-muted-foreground"><Check className="size-4 text-success" aria-hidden="true"/>Görseller özel MinIO alanında</p>
-          <p className="text-xs text-muted-foreground">Tedarikçi marka, kod ve fiyat bilgileri kendi kaynağında korunur.</p>
-        </div></Card>
-      </div>
-    </section>
-  </AdminPage>;
+  </div>;
 }

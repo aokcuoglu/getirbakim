@@ -1,10 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { splitStorefrontBundle } from "./split-storefront-bundle";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
-// incremental export → rsync → backup → dry-run import → import → rebuild fitments. The watermark only
-// advances after production applied the bundle, so a failed run is retried in full next time.
+// incremental export → split into parts → rsync → backup → dry-run every part → import every part → rebuild
+// fitments. The watermark only advances after production applied all parts, so a failed run is retried in full
+// next time (the import is an idempotent upsert, so parts applied before a failure are harmless to repeat).
 const host = process.env.PRODUCTION_SSH;
 if (!host) throw new Error("PRODUCTION_SSH (user@host) required in .env.local");
 const remoteRoot = "/opt/getirbakim-v2-production";
@@ -12,6 +14,8 @@ const state = resolve(".local/storefront-sync/state.json");
 // Enrichment imports that started before the last snapshot but committed after it would be missed;
 // the overlap re-sends them, and the import is an idempotent upsert.
 const OVERLAP_MS = 60 * 60 * 1000;
+// Media bytes per part, well under the operations container's 512 MB (see split-storefront-bundle.ts).
+const PART_BYTES = 100 * 1024 * 1024;
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, { stdio: ["ignore", "inherit", "inherit"] });
@@ -27,17 +31,19 @@ const name = `bundle-${new Date().toISOString().replace(/[:.]/g, "")}`;
 const local = resolve(".local/storefront-sync", name);
 await mkdir(local, { recursive: true });
 try {
-  run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", local, ...(since ? [`--since=${since}`] : [])]);
-  const manifest = JSON.parse(await readFile(resolve(local, "manifest.json"), "utf8")) as { snapshotAt: string; enrichments: unknown[] };
-  console.log(JSON.stringify({ since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length }));
+  const full = resolve(local, "full");
+  run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", full, ...(since ? [`--since=${since}`] : [])]);
+  const manifest = JSON.parse(await readFile(resolve(full, "manifest.json"), "utf8")) as { snapshotAt: string; enrichments: unknown[] };
+  const parts = (await splitStorefrontBundle(full, resolve(local, "parts"), PART_BYTES)).map(dir => dir.split("/").at(-1)!);
+  console.log(JSON.stringify({ since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, parts: parts.length }));
   // One fixed remote directory: rsync then sends only changed files (category images repeat every run).
   const target = `${remoteRoot}/.local/storefront-bundles/current`;
   remote(`mkdir -p ${target}`);
-  run("rsync", ["-a", "--delete", "--partial", "-e", "ssh -o BatchMode=yes", `${local}/`, `${host}:${target}/`]);
-  // A failed dry run stops before anything is written; the bundle stays for inspection.
+  run("rsync", ["-a", "--delete", "--partial", "-e", "ssh -o BatchMode=yes", `${local}/parts/`, `${host}:${target}/`]);
+  // A failed dry run stops before anything is written.
   remote("bash scripts/production-task.sh backup");
-  remote(`bash scripts/production-task.sh import-storefront ${target}`);
-  remote(`bash scripts/production-task.sh import-storefront ${target} --apply`);
+  for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${target}/${part}`);
+  for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${target}/${part} --apply`);
   remote("bash scripts/production-task.sh rebuild-fitments");
   await writeFile(state, JSON.stringify({ snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), enrichments: manifest.enrichments.length }, null, 2));
   console.log(JSON.stringify({ synced: name, snapshotAt: manifest.snapshotAt }));

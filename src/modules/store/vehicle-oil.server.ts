@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import { staleCache } from "@/lib/stale-cache";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { engineOilNameSql, notEngineOilNameSql, oilMatches, oilSpecificationKeys, plainEngineOilNameSql, productOilSpec, vehicleOilFilters,
   type OilFilter, type ProductOilSpec, type VehicleOilSpec } from "./vehicle-oil";
 
@@ -25,15 +26,15 @@ const cachedOils = staleCache<{ id: string; spec: ProductOilSpec }[]>(10 * 60 * 
  */
 export const engineOils = () => cachedOils("all", async () => {
   const candidates = (await db.query<{ id: string; name: string }>(`SELECT catalog.id::text,catalog.name FROM commerce_catalog_entries catalog
-   WHERE (catalog.source='store' OR catalog.company=$1) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`,
-  [process.env.BASBUG_FIRMA_ADI || "BASBUG", engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
+   WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`,
+  [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
   if (!candidates.length) return [];
-  // One pass over the enrichments of every candidate id; trusted as the product page trusts them: the same code
-  // and brand, an exact part match or the supplier OEM the match was made on.
+  // One pass over the shared view for every candidate id. A correlated subquery per candidate re-sorted the
+  // whole view each time (~0.3 s × 400+ oils: two minutes on the first request of a process).
   const specs = new Map((await db.query<{ id: string; specs: string }>(`SELECT e.supplier_item_id::text AS id,string_agg(spec->>1,', ') AS specs
-    FROM product_enrichments e
+    FROM product_enrichment_shared e
     JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe',''))
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
     WHERE e.supplier_item_id=ANY($1::uuid[]) AND spec->>0=ANY($2::text[]) GROUP BY e.supplier_item_id`,
   [candidates.map(row => row.id), oilSpecificationKeys])).rows.map(row => [row.id, row.specs]));

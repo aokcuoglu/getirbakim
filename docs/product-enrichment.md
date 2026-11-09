@@ -86,6 +86,13 @@ npm run verify:fitment
 
 Eşleşmeyen satırlar silinmez: `model_missing`, `attributes_missing`, `dates_differ`, `engine_name_differs` veya `ambiguous` durumuyla saklanır. Tarih farkları, yaklaşık ad eşleştirmeleri ve elle incelenmiş model takma adları otomatik olarak kabul edilmez. Ürün sayfası bağlı satırların marka/model ve teknik değerlerini katalogdan okur; diğer satırları “Kaynak kaydı” olarak gösterir. Kaynak gözlemi artık ürün payload'ıyla aynı değilse eski bağlantı gösterilmez. Garajdaki tip kimliği bağlı listede yer alıyorsa sayfada bu bilgi belirtilir.
 
+`strict-v3` (#231) iki istisna ekler; diğer kurallar aynen geçerlidir:
+
+- **Türkçe model adları.** Kaynaktaki model adı katalogda yoksa Türkçe seri ve gövde adları TecDoc İngilizcesine çevrilip tekrar aranır: `C-SERISI`→`C-CLASS`, `Station wagon`→`Estate`, `Sedan`→`Saloon`, `Cabrio`→`Convertible`, `Panelvan/Van`→`Van`, `Minibüs/Otobüs`→`Bus`, `Platform şasi`→`Platform/Chassis`, `Kasa/büyük limuzin`→`Box Body/MPV`, `Kombi van`→`Estate Van`, `Pick-up`→`Pickup`. Bazı katalog adlarında Türkçe kalıp durduğu için (`MEGANE I Kombi van (KA_)`) önce verilen ad denenir.
+- **Açık bitiş tarihi.** Tam tarih eşleşmesi yoksa ve kaynak üretimi süren (bitişi boş) bir araç bildiriyorsa, başlangıç ayı aynı ve kataloğa göre üretimi kapanmış tipler aday olur. Öznitelik, motor adı ve tekillik kuralları değişmez: birden çok aday `ambiguous` kalır. Kaynak kapalı, katalog açık durumu eşleşmez.
+
+15.10.2026'da tüm bağlantılar `rebuild-product-fitments` ile yeniden hesaplandı. Sonuç: otoparcasan satırlarında eşleşme %49,9'dan %90,7'ye (+1.601), Trodo'da 569.705'ten 569.898'e (+193) çıktı.
+
 Tekrar veri çekerken mevcut `enrichmentImportSchema` formatını kullanın: model adı marka ve kasa koduyla birlikte; motor bilgisi ayrı `engineAndCodes`; `kw`, `ps`, `cc` sayısal; tarihler `MM/YYYY`, bilinmeyen bitiş `null`. Yalnızca model adları bulunan ürünlerde motor/type bağlantısı kurulmaz; ayrıntılı `vehicles` satırları geldiğinde otomatik olarak değerlendirilir.
 
 ## Kalıcı pilot işçisi — 04.10.2026
@@ -117,6 +124,8 @@ Adaptör önce tam marka/parça eşleşmesini arar. Bulamazsa DB'deki OEM numara
 
 `npm run enrichment:continue -- 4318 1000 --chrome`, bekleyen işleri 1.000'lik partilerle bitene kadar işler. Her yeni parti açılmadan önce `supplier_items` içindeki yeni ürünler kuyruğa eklenir. Parti sırası: önce storefront'ta satılabilir ve stoklu ürünler, sonra satılabilir stoksuzlar, en son artık satışta olmayanlar. Her katmanın içinde sıra sabit hash'e göredir. Pilotlardaki "her markadan bir ürün" kuralı katalog turunda uygulanmaz.
 
+Parti tamamlanınca tarayıcı toplayıcıları durdurulur, koşu kilidi ve yerel köprü kapatılır; aynı süreç sıradaki 1.000 bekleyen üründen yeni parti oluşturur. Son partide 1.000'den az ürün kalırsa yalnızca kalanlar alınır. Kuyruk boşalınca süreç çıkar; kaynak engeli veya durdurma sinyali yeni parti açılmadan checkpoint'i koruyarak çalışmayı sonlandırır. Uzun koşularda bekleme callback'leri biriktirilmez; yalnızca etkin beklemeler kapanışta uyandırılır.
+
 10.10.2026 ölçümü (koşu `be68aad8`): www.trodo.com için istek aralığı 10 sn. Tarayıcı çalışırken saatte ~354 istek yapılıyor, yani aralık sınırına dayanıyor. Ürün başına ortalama ~5,1 istek gidiyor: arama 1,55, OEM araması 0,7, ürün ve görünüm 0,8+0,8, araç listeleri 1,1. OEM ile doğrulanan bir eşleşme ~6, `not_found` 2,8–4,9 istek tutuyor. Yedek arama varyantları da eşleşme getiriyor: tamamlanan ürünlerin ~%16'sı bu varyantlarla bulundu. Bu nedenle istek sayısını kısmak yerine çalışma süresini uzatmak öncelikli. O gün kapak kapanınca Mac uyudu ve 2,5 saatlik bir duruş oldu; son 24 saatte çalışma oranı %43'tü. `/yonetim/urun-verileri` sayfasındaki "Katalog turu hızı" kartı son 24 saatte aranan ürünü, çalışma süresini, istek aralığını ve tahmini bitişi gösterir. Bir 10 dakikalık dilim, Trodo o dilimde en az bir kez yanıt verdiyse çalışılmış sayılır.
 
 ### Canlıya düzenli aktarım — 11.10.2026
@@ -145,7 +154,7 @@ npm run enrichment:run -- <run-id> --chrome
 
 İşçi, `.local/enrichment/chrome-profile` profiliyle normal Google Chrome'u `--remote-debugging-port=9222` ile açar (zaten açıksa bağlanır) ve kaynak isteklerini CDP `Runtime.evaluate` ile sekmenin içinden, konsol toplayıcısıyla aynı `fetchSourceJob` koduyla yapar. Yerel köprüye/konsola yapıştırmaya gerek yoktur. Chrome ayrık süreç olarak açılır; işçi yeniden başlasa da oturum ve çerezler korunur. `CHROME_PATH` ve `ENRICHMENT_CHROME_PORT` ile değiştirilebilir.
 
-Gözlenen 403'lerin tamamı `cf-mitigated: challenge` idi (yaklaşık saatte bir tarayıcı doğrulaması), IP engeli değil. Bu yanıt artık devreyi açmaz: istek deneme hakkı harcanmadan kuyruğa döner, host `challenge_since` ile duraklatılır, sürücü sekmeyi siteye yeniden yükler ve sayfa normal görünene kadar bekler. 20 saniyede geçmezse macOS bildirimi gönderilir; Chrome'daki doğrulama kutucuğunu operatör tıklar. Doğrulama sonrası hemen tekrar challenge gelirse 1, 2, 4… (en çok 15) dakika beklenir; 45 dakikada geçilemezse host bloke edilir ve koşu checkpoint'le durur. Hız sınırları, 429 geri çekilmesi ve challenge olmayan 401/403 blokları değişmedi; proxy/parmak izi değiştirme yapılmaz. `enrichment-worker.ts unblock` host bloklarını elle sıfırlar. Konsol modunda betik başlarken `/cleared` ile challenge durumunu temizler.
+Gözlenen 403'lerin tamamı `cf-mitigated: challenge` idi (yaklaşık saatte bir tarayıcı doğrulaması), IP engeli değil. Bu yanıt artık devreyi açmaz: istek deneme hakkı harcanmadan kuyruğa döner, host `challenge_since` ile duraklatılır, sürücü sekmeyi siteye yeniden yükler ve sayfa normal görünene kadar bekler. 20 saniyede geçmezse macOS bildirimi gönderilir; Chrome'daki doğrulama kutucuğunu operatör tıklar. Doğrulama sonrası hemen tekrar challenge gelirse 1, 2, 4… (en çok 15) dakika beklenir; 45 dakikada geçilemezse host bloke edilir ve koşu checkpoint'le durur. Hız sınırları, 429 geri çekilmesi ve challenge olmayan 401/403 blokları değişmedi; proxy/parmak izi değiştirme yapılmaz. `enrichment-worker.ts unblock` host bloklarını elle sıfırlar ve bitmemiş koşularda bloğu tetikleyen istekleri kuyruğa geri alır; koşu devam ettirildiğinde aynı satıra takılıp yeniden durmaz. Konsol modunda betik başlarken `/cleared` ile challenge durumunu temizler.
 
 07.10.2026 akşam denemesi: sürücü açılışta doğrulamayı ~6 saniyede geçti, istekler 10 saniye aralıkla 200 döndü. Yaklaşık 10 dakika sonra arama ucu yeniden `cf-mitigated: challenge` döndürdü. Ana sayfa yüklenebiliyordu, ancak `/rest/V1/catalogsearch/...` sekmede belge olarak açıldığında çözülebilir bir doğrulama yerine Cloudflare blok sayfası ("Sorry, you have been blocked") çıktı; farklı bir sorguda da sonuç aynıydı. Yani XHR'deki challenge başlığı bu durumda gerçek bir engeli gizliyor. Sürücü artık blok sayfasını görünce hostu bloke edip durur. Engel aşılmaya çalışılmadı; `www.trodo.com` blocked, koşu `stopped`, 656 ürün checkpoint'le kuyrukta.
 
@@ -233,3 +242,43 @@ Masaüstünde 304 px sidebar, tek panel içindeki teknik filtreler, liste/ızgar
 yerel WebP dosyasından sunulur. İlgili kategori kartları ve alt bölüm aynı yerleşimi
 izler; bağlantılar ve ticari bilgiler mağazanın kendi verileridir. Mobilde filtreler
 kapalı başlar, ızgara kartlarının teknik ve satın alma alanları referanstaki gibi gizlenir.
+
+
+### Ana ürün bazında Trodo kuyruğu — 11.10.2026
+
+Trodo kapsamı `products` tablosundaki, başka ürüne yönlendirilmemiş ana ürünlerdir. Tedarikçi satırlarının toplamı bu kapsam değildir: aynı parçanın birden fazla teklifi ve ana kataloğa bağlanmamış fiyat listesi kayıtları ayrı kaynak ziyaretleri oluşturmaz.
+
+`enrichment:prepare` mevcut eşleştirme şemasından sonra `db/enrichment-products.sql` dosyasını uygular. `enrichment_product_catalog` her ana ürün için tek temsilci ve durum seçer; önce geçerli tamamlanmış/kısmi kayıtlar, sonra mevcut sonuçlar, en son bekleyen teklifler seçilir. Otomatik kaynak bağları güncel kanonik marka/parça numarasına göre denetlenir; elle ayırma/birleştirme kararları korunur. Kimliği veya OEM'i değişmiş bir gözlem eski başarı olarak sayılmaz.
+
+`product_enrichment_shared`, aynı ana ürünün tekliflerine özgün doğrulanmış gözlemi, görseli, kategori ve araç eşleştirmelerini paylaşır. Ham JSON ve araç satırları tedarikçi başına kopyalanmaz; doğrulama ve araç ayrıntıları özgün kaynak kaydı üzerinden okunur. Fiyat/stok ve muadil ürünler bağımsızdır. Teklif ayrılınca paylaşım anında sona erer. Ürün bağlantısı değişirse devam eden aktarım eski ana ürün adına kaydedilemez.
+
+Mevcut koşular `product_id` ile ilişkilendirilir. Başlangıçta gereksiz bekleyen tekrarlar ve kapsam dışı teklifler `skipped` olur; eski sonuçlar, checkpoint ve kaynak önbelleği silinmez. Durdur/devam komutu aynıdır: `npm run enrichment:continue -- 4318 1000 --chrome`. Yeni partiler her ana ürünü bir kez seçer. Eski `product_enrichment_jobs` tablosu tedarikçi düzeyindeki geçmişi saklar; operasyonun toplam/kalan sayacı olarak kullanılmaz.
+
+`/yonetim/urun-verileri` görünümü doğrudan okumaz: `db/enrichment-states.sql` her ana ürün için `enrichment_product_catalog` satırının materyalize hâlini `enrichment_product_states` tablosunda tutar (durum, temsilci tedarikçi satırı, OEM/araç/özellik sayıları, sıralama anahtarı). `products`, `product_sources`, `supplier_items` (kod, ürün verisi, varlık), `product_enrichment_jobs` ve `product_enrichments` üzerindeki trigger'lar etkilenen ürün kimliklerini `enrichment_product_state_queue` kuyruğuna yazar; `brands`/`supplier_brands` eşleme değişikliği tam yeniden kurma işareti bırakır. Sayfa her okumadan önce `enrichment_product_states_sync()` ile kuyruğu boşaltır: küçük kuyruk nokta nokta yenilenir, 20 binden büyük kuyruk veya işaret tüm tabloyu yeniden kurar (yerelde ~5 sn; görünüm için nested loop kapatılır, aksi hâlde dakikalar sürer). `npm run db:setup` ve `npm run enrichment:prepare` şemayı uygular; ilk kurulumda `db:setup` şema işleminden sonra bir senkron koşar. `npm run enrichment:states` tam yeniden kurar (`sync` argümanı yalnız kuyruğu boşaltır).
+
+`/yonetim/urun-verileri` kapsamı, durumları, zenginleştirme metrikleri ve son 24 saat hızını tekil ana ürünlerle hesaplar. Katalog turu hızı kartı süreç içinde bir dakika önbelleklenir. Parti kartı atlanan teklifleri ayrıca gösterir. Yerel şema geçişi için işçi önce SIGTERM ile durdurulur, `npm run enrichment:prepare` uygulanır ve aynı devam komutu yeniden başlatılır. Bu işlem deploy değildir; production şeması yalnız ayrıca istenen manuel yayın kapsamında uygulanır.
+
+## otoparcasan.com ikinci kaynak — 14.10.2026
+
+Trodo'da bulunamayan (`product_enrichment_jobs.status='not_found'`) ürünler otoparcasan.com'dan tamamlanır (#222). Kaynak düz HTTP ile okunur; tarayıcı gerekmez. İstekler sıralıdır, aralarında 1,5 sn + rastgele 0–0,75 sn beklenir (`OTOPARCASAN_INTERVAL_MS`). 403/429/503 ya da Cloudflare sayfası çalışmayı durdurur.
+
+1. `POST Ajax/searchAll/` (CSRF'li; token her yanıtta yenilenir) ürün kodunu, bulunamazsa tedarikçi OEM'ini arar. Kod aramasında yalnız adresi stok koduyla **biten** ürünler aday olur: `FEBI 8098`'in araması `…-zp8098fmbp`'yi de döndürür.
+2. Ürün sayfasından marka, stok kodu, "OEM Kodları" ve değeri olan "Teknik Bilgiler" satırları okunur. Kimlik Trodo ile aynı sözleşmeyle (`matchesEnrichment`) doğrulanır. Tedarikçi etiketinin yanında bağlı olduğu ana marka da kabul edilir: "KRAFTVOLL BALATA" etiketi "KRAFTVOLL" ana markasıyla sitedeki KRAFTVOLL ürünüyle eşleşir (#236). Mağaza aynı kontrolü `product_enrichment_shared.donor_master_brand` ile yineler. Kurallar: marka + parça, OE- tedarikçilerde orijinal parça numarası ya da tedarikçi OEM'inin sayfada kanıtlanması.
+3. `POST Ajax/getCarsByStokAndMarkaAndModel` her araç markası için TecDoc araç satırlarını verir. Yakıtı boş satırlar TecDoc'un ticari araç ağacındandır (kamyon, çekici, beton mikseri) ve atılır; araç kataloğu yalnız binek ve hafif ticari araçları içerir. IVECO DAILY gibi kamyonetler binek ağacından gelir ve kalır.
+4. Araçlar ortak katı eşleştiriciye (`strict-v3`) model adı (`MARKA MODEL`) ve tip adıyla verilir. Sitenin `typeId` alanı katalog id'si değildir.
+
+Kaynak, araç üreticisini OEM numarasıyla birlikte vermez. Bu yüzden numaralar tek araç markası varsa o markanın, "PSA ORJINAL" gibi orijinal parçalarda o üreticinin, aksi halde `OE` başlığı altında tutulur. Kısaltılmış listelemeler atılır (`544103E100` yanında `544103`).
+
+Ürün görseli sayfanın `og:image` adresidir (#227). Yalnız `image.otoparcasan.com/…/products/…` kabul edilir; görseli olmayan ürünlerde site istemci tarafında "ürün görseli hazırlanmaktadır" yer tutucusunu gösterir, bu kaydedilmez. İndirilen içerik PNG, JPEG ya da WebP olarak doğrulanır, gerçek genişlik/yükseklik başlıktan okunur ve görsel Trodo'yla aynı yoldan (`storeProductImage`, sha256 ile tekil) S3'e yazılır. Site uzantıdan bağımsız olarak WebP döndürebilir.
+
+```bash
+npm run enrichment:otoparcasan -- collect --limit 2000  # bulunan her ürünü anında yazar (Trodo işçisi gibi)
+npm run enrichment:otoparcasan -- collect --dry-run     # yazmaz; paketler yalnız artifacts/otoparcasan/results.jsonl'e
+npm run enrichment:otoparcasan -- report                # bulunan/OEM/özellik/araç ve katalogla eşleşen araç sayıları
+npm run enrichment:otoparcasan -- import                # yazılmamış paketleri yazar (iş hâlâ not_found ise)
+npm run enrichment:otoparcasan -- images                # görselsiz yazılmış otoparcasan ürünlerine görsel ekler
+```
+
+Her paket önce checkpoint'e eklenir, sonra `importEnrichments` ile yazılır (#224). Bağlantı hatasında 5 sn, 30 sn ve 2 dk sonra tekrar denenir. Yine olmazsa çalışma durur; paket checkpoint'te kalır ve bir sonraki `collect` ya da `import` önce bekleyenleri yazar. Sözleşmenin reddettiği ya da artık açık olmayan ürün atlanır. `--status pending` Trodo'nun henüz uğramadığı işleri arar; ana ürün başına tek tedarikçi satırı seçilir ve başka satırı zaten zenginleştirilmiş ürün atlanır (#236). `--status review` Trodo'nun aday bulup doğrulayamadığı işleri arar (#245). Yazımdan hemen önce iş hâlâ `not_found`, `pending` ya da `review` değilse (ör. Trodo bu arada tamamladıysa) ürün atlanır. `collect` kaldığı yerden devam eder; `--retry` önceki sonuçları (yazılanlar hariç) yeniden dener, `--ids <dosya>` belirli ürünleri işler. `images` görseli bulunmayan ürünleri `artifacts/otoparcasan/images.jsonl`'e yazar ve tekrar denemez; eklenen görselde `imported_at` güncellenir. Yazılan veri gece `storefront:sync` ile canlıya gider.
+
+İlk 26 ürünlük örneklemde 19 ürün bulundu, yanlış eşleşme olmadı. 1.613 ticari araç satırı atıldı. Kalan 228 binek araç satırının 190'ı katalogdaki tek bir tiple eşleşti. Eşleşmeyenlerin nedenleri: modelin katalogda olmaması (20), sitenin bitiş tarihini açık bırakması (14), güç ya da motor adı farkı (4).

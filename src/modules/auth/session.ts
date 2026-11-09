@@ -1,9 +1,10 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { cache } from "react";
+import { loginPath, RETURN_TO_HEADER } from "./return-to";
 export type Account = { id: string; name: string; email: string; role: "admin" | "service"; approved: boolean; discount_percent: number };
 export const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 export const currentAccount = cache(async (): Promise<Account | null> => {
@@ -14,7 +15,7 @@ export const currentAccount = cache(async (): Promise<Account | null> => {
 });
 export async function requireService() {
  const account = await currentAccount();
- if (!account?.approved) redirect("/giris");
+ if (!account?.approved) redirect(loginPath((await headers()).get(RETURN_TO_HEADER)));
  return account;
 }
 export async function requireAdmin() {

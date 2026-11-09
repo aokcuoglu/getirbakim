@@ -29,7 +29,7 @@ try {
  const info=await pool.query("select current_database() as database,current_user as role");
  assert.deepEqual(info.rows[0],{database:"getirbakim",role:"getirbakim_app"});
  accountId=(await pool.query("INSERT INTO accounts(name,email,password_hash,role,approved,discount_percent) VALUES('Verification service',$1,$2,'service',true,10) RETURNING id",[email,await hash(password,12)])).rows[0].id;
- productId=(await pool.query("INSERT INTO products(supplier,code,name,brand,description,price_kurus,stock,category) VALUES('demo',$1,'Verification synthetic product','VERIFY','Synthetic verification data',10000,3,'fren') RETURNING id",[code])).rows[0].id;
+ productId=(await pool.query("INSERT INTO store_products(supplier,code,name,brand,description,price_kurus,stock,category) VALUES('demo',$1,'Verification synthetic product','VERIFY','Synthetic verification data',10000,3,'fren') RETURNING id",[code])).rows[0].id;
  const anon=await get(`/katalog?q=${code}`);assert.equal(anon.status,200);const anonHtml=await anon.text();assert.ok(anonHtml.includes(code));
  assert.ok(!(await (await get("/katalog?searchBy=code&q=Verification%20synthetic%20product")).text()).includes(code));
  assert.ok((await (await get("/katalog?searchBy=all&q=Verification%20synthetic%20product")).text()).includes(code));assert.ok(anonHtml.includes("100,00"));assert.ok(anonHtml.includes("Bireysel satış fiyatı"));assert.ok(!anonHtml.includes("90,00"));
@@ -76,7 +76,7 @@ try {
  if(createdServiceId)await pool.query("DELETE FROM accounts WHERE id=$1",[createdServiceId]);
  if(cookie) await pool.query("DELETE FROM sessions WHERE token_hash=$1",[createHash("sha256").update(cookie.slice("gb_session=".length)).digest("hex")]);
  if(accountId)await pool.query("DELETE FROM accounts WHERE id=$1",[accountId]);
- if(productId)await pool.query("DELETE FROM products WHERE id=$1",[productId]);
+ if(productId)await pool.query("DELETE FROM store_products WHERE id=$1",[productId]);
  await pool.query("DELETE FROM login_attempts WHERE email=$1",[email]);
  await pool.end();
 }
