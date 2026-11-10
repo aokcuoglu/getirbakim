@@ -119,16 +119,26 @@ export function identifyBasis(supplier:Supplier&{oemReference?:string|null},info
  return supplierOemReferences(supplier.oem).includes(wanted)
   ?{type:'oem_reference',reference:supplier.oemReference!,supplierOem:supplier.oem,referenceSource:'supplier_oem'}:null;
 }
-/** The makers whose OE number the live answer lists as `reference` (VW → the VAG group): a supplier OE match has no
+/** The makers whose OE number the live answer (or a stored package) lists as `reference` (VW → the VAG group): a supplier OE match has no
  *  maker in its part code, so the answer's own OE brands decide which of the article's vehicles apply (#418). */
-export function oemBrandMakers(info:ArticleInfo,reference:string):string[]|null{
+export function oemBrandMakers(oens:{brand:string;code:string}[]|null|undefined,reference:string):string[]|null{
  const wanted=normalize(reference),makers=new Set<string>();
- for(const brand of new Set((info.oenNumbers||[]).filter(o=>normalize(o.code)===wanted).map(o=>plain(o.brand)).filter(Boolean))){
+ for(const brand of new Set((oens||[]).filter(o=>normalize(o.code)===wanted).map(o=>plain(o.brand)).filter(Boolean))){
   const group=MAKE_MAKERS[brand]??Object.values(MAKE_MAKERS).find(g=>g.some(maker=>brand===maker||brand.startsWith(maker+' ')));
   for(const maker of group??[brand])makers.add(maker);
  }
  return makers.size?[...makers]:null;
 }
+
+/** An OE-matched article is another product (#422): its vehicles and image apply, its EAN, properties (a 2138 mm belt
+ *  for our 2150 mm one) and cross references do not. OE numbers stay for the makers and the matched number itself. */
+export function oemMatchedData(data:EnrichmentData,makers:string[]|null,reference:string):EnrichmentData{
+ const wanted=normalize(reference);
+ const oemNumbers=Object.fromEntries(Object.entries(data.oemNumbers).filter(([brand,codes])=>(makers&&madeBy(makers,brand))||codes.some(code=>normalize(code)===wanted)));
+ return {...data,specifications:[],crossReferences:{},oemNumbers};
+}
+/** A stored package's OE numbers as the answer's brand/code list. */
+export const oemList=(oemNumbers:Record<string,string[]>)=>Object.entries(oemNumbers).flatMap(([brand,codes])=>codes.map(code=>({brand,code})));
 
 /** The first product photo as an absolute URL on the site's own image path. */
 export function imageUrl(info:ArticleInfo){
