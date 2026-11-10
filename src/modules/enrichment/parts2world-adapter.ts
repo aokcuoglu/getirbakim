@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {enrichmentDataSchema,matchesSupplierPart,partCodeOems,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
+import {enrichmentDataSchema,matchesSupplierPart,partCodeOems,supplierOemReferences,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
 type MatchBasis=z.infer<typeof matchBasisSchema>;
 
 // parts2world.com runs ABCP's TecDoc module: a public JSON API behind its vehicle catalog (#382). It has no part-number
@@ -112,10 +112,22 @@ export const identify=(supplier:Supplier,info:ArticleInfo)=>matchesSupplierPart(
 export function identifyBasis(supplier:Supplier&{oemReference?:string|null},info:ArticleInfo):MatchBasis|null{
  if(identify(supplier,info))return {type:'exact_part'};
  const wanted=supplier.oemReference?normalize(supplier.oemReference):'';
- const own=wanted?partCodeOems(supplier.brand,supplier.code).find(r=>normalize(r.reference)===wanted):undefined;
- if(!own)return null;
- const listed=(info.oenNumbers||[]).some(o=>normalize(o.code)===wanted);
- return listed?{type:'oem_reference',reference:own.reference,supplierOem:supplier.oem,referenceSource:own.source}:null;
+ if(!wanted||!(info.oenNumbers||[]).some(o=>normalize(o.code)===wanted))return null;
+ const own=partCodeOems(supplier.brand,supplier.code).find(r=>normalize(r.reference)===wanted);
+ if(own)return {type:'oem_reference',reference:own.reference,supplierOem:supplier.oem,referenceSource:own.source};
+ // One of the OE numbers the supplier lists for the product (#418).
+ return supplierOemReferences(supplier.oem).includes(wanted)
+  ?{type:'oem_reference',reference:supplier.oemReference!,supplierOem:supplier.oem,referenceSource:'supplier_oem'}:null;
+}
+/** The makers whose OE number the live answer lists as `reference` (VW → the VAG group): a supplier OE match has no
+ *  maker in its part code, so the answer's own OE brands decide which of the article's vehicles apply (#418). */
+export function oemBrandMakers(info:ArticleInfo,reference:string):string[]|null{
+ const wanted=normalize(reference),makers=new Set<string>();
+ for(const brand of new Set((info.oenNumbers||[]).filter(o=>normalize(o.code)===wanted).map(o=>plain(o.brand)).filter(Boolean))){
+  const group=MAKE_MAKERS[brand]??Object.values(MAKE_MAKERS).find(g=>g.some(maker=>brand===maker||brand.startsWith(maker+' ')));
+  for(const maker of group??[brand])makers.add(maker);
+ }
+ return makers.size?[...makers]:null;
 }
 
 /** The first product photo as an absolute URL on the site's own image path. */

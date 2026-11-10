@@ -12,7 +12,8 @@
 //                     WHERE o.part_id IN (SELECT part_id FROM part_vehicle_types)) TO STDOUT WITH (FORMAT csv)
 //   match            rebuilds parts2world_job_articles: open jobs whose supplier brand/part names an archived article,
 //                    by the import contract's own brand/part rule; then jobs whose part code carries an OE number of an
-//                    archived article: OE-PSA, OE-OPEL… (#394), ORIJINAL, WENDERPARTS (#396), WENDER (#399) and TAIWAN (#405).
+//                    archived article: OE-PSA, OE-OPEL… (#394), ORIJINAL, WENDERPARTS (#396), WENDER (#399) and TAIWAN (#405);
+//                    last jobs whose supplier OE numbers name one (#418: only the OE brands' makers' vehicles are written).
 //   collect --status partial|pending|not_found [--limit N] [--ids file] [--retry] [--dry-run]
 //                    fetches each matched article, re-verifies brand/part on the live answer and writes image,
 //                    specifications, OE numbers, cross references and vehicles (TecDoc type ids, linked directly).
@@ -27,7 +28,7 @@ import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
+import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
@@ -35,7 +36,7 @@ import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enric
 import {acquireSourceLock,tryExclusiveRun} from '../src/modules/enrichment/source-lock';
 import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
-import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey} from '../src/modules/store/enrichment-contract';
+import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey,supplierOemReferences} from '../src/modules/store/enrichment-contract';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -132,7 +133,7 @@ async function match(){
  const articles=new Map<string,{brand:string;part:string}>();
  for(const row of (await pool.query<{brand_key:string;part_key:string;brand:string;part_number:string}>('SELECT brand_key,part_key,brand,part_number FROM parts2world_articles')).rows)
   articles.set(`${row.brand_key}|${row.part_key}`,{brand:row.brand,part:row.part_number});
- const found:{id:string;key:string;oem:string|null}[]=[];let viaOem=0,scanned=0,after='00000000-0000-0000-0000-000000000000';
+ const found:{id:string;key:string;oem:string|null}[]=[];let viaOem=0,viaSupplierOem=0,scanned=0,after='00000000-0000-0000-0000-000000000000';
  for(;;){
   const rows=(await pool.query<Supplier&{id:string}>(`SELECT j.supplier_item_id AS id,${supplierColumns} FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id
    WHERE j.status IN ('pending','partial','not_found','review') AND j.supplier_item_id>$1 ORDER BY j.supplier_item_id LIMIT 20000`,[after])).rows;
@@ -156,6 +157,17 @@ async function match(){
    for(const {row,refs} of open){const ref=refs.find(r=>hits.has(oemKey(r)));
     if(ref){found.push({id:row.id,key:hits.get(oemKey(ref))!,oem:ref});viaOem++;}}
   }
+  // Then the OE numbers the supplier lists for the product (#418); collect keeps the vehicles of the makers whose OE
+  // number the live answer lists.
+  const taken=new Set(found.map(f=>f.id)),listed=rows.filter(row=>!taken.has(row.id)&&row.oem)
+   .map(row=>({row,refs:supplierOemReferences(row.oem).filter(r=>r.length>=5)})).filter(o=>o.refs.length);
+  if(listed.length){
+   const hits=new Map((await pool.query<{key:string;article:string}>(`SELECT DISTINCT ON (o.oem_key) o.oem_key AS key,a.brand_key||'|'||a.part_key AS article
+    FROM parts2world_article_oems o JOIN parts2world_articles a ON a.link_id=o.link_id WHERE o.oem_key=ANY($1::text[]) ORDER BY o.oem_key,o.link_id`,
+    [[...new Set(listed.flatMap(o=>o.refs))]])).rows.map(h=>[h.key,h.article]));
+   for(const {row,refs} of listed){const ref=refs.find(r=>hits.has(r));
+    if(ref){found.push({id:row.id,key:hits.get(ref)!,oem:ref});viaSupplierOem++;}}
+  }
   after=rows[rows.length-1].id;
  }
  const client=await pool.connect();
@@ -169,7 +181,7 @@ async function match(){
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
  const byStatus=(await pool.query<{status:string;count:number}>(`SELECT j.status,count(*)::int AS count FROM parts2world_job_articles m
   JOIN product_enrichment_jobs j USING(supplier_item_id) GROUP BY 1 ORDER BY 2 DESC`)).rows;
- console.log(JSON.stringify({articles:articles.size,scanned,matched:found.length,viaOem,byStatus:Object.fromEntries(byStatus.map(r=>[r.status,r.count]))}));
+ console.log(JSON.stringify({articles:articles.size,scanned,matched:found.length,viaOem,viaSupplierOem,byStatus:Object.fromEntries(byStatus.map(r=>[r.status,r.count]))}));
 }
 
 type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number;oemReference:string|null};
@@ -266,7 +278,7 @@ async function collect(){
      console.log(`${index} ${row.code} → bulunamadı${info?` (yanıt: ${info.brand} ${info.name})`:''}`);continue;
     }
     // Through an OE number only the part code's maker's vehicles apply (#401): the article may serve many makers.
-    const makers=basis.type==='oem_reference'?partCodeMakers(row):null,listed=info.applicability||[];
+    const makers=basis.type!=='oem_reference'?null:basis.referenceSource==='supplier_oem'?oemBrandMakers(info,basis.reference):partCodeMakers(row),listed=info.applicability||[];
     const applicability=makers?makerApplicability(listed,makers,catalog):listed;
     if(makers&&listed.length&&!applicability.length){
      await record({supplierItemId:row.id,outcome:'not_found',error:`no ${makers.join('/')} vehicle among the ${listed.length} of ${info.brand} ${info.name}`});
@@ -277,7 +289,7 @@ async function collect(){
     if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
     const complete=parts2worldComplete({image:Boolean(image),vehicles:data.vehicles.length,invalid:vehicle.invalid.length});
     const pkg=enrichmentImportSchema.parse({supplierItemId:row.id,supplierCode:row.code,supplierBrand:row.brand,source:productUrl(ids),
-     sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${makers?`; vehicles of ${makers.join('/')} only`:''}${data.vehicles.length?'':'; no vehicles listed'}`,
+     sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${basis.type==='oem_reference'&&basis.referenceSource==='supplier_oem'?basis.reference+' of the supplier':row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${makers?`; vehicles of ${makers.join('/')} only`:''}${data.vehicles.length?'':'; no vehicles listed'}`,
      manufacturer:info.brand,partNumber:info.name,matchBasis:basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
     const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
      specifications:data.specifications.length,vehicles:data.vehicles.length,known:vehicle.known,total:vehicle.total,invalid:vehicle.invalid.length};
