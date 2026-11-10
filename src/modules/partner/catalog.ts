@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
-import { browseProducts, catalogSql, typeFittedIds } from "@/modules/store/catalog";
+import { catalogSql, searchCatalogItems, typeFittedIds } from "@/modules/store/catalog";
 import { getCatalogProductImages } from "@/modules/store/product-enrichment";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { matchesOem, matchesPartNo, toPartnerProduct, type PartnerCatalogRow, type PartnerProduct } from "./dto";
@@ -21,7 +21,7 @@ export type PartnerSearchSource = "part_no" | "oem" | "search";
 
 /**
  * Partner search over the storefront catalog: the same search engine, visibility and prices the shop uses
- * (`browseProducts`), so a partner never sees a product or price the storefront would not sell. Hand-entered
+ * (`searchCatalogItems`), so a partner never sees a product or price the storefront would not sell. Hand-entered
  * store products are left out; partners get supplier-backed parts only.
  */
 export async function searchPartnerProducts(input: PartnerSearch): Promise<{ products: PartnerProduct[]; source: PartnerSearchSource }> {
@@ -29,7 +29,8 @@ export async function searchPartnerProducts(input: PartnerSearch): Promise<{ pro
   const source: PartnerSearchSource = partNo ? "part_no" : oem ? "oem" : "search";
   const text = (partNo || oem || q).slice(0, 120);
   if (text.length < partnerMinQueryLength) return { products: [], source };
-  const { items } = await browseProducts({ q: text, searchBy: source === "search" ? "all" : "code" });
+  // The storefront's search, ranking and prices, without the listing facets the partner never reads (#431).
+  const items = await searchCatalogItems(text, source === "search" ? "all" : "code");
   const rows = (items as (PartnerCatalogRow & { source: string })[]).filter(item => item.source === "supplier")
     .filter(item => partNo ? matchesPartNo(item.code, partNo) : oem ? matchesOem(item, oem) : true)
     .slice(0, input.limit);
@@ -39,16 +40,20 @@ export async function searchPartnerProducts(input: PartnerSearch): Promise<{ pro
 async function toPartnerProducts(rows: PartnerCatalogRow[], input: PartnerSearch) {
   if (!rows.length) return [];
   const ids = rows.map(row => row.id);
-  // Every supplier offer grouped under a listed product (db/product-matching.sql), priced like the listing.
-  const grouped = (await db.query<PartnerCatalogRow & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
-   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
-   WHERE o.primary_id=ANY($2::uuid[])`, [storefrontCompanies(), ids])).rows;
+  // Independent lookups run together: the image query alone takes ~2 s (#432).
+  const [grouped, images, fittedIds] = await Promise.all([
+    // Every supplier offer grouped under a listed product (db/product-matching.sql), priced like the listing.
+    db.query<PartnerCatalogRow & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
+     JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
+     WHERE o.primary_id=ANY($2::uuid[])`, [storefrontCompanies(), ids]).then(result => result.rows),
+    getCatalogProductImages(rows),
+    input.vehicleTypeId == null ? Promise.resolve([] as string[]) : typeFittedIds(input.vehicleTypeId),
+  ]);
   const offersOf = (row: PartnerCatalogRow) => {
     const group = grouped.filter(offer => offer.primary_id === row.id);
     return group.length ? group : [row];
   };
-  const images = await getCatalogProductImages(rows);
-  const fitted = input.vehicleTypeId == null ? new Set<string>() : new Set(await typeFittedIds(input.vehicleTypeId));
+  const fitted = new Set(fittedIds);
   return rows.map(row => {
     const offers = offersOf(row);
     const image = images.get(row.id);
