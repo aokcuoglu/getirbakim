@@ -18,6 +18,7 @@ import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
 import {recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
+const LONG_VEHICLE_LIST=150;
 const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().int().min(0).max(599),elapsedMs:z.number().int().min(0).max(120000),bytes:z.number().int().min(0).max(15*1024*1024),retryAfter:z.string().nullable(),error:z.string().max(2000).optional(),challenge:z.boolean().optional(),body:z.unknown().optional()});
 async function prepare(){
  const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query(await readFile('db/enrichment-products.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
@@ -124,11 +125,16 @@ async function serve(runId:string,port:number,chrome=false){
  await pool.query("UPDATE enrichment_runs SET status='running',started_at=coalesce(started_at,now()),finished_at=NULL WHERE id=$1",[runId]);
  const collectors=chrome?startChromeCollectors(queue,{port:Number(process.env.ENRICHMENT_CHROME_PORT||9222),profileDir:resolve('.local/enrichment/chrome-profile'),clientCode,
   landing:{'www.trodo.com':'https://www.trodo.com/','picdn.trodo.com':'https://picdn.trodo.com/media/m2_catalog_cache/480x480%2FTecDoc%2F4657%2F210%2F52%2F445-1134mldem2.jpg?1'}}):null;
+ // Trodo spends its requests where no other source reaches (#427): a product parts2world can collect (full vehicle list in
+ // one request) waits until the rest is done, a deferred long vehicle list comes last; parts2world finishing one first
+ // makes Trodo skip it through the scope check below.
+ const parts2world=(await pool.query("SELECT to_regclass('parts2world_job_articles') IS NOT NULL AS ok")).rows[0].ok;
+ const pickOrder=`checkpoint ? 'deferred',${parts2world?'EXISTS(SELECT 1 FROM parts2world_job_articles m WHERE m.supplier_item_id=enrichment_run_items.supplier_item_id),':''}ordinal`;
  try{
   while(!stopping){
    const lease=randomUUID();
    const item=(await pool.query(`WITH picked AS(SELECT supplier_item_id FROM enrichment_run_items WHERE run_id=$1 AND
-    (status='queued' OR(status='collecting' AND lease_until<now())) ORDER BY ordinal FOR UPDATE SKIP LOCKED LIMIT 1)
+    (status='queued' OR(status='collecting' AND lease_until<now())) ORDER BY ${pickOrder} FOR UPDATE SKIP LOCKED LIMIT 1)
     UPDATE enrichment_run_items i SET status='collecting',lease_token=$2,lease_until=now()+interval '2 minutes',attempts=attempts+1,started_at=coalesce(started_at,now()) FROM picked WHERE i.run_id=$1 AND i.supplier_item_id=picked.supplier_item_id RETURNING i.*`,[runId,lease])).rows[0];
    if(!item){
     const remaining=(await pool.query("SELECT count(*)::int AS n FROM enrichment_run_items WHERE run_id=$1 AND status IN ('queued','collecting')",[runId])).rows[0].n;
@@ -237,6 +243,12 @@ async function serve(runId:string,port:number,chrome=false){
     if(!cp.view)await checkpoint('vehicles',{view:parseView(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/view-data/'+product.entity_id+'/IE'))});
     const view=parseView([{relationships:cp.view}]);
     if(matchBasis.type==='oem_reference'&&verifiedOemReference(matchBasis.referenceSource==='supplier_oem'?supplierOem:ownCode,view)!==matchBasis.reference)throw Error('OEM reference mismatch');
+    // A long vehicle list costs a request per model group and model: it is left for the end of the batch once (#427).
+    if(!cp.vehicle&&!cp.deferred&&view.vehicle_ids.length>=LONG_VEHICLE_LIST){
+     await pool.query("UPDATE enrichment_run_items SET status='queued',stage='deferred',checkpoint=$4,lease_token=NULL,lease_until=NULL WHERE run_id=$1 AND supplier_item_id=$2 AND lease_token=$3",
+      [runId,item.supplier_item_id,lease,JSON.stringify({...cp,deferred:true})]);
+     console.log(JSON.stringify({ordinal:item.ordinal+1,code:item.supplier_code,status:'deferred',vehicles:view.vehicle_ids.length}));continue;
+    }
     if(!cp.vehicle)await checkpoint('image',{vehicle:await collectVehicles(queue,view)});
     const vehicle=z.object({vehicles:z.array(z.unknown()),vehicleModels:z.array(z.string()),coverage:z.object({expected:z.number(),covered:z.number(),unresolved:z.array(z.string()),invalid:z.array(z.unknown())})}).parse(cp.vehicle);
     const data=normalizeData(view,vehicle as Awaited<ReturnType<typeof collectVehicles>>);
