@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.23.1 — 2026-11-10
+
+Hotfix on the `release/v0.23.x` maintenance branch: the production line stays on v0.23 while v0.24.0 waits for the AWS migration ([#429](https://github.com/aokcuoglu/getirbakim/issues/429)).
+
+### Fixed
+- **BakımX partner API restored**: `GET /api/partner/v1/products` (contract 1.2) was removed with the storefront rewrite, so BakımX work orders and quotes lost every GetirBakım product. `?partNo=` / `?oem=` / `?q=` search the storefront catalog and its prices (kuruş before VAT, optional `PARTNER_B2B_DISCOUNT_BPS` never below cost), `?vehicleTypeId=` reports exact fitment; `PARTNER_API_KEYS` bearer auth, closed when unset. Supplier cost, markup and stock counts are not exposed. Ported from [#425](https://github.com/aokcuoglu/getirbakim/pull/425); on v0.23 each product has a single offer ([#424](https://github.com/aokcuoglu/getirbakim/issues/424)).
+
+- **Catalog outage under crawler load**: part-number searches (`/katalog?…&searchBy=code`, the product page's OEM links) expanded every enrichment payload's OEM references per query. A crawler following those links ran 20+ of them at once (30–75 s each), filled the database pool and failed every page with 500. Enrichment OEM numbers are now trigram-indexed (`enrichment_oem_search_codes`, same results; ~2.9 s → ~0.5 s per search locally), catalog search queries are cancelled after `DATABASE_SEARCH_TIMEOUT_MS` (default 8 s) instead of holding a connection, and the OEM links are `nofollow` and disallowed in robots.txt.
+
+### Maintenance
+- CI runs on `release/**` pull requests; `Deploy production` on this branch is manual-only and deploys `release/v0.23.x`.
+
+### Deploy
+- Add `PARTNER_API_KEYS=bakimx:<BakımX GETIRBAKIM_API_KEY>` to `.env.production` before deploying.
+- `scripts/setup.ts` (run by the deploy) creates `enrichment_oem_search_codes()` and the `product_enrichments_oem_codes_idx` GIN index; no table changes.
+
 ## v0.23.0 — 2026-10-21
 
 Scoped port from `dev`; the rest of `dev` is not included.

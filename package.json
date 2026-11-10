@@ -1,6 +1,6 @@
 {
   "name": "getirbakim",
-  "version": "0.23.0",
+  "version": "0.23.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -36,6 +36,7 @@
     "test:brand": "node --conditions=react-server --import tsx --test scripts/test-brand-launch.ts",
     "verify:brand": "node --env-file=.env.local --import tsx scripts/verify-brand-launch.ts",
     "test:review": "node --import tsx --test scripts/test-review.ts",
+    "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:review:http": "node --import tsx --test scripts/test-review-http.ts",
     "storage:setup": "node --import tsx scripts/setup-storage.ts",
     "enrichment:prepare": "node --env-file=.env.local --conditions=react-server --import tsx scripts/product-enrichment.ts prepare",

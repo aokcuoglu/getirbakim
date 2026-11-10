@@ -15,3 +15,24 @@ const createPool = () => {
 };
 export const db = globalDb.getirbakimPool ?? createPool();
 if (process.env.NODE_ENV !== "production") globalDb.getirbakimPool = db;
+
+/**
+ * A query that gives its connection back after `timeoutMs` at the latest (#429). Searches run per visitor request;
+ * one slow plan repeated by a crawler held every pooled client and failed all pages with "timeout exceeded when
+ * trying to connect". The statement is cancelled by Postgres and the caller gets the error.
+ */
+export async function queryWithTimeout<T extends Record<string, unknown>>(sql: string, values: unknown[], timeoutMs = Number(process.env.DATABASE_SEARCH_TIMEOUT_MS) || 8_000) {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    await client.query(`SET LOCAL statement_timeout = ${Math.max(100, Math.floor(timeoutMs))}`);
+    const result = await client.query<T>(sql, values);
+    await client.query("COMMIT");
+    return result.rows;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
