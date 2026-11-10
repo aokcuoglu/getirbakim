@@ -332,6 +332,17 @@ function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
+/**
+ * The best matches of a search, priced, without the listing's counts and facets (#431). For API consumers that only
+ * need the first results (the BakımX partner API): the facets of a broad search read every match and took 11-20 s
+ * cold, while the ids and their ranking take ~0.2 s. Same ids, order and prices as the first page of a plain search.
+ */
+export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalogPageSize){
+ const {ids}=await summarizeSearch(await catalogSearch(raw,mode));
+ const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
+  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,limit)])).rows;
+ return withBestOffers(items);
+}
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
   const mode=query.searchBy==="code"?"code":"all",plain=await plainSearch(query.q!,mode);
