@@ -51,11 +51,15 @@ type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'impor
 const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
   await recordAttempt(pool,'parts2world',queue,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
+// The checkpoint outgrows a single string (hundreds of MB), so it is read line by line; a package already imported or
+// skipped is dropped, only collected-but-unwritten ones are kept for flush.
 async function entries(){
  const latest=new Map<string,Entry>();
- try{for(const line of (await readFile(checkpoint,'utf8')).split('\n'))if(line.trim()){const e=JSON.parse(line) as Entry;
-  latest.set(e.supplierItemId,e.outcome==='imported'||e.outcome==='skipped'?{...latest.get(e.supplierItemId),...e}:e);}}
- catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ try{
+  for await(const line of createInterface({input:createReadStream(checkpoint,'utf8'),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
+   if(e.outcome==='imported'||e.outcome==='skipped'){const merged:Entry={...latest.get(e.supplierItemId),...e};delete merged.package;latest.set(e.supplierItemId,merged);}
+   else latest.set(e.supplierItemId,e);}
+ }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
  return latest;
 }
 const supplierColumns=`s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,COALESCE(s.product_data->>'kull1s','') AS make,
