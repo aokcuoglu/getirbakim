@@ -40,3 +40,16 @@ CREATE TABLE IF NOT EXISTS product_enrichment_vehicle_cache (
  fetched_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(source_host,resource_path)
 );
+
+-- Compact OEM reference numbers of an enrichment payload, space separated, for the catalog's part-number search (#429).
+-- Indexed with trigrams: the search used to expand every payload's references per query (a sequential scan of all
+-- enrichments), which a crawler following product-page OEM links turned into a full database connection pool.
+-- A compact pattern holds no space, so LIKE '%x%' matches exactly when one reference contains it.
+CREATE OR REPLACE FUNCTION enrichment_oem_search_codes(payload jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
+ SELECT string_agg(search_compact(reference.number), ' ')
+ FROM jsonb_each(CASE WHEN jsonb_typeof(payload->'oemNumbers')='object' THEN payload->'oemNumbers' ELSE '{}'::jsonb END) refs
+ CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(refs.value)='array' THEN refs.value ELSE '[]'::jsonb END) reference(number)
+$$;
+CREATE INDEX IF NOT EXISTS product_enrichments_oem_codes_idx ON product_enrichments
+ USING gin (enrichment_oem_search_codes(payload) gin_trgm_ops);

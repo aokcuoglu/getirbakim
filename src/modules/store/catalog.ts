@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { db, queryWithTimeout } from "@/lib/db";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
@@ -61,7 +61,7 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 const cachedFitted=staleCache<string[]>(10*60*1000);
 const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
  "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
-const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
+export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
  * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
@@ -90,9 +90,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=COALESCE(supplier_item.product_data->>'oe',''))
-    CROSS JOIN LATERAL jsonb_each(e.payload->'oemNumbers') refs
-    CROSS JOIN LATERAL jsonb_array_elements_text(refs.value) reference(number)
-    WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}`);
+    WHERE enrichment_oem_search_codes(e.payload) LIKE ${bind(`%${parsed.compact}%`)}`);
  return hits.join(" UNION ALL ");
 }
 /** Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. */
@@ -102,7 +100,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 // the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  return (await db.query<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).rows.map(row=>row.id);};
+  return (await queryWithTimeout<{id:string}>(`SELECT DISTINCT id::text FROM (${searchHits(candidate,binder(values),mode)}) hit(id) LIMIT ${maxSearchHits}`,values)).map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code"||ids.length)return {parsed,ids};
