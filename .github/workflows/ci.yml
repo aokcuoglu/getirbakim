@@ -1,7 +1,7 @@
 name: New system CI
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, "release/**"]
   workflow_call:
 permissions:
   contents: read
@@ -21,7 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test:review && npm run test:part-art && npm run test:brand && npm run test:fitment && npm run test:fitment-level && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts && npm run test:vehicle-oil
+      - run: npm run test:review && npm run test:partner && npm run test:part-art && npm run test:brand && npm run test:fitment && npm run test:fitment-level && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts && npm run test:vehicle-oil
       - run: npm run build
         env:
           APP_ENV: staging
