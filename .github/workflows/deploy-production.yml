@@ -44,7 +44,7 @@ jobs:
           ssh -i ~/.ssh/production_key "$VPS_USER@$VPS_HOST" "bash -s -- '$GITHUB_SHA'" <<'REMOTE'
           set -euo pipefail
           cd /opt/getirbakim-v2-production
-          test "$(git remote get-url origin)" = 'https://github.com/aokcuoglu/getirbakim.git'
+          test "$(git remote get-url origin)" = 'git@github.com:aokcuoglu/getirbakim.git'
           test -z "$(git status --porcelain --untracked-files=normal)"
           git fetch origin "$1"
           test "$(git rev-parse FETCH_HEAD)" = "$1"
