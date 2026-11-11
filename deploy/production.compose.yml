@@ -24,7 +24,12 @@ services:
         APP_ENV: production
         BUILD_VERSION: ${BUILD_VERSION:-development}
     env_file: ../.env.production
-    environment: *app-environment
+    environment:
+      <<: *app-environment
+      # #434: the default heap (~396 MB inside 768 MB) ran out several times an hour under crawler traffic.
+      # A 1 GB heap in a 1.5 GB container leaves room for native memory; if the heap still reaches its
+      # limit, Node writes one heap snapshot to /tmp first so the cause can be read instead of guessed.
+      NODE_OPTIONS: --max-old-space-size=1024 --heapsnapshot-near-heap-limit=1 --diagnostic-dir=/tmp
     restart: unless-stopped
     ports:
       - "127.0.0.1:3004:3000"
@@ -45,7 +50,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 768m
+    mem_limit: 1536m
     cpus: 2
     logging:
       driver: json-file
