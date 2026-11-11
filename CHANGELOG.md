@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.23.2 — 2026-11-11
+
+Hotfix on `release/v0.23.x` ([#434](https://github.com/aokcuoglu/getirbakim/issues/434)).
+
+### Fixed
+- **App restarts on JavaScript heap exhaustion**: the production app ran with Node's default heap (~396 MB inside its 768 MB container) and restarted 42 times in about 14 hours with `heap out of memory`, mostly under crawler traffic. The container limit is now 1.5 GB with a 1 GB heap. `--heapsnapshot-near-heap-limit=1` writes one heap snapshot to `/tmp` if the heap still reaches its limit, so the cause can be measured.
+
+### Deploy
+- Compose-only change; no database change. The app container is recreated with the new limits.
+
 ## v0.23.1 — 2026-11-10
 
 Hotfix on the `release/v0.23.x` maintenance branch: the production line stays on v0.23 while v0.24.0 waits for the AWS migration ([#429](https://github.com/aokcuoglu/getirbakim/issues/429)).
