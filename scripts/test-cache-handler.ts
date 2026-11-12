@@ -7,8 +7,8 @@ type Handler = { get(key: string, ctx?: unknown): Promise<{ lastModified: number
   set(key: string, value: unknown, ctx?: unknown): Promise<void>; revalidateTag(tags: string | string[]): Promise<void> };
 async function load(env: Record<string, string | undefined>, tag: string) {
   for (const [key, value] of Object.entries(env)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
-  const module = await import(`../cache-handler.mjs?${tag}`);
-  return { handler: new module.default() as Handler, internals: module.__test__ };
+  const loaded = await import(`../cache-handler.mjs?${tag}`);
+  return { handler: new loaded.default() as Handler, internals: loaded.__test__ };
 }
 const page = (tags: string) => ({ kind: "APP_PAGE", html: "<p>hi</p>", rscData: Buffer.from("rsc"), status: 200,
   headers: { "x-next-cache-tags": tags }, postponed: undefined, segmentData: new Map([["/_index", Buffer.from("seg")]]) });
