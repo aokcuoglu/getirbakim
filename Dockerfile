@@ -14,6 +14,10 @@ RUN npm run build
 
 FROM dependencies AS operations
 COPY . .
+# RDS CA bundle: DATABASE_URL on AWS uses sslmode=verify-full&sslrootcert=/app/rds-global-bundle.pem (RDS enforces TLS).
+# The checksum pins the bundle (AWS global-bundle.pem, 114 certificates, fetched 2026-11-12); when AWS rotates it,
+# re-hash the new file (shasum -a 256) and update both ADD lines in the same change.
+ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-global-bundle.pem
 USER node
 CMD ["node", "--import", "tsx", "scripts/setup.ts"]
 
@@ -23,6 +27,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./static-build
 COPY --from=builder --chown=node:node /app/public ./public
+ADD --checksum=sha256:90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/rds-global-bundle.pem
 RUN mkdir -p .next/static && chown node:node .next/static
 USER node
 EXPOSE 3000
