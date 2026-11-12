@@ -4,10 +4,12 @@ import { resolve, sep } from "node:path";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
+import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
-// matched by sha256, and rows whose supplier item does not exist here are skipped and counted.
+// matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
+// and rows whose supplier item does not exist here are skipped and counted.
 // Run scripts/rebuild-product-fitments.ts afterwards to derive vehicle fitments.
 const root = resolve(process.argv[2] || "/bundle");
 const apply = process.argv.includes("--apply");
@@ -35,7 +37,10 @@ try {
   const json = (value: unknown) => JSON.stringify(value);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
-  const supplierItemExists = "EXISTS (SELECT 1 FROM supplier_items s WHERE s.id=r.supplier_item_id)";
+  const items = await resolveBundleItems(client, bundleItems(manifest));
+  // bi.id is the local supplier item a bundle row belongs to; null when it does not exist here.
+  const resolvedItem = "JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL";
+  const missingItem = "NOT EXISTS (SELECT 1 FROM bundle_items bi WHERE bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL)";
   const vehicleTypeExists = "EXISTS (SELECT 1 FROM vehicle_types t WHERE t.id=r.vehicle_type_id)";
 
   // Media rows keep their sha256 identity; an existing object with the same content is reused.
@@ -56,17 +61,19 @@ try {
       SELECT r.source,r.category_id,bm.id,r.width,r.height FROM jsonb_populate_recordset(null::source_category_images,$1::jsonb) r JOIN bundle_media bm ON bm.bundle_id=r.media_id
       ON CONFLICT (source,category_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height`, json(manifest.images)),
     enrichments: await run(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,imported_at,match_basis)
-      SELECT r.supplier_item_id,r.supplier_code,r.supplier_brand,r.source_url,r.source_method,r.manufacturer,r.manufacturer_part_number,bm.id,r.payload,r.imported_at,r.match_basis
-      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r LEFT JOIN bundle_media bm ON bm.bundle_id=r.image_id WHERE ${supplierItemExists}
+      SELECT DISTINCT ON (bi.id) bi.id,r.supplier_code,r.supplier_brand,r.source_url,r.source_method,r.manufacturer,r.manufacturer_part_number,bm.id,r.payload,r.imported_at,r.match_basis
+      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r ${resolvedItem} LEFT JOIN bundle_media bm ON bm.bundle_id=r.image_id
+      ORDER BY bi.id,r.imported_at DESC
       ON CONFLICT (supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,source_url=EXCLUDED.source_url,
       source_method=EXCLUDED.source_method,manufacturer=EXCLUDED.manufacturer,manufacturer_part_number=EXCLUDED.manufacturer_part_number,image_id=EXCLUDED.image_id,
       payload=EXCLUDED.payload,imported_at=EXCLUDED.imported_at,match_basis=EXCLUDED.match_basis`, json(manifest.enrichments)),
-    productMappings: await run(`INSERT INTO product_source_categories SELECT r.* FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r
-      WHERE ${supplierItemExists} ON CONFLICT DO NOTHING`, json(manifest.products)),
+    productMappings: await run(`INSERT INTO product_source_categories(supplier_item_id,source,category_id)
+      SELECT bi.id,r.source,r.category_id FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r ${resolvedItem}
+      ON CONFLICT DO NOTHING`, json(manifest.products)),
     logos: await run(`INSERT INTO manufacturer_logos(brand_key,manufacturer,image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at)
       SELECT r.brand_key,r.manufacturer,r.image_data,r.sha256,r.width,r.height,r.source_url,
-      CASE WHEN EXISTS (SELECT 1 FROM supplier_items s WHERE s.id=r.evidence_product_id) THEN r.evidence_product_id END,r.evidence_source_url,r.imported_at
-      FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r
+      bi.id,r.evidence_source_url,r.imported_at
+      FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r LEFT JOIN bundle_items bi ON bi.bundle_id=r.evidence_product_id
       ON CONFLICT (brand_key) DO UPDATE SET manufacturer=EXCLUDED.manufacturer,image_data=EXCLUDED.image_data,sha256=EXCLUDED.sha256,width=EXCLUDED.width,
       height=EXCLUDED.height,source_url=EXCLUDED.source_url,evidence_product_id=EXCLUDED.evidence_product_id,evidence_source_url=EXCLUDED.evidence_source_url,imported_at=EXCLUDED.imported_at`, json(manifest.logos)),
     // A vehicle type missing here (older vehicle import) is skipped and counted.
@@ -83,8 +90,10 @@ try {
     skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleSpecs)),
     skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleImages)),
     media: manifest.media.length,
-    skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.enrichments)),
-    skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE NOT ${supplierItemExists}`, json(manifest.products)),
+    skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, json(manifest.enrichments)),
+    skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
+    // Products found here by supplier key under a different id (listed after the cutover on each side separately).
+    itemsByKey: items.rekeyed,
   };
   if (report.categoryImages !== manifest.images.length) throw new Error(`Category image rows mismatch: ${report.categoryImages}/${manifest.images.length}`);
   const logoMismatch = await count(`SELECT count(*) FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r JOIN manufacturer_logos l USING(brand_key)

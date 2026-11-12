@@ -1,10 +1,11 @@
 import { link, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
+import { referencedItemIds, type BundleItem } from "./storefront-bundle-items";
 
 type Media = { id: string; object_key: string; size_bytes: number | string };
 type Row = Record<string, unknown>;
 type Manifest = Row & {
-  images: Row[]; products: Row[]; enrichments: Row[]; vehicleImages?: Row[]; media: Media[];
+  images: Row[]; products: Row[]; enrichments: Row[]; logos?: Row[]; vehicleImages?: Row[]; media: Media[]; items?: BundleItem[];
 };
 
 // Production's operations container is limited to 512 MB and import-storefront-bundle.ts holds every media
@@ -50,6 +51,11 @@ export async function splitStorefrontBundle(source: string, out: string, maxByte
     const part = owner.get(product.supplier_item_id);
     if (!part) throw new Error(`Product mapping without enrichment: ${product.supplier_item_id}`);
     part.products.push(product);
+  }
+  // Each part carries the supplier item keys its own rows reference (older bundles have none).
+  if (manifest.items) {
+    const items = new Map(manifest.items.map(item => [item.id, item]));
+    for (const part of parts) part.items = referencedItemIds(part).flatMap(id => items.get(id) ?? []);
   }
 
   const dirs: string[] = [];

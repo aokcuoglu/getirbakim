@@ -7,7 +7,8 @@ import { objectStorage } from "../src/lib/object-storage";
 
 // Writes storefront data produced locally (Trodo category tree, labels, images, product
 // mappings, product enrichments with their images, manufacturer logos, REPXPERT vehicle type specs and pictures) to a bundle that
-// scripts/import-storefront-bundle.ts loads into a database with the same supplier item ids.
+// scripts/import-storefront-bundle.ts loads into another database. manifest.items carries the natural key of every
+// supplier item the bundle references, so a product whose id differs there is still found (storefront-bundle-items.ts).
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
 // --since=ISO exports only enrichments imported after that time (and their mappings and images); the
 // category tree, logos and REPXPERT vehicle data are always complete. manifest.snapshotAt is the next run's --since.
@@ -43,6 +44,8 @@ try {
     vehicleImages: await read("SELECT * FROM vehicle_type_images ORDER BY vehicle_type_id"),
     media: await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE imported_at>$1
       UNION SELECT media_id FROM vehicle_type_images) ORDER BY id`, changed),
+    items: await read(`SELECT id,supplier,company,list_group,warehouse,code FROM supplier_items WHERE id IN (
+      SELECT supplier_item_id FROM product_enrichments WHERE imported_at>$1 UNION SELECT evidence_product_id FROM manufacturer_logos) ORDER BY id`, changed),
   };
   await client.query("COMMIT");
   for (const object of manifest.media) {

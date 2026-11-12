@@ -57,6 +57,29 @@ test("enrichments are cut into parts by media bytes; part 0 keeps the always-com
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("each part carries the supplier item keys its own rows reference", async () => {
+  const key = (id: string) => ({ id, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: `CODE ${id}` });
+  const { root, source } = await bundle([{ id: "a", key: "p/a.jpg", size: 60 }, { id: "b", key: "p/b.jpg", size: 60 }], {
+    categories: [], labels: [], images: [], logos: [{ brand_key: "febi", evidence_product_id: "i9" }],
+    enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }],
+    products: [{ supplier_item_id: "i2", category_id: 1 }],
+    items: [key("i1"), key("i2"), key("i9")],
+  });
+  try {
+    const parts = await Promise.all((await splitStorefrontBundle(source, join(root, "parts"), 100)).map(read));
+    assert.deepEqual(parts.map(part => part.items.map((item: { id: string }) => item.id)), [["i9"], ["i1"], ["i2"]]);
+    assert.deepEqual(parts[2].items[0], key("i2"));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a bundle written before supplier item keys keeps no items", async () => {
+  const { root, source } = await bundle([], { categories: [], labels: [], images: [], logos: [], enrichments: [{ supplier_item_id: "i1", image_id: null }], products: [] });
+  try {
+    const parts = await Promise.all((await splitStorefrontBundle(source, join(root, "parts"), 100)).map(read));
+    assert.ok(parts.every(part => !("items" in part)));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("a bundle without enrichments is a single part", async () => {
   const { root, source } = await bundle([], { categories: [], labels: [], images: [], logos: [], enrichments: [], products: [] });
   try {
