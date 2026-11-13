@@ -22,6 +22,8 @@ bash scripts/cutover/export-local.sh media     # ~5 dk; çıktı: .local/aws-exp
 
 `ls -lh` çıktısı LO'ya gider, LO **M** bağlantılarını üretir, Mac'ten yüklenir. Klasördeki `media-keys.txt` geçiş günü gerekecek; silinmez.
 
+Arşiv macOS'un `._` meta veri girdileri olmadan oluşturulur (`COPYFILE_DISABLE=1`, #451). 13 Kasım aktarımında LO ~61 bin `._` dosyasını elle ayıklamıştı; macOS `tar -t` bunları göstermez, sayım için Python `tarfile` kullanılır.
+
 ## Geçiş günü
 
 Saatler örnek. "Biz" = getirbakim, "LO" = Lokum Ops.
