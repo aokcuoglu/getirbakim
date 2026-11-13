@@ -3,4 +3,10 @@ export async function register() {
   // The storefront reads enrichment links from a table that writers mark stale; the server keeps it current (#446).
   const { startEnrichmentLinkSync } = await import("@/modules/store/enrichment-links.server");
   startEnrichmentLinkSync(Number(process.env.ENRICHMENT_LINK_SYNC_INTERVAL_MS || 5_000));
+  // Fill the per-process catalog caches before visitors do (#448). Production servers only; not awaited.
+  if (process.env.NODE_ENV === "production" && process.env.STOREFRONT_WARMUP !== "0") {
+    const { warmStorefront } = await import("@/modules/store/warmup.server");
+    void warmStorefront(`http://127.0.0.1:${process.env.PORT || 3000}`)
+      .catch(error => console.error("Storefront warm-up failed", error instanceof Error ? error.message : error));
+  }
 }
