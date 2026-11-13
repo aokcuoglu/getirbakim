@@ -41,6 +41,7 @@ try {
    await client.query(await readFile("db/enrichment-products.sql", "utf8"));
    await client.query(await readFile("db/enrichment-states.sql", "utf8"));
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
+   await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
    await client.query("COMMIT");
    break;

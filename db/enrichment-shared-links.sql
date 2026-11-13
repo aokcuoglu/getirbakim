@@ -92,6 +92,11 @@ BEGIN
  SELECT (SELECT count(*) FROM upserted)+(SELECT count(*) FROM removed) INTO changed;
  DROP TABLE enrichment_shared_computed;
  IF product_ids IS NULL THEN ANALYZE product_enrichment_shared_links; END IF;
+ -- The make lists of the same offers (db/storefront-make-fits.sql, #455), now that their links are current. Schemas
+ -- without the vehicle catalog (some tests) do not define it.
+ IF to_regprocedure('storefront_make_fits_refresh(uuid[])') IS NOT NULL THEN
+  PERFORM storefront_make_fits_refresh(CASE WHEN product_ids IS NULL THEN NULL ELSE scope END);
+ END IF;
  RETURN changed;
 END $$;
 
