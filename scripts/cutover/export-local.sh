@@ -21,6 +21,8 @@ step(){ echo "[$(ts)] $*"; }
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT=$REPO/.local/aws-export-local-$MODE-$(date -u +%Y%m%dT%H%M%SZ)
 [ "$MODE" = final ] && PREV=$(cd "$(dirname "$PREV")" && pwd)/$(basename "$PREV")
+# macOS tar stores extended attributes as ._<name> entries beside every file and folder (#451); the
+# restore had to strip ~61k of them. COPYFILE_DISABLE=1 leaves them out; it does nothing on Linux.
 cd "$REPO"
 umask 077
 mkdir -p "$OUT"
@@ -71,13 +73,13 @@ if [ "$MODE" = final ]; then
   comm -13 <(sort "$PREV") "$OUT/media-keys.txt" > "$OUT/media-delta-keys.txt"
   delta=$(wc -l < "$OUT/media-delta-keys.txt" | tr -d ' ')
   if [ "$delta" -gt 0 ]; then
-    tar -czf "$OUT/media.tar.gz" -C "$OUT/media" -T "$OUT/media-delta-keys.txt"
+    COPYFILE_DISABLE=1 tar -czf "$OUT/media.tar.gz" -C "$OUT/media" -T "$OUT/media-delta-keys.txt"
     files+=(media.tar.gz)
   fi
   files+=(media-delta-keys.txt)
   step "yeni medya: $delta nesne ($((SECONDS-S)) sn)"
 else
-  tar -czf "$OUT/media.tar.gz" -C "$OUT/media" .
+  COPYFILE_DISABLE=1 tar -czf "$OUT/media.tar.gz" -C "$OUT/media" .
   files+=(media.tar.gz)
   step "medya arşivi $(du -h "$OUT/media.tar.gz" | cut -f1) ($((SECONDS-S)) sn)"
 fi
