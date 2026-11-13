@@ -99,8 +99,13 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 }
 // Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
 const cachedFitted=staleCache<string[]>(10*60*1000);
-const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
- "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
+/**
+ * Products fitting one make, precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455). Matching a
+ * make's fitments to the payloads per read took 20-57 s on RDS for the large makes; the table answers in ms and is
+ * kept current within seconds of a write, so it is not cached here.
+ */
+const makeFittedIds=async(brandId:number)=>(await db.query<{id:string}>(
+ "SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1",[brandId])).rows.map(row=>row.id);
 /** Ids of the products linked to one vehicle type (cached per process). */
 export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
