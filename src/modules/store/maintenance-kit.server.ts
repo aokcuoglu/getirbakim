@@ -93,7 +93,7 @@ export async function kitImageItems(productIds: string[]) {
   if (!productIds.length) return [];
   const rows = (await db.query<{ id: string; name: string; brand: string; code: string; category_id: number | null; engine_oil: boolean }>(
     `SELECT catalog.id::text,catalog.name,catalog.brand,catalog.code,
-      (SELECT pc.category_id FROM product_source_categories pc JOIN product_enrichment_shared e ON e.donor_item_id=pc.supplier_item_id
+      (SELECT pc.category_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
         WHERE e.supplier_item_id=catalog.id AND pc.source='trodo' AND pc.category_id=ANY($3::int[]) LIMIT 1) AS category_id,
       ((catalog.name ~* $4 OR catalog.name ~* $5) AND catalog.name !~* $6) AS engine_oil
      FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[])`,

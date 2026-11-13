@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { boundedQuery, db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
@@ -85,12 +85,13 @@ export const categories = [
  * observed in the product's current, trusted enrichment payload. Steps are materialised in order:
  * matching types (through their indexes), their fitments, then each candidate's payload vehicles read
  * once. Joined row by row instead, the multi-kB payload was re-read per fitment: 20 s for "passat",
- * 1-2 min for a make page.
+ * 1-2 min for a make page. Read from the materialized links (#446): the live view, expected as one row,
+ * was nested against a make's 600k fitments and never finished (BMW: minutes, 504 at the CDN).
  */
 async function fittedProductIds(typesSql:string,values:unknown[]){
- return (await db.query<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
+ return (await boundedQuery<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
   fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
-  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
+  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
@@ -108,9 +109,9 @@ export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fi
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await db.query<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
+ (await boundedQuery<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id::text FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
-  UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN product_enrichment_shared e ON e.donor_item_id=pc.supplier_item_id
+  UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
@@ -127,7 +128,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
  // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
- if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichment_shared e
+ if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
@@ -266,7 +267,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id
+  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
    AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
@@ -443,7 +444,7 @@ async function attributeFacets(brands:string[],values:unknown[],scopedSql:string
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
  const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql})
  SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values
- FROM scoped JOIN product_enrichment_shared e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
+ FROM scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec

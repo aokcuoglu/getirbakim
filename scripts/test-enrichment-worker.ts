@@ -353,7 +353,7 @@ test('master product sharing excludes equivalents, split offers and changed supp
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
-  for(const file of ['product-enrichment','enrichment-worker','enrichment-products','enrichment-states'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
+  for(const file of ['product-enrichment','enrichment-worker','enrichment-products','enrichment-states','enrichment-shared-links'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
   // The dashboard table must equal the catalog view after every write path drains its queue.
   const stateColumns='product_id,status,enriched,supplier_item_id,supplier_code,supplier_brand,oem,sorted_at,match_type,oem_count,vehicle_count,specification_count,attempts';
   const queued=async()=>(await pool.query('SELECT count(*)::int AS n FROM enrichment_product_state_queue')).rows[0].n;
@@ -364,6 +364,12 @@ test('master product sharing excludes equivalents, split offers and changed supp
    const diffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT ${stateColumns} FROM enrichment_product_state_rows EXCEPT SELECT ${stateColumns} FROM enrichment_product_states)
     UNION ALL (SELECT ${stateColumns} FROM enrichment_product_states EXCEPT SELECT ${stateColumns} FROM enrichment_product_state_rows)) d`)).rows[0].n;
    assert.equal(diffs,0);
+   // The storefront's materialized links (#446) must equal the live shared view, every column, after their own drain.
+   await pool.query('SELECT product_enrichment_shared_sync()');
+   assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
+   const linkDiffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT * FROM product_enrichment_shared EXCEPT ALL SELECT * FROM storefront_enrichments)
+    UNION ALL (SELECT * FROM storefront_enrichments EXCEPT ALL SELECT * FROM product_enrichment_shared)) d`)).rows[0].n;
+   assert.equal(linkDiffs,0);
   };
   const donor=randomUUID(),target=randomUUID(),equivalent=randomUUID(),pending=randomUUID(),duplicate=randomUUID(),unlinked=randomUUID();
   await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES
