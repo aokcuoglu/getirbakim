@@ -169,13 +169,13 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
   const saleState = sale?.available && sale.price_kurus ? snapshot ? "Teyit bekliyor" : "Satışa açık" : item.conflicting ? "İnceleme gerekli" : item.presence !== "present" || noSaleMessage ? "Satışa kapalı" : !sale?.price_kurus ? "Hazırlıkta" : "Satışa kapalı";
   const body = <SupplierProductBody item={item} sale={sale} pricing={pricing} cost={cost} sourcePriceLabel={sourcePriceLabel} noSaleMessage={noSaleMessage}
     productInfo={productInfo} stockInfo={stockInfo} dataInfo={dataInfo} cart={cart} presence={presence} saleState={saleState}/>;
-  // In the dialog the header stays put (with the close button) and only the body scrolls.
+  // In the dialog the header stays put (with the close button) and only the body scrolls; the cards keep their content height (shrink-0) instead of being squeezed to the dialog height.
   if (modal) return <>
     <DialogHeader>
       <DialogTitle tabIndex={-1} className="wrap-anywhere pr-8 font-mono">{item.code}</DialogTitle>
       <DialogDescription className="wrap-anywhere">{supplier} · {description}</DialogDescription>
     </DialogHeader>
-    <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto">{notice}{body}</div>
+    <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto *:shrink-0">{notice}{body}</div>
   </>;
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
