@@ -29,6 +29,8 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
     }
     return { ok: true, products: (await importSeta(db, { mode: "full" })).uniqueProducts };
   } catch (cause) {
+    // Dinamik answers 401/403 to hosts outside its IP allow-list (a Mac without the SSH tunnel); every brand would fail.
+    if (cause instanceof DinamikImportError && cause.reason === "upstream" && /HTTP 40[13]\b/.test(cause.message)) return { ok: false, error: "forbidden" };
     const known = cause instanceof BasbugImportError || cause instanceof DinamikImportError || cause instanceof SetaImportError;
     return { ok: false, error: known ? cause.reason : "upstream" };
   } finally {

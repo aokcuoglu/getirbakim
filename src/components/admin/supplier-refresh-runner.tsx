@@ -21,11 +21,12 @@ const errors: Record<string, string> = {
   contract: "İstek veya yanıt doğrulanamadı",
   rejected: "Veri kalite kontrolünden geçemedi; önceki veriler korundu",
   upstream: "Tedarikçiden veri alınamadı; önceki veriler korundu",
+  forbidden: "Tedarikçi bu sunucunun IP adresine izin vermiyor; bu tedarikçinin kalanları atlandı",
   interrupted: "İşlem sonucu alınamadı; çekim geçmişini ve oturumu kontrol edin. Kalanlar başlatılmadı.",
 };
 // A held lock, a pause or missing settings affect every remaining scope of that supplier; so does a run of upstream
 // failures (one brand returning HTTP 500 does not). Other suppliers keep going.
-const stopReasons = new Set(["busy", "paused", "config"]);
+const stopReasons = new Set(["busy", "paused", "config", "forbidden"]);
 const upstreamLimit = 3;
 
 export function SupplierRefreshRunner({ tasks, label, description, ariaLabel }: { tasks: SupplierRefreshTask[]; label: string; description: string; ariaLabel: string }) {
@@ -83,7 +84,8 @@ export function SupplierRefreshRunner({ tasks, label, description, ariaLabel }: 
     </div>
     {running && <Progress value={done / Math.max(tasks.length, 1) * 100} aria-label="Güncelleme ilerlemesi"/>}
     <p role="status" aria-live="polite" className="tabular-nums empty:hidden">{running ? `${done} / ${tasks.length} tamamlandı${current ? ` · Şimdi: ${labelOf(current)}` : ""}` : finished ? `${succeeded} başarılı · ${failed} başarısız${skipped ? ` · ${skipped} başlatılmadı` : ""}` : ""}</p>
-    {results.length > 0 && <Accordion className="rounded-lg border" defaultValue={finished && failed ? ["results"] : []}><AccordionItem value="results" className="px-4">
+    {/* Remounted when the run ends: Base UI reads defaultValue only once, so results open when something failed. */}
+    {results.length > 0 && <Accordion key={finished ? "finished" : "running"} className="rounded-lg border" defaultValue={finished && failed ? ["results"] : []}><AccordionItem value="results" className="px-4">
       <AccordionTrigger>Güncelleme sonuçları</AccordionTrigger>
       <AccordionContent><ul className="flex flex-col gap-1">{results.map((result, index) => <li key={`${result.supplier}-${result.group}-${index}`} className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{many ? labelOf(result) : result.supplier === "seta" ? "SETA" : result.group}</span>

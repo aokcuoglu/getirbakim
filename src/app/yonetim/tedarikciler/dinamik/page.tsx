@@ -45,6 +45,7 @@ const errors: Record<string, string> = {
   contract: "Marka adı veya yanıt beklenen yapıya uymadı. Önceki veriler korunuyor.",
   rejected: "Veri kalite kontrolünden geçemedi; önceki veriler korunuyor.",
   upstream: "Dinamik verileri alınamadı. Önceki veriler korunuyor; yeniden deneyebilirsiniz.",
+  forbidden: "Dinamik bu sunucunun IP adresine izin vermiyor (HTTP 401/403). Dinamik yalnız izinli IP'lerden çağrılabilir: AWS'te VPS proxy'si, yerelde SSH tüneli (DINAMIK_DIRECT_TUNNEL).",
 };
 const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence", "sort", "dir"] as const;
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
