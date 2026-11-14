@@ -132,13 +132,54 @@ Parti tamamlanınca tarayıcı toplayıcıları durdurulur, koşu kilidi ve yere
 
 Tarama yerel veritabanına yazar; canlı, aktarılana kadar eski veriyi gösterir. `npm run storefront:sync` şu adımları çalıştırır:
 
-1. `PRODUCTION_SSH` (`.env.local`, ör. `root@<host>`) üzerinden, son başarılı aktarımdan sonra içe aktarılan zenginleştirmeleri, bunların kategori eşlemelerini ve görsellerini dışa aktarır. Kategori ağacı ve logolar her seferinde tam gönderilir.
-2. Paketi VPS'te `.local/storefront-bundles/current` dizinine rsync ile kopyalar; yalnızca değişen dosyalar gider.
-3. Canlıda sırasıyla `production-task.sh backup`, `import-storefront` kuru çalıştırması, `--apply` ve `rebuild-fitments` çalışır.
+1. Son başarılı aktarımdan sonra içe aktarılan zenginleştirmeleri, bunların kategori eşlemelerini ve görsellerini dışa aktarır. Kategori ağacı, logolar, REPXPERT araç verisi ve tamamlanmış/kısmi zenginleştirme işlerinin durumları her seferinde tam gönderilir.
+2. `vps` hedefinde paketi `PRODUCTION_SSH` (`.env.local`, ör. `root@<host>`) üzerinden VPS'te `.local/storefront-bundles/current` dizinine rsync ile kopyalar; yalnızca değişen dosyalar gider. `aws` hedefi aşağıda.
+3. VPS'te sırasıyla `production-task.sh backup`, `import-storefront` kuru çalıştırması, `--apply` ve `rebuild-fitments` çalışır.
 
-Filigran (`.local/storefront-sync/state.json`) yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir çalıştırma bir sonrakinde tamamen tekrarlanır. Anlık görüntü sırasında sürmekte olan içe aktarmaları kaçırmamak için 1 saat geri örtüşme bırakılır; içe aktarma upsert olduğu için tekrar zararsızdır. İlk çalıştırma (filigran yokken) tüm zenginleştirmeleri gönderir.
+Filigran yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir çalıştırma bir sonrakinde tamamen tekrarlanır. Anlık görüntü sırasında sürmekte olan içe aktarmaları kaçırmamak için 1 saat geri örtüşme bırakılır; içe aktarma upsert olduğu için tekrar zararsızdır.
 
 `npm run storefront:sync:install` her gün 04:30'da çalışan launchd işini kurar. Mac o saatte uykudaysa iş uyanınca çalışır. Günlük `.local/storefront-sync/sync.log` dosyasına yazılır; kaldırmak için `npm run storefront:sync:uninstall`.
+
+#### Hedefler, filigran ve bayraklar (#553)
+
+`STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts` → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
+
+- **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since` ve gönderilen sayıları tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
+- **`--baseline=<ISO>`:** `--dry-run` olmadan hedefin son anlık görüntüsünü `<ISO>` olarak kaydeder (`baseline: true`) ve çıkar; var olan durumu yalnızca `--force` ile ezer. Gelecekteki ya da geçersiz zaman reddedilir. `--dry-run` ile birlikte yalnızca o çalıştırmanın filigranıdır, hiçbir şey yazılmaz.
+- **`aws` hedefinde durum dosyası yoksa** çalıştırma durur: `--baseline=<ISO>` ile son aktarılan anı kaydedin ya da bilinçli olarak her şeyi göndermek için `--full` kullanın. `vps` hedefi eskisi gibi filigransız ilk çalıştırmada her şeyi gönderir.
+- **`--full`:** filigranı yok sayıp tüm zenginleştirmeleri gönderir; `--baseline` ile birlikte kullanılamaz.
+- **`--dry-run`:** dışa aktarır ve parçalara böler, hedefi, `since`, `snapshotAt`, satır sayılarını, MB'ı ve parça dökümünü (part-00 ayrı) JSON olarak yazar. Aktarım yapmaz, filigran yazmaz, kilit almaz; AWS profili ya da SSH ayarı istemez. Yerel veritabanı ve yerel nesne deposu (MinIO) okunur.
+- **Kilit:** gerçek çalıştırmalar `.local/storefront-sync/sync.lock` (`{pid, startedAt, target}`) alır; launchd ve elle çalıştırma çakışmaz. Kilidi tutan süreç ölmüşse kilit devralınır; Ctrl-C/SIGTERM kilidi bırakır.
+- **`aws` ön kontrolü:** yüklemeden önce `aws ecs list-tasks --started-by storefront-sync --desired-status RUNNING` çalışır; süren bir içe aktarma görevi varsa ya da çağrı başarısız olursa çalıştırma durur.
+
+#### Yerelde topla → AWS'ye aktar
+
+Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde çalışır ve yerel veritabanına yazar; canlıya yalnızca bu aktarım taşır.
+
+1. `.env.local`: `STOREFRONT_SYNC_TARGET=aws`, `PRODUCTION_AWS_PROFILE` (adlandırılmış profil, `default` değil).
+2. İlk kez: son aktarılan anı kaydedin, sonra kuru çalıştırma ile ne gideceğine bakın:
+   ```bash
+   npm run storefront:sync -- --baseline=2026-11-13T05:47:24Z
+   npm run storefront:sync -- --dry-run
+   ```
+3. Gerçek yazma (`npm run storefront:sync`) yalnız kullanıcının açık onayıyla. Sonraki çalıştırmalar filigrandan devam eder; günlük çalıştırma için launchd işi isteğe bağlıdır (`npm run storefront:sync:install`).
+
+İlk gerçek çalıştırmadan önce yeni bir operations imajı (`release-aws`) gerekir: iş durumlarını içe aktaran `import-storefront-bundle.ts` ve kuyrukları boşaltan `import-storefront-inbound.ts` imajın içindedir. Eski imaj paketteki `jobs` alanını yok sayar ve yeni zenginleştirmeler mağazaya düşmez.
+
+#### Tablo kararları
+
+| Tablo | Karar | Not |
+| --- | --- | --- |
+| `product_enrichments`, `product_source_categories`, `product_media_objects`, kategori ağacı, logolar, `vehicle_type_specs` / `vehicle_type_images` | Pakette | Zenginleştirmeler `imported_at > since`; ağaç, logolar ve REPXPERT verisi her seferinde tam |
+| `product_enrichment_jobs` (yalnız `complete`/`partial` ve zenginleştirme satırı olan) | Pakette, her seferinde tam, part-00'da | `product_enrichments`'ta durum yok; `enrichment_valid_data` (`db/enrichment-products.sql`) iş durumuna JOIN yapar. İşler gitmezse yeni zenginleştirme `product_enrichment_shared_links` → `storefront_enrichments`'a ulaşmaz. Yalnız değişen satır yazılır (`IS DISTINCT FROM`), aksi halde tetikleyiciler ~69k satırı her seferinde kuyruğa alır |
+| `product_enrichment_shared_links`, `storefront_make_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır |
+| `enrichment_product_states` (+ kuyruk) | AWS'de türetilir | `scripts/enrichment-states.ts sync` |
+| `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts` |
+| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş) |
+| `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
+| `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
+
+Aktarılmayan değişiklikler: yerelde silinen zenginleştirmeler canlıda kalır; `complete`/`partial`'dan başka bir duruma düşen iş paketten çıkar ama canlıdaki satırı değişmez.
 
 ### Tarayıcı bağlantısı
 
