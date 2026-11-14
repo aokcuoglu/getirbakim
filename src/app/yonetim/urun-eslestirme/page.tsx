@@ -83,8 +83,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
-      fresh: brand.fresh, suggestion: brand.suggestion && { id: brand.suggestion.id, name: brand.suggestion.name, evidence: suggestionEvidence(brand.suggestion) },
-      labels: brand.labels.map(label => ({ ...label, supplierName: suppliers[label.supplier] ?? label.supplier, items: number(label.items) })) }));
+      fresh: brand.fresh, suggestion: brand.suggestion && { id: brand.suggestion.id, name: brand.suggestion.name, evidence: suggestionEvidence(brand.suggestion) } }));
     body = <>
       <CardContent className="flex flex-col gap-4">
         {search("brands", "Marka veya etiket", [{ name: "scope", label: "Marka durumu", value: data.scope,
@@ -93,18 +92,17 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "single", label: `Tek tedarikçi (${number(data.brandCount.single)})` },
           { value: "all", label: `Tüm markalar (${number(data.brandCount.all)})` },
         ] }])}
-        <datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
         {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
           <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
-          <TableBody>{rows.map(brand => <TableRow key={brand.id}>
+          <TableBody>{rows.map((brand, index) => <TableRow key={brand.id}>
             <TableCell className="max-w-56"><div className="flex min-w-0 flex-col gap-1"><span className="truncate font-medium" title={brand.name}>{brand.name}</span>
               {brand.suggestion && <span className="truncate text-muted-foreground" title={`${brand.suggestion.name}: ${brand.suggestion.evidence}`}>Benzer: {brand.suggestion.name} · {brand.suggestion.evidence}</span>}</div></TableCell>
             {brandSuppliers.map(supplier => {
-              return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={brand.labels.filter(label => label.supplier === supplier)}/></TableCell>;
+              return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={data.brands[index].labels.filter(label => label.supplier === supplier).map(({ label, items, method }) => ({ label, items: number(items), method }))}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
             <TableCell>{brand.fresh ? <ToneBadge tone="info">Yeni marka</ToneBadge> : brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
-            <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.name}|${brand.labels.map(label => `${label.supplier}:${label.label}:${label.method}`).join(",")}`} brand={brand} back={back}/></div></TableCell>
+            <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.id}|${brand.name}|${data.brands[index].labels.length}|${data.brands[index].labels.filter(label => label.method === "auto").length}`} brand={brand} back={back}/></div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
       </CardContent>
       {pager}

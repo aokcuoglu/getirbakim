@@ -7,7 +7,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { approveService } from "@/modules/admin/actions";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
-import { EnrichmentRefresh } from "@/components/admin/enrichment-refresh";
+import { LiveRefresh } from "@/components/admin/live-refresh";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { OrdersChart } from "@/components/admin/orders-chart";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -82,7 +82,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <h1 className="text-2xl font-semibold tracking-tight">Genel bakış</h1>
         <p className="text-muted-foreground">Bugün {today()} · Siparişler, tedarikçi verisi ve katalog durumunun özeti.</p>
       </div>
-      <div className="flex flex-wrap gap-2"><EnrichmentRefresh/></div>
+      <LiveRefresh seconds={30} defaultOn={false}/>
     </div>
     {approved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
     {error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</AlertDescription></Alert>}
