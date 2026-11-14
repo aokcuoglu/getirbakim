@@ -6,6 +6,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { productDescription, productMeta, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
 import { productOverrideValuesSchema } from "../src/modules/admin/product-override-schema";
+import { initialOverrideForm, overrideFormReducer } from "../src/modules/admin/product-override-form-state";
 
 // Admin edits of the store card (#575) in an isolated copy of the schema: db/product-overrides.sql, the catalog views
 // reading its projection, the store catalog and the admin store. Nothing is written to the shared database's tables.
@@ -30,6 +31,11 @@ async function item(key: string, { supplier, code, brand, name, description = ""
 }
 const productOf = async (key: string) => (await schema.pool.query<{ product_id: string }>(
   "SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids[key]])).rows[0].product_id;
+// The changed fields of a save (its stored values and version are checked on their own below).
+const persist = async (...args: Parameters<typeof store.persistProductOverride>) => {
+  const result = await store.persistProductOverride(...args);
+  return result.ok ? { ok: true as const, changed: result.changed } : result;
+};
 const projected = async () => (await schema.pool.query<{ supplier_item_id: string; name: string | null; hidden: boolean }>(
   "SELECT supplier_item_id::text,name,hidden FROM commerce_item_overrides ORDER BY supplier_item_id")).rows;
 
@@ -56,7 +62,7 @@ before(async () => {
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
 test("an edited name and description reach the product page, the cart and the listings", async () => {
-  assert.deepEqual(await store.persistProductOverride(schema.pool, await productOf("mahle"), { name: "Mahle Özel Yağ Filtresi", description: "Elle yazıldı" }, admin),
+  assert.deepEqual(await persist(schema.pool, await productOf("mahle"), { name: "Mahle Özel Yağ Filtresi", description: "Elle yazıldı" }, admin),
     { ok: true, changed: ["name", "description"] });
   const page = await catalog.getStorefrontProduct(ids.mahle);
   assert.equal(page?.name, "Mahle Özel Yağ Filtresi");
@@ -65,7 +71,7 @@ test("an edited name and description reach the product page, the cart and the li
   const listed = await catalog.browseProducts({ q: "MAH 20020", searchBy: "code", sort: "newest" });
   assert.deepEqual(listed.items.map(row => [row.id, row.name]), [[ids.mahle, "Mahle Özel Yağ Filtresi"]]);
   // Saving the same values again changes nothing and records nothing.
-  assert.deepEqual(await store.persistProductOverride(schema.pool, await productOf("mahle"), { name: "Mahle Özel Yağ Filtresi" }, admin), { ok: true, changed: [] });
+  assert.deepEqual(await persist(schema.pool, await productOf("mahle"), { name: "Mahle Özel Yağ Filtresi" }, admin), { ok: true, changed: [] });
 });
 
 test("a supplier sync rewriting the row keeps the edit", async () => {
@@ -85,17 +91,17 @@ test("a merge carries the edits to a product without its own; split rows leave t
   const febi = await productOf("febiBasbug"), mahle = await productOf("mahle");
   assert.equal(await productOf("febiDinamik"), febi);
   // As the merge actions do: product_merge, then product_overrides_carry in the same statement.
-  const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: boolean }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
+  const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { fields: string[]; hidden: boolean } }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
     SELECT id::text, product_overrides_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
-  assert.deepEqual((await merge(mahle, febi)).rows[0], { id: febi, carried: true });
+  assert.deepEqual((await merge(mahle, febi)).rows[0], { id: febi, carried: { fields: ["name", "description"], hidden: false } });
   for (const key of ["febiBasbug", "febiDinamik", "mahle"]) assert.equal((await catalog.getStorefrontProduct(ids[key]))?.name, "Mahle Özel Yağ Filtresi", key);
   // The edit stays on the merged product's id too; the target's history records the carried values.
   assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_overrides WHERE product_id=$1", [mahle])).rows[0].n, 1);
   assert.deepEqual((await store.loadProductOverride(schema.pool, febi)).changes.map(change => [change.field, change.old_value, change.new_value]).sort(),
     [["description", null, "Elle yazıldı"], ["name", null, "Mahle Özel Yağ Filtresi"]]);
-  // A target with edits of its own keeps them.
-  assert.equal((await schema.pool.query("SELECT product_overrides_carry($1,$2,$3) AS carried", [mahle, febi, admin])).rows[0].carried, false);
-  await store.persistProductOverride(schema.pool, febi, { name: "Febi Ön Balata" }, admin);
+  // A target with every field of its own keeps them.
+  assert.deepEqual((await schema.pool.query("SELECT product_overrides_carry($1,$2,$3) AS carried", [mahle, febi, admin])).rows[0].carried, { fields: [], hidden: false });
+  await persist(schema.pool, febi, { name: "Febi Ön Balata" }, admin);
   for (const key of ["febiBasbug", "febiDinamik", "mahle"]) assert.equal((await catalog.getStorefrontProduct(ids[key]))?.name, "Febi Ön Balata", key);
   // Split off, the MAHLE row is a product of its own without an edit.
   await schema.pool.query("SELECT product_split_item($1,$2)", [ids.mahle, admin]);
@@ -104,8 +110,23 @@ test("a merge carries the edits to a product without its own; split rows leave t
   assert.deepEqual((await projected()).map(row => row.supplier_item_id).sort(), [ids.febiBasbug, ids.febiDinamik].sort());
 });
 
+test("a merge fills only the target's automatic fields and always carries hidden", async () => {
+  await item("bosch", { supplier: "basbug", code: "BOS 70070", brand: "BOSCH", name: "BOSCH SILECEK" });
+  await item("conti", { supplier: "basbug", code: "CON 80080", brand: "CONTITECH", name: "CONTI KAYIS" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const bosch = await productOf("bosch"), conti = await productOf("conti");
+  await persist(schema.pool, conti, { name: "Conti hedef adı" }, admin);
+  await persist(schema.pool, bosch, { name: "Bosch kaynak adı", seo_title: "Bosch SEO", hidden: true }, admin);
+  const { rows } = await schema.pool.query<{ id: string; carried: { fields: string[]; hidden: boolean } }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
+    SELECT id::text, product_overrides_carry($1, id, $3) AS carried FROM merged`, [bosch, conti, admin]);
+  assert.deepEqual(rows[0], { id: conti, carried: { fields: ["seo_title", "hidden"], hidden: true } });
+  const { override } = await store.loadProductOverride(schema.pool, conti);
+  assert.deepEqual([override?.name, override?.seo_title, override?.hidden], ["Conti hedef adı", "Bosch SEO", true]);
+  for (const key of ["bosch", "conti"]) assert.equal(await catalog.getStorefrontProduct(ids[key]), undefined, key);
+});
+
 test("a hidden product is off sale everywhere and its old links do not loop", async () => {
-  await store.persistProductOverride(schema.pool, await productOf("ngk"), { hidden: true }, admin);
+  await persist(schema.pool, await productOf("ngk"), { hidden: true }, admin);
   assert.equal(await catalog.getStorefrontProduct(ids.ngk), undefined);
   assert.equal(await catalog.getProduct(ids.ngk), undefined);
   assert.deepEqual((await catalog.browseProducts({ q: "NGK 30030", searchBy: "code", sort: "newest" })).items, []);
@@ -121,12 +142,12 @@ test("a hidden product is off sale everywhere and its old links do not loop", as
   assert.equal(line.available, false);
   assert.equal(await cart.setCartQuantity(owner, ids.ngk, 1), false);
   // A product sold by two rows: neither row redirects to the other.
-  await store.persistProductOverride(schema.pool, await productOf("febiBasbug"), { hidden: true }, admin);
+  await persist(schema.pool, await productOf("febiBasbug"), { hidden: true }, admin);
   assert.deepEqual(await catalog.getStoreProduct(ids.febiBasbug), {});
   assert.deepEqual(await catalog.getStoreProduct(ids.febiDinamik), {});
   assert.deepEqual((await catalog.browseProducts({ q: "FEBI 10010", searchBy: "code", sort: "newest" })).items, []);
   // Shown again: the name edit still applies.
-  await store.persistProductOverride(schema.pool, await productOf("febiBasbug"), { hidden: false }, admin);
+  await persist(schema.pool, await productOf("febiBasbug"), { hidden: false }, admin);
   assert.equal((await catalog.getStorefrontProduct(ids.febiDinamik))?.name, "Febi Ön Balata");
 });
 
@@ -139,7 +160,7 @@ test("a new supplier row of a hidden product is visible until the matching refre
 });
 
 test("search finds a product by its edited name and ranks the edit", async () => {
-  await store.persistProductOverride(schema.pool, await productOf("skf"), { name: "Zirvekalite Teker Rulmanı" }, admin);
+  await persist(schema.pool, await productOf("skf"), { name: "Zirvekalite Teker Rulmanı" }, admin);
   const found = await catalog.browseProducts({ q: "zirvekalite" });
   // The edited name (weight A) ranks above a supplier description mentioning the word (weight D).
   assert.deepEqual(found.items.map(row => row.id), [ids.skf, ids.sachs]);
@@ -151,14 +172,14 @@ test("search finds a product by its edited name and ranks the edit", async () =>
 
 test("an edited category moves the product between category listings", async () => {
   assert.ok((await catalog.categoryProductIds(["fren"], [252])).includes(ids.skf));
-  assert.deepEqual(await store.persistProductOverride(schema.pool, await productOf("skf"), { category_id: 200 }, admin), { ok: true, changed: ["category_id"] });
+  assert.deepEqual(await persist(schema.pool, await productOf("skf"), { category_id: 200 }, admin), { ok: true, changed: ["category_id"] });
   assert.ok(!(await catalog.categoryProductIds(["fren"], [252, 999])).includes(ids.skf));
   assert.deepEqual(await catalog.categoryProductIds([], [200]), [ids.skf]);
 });
 
 test("returning a field to automatic restores the source value and the history names old, new and who", async () => {
   const skf = await productOf("skf");
-  assert.deepEqual(await store.persistProductOverride(schema.pool, skf, { name: null }, admin), { ok: true, changed: ["name"] });
+  assert.deepEqual(await persist(schema.pool, skf, { name: null }, admin), { ok: true, changed: ["name"] });
   assert.equal((await catalog.getStorefrontProduct(ids.skf))?.name, "SKF RULMAN");
   const details = await store.loadProductOverride(schema.pool, skf);
   assert.equal(details.override?.name, null);
@@ -167,27 +188,27 @@ test("returning a field to automatic restores the source value and the history n
   assert.deepEqual(details.changes.filter(change => change.field === "name").map(change => [change.old_value, change.new_value, change.changed_by]),
     [["Zirvekalite Teker Rulmanı", null, "Test Yönetici"], [null, "Zirvekalite Teker Rulmanı", "Test Yönetici"]]);
   // Every field automatic again: the row goes, the history stays.
-  await store.persistProductOverride(schema.pool, skf, { category_id: null }, admin);
+  await persist(schema.pool, skf, { category_id: null }, admin);
   assert.equal((await store.loadProductOverride(schema.pool, skf)).override, null);
   assert.equal((await store.loadProductOverride(schema.pool, skf)).changes.length, 4);
 });
 
 test("edits of a missing or merged product and unknown categories are refused", async () => {
-  assert.deepEqual(await store.persistProductOverride(schema.pool, randomUUID(), { name: "x" }, admin), { ok: false, reason: "not-found" });
+  assert.deepEqual(await persist(schema.pool, randomUUID(), { name: "x" }, admin), { ok: false, reason: "not-found" });
   const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
-  assert.deepEqual(await store.persistProductOverride(schema.pool, merged, { name: "x" }, admin), { ok: false, reason: "merged" });
-  assert.deepEqual(await store.persistProductOverride(schema.pool, await productOf("sachs"), { category_id: 123456 }, admin), { ok: false, reason: "category" });
+  assert.deepEqual(await persist(schema.pool, merged, { name: "x" }, admin), { ok: false, reason: "merged" });
+  assert.deepEqual(await persist(schema.pool, await productOf("sachs"), { category_id: 123456 }, admin), { ok: false, reason: "category" });
 });
 
 test("a save from a form opened before another save is refused", async () => {
   const sachs = await productOf("sachs");
-  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Sachs amortisör" }, admin, store.automaticVersion), { ok: true, changed: ["seo_title"] });
+  assert.deepEqual(await persist(schema.pool, sachs, { seo_title: "Sachs amortisör" }, admin, store.automaticVersion), { ok: true, changed: ["seo_title"] });
   const { override } = await store.loadProductOverride(schema.pool, sachs);
   assert.ok(override);
   // The tab still holding "auto" is stale now; the current version saves.
-  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Eski sekme" }, admin, store.automaticVersion), { ok: false, reason: "stale" });
-  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: null }, admin, override.version), { ok: true, changed: ["seo_title"] });
-  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Yine eski" }, admin, override.version), { ok: false, reason: "stale" });
+  assert.deepEqual(await persist(schema.pool, sachs, { seo_title: "Eski sekme" }, admin, store.automaticVersion), { ok: false, reason: "stale" });
+  assert.deepEqual(await persist(schema.pool, sachs, { seo_title: null }, admin, override.version), { ok: true, changed: ["seo_title"] });
+  assert.deepEqual(await persist(schema.pool, sachs, { seo_title: "Yine eski" }, admin, override.version), { ok: false, reason: "stale" });
 });
 
 test("a dropped row of a hidden product is no unavailable card; a deleted row takes its projection with it", async () => {
@@ -197,7 +218,7 @@ test("a dropped row of a hidden product is no unavailable card; a deleted row ta
   const unavailable = async () => (await schema.pool.query<{ id: string }>("SELECT id::text FROM commerce_unavailable_items")).rows.map(row => row.id);
   assert.ok((await unavailable()).includes(ids.valeo));
   const valeo = await productOf("valeo");
-  await store.persistProductOverride(schema.pool, valeo, { hidden: true }, admin);
+  await persist(schema.pool, valeo, { hidden: true }, admin);
   assert.ok(!(await unavailable()).includes(ids.valeo));
   assert.equal(await catalog.getStorefrontProduct(ids.valeo), undefined);
   // The supplier row goes (cascading to product_sources, whose delete trigger runs): the copy goes, the product's edit stays.
@@ -213,6 +234,44 @@ test("setup keeps the source triggers instead of recreating them", async () => {
   assert.equal(before.length, 3);
   await schema.pool.query(await readFile("db/product-overrides.sql", "utf8"));
   assert.deepEqual(await triggers(), before);
+});
+
+test("a save returns the stored values and their version", async () => {
+  const sachs = await productOf("sachs");
+  const saved = await store.persistProductOverride(schema.pool, sachs, { name: "Sachs ön amortisör", category_id: 200 }, admin);
+  assert.ok(saved.ok);
+  assert.deepEqual(saved.values, { name: "Sachs ön amortisör", description: null, seo_title: null, seo_description: null, category_id: 200, hidden: false });
+  assert.equal(saved.version, (await store.loadProductOverride(schema.pool, sachs)).override?.version);
+  const cleared = await store.persistProductOverride(schema.pool, sachs, { name: null, category_id: null }, admin, saved.version);
+  assert.ok(cleared.ok);
+  assert.equal(cleared.version, store.automaticVersion);
+  assert.deepEqual(cleared.values, { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false });
+});
+
+test("the form shows stored values after a save, keeps other input on a revert and everything on an error", () => {
+  const stored = { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: 241, hidden: true };
+  let state = initialOverrideForm(stored, "1");
+  assert.deepEqual(state.values, { name: "Ad", description: "", seo_title: "", seo_description: "", category_id: "241", published: false });
+  state = overrideFormReducer(state, { type: "edit", values: { name: "Yazılan ad", seo_title: "Yazılan SEO" } });
+  // Reverting the category: only the category takes the stored (automatic) value; typed text stays.
+  state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "category_id", version: "2",
+    values: { ...stored, category_id: null } } });
+  assert.deepEqual(state, { version: "2", values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false } });
+  // The page refresh after our own save carries the version already adopted: nothing changes.
+  assert.equal(overrideFormReducer(state, { type: "server", values: { ...stored, category_id: null }, version: "2" }), state);
+  // An error (stale, unknown category) keeps every typed value and the version.
+  assert.equal(overrideFormReducer(state, { type: "result", result: { status: "error", message: "x" } }), state);
+  // A full save shows every stored value, the category and the hidden switch included.
+  state = overrideFormReducer(state, { type: "result", result: { status: "success", version: "3",
+    values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: true } } });
+  assert.deepEqual(state.values, { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "241", published: false });
+  // Reverting hidden publishes the switch only.
+  state = overrideFormReducer(overrideFormReducer(state, { type: "edit", values: { name: "Yeni" } }),
+    { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false } } });
+  assert.deepEqual([state.values.name, state.values.category_id, state.values.published, state.version], ["Yeni", "241", true, "4"]);
+  // Another version from the page (someone else saved, then a refresh): adopted as a whole.
+  assert.deepEqual(overrideFormReducer(state, { type: "server", values: null, version: "auto" }),
+    { version: "auto", values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
 });
 
 test("the form schema trims, empties to automatic and reads the published switch", () => {
