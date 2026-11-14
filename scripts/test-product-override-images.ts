@@ -53,7 +53,7 @@ const productOf = async (key: string) => (await schema.pool.query<{ product_id: 
 const card = (key: string, code: string, brand: string) => ({ id: ids[key], code, brand });
 const upload = async (productId: string, bytes: Buffer, name = "foto.jpg") => store.addProductImage(schema.pool, productId, { bytes, name }, admin, storage);
 const fileNames = async (productId: string) => (await store.loadProductImages(schema.pool, productId)).images.map(image => image.file_name);
-const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { images: number; hide_automatic: boolean } }>(
+const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { images: number; hide_automatic: boolean; kept: boolean } }>(
   `WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT id::text, product_override_images_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
 const history = async (productId: string) => (await schema.pool.query<{ field: string; old_value: string | null; new_value: string | null; reason: string | null }>(
   "SELECT field,old_value,new_value,reason FROM product_override_changes WHERE product_id=$1 ORDER BY id", [productId])).rows;
@@ -116,6 +116,11 @@ test("GIFs, text, small and broken files are refused with a reason", async () =>
   assert.equal(await reason(jpeg.subarray(0, Math.floor(jpeg.length / 2))), "unreadable");
   assert.equal(await reason(Buffer.alloc(0)), "size");
   assert.equal(await reason(Buffer.alloc(8 * 1024 * 1024 + 1)), "size");
+  // Above 25 megapixels.
+  assert.equal(await reason(await sharp({ create: { width: 5100, height: 5000, channels: 3, background: "#123456" } }).jpeg({ quality: 40 }).toBuffer()), "dimensions");
+  // One image at a time per process: a refused file does not stop the ones queued behind it.
+  const results = await Promise.all([solid(31), Promise.resolve(Buffer.from("bozuk")), solid(32)].map(async bytes => reason(await bytes)));
+  assert.deepEqual(results, ["accepted", "unreadable", "accepted"]);
 });
 
 test("the gallery lists uploads, then the automatic image unless hidden, each source once", () => {
@@ -243,7 +248,7 @@ test("a merge gives an imageless product the merged product's uploads; undoing i
   const lemA = await productOf("lemA"), lemB = await productOf("lemB");
   assert.deepEqual(await upload(lemA, await solid(200), "rot-1.jpg"), { ok: true });
   assert.deepEqual(await upload(lemA, await solid(201), "rot-2.jpg"), { ok: true });
-  assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { images: 2, hide_automatic: false } });
+  assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { images: 2, hide_automatic: false, kept: false } });
   const carried = await store.loadProductImages(schema.pool, lemB);
   assert.deepEqual(carried.images.map(image => [image.file_name, image.carried]), [["rot-1.jpg", true], ["rot-2.jpg", true]]);
   assert.deepEqual((await history(lemB)).map(change => [change.field, change.new_value, change.reason]), [["image_added", "rot-1.jpg", "carry"], ["image_added", "rot-2.jpg", "carry"]]);
@@ -263,7 +268,7 @@ test("a product with its own uploads keeps them; an admin change after a merge k
   const bosch = await productOf("bosch"), conti = await productOf("conti");
   assert.deepEqual(await upload(bosch, await solid(210), "bosch.jpg"), { ok: true });
   assert.deepEqual(await upload(conti, await solid(211), "conti.jpg"), { ok: true });
-  assert.deepEqual((await merge(bosch, conti)).rows[0].carried, { images: 0, hide_automatic: false });
+  assert.deepEqual((await merge(bosch, conti)).rows[0].carried, { images: 0, hide_automatic: false, kept: true });
   assert.deepEqual(await fileNames(conti), ["conti.jpg"]);
   await schema.pool.query("SELECT product_reset_item($1)", [ids.bosch]);
   assert.deepEqual(await fileNames(conti), ["conti.jpg"]);
@@ -287,7 +292,7 @@ test("a hidden automatic image is carried and taken back the same way", async ()
   await schema.pool.query("SELECT refresh_product_matches()");
   const [a, b, c, d] = await Promise.all(["valeoA", "valeoB", "hellaA", "hellaB"].map(productOf));
   await store.setAutomaticImageHidden(schema.pool, a, true, admin);
-  assert.deepEqual((await merge(a, b)).rows[0].carried, { images: 0, hide_automatic: true });
+  assert.deepEqual((await merge(a, b)).rows[0].carried, { images: 0, hide_automatic: true, kept: false });
   assert.equal((await store.loadProductImages(schema.pool, b)).hideAutomatic, true);
   assert.deepEqual((await history(b)).map(change => [change.field, change.new_value, change.reason]), [["auto_image_hidden", "true", "carry"]]);
   await schema.pool.query("SELECT product_reset_item($1)", [ids.valeoA]);
@@ -300,6 +305,26 @@ test("a hidden automatic image is carried and taken back the same way", async ()
   await schema.pool.query("SELECT product_reset_item($1)", [ids.hellaA]);
   assert.equal((await store.loadProductImages(schema.pool, d)).hideAutomatic, true);
   assert.deepEqual(await fileNames(d), ["depo.jpg"]);
+});
+
+test("a merged product's uploads are served only through a product that is not merged", async () => {
+  await item("swagA", { supplier: "basbug", code: "SWG 16016", brand: "SWAG", name: "SWAG ROT" });
+  await item("swagB", { supplier: "basbug", code: "MEY 17017", brand: "MEYLE", name: "MEYLE ROT" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const a = await productOf("swagA"), b = await productOf("swagB");
+  // Control characters do not reach the stored file name.
+  assert.deepEqual(await upload(a, await solid(230), "swag\u0007\nön.jpg"), { ok: true });
+  assert.deepEqual(await fileNames(a), ["swagön.jpg"]);
+  const mediaId = (await store.loadProductImages(schema.pool, a)).images[0].src.split("/").pop()!;
+  await merge(a, b);
+  const [carried] = (await store.loadProductImages(schema.pool, b)).images;
+  assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
+  // Deleted on the kept product: A (merged) still has its row, but nothing shows it.
+  assert.deepEqual(await store.removeProductImage(schema.pool, b, carried.id, admin), { ok: true });
+  assert.equal(await images.servableProductMedia(mediaId, storefrontCompanies()), undefined);
+  // A revived: its own upload is served again.
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.swagA]);
+  assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
 });
 
 test("setup can run the file again", async () => {

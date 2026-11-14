@@ -5,7 +5,15 @@ import { productImageLimits } from "./product-image-limits";
 // The limits live apart from sharp so the upload form can read them in the browser.
 export { productImageLimits, productImageTypes } from "./product-image-limits";
 
-const maxPixels = 40_000_000;
+const maxPixels = 25_000_000;
+
+// One image at a time per process: a 25 MP decode takes ~100 MB, so parallel uploads must not multiply it.
+let queue: Promise<unknown> = Promise.resolve();
+function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task, task);
+  queue = run.catch(() => undefined);
+  return run;
+}
 
 export type ProductImageErrorReason = "type" | "size" | "dimensions" | "unreadable";
 export class ProductImageError extends Error {
@@ -22,7 +30,12 @@ export class ProductImageError extends Error {
  */
 export async function prepareProductImage(raw: Buffer): Promise<{ bytes: Buffer; width: number; height: number }> {
   if (!raw.length || raw.length > productImageLimits.maxBytes) throw new ProductImageError("size");
-  const meta = await sharp(raw, { limitInputPixels: maxPixels }).metadata().catch(() => { throw new ProductImageError("unreadable"); });
+  return oneAtATime(() => convert(raw));
+}
+
+async function convert(raw: Buffer) {
+  // Only the header is read here; without the limit an oversized image is reported as "dimensions", not unreadable.
+  const meta = await sharp(raw, { limitInputPixels: false }).metadata().catch(() => { throw new ProductImageError("unreadable"); });
   if (!["jpeg", "png", "webp"].includes(meta.format ?? "") || (meta.pages ?? 1) > 1) throw new ProductImageError("type");
   if (!meta.width || !meta.height) throw new ProductImageError("unreadable");
   if (meta.width * meta.height > maxPixels || Math.min(meta.width, meta.height) < productImageLimits.minSide) throw new ProductImageError("dimensions");

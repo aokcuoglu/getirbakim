@@ -148,7 +148,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
       <div className="relative min-w-0 max-[750px]:pt-8">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={product.brand} logo={logos.get(product.brand)} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
-        {images.length ? <ProductGallery images={images} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
+        {images.length ? <ProductGallery key={product.id} images={images} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {product.brand} {displayPartNumber}</h1>

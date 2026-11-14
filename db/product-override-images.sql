@@ -33,14 +33,15 @@ CREATE TABLE IF NOT EXISTS product_override_image_settings (
 CREATE INDEX IF NOT EXISTS product_override_image_settings_carried_idx ON product_override_image_settings(hide_carried_from) WHERE hide_carried_from IS NOT NULL;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's uploads when it has none of its own, and
--- its hidden automatic image when it shows its own. Called by the merge actions next to product_overrides_carry.
+-- its hidden automatic image when it shows its own. Called by the merge actions next to product_overrides_carry; `kept`
+-- says the merged product had uploads that were not copied because the kept product has its own.
 -- Names are qualified: the parameters would otherwise be read as columns of the same name (42702).
 CREATE OR REPLACE FUNCTION product_override_images_carry(source uuid, target uuid, actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE copied integer := 0; hid boolean := false;
+DECLARE copied integer := 0; hid boolean := false; kept boolean := false;
 BEGIN
  IF product_override_images_carry.source IS NULL OR product_override_images_carry.target IS NULL
   OR product_override_images_carry.source=product_override_images_carry.target THEN
-  RETURN jsonb_build_object('images',0,'hide_automatic',false);
+  RETURN jsonb_build_object('images',0,'hide_automatic',false,'kept',false);
  END IF;
  -- Serializes with the admin's gallery changes (product-image-store.ts locks the same row).
  PERFORM 1 FROM products p WHERE p.id=product_override_images_carry.target FOR UPDATE;
@@ -54,6 +55,8 @@ BEGIN
   INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
   SELECT product_override_images_carry.target,'image_added',NULL,c.file_name,product_override_images_carry.actor,'carry' FROM copied_rows c;
   GET DIAGNOSTICS copied = ROW_COUNT;
+ ELSE
+  kept := EXISTS (SELECT 1 FROM product_override_images i WHERE i.product_id=product_override_images_carry.source);
  END IF;
  IF EXISTS (SELECT 1 FROM product_override_image_settings st WHERE st.product_id=product_override_images_carry.source AND st.hide_automatic)
   AND NOT EXISTS (SELECT 1 FROM product_override_image_settings st WHERE st.product_id=product_override_images_carry.target AND st.hide_automatic) THEN
@@ -65,7 +68,7 @@ BEGIN
   VALUES (product_override_images_carry.target,'auto_image_hidden',NULL,'true',product_override_images_carry.actor,'carry');
   hid := true;
  END IF;
- RETURN jsonb_build_object('images',copied,'hide_automatic',hid);
+ RETURN jsonb_build_object('images',copied,'hide_automatic',hid,'kept',kept);
 END $$;
 
 -- A merged product revived (its merged_into cleared): the products it carried images or the hidden automatic image

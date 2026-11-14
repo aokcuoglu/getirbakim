@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useRef, useState, useTransition, type DragEvent } from "react";
+import { useEffect, useId, useRef, useState, useTransition, type DragEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, EyeOff, GitMerge, ImagePlus, Star, Trash2 } from "lucide-react";
-import { removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
+import { finishProductImageUpload, removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
 import { productImageLimits, productImageTypes } from "@/modules/admin/product-image-limits";
 import type { ProductImages } from "@/modules/admin/product-image-store";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,6 +19,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 
 type Upload = ProductImages["images"][number];
+const maxMegabytes = productImageLimits.maxBytes / 1024 / 1024;
 
 /**
  * Uploads (drop or pick several files; sent one at a time), order, primary image, delete and the automatic image's
@@ -32,6 +33,9 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  // The arrow button to focus again once a move is stored and the list re-rendered (the button is disabled meanwhile).
+  const focusAfterMove = useRef<{ id: string; direction: "up" | "down" } | null>(null);
   const switchId = useId();
   const [pending, startTransition] = useTransition();
   const [dragging, setDragging] = useState(false);
@@ -40,13 +44,21 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
   const [notice, setNotice] = useState<string | null>(null);
   const remaining = productImageLimits.maxImages - images.length;
 
+  useEffect(() => {
+    const target = focusAfterMove.current;
+    if (pending || !target || !list.current) return;
+    focusAfterMove.current = null;
+    const button = (direction: string) => list.current?.querySelector<HTMLButtonElement>(`[data-image="${target.id}"][data-move="${direction}"]:not(:disabled)`);
+    (button(target.direction) ?? button(target.direction === "up" ? "down" : "up"))?.focus();
+  }, [images, pending]);
+
   const upload = (files: File[]) => {
     if (!files.length || pending) return;
     const failed: string[] = [];
     // Checked here too so a wrong or oversized file is not sent at all; the action checks again.
     const accepted = files.filter(file => {
       if (!productImageTypes.some(type => type === file.type)) failed.push(`${file.name}: Yalnız JPEG, PNG veya WebP yüklenebilir.`);
-      else if (file.size > productImageLimits.maxBytes) failed.push(`${file.name}: Görsel en çok 8 MB olabilir.`);
+      else if (file.size > productImageLimits.maxBytes) failed.push(`${file.name}: Görsel en çok ${maxMegabytes} MB olabilir.`);
       else return true;
       return false;
     });
@@ -65,6 +77,8 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
         if (result.status === "error") failed.push(`${file.name}: ${result.message}`);
         else added++;
       }
+      // The cached store pages are refreshed once for the whole batch.
+      if (added) await finishProductImageUpload(productId).catch(() => undefined);
       setProgress(null);
       setErrors(failed);
       setNotice(added ? `${added} görsel eklendi.` : null);
@@ -72,21 +86,23 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     });
   };
 
-  const mutate = (action: () => Promise<ProductImageActionResult>) => {
+  const mutate = (action: () => Promise<ProductImageActionResult>, success?: string) => {
     setNotice(null);
     setErrors([]);
     startTransition(async () => {
       const result = await action().catch((): ProductImageActionResult => ({ status: "error", message: "Bağlantı kesildi; yeniden deneyin." }));
       if (result.status === "error") setErrors([result.message]);
-      else setNotice(result.message);
+      else setNotice(success ?? result.message);
       router.refresh();
     });
   };
-  const move = (from: number, to: number) => {
+  const move = (from: number, to: number, direction?: "up" | "down") => {
     const ids = images.map(image => image.id);
     const [moved] = ids.splice(from, 1);
     ids.splice(to, 0, moved);
-    mutate(() => reorderProductImages({ productId, imageIds: ids }));
+    focusAfterMove.current = direction ? { id: moved, direction } : null;
+    const name = images[from].file_name || `Görsel ${from + 1}`;
+    mutate(() => reorderProductImages({ productId, imageIds: ids }), to === 0 ? `“${name}” ana görsel yapıldı.` : `“${name}” ${to + 1}. sıraya taşındı.`);
   };
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
@@ -96,18 +112,19 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
   };
 
   return <div className="flex flex-col gap-4">
-    <Card size="sm" onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}>
+    <Card size="sm" className={dragging ? "ring-2 ring-ring" : undefined} onDragOver={event => { event.preventDefault(); setDragging(true); }}
+      onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={drop}>
       <CardContent>
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon"><ImagePlus/></EmptyMedia>
             <EmptyTitle>{dragging ? "Görselleri bırakın" : "Görselleri sürükleyip bırakın"}</EmptyTitle>
-            <EmptyDescription>JPEG, PNG veya WebP · en çok 8 MB · {productImageLimits.maxImages} görsel{remaining > 0 ? ` (${remaining} yer kaldı)` : ""}</EmptyDescription>
+            <EmptyDescription>JPEG, PNG veya WebP · en çok {maxMegabytes} MB · {productImageLimits.maxImages} görsel{remaining > 0 ? ` (${remaining} yer kaldı)` : ""}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <input ref={input} className="hidden" type="file" multiple accept={productImageTypes.join(",")} aria-label="Görsel dosyaları"
+            <input ref={input} className="hidden" type="file" multiple accept={productImageTypes.join(",")} aria-hidden="true" tabIndex={-1}
               onChange={event => { upload([...event.target.files ?? []]); event.target.value = ""; }}/>
-            <Button type="button" variant="outline" disabled={pending || remaining <= 0} onClick={() => input.current?.click()}>
+            <Button type="button" variant="outline" aria-label="Ürün görseli için dosya seç" disabled={pending || remaining <= 0} onClick={() => input.current?.click()}>
               <ImagePlus data-icon="inline-start" aria-hidden="true"/>Dosya seç</Button>
             {remaining <= 0 && <p className="text-muted-foreground">Görsel sınırına ulaşıldı; yeni görsel için önce birini silin.</p>}
           </EmptyContent>
@@ -115,18 +132,22 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
       </CardContent>
     </Card>
 
-    {progress && <Progress value={progress.total ? (progress.done / progress.total) * 100 : 0} aria-live="polite">
-      <ProgressLabel>Yükleniyor: {progress.done + 1}/{progress.total}</ProgressLabel>
-    </Progress>}
     {errors.length > 0 && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/>
-      <AlertDescription>{errors.length === 1 ? errors[0] : <ul className="flex list-disc flex-col gap-1 pl-4">{errors.map(error => <li key={error}>{error}</li>)}</ul>}</AlertDescription></Alert>}
-    {notice && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{notice}</AlertDescription></Alert>}
+      <AlertDescription>{errors.length === 1 ? <span className="wrap-anywhere">{errors[0]}</span>
+        : <ul className="flex list-disc flex-col gap-1 pl-4">{errors.map((error, index) => <li key={`${index}-${error}`} className="wrap-anywhere">{error}</li>)}</ul>}</AlertDescription></Alert>}
+    {/* Always rendered so screen readers hear the upload progress and the result. */}
+    <div className="flex flex-col gap-4 empty:hidden" aria-live="polite">
+      {progress && <Progress value={progress.total ? ((progress.done + 1) / progress.total) * 100 : 0}>
+        <ProgressLabel>Yükleniyor: {progress.done + 1}/{progress.total}</ProgressLabel>
+      </Progress>}
+      {notice && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{notice}</AlertDescription></Alert>}
+    </div>
 
-    {images.length > 0 && <ItemGroup className="gap-2" aria-label="Yüklenen görseller">
+    {images.length > 0 && <ItemGroup ref={list} className="gap-2" aria-label="Yüklenen görseller">
       {images.map((image, index) => {
         const name = image.file_name || `Görsel ${index + 1}`;
-        return <Item key={image.id} variant="outline">
-          <ItemMedia variant="image" className="size-16"><Image src={image.src} alt={name} width={image.width} height={image.height} unoptimized/></ItemMedia>
+        return <Item key={image.id} variant="outline" className="flex-wrap">
+          <ItemMedia variant="image" className="size-16"><Image src={image.src} alt="" width={image.width} height={image.height} unoptimized/></ItemMedia>
           <ItemContent className="min-w-0">
             <ItemTitle className="max-w-full truncate" title={name}>{name}</ItemTitle>
             <ItemDescription className="tabular-nums">{image.width}×{image.height} px</ItemDescription>
@@ -135,9 +156,9 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
               {image.carried && <Badge variant="info"><GitMerge data-icon="inline-start" aria-hidden="true"/>Birleştirmeden taşındı</Badge>}
             </div>
           </ItemContent>
-          <ItemActions className="flex-wrap">
-            <Button type="button" variant="outline" size="icon" aria-label={`${name} görselini yukarı taşı`} disabled={pending || index === 0} onClick={() => move(index, index - 1)}><ArrowUp aria-hidden="true"/></Button>
-            <Button type="button" variant="outline" size="icon" aria-label={`${name} görselini aşağı taşı`} disabled={pending || index === images.length - 1} onClick={() => move(index, index + 1)}><ArrowDown aria-hidden="true"/></Button>
+          <ItemActions className="w-full flex-wrap sm:w-auto">
+            <Button type="button" variant="outline" size="icon" data-image={image.id} data-move="up" aria-label={`${name} görselini yukarı taşı`} disabled={pending || index === 0} onClick={() => move(index, index - 1, "up")}><ArrowUp aria-hidden="true"/></Button>
+            <Button type="button" variant="outline" size="icon" data-image={image.id} data-move="down" aria-label={`${name} görselini aşağı taşı`} disabled={pending || index === images.length - 1} onClick={() => move(index, index + 1, "down")}><ArrowDown aria-hidden="true"/></Button>
             {index > 0 && <Button type="button" variant="outline" disabled={pending} onClick={() => move(index, 0)}><Star data-icon="inline-start" aria-hidden="true"/>Ana görsel yap</Button>}
             <Dialog>
               <DialogTrigger render={<Button type="button" variant="destructive" disabled={pending}/>}><Trash2 data-icon="inline-start" aria-hidden="true"/>Sil</DialogTrigger>
@@ -147,7 +168,7 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
                 <DialogFooter>
                   <DialogClose render={<Button type="button" variant="outline"/>}>Vazgeç</DialogClose>
                   <DialogClose render={<Button type="button" variant="destructive"/>} onClick={() => mutate(() => removeProductImage({ productId, imageId: image.id }))}>
-                    <Trash2 data-icon="inline-start" aria-hidden="true"/>Sil</DialogClose>
+                    <Trash2 data-icon="inline-start" aria-hidden="true"/>Görseli sil</DialogClose>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -159,7 +180,7 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     <div className="flex flex-col gap-2">
       <h3 className="font-medium">Otomatik görsel</h3>
       {automatic.length ? <ItemGroup className="gap-2" aria-label="Otomatik görseller">{automatic.map(image => <Item key={image.src} variant="outline">
-        <ItemMedia variant="image" className="size-16"><Image src={image.src} alt={`Otomatik görsel (${image.supplier})`} width={image.width} height={image.height} unoptimized/></ItemMedia>
+        <ItemMedia variant="image" className="size-16"><Image src={image.src} alt="" width={image.width} height={image.height} unoptimized/></ItemMedia>
         <ItemContent>
           <ItemTitle>Zenginleştirme görseli</ItemTitle>
           <ItemDescription>{image.supplier} kaydından · {images.length ? "yüklenen görsellerin ardından gösterilir" : "yüklenen görsel olmadığı için ana görsel"}</ItemDescription>

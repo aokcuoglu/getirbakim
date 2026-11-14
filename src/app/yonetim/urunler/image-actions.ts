@@ -20,8 +20,8 @@ const failures: Record<Exclude<store.ProductImageResult, { ok: true }>["reason"]
 };
 const imageFailures: Record<ProductImageErrorReason, string> = {
   type: "Yalnız tek kareli JPEG, PNG veya WebP görseller yüklenebilir.",
-  size: "Görsel en çok 8 MB olabilir.",
-  dimensions: `Görselin iki kenarı da en az ${productImageLimits.minSide} piksel olmalı (en çok 40 megapiksel).`,
+  size: `Görsel en çok ${productImageLimits.maxBytes / 1024 / 1024} MB olabilir.`,
+  dimensions: `Görselin iki kenarı da en az ${productImageLimits.minSide} piksel olmalı (en çok 25 megapiksel).`,
   unreadable: "Görsel okunamadı; dosya bozuk olabilir.",
 };
 
@@ -29,18 +29,24 @@ const productId = z.uuid();
 const imageId = z.uuid();
 const order = z.array(z.uuid()).min(1).max(productImageLimits.maxImages);
 
-async function run(action: () => Promise<store.ProductImageResult>, success: string): Promise<ProductImageActionResult> {
+// The store's product page, listings, cart and this admin page all show the product's images.
+const revalidateStore = () => revalidatePath("/", "layout");
+
+async function run(action: () => Promise<store.ProductImageResult>, success: string, revalidate = true): Promise<ProductImageActionResult> {
   let result: store.ProductImageResult;
-  try { result = await action(); } catch {
+  try { result = await action(); } catch (error) {
+    console.error("Product image change failed", error);
     return { status: "error", message: "Görseller kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: result.reason === "image" && result.image ? imageFailures[result.image] : failures[result.reason] };
-  // The store's product page, listings, cart and this admin page all show the product's images.
-  revalidatePath("/", "layout");
+  if (revalidate) revalidateStore();
   return { status: "success", message: success };
 }
 
-/** One file per call: the manager sends the selected files one after another. */
+/**
+ * One file per call: the manager sends the selected files one after another, then calls finishProductImageUpload once
+ * to refresh the cached pages (not once per file).
+ */
 export async function uploadProductImage(form: FormData): Promise<ProductImageActionResult> {
   const admin = await requireAdmin();
   const id = productId.safeParse(form.get("product_id"));
@@ -49,7 +55,13 @@ export async function uploadProductImage(form: FormData): Promise<ProductImageAc
   if (!file.size || file.size > productImageLimits.maxBytes) return { status: "error", message: imageFailures.size };
   if (!productImageTypes.some(type => type === file.type)) return { status: "error", message: imageFailures.type };
   const bytes = Buffer.from(await file.arrayBuffer());
-  return run(() => store.addProductImage(db, id.data, { bytes, name: file.name }, admin.id), "Görsel eklendi.");
+  return run(() => store.addProductImage(db, id.data, { bytes, name: file.name }, admin.id), "Görsel eklendi.", false);
+}
+
+/** End of an upload batch: the store's cached pages are refreshed once. */
+export async function finishProductImageUpload(id: string): Promise<void> {
+  await requireAdmin();
+  if (productId.safeParse(id).success) revalidateStore();
 }
 
 export async function removeProductImage(input: { productId: string; imageId: string }): Promise<ProductImageActionResult> {

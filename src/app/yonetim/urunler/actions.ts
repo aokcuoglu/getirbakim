@@ -55,6 +55,10 @@ export async function undoSplitSource(form: FormData) {
   redirect(!target ? `/yonetim/urunler/${data.data.product_id}?error=split` : remaining ? `/yonetim/urunler/${data.data.product_id}?reset=${target}` : `/yonetim/urunler/${target}?joined=1`);
 }
 
+/** `&images=<n>` (uploads copied by the merge) or `&images=kept` (the kept product's own uploads stayed), else nothing. */
+const imageCarryFlag = (carried: { images: number; kept: boolean } | null | undefined) =>
+  carried?.images ? `&images=${carried.images}` : carried?.kept ? "&images=kept" : "";
+
 /**
  * The two products are the same: one keeps its identity and takes every row of the other (locked). Başbuğ is the
  * main catalog, so a product sold by Başbuğ survives; otherwise the product being viewed does.
@@ -65,7 +69,7 @@ export async function mergeProducts(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const { product_id, other_id } = data.data;
   const client = await db.connect();
-  let target: string | null = null, carriedHidden = false;
+  let target: string | null = null, carriedHidden = false, imagesFlag = "";
   try {
     await client.query("BEGIN");
     const rows = (await client.query<{ id: string; basbug: boolean }>("SELECT id,'basbug'=ANY(suppliers) AS basbug FROM products WHERE id=ANY($1::uuid[])",
@@ -78,7 +82,8 @@ export async function mergeProducts(form: FormData) {
       if (target) carriedHidden = Boolean((await client.query<{ carried: { hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
         [drop, target, admin.id])).rows[0].carried.hidden);
       // Uploaded images and a hidden automatic image as well (#581).
-      if (target) await client.query("SELECT product_override_images_carry($1,$2,$3)", [drop, target, admin.id]);
+      if (target) imagesFlag = imageCarryFlag((await client.query<{ carried: { images: number; kept: boolean } }>("SELECT product_override_images_carry($1,$2,$3) AS carried",
+        [drop, target, admin.id])).rows[0].carried);
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [keep, drop, admin.id]);
@@ -90,7 +95,7 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${imagesFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
 }
 
 const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);

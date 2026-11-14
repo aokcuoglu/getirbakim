@@ -32,7 +32,8 @@ export const getItemImages = cache(async (itemId: string): Promise<ItemOverrideI
   (await getOverrideImages([itemId])).get(itemId) ?? { images: [], hideAutomatic: false });
 
 /**
- * A media object the store may serve: an enrichment image shown on a present storefront row, or an admin upload.
+ * A media object the store may serve: an enrichment image shown on a present storefront row, or an admin upload of a
+ * product that is not merged (a merged product's uploads stay on its id but nothing shows them).
  * Anything else (vehicle and category images have their own routes, objects nothing shows) is not served here.
  */
 export async function servableProductMedia(id: string, companies: string[]) {
@@ -40,5 +41,5 @@ export async function servableProductMedia(id: string, companies: string[]) {
     `SELECT m.bucket,m.object_key,m.content_type,m.sha256,m.size_bytes FROM product_media_objects m WHERE m.id=$1 AND (EXISTS
      (SELECT 1 FROM storefront_enrichments e JOIN supplier_items i ON i.id=e.supplier_item_id
       WHERE e.image_id=m.id AND i.presence='present' AND i.company=ANY($2::text[]))
-     OR EXISTS (SELECT 1 FROM product_override_images o WHERE o.media_id=m.id))`, [id, companies])).rows[0];
+     OR EXISTS (SELECT 1 FROM product_override_images o JOIN products p ON p.id=o.product_id AND p.merged_into IS NULL WHERE o.media_id=m.id))`, [id, companies])).rows[0];
 }

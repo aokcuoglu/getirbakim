@@ -27,8 +27,8 @@ export function ProductGallery({ images, alt }: { images: CatalogProductImage[];
   if (images.length < 2) return main;
   return <div className="flex flex-col gap-3">
     {main}
-    <div className="flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-1 max-[750px]:px-0" role="group" aria-label="Ürün görselleri">
-      {images.map((thumbnail, position) => <button key={thumbnail.src} type="button" aria-label={`Görsel ${position + 1}`} aria-pressed={position === index}
+    <div className="flex gap-2 overflow-x-auto overscroll-x-contain p-1" role="group" aria-label="Ürün görselleri">
+      {images.map((thumbnail, position) => <button key={thumbnail.src} type="button" aria-label={`${alt} — görsel ${position + 1}/${images.length}`} aria-pressed={position === index}
         onClick={() => setSelected(position)}
         className="flex size-[72px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#e5e7eb] bg-white p-1.5 outline-none transition-colors hover:border-[#0077c7] focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-2 aria-pressed:border-[#0077c7] motion-reduce:transition-none max-[750px]:size-16">
         <Image className="block size-full object-contain" src={thumbnail.src} alt="" width={thumbnail.width} height={thumbnail.height} sizes="72px" unoptimized />
