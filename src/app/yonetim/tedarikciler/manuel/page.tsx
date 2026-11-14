@@ -64,7 +64,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     return groups.set(key, group);
   }, new Map<string, { issue: ManualIssue; count: number; codes: string[] }>()).values()].sort((a, b) => Number(a.issue.level === "warning") - Number(b.issue.level === "warning") || b.count - a.count) : [];
   const detailed = draft ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, issueRowLimit) : [];
-  return <SupplierPage crumb="Manuel yükleme" title="Manuel yükleme" tabsLabel="Manuel yükleme" syncLabel="Yükleme ve kontrol"
+  return <SupplierPage title="Manuel yükleme" tabsLabel="Manuel yükleme" syncLabel="Yükleme ve kontrol"
     description="Şablondaki .xlsx listeleri bir tedarikçi listesi gibi içe aktarılır: önce kontrol edilir, onaydan sonra mağazaya yansır."
     badge={<Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>}
     attention={Boolean(draft || params.error)} hasData={Boolean(list)} tabKey={[params.taslak, params.error, params.imported].join("|")}

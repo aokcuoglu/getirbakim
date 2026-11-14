@@ -69,7 +69,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const { lastSucceeded } = data;
   const lastRun = data.recentRuns[0];
   const groupCount = new Set(knownGroups.map(g => g.kod)).size;
-  return <SupplierPage crumb="Başbuğ" title="Başbuğ API" tabsLabel="Başbuğ yönetimi"
+  return <SupplierPage title="Başbuğ API" tabsLabel="Başbuğ yönetimi"
     description="Ürün, kaynak fiyat ve depo stok verilerini incele; senkronizasyonu yönet."
     badge={<SupplierActivityBadge supplier="basbug" initial={activity}><FeedStatusBadge status={feeds?.basbug}/></SupplierActivityBadge>}
     attention={Boolean(params.error)} hasData={data.snapshots.length > 0} tabKey={[params.error, params.updated, group].join("|")}

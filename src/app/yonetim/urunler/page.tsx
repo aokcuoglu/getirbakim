@@ -3,7 +3,6 @@ import { ChevronLeft, ChevronRight, CircleAlert, Package, Search, X } from "luci
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -35,13 +34,8 @@ export default async function Products({ searchParams }: { searchParams: Promise
   const filterHref = (filter: ProductFilter) => query({ filter: filter === "all" ? undefined : filter });
 
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Ürünler</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex max-w-3xl flex-col gap-1">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Ürünler</h1>
         <p className="text-muted-foreground">Ana ürün kataloğu. Her ürün bir marka ve parça numarasıdır; Başbuğ, Dinamik ve SETA kayıtları bu ürüne kaynak olarak bağlanır. Fiyat ve stok kaynaklardan gelir: stokta olan en ucuz kaynak satılır.</p>
       </div>

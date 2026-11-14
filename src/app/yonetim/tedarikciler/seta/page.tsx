@@ -53,7 +53,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
   const lastRun = data.recentRuns[0];
   const scope = health.scopes[0];
   const schedule = scheduleLines(health.scopes);
-  return <SupplierPage crumb="SETA" title="SETA API" tabsLabel="SETA yönetimi"
+  return <SupplierPage title="SETA API" tabsLabel="SETA yönetimi"
     description="Seta Filtre B2B listesi: ürün, OEM, çapraz referans, KDV hariç bayi fiyatı ve stok durumu."
     badge={<SupplierActivityBadge supplier="seta" initial={activity} unit="liste"><FeedStatusBadge status={feeds?.seta}/></SupplierActivityBadge>}
     attention={Boolean(params.error)} hasData={Boolean(snapshot)} tabKey={[params.error, params.updated].join("|")}

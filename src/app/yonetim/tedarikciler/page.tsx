@@ -10,7 +10,6 @@ import { SupplierRefreshRunner, type SupplierRefreshScopes } from "@/components/
 import { formatAgo, formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -148,13 +147,11 @@ export default async function Suppliers() {
   ];
 
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Tedarikçiler</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <h1 className="text-2xl font-semibold tracking-tight">Tedarikçi veri akışları</h1>
-      <p className="text-muted-foreground">Tedarikçilerden gelen ürün, fiyat ve stok verilerinin güncelliği, kapsamı ve açık sorunları.</p>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Tedarikçi veri akışları</h1>
+        <p className="text-muted-foreground">Tedarikçilerden gelen ürün, fiyat ve stok verilerinin güncelliği, kapsamı ve açık sorunları.</p>
+      </div>
     </div>
 
     {feedProblems === 0 && allFresh

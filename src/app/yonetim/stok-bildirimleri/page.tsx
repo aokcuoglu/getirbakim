@@ -10,7 +10,6 @@ import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -28,14 +27,11 @@ export default async function RestockRequests({ searchParams }: { searchParams: 
   const { rows, more, counts } = await loadRestockRequests(tab);
   const due = rows.filter(row => row.offer_id).length;
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Stok bildirimleri</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <h1 className="text-2xl font-semibold tracking-tight">Stok bildirimleri</h1>
-      <p className="max-w-3xl text-muted-foreground">Tedarik edilemeyen ürünler için bırakılan &quot;Gelince haber ver&quot; talepleri. Mağaza e-posta göndermez: ürün yeniden satışa çıktığında müşteriye bir kez haber ver ve talebi bildirildi olarak işaretle. Bildirilen talepler 30 gün, bekleyenler 12 ay sonra kendiliğinden silinir.</p>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Stok bildirimleri</h1>
+        <p className="text-muted-foreground">Tedarik edilemeyen ürünler için bırakılan &quot;Gelince haber ver&quot; talepleri. Mağaza e-posta göndermez: ürün yeniden satışa çıktığında müşteriye bir kez haber ver ve talebi bildirildi olarak işaretle. Bildirilen talepler 30 gün, bekleyenler 12 ay sonra kendiliğinden silinir.</p>
+      </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.saved === "deleted" ? "Talep silindi." : "Talep bildirildi olarak işaretlendi."}</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Talep güncellenemedi. Listeyi yenileyin.</AlertDescription></Alert>}

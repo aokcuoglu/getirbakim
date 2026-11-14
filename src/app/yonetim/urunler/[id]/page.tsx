@@ -4,7 +4,6 @@ import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Se
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -28,21 +27,12 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const multiple = sources.length > 1;
 
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/urunler"/>}>Ürünler</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>{product.code}</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 max-w-3xl flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
-          <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
-        </div>
-        {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
+        <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
       </div>
+      {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
     </div>
     {query.split && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt ayrıldı ve <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.split}`}>ayrı bir ürün</Link> oldu; mağazada ayrı listeleniyor.</AlertDescription></Alert>}
     {query.joined && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}

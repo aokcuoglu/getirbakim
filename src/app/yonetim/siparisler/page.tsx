@@ -11,7 +11,6 @@ import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -43,14 +42,11 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
   // Actions return to this tab, sort and page.
   const back = href({ page });
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Siparişler</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-      <p className="max-w-3xl text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödeme iadesini TAMI portalından yapıp referansı kaydet. Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödeme iadesini TAMI portalından yapıp referansı kaydet. Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
+      </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
