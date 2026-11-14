@@ -136,10 +136,30 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.equal((await refreshDinamikItems(pool, [ids["FEBI 1"]], perCode)).changed, 0);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes")).rows[0].n, before + 2);
 
-    // A brand Dinamik stops listing is disabled, not deleted.
-    brands = ["FEBI", "SCHADEK"];
-    assert.deepEqual((await discoverDinamikBrands(pool, fake)).disabled, ["EMPTY"]);
-    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='EMPTY'")).rows[0].enabled, false);
+    // A brand list that shrinks past the guard disables nothing.
+    brands = ["FEBI"];
+    await assert.rejects(discoverDinamikBrands(pool, fake), /brand list shrank to 1 of 3/);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_sync_scopes WHERE supplier='dinamik' AND enabled")).rows[0].n, 3);
+
+    // A brand Dinamik stops listing is disabled and its rows retired (logged, not deleted).
+    brands = ["FEBI", "EMPTY"];
+    const schadekBefore = (await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK'")).rows[0].n;
+    const gone = await discoverDinamikBrands(pool, fake, { minListedShare: 0.5 });
+    assert.deepEqual(gone.disabled, ["SCHADEK"]); assert.deepEqual(gone.retired, { SCHADEK: 1 });
+    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='SCHADEK'")).rows[0].enabled, false);
+    assert.equal((await pool.query("SELECT presence FROM supplier_items WHERE code='SCHADEK 1'")).rows[0].presence, "inactive");
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK' AND c.kind='inactive'")).rows[0].n, 1);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK'")).rows[0].n, schadekBefore + 1);
+    // Running discovery again retires nothing twice.
+    assert.deepEqual((await discoverDinamikBrands(pool, fake, { minListedShare: 0.5 })).retired, {});
+
+    // The brand comes back: its scope is re-enabled and queued, the first import restores its rows.
+    brands = ["FEBI", "SCHADEK", "EMPTY"];
+    const back = await discoverDinamikBrands(pool, fake);
+    assert.deepEqual(back.reenabled, ["SCHADEK"]); assert.deepEqual(back.added, []);
+    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='SCHADEK' AND next_run_at<=now()")).rows[0].enabled, true);
+    assert.equal((await importDinamik(pool, { brand: "SCHADEK" }, fake)).stats.restored, 1);
+    assert.equal((await pool.query("SELECT presence FROM supplier_items WHERE code='SCHADEK 1'")).rows[0].presence, "present");
   } finally {
     await pool.end(); await root.query(`DROP SCHEMA ${namespace} CASCADE`); await root.end();
   }
