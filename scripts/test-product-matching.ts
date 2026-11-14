@@ -140,6 +140,143 @@ test("merging a candidate locks the rows into the Başbuğ product; resetting a 
   }
 });
 
+// "Ayır" on one offer (#523): only that row leaves the group; the pair is recorded as different.
+const groupWithAutoOffer = `SELECT o.item_id AS item, o.primary_id AS primary, s.product_id AS product FROM product_offers o
+  JOIN product_sources s ON s.supplier_item_id=o.item_id AND s.method='auto'
+  WHERE o.item_id<>o.primary_id AND (SELECT count(*) FROM product_offers g WHERE g.primary_id=o.primary_id)>=3 LIMIT 1`;
+
+test("splitting one automatically grouped offer makes it a locked product; the rest of the group stays", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pick = (await client.query<{ item: string; primary: string; product: string }>(groupWithAutoOffer)).rows[0];
+    assert.ok(pick, "expected an offer group of three or more with an automatic non-primary row");
+    const others = (await client.query<{ item_id: string }>("SELECT item_id FROM product_offers WHERE primary_id=$1 AND item_id<>$2 ORDER BY item_id",
+      [pick.primary, pick.item])).rows.map(row => row.item_id);
+    const split = (await client.query<{ id: string }>("SELECT product_split_offer($1,$2,NULL) AS id", [pick.item, pick.primary])).rows[0].id;
+    assert.ok(split);
+    assert.notEqual(split, pick.product);
+    assert.ok((await client.query("SELECT variant FROM products WHERE id=$1", [split])).rows[0].variant > 0);
+    assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0],
+      { product_id: split, method: "manual" });
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM product_offers WHERE item_id=$1", [pick.item])).rows[0].n, 0);
+    assert.deepEqual((await client.query<{ item_id: string }>("SELECT item_id FROM product_offers WHERE primary_id=$1 ORDER BY item_id", [pick.primary]))
+      .rows.map(row => row.item_id), others);
+    assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [pick.product, split])).rows[0]?.status, "different");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("splitting a hand-merged offer returns it to its own product and records the pair as different", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const group = (await client.query<{ item: string; primary: string; product: string }>(groupWithAutoOffer)).rows[0];
+    assert.ok(group, "expected an offer group of three or more");
+    // A saleable Dinamik row that is a product of its own and in no group: merged into the group by hand.
+    const single = (await client.query<{ item: string; product: string }>(`SELECT s.supplier_item_id AS item, s.product_id AS product FROM product_sources s
+      JOIN products p ON p.id=s.product_id AND p.variant=0 AND p.merged_into IS NULL
+      WHERE s.method='auto' AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=s.supplier_item_id)
+       AND EXISTS (SELECT 1 FROM commerce_supplier_items i WHERE i.id=s.supplier_item_id AND i.supplier='dinamik')
+       AND EXISTS (SELECT 1 FROM product_match_items m WHERE m.supplier_item_id=s.supplier_item_id)
+       AND NOT EXISTS (SELECT 1 FROM product_sources t WHERE t.product_id=s.product_id AND t.supplier_item_id<>s.supplier_item_id) LIMIT 1`)).rows[0];
+    assert.ok(single, "expected a Dinamik-only product");
+    const before = (await client.query<{ item_id: string }>("SELECT item_id FROM product_offers WHERE primary_id=$1 ORDER BY item_id", [group.primary]))
+      .rows.map(row => row.item_id);
+    assert.equal((await client.query("SELECT product_merge($1,$2,NULL) AS id", [single.product, group.product])).rows[0].id, group.product);
+    assert.equal((await client.query("SELECT primary_id FROM product_offers WHERE item_id=$1", [single.item])).rows[0]?.primary_id, group.primary);
+    assert.equal((await client.query("SELECT product_split_offer($1,$2,NULL) AS id", [single.item, group.primary])).rows[0].id, single.product);
+    assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [single.item])).rows[0],
+      { product_id: single.product, method: "auto" });
+    assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [single.product])).rows[0].merged_into, null);
+    assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [group.product, single.product])).rows[0]?.status, "different");
+    assert.deepEqual((await client.query<{ item_id: string }>("SELECT item_id FROM product_offers WHERE primary_id=$1 ORDER BY item_id", [group.primary]))
+      .rows.map(row => row.item_id), before);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("a stale form does not split a row that has since moved to another group", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const group = (await client.query<{ item: string; primary: string; product: string }>(groupWithAutoOffer)).rows[0];
+    assert.ok(group, "expected an offer group of three or more");
+    // A Dinamik product of exactly two saleable rows, merged by hand into the group's product.
+    const dinamik = (await client.query<{ product: string; items: string[] }>(`SELECT p.id AS product, array_agg(s.supplier_item_id ORDER BY s.supplier_item_id) AS items
+      FROM products p JOIN product_sources s ON s.product_id=p.id
+      WHERE p.variant=0 AND p.merged_into IS NULL AND p.suppliers='{dinamik}' AND s.method='auto'
+       AND EXISTS (SELECT 1 FROM commerce_supplier_items i WHERE i.id=s.supplier_item_id)
+       AND EXISTS (SELECT 1 FROM product_match_items m WHERE m.supplier_item_id=s.supplier_item_id)
+      GROUP BY p.id HAVING count(*)=2 AND (SELECT count(*) FROM product_sources t WHERE t.product_id=p.id)=2 LIMIT 1`)).rows[0];
+    assert.ok(dinamik, "expected a Dinamik product with two rows");
+    assert.equal((await client.query("SELECT product_merge($1,$2,NULL) AS id", [dinamik.product, group.product])).rows[0].id, group.product);
+    for (const item of dinamik.items) {
+      assert.equal((await client.query("SELECT primary_id FROM product_offers WHERE item_id=$1", [item])).rows[0]?.primary_id, group.primary);
+      assert.equal((await client.query("SELECT product_split_offer($1,$2,NULL) AS id", [item, group.primary])).rows[0].id, dinamik.product);
+    }
+    // Both rows are back on their own product, grouped again under one of them: the other is a non-primary offer there.
+    const moved = (await client.query<{ item_id: string; primary_id: string }>("SELECT item_id,primary_id FROM product_offers WHERE item_id=ANY($1::uuid[]) AND item_id<>primary_id",
+      [dinamik.items])).rows[0];
+    assert.ok(moved, "expected the two rows grouped together again");
+    assert.notEqual(moved.primary_id, group.primary);
+    const state = () => client.query("SELECT s.product_id,s.method,o.primary_id FROM product_sources s LEFT JOIN product_offers o ON o.item_id=s.supplier_item_id WHERE s.supplier_item_id=$1",
+      [moved.item_id]).then(result => result.rows[0]);
+    const before = await state();
+    assert.equal((await client.query("SELECT product_split_offer($1,$2,NULL) AS id", [moved.item_id, group.primary])).rows[0].id, null);
+    assert.deepEqual(await state(), before);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("a manual row already on its own key's product is split into a locked variant", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pick = (await client.query<{ item: string; primary: string; product: string }>(groupWithAutoOffer)).rows[0];
+    assert.ok(pick, "expected an offer group of three or more");
+    await client.query("UPDATE product_sources SET method='manual' WHERE supplier_item_id=$1", [pick.item]);
+    const split = (await client.query<{ id: string }>("SELECT product_split_offer($1,$2,NULL) AS id", [pick.item, pick.primary])).rows[0].id;
+    assert.ok(split);
+    assert.notEqual(split, pick.product);
+    assert.ok((await client.query("SELECT variant FROM products WHERE id=$1", [split])).rows[0].variant > 0);
+    assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0],
+      { product_id: split, method: "manual" });
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM product_offers WHERE item_id=$1", [pick.item])).rows[0].n, 0);
+    assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [pick.product, split])).rows[0]?.status, "different");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("the primary offer and rows in no group are not split", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const group = (await client.query<{ item: string; primary: string; product: string }>(groupWithAutoOffer)).rows[0];
+    assert.ok(group, "expected an offer group");
+    const ungrouped = (await client.query<{ item: string }>(`SELECT s.supplier_item_id AS item FROM product_sources s
+      WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=s.supplier_item_id) LIMIT 1`)).rows[0];
+    const state = (item: string) => client.query("SELECT s.product_id,s.method,o.primary_id FROM product_sources s LEFT JOIN product_offers o ON o.item_id=s.supplier_item_id WHERE s.supplier_item_id=$1", [item]).then(result => result.rows[0]);
+    for (const item of [group.primary, ungrouped.item]) {
+      const before = await state(item);
+      assert.equal((await client.query("SELECT product_split_offer($1,$2,NULL) AS id", [item, group.primary])).rows[0].id, null);
+      assert.deepEqual(await state(item), before);
+    }
+    assert.equal((await client.query("SELECT product_split_offer(gen_random_uuid(),$1,NULL) AS id", [group.primary])).rows[0].id, null);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
 test("master brands: every present label belongs to one, and match items use its key", async () => {
   const count = (sql: string) => one(`SELECT count(*)::int AS value FROM ${sql}`, []);
   assert.equal(await count(`(SELECT DISTINCT supplier, supplier_item_brand(supplier,product_data) AS label FROM supplier_items

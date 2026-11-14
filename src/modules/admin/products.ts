@@ -11,7 +11,7 @@ export const productFilters = {
   dinamik: { label: "Yalnız Dinamik", where: "p.suppliers='{dinamik}'" },
   seta: { label: "SETA", where: "p.suppliers @> '{seta}'" },
   upload: { label: "Manuel liste", where: "p.suppliers @> '{manual}'" },
-  manual: { label: "Elle ayrılan", where: "EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id AND s.method='manual')" },
+  manual: { label: "Elle karar verilen", where: "EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id AND s.method='manual')" },
   inactive: { label: "Satışta değil", where: "p.suppliers='{}'" },
 } as const;
 export type ProductFilter = keyof typeof productFilters;

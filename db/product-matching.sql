@@ -263,6 +263,8 @@ CREATE TABLE IF NOT EXISTS product_sources (
  decided_by uuid REFERENCES accounts(id), linked_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS product_sources_product_idx ON product_sources(product_id);
+-- The matching page's "Elle kararlar" list, newest first (#523); only the few manual rows are indexed.
+CREATE INDEX IF NOT EXISTS product_sources_manual_idx ON product_sources(linked_at DESC,supplier_item_id) WHERE method='manual';
 -- Equivalent (muadil) products, both directions; rebuilt by every refresh. `brand`/`part_number` is the shared
 -- reference: ORIJINAL + OEM number (oem), a competitor's number stated by a supplier (cross), or the shared part
 -- number of a brand pair decided as equivalent (brand).
@@ -419,6 +421,31 @@ BEGIN
  END IF;
  PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
  PERFORM product_refresh_offers(ARRAY[pid,old_id]);
+ RETURN pid;
+END $$;
+-- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
+-- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
+-- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
+-- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
+-- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
+-- NULL when the row is no such offer. The two-argument form came first (#523).
+DROP FUNCTION IF EXISTS product_split_offer(uuid, uuid);
+CREATE OR REPLACE FUNCTION product_split_offer(item uuid, expected_primary uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE src record; pid uuid;
+BEGIN
+ PERFORM pg_advisory_xact_lock(20261001,6);
+ SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
+  AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ IF src.method='manual' THEN pid := product_reset_item(item); END IF;
+ IF pid IS NULL OR pid=src.product_id THEN
+  -- product_split_item locks the link and refreshes suppliers; the storefront grouping is refreshed here.
+  pid := product_split_item(item, actor);
+  IF pid IS NULL THEN RETURN NULL; END IF;
+  PERFORM product_refresh_offers(ARRAY[src.product_id,pid]);
+ END IF;
+ INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES (src.product_id,pid,'different',actor)
+ ON CONFLICT (product_a,product_b) DO UPDATE SET status='different', decided_by=excluded.decided_by, decided_at=now();
  RETURN pid;
 END $$;
 CREATE TABLE IF NOT EXISTS product_match_runs (
