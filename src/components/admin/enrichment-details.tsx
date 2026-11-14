@@ -56,7 +56,7 @@ export function EnrichmentDetails({ name, code, productId }: { name: string; cod
       .then(async response => {
         if (!response.ok) throw new Error(response.status === 403 ? "Oturumun sona ermiş olabilir. Yönetici hesabınla yeniden giriş yap." : "Kayıt ayrıntıları yüklenemedi.");
         return response.json() as Promise<Details>;
-      }).then(setRow).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Kayıt ayrıntıları yüklenemedi."); });
+      }).then(value => { setError(""); setRow(value); }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Kayıt ayrıntıları yüklenemedi."); });
     return () => controller.abort();
   }, [open, productId, attempt]);
   const sourceUrl = row?.source_url;

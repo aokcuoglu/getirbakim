@@ -79,7 +79,7 @@ export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) 
       .then(async response => {
         if (!response.ok) throw new Error(response.status === 403 ? "Oturumun sona ermiş olabilir. Yönetici hesabınla yeniden giriş yap." : "Marka etiketleri yüklenemedi.");
         return response.json() as Promise<{ labels: BrandLabelRow[]; names: string[] }>;
-      }).then(setData).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Marka etiketleri yüklenemedi."); });
+      }).then(value => { setError(""); setData(value); }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Marka etiketleri yüklenemedi."); });
     return () => controller.abort();
   }, [open, brand.id, attempt]);
   const hidden = <input type="hidden" name="back" value={back}/>;
