@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CircleAlert, Droplets } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { LiveRefresh } from "@/components/admin/live-refresh";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,5 +112,13 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Droplets/></EmptyMedia><EmptyTitle>{data.q ? "Aramayla eşleşen araç yok." : "Henüz yağ verisi yok."}</EmptyTitle><EmptyDescription>Toplama çalıştıkça araçlar burada belirir.</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
     </Card>
+    <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="commands">
+      <AccordionTrigger>Toplama komutları</AccordionTrigger>
+      <AccordionContent className="flex flex-col gap-2">
+        <code>npm run vehicles:oil-trodo -- collect</code>
+        <code>npm run vehicles:oil-trodo -- export</code>
+        <code>npm run db:vehicle-oils</code>
+      </AccordionContent>
+    </AccordionItem></Accordion></CardContent></Card>
   </div>;
 }

@@ -8,7 +8,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 /** Header trail. Reads the children slot only, so an open @modal never changes it. Mobile shows the last two crumbs. */
 export function AdminBreadcrumb() {
   const trail = adminBreadcrumb(useSelectedLayoutSegments());
-  return <Breadcrumb className="min-w-0"><BreadcrumbList className="flex-nowrap">
+  return <Breadcrumb aria-label="Sayfa yolu" className="min-w-0"><BreadcrumbList className="flex-nowrap">
     {trail.map((crumb, index) => {
       const last = index === trail.length - 1, hiddenOnMobile = index < trail.length - 2;
       return <Fragment key={crumb.label}>

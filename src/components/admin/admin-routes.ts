@@ -42,6 +42,15 @@ export const adminSections: { title: string; items: AdminRoute[] }[] = [
 const flat = (items: AdminRoute[]): AdminRoute[] => items.flatMap(item => [item, ...flat(item.children ?? [])]);
 const labels = new Map(flat(adminSections.flatMap(section => section.items)).map(route => [route.href, route.label]));
 
+/**
+ * Whether a sidebar entry is the current page. The collapsed rail hides the sub list, so a parent with children then
+ * stands for every page below it.
+ */
+export function isAdminRouteActive(item: AdminRoute, pathname: string, collapsed: boolean): boolean {
+  const prefix = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return item.exact && !(item.children && collapsed) ? pathname === item.href : prefix;
+}
+
 /** Breadcrumb trail for the route segments below /yonetim (as useSelectedLayoutSegments reports them). */
 export function adminBreadcrumb(segments: string[]): { label: string; href?: string }[] {
   if (!segments.length) return [{ label: "Genel bakış" }];
@@ -54,7 +63,10 @@ export function adminBreadcrumb(segments: string[]): { label: string; href?: str
     trail.push({ label, href });
     matched += 1;
   }
-  if (matched && segments.length > matched) trail.push({ label: "Ürün ayrıntısı" });
+  // Only product detail pages carry a generic leaf: urunler/<id> and tedarikciler/<supplier>/urun/<id>.
+  const detail = (segments[0] === "urunler" && segments.length === 2 && matched === 1)
+    || (segments[0] === "tedarikciler" && segments.length === 4 && segments[2] === "urun" && matched === 2);
+  if (detail) trail.push({ label: "Ürün ayrıntısı" });
   delete trail[trail.length - 1].href;
   return trail;
 }

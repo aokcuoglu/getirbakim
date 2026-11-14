@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, Unlink } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +32,10 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
         <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
       </div>
-      {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urunler"/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürünlere dön</Button>
+        {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+      </div>
     </div>
     {query.split && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt ayrıldı ve <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.split}`}>ayrı bir ürün</Link> oldu; mağazada ayrı listeleniyor.</AlertDescription></Alert>}
     {query.joined && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { durationSeconds, formatAgo, formatClock, formatDate, formatDateTime, formatDecimal, formatDuration, formatExact, formatInterval, formatNumber, formatTimestamp } from "../src/modules/admin/format";
 import { runKindLabel, runScopeLabel, runStatusLabel, runStatusTone, scheduleLines } from "../src/modules/suppliers/run-status";
-import { adminBreadcrumb, adminSections } from "../src/components/admin/admin-routes";
+import { adminBreadcrumb, adminSections, isAdminRouteActive } from "../src/components/admin/admin-routes";
 import { supplierInitialTab } from "../src/components/admin/supplier-page";
 import { SupplierPagination, pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
 import { RunStatusBadge, StatusBadge } from "../src/components/admin/status-badge";
@@ -173,4 +173,20 @@ test("the last breadcrumb is never a link, and every sidebar page produces a cru
     assert.equal(trail.at(-1)?.href, undefined);
   }
   assert.equal(adminBreadcrumb(["urunler", "abc"]).at(-1)?.href, undefined);
+});
+
+test("an unknown deep admin path gets no generic leaf", () => {
+  assert.deepEqual(adminBreadcrumb(["siparisler", "x"]), [{ label: "Yönetim", href: "/yonetim" }, { label: "Siparişler" }]);
+  assert.deepEqual(adminBreadcrumb(["bilinmeyen"]), [{ label: "Yönetim" }]);
+  assert.deepEqual(adminBreadcrumb(["tedarikciler", "basbug", "x"]).at(-1), { label: "Başbuğ" });
+});
+
+test("sidebar activity: a parent with children is exact when open and covers its pages when collapsed", () => {
+  const suppliers = adminSections.flatMap(section => section.items).find(item => item.href === "/yonetim/tedarikciler")!;
+  const basbug = suppliers.children![0];
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler", false), true);
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler/basbug", false), false);
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler/basbug", true), true);
+  assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/basbug/urun/1", false), true);
+  assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/seta", false), false);
 });

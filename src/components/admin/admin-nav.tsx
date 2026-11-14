@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { CircleAlert, CircleCheck, CircleDashed, ChevronsUpDown, ExternalLink, LogOut, Moon, Sun, TriangleAlert } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
-import { adminSections, type AdminNavStatus, type AdminRoute } from "@/components/admin/admin-routes";
+import { adminSections, isAdminRouteActive, type AdminNavStatus, type AdminRoute } from "@/components/admin/admin-routes";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -20,9 +20,8 @@ const dotColors = { success: "text-success", warning: "text-warning", danger: "t
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {
   const pathname = usePathname();
   const { isMobile, setOpenMobile, state } = useSidebar();
-  const prefix = (item: AdminRoute) => pathname === item.href || pathname.startsWith(`${item.href}/`);
-  // The collapsed rail hides the sub list, so the parent then stands for every page below it.
-  const active = (item: AdminRoute) => item.exact && !(item.children && state === "collapsed" && !isMobile) ? pathname === item.href : prefix(item);
+  const collapsed = state === "collapsed" && !isMobile;
+  const active = (item: AdminRoute) => isAdminRouteActive(item, pathname, collapsed);
   const initials = account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toLocaleUpperCase("tr")).join("") || "Y";
   return <Sidebar collapsible="icon">
     <SidebarHeader>
@@ -47,7 +46,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
             {count > 0 && <SidebarMenuBadge><span className="sr-only">Bekleyen: </span>{count}</SidebarMenuBadge>}
             {tone && <SidebarMenuBadge><ToneIcon tone={tone}/></SidebarMenuBadge>}
             {item.children && <SidebarMenuSub>{item.children.map(child => {
-              const childTone = child.dot ? status[child.dot] : null, current = prefix(child);
+              const childTone = child.dot ? status[child.dot] : null, current = active(child);
               return <SidebarMenuSubItem key={child.href}>
                 <SidebarMenuSubButton isActive={current} onClick={() => isMobile && setOpenMobile(false)}
                   render={<Link href={child.href} aria-current={current ? "page" : undefined}/>}>
