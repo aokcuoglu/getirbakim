@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
+import { safeMatchingBack, withMatchingFlag } from "../src/modules/admin/product-matching-back";
 import { bulkCandidateReasons, isBulkReason } from "../src/modules/admin/product-matching-sql";
 
 // The "Eşleşenler" tab's order must stay the SQL it replaced (#504): ORDER BY <column> ASC|DESC NULLS LAST, then
@@ -82,4 +83,21 @@ test("bulk merge covers prefix and leading_zero, never suffix", () => {
   assert.equal(isBulkReason("suffix"), false);
   assert.equal(isBulkReason("leading_zero"), true);
   assert.equal(isBulkReason("prefix"), true);
+});
+
+// The "back" field of the matching forms (#560): only this page, with its query, is a valid return path.
+test("safeMatchingBack keeps this page and its query", () => {
+  assert.equal(safeMatchingBack("/yonetim/urun-eslestirme"), "/yonetim/urun-eslestirme");
+  assert.equal(safeMatchingBack("/yonetim/urun-eslestirme?tab=same&q=abc&page=2"), "/yonetim/urun-eslestirme?tab=same&q=abc&page=2");
+});
+
+test("safeMatchingBack rejects anything else", () => {
+  for (const value of ["//evil", "//evil.com/yonetim/urun-eslestirme", "https://x", "https://x/yonetim/urun-eslestirme", "/yonetim/urunler",
+    "/yonetim/urun-eslestirme/../urunler", "/yonetim/urun-eslestirme#x", "/yonetim/urun-eslestirme?a=b\nc", "", undefined, null, 5])
+    assert.equal(safeMatchingBack(value), "/yonetim/urun-eslestirme", String(value));
+});
+
+test("withMatchingFlag appends to the existing query", () => {
+  assert.equal(withMatchingFlag("/yonetim/urun-eslestirme", "refreshed=1"), "/yonetim/urun-eslestirme?refreshed=1");
+  assert.equal(withMatchingFlag("/yonetim/urun-eslestirme?tab=same", "refreshed=1"), "/yonetim/urun-eslestirme?tab=same&refreshed=1");
 });

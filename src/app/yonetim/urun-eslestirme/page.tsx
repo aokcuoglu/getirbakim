@@ -259,7 +259,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
         <p className="text-muted-foreground">Başbuğ, Dinamik ve SETA kayıtlarını aynı ürün altında toplayan marka, ürün ve muadil kararları.</p>
       </div>
-      <form action={refreshMatches}><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
+      <form action={refreshMatches}><input type="hidden" name="back" value={back}/><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}

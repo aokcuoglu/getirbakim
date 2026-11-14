@@ -9,19 +9,21 @@ import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product
 // it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
+import { safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
 
-export async function refreshMatches() {
+export async function refreshMatches(form: FormData) {
   await requireAdmin();
+  const back = safeMatchingBack(form.get("back"));
   let error = "";
   try { await db.query("SELECT refresh_product_matches()"); }
   catch { error = "refresh"; }
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
-  redirect(`/yonetim/urun-eslestirme?${error ? `error=${error}` : "refreshed=1"}`);
+  redirect(withMatchingFlag(back.replace(/([?&])(refreshed|error)=[^&]*&?/g, "$1").replace(/[?&]$/, ""), error ? `error=${error}` : "refreshed=1"));
 }
 
-const backPath = z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme");
-const withFlag = (back: string, flag: string) => `${back}${back.includes("?") ? "&" : "?"}${flag}`;
+const backPath = z.unknown().transform(safeMatchingBack);
+const withFlag = withMatchingFlag;
 
 // "Ayır" on one offer of a group (#523): only that row leaves; a hand-merged row returns to its own key's product, an
 // automatically grouped one becomes a locked product of its own. The pair is recorded as different (db
