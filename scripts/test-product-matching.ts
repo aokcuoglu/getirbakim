@@ -182,6 +182,48 @@ test("master brands: a label moved or split off changes only its own key; mergin
   }
 });
 
+test("new master brands get the reviewed brand they most likely are; confirmed ones get none", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Every brand reviewed, as after a full review; the test then adds new labels.
+    await client.query("UPDATE supplier_brands SET method='manual'");
+    const addItem = async (label: string, code: string) => (await client.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+      SELECT supplier,company,list_group,warehouse,$2,jsonb_build_object('uk',$1::text),0,0,0,now(),now(),now() FROM supplier_items WHERE supplier='basbug' LIMIT 1 RETURNING id`, [label, code])).rows[0].id;
+    const suggestion = async (label: string) => (await client.query<{ target: string | null }>(`SELECT t.key AS target FROM supplier_brands sb
+      LEFT JOIN brand_merge_suggestions s ON s.brand_id=sb.brand_id LEFT JOIN brands t ON t.id=s.target_id WHERE sb.supplier='basbug' AND sb.label=$1`, [label])).rows[0]?.target ?? null;
+    // Another spelling of a reviewed brand: its key starts with that brand's key.
+    await addItem("ABA YENI SERI", "ABAYS TEST1");
+    // An unrelated name that repeats a reviewed brand's own part numbers (numbers no other brand uses).
+    const donor = (await client.query<{ brand: string; parts: string[] }>(`SELECT brand, (array_agg(part_number ORDER BY part_number))[1:4] AS parts
+      FROM (SELECT part_number, min(brand) AS brand FROM product_match_items WHERE length(part_number)>=5 AND brand<>'ORIJINAL'
+        GROUP BY part_number HAVING count(DISTINCT brand)=1) x GROUP BY brand HAVING count(*)>=4 ORDER BY brand LIMIT 1`)).rows[0];
+    for (const [index, part] of donor.parts.entries()) {
+      const id = await addItem("QQZX COPY", `QQZX ${part}${index}`);
+      await client.query("INSERT INTO product_match_items VALUES($1,'basbug','QQZXCOPY',$2,NULL)", [id, part]);
+    }
+    // No evidence at all.
+    await addItem("QQZX LONELY", "QQZXL TEST1");
+    // At least these three; labels imported since the last refresh are placed too.
+    assert.ok((await client.query("SELECT sync_supplier_brands() AS n")).rows[0].n >= 3);
+    await client.query("SELECT refresh_brand_merge_suggestions()");
+    assert.equal(await suggestion("ABA YENI SERI"), "ABA");
+    assert.equal(await suggestion("QQZX COPY"), donor.brand);
+    assert.equal(await suggestion("QQZX LONELY"), null);
+    // "Onayla" keeps a new brand separate: it is no longer suggested.
+    await client.query("UPDATE supplier_brands SET method='manual' WHERE supplier='basbug' AND label='ABA YENI SERI'");
+    await client.query("SELECT refresh_brand_merge_suggestions()");
+    assert.equal(await suggestion("ABA YENI SERI"), null);
+    // Merging removes the suggestion with the brand.
+    const copy = (await client.query("SELECT brand_id FROM supplier_brands WHERE supplier='basbug' AND label='QQZX COPY'")).rows[0].brand_id;
+    await client.query("SELECT brand_merge($1,(SELECT id FROM brands WHERE key=$2),NULL)", [copy, donor.brand]);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM brand_merge_suggestions WHERE brand_id=$1", [copy])).rows[0].n, 0);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
 test("a Dinamik product suggested to several Başbuğ products is marked shared", async () => {
   const client = await pool.connect();
   try {
