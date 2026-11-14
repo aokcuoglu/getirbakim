@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, CheckCircle2, CircleAlert } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CircleCheck, CircleAlert } from "lucide-react";
 import { adminPricing } from "@/modules/admin/data";
 import { saveCheckoutMode } from "@/modules/admin/commerce-actions";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
@@ -39,8 +39,8 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Servis indirimleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
     </div>
 
-    {params.saved && <Alert variant="success" role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
-    {params.modeSaved === "1" && <Alert variant="success" role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedildi</AlertTitle><AlertDescription>Sepet ve siparişler yeni ayarı kullanıyor.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
+    {params.modeSaved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedildi</AlertTitle><AlertDescription>Sepet ve siparişler yeni ayarı kullanıyor.</AlertDescription></Alert>}
     {params.error === "mode" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedilemedi</AlertTitle><AlertDescription>Listeden bir seçenek seçip yeniden deneyin.</AlertDescription></Alert>}
     {params.error && params.error !== "mode" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Ayarlar kaydedilemedi</AlertTitle><AlertDescription>Kâr, KDV, veri geçerliliği ve kargo alanlarının izin verilen aralıklarda olduğunu kontrol edin.</AlertDescription></Alert>}
 

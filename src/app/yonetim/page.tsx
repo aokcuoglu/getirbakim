@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, CheckCircle2, ChevronRight, CircleAlert, CircleCheck, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
 import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -44,10 +44,12 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const enrichment = Object.fromEntries(data.enrichment.map(row => [row.status, row.count])) as Record<string, number>;
   const enrichmentTotal = data.enrichment.reduce((sum, row) => sum + row.count, 0);
   const enrichmentAttention = (enrichment.review || 0) + (enrichment.blocked || 0) + (enrichment.failed || 0);
-  const lastSuccess = [feeds?.basbug.lastSuccess, data.lastSuccess?.completed_at]
-    .filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
   const basbugTone: Tone = feeds ? feedNavTone(feeds.basbug) : "danger";
   const feedProblems = feeds ? [feeds.basbug, feeds.dinamik, feeds.seta].reduce((sum, feed) => sum + feedIssueCount(feed), 0) : 1;
+  const feedTones = feeds ? [feedNavTone(feeds.basbug), feedNavTone(feeds.dinamik), feedNavTone(feeds.seta)] : [];
+  const feedCurrent = feedTones.filter(t => t === "success").length;
+  const feedWarn = feedTones.filter(t => t === "warning").length;
+  const feedError = feeds ? feedTones.filter(t => t === "danger").length : 3;
   const feedLabel = (key: "basbug" | "dinamik" | "seta") => feeds ? feedStateLabels[feeds[key].state] : "Okunamadı";
 
   const attention = [
@@ -109,29 +111,26 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       </Card>
       <Card>
         <CardHeader>
-          <CardDescription>Başbuğ verileri</CardDescription>
-          <CardTitle className="text-2xl font-semibold">{feedLabel("basbug")}</CardTitle>
-          <CardAction><StatusBadge tone={navTones[basbugTone]}>{!feeds ? "Okunamadı" : feeds.basbug.automated ? "Otomatik çekim" : "Elle güncelleniyor"}</StatusBadge></CardAction>
+          <CardDescription>Tedarikçi akışları</CardDescription>
+          <CardTitle className="text-2xl font-semibold tabular-nums">{feeds ? `${feedCurrent} / 3 güncel` : "Okunamadı"}</CardTitle>
+          <CardAction><StatusBadge tone={feedError ? "error" : feedWarn ? "warning" : "success"}>{feedError ? "Hata var" : feedWarn ? "Dikkat" : "Güncel"}</StatusBadge></CardAction>
         </CardHeader>
-        <CardFooter className="flex-col items-start gap-1 text-sm">
-          <div className="flex items-center gap-2 font-medium"><Truck className="size-4" aria-hidden="true"/>Son başarılı çekim {formatAgo(lastSuccess)}</div>
-          <Link className="text-muted-foreground underline-offset-4 hover:underline" href="/yonetim/tedarikciler/basbug">Durumu gör</Link>
+        <CardFooter className="flex-col items-start gap-2 text-sm">
+          <div className="flex flex-wrap gap-1">
+            <StatusBadge tone="success" className="tabular-nums">{feedCurrent} güncel</StatusBadge>
+            <StatusBadge tone={feedWarn ? "warning" : "neutral"} className="tabular-nums">{feedWarn} dikkat</StatusBadge>
+            <StatusBadge tone={feedError ? "error" : "neutral"} className="tabular-nums">{feedError} hata</StatusBadge>
+          </div>
+          <div className="text-muted-foreground">Başbuğ · Dinamik · SETA</div>
+          <Link className="text-muted-foreground underline-offset-4 hover:underline" href="/yonetim/tedarikciler">Durumu gör</Link>
         </CardFooter>
       </Card>
     </section>
 
-    <div className="grid items-start gap-4 xl:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Siparişler · son 14 gün</CardTitle>
-          <CardDescription>Oluşturulma gününe göre · toplam {number(days.reduce((sum, day) => sum + day.orders, 0))} sipariş</CardDescription>
-          <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tüm siparişler</Button></CardAction>
-        </CardHeader>
-        <CardContent><OrdersChart days={days}/></CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Dikkat gerektirenler</CardTitle>
+          <CardTitle><h2>Dikkat gerektirenler</h2></CardTitle>
           <CardDescription>{open.length ? `${open.length} konu işlem bekliyor` : "Her şey yolunda"}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -144,37 +143,44 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
             </Item>
           </div>)}</ItemGroup> : <Empty>
             <EmptyHeader>
-              <EmptyMedia variant="icon"><CheckCircle2/></EmptyMedia>
+              <EmptyMedia variant="icon"><CircleCheck/></EmptyMedia>
               <EmptyTitle>Bekleyen iş yok</EmptyTitle>
               <EmptyDescription>Siparişler, başvurular ve senkronizasyon güncel.</EmptyDescription>
             </EmptyHeader>
           </Empty>}
         </CardContent>
       </Card>
-    </div>
-
-    <div className="grid items-start gap-4 xl:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Son siparişler</CardTitle>
+          <CardTitle><h2>Son siparişler</h2></CardTitle>
           <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tümü</Button></CardAction>
         </CardHeader>
         <CardContent>
-          {recent.length ? <Table controls={false}><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
+          {recent.length ? <Table controls={false}><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
             {recent.map(order => <TableRow key={order.id}>
               <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${order.id}`}>#{order.number}</Link><div className="text-muted-foreground">{formatDateTime(order.created_at)}</div></TableCell>
               <TableCell>{order.customer_name}</TableCell>
-              <TableCell><OrderStatusBadge status={order.status}/></TableCell>
-              <TableCell><PaymentStatusBadge status={order.payment_status}/></TableCell>
+              <TableCell><div className="flex flex-wrap gap-1"><OrderStatusBadge status={order.status}/><PaymentStatusBadge status={order.payment_status}/></div></TableCell>
               <TableCell className="text-right font-medium tabular-nums">{money(Number(order.total_kurus))}</TableCell>
             </TableRow>)}
           </TableBody></Table> : <Empty><EmptyHeader><EmptyTitle>Henüz sipariş yok</EmptyTitle></EmptyHeader></Empty>}
         </CardContent>
       </Card>
+    </div>
+
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle><h2>Siparişler · son 14 gün</h2></CardTitle>
+          <CardDescription>Oluşturulma gününe göre · toplam {number(days.reduce((sum, day) => sum + day.orders, 0))} sipariş</CardDescription>
+          <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tüm siparişler</Button></CardAction>
+        </CardHeader>
+        <CardContent><OrdersChart days={days}/></CardContent>
+      </Card>
       <div className="flex min-w-0 flex-col gap-4">
         <Card>
           <CardHeader>
-            <CardTitle>Ürün zenginleştirme</CardTitle>
+            <CardTitle><h2>Ürün zenginleştirme</h2></CardTitle>
             <CardDescription>{number(reviewed)} / {number(enrichmentTotal)} ürün incelendi</CardDescription>
             <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Aç</Button></CardAction>
           </CardHeader>
@@ -193,7 +199,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Tedarikçi bağlantıları</CardTitle>
+            <CardTitle><h2>Tedarikçi bağlantıları</h2></CardTitle>
             <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Yönet</Button></CardAction>
           </CardHeader>
           <CardContent>
@@ -215,7 +221,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
 
     {pending.length > 0 && <Card>
       <CardHeader>
-        <CardTitle>Onay bekleyen servis başvuruları</CardTitle>
+        <CardTitle><h2>Onay bekleyen servis başvuruları</h2></CardTitle>
         <CardDescription>Onay, servise fiyat ve sepet erişimini hemen açar.</CardDescription>
         <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Tüm servisler</Button></CardAction>
       </CardHeader>
@@ -224,7 +230,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           {index > 0 && <ItemSeparator/>}
           <Item>
             <ItemContent><ItemTitle>{a.name}</ItemTitle><ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}</ItemDescription></ItemContent>
-            <ItemActions><form action={approveService} className="flex items-end gap-2"><input type="hidden" name="id" value={a.id}/>
+            <ItemActions><form action={approveService} className="flex flex-wrap items-end gap-2"><input type="hidden" name="id" value={a.id}/>
               <Field className="w-36"><FieldLabel htmlFor={`discount-${a.id}`}>Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
               <SubmitButton>Başvuruyu onayla</SubmitButton>
             </form></ItemActions>
