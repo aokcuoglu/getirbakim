@@ -1,18 +1,25 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { BundleItem } from "./storefront-bundle-items";
 
 // Pure helpers of scripts/sync-storefront-production.ts: the per-target watermark, the run lock and the
-// dry-run summary. Paths are relative to the working directory (the checkout the sync runs in).
+// dry-run summary, argument parsing and the retry list of enrichments the target skipped. Paths are relative to the working directory (the checkout the sync runs in).
 
 export type SyncTarget = "vps" | "aws";
 export type SyncState = {
   snapshotAt: string; syncedAt?: string; target?: SyncTarget; since?: string | null; baseline?: boolean; enrichments?: number; jobs?: number;
+  // Supplier items whose enrichments the target skipped (item not there yet); the next export sends them again.
+  retry?: BundleItem[];
 };
 type Lock = { pid: number; startedAt: string; target: SyncTarget };
 
 export const SYNC_DIR = ".local/storefront-sync";
 export const LOCK_PATH = `${SYNC_DIR}/sync.lock`;
+// A sync takes minutes to a few hours; a lock this old is left over even if its pid was reused.
+export const LOCK_STALE_MS = 24 * 60 * 60 * 1000;
+// Retry keys kept between runs (and written to the inbound report); the count is always reported in full.
+export const RETRY_LIMIT = 10_000;
 
 /** Each target keeps its own watermark; the VPS keeps the file it always had. */
 export function statePath(target: SyncTarget) {
@@ -27,12 +34,32 @@ export function sinceFrom(state: Pick<SyncState, "snapshotAt"> | null, overlapMs
   return new Date(at - overlapMs).toISOString();
 }
 
-/** A --baseline value: an ISO timestamp that is not in the future. */
+/** A --baseline value: an ISO timestamp with an explicit time zone (Z or ±hh:mm) that is not in the future. */
 export function parseBaseline(iso: string, now: Date) {
   const at = new Date(iso);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(iso) || Number.isNaN(at.getTime())) throw new Error(`--baseline must be an ISO timestamp (e.g. 2026-11-13T05:47:24Z): ${iso}`);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(iso) || Number.isNaN(at.getTime())) {
+    throw new Error(`--baseline must be an ISO timestamp with a time zone (e.g. 2026-11-13T05:47:24Z): ${iso}`);
+  }
   if (at.getTime() > now.getTime()) throw new Error(`--baseline is in the future: ${iso}`);
   return at.toISOString();
+}
+
+export type SyncArgs = { dryRun: boolean; full: boolean; force: boolean; baseline: string | null };
+
+/** The sync's flags, strictly: a mistyped flag must never turn into a real run. */
+export function parseSyncArgs(argv: string[], now: Date): SyncArgs {
+  const parsed: SyncArgs = { dryRun: false, full: false, force: false, baseline: null };
+  const usage = "Usage: sync-storefront-production.ts [--dry-run] [--full] [--baseline=<ISO> [--force]]";
+  for (const arg of argv) {
+    if (arg === "--dry-run" && !parsed.dryRun) parsed.dryRun = true;
+    else if (arg === "--full" && !parsed.full) parsed.full = true;
+    else if (arg === "--force" && !parsed.force) parsed.force = true;
+    else if (arg.startsWith("--baseline=") && parsed.baseline === null) parsed.baseline = parseBaseline(arg.slice("--baseline=".length), now);
+    else throw new Error(`Unknown or repeated argument: ${arg}. ${usage}`);
+  }
+  if (parsed.full && parsed.baseline) throw new Error("--full and --baseline exclude each other");
+  if (parsed.force && !parsed.baseline) throw new Error("--force only applies to --baseline");
+  return parsed;
 }
 
 function alive(pid: number) {
@@ -45,7 +72,7 @@ function alive(pid: number) {
 function readLock(path: string): Lock {
   const text = readFileSync(path, "utf8");
   try { return JSON.parse(text) as Lock; } catch {
-    throw new Error(`${path} is unreadable; remove it once no sync is running.`);
+    throw new Error(`Lock ${path} is unreadable; delete it if no sync is running.`);
   }
 }
 
@@ -56,7 +83,11 @@ export function acquireLock(path: string, owner: { pid: number; target: SyncTarg
     try { fd = openSync(path, "wx"); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const held = readLock(path);
-      if (alive(held.pid)) throw new Error(`Another storefront sync is running (pid ${held.pid}, target ${held.target}, since ${held.startedAt}).`);
+      const age = Date.now() - new Date(held.startedAt).getTime();
+      if (alive(held.pid) && age < LOCK_STALE_MS) {
+        throw new Error(`Another storefront sync is running (pid ${held.pid}, target ${held.target}, since ${held.startedAt}); `
+          + `lock ${path} — delete it if that process is not a sync.`);
+      }
       unlinkSync(path);
       continue;
     }
@@ -97,4 +128,63 @@ export async function summarizeParts(partsDir: string) {
   }
   const base = parts.find(part => part.part === "part-00") ?? null;
   return { base, parts: parts.filter(part => part !== base), totals };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KEY_FIELDS = ["supplier", "company", "list_group", "warehouse", "code"] as const;
+
+/** The supplier item keys of an --retry-file (an array of bundle items); anything else is rejected. */
+export function parseRetryItems(text: string): BundleItem[] {
+  const value: unknown = JSON.parse(text);
+  if (!Array.isArray(value)) throw new Error("The retry file must be a JSON array of supplier items");
+  return value.map((entry: unknown) => {
+    const item = entry as Record<string, unknown> | null;
+    if (!item || typeof item.id !== "string" || !UUID.test(item.id)) throw new Error(`Retry item without a uuid id: ${JSON.stringify(entry)}`);
+    const parsed: BundleItem = { id: item.id };
+    for (const field of KEY_FIELDS) {
+      if (item[field] == null) continue;
+      if (typeof item[field] !== "string") throw new Error(`Retry item ${item.id} has a non-text ${field}`);
+      parsed[field] = item[field];
+    }
+    return parsed;
+  });
+}
+
+export type PartReport = { report: Record<string, unknown>; skipped: BundleItem[] };
+export type InboundReport = { snapshotAt?: string | null; parts: number; totals: Record<string, number>; skippedEnrichments: number; skipped: BundleItem[]; truncated: boolean };
+
+function uniqueItems(items: BundleItem[]) {
+  return [...new Map(items.map(item => [item.id, item])).values()];
+}
+
+/** report.json of import-storefront-inbound.ts: summed counts of the applied parts and the items they skipped. */
+export function buildInboundReport(parts: PartReport[], limit = RETRY_LIMIT): InboundReport {
+  const totals: Record<string, number> = {};
+  for (const { report } of parts) {
+    for (const [key, value] of Object.entries(report)) if (typeof value === "number") totals[key] = (totals[key] ?? 0) + value;
+  }
+  const skipped = uniqueItems(parts.flatMap(part => part.skipped));
+  return { parts: parts.length, totals, skippedEnrichments: skipped.length, skipped: skipped.slice(0, limit), truncated: skipped.length > limit };
+}
+
+/**
+ * The retry list after a run: the new report's skipped items replace the old list (the run re-sent the old ones,
+ * so whatever is still missing is in the report again). Without a report (an operations image older than #553,
+ * or the upload failed) the previous list is kept.
+ */
+export function nextRetry(previous: BundleItem[] | undefined, report: InboundReport | null, limit = RETRY_LIMIT) {
+  const warnings: string[] = [];
+  if (!report) {
+    warnings.push(`No import report from the target; keeping the previous retry list (${previous?.length ?? 0} items).`);
+    return { retry: previous ?? [], warnings };
+  }
+  const retry = uniqueItems(report.skipped).slice(0, limit);
+  if (report.skippedEnrichments > 0) {
+    warnings.push(`${report.skippedEnrichments} enrichments were skipped on the target (supplier item not found there); `
+      + `${retry.length} are sent again next run.`);
+  }
+  if (report.truncated || report.skippedEnrichments > retry.length) {
+    warnings.push(`The retry list is capped at ${limit}; the other skipped enrichments return only when they are re-imported locally.`);
+  }
+  return { retry, warnings };
 }

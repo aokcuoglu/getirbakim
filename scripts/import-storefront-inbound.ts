@@ -1,18 +1,20 @@
 import { spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
+import { buildInboundReport, type PartReport } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
 // AWS counterpart of the VPS steps in sync-storefront-production.ts. Runs in the operations task, reads the parts
 // that the sync uploaded to s3://$INBOUND_BUCKET/<prefix>/<part>/ and does what the SSH steps did on the VPS:
-// dry-run every part → apply every part → rebuild fitments → drain the derived enrichment tables.
-// A failed dry run stops before anything is written.
+// dry-run every part → apply every part → rebuild fitments → drain the derived enrichment tables → write
+// <prefix>/report.json (summed counts and the supplier items whose enrichments were skipped because they do not exist
+// here; the sync downloads it and sends those enrichments again next run). A failed dry run stops before anything is written.
 // Parts are downloaded one at a time, so task storage holds a single part (≤ ~100 MB of media) at a time.
 //
 // Usage: node --conditions=react-server --import tsx scripts/import-storefront-inbound.ts <prefix>
@@ -72,11 +74,12 @@ async function drainSharedLinks() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     let written = 0;
-    for (let attempt = 0; ; attempt++) {
+    // A full refresh by the app (a large queue) can take minutes.
+    const deadline = Date.now() + 10 * 60 * 1000;
+    for (;;) {
       written += (await pool.query<{ n: number }>("SELECT product_enrichment_shared_sync() AS n")).rows[0].n;
       if (!(await pool.query("SELECT 1 FROM product_enrichment_shared_queue LIMIT 1")).rowCount) break;
-      // A full refresh by the app (a large queue) can take minutes.
-      if (attempt >= 600) throw new Error("The shared-link queue is still busy after 10 minutes.");
+      if (Date.now() > deadline) throw new Error("The shared-link queue is still busy after 10 minutes.");
       await new Promise(done => setTimeout(done, 1000));
     }
     console.log(JSON.stringify({ sharedLinks: written }));
@@ -93,17 +96,34 @@ console.log(JSON.stringify({ bucket, prefix, parts: parts.length }));
 
 const work = await mkdtemp(join(tmpdir(), "storefront-"));
 try {
+  const applied: PartReport[] = [];
+  let snapshotAt: string | null = null;
   for (const apply of [false, true]) {
     for (const part of parts) {
       const dir = resolve(work, "part");
+      const reportFile = resolve(work, "part-report.json");
       await rm(dir, { recursive: true, force: true });
+      await rm(reportFile, { force: true });
       await download(part, dir);
-      node(["--conditions=react-server"], "scripts/import-storefront-bundle.ts", [dir, ...(apply ? ["--apply"] : [])]);
+      node(["--conditions=react-server"], "scripts/import-storefront-bundle.ts", [dir, ...(apply ? ["--apply", `--report=${reportFile}`] : [])]);
+      if (apply) {
+        snapshotAt ??= (JSON.parse(await readFile(resolve(dir, "manifest.json"), "utf8")) as { snapshotAt?: string }).snapshotAt ?? null;
+        applied.push(JSON.parse(await readFile(reportFile, "utf8")) as PartReport);
+      }
     }
   }
   node([], "scripts/rebuild-product-fitments.ts", []);
   await drainSharedLinks();
   node([], "scripts/enrichment-states.ts", ["sync"]);
+  // Everything is committed by now: a report that cannot be written must not fail the task (the sync then keeps its
+  // previous retry list and warns).
+  const report = { snapshotAt, ...buildInboundReport(applied) };
+  console.log(JSON.stringify({ report: { ...report, skipped: report.skipped.length } }));
+  try {
+    await storage.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}/report.json`, Body: JSON.stringify(report), ContentType: "application/json" }));
+  } catch (error) {
+    console.error(`report.json could not be written to s3://${bucket}/${prefix}/: ${(error as Error).message}`);
+  }
 } finally {
   await rm(work, { recursive: true, force: true });
 }

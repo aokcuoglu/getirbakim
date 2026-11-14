@@ -3,7 +3,10 @@ import { rmSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
-import { acquireLock, LOCK_PATH, parseBaseline, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR, type SyncState } from "./storefront-sync-state";
+import {
+  acquireLock, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR,
+  type SyncState,
+} from "./storefront-sync-state";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
 // incremental export → split into parts → transfer → dry-run every part → import every part → rebuild fitments.
@@ -24,15 +27,13 @@ import { acquireLock, LOCK_PATH, parseBaseline, releaseLock, sinceFrom, statePat
 //                      existing state). With --dry-run: use <ISO> as this run's watermark, nothing is written.
 //   --full             send every enrichment, ignoring the watermark (the aws target refuses to start without a state
 //                      otherwise, so a full send is always deliberate).
-// Real runs hold .local/storefront-sync/sync.lock, so two syncs (launchd and a manual run) never overlap.
+// Any other argument is an error. Real runs and --baseline hold .local/storefront-sync/sync.lock, so two syncs
+// (launchd and a manual run) never overlap.
+// aws: the import task writes report.json; enrichments it skipped (supplier item not on AWS yet) are kept in
+// state.aws.json as `retry` and exported again next run whatever the watermark (export --retry-file).
 const target = process.env.STOREFRONT_SYNC_TARGET || "vps";
 if (target !== "vps" && target !== "aws") throw new Error("STOREFRONT_SYNC_TARGET must be vps or aws");
-const args = process.argv.slice(2);
-const dryRun = args.includes("--dry-run");
-const full = args.includes("--full");
-const baselineArg = args.find(arg => arg.startsWith("--baseline="))?.slice("--baseline=".length);
-const baseline = baselineArg === undefined ? null : parseBaseline(baselineArg, new Date());
-if (full && baseline) throw new Error("--full and --baseline exclude each other");
+const { dryRun, full, force, baseline } = parseSyncArgs(process.argv.slice(2), new Date());
 const state = resolve(statePath(target));
 // Enrichment imports that started before the last snapshot but committed after it would be missed;
 // the overlap re-sends them, and the import is an idempotent upsert.
@@ -62,6 +63,8 @@ function vpsTarget() {
     for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${dir}/${part}`);
     for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${dir}/${part} --apply`);
     remote("bash scripts/production-task.sh rebuild-fitments");
+    // The VPS flow writes no import report.
+    return null;
   };
 }
 
@@ -74,7 +77,7 @@ function awsTarget() {
   // run; only the profile and Region named above count, and both are passed explicitly on every call.
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("AWS_"))) as NodeJS.ProcessEnv;
   const aws = (args: string[]) => {
-    const result = spawnSync("aws", [...args, "--profile", profile, "--region", region, "--output", "json"], { encoding: "utf8", env });
+    const result = spawnSync("aws", [...args, "--profile", profile, "--region", region, "--output", "json"], { encoding: "utf8", env, maxBuffer: 64 * 1024 * 1024 });
     if (result.status !== 0) throw new Error(`aws ${args.slice(0, 2).join(" ")} failed: ${result.stderr.trim()}`);
     return result.stdout.trim() ? JSON.parse(result.stdout) : null;
   };
@@ -108,7 +111,13 @@ function awsTarget() {
       if (task.lastStatus !== "STOPPED") continue;
       const exitCode = task.containers?.[0]?.exitCode;
       if (exitCode !== 0) throw new Error(`Import task stopped with exit code ${exitCode ?? "none"} (${task.stoppedReason})`);
-      return;
+      // An operations image older than #553 writes no report; the caller then keeps its retry list.
+      try {
+        return aws(["s3", "cp", `s3://${bucket}/${prefix}/report.json`, "-"]) as InboundReport;
+      } catch (error) {
+        console.warn(`No import report: ${(error as Error).message}`);
+        return null;
+      }
     }
   };
 }
@@ -117,15 +126,6 @@ const previous = await readFile(state, "utf8").then(text => JSON.parse(text) as 
   if (error.code === "ENOENT") return null;
   throw error;
 });
-
-if (baseline && !dryRun) {
-  if (previous && !args.includes("--force")) throw new Error(`${state} exists (snapshotAt ${previous.snapshotAt}); add --force to overwrite it`);
-  await mkdir(SYNC_DIR, { recursive: true });
-  const written: SyncState = { snapshotAt: baseline, baseline: true, syncedAt: new Date().toISOString(), target };
-  await writeFile(state, JSON.stringify(written, null, 2));
-  console.log(JSON.stringify({ baseline: written, state }));
-  process.exit(0);
-}
 
 let since: string | null;
 if (full) since = null;
@@ -136,9 +136,10 @@ else since = null;
 
 const name = `bundle-${new Date().toISOString().replace(/[:.]/g, "")}`;
 const local = resolve(SYNC_DIR, name);
+const writesState = !dryRun;
 // Constructed only for real runs: both validate their credentials (profile, SSH host) up front.
-const transfer = dryRun ? null : target === "aws" ? awsTarget() : vpsTarget();
-if (transfer) {
+const transfer = dryRun || baseline ? null : target === "aws" ? awsTarget() : vpsTarget();
+if (writesState) {
   await mkdir(SYNC_DIR, { recursive: true });
   acquireLock(LOCK_PATH, { pid: process.pid, target });
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -149,29 +150,50 @@ if (transfer) {
     });
   }
 }
-await mkdir(local, { recursive: true });
 try {
-  const fullDir = resolve(local, "full");
-  run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir, ...(since ? [`--since=${since}`] : [])]);
-  const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as { snapshotAt: string; enrichments: unknown[]; jobs?: unknown[] };
-  const partsDir = resolve(local, "parts");
-  const parts = (await splitStorefrontBundle(fullDir, partsDir, PART_BYTES)).map(dir => dir.split("/").at(-1)!);
-  if (!transfer) {
-    const summary = await summarizeParts(partsDir);
-    console.log(JSON.stringify({
-      dryRun: true, target, since, snapshotAt: manifest.snapshotAt,
-      totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
-    }, null, 2));
-  } else {
-    console.log(JSON.stringify({ target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, parts: parts.length }));
-    await transfer(partsDir, parts);
-    const written: SyncState = {
-      snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0,
-    };
+  if (baseline && !dryRun) {
+    if (previous && !force) throw new Error(`${state} exists (snapshotAt ${previous.snapshotAt}); add --force to overwrite it`);
+    // A forced baseline keeps the retry list: those enrichments are still missing on the target.
+    const written: SyncState = { snapshotAt: baseline, baseline: true, syncedAt: new Date().toISOString(), target, ...(previous?.retry ? { retry: previous.retry } : {}) };
     await writeFile(state, JSON.stringify(written, null, 2));
-    console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt }));
+    console.log(JSON.stringify({ baseline: written, state }));
+  } else {
+    await mkdir(local, { recursive: true });
+    const retry = previous?.retry ?? [];
+    const retryFile = resolve(local, "retry.json");
+    if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
+    const fullDir = resolve(local, "full");
+    run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
+      ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : [])]);
+    const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as { snapshotAt: string; enrichments: unknown[]; jobs?: unknown[] };
+    const partsDir = resolve(local, "parts");
+    const parts = (await splitStorefrontBundle(fullDir, partsDir, PART_BYTES)).map(dir => dir.split("/").at(-1)!);
+    if (!transfer) {
+      const summary = await summarizeParts(partsDir);
+      console.log(JSON.stringify({
+        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length,
+        totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
+      }, null, 2));
+    } else {
+      console.log(JSON.stringify({ target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, retried: retry.length, parts: parts.length }));
+      const result = await transfer(partsDir, parts);
+      let next = previous?.retry;
+      if (target === "aws") {
+        // A report from another run (an upload of an earlier bundle) does not describe this one.
+        const report = result && result.snapshotAt === manifest.snapshotAt ? result : null;
+        const outcome = nextRetry(previous?.retry, report);
+        for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
+        next = outcome.retry;
+      }
+      const written: SyncState = {
+        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0,
+        ...(next?.length ? { retry: next } : {}),
+      };
+      await writeFile(state, JSON.stringify(written, null, 2));
+      console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt, retry: next?.length ?? 0 }));
+    }
   }
 } finally {
   await rm(local, { recursive: true, force: true });
-  if (transfer) releaseLock(LOCK_PATH);
+  if (writesState) releaseLock(LOCK_PATH);
 }
