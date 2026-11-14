@@ -22,6 +22,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Contabo'ya otomatik deploy yok; staging yok (ayrı kullanıcı talebiyle ele alınacak). CI zorunludur; deploy workflow'larını veya staging'i açık talep olmadan değiştirme/etkinleştirme.
 - Tamamlandığında Issue/PR bağlantılarını, doğrulama ve merge durumunu bildir; varsa sürüm/tag bilgisini ekle.
 
+## Ajan altyapısı (Claude Code)
+
+Geliştirmeler sabit bir çok-ajanlı hattan geçer: [`docs/harness/README.md`](docs/harness/README.md). Ana oturum `/ship <issue>` skill'iyle **orkestratör** olur ve `.claude/agents/` altındaki `getirbakim-planner` → `getirbakim-developer` → `getirbakim-reviewer` + `getirbakim-ui-ux` → `getirbakim-qa` ajanlarına iş verir. Diğer skill'ler: `/issue`, `/qa`, `/design-check`, `/backlog`, `/release-check`. Deterministik kontroller `scripts/harness/` (`admin-ui-lint.mjs`: her düzenlemeden sonra hook, `npm run harness:lint`, CI) ve akış hook'ları `scripts/flow/` (oturum özeti, `dev`/`main` koruması; `.claude/settings.json`).
+
 ## Yönetim paneli (/yonetim) UI kuralı
 
 `/yonetim` ve `src/components/admin/**` yalnızca stok shadcn/ui bileşenleri ve varyantlarıyla kurulur (Card, Table, Badge, Alert, Empty, Tabs, Pagination, Field, InputGroup, Item, Dialog, Sidebar…; tam liste `src/components/ui`).
