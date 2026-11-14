@@ -1,12 +1,11 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, Info, SearchX, TriangleAlert } from "lucide-react";
-import { SupplierProductDetails } from "@/components/admin/supplier-product-details";
+import { CircleAlert, CircleCheck, FilterX, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { SupplierPartHead, type SupplierPartFilter } from "@/components/admin/supplier-part-head";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DialogTrigger } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, type TableHeadFilter } from "@/components/ui/table";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 type PartBadgeVariant = "success" | "warning" | "destructive" | "info" | "outline";
@@ -28,7 +27,7 @@ export type SupplierPartColumn = {
   missingLabel?: string;
   /** The list is paginated: header sorting and filtering go to the URL (see TableHead). */
   sortKey?: string;
-  filter?: TableHeadFilter;
+  filter?: SupplierPartFilter;
 };
 
 export type SupplierPartRow = {
@@ -36,7 +35,6 @@ export type SupplierPartRow = {
   code: string;
   detailHref: string;
   cells: Record<string, SupplierPartCell>;
-  details?: Omit<ComponentProps<typeof SupplierProductDetails>, "children" | "code" | "detailHref">;
 };
 
 export type SupplierPartTableProps = {
@@ -44,8 +42,19 @@ export type SupplierPartTableProps = {
   columns: SupplierPartColumn[];
   rows: SupplierPartRow[];
   codeLabel?: string;
+  /** Why an unfiltered list is empty (e.g. no supplier data fetched yet). */
   emptyDescription?: string;
+  /** Set by the page: whether a filter is active, and the list without filters (header sort kept). */
+  empty?: SupplierPartEmpty;
 };
+export type SupplierPartEmpty = { filtered: boolean; clearHref: string };
+
+/** The page's filter state for the empty table: `keep` are params that choose the list rather than filter it. */
+export function supplierPartEmpty(base: string, params: Record<string, string | undefined>, filterKeys: readonly string[], keep: readonly string[] = []): SupplierPartEmpty {
+  const query = new URLSearchParams();
+  for (const key of [...keep, "sort", "dir"]) if (params[key]) query.set(key, params[key]!);
+  return { filtered: filterKeys.some(key => !keep.includes(key) && params[key]), clearHref: query.size ? `${base}?${query}` : base };
+}
 
 const badgeIcons = {
   success: CircleCheck,
@@ -76,11 +85,20 @@ function PartCell({ column, cell }: { column: SupplierPartColumn; cell: Supplier
   </TableCell>;
 }
 
-export function SupplierPartTable({ caption, columns, rows, codeLabel = "Parça kodu", emptyDescription = "Aramayı veya filtreleri değiştirebilirsiniz." }: SupplierPartTableProps) {
-  if (!rows.length) return <Empty>
+export function SupplierPartTable({ caption, columns, rows, codeLabel = "Parça kodu", emptyDescription = "Tedarikçi verisi çekildiğinde ürünler burada listelenir.", empty }: SupplierPartTableProps) {
+  if (!rows.length) return empty?.filtered ? <Empty>
     <EmptyHeader>
       <EmptyMedia variant="icon"><SearchX/></EmptyMedia>
       <EmptyTitle>Filtrelere uygun ürün bulunamadı.</EmptyTitle>
+      <EmptyDescription>Aramayı veya filtreleri değiştirebilirsiniz.</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+      <Button variant="outline" nativeButton={false} render={<Link href={empty.clearHref}/>}><FilterX data-icon="inline-start" aria-hidden="true"/>Filtreleri temizle</Button>
+    </EmptyContent>
+  </Empty> : <Empty>
+    <EmptyHeader>
+      <EmptyMedia variant="icon"><PackageSearch/></EmptyMedia>
+      <EmptyTitle>Henüz ürün yok</EmptyTitle>
       <EmptyDescription>{emptyDescription}</EmptyDescription>
     </EmptyHeader>
   </Empty>;
@@ -90,26 +108,16 @@ export function SupplierPartTable({ caption, columns, rows, codeLabel = "Parça 
     <TableHeader>
       <TableRow>
         <TableHead scope="col" sortKey="code">{codeLabel}</TableHead>
-        {columns.map(column => <TableHead key={column.key} scope="col" title={column.title} sortKey={column.sortKey} filter={column.filter} className={cn(column.align === "right" && "text-right", column.align === "center" && "text-center")}>{column.label}</TableHead>)}
-        <TableHead scope="col"><span className="sr-only">Ürün detayı</span></TableHead>
+        {columns.map(column => <SupplierPartHead key={column.key} scope="col" title={column.title} sortKey={column.sortKey} filter={column.filter} className={cn(column.align === "right" && "text-right", column.align === "center" && "text-center")}>{column.label}</SupplierPartHead>)}
       </TableRow>
     </TableHeader>
-    <TableBody>{rows.map(part => {
-      const codeButton = <Button variant="link" className="font-mono" title={part.code} aria-label={`${part.code} ürün ayrıntılarını aç`}/>;
-      const detailButton = <Button variant="ghost" size="icon" title="Ürün detayını aç" aria-label={`${part.code} ürün detayı`}/>;
-      const row = <TableRow key={part.id}>
-        <TableCell className="py-1">
-          {part.details ? <DialogTrigger render={codeButton}>{part.code}</DialogTrigger>
-            : <Button nativeButton={false} render={<Link href={part.detailHref}/>} variant="link" className="font-mono" title={part.code} aria-label={`${part.code} ürün ayrıntılarını aç`}>{part.code}</Button>}
-        </TableCell>
-        {columns.map(column => <PartCell key={column.key} column={column} cell={part.cells[column.key]}/>)}
-        <TableCell className="py-1">
-          {part.details ? <DialogTrigger render={detailButton}><ArrowUpRight aria-hidden="true"/></DialogTrigger>
-            : <Button nativeButton={false} render={<Link href={part.detailHref}/>} variant="ghost" size="icon" title="Ürün detayını aç" aria-label={`${part.code} ürün detayı`}><ArrowUpRight aria-hidden="true"/></Button>}
-        </TableCell>
-      </TableRow>;
-
-      return part.details ? <SupplierProductDetails key={part.id} {...part.details} code={part.code} detailHref={part.detailHref}>{row}</SupplierProductDetails> : row;
-    })}</TableBody>
+    {/* The code opens the product: in a dialog over the list (@modal/(.)urun/[id]), as its own page on a direct visit.
+        No prefetch: 50 detail routes per page would each be fetched for a dialog that is rarely opened. */}
+    <TableBody>{rows.map(part => <TableRow key={part.id}>
+      <TableCell className="py-1">
+        <Button nativeButton={false} render={<Link href={part.detailHref} prefetch={false} scroll={false}/>} variant="link" className="font-mono underline underline-offset-4" title={part.code} aria-label={`${part.code} ürün ayrıntılarını aç`}>{part.code}</Button>
+      </TableCell>
+      {columns.map(column => <PartCell key={column.key} column={column} cell={part.cells[column.key]}/>)}
+    </TableRow>)}</TableBody>
   </Table>;
 }

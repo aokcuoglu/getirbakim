@@ -10,7 +10,7 @@ import { supplierRunError } from "@/modules/suppliers/run-error";
 import { runKindLabel, scheduleLines } from "@/modules/suppliers/run-status";
 import { durationSeconds, formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { SupplierPage, SupplierSourceCard } from "@/components/admin/supplier-page";
-import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { SupplierPartTable, supplierPartEmpty } from "@/components/admin/supplier-part-table";
 import { basbugPartTableProps, costNotes } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
@@ -24,7 +24,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@/components/ui/item";
-import { GroupFreshnessChart, RunDurationChart } from "@/components/admin/basbug-sync-charts";
+import { GroupFreshnessChart, RunDurationChart } from "@/components/admin/lazy-basbug-sync-charts";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminBasbugData } from "@/modules/admin/basbug";
@@ -56,7 +56,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const params = normalizeSearchParams(await searchParams);
   await requireAdmin();
   const [data, checkoutMode, activity, feeds] = await Promise.all([adminBasbugData(params), supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
-  const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages, capped } = data;
+  const { snapshot, group, knownGroups, items, currencies, total, page, pages, capped } = data;
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
   const schedule = scheduleLines(mrkScopes, { commerceLabel });
   const lastCommerce = mrkScopes.map(scope => scope.commerce_last_success_at).filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0]
@@ -92,7 +92,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </>}
     sync={<div className="flex flex-col gap-4">
       <SupplierSourceCard description="Seçilen grubun ürün, fiyat, stok ve kur verileri birlikte çekilir." badge={<Badge variant="outline">API · grup bazlı</Badge>} schedule={schedule}
-        footer={<SupplierRefreshRunner tasks={[...new Set(knownGroups.map(g => g.kod))].map(kod => ({ supplier: "basbug" as const, group: kod }))} label="Tüm grupları API’den yenile" description={`${groupCount} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/>}>
+        footer={<SupplierRefreshRunner scopes={[{ supplier: "basbug", groups: [...new Set(knownGroups.map(g => g.kod))] }]} label="Tüm grupları API’den yenile" description={`${groupCount} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/>}>
         <form action={refreshBasbug}><Field>
           <FieldLabel htmlFor="refresh-group">Tek grup</FieldLabel>
           <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili grubu API’den güncelle" pendingLabel="Başbuğ verileri çekiliyor…"/></div>
@@ -149,12 +149,12 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </div>}
     products={<SupplierBrowser><Card>
       <CardHeader className="border-b">
-        <BasbugProductFilters key={[group,params.q,params.brand,params.currency,params.warehouse,params.stock,params.presence,params.quality].join("|")} params={params} groups={knownGroups.map(g => ({ ...g, ready: data.snapshots.some(s => s.list_group === g.kod) }))} brands={brands} currencies={currencies}/>
+        <BasbugProductFilters key={[group,params.q,params.brand,params.currency,params.warehouse,params.stock,params.presence,params.quality].join("|")} params={params} groups={knownGroups.map(g => ({ ...g, ready: data.snapshots.some(s => s.list_group === g.kod) }))} currencies={currencies}/>
       </CardHeader>
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Bu grubun verileri henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.basbug}</span></div>
-        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })}/>
+        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })} empty={supplierPartEmpty("/yonetim/tedarikciler/basbug", params, filterKeys)}/>
       </CardContent>
       <CardFooter><SupplierPagination base="/yonetim/tedarikciler/basbug" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
       </>}

@@ -7,7 +7,7 @@ import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badg
 import { db } from "@/lib/db";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierPage, SupplierSourceCard } from "@/components/admin/supplier-page";
-import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { SupplierPartTable, supplierPartEmpty } from "@/components/admin/supplier-part-table";
 import { costNotes, setaPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
@@ -97,7 +97,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>SETA listesi henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden listeyi API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.seta}</span></div>
-        <SupplierPartTable {...setaPartTableProps(items)}/>
+        <SupplierPartTable {...setaPartTableProps(items)} empty={supplierPartEmpty("/yonetim/tedarikciler/seta", params, filterKeys)}/>
       </CardContent>
       <CardFooter><SupplierPagination base="/yonetim/tedarikciler/seta" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
       </>}
