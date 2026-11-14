@@ -60,6 +60,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     const product = (await db.query<{ id: string }>("INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock) VALUES('demo','PAY-1','Payment part','TEST',10000,5) RETURNING id")).rows[0].id;
     const stock = async () => (await db.query<{ stock: number }>("SELECT stock FROM store_products WHERE id=$1", [product])).rows[0].stock;
     const order = async (id: string) => (await db.query("SELECT * FROM commerce_orders WHERE id=$1", [id])).rows[0];
+    const reserved = async (id: string) => (await db.query<{ reserved_quantity: number }>("SELECT reserved_quantity FROM commerce_order_items WHERE order_id=$1", [id])).rows[0].reserved_quantity;
 
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
     await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
@@ -82,6 +83,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(row.status, "awaiting_payment"); assert.equal(row.payment_status, "awaiting");
     assert.equal(Number(row.subtotal_kurus), 20000); assert.equal(Number(row.shipping_kurus), 15000); assert.equal(Number(row.total_kurus), 35000);
     assert.equal(await stock(), 3); assert.equal((await cartFor(owner)).length, 1);
+    assert.equal(await reserved(first), 2);
 
     // Hosted page: one token, reused while fresh; callback URLs are signed per order.
     const started = await payments.startPayment(first);
@@ -133,6 +135,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(tokens, 2);
     row = await order(second);
     assert.equal(row.status, "cancelled"); assert.equal(row.payment_status, "expired"); assert.equal(await stock(), 3);
+    assert.equal(await reserved(second), 0);
 
     // Late payment revives the order and takes the stock back.
     const late = (await db.query("SELECT provider_order_id FROM commerce_payments WHERE order_id=$1", [second])).rows[0].provider_order_id;
@@ -141,6 +144,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     row = await order(second);
     assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid"); assert.match(row.payment_note, /süre dolduktan sonra/);
     assert.equal(await stock(), 2);
+    assert.equal(await reserved(second), 1);
 
     // A declined 3D attempt reads as AUTH/NOT_COMPLETED: never paid, and its spent token is not reused on retry.
     const retry = await place(1);
@@ -160,6 +164,22 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     await db.query("UPDATE commerce_orders SET payment_due_at=now()-interval '1 minute' WHERE id=$1", [third]);
     await payments.reconcilePendingPayments();
     assert.equal((await order(third)).payment_status, "expired"); assert.equal(await stock(), 2);
+
+    // Late payment with the stock gone: nothing is reserved, so an operations cancel cannot inflate stock (#516).
+    const short = await place(1);
+    await db.query("UPDATE commerce_orders SET payment_due_at=now()-interval '1 minute' WHERE id=$1", [short]);
+    await payments.reconcileOrderPayments(short);
+    assert.equal((await order(short)).payment_status, "expired"); assert.equal(await stock(), 2);
+    await db.query("UPDATE store_products SET stock=0 WHERE id=$1", [product]);
+    await db.query("INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status) VALUES($1,$2,25000,'pending')", [short, `GB2-short-${short}`]);
+    paid.set(`GB2-short-${short}`, 250);
+    await payments.reconcileOrderPayments(short);
+    row = await order(short);
+    assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid"); assert.match(row.payment_note, /mağaza stoku yetersiz/);
+    assert.equal(await reserved(short), 0); assert.equal(await stock(), 0);
+    const { transitionOrder } = await import("../src/modules/admin/orders");
+    assert.equal(await transitionOrder(short, "cancelled"), true);
+    assert.equal(await stock(), 0); assert.equal((await order(short)).payment_status, "refund_required");
 
     assert.equal(payments.tamiPhone("+90 (555) 123 45 67"), "905551234567");
     assert.equal(payments.tamiPhone("05551234567"), "905551234567");
