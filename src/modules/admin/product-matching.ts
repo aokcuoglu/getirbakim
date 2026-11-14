@@ -116,13 +116,14 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
   return { scope, brands, total, page, pages };
 }
 
-// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the Başbuğ row
-// winning ties: the rule of withBestOffers (store catalog). `filter` narrows the offers before grouping.
+// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the lower cost and
+// then the Başbuğ row winning ties: the rule of withBestOffers (compareOffers). `filter` narrows the offers before grouping.
 const sameGroups = (filter: string, columns: string) => `WITH offers AS MATERIALIZED (
-    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
+    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label,(c.pricing_snapshot->>'cost_kurus')::numeric AS cost_kurus
+    FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
   )
   SELECT primary_id::text,
-   (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
+   (array_agg(supplier ORDER BY price_kurus,cost_kurus NULLS LAST,(id=primary_id) DESC,id) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
    min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,${columns}
   FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')`;
 type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };

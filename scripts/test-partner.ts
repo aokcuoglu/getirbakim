@@ -29,23 +29,49 @@ test("partner auth: only a configured bearer key authenticates", () => {
 test("partner price: storefront price before VAT, exact decimals, discount floored at cost", () => {
   // 103.19 × 55.2105 × 1.30 = 7406.3229 TRY before VAT; the storefront sells it at round(× 1.20) = 888759 kuruş.
   const pricing = { nf: 103.19, exchange_rate: "55.2105000000", markup_percent: 30, vat_percent: 20 };
-  const plain = resolvePartnerPrice(pricing, true, 0);
+  const plain = resolvePartnerPrice(pricing, 888759, 0);
   assert.deepEqual(plain, { listPriceKurus: 740632, b2bPriceKurus: 740632, discountBps: 0, vatRateBps: 2000, currency: "TRY" });
   // Binary floating point would round 1.005 × 100 down.
-  assert.equal(resolvePartnerPrice({ nf: "1.005", exchange_rate: 1, markup_percent: 0, vat_percent: 20 }, true, 0).listPriceKurus, 101);
+  assert.equal(resolvePartnerPrice({ nf: "1.005", exchange_rate: 1, markup_percent: 0, vat_percent: 20 }, 121, 0).listPriceKurus, 101);
   // 10% off 117.00 is 105.30, still above the 100.00 cost; 30% off 105.00 would go below it and stops at cost.
-  const discounted = resolvePartnerPrice({ nf: 100, exchange_rate: 1, markup_percent: 17, vat_percent: 20 }, true, 1000);
+  const discounted = resolvePartnerPrice({ nf: 100, exchange_rate: 1, markup_percent: 17, vat_percent: 20 }, 14040, 1000);
   assert.deepEqual([discounted.listPriceKurus, discounted.b2bPriceKurus, discounted.discountBps], [11700, 10530, 1000]);
-  const floored = resolvePartnerPrice({ nf: 100, exchange_rate: 1, markup_percent: 5, vat_percent: 20 }, true, 3000);
+  const floored = resolvePartnerPrice({ nf: 100, exchange_rate: 1, markup_percent: 5, vat_percent: 20 }, 12600, 3000);
   assert.deepEqual([floored.listPriceKurus, floored.b2bPriceKurus, floored.discountBps], [10500, 10000, 476]);
 });
 
 test("partner price: no storefront price or broken inputs mean no partner price", () => {
   const pricing = { nf: 10, exchange_rate: 1, markup_percent: 30, vat_percent: 20 };
-  assert.equal(resolvePartnerPrice(pricing, false, 0).b2bPriceKurus, null);
-  assert.equal(resolvePartnerPrice({ ...pricing, exchange_rate: null }, true, 0).listPriceKurus, null);
-  assert.equal(resolvePartnerPrice({ ...pricing, nf: "1e3" }, true, 0).listPriceKurus, null);
-  assert.equal(resolvePartnerPrice({ ...pricing, vat_percent: 0 }, true, 0).vatRateBps, 0);
+  assert.equal(resolvePartnerPrice(pricing, null, 0).b2bPriceKurus, null);
+  assert.equal(resolvePartnerPrice({ ...pricing, exchange_rate: null }, 1560, 0).listPriceKurus, null);
+  assert.equal(resolvePartnerPrice({ ...pricing, nf: "1e3" }, 1560, 0).listPriceKurus, null);
+  assert.equal(resolvePartnerPrice({ ...pricing, vat_percent: 0 }, 1300, 0).vatRateBps, 0);
+});
+
+test("partner price: an admin's fixed or campaign price is the partner's, VAT taken out, discounted, floored at cost (#580)", () => {
+  // The formula would give 130.00 before VAT; the admin sells at 150.00 VAT included → 125.00 before VAT.
+  const fixed = { source: "override", price_kind: "fixed", nf: 100, exchange_rate: 1, markup_percent: 30, vat_percent: 20 };
+  assert.deepEqual(resolvePartnerPrice(fixed, 15000, 0), { listPriceKurus: 12500, b2bPriceKurus: 12500, discountBps: 0, vatRateBps: 2000, currency: "TRY" });
+  const discounted = resolvePartnerPrice(fixed, 15000, 1000);
+  assert.deepEqual([discounted.listPriceKurus, discounted.b2bPriceKurus, discounted.discountBps], [12500, 11250, 1000]);
+  // 30% off 105.00 would be 73.50, below the 100.00 cost: the floor stops it at cost.
+  const floored = resolvePartnerPrice(fixed, 12600, 3000);
+  assert.deepEqual([floored.listPriceKurus, floored.b2bPriceKurus, floored.discountBps], [10500, 10000, 476]);
+  // A price set below cost stays the admin's price (a warning, not a block): never raised to cost.
+  const below = resolvePartnerPrice(fixed, 11000, 1000);
+  assert.deepEqual([below.listPriceKurus, below.b2bPriceKurus, below.discountBps], [9167, 9167, 0]);
+  // A running campaign is what the store sells, so the partner sees it too.
+  const campaign = { ...fixed, price_kind: "sale", list_price_kurus: 15000 };
+  const sale = resolvePartnerPrice(campaign, 13200, 0);
+  assert.deepEqual([sale.listPriceKurus, sale.b2bPriceKurus], [11000, 11000]);
+  // Exact half-up rounding: 3 × 100 / 120 = 2.5 → 3; 101 × 100 / 120 = 84.17 → 84; decimal and zero VAT.
+  assert.equal(resolvePartnerPrice({ ...fixed, nf: "0.01" }, 3, 0).listPriceKurus, 3);
+  assert.equal(resolvePartnerPrice({ ...fixed, nf: "0.01" }, 101, 0).listPriceKurus, 84);
+  assert.equal(resolvePartnerPrice({ ...fixed, vat_percent: "18.50" }, 11850, 0).listPriceKurus, 10000);
+  assert.deepEqual(resolvePartnerPrice({ ...fixed, vat_percent: 0 }, 15000, 0).listPriceKurus, 15000);
+  // No storefront price (the formula cannot price the row): no partner price, override or not.
+  assert.equal(resolvePartnerPrice(fixed, null, 0).listPriceKurus, null);
+  assert.equal(resolvePartnerPrice({ ...fixed, vat_percent: null }, 15000, 0).listPriceKurus, null);
 });
 
 test("partner discount: unset, invalid and excessive rates", () => {
@@ -89,6 +115,12 @@ test("partner product DTO keeps the 1.2 contract and leaks no supplier internals
   const json = JSON.stringify(product);
   for (const internal of [`"nf"`, "103.19", "exchange_rate", "markup", "BASBUG", "MERKEZ", `"stok"`, "warehouse", "company"]) assert.ok(!json.includes(internal), internal);
   assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false }).exactFitment.status, "NOT_REQUESTED");
+  // An admin price (#580) reaches the product and its offer from the row's price; no new internals leak.
+  const fixed = row({ price_kurus: 960000, pricing_snapshot: { ...row().pricing_snapshot, source: "override", price_kind: "fixed", auto_price_kurus: 888759,
+    fixed_price_kurus: 960000, cost_kurus: 569720 } as PartnerCatalogRow["pricing_snapshot"] });
+  const overridden = toPartnerProduct(fixed, { offers: [fixed], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  assert.deepEqual([overridden.listPriceKurus, overridden.b2bPriceKurus, overridden.offers[0].informationalPriceKurus], [800000, 800000, 800000]);
+  for (const internal of ["auto_price", "fixed_price", "cost_kurus", "888759", "override"]) assert.ok(!JSON.stringify(overridden).includes(internal), internal);
   assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitted: false }).exactFitment.status, "NOT_CONFIRMED");
 });
 

@@ -22,6 +22,31 @@ CREATE TABLE IF NOT EXISTS product_override_changes (
  changed_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
  changed_at timestamptz NOT NULL DEFAULT now()
 );
+-- Hand-set prices (#580), VAT included, in kuruş: a fixed price replacing the formula's and a campaign price below it
+-- between sale_from and sale_until (NULL ends are open). Both apply only where the formula prices the row
+-- (commerce_catalog, db/commerce.sql): missing supplier data keeps the product off sale.
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS price_kurus integer CHECK (price_kurus>0);
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK (sale_price_kurus>0);
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product_overrides'::regclass AND conname='product_overrides_sale_below_price') THEN
+  ALTER TABLE product_overrides ADD CONSTRAINT product_overrides_sale_below_price
+   CHECK (sale_price_kurus IS NULL OR price_kurus IS NULL OR sale_price_kurus<price_kurus);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product_overrides'::regclass AND conname='product_overrides_sale_window') THEN
+  ALTER TABLE product_overrides ADD CONSTRAINT product_overrides_sale_window
+   CHECK (sale_from IS NULL OR sale_until IS NULL OR sale_from<sale_until);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product_overrides'::regclass AND conname='product_overrides_sale_dates') THEN
+  ALTER TABLE product_overrides ADD CONSTRAINT product_overrides_sale_dates
+   CHECK ((sale_from IS NULL AND sale_until IS NULL) OR sale_price_kurus IS NOT NULL);
+ END IF;
+END $$;
+-- A campaign time as the admin entered it (Istanbul wall clock, minutes): the form, the history and the merge record.
+CREATE OR REPLACE FUNCTION product_override_time_text(value timestamptz) RETURNS text LANGUAGE sql STABLE AS $$
+ SELECT to_char(value AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI')
+$$;
 CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
 -- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
 ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS reason text;
@@ -42,12 +67,14 @@ CREATE INDEX IF NOT EXISTS product_override_carries_source_idx ON product_overri
 CREATE OR REPLACE FUNCTION product_overrides_project(ids uuid[]) RETURNS void LANGUAGE sql AS $$
  DELETE FROM commerce_item_overrides c WHERE c.product_id=ANY(ids)
   OR c.supplier_item_id IN (SELECT s.supplier_item_id FROM product_sources s WHERE s.product_id=ANY(ids));
- INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,description,hidden)
- SELECT s.supplier_item_id,o.product_id,o.name,o.description,o.hidden
+ INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,description,hidden,price_kurus,sale_price_kurus,sale_from,sale_until)
+ SELECT s.supplier_item_id,o.product_id,o.name,o.description,o.hidden,o.price_kurus,o.sale_price_kurus,o.sale_from,o.sale_until
  FROM product_overrides o JOIN product_sources s ON s.product_id=o.product_id
- WHERE o.product_id=ANY(ids) AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.hidden)
+ WHERE o.product_id=ANY(ids) AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.hidden
+  OR o.price_kurus IS NOT NULL OR o.sale_price_kurus IS NOT NULL)
  ON CONFLICT (supplier_item_id) DO UPDATE SET product_id=excluded.product_id,name=excluded.name,
-  description=excluded.description,hidden=excluded.hidden;
+  description=excluded.description,hidden=excluded.hidden,price_kurus=excluded.price_kurus,
+  sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until;
 $$;
 
 -- A supplier row moving between products (matcher refresh, merge, split, undo) takes the new product's edits.
@@ -110,22 +137,40 @@ BEGIN
  IF t.seo_description IS NULL AND s.seo_description IS NOT NULL THEN t.seo_description := s.seo_description; carried := array_append(carried,'seo_description'); END IF;
  IF t.category_id IS NULL AND s.category_id IS NOT NULL THEN t.category_id := s.category_id; carried := array_append(carried,'category_id'); END IF;
  IF s.hidden AND NOT t.hidden THEN t.hidden := true; carried := array_append(carried,'hidden'); END IF;
+ -- Prices (#580) by the same rule while the pair stays valid (a campaign below the fixed price). The campaign moves as
+ -- one (price and its window); an ended one is not carried. A target without a campaign price has no dates (CHECK).
+ IF t.price_kurus IS NULL AND s.price_kurus IS NOT NULL AND (t.sale_price_kurus IS NULL OR t.sale_price_kurus<s.price_kurus) THEN
+  t.price_kurus := s.price_kurus; carried := array_append(carried,'price_kurus');
+ END IF;
+ IF t.sale_price_kurus IS NULL AND s.sale_price_kurus IS NOT NULL AND (s.sale_until IS NULL OR s.sale_until>now())
+  AND (t.price_kurus IS NULL OR s.sale_price_kurus<t.price_kurus) THEN
+  t.sale_price_kurus := s.sale_price_kurus; t.sale_from := s.sale_from; t.sale_until := s.sale_until;
+  carried := array_append(carried,'sale_price_kurus');
+  IF s.sale_from IS NOT NULL THEN carried := array_append(carried,'sale_from'); END IF;
+  IF s.sale_until IS NOT NULL THEN carried := array_append(carried,'sale_until'); END IF;
+ END IF;
  IF cardinality(carried)=0 THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
- INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,updated_by)
- VALUES (target,t.name,t.description,t.seo_title,t.seo_description,t.category_id,t.hidden,actor)
+ INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,
+  price_kurus,sale_price_kurus,sale_from,sale_until,updated_by)
+ VALUES (target,t.name,t.description,t.seo_title,t.seo_description,t.category_id,t.hidden,
+  t.price_kurus,t.sale_price_kurus,t.sale_from,t.sale_until,actor)
  ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,seo_title=excluded.seo_title,
-  seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,updated_by=excluded.updated_by,updated_at=now();
+  seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,
+  price_kurus=excluded.price_kurus,sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
+  updated_by=excluded.updated_by,updated_at=now();
  -- Every carried field was automatic (NULL; hidden false) on the target before.
  INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
  SELECT target,f.field,NULL,f.value,actor,'carry'
  FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
-  ('category_id',t.category_id::text),('hidden','true')) f(field,value)
+  ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
+  ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until))) f(field,value)
  WHERE f.field=ANY(carried);
  -- Qualified: the parameters share the table's column names.
  INSERT INTO product_override_carries(target,source,fields)
  SELECT product_overrides_carry.target,product_overrides_carry.source,jsonb_object_agg(f.field,f.value)
  FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
-  ('category_id',t.category_id::text),('hidden','true')) f(field,value)
+  ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
+  ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until))) f(field,value)
  WHERE f.field=ANY(carried)
  ON CONFLICT ON CONSTRAINT product_override_carries_pkey DO UPDATE SET fields=product_override_carries.fields||excluded.fields,carried_at=now();
  PERFORM product_overrides_project(ARRAY[target]);
@@ -144,20 +189,36 @@ BEGIN
    reverted := ARRAY(SELECT f.key FROM jsonb_each_text(c.fields) f WHERE f.value IS NOT DISTINCT FROM CASE f.key
      WHEN 'name' THEN t.name WHEN 'description' THEN t.description WHEN 'seo_title' THEN t.seo_title
      WHEN 'seo_description' THEN t.seo_description WHEN 'category_id' THEN t.category_id::text
-     WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END END);
+     WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END
+     WHEN 'price_kurus' THEN t.price_kurus::text WHEN 'sale_price_kurus' THEN t.sale_price_kurus::text
+     WHEN 'sale_from' THEN product_override_time_text(t.sale_from) WHEN 'sale_until' THEN product_override_time_text(t.sale_until) END);
+   -- Dates without a campaign price are invalid (CHECK): a campaign price taken back takes its window with it, even
+   -- dates an admin changed since.
+   IF 'sale_price_kurus'=ANY(reverted) THEN
+    IF t.sale_from IS NOT NULL AND NOT 'sale_from'=ANY(reverted) THEN reverted := array_append(reverted,'sale_from'); END IF;
+    IF t.sale_until IS NOT NULL AND NOT 'sale_until'=ANY(reverted) THEN reverted := array_append(reverted,'sale_until'); END IF;
+   END IF;
    IF cardinality(reverted)>0 THEN
     INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
-    SELECT c.target,f.key,f.value,NULL,NULL,'uncarry' FROM jsonb_each_text(c.fields) f WHERE f.key=ANY(reverted);
+    SELECT c.target,f.field,f.value,NULL,NULL,'uncarry'
+    FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+     ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
+     ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until))) f(field,value)
+    WHERE f.field=ANY(reverted);
     UPDATE product_overrides SET name=CASE WHEN 'name'=ANY(reverted) THEN NULL ELSE name END,
      description=CASE WHEN 'description'=ANY(reverted) THEN NULL ELSE description END,
      seo_title=CASE WHEN 'seo_title'=ANY(reverted) THEN NULL ELSE seo_title END,
      seo_description=CASE WHEN 'seo_description'=ANY(reverted) THEN NULL ELSE seo_description END,
      category_id=CASE WHEN 'category_id'=ANY(reverted) THEN NULL ELSE category_id END,
      hidden=CASE WHEN 'hidden'=ANY(reverted) THEN false ELSE hidden END,
+     price_kurus=CASE WHEN 'price_kurus'=ANY(reverted) THEN NULL ELSE price_kurus END,
+     sale_price_kurus=CASE WHEN 'sale_price_kurus'=ANY(reverted) THEN NULL ELSE sale_price_kurus END,
+     sale_from=CASE WHEN 'sale_from'=ANY(reverted) THEN NULL ELSE sale_from END,
+     sale_until=CASE WHEN 'sale_until'=ANY(reverted) THEN NULL ELSE sale_until END,
      updated_by=NULL,updated_at=now()
     WHERE product_id=c.target;
     DELETE FROM product_overrides WHERE product_id=c.target AND name IS NULL AND description IS NULL AND seo_title IS NULL
-     AND seo_description IS NULL AND category_id IS NULL AND NOT hidden;
+     AND seo_description IS NULL AND category_id IS NULL AND NOT hidden AND price_kurus IS NULL AND sale_price_kurus IS NULL;
     PERFORM product_overrides_project(ARRAY[c.target]);
    END IF;
   END IF;

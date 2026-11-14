@@ -4,6 +4,10 @@ import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
 import { productCategoriesSql } from "./product-categories-sql";
 import { loadProductOverride } from "./product-override-store";
+import { loadProductPricing } from "./product-pricing-store";
+import type { ProductPricing } from "./product-pricing-schema";
+import { compareOffers } from "@/modules/store/best-offer";
+import { belowCost } from "./product-override-fields";
 
 /** Master catalog (db/product-matching.sql): one product, the supplier rows it is sold from, and its equivalents. */
 export const productFilters = {
@@ -32,7 +36,14 @@ type ProductRow = {
 type ProductSource = {
   id: string; supplier: string; code: string; name: string | null; brand_label: string | null; method: "auto" | "manual"; linked_at: Date;
   saleable: boolean; price_kurus: number | null; available: boolean; stock_label: string | null; best: boolean;
+  /** commerce_catalog's pricing inputs (cost_kurus, vat_percent, price_kind…); null when the row is not saleable. */
+  pricing_snapshot: Record<string, unknown> | null;
+  /** The row's rates and supplier cost (nf) for the "Kâr ve KDV oranları" dialog; saleable rows only. */
+  pricing: ProductPricing | null; cost: number | null;
+  /** Read from pricing_snapshot (#580): the formula's price, the VAT-excluded cost in kuruş, the VAT rate, an admin price. */
+  auto_price: number | null; cost_kurus: number | null; vat_percent: number | null; price_kind: "fixed" | "sale" | null; below_cost: boolean;
 };
+type SourceRow = Omit<ProductSource, "pricing" | "auto_price" | "cost_kurus" | "vat_percent" | "price_kind" | "below_cost">;
 type ProductEquivalent = {
   id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; kind: "oem" | "cross" | "brand" | "manual";
   via_brand: string; via_part: string;
@@ -41,13 +52,13 @@ type ProductEquivalent = {
 const compact = (value: string | undefined) => (value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 40);
 
 /**
- * Best offer per product: the cheapest available saleable source, the product's own row winning ties (the
- * storefront rule). Priced through commerce_catalog only for the ids asked for.
+ * Best offer per product: the cheapest available saleable source, the lower cost and then the product's own row winning
+ * ties (the storefront rule, compareOffers). Priced through commerce_catalog only for the ids asked for.
  */
 const offersSql = `WITH sources AS (
    SELECT s.product_id, s.supplier_item_id FROM product_sources s WHERE s.product_id=ANY($1::uuid[])
  ), priced AS (
-   SELECT s.product_id, c.id, c.supplier, c.price_kurus, c.available, c.stock_label FROM sources s
+   SELECT s.product_id, c.id, c.supplier, c.price_kurus, c.available, c.stock_label, c.pricing_snapshot FROM sources s
    JOIN commerce_catalog c ON c.id=s.supplier_item_id AND c.id=ANY(ARRAY(SELECT supplier_item_id FROM sources))
  )`;
 
@@ -137,7 +148,8 @@ export async function listProducts(params: { q?: string; filter?: string; brands
       `${offersSql}, counted AS (SELECT product_id, count(*)::int AS sources FROM sources GROUP BY product_id)
       SELECT c.product_id, c.sources, b.price_kurus AS best_price, b.supplier AS best_supplier, COALESCE(b.available,false) AS available FROM counted c
       LEFT JOIN LATERAL (SELECT * FROM priced x WHERE x.product_id=c.product_id AND x.price_kurus IS NOT NULL
-        ORDER BY x.available DESC, x.price_kurus, x.id=c.product_id DESC LIMIT 1) b ON true`, ids).then(result => result.rows),
+        ORDER BY x.available DESC, x.price_kurus, (x.pricing_snapshot->>'cost_kurus')::numeric NULLS LAST, x.id=c.product_id DESC, x.id
+        LIMIT 1) b ON true`, ids).then(result => result.rows),
     db.query<{ product_id: string; categories: string[] }>(
       `SELECT c.product_id, array_agg(DISTINCT c.name ORDER BY c.name) AS categories FROM (${productCategoriesSql} AND s.product_id=ANY($1::uuid[])) c GROUP BY c.product_id`,
       ids).then(result => result.rows),
@@ -156,9 +168,10 @@ export async function getMasterProduct(id: string) {
     `SELECT id,brand,brand_label,part_number,variant,code,name,suppliers,merged_into,created_at,updated_at FROM products WHERE id=$1`, [id])).rows[0];
   if (!product) return null;
   const [sources, equivalents] = await Promise.all([
-    db.query<ProductSource>(`${offersSql}
+    db.query<SourceRow>(`${offersSql}
       SELECT i.id, i.supplier, i.code, supplier_item_name(i.supplier,i.product_data) AS name, supplier_item_brand(i.supplier,i.product_data) AS brand_label,
-       s.method, s.linked_at, p.id IS NOT NULL AS saleable, p.price_kurus, COALESCE(p.available,false) AS available, p.stock_label, false AS best
+       s.method, s.linked_at, p.id IS NOT NULL AS saleable, p.price_kurus, COALESCE(p.available,false) AS available, p.stock_label, false AS best,
+       p.pricing_snapshot, (i.price_data->>'nf')::float8 AS cost
       FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id LEFT JOIN priced p ON p.id=s.supplier_item_id
       WHERE s.product_id=($1::uuid[])[1]
       ORDER BY p.id IS NULL, i.id=s.product_id DESC, CASE i.supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 ELSE 2 END, i.code`, [[id]]),
@@ -166,16 +179,25 @@ export async function getMasterProduct(id: string) {
       FROM product_equivalents e JOIN products p ON p.id=e.equivalent_id WHERE e.product_id=$1
       ORDER BY p.suppliers='{}', e.kind, p.brand_label, p.code LIMIT 100`, [id]),
   ]);
-  // The storefront sells the cheapest available row; the product's own row wins ties.
-  const best = sources.rows.filter(row => row.available && row.price_kurus !== null)
-    .sort((a, b) => a.price_kurus! - b.price_kurus! || Number(b.id === id) - Number(a.id === id))[0];
+  // The rates dialog of each saleable row (a few rows per product).
+  const rows: ProductSource[] = await Promise.all(sources.rows.map(async row => {
+    const snapshot = row.pricing_snapshot ?? {}, number = (key: string) => snapshot[key] == null || !Number.isFinite(Number(snapshot[key])) ? null : Number(snapshot[key]);
+    const cost_kurus = number("cost_kurus"), vat_percent = number("vat_percent");
+    return { ...row, pricing: row.saleable ? await loadProductPricing(db, row.id) : null, cost_kurus, vat_percent,
+      price_kind: snapshot.price_kind === "fixed" || snapshot.price_kind === "sale" ? snapshot.price_kind : null,
+      // The formula's price: recorded beside an admin price, else the row's price itself.
+      auto_price: snapshot.source === "override" ? number("auto_price_kurus") : row.price_kurus,
+      below_cost: belowCost(row.price_kurus, cost_kurus, vat_percent) };
+  }));
+  // The storefront sells the cheapest available row; the lower cost, then the product's own row win ties.
+  const best = rows.filter(row => row.available && row.price_kurus !== null).sort(compareOffers(id))[0];
   if (best) best.best = true;
   const merged = product.merged_into ? (await db.query<{ id: string; brand_label: string; code: string }>(
     "SELECT id,brand_label,code FROM products WHERE id=$1", [product.merged_into])).rows[0] ?? null : null;
   // The store still lists supplier rows in this phase: the row it shows for this product.
-  const listed = sources.rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
-    ?? sources.rows.find(row => row.saleable) ?? null;
-  return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override: await loadProductOverride(db, id) };
+  const listed = rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
+    ?? rows.find(row => row.saleable) ?? null;
+  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override: await loadProductOverride(db, id) };
 }
 
 type MergeTarget = {

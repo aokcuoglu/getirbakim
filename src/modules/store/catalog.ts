@@ -14,6 +14,7 @@ import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,sup
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
+import {compareOffers} from './best-offer';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -40,7 +41,8 @@ export async function getProduct(id: string): Promise<CatalogProduct | undefined
 }
 /**
  * Same product from several suppliers (product_offers): the listing shows the primary row, priced and stocked by
- * the cheapest offer that can be sold now; the primary itself wins ties. Without a sellable offer the row is kept.
+ * the cheapest offer that can be sold now (compareOffers: lower cost, then the primary itself, win ties). Without a
+ * sellable offer the row is kept.
  */
 export async function withBestOffers<T extends CatalogProduct>(items: T[]): Promise<T[]> {
  const ids = items.filter(item => item.source === "supplier" && !item.unavailable).map(item => item.id);
@@ -51,8 +53,7 @@ export async function withBestOffers<T extends CatalogProduct>(items: T[]): Prom
  return items.map(item => {
   const group = offers.filter(offer => offer.primary_id === item.id);
   if (group.length < 2) return item;
-  const best = group.filter(offer => offer.available && offer.price_kurus !== null)
-   .sort((a, b) => a.price_kurus! - b.price_kurus! || Number(b.id === item.id) - Number(a.id === item.id))[0];
+  const best = group.filter(offer => offer.available && offer.price_kurus !== null).sort(compareOffers(item.id))[0];
   if (!best) return { ...item, offers: group.length };
   return { ...item, price_kurus: best.price_kurus, available: best.available, max_quantity: best.max_quantity, stock_label: best.stock_label,
    pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };

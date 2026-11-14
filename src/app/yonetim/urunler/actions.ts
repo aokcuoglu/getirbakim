@@ -4,9 +4,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { forgetSameProducts } from "@/modules/admin/product-matching";
-import { productOverrideFields, productOverrideIdSchema, productOverrideValuesSchema, type ProductOverrideResult,
-  type ProductOverrideValues } from "@/modules/admin/product-override-schema";
-import { persistProductOverride } from "@/modules/admin/product-override-store";
+import { productCardFields, productOverrideIdSchema, productOverrideValuesSchema, productPriceValuesSchema, priceText,
+  type ProductCardValues, type ProductOverrideResult, type ProductPriceResult, type ProductPriceValues } from "@/modules/admin/product-override-schema";
+import { belowCostSources, persistProductOverride } from "@/modules/admin/product-override-store";
 import { requireAdmin } from "@/modules/auth/session";
 
 const input = z.object({ item_id: z.uuid(), product_id: z.uuid() });
@@ -161,6 +161,7 @@ const overrideFailures = {
   merged: "Bu ürün başka bir ürünle birleştirildi; düzenlemeyi birleştirilen üründe yapın.",
   category: "Seçilen kategori bulunamadı. Listeden yeniden seçin.",
   stale: "Bu ürün siz düzenlerken başka bir sekmede veya kullanıcı tarafından değiştirildi. Sayfayı yenileyip yeniden deneyin.",
+  "sale-expired": "Kampanya bitişi geçmişte kalıyor. Bitişi ileri alın ya da kampanyayı kaldırın.",
 } as const;
 
 /**
@@ -174,9 +175,9 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
   const version = form.get("version");
   if (!id.success || typeof version !== "string" || !/^(auto|\d{1,20})$/.test(version)) return { status: "error", message: "Ürün tanınmadı. Sayfayı yenileyin." };
   const resetValue = form.get("reset");
-  const reset = typeof resetValue === "string" && resetValue ? productOverrideFields.find(field => field === resetValue) : undefined;
+  const reset = typeof resetValue === "string" && resetValue ? productCardFields.find(field => field === resetValue) : undefined;
   if (typeof resetValue === "string" && resetValue && !reset) return { status: "error", message: "Alan tanınmadı. Yeniden deneyin." };
-  let patch: Partial<ProductOverrideValues>;
+  let patch: Partial<ProductCardValues>;
   if (reset) patch = reset === "hidden" ? { hidden: false } : { [reset]: null };
   else {
     const input = productOverrideValuesSchema.safeParse({
@@ -198,4 +199,50 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
   // The store's product page, listings and search, and this admin page: every page may show the product.
   revalidatePath("/", "layout");
   return { status: "success", message: reset ? "Alan otomatik değere döndü." : "Mağaza bilgileri kaydedildi.", ...saved };
+}
+
+/** The form's version: a stored edit's microseconds or "auto". */
+const versionPattern = /^(auto|\d{1,20})$/;
+
+/**
+ * The product's fixed price and campaign (#580). "save" stores the four fields of the form; reset "price_kurus" drops
+ * the fixed price, reset "sale_price_kurus" drops the campaign with its window. A price below a source's VAT-included
+ * cost is saved and answered with a warning (the admin's decision). The catalog prices every source of the product
+ * from it at once; a source the formula cannot price (missing cost, rate or freshness) stays off sale.
+ */
+export async function saveProductPrice(_previous: ProductPriceResult, form: FormData): Promise<ProductPriceResult> {
+  const admin = await requireAdmin();
+  const id = productOverrideIdSchema.safeParse(form.get("id"));
+  const version = form.get("version");
+  if (!id.success || typeof version !== "string" || !versionPattern.test(version)) return { status: "error", message: "Ürün tanınmadı. Sayfayı yenileyin." };
+  const resetValue = form.get("reset");
+  const reset = (["price_kurus", "sale_price_kurus"] as const).find(field => field === resetValue);
+  if (typeof resetValue === "string" && resetValue && !reset) return { status: "error", message: "Alan tanınmadı. Yeniden deneyin." };
+  let patch: Partial<ProductPriceValues>;
+  if (reset === "price_kurus") patch = { price_kurus: null };
+  else if (reset === "sale_price_kurus") patch = { sale_price_kurus: null, sale_from: null, sale_until: null };
+  else {
+    const field = (name: string) => { const value = form.get(name); return typeof value === "string" ? value : ""; };
+    const input = productPriceValuesSchema.safeParse({ price: field("price"), sale_price: field("sale_price"), sale_from: field("sale_from"), sale_until: field("sale_until") });
+    if (!input.success) return { status: "error", message: input.error.issues[0]?.message ?? "Alanları kontrol edin." };
+    patch = input.data;
+  }
+  let result: Awaited<ReturnType<typeof persistProductOverride>>;
+  try {
+    result = await persistProductOverride(db, id.data, patch, admin.id, version);
+  } catch {
+    return { status: "error", message: "Fiyat kaydedilemedi. Yeniden deneyin." };
+  }
+  if (!result.ok) return { status: "error", message: overrideFailures[result.reason] };
+  const { price_kurus, sale_price_kurus, sale_from, sale_until } = result.values;
+  const saved = { values: { price_kurus, sale_price_kurus, sale_from, sale_until }, version: result.version, reset };
+  if (!result.changed.length) return { status: "success", message: "Değişiklik yok; kayıtlı değerler aynı.", ...saved };
+  // The store's product page, listings, cart and this admin page: every page may show the price.
+  revalidatePath("/", "layout");
+  // A failed check must not hide the saved price: the warning is extra information.
+  const below = await belowCostSources(db, id.data).catch(() => []);
+  const warning = below.length ? `Satış fiyatı maliyetin altında: ${below.map(source =>
+    `${source.code} ${priceText(source.price_kurus)} (KDV dahil maliyet ${priceText(source.cost_with_vat_kurus)})`).join("; ")}. Kayıt yapıldı; zararına satış olmaması için fiyatı kontrol edin.` : undefined;
+  return { status: "success", message: reset === "price_kurus" ? "Sabit fiyat kaldırıldı; formül fiyatı uygulanıyor."
+    : reset ? "Kampanya kaldırıldı." : "Fiyat kaydedildi.", warning, ...saved };
 }

@@ -102,7 +102,7 @@ function observedAt(row: PartnerCatalogRow) {
 }
 
 function price(row: PartnerCatalogRow, discountBps: number): PartnerPrice {
-  return resolvePartnerPrice(row.pricing_snapshot, row.price_kurus != null, discountBps);
+  return resolvePartnerPrice(row.pricing_snapshot, row.price_kurus, discountBps);
 }
 
 export function toPartnerOffer(row: PartnerCatalogRow): PartnerOffer {
