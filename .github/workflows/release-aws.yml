@@ -1,0 +1,75 @@
+name: Release to AWS
+# Manual only. The `production` GitHub environment holds the approval and the branch rule
+# (main; dev as well until the cutover), the release role in AWS trusts only jobs running in it.
+#
+# Same steps as an operator with the infrastructure repository:
+#   push-image.sh  build the app and operations images (linux/arm64), push them to ECR under the
+#                  commit SHA, upload /_next/static
+#   release.sh     RDS snapshot, operations task definitions, scripts/setup.ts + ANALYZE, app
+#                  rolling update, released tags in SSM, smoke tests
+#
+# Environment `production`:
+#   variables  AWS_RELEASE_ROLE_ARN  Cicd stack output DeployRoleArn
+#              INFRA_REPOSITORY      owner/name of the infrastructure repository
+#   secrets    INFRA_DEPLOY_KEY      private half of a read-only deploy key of that repository
+# The infrastructure repository's committed .env (main) is the configuration, as on a laptop.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aws-production-release
+  cancel-in-progress: false
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: check
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: app
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.INFRA_REPOSITORY }}
+          ssh-key: ${{ secrets.INFRA_DEPLOY_KEY }}
+          ref: main
+          path: infra
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - run: npm ci
+        working-directory: infra
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          role-session-name: release-${{ github.run_id }}
+          role-duration-seconds: 7200
+          aws-region: eu-central-1
+      - name: Store the credentials under the .env profile
+        # The scripts drop AWS_* variables and pass --profile explicitly (.env is the source of truth).
+        run: |
+          profile="$(grep -E '^PRODUCTION_AWS_PROFILE=' infra/.env | cut -d= -f2-)"
+          test -n "$profile"
+          aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" --profile "$profile"
+          aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" --profile "$profile"
+          aws configure set aws_session_token "$AWS_SESSION_TOKEN" --profile "$profile"
+          aws configure set region eu-central-1 --profile "$profile"
+      - name: Build and push images
+        working-directory: infra
+        run: ./scripts/push-image.sh production ../app
+      - name: Release
+        working-directory: infra
+        run: ./scripts/release.sh production "$(git -C ../app rev-parse --short=12 HEAD)" --yes
+      - name: Remove credentials
+        if: always()
+        run: rm -rf ~/.aws
