@@ -52,9 +52,10 @@ const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presen
 export default async function DinamikAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
+  const overview = adminDinamikOverview();
+  const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([overview, supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params, overview.then(o => o.items.present)),
     supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan(), adminSupplierFeedStatus().catch(() => null)]);
-  const { items: rows, total, page, pages } = list;
+  const { items: rows, total, page, pages, capped } = list;
   const region = dinamikRegion(params.region);
   const { items, scopes, runs } = data;
   const lastRun = data.recent[0];
@@ -131,6 +132,6 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.dinamik} (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
         <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present), { brands: list.brands, groups: list.groups })}/>
       </CardContent>
-      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/dinamik" params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
+      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/dinamik" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
     </Card></SupplierBrowser>}/>;
 }

@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
-import { getProduct, money } from "@/modules/store/catalog";
+import { money } from "@/modules/store/catalog";
 import { adminDinamikItem } from "@/modules/admin/dinamik";
-import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { dinamikRegions, dinamikRegionStock } from "@/modules/suppliers/dinamik-stock";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -12,7 +11,7 @@ export default async function DinamikItem({ params }: { params: Promise<{ id: st
   const item = await adminDinamikItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
-  const [sale, pricing] = await Promise.all([getProduct(item.id), adminProductPricing(item.id)]);
+  const { sale, pricing } = item;
   const listHref = `/yonetim/tedarikciler/dinamik?brand=${encodeURIComponent(item.list_group)}`;
   const price = item.price_data?.fiyat;
   const unit = p.olcuBirimi ? ` ${p.olcuBirimi}` : "";

@@ -114,19 +114,19 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
               </TableRow>)}</TableBody>
             </Table></AccordionContent>
           </AccordionItem></Accordion>}
-          {draft.rows.length > 0 && <Table><caption className="sr-only">İlk satırlar</caption>
+          {draft.row_count > 0 && <Table><caption className="sr-only">İlk satırlar</caption>
             <TableHeader><TableRow><TableHead>Kod</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Kategori</TableHead><TableHead>Ambalaj</TableHead><TableHead>Viskozite</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-right">Stok</TableHead></TableRow></TableHeader>
-            <TableBody>{draft.rows.slice(0, 10).map(row => <TableRow key={row.code}>
+            <TableBody>{draft.preview.map(row => <TableRow key={row.code}>
               <TableCell className="font-mono">{row.code}</TableCell><TableCell className="max-w-96 truncate" title={row.name}>{row.name}</TableCell><TableCell>{row.brand}</TableCell>
               <TableCell>{categoryNames.get(row.categoryId)}</TableCell><TableCell>{row.package ?? <span className="text-warning">Eksik</span>}</TableCell><TableCell>{row.viscosity ?? "—"}</TableCell>
               <TableCell className="text-right tabular-nums">{row.price === null ? "—" : number(row.price)}</TableCell><TableCell className="text-right tabular-nums">{row.stock === null ? "—" : number(row.stock)}</TableCell>
             </TableRow>)}</TableBody>
           </Table>}
-          {draft.rows.length > 10 && <p className="text-muted-foreground">İlk 10 satır gösteriliyor; toplam {number(draft.rows.length)} ürün.</p>}
+          {draft.row_count > draft.preview.length && <p className="text-muted-foreground">İlk 10 satır gösteriliyor; toplam {number(draft.row_count)} ürün.</p>}
         </CardContent>
         {draft.status === "draft" && <CardFooter className="flex-wrap gap-2">
           <form action={confirmManualDraft}><input type="hidden" name="id" value={draft.id}/><input type="hidden" name="list" value={draft.list_group}/>
-            <ManualSubmitButton icon="check" label={`${number(draft.report.products)} ürünü içe aktar`} pendingLabel="İçe aktarılıyor, resimler indiriliyor…" disabled={draft.report.errors > 0 || !draft.rows.length}/></form>
+            <ManualSubmitButton icon="check" label={`${number(draft.report.products)} ürünü içe aktar`} pendingLabel="İçe aktarılıyor, resimler indiriliyor…" disabled={draft.report.errors > 0 || !draft.row_count}/></form>
           <form action={discardManualDraft}><input type="hidden" name="id" value={draft.id}/><input type="hidden" name="list" value={draft.list_group}/>
             <Button type="submit" variant="ghost">Vazgeç</Button></form>
         </CardFooter>}
@@ -191,7 +191,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span>{costNotes.manual}</span></div>
         <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })}/>
       </CardContent>
-      <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
+      <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages} capped={products?.capped}/></CardFooter>
       </>}
     </Card></SupplierBrowser>}/>;
 }

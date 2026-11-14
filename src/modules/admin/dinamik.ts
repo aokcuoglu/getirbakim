@@ -1,9 +1,13 @@
 import "server-only";
 import { z } from "zod";
+import { getProduct } from "@/modules/store/catalog";
+import { adminProductPricing } from "@/modules/admin/product-pricing";
+import type { SupplierChange } from "./supplier-changes";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { requireAdmin } from "@/modules/auth/session";
 import { binder, dinamikItemMatch } from "@/modules/search/sql";
+import { supplierItemPage } from "./supplier-items";
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { dinamikRegion, dinamikRegions, type DinamikStockData } from "@/modules/suppliers/dinamik-stock";
 
@@ -23,19 +27,20 @@ export type DinamikItem = {
   sale_price_kurus?: number | null; sale_available?: boolean | null; sale_stock_label?: string | null;
 };
 
-const pageSize = 50;
 const anyVar = (alias = "") => `(${dinamikRegions.map(region => `${alias}stock_data->>'${region.key}'='VAR'`).join(" OR ")})`;
 
 // ~50 part types across ~1M rows: a full DISTINCT costs ~0.5 s, so the unfiltered list is reused for a while.
 let allGroups: { at: number; values: string[] } | undefined;
 
-export async function adminDinamikItems(params: DinamikParams) {
+/** `presentTotal`: the overview's present-row count, used as the total of the unfiltered list. */
+export async function adminDinamikItems(params: DinamikParams, presentTotal?: Promise<number>) {
   await requireAdmin();
   const values: unknown[] = [DINAMIK_COMPANY, DINAMIK_WAREHOUSE];
   const conditions = ["supplier='dinamik'", "company=$1", "warehouse=$2"];
   const add = (clause: string, value: unknown) => { values.push(value); conditions.push(clause.replaceAll("?", `$${values.length}`)); };
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence! : "present";
   if (presence !== "all") add("presence=?", presence);
+  const scopeConditions = conditions.length;
   const brand = params.brand?.slice(0, 60) || "";
   if (brand) add("list_group=?", brand);
   if (params.group) add("product_data->>'kull7s'=?", params.group.slice(0, 120));
@@ -53,33 +58,31 @@ export async function adminDinamikItems(params: DinamikParams) {
   if (params.quality === "conflicts") conditions.push("conflicting");
   const where = conditions.map(condition => `(${condition})`).join(" AND ");
   const fresh = allGroups && Date.now() - allGroups.at < 10 * 60_000;
-  const [count, brands, groups] = await Promise.all([
-    db.query<{ count: number }>(`SELECT count(*)::int AS count FROM supplier_items WHERE ${where}`, values),
+  // Unfiltered view: the overview already counts every present Dinamik row (one company and warehouse), so the
+  // ~0.3 s count over ~1M rows is not repeated.
+  const unfiltered = presence === "present" && conditions.length === scopeConditions;
+  // Default order follows supplier_items_supplier_company_list_group_warehouse_code_key (brand, then code) so the
+  // page is an index walk instead of a sort of every row; codes are brand-prefixed, so the list still reads by code.
+  const order = sortOrder(params, itemSorts, "list_group,code,id");
+  const [list, brands, groups] = await Promise.all([
+    supplierItemPage<DinamikItem>({ where, values, order, page: params.page, total: unfiltered ? presentTotal : undefined }),
     db.query<{ list_group: string }>("SELECT list_group FROM supplier_sync_scopes WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND last_success_at IS NOT NULL ORDER BY list_group", [DINAMIK_COMPANY, DINAMIK_WAREHOUSE]),
     !brand && fresh ? Promise.resolve(null) : db.query<{ value: string }>(`SELECT DISTINCT product_data->>'kull7s' AS value FROM supplier_items
       WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND presence='present' AND ($3='' OR list_group=$3) AND COALESCE(product_data->>'kull7s','')<>'' ORDER BY value`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE, brand]),
   ]);
   if (groups && !brand) allGroups = { at: Date.now(), values: groups.rows.map(row => row.value) };
-  const total = count.rows[0].count, pages = Math.max(1, Math.ceil(total / pageSize));
-  const parsedPage = Number(params.page);
-  const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
-  // Same join as the Başbuğ list: the storefront price for just this page of rows.
-  const order = sortOrder(params, itemSorts, "code,id");
-  const items = await db.query<DinamikItem>(`WITH page AS MATERIALIZED (
-    SELECT * FROM supplier_items WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length + 1}
-  ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
-    FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
-    ORDER BY ${order}`, [...values, (page - 1) * pageSize]);
-  return { items: items.rows, total, page, pages, brands: brands.rows.map(row => row.list_group), groups: groups ? groups.rows.map(row => row.value) : allGroups!.values };
+  return { ...list, brands: brands.rows.map(row => row.list_group), groups: groups ? groups.rows.map(row => row.value) : allGroups!.values };
 }
 
 export async function adminDinamikItem(id: string) {
   await requireAdmin();
   if (!z.uuid().safeParse(id).success) return null;
-  const item = (await db.query<DinamikItem>("SELECT * FROM supplier_items WHERE id=$1 AND supplier='dinamik'", [id])).rows[0];
-  if (!item) return null;
-  const changes = (await db.query<{ id: string; changed_at: Date; kind: string; before_data: Record<string, unknown> | null; after_data: Record<string, unknown> }>(
-    "SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id],
-  )).rows;
-  return { ...item, changes };
+  // Everything below needs only the id, so the detail page waits for one round of queries.
+  const [result, changes, sale, pricing] = await Promise.all([
+    db.query<DinamikItem>("SELECT * FROM supplier_items WHERE id=$1 AND supplier='dinamik'", [id]),
+    db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),
+    getProduct(id), adminProductPricing(id),
+  ]);
+  const item = result.rows[0];
+  return item ? { ...item, changes: changes.rows, sale, pricing } : null;
 }

@@ -1,7 +1,5 @@
 import { notFound } from "next/navigation";
-import { getProduct } from "@/modules/store/catalog";
 import { adminBasbugItem } from "@/modules/admin/basbug";
-import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -15,7 +13,7 @@ export default async function BasbugItem({ params }: { params: Promise<{ id: str
   const item = await adminBasbugItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
-  const [sale, pricing] = await Promise.all([getProduct(item.id), adminProductPricing(item.id)]);
+  const { sale, pricing } = item;
   const stocks = basbugWarehouses.map(depot => {
     const value = basbugWarehouseStock(item.stock_data, depot);
     const onWay = item.stock_data?.depolar?.[depot]?.sYol ?? (depot === "MRK" ? item.stock_data?.sYol : undefined);

@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { getProduct } from "@/modules/store/catalog";
 import { adminManualItem } from "@/modules/admin/manual";
-import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { categoryLabel } from "@/modules/suppliers/manual-template";
 import { manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
 import { ManualSubmitButton } from "@/components/admin/manual-submit-button";
@@ -38,7 +36,7 @@ export default async function ManualItemPage({ params, searchParams }: { params:
   const item = await adminManualItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
-  const [sale, pricing] = await Promise.all([getProduct(item.id), adminProductPricing(item.id)]);
+  const { sale, pricing } = item;
   const category = item.categories.find(entry => entry.id === p.category_id);
   const overrides = item.overrides ?? {};
   const value = (field: ManualEditableField) => {
