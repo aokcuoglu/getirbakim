@@ -389,8 +389,10 @@ CREATE TABLE IF NOT EXISTS brand_merge_suggestions (
 -- Evidence, strongest first: one key starts with the other (KRAFTVOLL AKS / KRAFTVOLL, MONROE AGIR VASITA / MONROE;
 -- the longest such key wins), then shared part numbers of 5+ characters when at least 3 and half of the new brand's
 -- numbers are shared (unrelated brands share up to ~10% through short numeric codes and reused OEM numbers; BEHR
--- shares 78% with MAHLE), then trigram name similarity 0.4+. Targets are reviewed brands only (another new brand is
--- no reference); ORIJINAL is never one: its numbers are OEMs. Measured locally (#469): 148 of the 154 labels merged
+-- shares 78% with MAHLE), then trigram name similarity 0.4+. Targets are reviewed brands; another new brand is one
+-- only when its key is a shorter prefix of this one (PRESTOLITE AV / PRESTOLITE arriving together, #471), never the
+-- other way round, so two new brands never point at each other; a reviewed target wins over a new one. ORIJINAL is
+-- never a target: its numbers are OEMs. Measured locally (#469): 148 of the 154 labels merged
 -- by hand before get the brand they were merged into; 95 of 598 brands reviewed as separate get a suggestion (19 by
 -- part numbers), which "Onayla" dismisses.
 CREATE OR REPLACE FUNCTION brand_keys_prefixed(a text, b text) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
@@ -421,14 +423,18 @@ BEGIN
   SELECT c.id, c.target_id, COALESCE(s.shared_parts,0) AS shared_parts, COALESCE(z.parts,0) AS parts,
    similarity(f.name,t.name) AS name_similarity, length(t.key) AS target_length,
    brand_keys_prefixed(f.key,t.key) OR brand_keys_prefixed(f.key,t.spelled) AS prefix,
-   COALESCE(s.shared_parts,0)>=3 AND COALESCE(s.shared_parts,0)>=0.5*COALESCE(z.parts,0) AS by_parts
+   COALESCE(s.shared_parts,0)>=3 AND COALESCE(s.shared_parts,0)>=0.5*COALESCE(z.parts,0) AS by_parts, true AS reviewed
   FROM (SELECT id, target_id FROM shared UNION SELECT id, target_id FROM named) c
   JOIN fresh f ON f.id=c.id JOIN targets t ON t.id=c.target_id
   LEFT JOIN shared s ON s.id=c.id AND s.target_id=c.target_id LEFT JOIN sizes z ON z.id=c.id
+  UNION ALL
+  SELECT f.id, e.id, 0, COALESCE(z.parts,0), similarity(f.name,e.name), length(e.key), true, false, false
+  FROM fresh f JOIN fresh e ON length(e.key)>=3 AND length(e.key)<length(f.key) AND starts_with(f.key,e.key)
+  LEFT JOIN sizes z ON z.id=f.id
  )
  SELECT DISTINCT ON (id) id, target_id, shared_parts, parts, name_similarity FROM scored
  WHERE prefix OR by_parts OR name_similarity>=0.4
- ORDER BY id, prefix DESC, CASE WHEN prefix THEN target_length END DESC NULLS LAST, by_parts DESC, shared_parts DESC,
+ ORDER BY id, prefix DESC, reviewed DESC, CASE WHEN prefix THEN target_length END DESC NULLS LAST, by_parts DESC, shared_parts DESC,
   name_similarity DESC, target_id;
  GET DIAGNOSTICS added = ROW_COUNT;
  RETURN added;

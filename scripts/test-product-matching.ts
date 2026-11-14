@@ -202,14 +202,16 @@ test("new master brands get the reviewed brand they most likely are; confirmed o
       const id = await addItem("QQZX COPY", `QQZX ${part}${index}`);
       await client.query("INSERT INTO product_match_items VALUES($1,'basbug','QQZXCOPY',$2,NULL)", [id, part]);
     }
-    // No evidence at all.
+    // No evidence at all; its heavy-vehicle line arrives in the same sync (PRESTOLITE / PRESTOLITE AV, #471).
     await addItem("QQZX LONELY", "QQZXL TEST1");
-    // At least these three; labels imported since the last refresh are placed too.
-    assert.ok((await client.query("SELECT sync_supplier_brands() AS n")).rows[0].n >= 3);
+    await addItem("QQZX LONELY AV", "QQZXL TEST2");
+    // At least these four; labels imported since the last refresh are placed too.
+    assert.ok((await client.query("SELECT sync_supplier_brands() AS n")).rows[0].n >= 4);
     await client.query("SELECT refresh_brand_merge_suggestions()");
     assert.equal(await suggestion("ABA YENI SERI"), "ABA");
     assert.equal(await suggestion("QQZX COPY"), donor.brand);
-    assert.equal(await suggestion("QQZX LONELY"), null);
+    assert.equal(await suggestion("QQZX LONELY"), null); // the shorter one is never pointed at the longer
+    assert.equal(await suggestion("QQZX LONELY AV"), "QQZXLONELY");
     // "Onayla" keeps a new brand separate: it is no longer suggested.
     await client.query("UPDATE supplier_brands SET method='manual' WHERE supplier='basbug' AND label='ABA YENI SERI'");
     await client.query("SELECT refresh_brand_merge_suggestions()");
