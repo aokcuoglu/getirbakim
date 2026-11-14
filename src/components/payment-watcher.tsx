@@ -1,7 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { paymentState } from "@/app/siparis/[id]/actions";
+import { paymentState } from "@/app/(store)/siparis/[id]/actions";
 
 /** Refreshes the order once TAMI's tab completes the payment (or the order expires). */
 export function PaymentWatcher({orderId,state}:{orderId:string;state:string}) {

@@ -3,7 +3,7 @@ import { useActionState, useEffect, useId, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, LockKeyhole, Package, X } from "lucide-react";
-import { addToCart } from "@/app/sepet/actions";
+import { addToCart } from "@/app/(store)/sepet/actions";
 import { CartQuantity } from "./cart-quantity";
 import type { PurchaseState } from "@/modules/store/purchase-types";
 import { Button } from "@/components/ui/button";

@@ -1,4 +1,9 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
-export default function NotFound() {return <Empty className="mx-auto min-h-[55vh] w-full max-w-[1280px] justify-start gap-0 rounded-2xl border border-dashed border-border bg-[#f7f8fa] px-6 py-14"><EmptyTitle className="text-[22px] leading-5 font-semibold tracking-normal"><h1>Ürün bulunamadı.</h1></EmptyTitle><EmptyDescription className="mx-auto mb-6 max-w-[460px] text-sm leading-6 text-muted-foreground">Ürün koduyla yeniden arama yapabilirsin.</EmptyDescription><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-primary px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong" render={<Link href="/"/>}>Parça ara ↗</Button></Empty>;}
+import { SiteHeader } from "@/components/layout/site-header";
+import { SiteFooter } from "@/components/site-footer";
+import StoreNotFound from "./(store)/not-found";
+
+// Unmatched URLs render here, inside the root layout only, so the storefront chrome is added explicitly.
+// notFound() in storefront pages uses (store)/not-found.tsx inside the store layout; /yonetim has its own.
+export default function NotFound() {
+  return <><SiteHeader/><main id="main-content" tabIndex={-1}><StoreNotFound/></main><SiteFooter/></>;
+}

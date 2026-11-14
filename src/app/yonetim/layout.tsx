@@ -12,7 +12,7 @@ import { feedNavTone } from "@/modules/suppliers/data-status";
 
 export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
 
-// The workspace replaces the storefront header and footer with its own shell (see StorefrontChrome); .admin-app also
+// The workspace has its own shell: storefront header and footer live in (store)/layout.tsx only. .admin-app also
 // scopes the stock shadcn neutral theme in globals.css. Every page and data loader still checks the session itself:
 // layouts do not re-run on client navigation. TableControls gives every table sorting, header filters and search.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -25,7 +25,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     dinamik: feeds ? feedNavTone(feeds.dinamik) : "danger",
     seta: feeds ? feedNavTone(feeds.seta) : "danger",
   };
-  return <div className="admin-app">
+  // <main id="main-content"> is the skip link target from the root layout.
+  return <main id="main-content" tabIndex={-1}><div className="admin-app">
     <AdminTheme/>
     <TooltipProvider>
       <SidebarProvider defaultOpen={jar.get("sidebar_state")?.value !== "false"}>
@@ -41,5 +42,5 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
-  </div>;
+  </div></main>;
 }

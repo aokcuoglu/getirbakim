@@ -1,6 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
-import { changeCartQuantity } from "@/app/sepet/actions";
+import { changeCartQuantity } from "@/app/(store)/sepet/actions";
 
 /** Native select on purpose: callers (cart page, purchase popup) restyle it with `[&_select]:` utilities. */
 export function CartQuantity({ productId, name, quantity, maxQuantity = 99, className }: { productId: string; name: string; quantity: number; maxQuantity?: number; className?: string }) {
