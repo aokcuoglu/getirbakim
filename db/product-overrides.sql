@@ -56,15 +56,41 @@ BEGIN
  IF cardinality(ids)>0 THEN PERFORM product_overrides_project(ids); END IF;
  RETURN NULL;
 END $$;
-DROP TRIGGER IF EXISTS product_overrides_sources_insert ON product_sources;
-CREATE TRIGGER product_overrides_sources_insert AFTER INSERT ON product_sources
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
-DROP TRIGGER IF EXISTS product_overrides_sources_update ON product_sources;
-CREATE TRIGGER product_overrides_sources_update AFTER UPDATE ON product_sources
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
-DROP TRIGGER IF EXISTS product_overrides_sources_delete ON product_sources;
-CREATE TRIGGER product_overrides_sources_delete AFTER DELETE ON product_sources
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
+-- Created only when missing: DROP/CREATE TRIGGER would lock product_sources (and the product pages reading it) for the
+-- rest of the setup transaction on every deploy. A changed definition needs a DROP TRIGGER here first.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='product_overrides_sources_insert') THEN
+  CREATE TRIGGER product_overrides_sources_insert AFTER INSERT ON product_sources
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='product_overrides_sources_update') THEN
+  CREATE TRIGGER product_overrides_sources_update AFTER UPDATE ON product_sources
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='product_overrides_sources_delete') THEN
+  CREATE TRIGGER product_overrides_sources_delete AFTER DELETE ON product_sources
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
+ END IF;
+END $$;
+
+-- "Aynı ürün" (product_merge): the merged product's rows now sell as `target`. When `target` has no edits of its own it
+-- takes the merged product's (hidden included, so a hidden product does not reappear through a merge); the edits stay
+-- on the merged product's id as well. Called by the merge actions right after product_merge; true when carried.
+CREATE OR REPLACE FUNCTION product_overrides_carry(source uuid, target uuid, actor uuid) RETURNS boolean LANGUAGE plpgsql AS $$
+BEGIN
+ IF source IS NULL OR target IS NULL OR source=target
+  OR NOT EXISTS (SELECT 1 FROM product_overrides WHERE product_id=source)
+  OR EXISTS (SELECT 1 FROM product_overrides WHERE product_id=target) THEN RETURN false; END IF;
+ INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,updated_by)
+ SELECT target,name,description,seo_title,seo_description,category_id,hidden,actor FROM product_overrides WHERE product_id=source;
+ INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
+ SELECT target,f.field,NULL,f.value,actor FROM product_overrides o
+ CROSS JOIN LATERAL (VALUES ('name',o.name),('description',o.description),('seo_title',o.seo_title),('seo_description',o.seo_description),
+  ('category_id',o.category_id::text),('hidden',CASE WHEN o.hidden THEN 'true' END)) f(field,value)
+ WHERE o.product_id=source AND f.value IS NOT NULL;
+ PERFORM product_overrides_project(ARRAY[target]);
+ RETURN true;
+END $$;
 
 -- Reconcile the copy on every setup (a changed projection rule applies to existing edits; a deleted product's edits go).
 DELETE FROM commerce_item_overrides c WHERE NOT EXISTS (SELECT 1 FROM product_overrides o WHERE o.product_id=c.product_id);

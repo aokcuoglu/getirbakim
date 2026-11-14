@@ -1,10 +1,10 @@
 import "server-only";
 import type { Pool } from "pg";
 import { productCategoriesSql } from "./product-categories-sql";
-import { productOverrideFields, type ProductOverrideField, type ProductOverrideValues } from "./product-override-schema";
+import { productOverrideFields, type ProductOverrideField, type ProductOverrideValues } from "./product-override-fields";
 
 /** A product's hand-set store card values (db/product-overrides.sql); NULL follows the automatic sources. */
-export type ProductOverride = ProductOverrideValues & { updated_at: Date; updated_by: string | null };
+export type ProductOverride = ProductOverrideValues & { updated_at: Date; updated_by: string | null; version: string };
 export type ProductOverrideChange = {
   id: string; field: string; old_value: string | null; new_value: string | null; changed_at: Date; changed_by: string | null;
 };
@@ -14,7 +14,10 @@ export type ProductOverrideDetails = {
   automatic: { name: string | null; description: string; categories: { id: number; name: string }[] };
   changes: ProductOverrideChange[];
 };
-export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" } | { ok: true; changed: ProductOverrideField[] };
+export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" | "stale" } | { ok: true; changed: ProductOverrideField[] };
+/** Version of a product's edits as the form saw them: the row's updated_at in microseconds, "auto" without a row. */
+export const automaticVersion = "auto";
+const versionSql = "(extract(epoch FROM updated_at)*1000000)::bigint::text";
 
 const empty: ProductOverrideValues = { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false };
 
@@ -27,9 +30,11 @@ function historyValue(field: ProductOverrideField, value: ProductOverrideValues[
 /**
  * Applies `patch` to the product's edits in one transaction: records each changed field, keeps a row only while some
  * field is set, and projects the result onto the product's supplier rows. The action authorizes the administrator.
+ * `expectedVersion` (ProductOverride.version or automaticVersion) refuses a save from a form opened before another
+ * save of the same product, which would silently overwrite it.
  */
 export async function persistProductOverride(database: Pick<Pool, "connect">, productId: string, patch: Partial<ProductOverrideValues>,
-  adminId: string): Promise<PersistOverrideResult> {
+  adminId: string, expectedVersion?: string): Promise<PersistOverrideResult> {
   const client = await database.connect();
   try {
     await client.query("BEGIN");
@@ -43,8 +48,13 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       && !(await client.query("SELECT 1 FROM source_categories WHERE source='trodo' AND category_id=$1", [patch.category_id])).rowCount) {
       await client.query("ROLLBACK"); return { ok: false, reason: "category" };
     }
-    const current = (await client.query<ProductOverrideValues>(`SELECT name,description,seo_title,seo_description,category_id,hidden
-      FROM product_overrides WHERE product_id=$1`, [productId])).rows[0] ?? empty;
+    const row = (await client.query<ProductOverrideValues & { version: string }>(`SELECT name,description,seo_title,seo_description,category_id,hidden,
+      ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0];
+    if (expectedVersion !== undefined && expectedVersion !== (row?.version ?? automaticVersion)) {
+      await client.query("ROLLBACK"); return { ok: false, reason: "stale" };
+    }
+    const current: ProductOverrideValues = row ? { name: row.name, description: row.description, seo_title: row.seo_title,
+      seo_description: row.seo_description, category_id: row.category_id, hidden: row.hidden } : empty;
     const next: ProductOverrideValues = { ...current };
     for (const field of productOverrideFields) if (patch[field] !== undefined) Object.assign(next, { [field]: patch[field] });
     const changed = productOverrideFields.filter(field => historyValue(field, current[field]) !== historyValue(field, next[field]));
@@ -70,7 +80,8 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
 /** The product's edits next to the automatic values they replace, and the latest 50 changes. */
 export async function loadProductOverride(database: Pick<Pool, "query">, productId: string): Promise<ProductOverrideDetails> {
   const [override, automatic, categories, changes] = await Promise.all([
-    database.query<ProductOverride>(`SELECT o.name,o.description,o.seo_title,o.seo_description,o.category_id,o.hidden,o.updated_at,a.name AS updated_by
+    database.query<ProductOverride>(`SELECT o.name,o.description,o.seo_title,o.seo_description,o.category_id,o.hidden,o.updated_at,a.name AS updated_by,
+      (extract(epoch FROM o.updated_at)*1000000)::bigint::text AS version
       FROM product_overrides o LEFT JOIN accounts a ON a.id=o.updated_by WHERE o.product_id=$1`, [productId]),
     // The listed source: the product's own row, then Başbuğ, Dinamik, SETA, manual (the storefront's order).
     database.query<{ name: string | null; description: string | null }>(`SELECT p.name,

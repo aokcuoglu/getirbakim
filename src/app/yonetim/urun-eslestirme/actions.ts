@@ -64,7 +64,9 @@ export async function decideCandidate(form: FormData) {
   try {
     await client.query("BEGIN");
     // No merge (the Dinamik product already sits elsewhere) leaves nothing to record.
-    if (status === "same" && !(await client.query<{ id: string | null }>("SELECT product_merge($2,$1,$3) AS id", [product_a, product_b, admin.id])).rows[0].id) {
+    // product_overrides_carry: the Başbuğ product takes the merged product's store edits when it has none (#575).
+    if (status === "same" && !(await client.query<{ id: string | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+      SELECT id, product_overrides_carry($2, id, $3) FROM merged`, [product_a, product_b, admin.id])).rows[0].id) {
       await client.query("ROLLBACK");
       failed = true;
     } else {
@@ -100,7 +102,8 @@ export async function acceptCandidates(form: FormData) {
       WHERE c.reason=$1 AND a.brand=$2 AND ${bulkAcceptableSql} LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
-      if (!(await client.query<{ id: string | null }>("SELECT product_merge($2,$1,$3) AS id", [pair.product_a, pair.product_b, admin.id])).rows[0].id) continue;
+      if (!(await client.query<{ id: string | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+        SELECT id, product_overrides_carry($2, id, $3) FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0].id) continue;
       await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
       await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [pair.product_a, pair.product_b]);
