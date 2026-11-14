@@ -81,9 +81,15 @@ test("an open-ended source may match a closed catalog type only on the same star
 });
 
 test("fitment paging parameters default to the first page and reject unsafe values", () => {
-  assert.deepEqual(parseFitmentPaging(new URLSearchParams()), { offset: 0, limit: 50, filter: "all" });
-  assert.deepEqual(parseFitmentPaging(new URLSearchParams("vehiclesOffset=100&vehiclesLimit=200&vehiclesFilter=matched")), { offset: 100, limit: 200, filter: "matched" });
-  for (const query of ["vehiclesOffset=-1", "vehiclesOffset=1.5", "vehiclesOffset=abc", "vehiclesLimit=0", "vehiclesLimit=201", "vehiclesLimit=1e3", "vehiclesFilter=all%27--", "vehiclesOffset=99999999999"]) {
+  assert.deepEqual(parseFitmentPaging(new URLSearchParams()), { offset: 0, limit: 50, filter: "all", query: "" });
+  assert.deepEqual(parseFitmentPaging(new URLSearchParams("vehiclesOffset=100&vehiclesLimit=200&vehiclesFilter=matched")), { offset: 100, limit: 200, filter: "matched", query: "" });
+  for (const query of ["vehiclesOffset=-1", "vehiclesOffset=1.5", "vehiclesOffset=abc", "vehiclesLimit=0", "vehiclesLimit=201", "vehiclesLimit=1e3", "vehiclesFilter=all%27--", "vehiclesOffset=99999999999", `vehiclesQuery=${"a".repeat(101)}`]) {
     assert.equal(parseFitmentPaging(new URLSearchParams(query)), null, query);
   }
+});
+
+test("fitment search query is trimmed, empty means no search, and length is capped", () => {
+  assert.equal(parseFitmentPaging(new URLSearchParams("vehiclesQuery=%20%20"))?.query, "");
+  assert.equal(parseFitmentPaging(new URLSearchParams("vehiclesQuery=%20golf%20tdi%20"))?.query, "golf tdi");
+  assert.equal(parseFitmentPaging(new URLSearchParams({ vehiclesQuery: "a".repeat(100) }))?.query.length, 100);
 });
