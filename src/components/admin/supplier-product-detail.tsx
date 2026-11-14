@@ -5,6 +5,7 @@ import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
 import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
+import { fixedPrice } from "@/modules/store/best-offer";
 import { supplierFieldChanges, type SupplierChange } from "@/modules/admin/supplier-changes";
 import { dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -201,7 +202,7 @@ function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSa
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap gap-2">
-          <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing}/>
+          <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing} fixedPrice={fixedPrice(sale?.pricing_snapshot)}/>
           {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
         </div>
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">

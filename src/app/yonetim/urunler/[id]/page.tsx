@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, TriangleAlert, Unlink } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, Tag, TriangleAlert, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
 import { overrideValueText, productOverrideFields, productOverrideLabels, type ProductOverrideField } from "@/modules/admin/product-override-fields";
+import { ProductPriceForm } from "@/components/admin/product-price-form";
+import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
 import { getStoreCategories } from "@/modules/store/categories";
 import { categoryPath } from "@/modules/store/category-tree";
 import { ProductOverrideForm } from "@/components/admin/product-override-form";
@@ -37,10 +39,14 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const storeCategories = await getStoreCategories();
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
-  // A history value as the admin knows it: category names, published/hidden, NULL as the automatic value.
+  // A history value as the admin knows it: category names, published/hidden, lira, Istanbul times, NULL as the automatic value.
   const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
-    : field === "hidden" ? overrideValueText(value === "true") : value);
+    : productOverrideFields.includes(field as ProductOverrideField) ? overrideValueText(value, field as ProductOverrideField) : value);
+  // The price form's preview compares campaign times (Istanbul wall clock) with the time of this render.
+  const now = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .format(new Date()).replace(" ", "T");
+  const fixed = edit?.price_kurus ?? null;
 
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -85,6 +91,17 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       </CardContent>
     </Card>}
 
+    {!merged && <Card id="fiyat">
+      <CardHeader><CardTitle><h2>Fiyat</h2></CardTitle>
+        <CardDescription>Sabit satış fiyatı formülün (maliyet × kur × kâr × KDV) yerine geçer; kampanya fiyatı belirlenen süre boyunca normal fiyatın altında satar. İkisi de ürünün tüm kaynaklarına uygulanır, ama tedarikçi verisi (maliyet, kur, güncellik) eksik kaynağı satışa açmaz. Maliyetin altındaki fiyat kaydedilir ve uyarı verilir.</CardDescription></CardHeader>
+      <CardContent>
+        <ProductPriceForm productId={product.id} version={edit?.version ?? automaticVersion} now={now}
+          values={edit && { price_kurus: edit.price_kurus, sale_price_kurus: edit.sale_price_kurus, sale_from: edit.sale_from, sale_until: edit.sale_until }}
+          sources={sources.filter(source => source.saleable).map(source => ({ id: source.id, code: source.code, available: source.available,
+            auto: source.auto_price, cost: source.cost_kurus, vat: source.vat_percent }))}/>
+      </CardContent>
+    </Card>}
+
     {!merged && <ProductImagesCard productId={product.id}/>}
 
     <Card>
@@ -102,7 +119,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardHeader><CardTitle><h2>Tedarikçi kaynakları</h2></CardTitle>
         <CardDescription>Mağaza stokta olan en ucuz kaynağı satar; eşitlikte ürünün kendi kaydı önce gelir. Kayıt bu ürün değilse “Ayır” deyin: ayrı bir ürün olur. Elle verilen kararları yenilemeler değiştirmez; “Geri al” kaydı kendi ürününe döndürür.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">{edit && multiple && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
-        <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri{edit.hidden ? " (mağazada gizli)" : ""} var. “Ayır” ile çıkan kayıt bu düzenlemeleri taşımaz{edit.hidden ? " ve mağazada yeniden görünür" : ""}.</AlertDescription></Alert>}
+        <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri veya fiyatı{edit.hidden ? " (mağazada gizli)" : ""} var. “Ayır” ile çıkan kayıt bu düzenlemeleri taşımaz{edit.hidden ? " ve mağazada yeniden görünür" : ""}.</AlertDescription></Alert>}
         {sources.length ? <Table><caption className="sr-only">Tedarikçi kaynakları</caption>
         <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead>Kod</TableHead><TableHead>Tedarikçideki ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead>Stok</TableHead><TableHead>Bağlantı</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
         <TableBody>{sources.map(source => <TableRow key={source.id}>
@@ -110,14 +127,22 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/tedarikciler/${source.supplier}/urun/${source.id}`}>{source.code}</Link></TableCell>
           <TableCell className="max-w-72 truncate" title={source.name ?? ""}>{source.name ?? <span className="text-muted-foreground">—</span>}
             {source.brand_label && <span className="text-muted-foreground"> · {source.brand_label}</span>}</TableCell>
-          <TableCell className="text-right tabular-nums">{source.price_kurus ? money(source.price_kurus) : "—"}</TableCell>
+          <TableCell className="text-right tabular-nums"><div className="flex flex-col items-end gap-1">{source.price_kurus ? money(source.price_kurus) : "—"}
+            {(source.price_kind || source.below_cost) && <div className="flex flex-wrap justify-end gap-1">
+              {source.price_kind === "fixed" && <StatusBadge tone="info" icon={Pencil}>Sabit fiyat</StatusBadge>}
+              {source.price_kind === "sale" && <StatusBadge tone="success" icon={Tag}>Kampanya</StatusBadge>}
+              {source.below_cost && <StatusBadge tone="warning">Maliyet altı</StatusBadge>}
+            </div>}</div></TableCell>
           <TableCell>{!source.saleable ? <StatusBadge tone="warning">Satışta değil</StatusBadge>
             : source.best ? <StatusBadge tone="success">Satılan</StatusBadge>
             : <span className="text-muted-foreground">{source.stock_label ?? "—"}</span>}</TableCell>
           <TableCell>{source.method === "manual" ? <Badge variant="outline">Elle</Badge> : <span className="text-muted-foreground">Otomatik</span>}</TableCell>
-          <TableCell>{source.method === "manual"
+          <TableCell><div className="flex flex-wrap justify-end gap-2">
+            {source.pricing && <ProductPricingDialog id={source.id} code={source.code} cost={source.cost} pricing={source.pricing} fixedPrice={fixed}/>}
+            {source.method === "manual"
             ? <form action={undoSplitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><SubmitButton variant="outline">Geri al</SubmitButton></form>
-            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><SubmitButton variant="outline" icon={<GitFork data-icon="inline-start" aria-hidden="true"/>}>Ayır</SubmitButton></form>}</TableCell>
+            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><SubmitButton variant="outline" icon={<GitFork data-icon="inline-start" aria-hidden="true"/>}>Ayır</SubmitButton></form>}
+          </div></TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyTitle>Bağlı kaynak yok.</EmptyTitle><EmptyDescription>Bu ürünün tedarikçi kaydı kalmadı.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
     </Card>
@@ -127,7 +152,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <CardDescription>Otomatik eşleşmenin kaçırdığı aynı ürünü bulun: parça numarası veya tedarikçi koduyla arayın. Birleşince tüm kaynaklar tek üründe toplanır; Başbuğ&apos;un sattığı ürün kimliğini korur. Farklı marka aynı ürün değildir: yerine kullanılabiliyorsa “Muadil” ile bağlayın.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">
         {edit && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
-          <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri{edit.hidden ? " (mağazada gizli)" : ""} var. Birleşince kimliğini koruyan üründe düzenleme yoksa bu düzenlemeler ona taşınır{edit.hidden ? " ve birleşen ürün gizli kalır" : ""}; varsa onunkiler geçerli olur.</AlertDescription></Alert>}
+          <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri veya fiyatı{edit.hidden ? " (mağazada gizli)" : ""} var. Birleşince kimliğini koruyan üründe düzenleme yoksa bu düzenlemeler ona taşınır{edit.hidden ? " ve birleşen ürün gizli kalır" : ""}; varsa onunkiler geçerli olur.</AlertDescription></Alert>}
         <form className="flex flex-wrap items-center gap-2" action={`/yonetim/urunler/${product.id}#birlestir`}>
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="merge_q" aria-label="Birleştirilecek ürünü ara" defaultValue={query.merge_q ?? product.part_number} placeholder="Parça no veya kod" maxLength={60}/></InputGroup>
@@ -171,7 +196,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
 
     <Card id="gecmis">
       <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle>
-        <CardDescription>Mağaza bilgilerinde yapılan son 50 değişiklik. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden geldiğini gösterir.</CardDescription></CardHeader>
+        <CardDescription>Mağaza bilgilerinde ve fiyatta yapılan son 50 değişiklik. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden (fiyatta formülden) geldiğini gösterir.</CardDescription></CardHeader>
       <CardContent>{override.changes.length ? <Table><caption className="sr-only">Değişiklik geçmişi</caption>
         <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
         <TableBody>{override.changes.map(change => <TableRow key={change.id}>
