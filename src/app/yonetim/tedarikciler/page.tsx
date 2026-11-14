@@ -37,6 +37,15 @@ const toneBadge = (tone: keyof typeof icons, text: string) => {
 const issueColor = { destructive: "text-destructive", warning: "text-warning", info: "text-info" } as const;
 const sample = (names: string[], limit = 6) => names.length > limit ? `${names.slice(0, limit).join(", ")} ve ${number(names.length - limit)} diğer` : names.join(", ");
 
+// Issue links open the supplier page already filtered to the products the issue counts (filters of each page's table).
+const scopeParam: Record<string, string | undefined> = { basbug: "group", dinamik: "brand" };
+const filtered = (href: string, params: Record<string, string | undefined>) => {
+  const query = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  return query.size ? `${href}?${query}` : href;
+};
+const scopeHref = (key: string, href: string, scopes: { list_group: string }[]) =>
+  filtered(href, scopes.length === 1 && scopeParam[key] ? { [scopeParam[key]!]: scopes[0].list_group } : {});
+
 type Issue = { key: string; tone: keyof typeof issueColor; title: string; description: string; href: string; action: string };
 type Row = {
   key: string; name: string; source: string; href: string; status: ReactNode; last: Date | null; scope: string; scopeNote: string;
@@ -87,27 +96,27 @@ export default async function Suppliers() {
   const issues: Issue[] = [];
   for (const { key, name, unit, href, feed } of feeds) {
     if (feed.state === "unconfigured") { issues.push({ key: `${key}-config`, tone: "warning", title: `${name}: bağlantı ayarları eksik`, description: "Ortam değişkenleri tanımlanmadan veri çekilemez.", href, action: "Ayrıntılar" }); continue; }
-    if (feed.stale.length) issues.push({ key: `${key}-stale`, tone: "destructive", href, action: "Yenile",
+    if (feed.stale.length) issues.push({ key: `${key}-stale`, tone: "destructive", href: scopeHref(key, href, feed.stale), action: "Yenile",
       title: `${name}: ${number(feed.stale.length)} ${unit} güncellik süresini aştı`,
       description: `${sample(feed.stale.map(scope => scope.list_group))}. En eski başarılı çekim ${time(feed.oldestSuccess)}; mağaza bu ürünleri son bilinen fiyat ve stokla gösteriyor.` });
-    if (feed.never.length) issues.push({ key: `${key}-never`, tone: "warning", href, action: "Yenile",
+    if (feed.never.length) issues.push({ key: `${key}-never`, tone: "warning", href: scopeHref(key, href, feed.never), action: "Yenile",
       title: `${name}: ${number(feed.never.length)} ${unit} hiç çekilmedi`, description: sample(feed.never.map(scope => scope.list_group)) });
     const retrying = feed.failing.filter(scope => !feed.stale.includes(scope) && !feed.never.includes(scope));
     if (retrying.length) {
       const reasons = [...new Set(retrying.map(scope => importErrorLabel(scope.error_reason, key)))];
-      issues.push({ key: `${key}-failing`, tone: "warning", href, action: "İncele",
+      issues.push({ key: `${key}-failing`, tone: "warning", href: scopeHref(key, href, retrying), action: "İncele",
         title: `${name}: ${number(retrying.length)} ${unit} son denemede güncellenemedi`,
         description: `${sample(retrying.map(scope => scope.list_group))} · ${reasons.join("; ")}. Önceki veri güncellik süresi içinde olduğu için mağazada kullanılmaya devam ediyor.` });
     }
   }
-  if (manualMissing) issues.push({ key: "manual-prices", tone: "warning", href: "/yonetim/tedarikciler/manuel", action: "Fiyat gir",
+  if (manualMissing) issues.push({ key: "manual-prices", tone: "warning", href: filtered("/yonetim/tedarikciler/manuel", { quality: "missing-price" }), action: "Fiyat gir",
     title: `Manuel yükleme: ${number(manualMissing)} ürünün fiyatı yok`, description: "Fiyatı olmayan ürünler mağazada satışa kapalı kalır." });
   for (const { key, name, href } of feeds) {
     const unstocked = metrics[key].unstocked;
-    if (unstocked) issues.push({ key: `${key}-unstocked`, tone: "info", href, action: "İncele",
+    if (unstocked) issues.push({ key: `${key}-unstocked`, tone: "info", href: filtered(href, { quality: key === "dinamik" ? "price-only" : undefined }), action: "İncele",
       title: `${name}: ${number(unstocked)} ürün stok listesinde yok`, description: "Tedarikçi bu ürünlerin fiyatını gönderiyor ama stok bilgisini göndermiyor; stok bilgisi gelene kadar satışa açılmazlar." });
     const conflicting = metrics[key].conflicting;
-    if (conflicting) issues.push({ key: `${key}-conflict`, tone: "info", href, action: "İncele",
+    if (conflicting) issues.push({ key: `${key}-conflict`, tone: "info", href: filtered(href, { quality: "conflicts" }), action: "İncele",
       title: `${name}: ${number(conflicting)} ürün kodu çakışıyor`, description: "Aynı kod tedarikçi listesinde birden fazla ürüne ait; bu satırlar satışa açılmaz." });
   }
 
