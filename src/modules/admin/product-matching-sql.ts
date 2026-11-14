@@ -4,14 +4,23 @@
 export const sharedCandidateSql = "EXISTS (SELECT 1 FROM product_match_candidates o WHERE o.product_b=c.product_b AND o.product_a<>c.product_a)";
 
 /**
- * Candidate reasons that may be merged in bulk. "suffix" is left out (#524): an extra digit or ending is mostly another
- * part (FEBI 100261 vs 1002610…1002619). Known different-part endings are no longer generated at all
- * (product_suffix_rules(), #534); the remaining suffix pairs are ambiguous and decided by hand until bulk merging is
- * opened for them through measured 'same' rows (#535).
+ * Candidate reasons merged in bulk without a pattern check. "suffix" is not one of them (#524): an extra digit or
+ * ending is mostly another part (FEBI 100261 vs 1002610…1002619).
  */
-export const bulkCandidateReasons = ["prefix", "leading_zero"] as const;
+export const wholeBulkReasons = ["prefix", "leading_zero"] as const;
+/**
+ * Candidate reasons the bulk merge accepts. Suffix candidates join only when their ending is a reviewed 'same' row of
+ * product_suffix_rules() (#535: Ford colour codes, MAYSAN MM/WM/PM…); known different-part endings are never
+ * generated (#534) and the rest are decided by hand.
+ */
+export const bulkCandidateReasons = [...wholeBulkReasons, "suffix"] as const;
 export type BulkCandidateReason = (typeof bulkCandidateReasons)[number];
 export const isBulkReason = (reason: string): reason is BulkCandidateReason => (bulkCandidateReasons as readonly string[]).includes(reason);
+/** Only some candidates of this reason are bulk-acceptable (reviewed patterns); the rest need a decision by hand. */
+export const isPatternBulkReason = (reason: string) => isBulkReason(reason) && !(wholeBulkReasons as readonly string[]).includes(reason);
+
+/** Expects aliases `a` and `b` (the products rows of c.product_a and c.product_b): the suffix ending is reviewed as safe. */
+export const safeSuffixSql = "product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'";
 
 /**
  * Expects aliases `c` (candidate) and `b` (the products row of c.product_b). True when the same Başbuğ product is
@@ -23,6 +32,7 @@ export const multiNumberCandidateSql = `(EXISTS (SELECT 1 FROM product_match_can
   OR EXISTS (SELECT 1 FROM product_match_decisions d JOIN products db ON db.id=d.product_b
    WHERE d.product_a=c.product_a AND d.status='same' AND d.product_b<>c.product_b AND db.part_number<>b.part_number))`;
 
-/** Candidates the bulk merge may accept; expects aliases `c` and `b` like multiNumberCandidateSql. */
-export const bulkAcceptableSql = `c.reason IN (${bulkCandidateReasons.map(reason => `'${reason}'`).join(",")}) AND c.name_conflict IS NOT TRUE
+/** Candidates the bulk merge may accept; expects aliases `c`, `a` and `b` (multiNumberCandidateSql, safeSuffixSql). */
+export const bulkAcceptableSql = `(c.reason IN (${wholeBulkReasons.map(reason => `'${reason}'`).join(",")}) OR c.reason='suffix' AND ${safeSuffixSql})
+  AND c.name_conflict IS NOT TRUE
   AND NOT ${sharedCandidateSql} AND NOT ${multiNumberCandidateSql}`;

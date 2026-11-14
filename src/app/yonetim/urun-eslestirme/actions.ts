@@ -83,8 +83,8 @@ export async function decideCandidate(form: FormData) {
 }
 
 // Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1"). Suffix
-// pairs, name conflicts, shared Dinamik products and Başbuğ products with several numbers are left for a decision by
-// hand (#524).
+// pairs only with a reviewed safe ending (#535); other suffix pairs, name conflicts, shared Dinamik products and Başbuğ
+// products with several numbers are left for a decision by hand (#524). bulkAcceptableSql is the rule, not the form.
 export async function acceptCandidates(form: FormData) {
   const admin = await requireAdmin();
   const input = z.object({ reason: z.enum(bulkCandidateReasons), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })

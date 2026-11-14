@@ -27,11 +27,10 @@ Tedarikçiden ilk kez gelen marka etiketi yenilemede `sync_supplier_brands()` il
 
 Otomatik anahtarın kaçırdığı olası aynı ürünler `product_match_candidates`'a üç nedenle düşer: kod ön eki farkı (`prefix`, ör. CONTITECH `CT 978K1` ↔ `978K1`), baştaki sıfır farkı (`leading_zero`) ve son ek farkı (`suffix`). "Tümünü birleştir" yalnız `prefix` ve `leading_zero` için ve bir marka süzülüyken görünür; kural tek yerde, `src/modules/admin/product-matching-sql.ts` içindeki `bulkAcceptableSql`'dedir (sayaç, eylem ve testler aynı parçayı kullanır). Toplu birleştirmede tanımı farklı (`name_conflict`), Dinamik ürünü birden çok Başbuğ ürününe önerilen ("Birden çok eş") ve Başbuğ ürününe farklı kodlu birden çok Dinamik ürünü önerilen ya da zaten bağlanmış ("Birden çok kod") öneriler atlanır ve tek tek karar bekler. Son ek farkı hiç topluca birleştirilmez: fazladan hane veya ek çoğu zaman farklı parçadır (FEBI `100261` ↔ `1002610`…`1002619`). 2026-11-14 denetiminde elle birleştirilen 1.281 eşleşmenin 91'i yanlış çıktı; çoğu son ek farkıydı.
 
-**Son ek kuralları (#534).** Bilinen farklı parça desenleri son ek önerisi olarak hiç üretilmez. Kurallar `db/product-matching.sql` içinde iki fonksiyondadır: `product_suffix_rules()` (marka anahtarı veya `*`, kısa numaranın deseni, ekin deseni, karar) ve `product_suffix_verdict(marka, numara, numara)` — biri diğerini uzatmıyorsa `NULL`, yoksa `different` (önerilmez) veya `review` (önerilir, elle karar verilir); marka satırı `*` satırını ezer. Marka satırları kanonik marka anahtarını (`products.brand`) kullanır; bir marka anahtarı birleştirilir veya yeniden adlandırılırsa satırı da güncelleyin. `refresh_product_matches()` `different` çiftleri atlar, `db:setup` daha önce yazılmış böyle adayları siler. Kurallar:
+**Son ek kuralları (#534).** Bilinen farklı parça desenleri son ek önerisi olarak hiç üretilmez. Kurallar `db/product-matching.sql` içinde iki fonksiyondadır: `product_suffix_rules()` (marka anahtarı veya `*`, kısa numaranın deseni, ekin deseni, karar) ve `product_suffix_verdict(marka, numara, numara)` — biri diğerini uzatmıyorsa `NULL`, yoksa `different` (önerilmez), `same` (önerilir, topluca birleştirilebilir, #535) veya `review` (önerilir, elle karar verilir; hiçbir satır tutmazsa varsayılan). Çakışan satırlar belirlenimli çözülür: önce marka satırları `*`'dan önce gelir; aynı kapsamda `different` > `review` > `same` (güvenlik önce); eşitlikte satır sırası (`WITH ORDINALITY`). Bu yüzden bir marka `same` satırı `*` `different` satırını ezer (STONE `1`). Marka satırları kanonik marka anahtarını (`products.brand`) kullanır; bir marka anahtarı birleştirilir veya yeniden adlandırılırsa satırı da güncelleyin. `refresh_product_matches()` `different` çiftleri atlar, `db:setup` daha önce yazılmış böyle adayları siler. Kurallar:
 
 - `*`: rakamla biten numaraya tek hane eki (FEBI `100261` ↔ `1002610`, TRW `GDB328` ↔ `GDB3281`, MANN `/1`).
 - `*`: yalnız rakamdan oluşan numaraya 2–3 hane eki (ORIJINAL `425270` ↔ `42527025`).
-- STONE: tek hane `1` eki `review` olarak kalır (muafiyet).
 - OSRAM `…nHB` (ikili kutu), DAYCO `KPV…HD`, DAYCO/GATES `…SF`, SILBAK harfle biten numaraya `2`, CONTITECH `…PKnnn` ↔ `…Kn`.
 
 Ölçüm (yerel, 2026-11-14; tamamı karara bağlanmış 438 son ek çifti, 240 farklı / 198 aynı):
@@ -47,7 +46,22 @@ Otomatik anahtarın kaçırdığı olası aynı ürünler `product_match_candida
 | CONTITECH `Kn` | 1 | 0 |
 | **Toplam** | **213** | **3** |
 
-İsabet %98,6; farklı çiftlerin %88,8'i engellenir. Belirsiz desenler bilerek öneride bırakıldı: STONE `-1`, DAYCO/GATES `xPK…HD` (4 farklı / 6 aynı), RAPRO harf ekleri, VW indeks harfleri, Ford renk ekleri (`…YZ9`), MAYSAN `…MM` gibi. Yeni desen = `product_suffix_rules()`'a bir satır + `scripts/test-product-matching.ts`'e test.
+İsabet %98,6; farklı çiftlerin %88,8'i engellenir. Belirsiz desenler bilerek öneride (`review`) bırakıldı: DAYCO/GATES `xPK…HD` (4 farklı / 6 aynı), RAPRO harf ekleri, VW indeks harfleri gibi. Yeni desen = `product_suffix_rules()`'a bir satır + `scripts/test-product-matching.ts`'e test.
+
+**Güvenli ekler ve toplu birleştirme (#535).** İncelenmiş güvenli ek desenleri `same` satırlarıdır; bu son ek önerileri "Tümünü birleştir" sayısına girer (`bulkAcceptableSql`: `c.reason='suffix' AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'`, ayrıca tanımı farklı / birden çok eş / birden çok kod olanlar yine atlanır). `acceptCandidates` aynı SQL kuralını uygular; form yalnız marka ve nedeni taşır. Listede bu satırlar "Güvenli ek" rozetini taşır; kalan son ek önerileri tek tek karar bekler. Satırlar (yerel ölçüm 2026-11-14, karara bağlanmış çiftler, hiçbiri farklı değil):
+
+| Marka | Kısa numara | Ek | Aynı | Farklı |
+| --- | --- | --- | ---: | ---: |
+| ORIJINAL (Ford renk) | `…5YZ` | `9` | 6 | 0 |
+| ORIJINAL (Ford renk) | `…3JA` | `6` | 2 | 0 |
+| MAYSAN | `PN/PS/N/S` + 7 hane | `MM`, `WM`, `PM` | 57 | 0 |
+| KENTPAR | `nnnTnnn` | `01` | 18 | 0 |
+| GMB | `GHnnnnn` | `M`, `T`, `A` | 12 | 0 |
+| SKF | `VKJA…` | `G` | 9 | 0 |
+| STONE | rakamla biten | `1` | 9 | 0 |
+| OSRAM | herhangi | `1BL`, `2BL` (`nBL`) | 11 | 0 |
+
+STONE'da `4` eki farklı çıktı (1 çift) ve `*` kuralında kalır; OSRAM `nHB` farklı satırı ayrı ektir. Yeni güvenli desen = ölçüm (0 farklı, makul n) + `same` satırı + test.
 
 ## Eşleşenler: tek teklifi ayırma ve elle kararlar (#523)
 
