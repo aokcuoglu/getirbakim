@@ -1,12 +1,12 @@
 # AWS geçiş günü çalıştırma kılavuzu
 
-getirbakim.com'un Contabo VPS'ten AWS'e (eu-central-1, Lokum Ops) taşınması. AWS veritabanı **yerel katalogdan** kurulur; VPS'ten yalnız işlem tabloları ve `commerce_settings` gelir. Gerekçe ve ölçümler: [veritabanı kaynağı önerisi](https://claude.ai/artifact/AAxXMTXEFbkH7kt34Gpmu7).
+getirbakim.com'un Contabo VPS'ten AWS'e (eu-central-1, Lokum Ops) taşınması. AWS veritabanı yalnız **yerel katalogdan** kurulur. VPS'ten veri taşınmaz: site canlıya hiç çıkmadı, VPS'teki siparişler demo ve tek hesap yerelde de olan admin (#457). İşlem tabloları (sipariş, ödeme, sepet, oturum, abonelik) AWS'te boş başlar; `accounts` yerelden gelir, `commerce_settings` `setup.ts`'in varsayılanlarıyla kurulur (Başbuğ ödeme kontrolü `live`, kargo 150 TL). Gerekçe ve ölçümler: [veritabanı kaynağı önerisi](https://claude.ai/artifact/AAxXMTXEFbkH7kt34Gpmu7).
 
 Bakım penceresi Türkiye saatiyle 03:00–08:00. Medya bir gün önce yüklendiği için beklenen kesinti **~45–60 dk**; bunun ~15 dk'sı bizde, kalanı Lokum Ops'un geri yükleme ve doğrulaması. Süreler 12 Kasım 2026 provasından.
 
 ## Ön koşullar
 
-- [ ] Lokum Ops yerel kaynaklı aktarımı onayladı. Üç dosya kümesi için yükleme bağlantısı verecek: **M** medya (bir gün önce, Mac'ten), **A** veritabanı + yeni medya (geçiş günü, Mac'ten), **B** VPS işlem verisi (geçiş günü, VPS'ten).
+- [ ] Lokum Ops yerel kaynaklı aktarımı onayladı. İki dosya kümesi için yükleme bağlantısı verecek: **M** medya (bir gün önce, Mac'ten), **A** veritabanı + yeni medya (geçiş günü, Mac'ten). 13 Kasım'a kadar planlanan **B** (VPS işlem verisi) kaldırıldı.
 - [ ] AWS'te tedarikçi senkronizasyonu en az bir kez çalıştı ve Dinamik isteği VPS proxy'sinden geçti. Kontrol (VPS): `docker compose -f /opt/getirbakim-egress/compose.yml exec squid grep 18.194.217.212 /var/log/squid/access.log` → en az bir `CONNECT dinamikapp-api.dinamik.online:443 200`. 12 Kasım'da bu yol **hiç kullanılmamıştı**.
 - [ ] VPS'te bakım modu kurulu: `bash /opt/edge/getirbakim-maintenance.sh status` → `flag: off`. Bkz. [infra/edge](../infra/edge/README.md).
 - [ ] CloudFront getirbakim.com ve www için hazır (12 Kasım'da doğrulandı): `curl --resolve getirbakim.com:443:<CloudFront IP> https://getirbakim.com/` → 200, www → 301 apex, sertifika iki adı kapsıyor (28 Mayıs 2027'ye kadar).
@@ -32,13 +32,12 @@ Saatler örnek. "Biz" = getirbakim, "LO" = Lokum Ops.
 | --- | --- | --- | --- | --- |
 | 02:30 | Biz | Yerel işçileri durdur | `bash scripts/cutover/local-workers.sh stop` | 1 dk |
 | 02:30 | Biz | Başbuğ + SETA tazele, ana katalog | `bash scripts/cutover/refresh-local-suppliers.sh` | 4–10 dk |
-| 03:00 | Biz | VPS bakım modu | VPS'te `bash /opt/edge/getirbakim-maintenance.sh on` | 1 dk |
-| 03:01 | Biz | VPS işlem verisi | `bash scripts/cutover/export-vps-transactional.sh` | < 1 dk |
+| 03:00 | Biz | VPS bakım modu | VPS'te `bash /opt/edge/getirbakim-maintenance.sh on` (DNS değişene kadar demo siparişi alınmasın) | 1 dk |
 | 03:01 | Biz | Veritabanı + yeni medya | `bash scripts/cutover/export-local.sh final <media klasörü>/media-keys.txt` | ~4 dk |
-| 03:05 | Biz → LO | İki klasörün `ls -lh` çıktısı | LO **A** ve **B** bağlantılarını üretir | LO |
-| 03:15 | Biz | Yükleme | A Mac'ten (~0,75 GB, ~12 dk), B VPS'ten (birkaç KB). Komutlar değiştirilmeden; her biri HTTP 200 | ~12 dk |
-| 03:30 | LO | Geri yükleme | 1) boş DB'ye A dump'ı, 2) `setup.ts`, 3) B `pg_restore --data-only`, 4) `ANALYZE`, 5) M + A medyası → S3 | LO |
-| — | LO | Doğrulama | SHA-256; A tabloları kendi `table-counts.txt`'si, B tabloları kendi sayımıyla birebir | LO |
+| 03:05 | Biz → LO | Klasörün `ls -lh` çıktısı | LO **A** bağlantılarını üretir | LO |
+| 03:15 | Biz | Yükleme | A Mac'ten (~0,75 GB, ~12 dk). Komutlar değiştirilmeden; her biri HTTP 200 | ~12 dk |
+| 03:30 | LO | Geri yükleme | 1) boş DB'ye A dump'ı, 2) `setup.ts`, 3) `ANALYZE`, 4) M + A medyası → S3 | LO |
+| — | LO | Doğrulama | SHA-256; tablolar A'nın `table-counts.txt`'siyle birebir. `excluded-table-data.txt`'deki tablolar boş, yalnız `commerce_settings` tek satır (`setup.ts`) | LO |
 | — | LO | AWS zamanlayıcıları | Önce tedarikçi senkronizasyonu, sonra ödeme mutabakatı | LO |
 | — | Biz | DNS | Aşağıda | 5 dk |
 | — | Birlikte | Kontrol | Aşağıda | 15 dk |
@@ -66,7 +65,7 @@ Proxy kapalı olmalı: sertifika, önbellek ve WAF CloudFront'ta. Apex'te A kayd
 
 1. Cloudflare: iki kaydı "Şu an" değerlerine al (apex A `173.249.36.2` Proxied, www CNAME `getirbakim.com` Proxied).
 2. VPS'te `bash /opt/edge/getirbakim-maintenance.sh off`.
-3. AWS'te geçişten sonra oluşan sipariş/üyelik varsa VPS'e elle aktarılır.
+3. AWS'te geçişten sonra gerçek sipariş/üyelik oluştuysa VPS'e elle aktarılır.
 
 VPS, birkaç gün sorunsuz çalışmadan ve Dinamik AWS IP'sini allow-list'e ekledikten sonra kapatılır.
 
@@ -83,4 +82,4 @@ VPS, birkaç gün sorunsuz çalışmadan ve Dinamik AWS IP'sini allow-list'e ekl
 | Ana katalog (`match-products`) | 78–97 sn |
 | Yerel dışa aktarım | dump 742–752 MB / 41 sn; medya 60.315 nesne, arşiv 4,4 GB; toplam ~4,5 dk |
 | Mac yükleme hızı | 200 MB / 200 sn ≈ 8 Mbit/sn |
-| VPS işlem verisi | 13 tablo, 6,8 KB; sütunlar v0.24 ile birebir |
+| VPS işlem verisi | 13 tablo, 6,8 KB (demo); 14 Kasım'da taşınmamasına karar verildi (#457) |
