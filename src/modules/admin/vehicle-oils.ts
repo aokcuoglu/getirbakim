@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/modules/auth/session";
 
 // /yonetim/yag-verileri: progress of the Trodo engine-oil collection (scripts/vehicle-oil-trodo.ts) and the oil data
 // it stored, newest first, so the page can follow a running collection.
@@ -18,6 +19,7 @@ export type VehicleOilsData = { summary: VehicleOilSummary; run: VehicleOilRun |
 export const VEHICLE_OILS_ROWS = 50;
 
 export async function vehicleOilsData(params: Record<string, string | undefined>): Promise<VehicleOilsData> {
+  await requireAdmin();
   const q = (params.q ?? "").trim().slice(0, 80);
   // Type number, or words of the brand/model/type name ("corsa d 1.4").
   const filter = /^\d{1,10}$/.test(q) ? "t.id=$1::int" : q ? `concat_ws(' ', b.display_name, m.name, t.name) ILIKE ALL ($1::text[])` : "true";

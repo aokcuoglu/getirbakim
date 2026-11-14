@@ -10,6 +10,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { requireAdmin } from "@/modules/auth/session";
 import { vehicleOilsData, VEHICLE_OILS_ROWS } from "@/modules/admin/vehicle-oils";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
@@ -25,6 +26,7 @@ const finishAt = (minutes: number) => {
 };
 
 export default async function VehicleOils({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const data = await vehicleOilsData(params);
   const { summary, run, host } = data;
