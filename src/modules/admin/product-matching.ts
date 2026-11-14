@@ -132,7 +132,7 @@ type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };
 // also clear it at once (forgetSameProducts). Past a minute the next request waits for a fresh read, so other price
 // changes (markup/VAT settings, rows ageing out of freshness) show within 60 s. Admin-wide data, nothing per user.
 const sameTtlMs = 60_000;
-let sameCache: { key: string; at: number; index: Promise<SameIndex> } | null = null;
+let sameCache: { key: string; at: number; index: Promise<SameIndex>; ready: SameIndex | null } | null = null;
 export function forgetSameProducts() { sameCache = null; }
 async function sameKey() {
   const imported = "(SELECT max(completed_at) FROM supplier_imports WHERE status='succeeded')";
@@ -144,14 +144,24 @@ async function sameKey() {
     return (await db.query<{ key: string }>(`SELECT concat_ws('/','run',(SELECT max(id) FROM product_match_runs),${imported}) AS key`)).rows[0].key;
   }
 }
-async function sameIndex() {
-  const key = await sameKey();
+async function sameIndex(key?: string) {
+  key ??= await sameKey();
   if (sameCache && sameCache.key === key && Date.now() - sameCache.at <= sameTtlMs) return sameCache.index;
-  const entry = { key, at: Date.now(), index: loadSameIndex() };
+  const entry: NonNullable<typeof sameCache> = { key, at: Date.now(), index: loadSameIndex(), ready: null };
   sameCache = entry;
   // A failed read is not reused: the next request tries again.
-  entry.index.catch(() => { if (sameCache === entry) sameCache = null; });
+  entry.index.then(index => { entry.ready = index; }, () => { if (sameCache === entry) sameCache = null; });
   return entry.index;
+}
+/**
+ * The group counts when the index is already loaded and current; otherwise undefined at once, and the index starts
+ * loading in the background for the next request (a cold read takes ~2 s, and every decision clears it).
+ */
+async function sameSummaryIfReady() {
+  const key = await sameKey();
+  if (sameCache?.ready && sameCache.key === key && Date.now() - sameCache.at <= sameTtlMs) return sameCache.ready.summary;
+  sameIndex(key).catch(error => console.error("Background load of the matched groups failed", error));
+  return undefined;
 }
 async function loadSameIndex(): Promise<SameIndex> {
   // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
@@ -169,9 +179,9 @@ async function loadSameIndex(): Promise<SameIndex> {
 async function sameProducts(params: MatchingParams) {
   const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
   const scope = sameScope(params.scope);
-  // The other views' counts stay on the scope selector; the groups come from the cached index.
+  // The other views' counts stay on the scope selector while the cached groups are loaded; the list never waits for them.
   if (scope === "manual") {
-    const [decided, { summary }] = await Promise.all([manualDecisions(params, exclusions), sameIndex()]);
+    const [decided, summary] = await Promise.all([manualDecisions(params, exclusions), sameSummaryIfReady()]);
     return { ...decided, same: [] as SameProduct[], summary, scope, exclusions };
   }
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
