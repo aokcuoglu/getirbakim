@@ -92,7 +92,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </>}
     sync={<div className="flex flex-col gap-4">
       <SupplierSourceCard description="Seçilen grubun ürün, fiyat, stok ve kur verileri birlikte çekilir." badge={<Badge variant="outline">API · grup bazlı</Badge>} schedule={schedule}
-        footer={<SupplierRefreshRunner tasks={[...new Set(knownGroups.map(g => g.kod))].map(kod => ({ supplier: "basbug" as const, group: kod }))} label="Tüm grupları API’den yenile" description={`${groupCount} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/>}>
+        footer={<SupplierRefreshRunner scopes={[{ supplier: "basbug", groups: [...new Set(knownGroups.map(g => g.kod))] }]} label="Tüm grupları API’den yenile" description={`${groupCount} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/>}>
         <form action={refreshBasbug}><Field>
           <FieldLabel htmlFor="refresh-group">Tek grup</FieldLabel>
           <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili grubu API’den güncelle" pendingLabel="Başbuğ verileri çekiliyor…"/></div>

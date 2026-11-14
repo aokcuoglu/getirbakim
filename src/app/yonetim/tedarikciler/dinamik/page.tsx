@@ -31,9 +31,9 @@ import { db } from "@/lib/db";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
+import { ScopeCombobox } from "@/components/admin/scope-combobox";
 import { refreshDinamik } from "./actions";
 
 const runError = (reason: string) => supplierRunError(reason, "dinamik");
@@ -91,11 +91,11 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
     sync={<div className="flex flex-col gap-4">
       <SupplierSourceCard description="Her marka tek istekle çekilir (stok ve fiyat listesi birlikte). Zamanlayıcı kapalıyken veriler buradan tazelenir."
         badge={<Badge variant="outline">API · marka bazlı</Badge>} schedule={schedule}
-        footer={<SupplierRefreshRunner tasks={plan.dinamikStale.map(brand => ({ supplier: "dinamik" as const, group: brand }))} label={`Güncel olmayan ${formatNumber(plan.dinamikStale.length)} markayı yenile`}
+        footer={<SupplierRefreshRunner scopes={[{ supplier: "dinamik", groups: plan.dinamikStale }]} label={`Güncel olmayan ${formatNumber(plan.dinamikStale.length)} markayı yenile`}
           description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/>}>
         <form action={refreshDinamik}><Field>
           <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
-          <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-brand" name="brand" defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}>{plan.dinamikBrands.map(brand => <NativeSelectOption key={brand} value={brand}>{brand}</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
+          <div className="flex flex-wrap gap-2"><ScopeCombobox id="refresh-brand" name="brand" className="w-64" values={plan.dinamikBrands} empty="Eşleşen marka yok." defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}/><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
           <FieldDescription>{formatNumber(plan.dinamikBrands.length)} etkin marka · {formatNumber(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
         </Field></form>
       </SupplierSourceCard>

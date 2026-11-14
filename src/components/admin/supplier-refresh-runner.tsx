@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, RefreshCw } from "lucide-react";
 import { refreshSupplierScope, type SupplierRefreshResult } from "@/app/yonetim/tedarikciler/actions";
@@ -11,6 +11,8 @@ import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
 
 export type SupplierRefreshTask = { supplier: "basbug" | "dinamik" | "seta"; group: string };
+/** One supplier's scopes in refresh order; the page sends plain names and the runner pairs them with the supplier. */
+export type SupplierRefreshScopes = { supplier: SupplierRefreshTask["supplier"]; groups: string[] };
 type Result = SupplierRefreshTask & SupplierRefreshResult;
 
 const names: Record<SupplierRefreshTask["supplier"], string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA" };
@@ -29,8 +31,9 @@ const errors: Record<string, string> = {
 const stopReasons = new Set(["busy", "paused", "config", "forbidden"]);
 const upstreamLimit = 3;
 
-export function SupplierRefreshRunner({ tasks, label, description, ariaLabel }: { tasks: SupplierRefreshTask[]; label: string; description: string; ariaLabel: string }) {
+export function SupplierRefreshRunner({ scopes, label, description, ariaLabel }: { scopes: SupplierRefreshScopes[]; label: string; description: string; ariaLabel: string }) {
   const router = useRouter();
+  const tasks = useMemo(() => scopes.flatMap(({ supplier, groups }) => groups.map(group => ({ supplier, group }))), [scopes]);
   const [running, setRunning] = useState(false);
   const [current, setCurrent] = useState<SupplierRefreshTask | null>(null);
   const [results, setResults] = useState<Result[]>([]);

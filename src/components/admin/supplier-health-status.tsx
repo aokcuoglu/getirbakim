@@ -2,10 +2,10 @@ import type { supplierHealth } from "@/modules/suppliers/health";
 import { feedStateLabels } from "@/modules/suppliers/data-status";
 import { Info, TriangleAlert } from "lucide-react";
 import { SupplierRefreshButton } from "./supplier-refresh-button";
+import { ScopeCombobox } from "./scope-combobox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Health = Awaited<ReturnType<typeof supplierHealth>>;
@@ -101,7 +101,7 @@ export function SupplierHealthStatus({ health, supplier, name, unit, warehouse, 
       </AccordionItem></Accordion>}
       {listed.length > 0 && <form action={refresh} className="flex flex-wrap items-end gap-2">
         {refreshField && <Field className="w-52"><FieldLabel htmlFor={`${supplier}-health-retry`}>Yeniden denenecek {unit}</FieldLabel>
-          <NativeSelect id={`${supplier}-health-retry`} name={refreshField} defaultValue={group || listed[0]?.list_group}>{listed.map(scope => <NativeSelectOption key={`${scope.list_group}-${scope.warehouse}`} value={scope.list_group}>{scopeName(scope)}</NativeSelectOption>)}</NativeSelect></Field>}
+          <ScopeCombobox id={`${supplier}-health-retry`} name={refreshField} values={[...new Set(listed.map(scope => scope.list_group))]} defaultValue={group || listed[0]?.list_group} empty={`Eşleşen ${unit} yok.`}/></Field>}
         <SupplierRefreshButton label={refreshField ? `Seçili ${words.accusative} yeniden dene` : `${words.accusative[0].toLocaleUpperCase("tr-TR")}${words.accusative.slice(1)} yeniden dene`} pendingLabel={`${name} verileri çekiliyor…`}/>
         <FieldDescription className="basis-full">{refreshDescription}</FieldDescription>
       </form>}

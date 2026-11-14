@@ -6,7 +6,7 @@ import { adminSupplierCatalogMetrics, adminSupplierFeeds, adminSupplierRefreshPl
 import { adminManualLists } from "@/modules/admin/manual";
 import { supplierSchedulerManual } from "@/modules/suppliers/health";
 import { feedIssueCount, feedStateLabels, feedStateTones, importErrorLabel, type FeedStatus } from "@/modules/suppliers/data-status";
-import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
+import { SupplierRefreshRunner, type SupplierRefreshScopes } from "@/components/admin/supplier-refresh-runner";
 import { formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -82,11 +82,12 @@ export default async function Suppliers() {
   ] as const;
 
   // SETA is one quick list, Başbuğ 15 groups, Dinamik only the brands not refreshed in the last day.
-  const refreshTasks: SupplierRefreshTask[] = [
-    ...(plan.seta ? [{ supplier: "seta" as const, group: "ALL" }] : []),
-    ...(status.basbug.state !== "unconfigured" ? plan.basbug.map(group => ({ supplier: "basbug" as const, group })) : []),
-    ...(status.dinamik.state !== "unconfigured" ? plan.dinamikStale.map(group => ({ supplier: "dinamik" as const, group })) : []),
+  const refreshScopes: SupplierRefreshScopes[] = [
+    ...(plan.seta ? [{ supplier: "seta" as const, groups: ["ALL"] }] : []),
+    ...(status.basbug.state !== "unconfigured" ? [{ supplier: "basbug" as const, groups: plan.basbug }] : []),
+    ...(status.dinamik.state !== "unconfigured" ? [{ supplier: "dinamik" as const, groups: plan.dinamikStale }] : []),
   ];
+  const refreshCount = refreshScopes.reduce((sum, scope) => sum + scope.groups.length, 0);
 
   const method = (feed: FeedStatus) => feed.automated === 0 ? "Elle güncellenir"
     : feed.automated === feed.tracked ? `Otomatik, ${formatInterval(feed.intervalMinutes)}`
@@ -180,8 +181,8 @@ export default async function Suppliers() {
     <Card role="region" aria-labelledby="supplier-refresh">
       <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>
         <CardDescription>Zamanlayıcıyı beklemeden API’lerden çeker: SETA, Başbuğ’un {number(plan.basbug.length)} grubu ve son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
-      <CardContent><SupplierRefreshRunner tasks={refreshTasks} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
-        description={`${number(refreshTasks.length)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
+      <CardContent><SupplierRefreshRunner scopes={refreshScopes} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
+        description={`${number(refreshCount)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
     </Card>
 
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
