@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, FileSpreadsheet, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
+import { BadgePercent, BellRing, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, FileSpreadsheet, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -13,16 +13,19 @@ import {
 
 export type AdminNavStatus = {
   orders: number; services: number; enrichment: number; brands: number;
+  /** Restock requests whose product can be ordered again ("Bildirilecek", #475). */
+  restock: number;
   basbug: "success" | "warning" | "danger" | "neutral";
   dinamik: "success" | "warning" | "danger" | "neutral";
   seta: "success" | "warning" | "danger" | "neutral";
 };
-type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment" | "brands">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
+type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment" | "brands" | "restock">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
 const sections: { title: string; items: Item[] }[] = [
   { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
   { title: "Satış", items: [
     { href: "/yonetim/siparisler", label: "Siparişler", icon: ReceiptText, count: "orders" },
     { href: "/yonetim/servisler", label: "B2B servisler", icon: Building2, count: "services" },
+    { href: "/yonetim/stok-bildirimleri", label: "Stok bildirimleri", icon: BellRing, count: "restock" },
     { href: "/yonetim/fiyatlandirma", label: "Fiyatlandırma", icon: BadgePercent },
   ] },
   { title: "Katalog", items: [

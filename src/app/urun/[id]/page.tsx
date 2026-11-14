@@ -4,9 +4,10 @@ import { siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
-import { getDecidedEquivalents, getProduct, getSetaEquivalents, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
+import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { PurchaseForm } from "@/components/purchase-form";
+import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
@@ -34,7 +35,7 @@ const benefits = [
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
-  const product = await getProduct(id);
+  const product = await getStorefrontProduct(id);
   if (!product) return { title: "Ürün bulunamadı | Getirbakim", robots: { index: false } };
   return {
     title: `${product.brand} ${product.name} — ${product.code} | Getirbakim`,
@@ -47,7 +48,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function Detail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { product, primaryId } = await getStoreProduct(id);
-  // A supplier offer of a product several suppliers sell is shown on that product's page.
+  // A supplier offer of a product several suppliers sell is shown on that product's page; a row the store does not
+  // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
   const enrichment = await getProductEnrichment(product);
@@ -132,7 +134,11 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {product.brand} {displayPartNumber}</h1>
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
         <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.code}</p>
-        {product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
+        {product.unavailable ? <>
+          <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>
+          <PurchaseForm productId={product.id} name={product.code} available={false} maxQuantity={1} variant="product"/>
+          <RestockRequestForm productId={product.id} email={account?.email}/>
+        </> : product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
           <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px] text-[#ed3821]">{price}</p>
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
@@ -144,7 +150,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           ? <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
           : <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
-        <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>
+        {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
         <dl className="mt-[18px] mb-1.5">{specifications.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>

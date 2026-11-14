@@ -7,7 +7,7 @@ export const compactPartNumber = (value: string) => value.toUpperCase().replace(
 const referenceKey = (brand: string, code: string) => `${compactPartNumber(brand)}|${compactPartNumber(code)}`;
 const searchHref = (code: string) => `/katalog?q=${encodeURIComponent(compactPartNumber(code))}&searchBy=code`;
 const company = storefrontCompanies;
-const entriesSql = "SELECT id,brand,code,oem FROM commerce_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+const entriesSql = "SELECT id,brand,code,oem FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 
 // Items whose part number (the code after the supplier prefix) is one of `codes`, read through
 // supplier_items_part_key_idx; filtering the catalog view directly normalised every item (~2 s per page).

@@ -549,6 +549,17 @@ BEGIN
  WHERE p.id=t.product_id AND p.merged_into IS DISTINCT FROM t.target AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
  UPDATE products p SET merged_into=NULL, updated_at=now()
  WHERE p.merged_into IS NOT NULL AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
+ -- Rows a supplier dropped before they were ever linked (#475) join the existing product of their key, so the storefront
+ -- lists that product once (storefront_catalog) and old links redirect. No product, offer or supplier list changes.
+ INSERT INTO product_sources(supplier_item_id,product_id)
+ SELECT i.id, p.id FROM (SELECT *, supplier_item_brand(supplier,product_data) AS label FROM supplier_items
+  WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL))
+   AND presence IN ('pending_missing','inactive') AND NOT conflicting) i
+ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=i.label LEFT JOIN brands b ON b.id=sb.brand_id
+ JOIN products p ON p.brand=COALESCE(b.key,product_brand_key(i.label)) AND p.part_number=supplier_item_part_number(i.supplier,i.code,i.product_data)
+  AND p.variant=0 AND p.merged_into IS NULL
+ WHERE length(p.part_number)>=4 AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=i.id)
+ ON CONFLICT DO NOTHING;
  ANALYZE products; ANALYZE product_sources;
  -- Storefront projection until the store reads products directly: the listed row is the product's own row (else
  -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik/manual row of the product competes on price and stock.

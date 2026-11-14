@@ -18,6 +18,9 @@ test("malformed and oversized filter groups are rejected", () => {
 test("attribute values preserve source keys while trimming selections", () => {
   assert.deepEqual(selectedAttributes({attributes:'{"Fitting Position":[" Front Axle ","Rear Axle"],"Brand class":["Premium"]}'}), {"Fitting Position":["Front Axle","Rear Axle"],"Brand class":["Premium"]});
 });
+test("stock filter accepts 'supplied' (Tedarik edilebilir, #475)", () => {
+  assert.equal(parseCatalogQuery({availability:"supplied"}).availability,"supplied");
+});
 test("unsupported stock states and excessive request input are ignored", () => {
   const query=parseCatalogQuery({availability:"unknown",brands:"x".repeat(6501),attributes:"x".repeat(18001)});
   assert.equal(query.availability,undefined);

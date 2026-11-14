@@ -21,9 +21,10 @@ try {
   const expected=base.items.filter(item=>brands.includes(item.brand)&&Object.entries(attributes).every(([key,values])=>details.get(item.id)?.specifications.some(([k,v])=>k===key&&values.includes(v))));
   assert.deepEqual(filtered.items.map(p=>p.id).sort(),expected.map(p=>p.id).sort(),"Values within a facet use OR; separate facets use AND");
   assert.deepEqual(await catalogFacets({category,brands:JSON.stringify(brands),attributes:JSON.stringify(attributes)}),facets,"Selected filters must not erase available options");
-  for(const availability of ["in_stock","out_of_stock"] as const){
+  for(const availability of ["in_stock","out_of_stock","supplied"] as const){
     const stock=await browseProducts({category,availability});
-    const expectedStock=base.items.filter(p=>availability==="in_stock"?p.available:!p.available&&p.stock_label==="Stokta yok");
+    // Supplied (#475): everything except the products no supplier sells now.
+    const expectedStock=base.items.filter(p=>availability==="supplied"?!p.unavailable:availability==="in_stock"?p.available:!p.available&&p.stock_label==="Stokta yok");
     assert.deepEqual(stock.items.map(p=>p.id).sort(),expectedStock.map(p=>p.id).sort(),"Unknown stock is neither in stock nor out of stock");
   }
   assert.equal((await browseProducts({category,attributes:'{"Fitting Position":["NONEXISTENT"]}'})).total,0);

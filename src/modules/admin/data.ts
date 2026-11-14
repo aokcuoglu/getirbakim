@@ -4,6 +4,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { sortOrder } from "@/lib/table-sort";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import type { CommerceOrder } from "@/modules/store/orders";
+import { restockDueCount } from "./restock";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -77,12 +78,12 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
 const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_brands WHERE method='auto'";
 export async function adminNavCounts() {
   await requireAdmin();
-  const { rows } = await db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
+  const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
     (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
-    (${pendingBrandsSql}) AS brands`);
-  return rows[0];
+    (${pendingBrandsSql}) AS brands`), restockDueCount()]);
+  return { ...rows[0], restock };
 }
 
 export type DashboardDay = { day: string; orders: number; revenue_kurus: number };

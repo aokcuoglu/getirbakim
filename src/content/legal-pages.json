@@ -2981,6 +2981,32 @@
         ]
       },
       {
+        "title": "Stok Bildirim Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satışta olmayan bir ürünün sayfasındaki “Gelince haber ver” formunu gönderdiğinde e-posta adresin, talep ettiğin ürün (tedarikçi, ürün kodu, marka ve ad), bilgilendirme izni metni ve sürümü, talep tarihi ve hesabınla giriş yaptıysan hesabın kaydedilir. Kötüye kullanımı önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri bir saat boyunca deneme sayısıyla tutulur. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde talep kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu veriler yalnızca ürün yeniden satışa sunulduğunda sana bir kez bilgi vermek için işlenir. Talep tek seferlik bir bilgilendirmedir; bülten aboneliği veya pazarlama izni değildir ve pazarlama amaçlı e-posta gönderimi için kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim yapılan talepler bildirimden 30 gün sonra, bildirim yapılmayan talepler talep tarihinden 12 ay sonra silinir. Talepler şu anda bir e-posta hizmeti sağlayıcısına aktarılmaz; bildirim gerektiğinde yetkili çalışanlarımızca gönderilir. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin; geri çekilen talep hemen silinir."
+            ]
+          }
+        ]
+      },
+      {
         "title": "Mevcut Hizmetlerde İşlenen Veriler",
         "blocks": [
           {
@@ -3683,6 +3709,32 @@
             "attrs": {},
             "children": [
               "Talepler, e-posta adresi doğrulanıncaya kadar bekleyen kayıt olarak tutulur. Bülten kayıtları bir e-posta hizmeti sağlayıcısına aktarılmaz. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Stok Bildirim Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satışta olmayan bir ürünün sayfasındaki “Gelince haber ver” formunu gönderdiğinde e-posta adresin, talep ettiğin ürün (tedarikçi, ürün kodu, marka ve ad), bilgilendirme izni metni ve sürümü, talep tarihi ve hesabınla giriş yaptıysan hesabın kaydedilir. Kötüye kullanımı önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri bir saat boyunca deneme sayısıyla tutulur. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde talep kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu veriler yalnızca ürün yeniden satışa sunulduğunda sana bir kez bilgi vermek için işlenir. Talep tek seferlik bir bilgilendirmedir; bülten aboneliği veya pazarlama izni değildir ve pazarlama amaçlı e-posta gönderimi için kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim yapılan talepler bildirimden 30 gün sonra, bildirim yapılmayan talepler talep tarihinden 12 ay sonra silinir. Talepler şu anda bir e-posta hizmeti sağlayıcısına aktarılmaz; bildirim gerektiğinde yetkili çalışanlarımızca gönderilir. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin; geri çekilen talep hemen silinir."
             ]
           }
         ]

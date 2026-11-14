@@ -38,6 +38,9 @@ try {
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
    await client.query(await readFile("db/product-matching.sql", "utf8"));
+   // Reads product_sources: the storefront catalog with unavailable products (#475), then their restock requests.
+   await client.query(await readFile("db/storefront-catalog.sql", "utf8"));
+   await client.query(await readFile("db/restock-requests.sql", "utf8"));
    await client.query(await readFile("db/enrichment-products.sql", "utf8"));
    await client.query(await readFile("db/enrichment-states.sql", "utf8"));
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
