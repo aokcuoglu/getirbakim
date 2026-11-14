@@ -20,7 +20,7 @@ export const manualSourceMethod = "manual-upload";
 const lock = [20261001, 8];
 
 export class ManualImportError extends Error {
-  constructor(public readonly reason: "busy" | "not-found" | "invalid" | "decided", public readonly detail?: string) {
+  constructor(public readonly reason: "busy" | "locked" | "not-found" | "invalid" | "decided", public readonly detail?: string) {
     super(`Manual list: ${reason}${detail ? ` (${detail})` : ""}`);
   }
 }
@@ -258,6 +258,8 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
   }
 }
 
+const saveLockTimeout = "5s";
+
 /** Saves the item page's values and applies them to the current item at once (and to later uploads, see withOverrides). */
 export async function updateManualItem(pool: Pool, itemId: string, values: ManualOverrides, by: string | null, download: typeof downloadImage = downloadImage) {
   const item = (await pool.query<{ list_group: string; code: string; product_data: ReturnType<typeof manualProductData> }>(
@@ -276,11 +278,16 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     locked = (await connection.query("SELECT pg_try_advisory_lock($1,$2) AS locked", lock)).rows[0].locked;
     if (!locked) throw new ManualImportError("busy");
     await connection.query("BEGIN");
+    // A product-match refresh (~2 min) or a supplier import can hold rows this save writes until it commits: give up
+    // after a few seconds and tell the admin, instead of keeping the request open for the whole run (#521).
+    await connection.query(`SET LOCAL lock_timeout = '${saveLockTimeout}'`);
     await connection.query(`INSERT INTO manual_item_overrides(list_group,code,fields,updated_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(list_group,code) DO UPDATE SET fields=EXCLUDED.fields,updated_by=EXCLUDED.updated_by,updated_at=now()`,
     [item.list_group, item.code, JSON.stringify(fields), by]);
     const next = observation(row, file, categories.get(row.categoryId)!, item.product_data.list_name);
-    const changed = await connection.query<{ id: string }>(`WITH old AS (SELECT * FROM supplier_items WHERE id=$1 FOR UPDATE),
+    // NO KEY UPDATE: the matcher's foreign keys (product_match_items, product_sources…) key-share every listed row for
+    // its whole run, which FOR UPDATE waits on; this UPDATE leaves the row's keys alone (#521).
+    const changed = await connection.query<{ id: string }>(`WITH old AS (SELECT * FROM supplier_items WHERE id=$1 FOR NO KEY UPDATE),
       updated AS (UPDATE supplier_items i SET product_data=$2,price_data=$3,stock_data=$4,price_count=$5,stock_count=$6,changed_at=now()
         FROM old WHERE i.id=old.id AND ROW(old.product_data,old.price_data,old.stock_data) IS DISTINCT FROM ROW($2::jsonb,$3::jsonb,$4::jsonb) RETURNING i.*)
       INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
@@ -293,6 +300,7 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     return { changed: Boolean(changed.rowCount) };
   } catch (error) {
     await connection.query("ROLLBACK").catch(() => {});
+    if ((error as { code?: string }).code === "55P03") throw new ManualImportError("locked");
     throw error;
   } finally {
     try { if (locked) await connection.query("SELECT pg_advisory_unlock($1,$2)", lock); }

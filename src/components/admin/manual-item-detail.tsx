@@ -29,6 +29,7 @@ const errors: Record<string, string> = {
   input: "Fiyat ve stok sayı olmalı; resim linki doğrudan bir resim dosyasına gitmeli.",
   invalid: "Değer kaydedilemedi",
   busy: "Başka bir manuel liste işlemi sürüyor. Biraz sonra yeniden deneyin.",
+  locked: "Ürün şu anda başka bir işlemde (ör. ürün eşleştirme) güncelleniyor; kayıt yapılmadı. Bir iki dakika sonra yeniden deneyin.",
   "not-found": "Ürün bulunamadı.",
 };
 
