@@ -9,8 +9,8 @@ export type SupplierTab = "products" | "transfer";
 /**
  * The one rule for the tab a supplier page opens on: the sync tab ("Senkronizasyon ve kalite" / "Yükleme ve kontrol")
  * when the page reports something to act on there (an `?error=`, or Manuel's open draft) or there is no data to
- * browse yet; otherwise the product list. A success notice (`?updated=1`) opens the products, which the refresh
- * redirect already filters to the refreshed group or brand.
+ * browse yet; otherwise the product list. Başbuğ's and SETA's success notice (`?updated=1`) opens the products; Dinamik
+ * counts it as attention so a single-brand refresh started on the sync tab stays there.
  */
 export function supplierInitialTab({ attention, hasData }: { attention: boolean; hasData: boolean }): SupplierTab {
   return attention || !hasData ? "transfer" : "products";

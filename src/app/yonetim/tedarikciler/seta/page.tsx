@@ -81,9 +81,10 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
         <form action={refreshSeta} className="flex flex-wrap items-end gap-2"><SupplierRefreshButton label="Listeyi API’den güncelle" pendingLabel="SETA verileri çekiliyor…"/></form>
         <p className="text-muted-foreground">Maliyet KDV hariç bayi alışıdır; satış fiyatı fiyatlandırma ekranındaki kâr ve KDV ile hesaplanır. 0,00 TL fiyatlı ürünler satışa kapalıdır. Stok adet değil, var/yok sinyalidir.</p>
       </SupplierSourceCard>
-      <SupplierQualityCard quality={lastSucceeded?.quality} completedAt={lastSucceeded?.completed_at}
-        scope={lastSucceeded ? `Tüm liste · ${runKindLabel(lastSucceeded.run_kind, "seta")}` : undefined}>
-        {lastSucceeded && <p className="text-muted-foreground tabular-nums">Stokta yok: {formatNumber(lastSucceeded.quality.outOfStock)} · Kaynak satırı: {formatNumber(lastSucceeded.quality.productRows)}</p>}
+      {/* The last full list: its duplicate/conflict counts match the product filters (price · stock runs recount the source only). */}
+      <SupplierQualityCard quality={snapshot?.quality} completedAt={snapshot?.completed_at}
+        scope={snapshot ? `Tüm liste · ${runKindLabel(snapshot.run_kind, "seta")}` : undefined}>
+        {snapshot && <p className="text-muted-foreground tabular-nums">Stokta yok: {formatNumber(snapshot.quality.outOfStock)} · Kaynak satırı: {formatNumber(snapshot.quality.productRows)}</p>}
       </SupplierQualityCard>
       <SupplierRunHistory runs={data.recentRuns} supplier="seta" name="SETA"/>
     </div>}

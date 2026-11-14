@@ -71,7 +71,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   return <SupplierPage crumb="Dinamik" title="Dinamik API" tabsLabel="Dinamik yönetimi"
     description="Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir."
     badge={<SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{feeds ? <FeedStatusBadge status={feeds.dinamik}/> : <StatusBadge tone="error">Okunamadı</StatusBadge>}</SupplierActivityBadge>}
-    attention={Boolean(params.error)} hasData={items.present > 0} tabKey={[params.error, params.updated, params.brand].join("|")}
+    attention={Boolean(params.error) || params.updated === "1"} hasData={items.present > 0} tabKey={[params.error, params.updated, params.brand].join("|")}
     alerts={<>
       {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
       {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
