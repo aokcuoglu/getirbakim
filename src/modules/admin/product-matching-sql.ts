@@ -20,7 +20,7 @@ export const isBulkReason = (reason: string): reason is BulkCandidateReason => (
 export const isPatternBulkReason = (reason: string) => isBulkReason(reason) && !(wholeBulkReasons as readonly string[]).includes(reason);
 
 /** Expects aliases `a` and `b` (the products rows of c.product_a and c.product_b): the suffix ending is reviewed as safe. */
-export const safeSuffixSql = "product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'";
+const safeSuffixSql = "product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'";
 
 /**
  * Expects aliases `c` (candidate) and `b` (the products row of c.product_b). True when the same Başbuğ product is

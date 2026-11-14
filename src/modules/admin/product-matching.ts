@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { compactCode as compact, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, isPatternBulkReason, multiNumberCandidateSql, safeSuffixSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, isBulkReason, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
@@ -47,7 +47,7 @@ export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod 
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
 /** A Başbuğ-only (a) and a Dinamik-only product (b), or a Başbuğ/Dinamik product (a) and a manual-list-only one (b), that
  *  look the same; "Aynı ürün" merges b into a. */
-export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_safe: boolean; brand: string; a: CandidateSide; b: CandidateSide };
+export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: CandidateSide; b: CandidateSide };
 /** Candidates split by whether the two part names name the same kind of part (db product_names_conflict). */
 export type CandidateNames = "consistent" | "conflict";
 export const candidateNames: Record<CandidateNames, string> = { consistent: "Tanımı uyumlu", conflict: "Tanımı farklı" };
@@ -235,9 +235,9 @@ async function matchCandidates(params: MatchingParams) {
       count(*) FILTER (WHERE ${bulkAcceptableSql})::int AS acceptable FROM ${from} WHERE ${where}`, values),
   ]);
   const { page, pages } = pageOf(params.page, total.rows[0].count);
-  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_safe: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
+  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
   const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name,'suppliers',${alias}.suppliers)`;
-  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,${multiNumberCandidateSql} AS multi_a,(c.reason='suffix' AND ${safeSuffixSql}) AS suffix_safe,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
+  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,${multiNumberCandidateSql} AS multi_a,(c.reason='suffix' AND ${bulkAcceptableSql}) AS suffix_bulk,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.candidates, "c.name_similarity DESC NULLS LAST,a.brand,a.part_number")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
   // a single-supplier product; its cheapest available row stands for it.

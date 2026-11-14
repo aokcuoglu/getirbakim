@@ -227,17 +227,17 @@ test("known different-part suffix patterns get a 'different' verdict, reviewed s
     ["FEBI", "100261", "1002610"], ["FEBI", "1007521", "100752"], ["TRW", "GDB328", "GDB3281"], ["TRW", "JTC4023", "JTC402"],
     ["BLUEPRINT", "ADG04319", "ADG043192"], ["MANN", "C25024", "C250241"], ["OSRAM", "64150CBN", "64150CBN2HB"],
     ["DAYCO", "KPV134", "KPV134HD"], ["GATES", "4PK970", "4PK970SF"], ["SILBAK", "SB2421C", "SB2421C2"], ["ORIJINAL", "425270", "42527025"],
-    ["STONE", "JF36420", "JF364204"], ["ORIJINAL", "672007", "6720073"],
+    ["STONE", "JF36420", "JF364204"], ["ORIJINAL", "672007", "6720073"], ["OSRAM", "5007ULT2BL", "5007ULT"], ["OSRAM", "64150NBS", "64150NBS3BL"],
   ];
   const same: [string, string, string][] = [
     ["ORIJINAL", "KK21R19952BB5YZ", "KK21R19952BB5YZ9"], ["ORIJINAL", "BM51F31148AF3JA6", "BM51F31148AF3JA"],
     ["MAYSAN", "PN7210200", "PN7210200MM"], ["MAYSAN", "N7217004", "N7217004WM"], ["MAYSAN", "N6237601PM", "N6237601"],
     ["KENTPAR", "152T001", "152T00101"], ["GMB", "GH10280", "GH10280M"], ["GMB", "GH20030T", "GH20030"], ["GMB", "GH31585", "GH31585A"],
-    ["SKF", "VKJA3010", "VKJA3010G"], ["STONE", "JF16443", "JF164431"], ["OSRAM", "64150NBS", "64150NBS1BL"], ["OSRAM", "5007ULT2BL", "5007ULT"],
+    ["STONE", "JF16443", "JF164431"], ["OSRAM", "64150NBS", "64150NBS1BL"], ["OSRAM", "5201DWP1BL", "5201DWP"],
   ];
   const review: [string, string, string][] = [
     ["DAYCO", "8PK1480", "8PK1480HD"], ["ORIJINAL", "KK21R19952BB5YX", "KK21R19952BB5YX9"], ["MAYSAN", "PN7210200", "PN7210200XM"],
-    ["KENTPAR", "152A001", "152A00101"], ["GMB", "GH10280", "GH10280X"], ["SKF", "VKBA3010", "VKBA3010G"], ["STONE", "JFS30163RFCS", "JFS30163RFCS1"],
+    ["KENTPAR", "152A001", "152A00101"], ["GMB", "GH10280", "GH10280X"], ["SKF", "VKBA3010", "VKBA3010G"], ["SKF", "VKJA3010", "VKJA3010G"], ["ORIJINAL", "ZZ535AB5YZ", "ZZ535AB5YZ9"], ["STONE", "JFS30163RFCS", "JFS30163RFCS1"],
     ["ZZ535TEST", "ZZ535AB5YZ", "ZZ535AB5YZ9"],
   ];
   for (const [brand, a, b] of different) assert.equal(await suffixVerdict(brand, a, b), "different", `${brand} ${a} / ${b}`);
@@ -245,6 +245,17 @@ test("known different-part suffix patterns get a 'different' verdict, reviewed s
   for (const [brand, a, b] of review) assert.equal(await suffixVerdict(brand, a, b), "review", `${brand} ${a} / ${b}`);
   assert.equal(await suffixVerdict("FEBI", "100261", "100262"), null);
   assert.equal(await suffixVerdict("FEBI", "100261", "100261"), null);
+});
+
+// No pair decided as different locally is called safe (#535); skipped where nothing has been decided yet.
+test("no decided 'different' suffix pair gets a 'same' verdict", async t => {
+  await assertSafeSuffixRules();
+  const decided = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_match_decisions WHERE status='different'")).rows[0].n;
+  if (!decided) return t.skip("no decisions in this database");
+  const wrong = (await pool.query<{ pair: string }>(`SELECT a.brand||' '||a.part_number||' / '||b.part_number AS pair FROM product_match_decisions d
+    JOIN products a ON a.id=d.product_a JOIN products b ON b.id=d.product_b
+    WHERE d.status='different' AND a.brand=b.brand AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'`)).rows.map(row => row.pair);
+  assert.deepEqual(wrong, []);
 });
 
 // Overlapping rows (#535): brand rows before '*', then 'different' before 'review' before 'same', then row order. The
@@ -587,13 +598,13 @@ test("bulk accept takes reviewed safe suffix pairs and skips the rest", async ()
     const product = async (brand: string, part: string, supplier: string, name = "SIS FAR CERCEVESI SAG") => (await client.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code,suppliers)
       VALUES ($1,$2,$3,$1,$2,ARRAY[$4]) RETURNING id`, [brand, part, name, supplier])).rows[0].id;
     const pair = async (brand: string, a: string, b: string, nameB?: string) => ({ a: await product(brand, a, "basbug"), b: await product(brand, b, "dinamik", nameB) });
-    const colour = await pair("ORIJINAL", "ZZ535AB5YZ", "ZZ535AB5YZ9");
+    const colour = await pair("ORIJINAL", "ZZ21R53501AB5YZ", "ZZ21R53501AB5YZ9");
     const maysan = await pair("MAYSAN", "PN9535001", "PN9535001MM");
     const unreviewed = await pair("ORIJINAL", "ZZ535AB5YX", "ZZ535AB5YX9");
-    const conflict = await pair("ORIJINAL", "ZZ535BB5YZ", "ZZ535BB5YZ9", "MOTOR SUBAP TAKIMI");
+    const conflict = await pair("ORIJINAL", "ZZ21R53501BB5YZ", "ZZ21R53501BB5YZ9", "MOTOR SUBAP TAKIMI");
     // A safe ending, but the Başbuğ product is suggested a second Dinamik number too.
-    const multi = await pair("ORIJINAL", "ZZ535CB5YZ", "ZZ535CB5YZ9");
-    const multiOther = await product("ORIJINAL", "ZZ535CB5YZ1", "dinamik");
+    const multi = await pair("ORIJINAL", "ZZ21R53501CB5YZ", "ZZ21R53501CB5YZ9");
+    const multiOther = await product("ORIJINAL", "ZZ21R53501CB5YZ1", "dinamik");
     const zero = await pair("ZZ535TEST", "0535001", "535001");
     await client.query(`INSERT INTO product_match_candidates(product_a,product_b,reason,name_conflict) VALUES
       ($1,$2,'suffix',false),($3,$4,'suffix',false),($5,$6,'suffix',false),($7,$8,'suffix',true),($9,$10,'suffix',false),($9,$11,'suffix',false),

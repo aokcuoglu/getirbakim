@@ -124,14 +124,14 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı olan önerilerden yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) &quot;Güvenli ek&quot; olarak işaretlenir ve topluca birleştirilebilir; diğer çiftleri tek tek inceleyip karar verin. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB) önerilmez.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
             {data.acceptableTotal > 0 && <form action={acceptCandidates}>
               <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-              <SubmitButton variant="outline" title={`${bulkBrand}: ${data.bulkPartial ? "yalnız güvenli ek desenleri birleştirilir; " : ""}tanımı farklı ve birden çok eşi/kodu olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>Tümünü birleştir ({number(data.acceptableTotal)})</SubmitButton>
+              <SubmitButton variant="outline" title={`${bulkBrand}: ${data.bulkPartial ? "yalnız güvenli ek desenleri birleştirilir; " : ""}tanımı farklı ve birden çok eşi/kodu olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>{data.bulkPartial ? "Güvenli olanları birleştir" : "Tümünü birleştir"} ({number(data.acceptableTotal)})</SubmitButton>
             </form>}
-            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor ({data.bulkPartial ? "son ek farkı, " : ""}farklı tanım veya birden çok eş/kod)</span>}
+            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor ({data.bulkPartial ? "güvenli sayılmayan son ek, " : ""}farklı tanım veya birden çok eş/kod)</span>}
           </div>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
@@ -142,10 +142,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead title="Aynı ürün denirse bu ürün korunur">Mevcut ürün</TableHead><TableHead title="Aynı ürün denirse bu ürün mevcut ürüne katılır">Önerilen eş</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`}>
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
-              {item.suffix_safe && <StatusBadge tone="success" title="İncelenmiş güvenli ek deseni; topluca birleştirilebilir">Güvenli ek</StatusBadge>}
               {item.name_conflict && <StatusBadge tone="error" title="İki tanım farklı parça türü söylüyor">Tanımı farklı</StatusBadge>}
               {item.shared_b && <StatusBadge tone="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir">Birden çok eş</StatusBadge>}
-              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı kodlu birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok kod</StatusBadge>}</div></TableCell>
+              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı kodlu birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok kod</StatusBadge>}
+              {item.suffix_bulk && <StatusBadge tone="success" title="İncelenmiş güvenli ek deseni; topluca birleştirilebilir">Güvenli ek</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</StatusBadge>}</TableCell>

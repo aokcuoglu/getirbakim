@@ -330,8 +330,10 @@ $$;
 -- index letters) are left out on purpose. Brand rows use canonical brand keys (products.brand); update the row when a
 -- brand key is merged or renamed.
 -- 'same' rows (#535) are endings reviewed as the same part (measured on the decided local pairs, none decided as
--- different): Ford colour codes, MAYSAN MM/WM/PM, KENTPAR 01, GMB M/T/A, SKF VKJA…G, STONE 1, OSRAM nBL. Their
--- candidates may be merged in bulk; everything else stays a decision by hand.
+-- different): Ford colour codes, MAYSAN MM/WM/PM, KENTPAR 01, GMB M/T/A, STONE 1, OSRAM 1BL. Their candidates may be
+-- merged in bulk; everything else stays a decision by hand. OSRAM nBL with n>1 is a multi-blister pack (Dinamik sells
+-- 5007ULT and 5007ULT-2BL at 2.2–2.9× the price) like nHB. SKF VKJA…G stays 'review': Başbuğ prices two such pairs
+-- far apart (VKJA3028 vs VKJA3028G).
 -- Precedence (product_suffix_verdict): brand rows before '*'; within one scope 'different' before 'review' before
 -- 'same' (safety first); then row order. A brand 'same' row therefore overrides a '*' 'different' row (STONE 1).
 CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
@@ -344,14 +346,14 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
  ('GATES','.','^SF$','different'),
  ('SILBAK','[A-Z]$','^2$','different'),
  ('CONTITECH','PK[0-9]+$','^K[0-9]$','different'),
- ('ORIJINAL','5YZ$','^9$','same'),
- ('ORIJINAL','3JA$','^6$','same'),
+ ('OSRAM','.','^[2-9]BL$','different'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}5YZ$','^9$','same'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}3JA$','^6$','same'),
  ('MAYSAN','^[A-Z]{1,2}[0-9]{7}$','^(MM|WM|PM)$','same'),
  ('KENTPAR','^[0-9]{3}T[0-9]{3}$','^01$','same'),
  ('GMB','^GH[0-9]{5}$','^[MTA]$','same'),
- ('SKF','^VKJA[0-9]+$','^G$','same'),
  ('STONE','[0-9]$','^1$','same'),
- ('OSRAM','.','^[0-9]BL$','same')
+ ('OSRAM','.','^1BL$','same')
 $$;
 -- Verdict for two part numbers of one brand (brand, number, number): NULL when neither number extends the other, else
 -- 'different' (never suggested as a suffix candidate), 'same' (suggested; may be merged in bulk) or 'review'

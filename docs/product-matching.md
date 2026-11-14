@@ -48,20 +48,19 @@ Otomatik anahtarın kaçırdığı olası aynı ürünler `product_match_candida
 
 İsabet %98,6; farklı çiftlerin %88,8'i engellenir. Belirsiz desenler bilerek öneride (`review`) bırakıldı: DAYCO/GATES `xPK…HD` (4 farklı / 6 aynı), RAPRO harf ekleri, VW indeks harfleri gibi. Yeni desen = `product_suffix_rules()`'a bir satır + `scripts/test-product-matching.ts`'e test.
 
-**Güvenli ekler ve toplu birleştirme (#535).** İncelenmiş güvenli ek desenleri `same` satırlarıdır; bu son ek önerileri "Tümünü birleştir" sayısına girer (`bulkAcceptableSql`: `c.reason='suffix' AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'`, ayrıca tanımı farklı / birden çok eş / birden çok kod olanlar yine atlanır). `acceptCandidates` aynı SQL kuralını uygular; form yalnız marka ve nedeni taşır. Listede bu satırlar "Güvenli ek" rozetini taşır; kalan son ek önerileri tek tek karar bekler. Satırlar (yerel ölçüm 2026-11-14, karara bağlanmış çiftler, hiçbiri farklı değil):
+**Güvenli ekler ve toplu birleştirme (#535).** İncelenmiş güvenli ek desenleri `same` satırlarıdır; bu son ek önerileri "Tümünü birleştir" sayısına girer (`bulkAcceptableSql`: `c.reason='suffix' AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'`, ayrıca tanımı farklı / birden çok eş / birden çok kod olanlar yine atlanır). `acceptCandidates` aynı SQL kuralını uygular; form yalnız marka ve nedeni taşır. Listede yalnız gerçekten topluca birleştirilecek satırlar "Güvenli ek" rozetini taşır, düğme "Güvenli olanları birleştir (N)" der; kalan son ek önerileri tek tek karar bekler. `scripts/test-product-matching.ts` yerelde farklı denmiş hiçbir çiftin `same` almadığını da denetler. Satırlar (yerel ölçüm 2026-11-14, karara bağlanmış çiftler, hiçbiri farklı değil):
 
 | Marka | Kısa numara | Ek | Aynı | Farklı |
 | --- | --- | --- | ---: | ---: |
-| ORIJINAL (Ford renk) | `…5YZ` | `9` | 6 | 0 |
-| ORIJINAL (Ford renk) | `…3JA` | `6` | 2 | 0 |
+| ORIJINAL (Ford renk) | Ford biçimi `KK21R19952BB` + `5YZ` | `9` | 6 | 0 |
+| ORIJINAL (Ford renk) | Ford biçimi `BM51F31148AF` + `3JA` | `6` | 2 | 0 |
 | MAYSAN | `PN/PS/N/S` + 7 hane | `MM`, `WM`, `PM` | 57 | 0 |
 | KENTPAR | `nnnTnnn` | `01` | 18 | 0 |
 | GMB | `GHnnnnn` | `M`, `T`, `A` | 12 | 0 |
-| SKF | `VKJA…` | `G` | 9 | 0 |
 | STONE | rakamla biten | `1` | 9 | 0 |
-| OSRAM | herhangi | `1BL`, `2BL` (`nBL`) | 11 | 0 |
+| OSRAM | herhangi | `1BL` | 7 | 0 |
 
-STONE'da `4` eki farklı çıktı (1 çift) ve `*` kuralında kalır; OSRAM `nHB` farklı satırı ayrı ektir. Yeni güvenli desen = ölçüm (0 farklı, makul n) + `same` satırı + test.
+STONE'da `4` eki farklı çıktı (1 çift) ve `*` kuralında kalır. OSRAM `2BL`…`9BL` çoklu blister paketidir ve `nHB` gibi `different` satırıdır: Dinamik tekli ve `-2BL` ürünü ayrı ve 2,2–2,9 kat fiyatla satar (ör. 5007ULT 38,08 TL, 5007ULT-2BL 96,88 TL; adlarında "(IKILI AMBALAJ)"); yerelde aynı denmiş 4 `2BL` kararı (5007ULT, 5008ULT, 7506ULT, 7528ULT) bu yüzden yanlıştır. SKF `VKJA…` + `G` kararlarda 9 aynı / 0 farklı çıksa da güvenli sayılmadı ve `review` kalır: Başbuğ fiyat listesinde ayrı satılan 8 çiftin 2'si çok farklı fiyatlı (VKJA3028 46,28 / VKJA3028G 18,09 EUR; VKJA8015 43,50 / VKJA8015G 20,88 EUR). Yeni güvenli desen = ölçüm (0 farklı, makul n) + `same` satırı + test.
 
 ## Eşleşenler: tek teklifi ayırma ve elle kararlar (#523)
 
