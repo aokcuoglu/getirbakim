@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { partialGaps, passForecast, runProgress, summarizeSources, type PassPace, type SourceRun } from "../src/modules/admin/enrichment-pace";
+import { dashboardTab } from "../src/modules/admin/enrichment-labels";
 import { completeWithImage, imageNote, keepsRicherPartial } from "../src/modules/enrichment/partial-gaps";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
@@ -76,4 +77,9 @@ test("a partial from another source is refused only when it lists fewer vehicles
   assert.equal(keepsRicherPartial(spareto, { source: "https://www.trodo.com/x", vehicles: 40 }), false);
   assert.equal(keepsRicherPartial(spareto, { source: "https://www.trodo.com/x", vehicles: 90 }), false);
   assert.equal(keepsRicherPartial(spareto, { source: "https://spareto.com/products/x/z", vehicles: 0 }), false);
+});
+
+test("dashboard tab defaults to the records list", () => {
+  for (const value of [undefined, "", "x", "records"]) assert.equal(dashboardTab(value), "records");
+  assert.equal(dashboardTab("sources"), "sources");
 });
