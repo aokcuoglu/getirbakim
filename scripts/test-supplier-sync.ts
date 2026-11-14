@@ -208,6 +208,11 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     await client.query("INSERT INTO supplier_scheduler_health VALUES(true,now(),now(),true)");
     await client.query("UPDATE supplier_sync_scopes SET enabled=false WHERE list_group='AV'");
     assert.equal((await supplierHealth(pool)).healthy,true);
+    // Scheduler off on purpose: a missing heartbeat is not a fault, stale data still is.
+    await pool.query("UPDATE supplier_scheduler_health SET started_at=now()-interval '2 days 1 minute',finished_at=now()-interval '2 days',succeeded=true");
+    assert.equal((await supplierHealth(pool)).healthy,false);
+    const manual=await supplierHealth(pool,undefined,true);
+    assert.equal(manual.manual,true); assert.equal(manual.issues.length,0); assert.equal(manual.healthy,true);
     await client.query("UPDATE supplier_scheduler_health SET started_at=now()-interval '2 hours',finished_at=now()-interval '2 hours'");
     assert.equal((await supplierHealth(pool)).healthy,false);
     await client.query("UPDATE supplier_scheduler_health SET started_at=now(),finished_at=now()");

@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
+import { schedulerLabel } from "@/modules/suppliers/health";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
 import { basbugPartTableProps } from "@/components/admin/supplier-part-table-data";
@@ -92,7 +93,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     label: run.started_at.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }));
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>Math.max(1,Math.min(page-2,pages-4))+i),pages])).filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);
   const facts: [string, string, string][] = [
-    ["Zamanlayıcı", data.health.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", `Son kontrol: ${data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "henüz yok"}`],
+    ["Zamanlayıcı", schedulerLabel(data.health), `Son kontrol: ${data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "henüz yok"}`],
     ["Son fiyat · stok · kur", lastCommerce ? date(lastCommerce) : "Henüz yok", `${mrkScopes.length} grup otomatik izleniyor`],
     ["Son aktarım", snapshot ? date(snapshot.completed_at) : "Henüz yok", snapshot ? `${snapshot.list_group} · ${number(snapshot.quality.uniqueProducts)} ürün` : "Grup seçilmedi"],
     ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Sipariş fiyat/stok teyidi bekler" : "Siparişte API doğrulaması"],
