@@ -50,10 +50,12 @@ const scopeHref = (key: string, href: string, scopes: { list_group: string }[]) 
 
 type CatalogMetrics = Awaited<ReturnType<typeof adminSupplierCatalogMetrics>>;
 // The store-side figures (in stock, saleable) read commerce_catalog, which takes seconds; they stream in after the rest.
-async function CatalogFigure({ catalog, render }: { catalog: Promise<CatalogMetrics>; render: (metrics: CatalogMetrics) => ReactNode }) {
-  return render(await catalog);
+// A failed read (null) only blanks these cells instead of replacing the whole page with the error screen.
+async function CatalogFigure({ catalog, render }: { catalog: Promise<CatalogMetrics | null>; render: (metrics: CatalogMetrics) => ReactNode }) {
+  const metrics = await catalog;
+  return metrics ? render(metrics) : <span>—<span className="sr-only"> Mağaza verisi alınamadı</span></span>;
 }
-const streamed = (catalog: Promise<CatalogMetrics>, render: (metrics: CatalogMetrics) => ReactNode, size: string) =>
+const streamed = (catalog: Promise<CatalogMetrics | null>, render: (metrics: CatalogMetrics) => ReactNode, size: string) =>
   <Suspense fallback={<Skeleton className={size}><span className="sr-only">Yükleniyor…</span></Skeleton>}><CatalogFigure catalog={catalog} render={render}/></Suspense>;
 
 type Issue = { key: string; tone: keyof typeof issueColor; title: string; description: string; href: string; action: string };
@@ -66,7 +68,11 @@ type Row = {
 // what is open". Freshness is judged per scope against its SLA (stale_minutes), not by whether the scheduler runs.
 export default async function Suppliers() {
   await requireAdmin();
-  const catalog = adminSupplierCatalogMetrics();
+  // Started before the fast queries and handled here, so a rejection is never left unobserved.
+  const catalog = adminSupplierCatalogMetrics().catch((error: unknown) => {
+    console.error("Supplier catalog metrics failed", error);
+    return null;
+  });
   const [{ status, metrics, attempts, scheduler }, manualLists, plan] = await Promise.all([adminSupplierFeeds(), adminManualLists(), adminSupplierRefreshPlan()]);
   const now = new Date();
   const feeds = [
