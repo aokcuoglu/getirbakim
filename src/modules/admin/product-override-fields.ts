@@ -16,7 +16,10 @@ export const productOverrideLabels: Record<ProductOverrideField, string> = {
   hidden: "Mağazada görünürlük",
 };
 
-export type ProductOverrideResult = { status: "idle" | "success" | "error"; message?: string; reset?: ProductOverrideField };
+/** A save's outcome; on success the stored edits and their version, which the form adopts (product-override-form-state.ts). */
+export type ProductOverrideResult = {
+  status: "idle" | "success" | "error"; message?: string; reset?: ProductOverrideField; values?: ProductOverrideValues; version?: string;
+};
 
 /** Values shown for a field in the change history: NULL is "automatic". */
 export function overrideValueText(value: string | number | boolean | null): string | null {
