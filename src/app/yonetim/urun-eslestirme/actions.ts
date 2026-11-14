@@ -5,12 +5,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { forgetSameProducts } from "@/modules/admin/product-matching";
 
 export async function refreshMatches() {
   await requireAdmin();
   let error = "";
   try { await db.query("SELECT refresh_product_matches()"); }
   catch { error = "refresh"; }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(`/yonetim/urun-eslestirme?${error ? `error=${error}` : "refreshed=1"}`);
 }
@@ -33,6 +35,7 @@ export async function splitOffers(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, "split=1"));
 }
@@ -43,6 +46,7 @@ export async function undoSplit(form: FormData) {
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
   await db.query("SELECT product_reset_item($1)", [input.data.item_id]);
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
 }
@@ -73,6 +77,7 @@ export async function decideCandidate(form: FormData) {
     }
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, failed ? "error=merge" : `matched=${status}`));
 }
@@ -102,6 +107,7 @@ export async function acceptCandidates(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}`));
 }
@@ -124,6 +130,7 @@ export async function rejectCandidates(form: FormData) {
     )
     DELETE FROM product_match_candidates c USING listed l WHERE c.product_a=l.product_a AND c.product_b=l.product_b`,
     [reason ?? null, q ?? null, admin.id])).rowCount ?? 0;
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk-different&count=${rejected}`));
 }
@@ -144,6 +151,7 @@ async function brandDecision(back: string, flag: string, run: (client: import("p
     await client.query(done ? "COMMIT" : "ROLLBACK");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, done ? `brand=${flag}` : "error=brand"));
 }

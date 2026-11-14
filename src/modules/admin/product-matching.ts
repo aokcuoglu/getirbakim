@@ -9,7 +9,7 @@ export type MatchingParams = { tab?: string; scope?: string; names?: string; q?:
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
-  same: { primary: "primary_price", selling: "selling_price" },
+  same: { primary: "primary_price", selling: "selling_price" } as const,
   candidates: { reason: "c.reason", similarity: "c.name_similarity" },
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
@@ -102,10 +102,51 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
   return { scope, brands, names, total, page, pages };
 }
 
-/**
- * Başbuğ products that Dinamik also sells, priced live through commerce_catalog (~2 s for every group). The
- * offer sold is the cheapest available one, the Başbuğ row winning ties: the rule of withBestOffers (store catalog).
- */
+// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the Başbuğ row
+// winning ties: the rule of withBestOffers (store catalog). `filter` narrows the offers before grouping.
+const sameGroups = (filter: string, columns: string) => `WITH offers AS MATERIALIZED (
+    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
+  )
+  SELECT primary_id::text,
+   (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
+   min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,${columns}
+  FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')`;
+type SameEntry = Omit<SameProduct, "offers"> & { codes: string; position: number };
+type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };
+// Pricing every grouped offer takes ~2 s, so the groups (without their offers) are kept in this process for up to a
+// minute, keyed by the latest matching run and supplier import; the actions that regroup offers clear it at once
+// (forgetSameProducts). Past a minute the next request waits for a fresh read: nothing older is ever shown. Another
+// app process sees an action's change when its own minute runs out. Admin-wide data, nothing per user.
+const sameTtlMs = 60_000;
+let sameCache: { key: string; at: number; index: Promise<SameIndex> } | null = null;
+export function forgetSameProducts() { sameCache = null; }
+async function sameIndex() {
+  const key = (await db.query<{ key: string }>(`SELECT concat_ws('/',(SELECT max(id) FROM product_match_runs),
+    (SELECT max(completed_at) FROM supplier_imports WHERE status='succeeded')) AS key`)).rows[0].key;
+  if (sameCache && sameCache.key === key && Date.now() - sameCache.at <= sameTtlMs) return sameCache.index;
+  const entry = { key, at: Date.now(), index: loadSameIndex() };
+  sameCache = entry;
+  // A failed read is not reused: the next request tries again.
+  entry.index.catch(() => { if (sameCache === entry) sameCache = null; });
+  return entry.index;
+}
+async function loadSameIndex(): Promise<SameIndex> {
+  // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
+  const entries = (await db.query<SameEntry>(sameGroups("", `
+   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`))).rows;
+  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0 };
+  for (const entry of entries) {
+    if (entry.selling === "dinamik") summary.dinamik++;
+    else if (entry.selling === "basbug") summary.basbug++;
+    else if (entry.selling === null) summary.none++;
+  }
+  return { entries, summary };
+}
+// ORDER BY <column> ASC|DESC NULLS LAST, then the largest saving (primary_price-selling_price DESC NULLS LAST), then primary_id.
+const nullsLast = (a: number | null, b: number | null, desc: boolean) => a === null || b === null ? (a === null ? 1 : 0) - (b === null ? 1 : 0) : desc ? b - a : a - b;
+const saving = (entry: SameEntry) => entry.primary_price === null || entry.selling_price === null ? null : entry.primary_price - entry.selling_price;
+
+/** Başbuğ products that Dinamik also sells, priced live through commerce_catalog; the page's offers are read fresh. */
 async function sameProducts(params: MatchingParams) {
   const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
   if (params.scope === "split") {
@@ -116,26 +157,21 @@ async function sameProducts(params: MatchingParams) {
   const scope = ["dinamik", "basbug", "none"].includes(params.scope ?? "") ? params.scope! : "all";
   const q = compact(params.q);
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
-  const row = (await db.query<{ summary: Record<string, number>; total: number; groups: SameProduct[] | null }>(`WITH offers AS MATERIALIZED (
-      SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id
-    ), grouped AS MATERIALIZED (
-      SELECT primary_id::text,
-       (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
-       min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,
-       jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
-        ORDER BY (id=primary_id) DESC,supplier,code) AS offers
-      FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')
-    ), filtered AS (
-      SELECT * FROM grouped WHERE ($1='all' OR ($1='none' AND selling IS NULL) OR selling=$1)
-       AND ($2='' OR EXISTS (SELECT 1 FROM jsonb_array_elements(offers) e WHERE regexp_replace(upper(e->>'code'),'[^A-Z0-9]','','g') LIKE '%'||$2||'%'))
-    )
-    SELECT (SELECT jsonb_build_object('all',count(*),'dinamik',count(*) FILTER (WHERE selling='dinamik'),'basbug',count(*) FILTER (WHERE selling='basbug'),
-       'none',count(*) FILTER (WHERE selling IS NULL)) FROM grouped) AS summary,
-     (SELECT count(*)::int FROM filtered) AS total,
-     (SELECT jsonb_agg(f) FROM (SELECT * FROM filtered ORDER BY ${sortOrder(params, sorts.same, "(primary_price-selling_price) DESC NULLS LAST,primary_id")} LIMIT ${pageSize} OFFSET $3) f) AS groups`,
-    [scope, q, (page - 1) * pageSize])).rows[0];
-  const { pages } = pageOf(String(page), row.total);
-  return { same: row.groups ?? [], summary: row.summary, scope, total: row.total, page: Math.min(page, pages), pages, exclusions };
+  const { entries, summary } = await sameIndex();
+  const filtered = entries.filter(entry => (scope === "all" || (scope === "none" ? entry.selling === null : entry.selling === scope))
+    && (!q || entry.codes.includes(q)));
+  const column = params.sort && Object.hasOwn(sorts.same, params.sort) ? sorts.same[params.sort as keyof typeof sorts.same] : null;
+  const desc = params.dir === "desc";
+  const listed = filtered.sort((a, b) => (column ? nullsLast(a[column], b[column], desc) : 0) || nullsLast(saving(a), saving(b), true)
+    || a.position - b.position).slice((page - 1) * pageSize, page * pageSize);
+  const ids = listed.map(entry => entry.primary_id);
+  const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
+   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
+    ORDER BY (id=primary_id) DESC,supplier,code) AS offers`), [ids])).rows : [];
+  const byId = new Map(rows.map(row => [row.primary_id, row]));
+  const same = ids.flatMap(id => byId.get(id) ?? []);
+  const { pages } = pageOf(String(page), filtered.length);
+  return { same, summary, scope, total: filtered.length, page: Math.min(page, pages), pages, exclusions };
 }
 
 /** Reviewable candidates the automatic key missed; most similar names first. `q` narrows to a brand or code. */
