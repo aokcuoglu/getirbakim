@@ -207,7 +207,8 @@ export default async function Suppliers() {
             <TableHead className="text-right">Satışa açık</TableHead>
           </TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={row.key} className="align-top">
-            <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div></TableCell>
+            <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div>
+              <div className="text-muted-foreground md:hidden">Son güncelleme: {formatAgo(row.last, { now, fallback: "Hiç çekilmedi", justNow: "Az önce" })}</div></TableCell>
             <TableCell>{row.status}</TableCell>
             <TableCell className="hidden md:table-cell"><div>{formatAgo(row.last, { now, fallback: "Hiç çekilmedi", justNow: "Az önce" })}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
             <TableCell className="hidden md:table-cell"><div className="tabular-nums">{row.scope}</div><div className="text-muted-foreground">{row.scopeNote}</div></TableCell>
