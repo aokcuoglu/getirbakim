@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { durationSeconds, formatClock, formatDate, formatDuration, formatInterval, formatNumber } from "../src/modules/admin/format";
 import { runKindLabel, runScopeLabel, runStatusLabel, runStatusTone, scheduleLines } from "../src/modules/suppliers/run-status";
 import { supplierInitialTab } from "../src/components/admin/supplier-page";
-import { pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
+import { SupplierPagination, pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
 import { RunStatusBadge } from "../src/components/admin/status-badge";
 
 test("numbers use Turkish grouping, at most two decimals, missing reads 0", () => {
@@ -86,4 +86,13 @@ test("pagination keeps filters and the header sort", () => {
   assert.deepEqual(pageWindow(20, 20), [1, 16, 17, 18, 19, 20]);
   assert.equal(pageHref("/yonetim/tedarikciler/seta", { q: "filtre", stock: "1", sort: "cost", dir: "desc", updated: "1" }, ["q", "stock", "sort", "dir"], 3),
     "/yonetim/tedarikciler/seta?q=filtre&stock=1&sort=cost&dir=desc&page=3");
+});
+
+test("capped pagination says only the first pages are listed and limits the page jump", () => {
+  const capped = renderToStaticMarkup(<SupplierPagination base="/yonetim/tedarikciler/dinamik" params={{}} keys={[]} page={200} pages={200} capped/>);
+  assert.match(capped, /yalnız ilk 200 sayfa listelenir/);
+  assert.match(capped, /filtreleri daraltın/);
+  assert.match(capped, /max="200"/);
+  const open = renderToStaticMarkup(<SupplierPagination base="/yonetim/tedarikciler/seta" params={{}} keys={[]} page={1} pages={3}/>);
+  assert.doesNotMatch(open, /daraltın|sınırlı/);
 });
