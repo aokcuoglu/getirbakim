@@ -71,6 +71,7 @@ Sürüm çıkarırken:
 4. İlgili `main` merge commit'ine açıklamalı (annotated) `vX.Y.Z` Git tag'i koy ve aynı sürümün GitHub Release notlarını yayımla. Tag ve Release notlarında sürüm kapsamını ve PR'ı belirt. Mevcut tag'leri taşıma, silme veya üzerine yazma.
 5. Merge, sürüm numarası, tag ve Release bağlantısını bildir.
 6. Production yayını ayrı adımdır: kullanıcı açıkça onaylarsa `main` üzerinden `release-aws` workflow'unu elle tetikle, GitHub `production` ortam onayını kullanıcıya bırak, sonucu ve smoke testleri bildir.
+7. Sürümde `data/vehicle_type_oil_specs.csv` veya `scripts/import-vehicle-oils.ts` değiştiyse: `release-aws` / `db:setup` bu veriyi içe aktarmaz. CHANGELOG "Deploy and operations" bölümüne yaz ve yayından sonra operations görevinde `scripts/import-vehicle-oils.ts` çalıştırılmasını hatırlat (`release-check` skill'inde `ecs run-task` biçimi var). AWS'de bunun için tanımlı bir otomasyon yoktur; açık iştir (#565).
 
 11 Ekim 2026 itibarıyla `main` geçmişindeki en yüksek normal sürüm tag'i `v0.22.0`, mevcut paket sürümü ise `0.1.0`'dır. Eski GitHub Release kayıtları da legacy döneme aittir. Sonraki sürüm hazırlığında ilgili yeni sistemin tag geçmişi esas alınarak manifestler uyumlu hale getirilir; eski etiketlerden veya `0.1.0` değerinden bağımsız, geriye giden sürüm üretilmez. Bu politika çalışması sürüm artırmaz.
 
