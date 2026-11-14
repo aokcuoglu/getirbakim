@@ -125,6 +125,9 @@ export function SupplierVariantRows({ variants }: { variants: unknown }) {
   const groups = Object.entries(source).filter((entry): entry is [string, Record<string, unknown>[]] =>
     Array.isArray(entry[1]) && entry[1].length > 1 && entry[1].every(row => row && typeof row === "object"));
   const stockListPrice = typeof source.stockListPrice === "number" ? source.stockListPrice : null;
+  // Dinamik: the row written exactly (no padding in stokKodu) is the supplier's record and was used.
+  const usedExact = source.usedExactCode === true;
+  const isUsed = (row: Record<string, unknown>) => usedExact && typeof row.stokKodu === "string" && row.stokKodu === row.stokKodu.trim();
   if (!groups.length && stockListPrice === null) return null;
   return <div className="flex min-w-0 flex-col gap-4">
     {groups.map(([group, rows]) => {
@@ -132,12 +135,15 @@ export function SupplierVariantRows({ variants }: { variants: unknown }) {
         && new Set(rows.map(row => JSON.stringify(row[key] ?? null))).size > 1);
       return <div key={group} className="flex min-w-0 flex-col gap-2">
         <h3 className="font-medium">Çakışan satırlar · {variantGroups[group] ?? group}</h3>
-        <p className="text-muted-foreground">Tedarikçi bu kod için {rows.length} farklı satır gönderdi. Yalnız birbirinden farklı alanlar gösteriliyor; hangisinin doğru olduğu belirsiz olduğu için ürün satışa açılmaz.</p>
+        <p className="text-muted-foreground">Tedarikçi bu kod için {rows.length} farklı satır gönderdi. Yalnız birbirinden farklı alanlar gösteriliyor. {usedExact
+          ? "Kodu tam yazılan satır tedarikçinin asıl kaydı (sipariş bu kodla verilir) olduğu için kullanıldı; sonunda boşluk olan satır yok sayıldı."
+          : "Hangisinin doğru olduğu belirsiz olduğu için ürün satışa açılmaz."}</p>
         <Table controls={false}>
-          <TableHeader><TableRow><TableHead>Satır</TableHead>{keys.map(key => <TableHead key={key}>{variantFields[key] ?? key}</TableHead>)}</TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Satır</TableHead>{keys.map(key => <TableHead key={key}>{variantFields[key] ?? key}</TableHead>)}{usedExact && <TableHead>Durum</TableHead>}</TableRow></TableHeader>
           <TableBody>{rows.map((row, index) => <TableRow key={index}>
             <TableCell className="tabular-nums">{index + 1}</TableCell>
             {keys.map(key => <TableCell key={key} className="whitespace-pre font-mono tabular-nums">{variantValue(row[key])}</TableCell>)}
+            {usedExact && <TableCell>{isUsed(row) ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Kullanılan</Badge> : <Badge variant="outline">Yok sayıldı</Badge>}</TableCell>}
           </TableRow>)}</TableBody>
         </Table>
       </div>;
