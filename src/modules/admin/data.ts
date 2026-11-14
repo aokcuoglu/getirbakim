@@ -179,7 +179,7 @@ export async function adminSupplierFeedStatus() {
   };
 }
 
-export type SupplierFeedMetrics = { present: number; priced: number; available: number; saleable: number; conflicting: number; dropped: number };
+export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; available: number; saleable: number; conflicting: number; dropped: number };
 export type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
 
 /** Everything the supplier overview shows: feed status, catalog coverage per supplier, 24h attempts, scheduler state. */
@@ -190,9 +190,11 @@ export async function adminSupplierFeeds() {
   const pairs = [companies.basbug, companies.dinamik, companies.seta, manualCompany];
   const [status, metrics, attempts, scheduler] = await Promise.all([
     adminSupplierFeedStatus(),
-    // Coverage reads commerce_catalog so "priced" and "saleable" mean exactly what the store shows.
+    // "Priced" and "unstocked" read what the supplier sent (Dinamik prices products missing from its stock list, and
+    // commerce_catalog leaves those out); "in stock" and "saleable" read commerce_catalog, i.e. what the store shows.
     db.query<SupplierFeedMetrics & { supplier: string }>(`SELECT i.supplier,count(*) FILTER (WHERE i.presence='present')::int AS present,
-        count(c.id) FILTER (WHERE i.presence='present' AND c.price_kurus IS NOT NULL)::int AS priced,
+        count(*) FILTER (WHERE i.presence='present' AND i.price_data IS NOT NULL)::int AS priced,
+        count(*) FILTER (WHERE i.presence='present' AND i.stock_data IS NULL)::int AS unstocked,
         count(c.id) FILTER (WHERE i.presence='present' AND c.available)::int AS available,
         count(c.id) FILTER (WHERE i.presence='present' AND c.available AND c.price_kurus IS NOT NULL)::int AS saleable,
         count(*) FILTER (WHERE i.presence='present' AND i.conflicting)::int AS conflicting,
@@ -209,7 +211,7 @@ export async function adminSupplierFeeds() {
         AND (r.supplier,r.company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY r.supplier`, pairs),
     supplierSchedulerState(db),
   ]);
-  const empty = { present: 0, priced: 0, available: 0, saleable: 0, conflicting: 0, dropped: 0 };
+  const empty = { present: 0, priced: 0, unstocked: 0, available: 0, saleable: 0, conflicting: 0, dropped: 0 };
   const none = { total: 0, succeeded: 0, failed: 0, rejected: 0, unresolved: 0 };
   const pick = <T,>(rows: (T & { supplier: string })[], fallback: T) =>
     Object.fromEntries(keys.map(key => [key, rows.find(row => row.supplier === key) ?? fallback])) as Record<(typeof keys)[number], T>;

@@ -80,7 +80,7 @@ export function SupplierRefreshRunner({ tasks, label, description, ariaLabel }: 
   return <section className="flex flex-col gap-3" aria-label={ariaLabel}>
     <div className="flex flex-wrap items-center gap-3">
       <Button variant="outline" onClick={run} disabled={running || !tasks.length}>{running ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <RefreshCw data-icon="inline-start" aria-hidden="true"/>}{running ? "Yenileniyor…" : label}</Button>
-      <p className="min-w-0 flex-1 text-muted-foreground">{tasks.length ? description : "Yenilenecek kapsam yok; veriler güncel."}</p>
+      <p className="min-w-0 basis-64 flex-1 text-muted-foreground">{tasks.length ? description : "Yenilenecek kapsam yok; veriler güncel."}</p>
     </div>
     {running && <Progress value={done / Math.max(tasks.length, 1) * 100} aria-label="Güncelleme ilerlemesi"/>}
     <p role="status" aria-live="polite" className="tabular-nums empty:hidden">{running ? `${done} / ${tasks.length} tamamlandı${current ? ` · Şimdi: ${labelOf(current)}` : ""}` : finished ? `${succeeded} başarılı · ${failed} başarısız${skipped ? ` · ${skipped} başlatılmadı` : ""}` : ""}</p>
