@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { z } from "zod";
-import { manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
+import { manualKind, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
 import { matchingBack, safeMatchingBack, withMatchingFlag } from "../src/modules/admin/product-matching-back";
 import { bulkAcceptableSql, bulkCandidateReasons, isBulkReason, isPatternBulkReason, wholeBulkReasons } from "../src/modules/admin/product-matching-sql";
 
@@ -122,4 +122,10 @@ test("matchingBack schema falls back to the plain page when back is missing", ()
   assert.equal(matchingBack.parse(undefined), "/yonetim/urun-eslestirme");
   assert.equal(z.object({ back: matchingBack }).parse({}).back, "/yonetim/urun-eslestirme");
   assert.equal(z.object({ back: matchingBack }).parse({ back: "/yonetim/urun-eslestirme?tab=same" }).back, "/yonetim/urun-eslestirme?tab=same");
+});
+
+test("manual decision kind filter accepts only merge and split", () => {
+  assert.equal(manualKind("merge"), "merge");
+  assert.equal(manualKind("split"), "split");
+  for (const raw of [undefined, "", "all", "MERGE", "merge ", "constructor", "__proto__", "1"]) assert.equal(manualKind(raw), null);
 });

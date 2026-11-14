@@ -47,8 +47,9 @@ function OfferCell({ offer }: { offer: Offer | undefined }) {
 const suggestionEvidence = (suggestion: BrandSuggestion) => suggestion.shared_parts >= 3 && suggestion.shared_parts >= suggestion.parts / 2
   ? `${number(suggestion.shared_parts)}/${number(suggestion.parts)} parça no ortak` : `ad benzer${suggestion.shared_parts ? ` · ${number(suggestion.shared_parts)} parça no ortak` : ""}`;
 
-function EmptyState({ title, icon }: { title: string; icon: ReactNode }) {
-  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader></Empty>;
+function EmptyState({ title, icon, clearHref }: { title: string; icon: ReactNode; clearHref?: string }) {
+  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader>
+    {clearHref && <Button variant="outline" nativeButton={false} render={<Link href={clearHref} scroll={false}/>}>Karar süzgecini temizle</Button>}</Empty>;
 }
 
 export default async function ProductMatching({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -57,10 +58,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   const stats = data.run?.stats;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, kind: params.kind, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined, kind: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = data.total > 0 && <CardFooter className="flex-wrap justify-between gap-3">
@@ -72,9 +73,9 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </PaginationContent></Pagination>
   </CardFooter>;
   const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
-    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}`}
-    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
-    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
+    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}|${params.kind}`}
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir, kind: params.kind }}
+    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, kind: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
@@ -170,7 +171,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "manual", label: `Elle kararlar (${number(data.exclusions)})` },
         ] }])}
         {decisions ? (decisions.length ? <Table server><caption className="sr-only">Elle kararlar</caption>
-          <TableHeader><TableRow><TableHead sortKey="kind">Karar</TableHead><TableHead sortKey="supplier">Tedarikçi</TableHead><TableHead sortKey="code">Kayıt</TableHead><TableHead>Bağlı ürün</TableHead><TableHead sortKey="decided">Tarih</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead sortKey="kind" filter={{ param: "kind", options: [{ value: "merge", label: "Birleştirme" }, { value: "split", label: "Ayırma" }] }}>Karar</TableHead><TableHead sortKey="supplier">Tedarikçi</TableHead><TableHead sortKey="code">Kayıt</TableHead><TableHead>Bağlı ürün</TableHead><TableHead sortKey="decider">Karar veren</TableHead><TableHead sortKey="decided">Tarih</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{decisions.map(item => <TableRow key={item.id}>
             <TableCell>{item.kind === "merge" ? <StatusBadge tone="info" icon={Merge} title="Başka bir ürüne elle bağlandı">Birleştirme</StatusBadge>
               : <StatusBadge tone="neutral" icon={Split} title="Kendi ürünü olarak elle ayrıldı">Ayırma</StatusBadge>}</TableCell>
@@ -180,9 +181,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="max-w-64"><div className="flex min-w-0 flex-col gap-1">
               <Link className="truncate font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.product_id}`} title={`${item.product_label} ${item.product_code}`}>{item.product_label} {item.product_code}</Link>
               <span className="truncate text-muted-foreground" title={item.product_name ?? ""}>{item.product_name || "—"}</span></div></TableCell>
+            <TableCell className="max-w-48"><span className="block truncate" title={item.decided_by_name ?? "Karar veren kaydedilmemiş"}>{item.decided_by_name ?? "Bilinmiyor"}</span></TableCell>
             <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(item.decided_at)}</TableCell>
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
-          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>}/>)
+          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q || params.kind ? "Aramayla veya süzgeçle eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={params.kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
             <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>

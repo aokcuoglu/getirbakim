@@ -36,3 +36,12 @@ export const multiNumberCandidateSql = `(EXISTS (SELECT 1 FROM product_match_can
 export const bulkAcceptableSql = `(c.reason IN (${wholeBulkReasons.map(reason => `'${reason}'`).join(",")}) OR c.reason='suffix' AND ${safeSuffixSql})
   AND c.name_conflict IS NOT TRUE
   AND NOT ${sharedCandidateSql} AND NOT ${multiNumberCandidateSql}`;
+
+/**
+ * "Elle kararlar" (product_sources x JOIN products p LEFT JOIN accounts a): a decision is a split when its product is a
+ * variant above 0, otherwise a merge; `manualKindFilterSql` takes the kind as a boolean parameter (true = split, NULL = all).
+ */
+export const manualKindSql = "CASE WHEN p.variant>0 THEN 'split' ELSE 'merge' END";
+export const manualKindFilterSql = (parameter: string) => `(${parameter}::boolean IS NULL OR (p.variant>0)=${parameter}::boolean)`;
+/** Who decided: the account's name, else its e-mail; NULL for decisions recorded without an actor. */
+export const manualDeciderSql = "COALESCE(NULLIF(a.name,''),a.email)";

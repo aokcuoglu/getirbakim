@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Pool, type PoolClient } from "pg";
-import { bulkAcceptableSql, multiNumberCandidateSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, manualDeciderSql, manualKindFilterSql, manualKindSql, multiNumberCandidateSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -113,6 +113,36 @@ test("a split row gets its own locked product and rejoins on undo", async () => 
     assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [split])).rows[0].merged_into, pick.product);
     // Undoing a split returns the row to its own key: no pair to block.
     assert.equal((await client.query("SELECT count(*)::int AS n FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [split, pick.product])).rows[0].n, 0);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("manual decisions show who decided and the kind filter keeps only that kind", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pick = (await client.query<{ item: string }>(`SELECT s.supplier_item_id AS item FROM product_sources s
+      JOIN products p ON p.id=s.product_id AND p.variant=0 WHERE s.method='auto' AND s.supplier_item_id<>s.product_id LIMIT 1`)).rows[0];
+    assert.ok(pick, "expected a product with more than one source");
+    const actor = (await client.query<{ id: string }>(
+      "INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Karar Veren Test','karar-veren-test@example.invalid','x','admin',true) RETURNING id")).rows[0].id;
+    await client.query("SELECT product_split_item($1,$2)", [pick.item, actor]);
+    const list = async (kind: boolean | null) => (await client.query<{ id: string; kind: string; by: string | null }>(`SELECT i.id,${manualKindSql} AS kind,${manualDeciderSql} AS by
+      FROM product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id LEFT JOIN accounts a ON a.id=x.decided_by
+      WHERE x.method='manual' AND ${manualKindFilterSql("$1")}`, [kind])).rows;
+    const mine = <T extends { id: string }>(rows: T[]) => rows.filter(row => row.id === pick.item);
+    assert.deepEqual(mine(await list(null)), [{ id: pick.item, kind: "split", by: "Karar Veren Test" }]);
+    assert.equal(mine(await list(true)).length, 1);
+    assert.equal(mine(await list(false)).length, 0);
+    assert.ok((await list(true)).every(row => row.kind === "split"));
+    assert.ok((await list(false)).every(row => row.kind === "merge"));
+    // Without a name the e-mail stands in; decisions without an actor have no name.
+    await client.query("UPDATE accounts SET name='' WHERE id=$1", [actor]);
+    assert.equal(mine(await list(null))[0].by, "karar-veren-test@example.invalid");
+    await client.query("UPDATE product_sources SET decided_by=NULL WHERE supplier_item_id=$1", [pick.item]);
+    assert.equal(mine(await list(null))[0].by, null);
   } finally {
     await client.query("ROLLBACK");
     client.release();

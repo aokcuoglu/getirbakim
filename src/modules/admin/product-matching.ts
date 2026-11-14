@@ -1,12 +1,12 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
-import { compactCode as compact, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
+import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
+type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
@@ -14,7 +14,7 @@ const sorts = {
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
   // "Karar" A→Z: Ayırma (a split-off variant) before Birleştirme.
-  manual: { kind: "(p.variant=0)", supplier: "i.supplier", code: "i.code", decided: "x.linked_at" },
+  manual: { kind: "(p.variant=0)", supplier: "i.supplier", code: "i.code", decided: "x.linked_at", decider: manualDeciderSql },
 };
 // Keys arrived over time; runs recorded before a key lack it.
 type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
@@ -26,7 +26,7 @@ type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null
  * A supplier row an admin placed by hand: merged into another product (`merge`) or split off into a product of its
  * own (`split`, a variant above 0); "Geri al" returns it to its own key's product.
  */
-export type ManualDecision = { id: string; supplier: string; code: string; name: string | null; decided_at: Date; kind: "merge" | "split";
+export type ManualDecision = { id: string; supplier: string; code: string; name: string | null; decided_at: Date; decided_by_name: string | null; kind: "merge" | "split";
   product_id: string; product_label: string; product_code: string; product_name: string | null };
 export type DinamikItem = { id: string; product_id: string | null; code: string; brand: string | null; name: string | null; price_kurus: number | null; available: boolean | null; enriched: boolean };
 type SetaProduct = { id: string; supplier: string; code: string; name: string | null; via: string };
@@ -200,19 +200,20 @@ async function sameProducts(params: MatchingParams) {
 /**
  * Every manual decision, newest first, paged. Each word of `q` must match the supplier code or the product's part
  * number (compacted), or the row's name, the product's brand or name (search_normalize): "FEBI 100261" finds FEBI's
- * 100261. `manualTotal` is the unfiltered count the caller already read.
+ * 100261. `kind` (merge/split) narrows to one kind. `manualTotal` is the unfiltered count the caller already read.
  */
 async function manualDecisions(params: MatchingParams, manualTotal: number) {
   const terms = manualSearchTerms(params.q);
-  const values = [terms.map(term => term.code), terms.map(term => term.text)];
-  const from = "product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id";
-  const where = `x.method='manual' AND NOT EXISTS (SELECT 1 FROM unnest($1::text[],$2::text[]) t(code,text) WHERE NOT (
+  const kind = manualKind(params.kind);
+  const values = [terms.map(term => term.code), terms.map(term => term.text), kind === null ? null : kind === "split"];
+  const from = "product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id LEFT JOIN accounts a ON a.id=x.decided_by";
+  const where = `x.method='manual' AND ${manualKindFilterSql("$3")} AND NOT EXISTS (SELECT 1 FROM unnest($1::text[],$2::text[]) t(code,text) WHERE NOT (
     t.code<>'' AND (regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||t.code||'%' OR p.part_number LIKE '%'||t.code||'%')
     OR t.text<>'' AND (search_normalize(concat_ws(' ',supplier_item_name(i.supplier,i.product_data),p.brand_label,p.name)) LIKE '%'||t.text||'%')))`;
-  const total = terms.length ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values)).rows[0].count : manualTotal;
+  const total = terms.length || kind ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values)).rows[0].count : manualTotal;
   const { page, pages } = pageOf(params.page, total);
   const decisions = (await db.query<ManualDecision>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at,
-      CASE WHEN p.variant>0 THEN 'split' ELSE 'merge' END AS kind,p.id AS product_id,p.brand_label AS product_label,p.code AS product_code,p.name AS product_name
+      ${manualDeciderSql} AS decided_by_name,${manualKindSql} AS kind,p.id AS product_id,p.brand_label AS product_label,p.code AS product_code,p.name AS product_name
     FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.manual, "x.linked_at DESC,x.supplier_item_id")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   return { decisions, total, page, pages };
