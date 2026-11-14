@@ -50,9 +50,9 @@ export default async function Suppliers() {
   const [{ status, metrics, attempts, scheduler }, manualLists, plan] = await Promise.all([adminSupplierFeeds(), adminManualLists(), adminSupplierRefreshPlan()]);
   const now = new Date();
   const feeds = [
-    { key: "basbug", name: "Başbuğ", source: "API · ürün, NF maliyet, MRK stoğu, döviz kuru", unit: "grup", href: "/yonetim/tedarikciler/basbug", feed: status.basbug },
-    { key: "dinamik", name: "Dinamik", source: "API · marka bazlı ürün, fiyat, bölge stoğu", unit: "marka", href: "/yonetim/tedarikciler/dinamik", feed: status.dinamik },
-    { key: "seta", name: "SETA", source: "API · filtre, OEM, bayi fiyatı, stok", unit: "liste", href: "/yonetim/tedarikciler/seta", feed: status.seta },
+    { key: "basbug" as const, name: "Başbuğ", source: "API · ürün, NF maliyet, MRK stoğu, döviz kuru", unit: "grup", href: "/yonetim/tedarikciler/basbug", feed: status.basbug },
+    { key: "dinamik" as const, name: "Dinamik", source: "API · marka bazlı ürün, fiyat, bölge stoğu", unit: "marka", href: "/yonetim/tedarikciler/dinamik", feed: status.dinamik },
+    { key: "seta" as const, name: "SETA", source: "API · filtre, OEM, bayi fiyatı, stok", unit: "liste", href: "/yonetim/tedarikciler/seta", feed: status.seta },
   ] as const;
 
   // SETA is one quick list, Başbuğ 15 groups, Dinamik only the brands not refreshed in the last day.
@@ -94,7 +94,7 @@ export default async function Suppliers() {
       title: `${name}: ${number(feed.never.length)} ${unit} hiç çekilmedi`, description: sample(feed.never.map(scope => scope.list_group)) });
     const retrying = feed.failing.filter(scope => !feed.stale.includes(scope) && !feed.never.includes(scope));
     if (retrying.length) {
-      const reasons = [...new Set(retrying.map(scope => importErrorLabel(scope.error_reason)))];
+      const reasons = [...new Set(retrying.map(scope => importErrorLabel(scope.error_reason, key)))];
       issues.push({ key: `${key}-failing`, tone: "warning", href, action: "İncele",
         title: `${name}: ${number(retrying.length)} ${unit} son denemede güncellenemedi`,
         description: `${sample(retrying.map(scope => scope.list_group))} · ${reasons.join("; ")}. Önceki veri güncellik süresi içinde olduğu için mağazada kullanılmaya devam ediyor.` });

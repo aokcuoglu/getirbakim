@@ -21,7 +21,7 @@ export function SetaProductFilters({ params, categories }: { params: SetaParams;
     <div className="flex min-w-0 flex-1 basis-full items-center gap-2 overflow-x-auto sm:basis-auto">
       <InputGroup className="min-w-44 flex-1"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Parça, OEM, ürün veya araç" maxLength={120}/></InputGroup>
       <NativeSelect className="w-36" aria-label="Kategori" name="category" defaultValue={params.category || ""}><NativeSelectOption value="">Tüm kategoriler</NativeSelectOption>{categories.map(category => <NativeSelectOption key={category} value={category}>{category}</NativeSelectOption>)}</NativeSelect>
-      <NativeSelect className="w-28" aria-label="Stok durumu" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">Stok: tümü</NativeSelectOption><NativeSelectOption value="1">Stok var</NativeSelectOption><NativeSelectOption value="0">Stok yok</NativeSelectOption></NativeSelect>
+      <NativeSelect className="w-28" aria-label="Stok durumu" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">Stok: tümü</NativeSelectOption><NativeSelectOption value="1">Stok var</NativeSelectOption><NativeSelectOption value="0">Stok yok</NativeSelectOption><NativeSelectOption value="unknown">Veri yok</NativeSelectOption></NativeSelect>
     </div>
     <div className="flex shrink-0 items-center gap-2">
       <Popover>

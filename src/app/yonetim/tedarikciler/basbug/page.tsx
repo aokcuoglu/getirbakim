@@ -2,9 +2,10 @@ import { Fragment } from "react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
-import { schedulerLabel } from "@/modules/suppliers/health";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
 import { adminSupplierFeedStatus } from "@/modules/admin/data";
+import { SupplierFactCards } from "@/components/admin/supplier-fact-cards";
+import { supplierRunError } from "@/modules/suppliers/run-error";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
 import { basbugPartTableProps } from "@/components/admin/supplier-part-table-data";
@@ -50,20 +51,8 @@ const errors: Record<string, string> = {
   mode: "Sipariş veri kaynağını kontrol edin.",
 };
 
-function runError(reason: string) {
-  if (reason === "product-drop-over-20-percent") return "Ürün sayısı %20’den fazla azaldı; inceleme gerekli";
-  if (reason === "missing-prices-increased-over-10-points") return "Eksik fiyat oranı 10 puandan fazla arttı; inceleme gerekli";
-  if (reason === "missing-stocks-increased-over-10-points") return "Eksik stok oranı 10 puandan fazla arttı; inceleme gerekli";
-  if (reason === "worker-interrupted") return "İşlem tamamlanmadan kesildi";
-  if (reason.startsWith("config")) return "Bağlantı ayarları eksik veya geçersiz";
-  if (reason.startsWith("contract")) return "Yanıt veri yapısı doğrulanamadı";
-  if (reason.startsWith("upstream:")) {
-    const stage = reason.split(":")[1]?.trim();
-    const service = ({ Auth: "Oturum açma", ListeGrubuGetir: "Grup listesi", MalzemeleriGetir: "Ürün listesi", FiyatGetir: "Fiyat", StokGetir: "Stok", DovizBilgisiGetir: "Kur" } as Record<string, string>)[stage];
-    if (service) return `${service} servisi: ${reason.endsWith(": timeout") ? "yanıt zaman aşımına uğradı" : reason.match(/HTTP \d{3}$/)?.[0] || "veri alınamadı"}`;
-  }
-  return "Servis veya kayıt işlemi tamamlanamadı";
-}
+const runError = (reason: string) => supplierRunError(reason, "basbug");
+const runKind = (kind: string) => kind === "commerce" ? "Fiyat · stok · kur" : "Tam liste";
 
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
 const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
@@ -94,12 +83,8 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const runBars = [...data.recentRuns].reverse().map(run => ({ id: run.id, status: run.status, seconds: run.completed_at ? Math.max(0, Math.round((run.completed_at.getTime() - run.started_at.getTime()) / 1000)) : 0,
     label: run.started_at.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) }));
   const pageNumbers = Array.from(new Set([1, ...Array.from({length:5},(_,i)=>Math.max(1,Math.min(page-2,pages-4))+i),pages])).filter(n=>n>=1&&n<=pages).sort((a,b)=>a-b);
-  const facts: [string, string, string][] = [
-    ["Zamanlayıcı", schedulerLabel(data.health), `Son kontrol: ${data.health.heartbeat?.finished_at ? date(data.health.heartbeat.finished_at) : "henüz yok"}`],
-    ["Son fiyat · stok · kur", lastCommerce ? date(lastCommerce) : "Henüz yok", `${mrkScopes.length} grup otomatik izleniyor`],
-    ["Son aktarım", snapshot ? date(snapshot.completed_at) : "Henüz yok", snapshot ? `${snapshot.list_group} · ${number(snapshot.quality.uniqueProducts)} ürün` : "Grup seçilmedi"],
-    ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Sipariş fiyat/stok teyidi bekler" : "Siparişte API doğrulaması"],
-  ];
+  const { lastSucceeded } = data;
+  const lastRun = data.recentRuns[0];
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
@@ -118,14 +103,18 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
     {params.modeSaved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş veri kaynağı kaydedildi.</AlertDescription></Alert>}
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Başbuğ özet">
-      {facts.map(([label, value, note]) => <Card key={label} size="sm">
-        <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
-        <CardContent className="text-muted-foreground">{note}</CardContent>
-      </Card>)}
-    </div>
-    <SupplierHealthStatus health={data.health} group={group} refresh={refreshBasbug}/>
-    <SupplierTabs key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<div className="flex flex-col gap-6">
+    <SupplierFactCards label="Başbuğ özet" health={data.health} feed={feeds.basbug} checkoutMode={checkoutMode}
+      checkoutNote={checkoutMode === "snapshot" ? "Sipariş fiyat/stok teyidi bekler" : "Siparişte API doğrulaması"}
+      lastSuccess={lastSucceeded ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${runKind(lastSucceeded.run_kind)} · ${number(lastSucceeded.quality.uniqueProducts ?? 0)} ürün` } : null}
+      lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: `${lastRun.list_group} · ${runKind(lastRun.run_kind)}${lastRun.status === "succeeded" ? ` · ${number(lastRun.quality.uniqueProducts ?? 0)} ürün` : ""}` } : null}
+      notes={{
+        scheduler: [`${mrkScopes.length} grup otomatik izleniyor`],
+        success: [`Son fiyat · stok · kur: ${lastCommerce ? date(lastCommerce) : "henüz yok"}`],
+        run: [lastRun?.error_reason && runError(lastRun.error_reason)],
+      }}/>
+    <SupplierHealthStatus health={data.health} supplier="basbug" name="Başbuğ" unit="grup" warehouse="MRK" group={group} refresh={refreshBasbug} refreshField="group"
+      commerceLabel="Fiyat · stok · kur" liveCheckout={checkoutMode === "live"} refreshDescription="Ürün, fiyat, MRK stok ve kur verileri birlikte yenilenir."/>
+    <SupplierTabs label="Başbuğ yönetimi" key={params.error ? `error-${params.error}` : params.updated ? `updated-${params.updated}` : "workspace"} initialTab={params.error ? "transfer" : "products"} transfer={<div className="flex flex-col gap-6">
       <div className="grid items-start gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader><CardTitle><h2>Grup güncelliği</h2></CardTitle><CardDescription>{group || "Tüm liste grupları"}</CardDescription><CardAction><Badge variant={data.sync?.enabled ? "success" : "outline"}>{data.sync?.enabled ? "Periyodik çekim etkin" : "Periyodik çekim kapalı"}</Badge></CardAction></CardHeader>
@@ -192,7 +181,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         <CardContent className="grid gap-6 md:grid-cols-2">
           <form action={refreshBasbug}><Field>
             <FieldLabel htmlFor="refresh-group">Kaynağı güncelle</FieldLabel>
-            <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton/></div>
+            <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili grubu API’den güncelle" pendingLabel="Başbuğ verileri çekiliyor…"/></div>
             <FieldDescription>Seçilen grup {basbugWarehouses.join(" · ")} depolarından çekilir.</FieldDescription>
           </Field></form>
           <form action={saveBasbugCheckoutMode}><Field>

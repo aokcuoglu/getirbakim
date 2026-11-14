@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Tab = "transfer" | "products";
 
-export function SupplierTabs({ transfer, products, initialTab = "products", label = "Başbuğ yönetimi", transferLabel = "Senkronizasyon ve kalite" }: {
+export function SupplierTabs({ transfer, products, initialTab = "products", label = "Tedarikçi yönetimi", transferLabel = "Senkronizasyon ve kalite" }: {
   transfer: ReactNode;
   products: ReactNode;
   initialTab?: Tab;
