@@ -13,7 +13,7 @@ export function SubmitButton({ children, pendingLabel, icon, disabled, ...props 
   children: ReactNode; pendingLabel?: ReactNode; icon?: ReactNode;
 }) {
   const { pending } = useFormStatus();
-  return <Button type="submit" disabled={pending || disabled} aria-busy={pending || undefined} aria-live="polite" {...props}>
+  return <Button type="submit" disabled={pending || disabled} aria-busy={pending || undefined} {...props}>
     {pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : icon}{pending && pendingLabel ? pendingLabel : children}
   </Button>;
 }

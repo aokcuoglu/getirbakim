@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/modules/auth/session";
-import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatExact, formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { vehicleOilsData, VEHICLE_OILS_ROWS } from "@/modules/admin/vehicle-oils";
 
@@ -65,7 +65,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
             : run?.status === "running" ? <StatusBadge tone="warning">Son 10 dk sessiz</StatusBadge>
             : <StatusBadge tone="warning">{run ? "Durduruldu" : "Henüz koşu yok"}</StatusBadge>}
           <span className="tabular-nums">{running && remaining && summary.lastHour ? `Tahmini bitiş: ${finishAt(left)} (${duration(left)})` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
-          {host && <span className="tabular-nums">İstek aralığı {number(host.interval_ms / 1000)} sn + 0–{number(host.jitter_ms / 1000)} sn</span>}
+          {host && <span className="tabular-nums">İstek aralığı {formatExact(host.interval_ms / 1000)} sn + 0–{formatExact(host.jitter_ms / 1000)} sn</span>}
         </CardContent>
       </Card>
       <Card>

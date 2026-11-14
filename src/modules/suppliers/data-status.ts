@@ -91,7 +91,7 @@ export const feedStateTones: Record<FeedState, StatusTone> = {
   fresh: "success",
   partial: "warning",
   stale: "error",
-  never: "neutral",
+  never: "warning",
   unconfigured: "warning",
 };
 
