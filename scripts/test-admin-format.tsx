@@ -6,6 +6,7 @@ import { runKindLabel, runScopeLabel, runStatusLabel, runStatusTone, scheduleLin
 import { adminBreadcrumb, adminSections, isAdminRouteActive } from "../src/components/admin/admin-routes";
 import { supplierInitialTab } from "../src/components/admin/supplier-page";
 import { SupplierPagination, pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
+import { summarizeFeedTones } from "../src/modules/admin/feed-summary";
 import { RunStatusBadge, StatusBadge } from "../src/components/admin/status-badge";
 import { FeedStatusBadge } from "../src/components/admin/feed-status-badge";
 import { SubmitButton } from "../src/components/admin/submit-button";
@@ -189,4 +190,11 @@ test("sidebar activity: a parent with children is exact when open and covers its
   assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler/basbug", true), true);
   assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/basbug/urun/1", false), true);
   assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/seta", false), false);
+});
+
+test("feed summary counters add up to the feed count and drive the card badge", () => {
+  assert.deepEqual(summarizeFeedTones(["success", "success", "success"]), { current: 3, attention: 0, error: 0, idle: 0, badge: "success" });
+  assert.deepEqual(summarizeFeedTones(["success", "success", "neutral"]), { current: 2, attention: 0, error: 0, idle: 1, badge: "warning" });
+  assert.deepEqual(summarizeFeedTones(["success", "warning", "danger"]), { current: 1, attention: 1, error: 1, idle: 0, badge: "error" });
+  assert.equal(summarizeFeedTones(null), null);
 });

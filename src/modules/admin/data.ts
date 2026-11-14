@@ -109,7 +109,7 @@ const enrichmentStatusCounts = ttlMemo(60_000, async () =>
 
 export async function adminDashboard() {
   await requireAdmin();
-  const [orders, days, recent, catalog, enrichment, imports, succeeded, brands] = await Promise.all([
+  const [orders, days, recent, catalog, enrichment, imports, brands] = await Promise.all([
     db.query<{ action: number; shipping: number; refund: number; awaiting_payment: number; revenue_30d: string; paid_30d: number; revenue_prev_30d: string }>(`SELECT
       count(*) FILTER (WHERE ${orderFilters.action.where})::int AS action,
       count(*) FILTER (WHERE ${orderFilters.shipping.where})::int AS shipping,
@@ -130,11 +130,10 @@ export async function adminDashboard() {
     enrichmentStatusCounts(),
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
-    db.query<{ completed_at: Date }>("SELECT completed_at FROM supplier_imports WHERE supplier='basbug' AND status='succeeded' ORDER BY completed_at DESC LIMIT 1"),
     db.query<{ pending: number; fresh: number }>(`SELECT (${pendingBrandsSql}) AS pending,
       (SELECT count(*)::int FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b) AS fresh`),
   ]);
-  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog, enrichment, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null, brands: brands.rows[0] };
+  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog, enrichment, lastImport: imports.rows[0] ?? null, brands: brands.rows[0] };
 }
 
 type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };

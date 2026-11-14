@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
 import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
+import { summarizeFeedTones } from "@/modules/admin/feed-summary";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
@@ -46,10 +47,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const enrichmentAttention = (enrichment.review || 0) + (enrichment.blocked || 0) + (enrichment.failed || 0);
   const basbugTone: Tone = feeds ? feedNavTone(feeds.basbug) : "danger";
   const feedProblems = feeds ? [feeds.basbug, feeds.dinamik, feeds.seta].reduce((sum, feed) => sum + feedIssueCount(feed), 0) : 1;
-  const feedTones = feeds ? [feedNavTone(feeds.basbug), feedNavTone(feeds.dinamik), feedNavTone(feeds.seta)] : [];
-  const feedCurrent = feedTones.filter(t => t === "success").length;
-  const feedWarn = feedTones.filter(t => t === "warning").length;
-  const feedError = feeds ? feedTones.filter(t => t === "danger").length : 3;
+  const feedSummary = summarizeFeedTones(feeds ? [feedNavTone(feeds.basbug), feedNavTone(feeds.dinamik), feedNavTone(feeds.seta)] : null);
   const feedLabel = (key: "basbug" | "dinamik" | "seta") => feeds ? feedStateLabels[feeds[key].state] : "Okunamadı";
 
   const attention = [
@@ -112,15 +110,16 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       <Card>
         <CardHeader>
           <CardDescription>Tedarikçi akışları</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums">{feeds ? `${feedCurrent} / 3 güncel` : "Okunamadı"}</CardTitle>
-          <CardAction><StatusBadge tone={feedError ? "error" : feedWarn ? "warning" : "success"}>{feedError ? "Hata var" : feedWarn ? "Dikkat" : "Güncel"}</StatusBadge></CardAction>
+          <CardTitle className="text-2xl font-semibold tabular-nums">{feedSummary ? `${feedSummary.current} / 3 güncel` : "Okunamadı"}</CardTitle>
+          <CardAction><StatusBadge tone={feedSummary?.badge ?? "error"}>{!feedSummary ? "Okunamadı" : feedSummary.badge === "success" ? "Güncel" : feedSummary.badge === "error" ? "Hata var" : "Dikkat"}</StatusBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-2 text-sm">
-          <div className="flex flex-wrap gap-1">
-            <StatusBadge tone="success" className="tabular-nums">{feedCurrent} güncel</StatusBadge>
-            <StatusBadge tone={feedWarn ? "warning" : "neutral"} className="tabular-nums">{feedWarn} dikkat</StatusBadge>
-            <StatusBadge tone={feedError ? "error" : "neutral"} className="tabular-nums">{feedError} hata</StatusBadge>
-          </div>
+          {feedSummary && <div className="flex flex-wrap gap-1">
+            {feedSummary.current > 0 && <StatusBadge tone="success" className="tabular-nums">{feedSummary.current} güncel</StatusBadge>}
+            {feedSummary.attention > 0 && <StatusBadge tone="warning" className="tabular-nums">{feedSummary.attention} dikkat</StatusBadge>}
+            {feedSummary.error > 0 && <StatusBadge tone="error" className="tabular-nums">{feedSummary.error} hata</StatusBadge>}
+            {feedSummary.idle > 0 && <StatusBadge tone="neutral" className="tabular-nums">{feedSummary.idle} çekilmedi</StatusBadge>}
+          </div>}
           <div className="text-muted-foreground">Başbuğ · Dinamik · SETA</div>
           <Link className="text-muted-foreground underline-offset-4 hover:underline" href="/yonetim/tedarikciler">Durumu gör</Link>
         </CardFooter>
@@ -156,11 +155,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tümü</Button></CardAction>
         </CardHeader>
         <CardContent>
-          {recent.length ? <Table controls={false}><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
+          {recent.length ? <Table controls={false}><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum / ödeme</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
             {recent.map(order => <TableRow key={order.id}>
               <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${order.id}`}>#{order.number}</Link><div className="text-muted-foreground">{formatDateTime(order.created_at)}</div></TableCell>
               <TableCell>{order.customer_name}</TableCell>
-              <TableCell><div className="flex flex-wrap gap-1"><OrderStatusBadge status={order.status}/><PaymentStatusBadge status={order.payment_status}/></div></TableCell>
+              <TableCell><div className="flex flex-wrap gap-1"><OrderStatusBadge status={order.status}/><PaymentStatusBadge status={order.payment_status} prefix/></div></TableCell>
               <TableCell className="text-right font-medium tabular-nums">{money(Number(order.total_kurus))}</TableCell>
             </TableRow>)}
           </TableBody></Table> : <Empty><EmptyHeader><EmptyTitle>Henüz sipariş yok</EmptyTitle></EmptyHeader></Empty>}
