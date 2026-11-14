@@ -144,12 +144,15 @@ Filigran yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir �
 
 `STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts` → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
 
-- **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since` ve gönderilen sayıları tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
-- **`--baseline=<ISO>`:** `--dry-run` olmadan hedefin son anlık görüntüsünü `<ISO>` olarak kaydeder (`baseline: true`) ve çıkar; var olan durumu yalnızca `--force` ile ezer. Gelecekteki ya da geçersiz zaman reddedilir. `--dry-run` ile birlikte yalnızca o çalıştırmanın filigranıdır, hiçbir şey yazılmaz.
+- **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since`, gönderilen sayıları ve gerekiyorsa `retry` listesini tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
+- **Bayraklar katıdır:** yalnız `--dry-run`, `--full`, `--force` ve `--baseline=<ISO>` kabul edilir; başka her argüman (`--dryrun`, `-n`, boşlukla yazılmış `--baseline 2026-…`) hata verir, gerçek çalıştırmaya dönüşmez.
+- **`--baseline=<ISO>`:** `--dry-run` olmadan hedefin son anlık görüntüsünü `<ISO>` olarak kaydeder (`baseline: true`) ve çıkar; kilit altında çalışır, var olan durumu yalnızca `--force` ile ezer (varsa `retry` listesi korunur). Zaman dilimi açık yazılmalıdır (`Z` ya da `±hh:mm`); dilimsiz, gelecekteki ya da geçersiz zaman reddedilir. `--dry-run` ile birlikte yalnızca o çalıştırmanın filigranıdır, hiçbir şey yazılmaz.
 - **`aws` hedefinde durum dosyası yoksa** çalıştırma durur: `--baseline=<ISO>` ile son aktarılan anı kaydedin ya da bilinçli olarak her şeyi göndermek için `--full` kullanın. `vps` hedefi eskisi gibi filigransız ilk çalıştırmada her şeyi gönderir.
 - **`--full`:** filigranı yok sayıp tüm zenginleştirmeleri gönderir; `--baseline` ile birlikte kullanılamaz.
 - **`--dry-run`:** dışa aktarır ve parçalara böler, hedefi, `since`, `snapshotAt`, satır sayılarını, MB'ı ve parça dökümünü (part-00 ayrı) JSON olarak yazar. Aktarım yapmaz, filigran yazmaz, kilit almaz; AWS profili ya da SSH ayarı istemez. Yerel veritabanı ve yerel nesne deposu (MinIO) okunur.
-- **Kilit:** gerçek çalıştırmalar `.local/storefront-sync/sync.lock` (`{pid, startedAt, target}`) alır; launchd ve elle çalıştırma çakışmaz. Kilidi tutan süreç ölmüşse kilit devralınır; Ctrl-C/SIGTERM kilidi bırakır.
+- **Kilit:** gerçek çalıştırmalar ve `--baseline` `.local/storefront-sync/sync.lock` (`{pid, startedAt, target}`) alır; launchd ve elle çalıştırma çakışmaz. Kilidi tutan süreç ölmüşse ya da kilit 24 saatten eskiyse devralınır; Ctrl-C/SIGTERM kilidi bırakır. Hata mesajı kilit dosyasının yolunu verir; o süreç bir aktarım değilse dosyayı silin.
+- **Atlanan zenginleştirmeler (`retry`):** tedarikçi ürünü canlıda henüz yoksa (canlı ve yerel tedarikçi senkronları ayrı) zenginleştirme atlanır. İçe aktarma görevi uygulamadan sonra `s3://$INBOUND_BUCKET/storefront/current/report.json`'a toplam sayıları ve atlanan ürünlerin anahtarlarını (`id`, `supplier`, `company`, `list_group`, `warehouse`, `code`) yazar. Yerel aktarım görev başarıyla bitince raporu indirir, atlanan varsa uyarır ve anahtarları `state.aws.json`'da `retry` olarak saklar. Sonraki dışa aktarım bu ürünlerin zenginleştirmelerini filigrandan bağımsız olarak yeniden gönderir (`export-storefront-bundle.ts --retry-file`, kimlik ya da doğal anahtar eşleşmesi); liste her çalıştırmada yeni raporun atlanan kümesiyle değiştirilir ve 10.000 anahtarla sınırlıdır (sayı her zaman tam raporlanır). Rapor yoksa (eski operations imajı ya da rapor yazılamadı) ya da başka bir paketin raporuysa uyarı verilir ve önceki liste korunur.
+- **Kategori eşlemeleri değiştirilir:** paketteki her zenginleştirmenin canlıdaki `product_source_categories` satırları, paketin taşıdığı kaynaklar (ör. `trodo`) için silinip paketteki satırlarla aynı işlemde yeniden yazılır; kategorisi değişen ürün eski kategoriyi tutmaz.
 - **`aws` ön kontrolü:** yüklemeden önce `aws ecs list-tasks --started-by storefront-sync --desired-status RUNNING` çalışır; süren bir içe aktarma görevi varsa ya da çağrı başarısız olursa çalıştırma durur.
 
 #### Yerelde topla → AWS'ye aktar
@@ -164,7 +167,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
    ```
 3. Gerçek yazma (`npm run storefront:sync`) yalnız kullanıcının açık onayıyla. Sonraki çalıştırmalar filigrandan devam eder; günlük çalıştırma için launchd işi isteğe bağlıdır (`npm run storefront:sync:install`).
 
-İlk gerçek çalıştırmadan önce yeni bir operations imajı (`release-aws`) gerekir: iş durumlarını içe aktaran `import-storefront-bundle.ts` ve kuyrukları boşaltan `import-storefront-inbound.ts` imajın içindedir. Eski imaj paketteki `jobs` alanını yok sayar ve yeni zenginleştirmeler mağazaya düşmez.
+İlk gerçek çalıştırmadan önce yeni bir operations imajı (`release-aws`) gerekir: iş durumlarını içe aktaran `import-storefront-bundle.ts` ve kuyrukları boşaltan `import-storefront-inbound.ts` imajın içindedir. Eski imaj paketteki `jobs` alanını yok sayar ve yeni zenginleştirmeler mağazaya düşmez. `report.json` için operations görev rolünün inbound kovaya `s3:PutObject` izni gerekir; izin yoksa görev yine başarıyla biter, rapor yazılamadığı loglanır ve yerel aktarım önceki `retry` listesini koruyarak uyarır.
 
 #### Tablo kararları
 
@@ -178,6 +181,10 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş) |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
 | `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
+
+İş durumlarının doğruluk kaynağı yereldir: paketteki ürünlerin canlıdaki `product_enrichment_jobs` durumu (ve `supplier_code`, `supplier_brand`, `candidate_url`) paketteki değerle ezilir; canlıda o ürün için başka bir durum yazılmışsa korunmaz.
+
+`enrichment-categories.ts backfill` `imported_at`'i yalnız kategoriler gerçekten değiştiğinde ilerletir; böylece bir backfill tüm Trodo zenginleştirmelerini yeniden göndermez.
 
 Aktarılmayan değişiklikler: yerelde silinen zenginleştirmeler canlıda kalır; `complete`/`partial`'dan başka bir duruma düşen iş paketten çıkar ama canlıdaki satırı değişmez.
 
