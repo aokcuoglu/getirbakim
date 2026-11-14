@@ -87,6 +87,25 @@ Bilinen sınırlar (gizlilik ve diğer düzenlemeler ürün düzeyinde tutulur, 
 - **Kategori:** elle kategori yalnız `categoryProductIds` okuyanları etkiler: mağazanın kategori sayfaları (`/katalog?category=`) ve bakım seti yuvaları (`maintenance-kit.server.ts`), ayrıca ürün sayfasındaki kırıntı yolu. Yönetim ürün listesindeki kategori süzgeci, ana sayfa sekmeleri ve kart kategori etiketleri (`home.ts`) otomatik (zenginleştirme) kategorilerini okumaya devam eder.
 - **Yönetim ürün listesi:** `/yonetim/urunler` listesi ürün adını ve kategoriyi hâlâ tedarikçi/zenginleştirme verisinden gösterir; elle düzenlenenleri "Elle düzenlenen" ve "Mağazada gizli" süzgeçleri bulur, düzenlenmiş değerler ürün sayfasındadır.
 
+### Görseller (#581)
+
+`/yonetim/urunler/[id]` "Görseller" kartı ürüne elle görsel yükler, sıralar, siler ve otomatik (zenginleştirme) görselini mağazada gizler. Tablolar `db/product-override-images.sql`'dedir (kurulumda `product-overrides`'tan hemen sonra):
+
+- `product_override_images`: ana ürün (`products.id`) başına yüklenen görseller; `media_id` → `product_media_objects` (sha256 ile tekil; nesne `admin/` önekiyle saklanır), `position` (en küçüğü ana görsel; ayrı bir `is_primary` sütunu yok), `width`/`height`, `file_name`, `carried_from` (birleştirmeyle gelen görselin kaynağı), `created_by`. Aynı görsel bir ürüne iki kez eklenmez (`UNIQUE(product_id,media_id)`).
+- `product_override_image_settings`: satır yalnız "Otomatik görseli mağazada gizle" açıkken vardır (`hide_automatic`); `hide_carried_from` gizliliğin birleştirmeyle geldiği ürünü tutar.
+- Geçmiş `product_override_changes`'a yazılır: `image_added` (yeni = dosya adı), `image_removed` (eski = dosya adı), `image_primary` (eski/yeni ana görselin dosya adı), `auto_image_hidden` (`'true'`/`NULL`).
+
+Okuma sırası: ürün sayfası önce yüklenen görselleri sırasıyla, ardından gizlenmediyse otomatik görseli gösterir (aynı görsel bir kez; `galleryImages`, `src/modules/store/product-image-display.ts`). Kartlar, sepet, bayi API'si ve bakım setleri (`getCatalogProductImages`) ilk yüklenen görseli, yoksa gizlenmemiş otomatik görseli, o da yoksa bugünkü çizimi (PartArt) gösterir. Okuma istek anındadır: `product_sources` (PK) → `product_override_images` birleşimi (`src/modules/store/product-images.ts`); izdüşüm tablosu yoktur, katalog görünümleri değişmez. `getProductEnrichment().imagePath` otomatik görsel olarak kalır. `/api/product-media/<uuid>` yüklenen görselleri de sunar (`servableProductMedia`).
+
+Yükleme: Server Action, çağrı başına bir dosya (istemci seçilen dosyaları sırayla gönderir); ham dosya en çok 8 MB, ürün başına en çok 12 görsel. Yalnız tek kareli JPEG/PNG/WebP, iki kenar da en az 200 px; sharp EXIF yönüne göre döndürür, 2000×2000 içine sığdırır (büyütmez), WebP (kalite 85) yazar, EXIF/GPS düşer (`src/modules/admin/product-image-upload.ts`). Nesne deposuna yazım ürün kilidinin dışında, satır ekleme ürün satırı kilitliyken yapılır (`product-image-store.ts`).
+
+Birleştirme: eylemler `product_overrides_carry`'nin yanında `product_override_images_carry(source, target, actor)` çağırır. Hedefin hiç görseli yoksa birleşen ürünün görselleri `carried_from=source` ile kopyalanır; birleşen ürün otomatik görseli gizliyorsa ve hedef gizlemiyorsa gizlilik `hide_carried_from=source` ile taşınır; her ikisi geçmişe `reason='carry'` ile yazılır. Birleştirme geri alınınca (`merged_into` temizlenince) `product_override_images_products_restored` tetikleyicisi `product_override_images_uncarry`'yi çağırır: hâlâ taşınmış duran görseller ve gizlilik geri alınır (`reason='uncarry'`). Yönetici hedefte galeride herhangi bir değişiklik yaparsa (ekleme, silme, sıralama, gizleme) o ürünün tüm `carried_from`/`hide_carried_from` değerleri temizlenir: görseller artık onundur ve geri almada kalır.
+
+Kararlar ve sınırlar:
+
+- **Ortamlar arası aktarım yok:** yüklemeler yapıldıkları ortamda yaşar (kaynak AWS yönetim paneli). `products.id` ortamlar arasında farklı olduğundan mağaza paketi (#553) bu tabloları ne dışa aktarır ne içe alır; aktarım aracı yoktur (`test:product-override-images` yapısal olarak denetler).
+- **Silme yalnız satırı kaldırır:** `product_override_images` satırı silinir; `product_media_objects` kaydı ve S3'teki baytlar kalır. Başka bir yükleme veya zenginleştirme kullanmıyorsa `/api/product-media` onu artık sunmaz. Kullanılmayan nesneleri toplama ayrı iştir (#597).
+
 ## Tablolar ve çalıştırma
 
 `refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.
