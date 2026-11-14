@@ -14,7 +14,7 @@ export function OrderStatusBadge({ status }: { status: string }) {
   const look = orderLooks[status] ?? waiting;
   return <StatusBadge tone={look.tone} icon={look.icon}>{orderStatus[status] ?? status}</StatusBadge>;
 }
-export function PaymentStatusBadge({ status }: { status: string }) {
+export function PaymentStatusBadge({ status, prefix }: { status: string; prefix?: boolean }) {
   const look = paymentLooks[status] ?? waiting;
-  return <StatusBadge tone={look.tone} icon={look.icon}>{paymentStatus[status] ?? status}</StatusBadge>;
+  return <StatusBadge tone={look.tone} icon={look.icon}>{prefix && <span className="sr-only">Ödeme: </span>}{paymentStatus[status] ?? status}</StatusBadge>;
 }
