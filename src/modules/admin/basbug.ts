@@ -5,6 +5,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { supplierHealth } from "@/modules/suppliers/health";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import { z } from "zod";
 import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbug-stock";
 
@@ -47,8 +48,8 @@ export async function adminBasbugData(params: BasbugParams) {
     "SELECT * FROM supplier_sync_scopes WHERE supplier='basbug' AND company=$1 AND list_group=$2 AND warehouse='MRK'", [snapshot.company,snapshot.list_group],
   )).rows[0] : undefined;
   const recentRuns = (await db.query<ImportSummary>(
-    "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' ORDER BY started_at DESC,id DESC LIMIT 10",
-    [process.env.BASBUG_FIRMA_ADI || "BASBUG", group],
+    "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' ORDER BY started_at DESC,id DESC LIMIT $3",
+    [process.env.BASBUG_FIRMA_ADI || "BASBUG", group, supplierRunHistoryLimit],
   )).rows;
   // Latest succeeded run of any kind (full list or price · stock · rate) in the page's scope.
   const lastSucceeded = (await db.query<ImportSummary>(

@@ -5,6 +5,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { supplierHealth } from "@/modules/suppliers/health";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
@@ -13,7 +14,7 @@ export type SetaParams = { q?: string; category?: string; stock?: string; qualit
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
 const itemSorts = { code: "code", name: "product_data->>'ac'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
 export type SetaImportSummary = {
-  id: string; run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null;
+  id: string; list_group: string; warehouse: string; run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null;
   stats: Record<string, number>; started_at: Date; completed_at: Date | null; observations: Record<string, string>;
   quality: { productRows: number; uniqueProducts: number; missingPrices: number; outOfStock: number; duplicateCodes: number; conflictingCodes: number };
 };
@@ -32,7 +33,7 @@ export async function adminSetaData(params: SetaParams) {
   const [snapshot, lastSucceeded, recentRuns, health, categories] = await Promise.all([
     db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} AND status='succeeded' AND run_kind='full' ORDER BY completed_at DESC,id DESC LIMIT 1`, [setaCompany]),
     db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1`, [setaCompany]),
-    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} ORDER BY started_at DESC,id DESC LIMIT 10`, [setaCompany]),
+    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} ORDER BY started_at DESC,id DESC LIMIT $2`, [setaCompany, supplierRunHistoryLimit]),
     supplierHealth(db, setaCompany),
     db.query<{ value: string }>(`SELECT DISTINCT product_data->>'source_category' AS value FROM supplier_items WHERE ${scope} AND presence='present' AND product_data->>'source_category' IS NOT NULL ORDER BY value`, [setaCompany]),
   ]);
@@ -47,6 +48,7 @@ export async function adminSetaData(params: SetaParams) {
   if (params.stock === "1" || params.stock === "0") { values.push(params.stock); conditions.push(`stock_data->>'stok'=$${values.length}`); }
   if (params.stock === "unknown") conditions.push("stock_data->>'stok' IS NULL");
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
+  if (params.quality === "duplicates") conditions.push("product_count>1");
   if (params.quality === "conflicts") conditions.push("conflicting");
   const where = conditions.join(" AND ");
   const total = Number((await db.query<{ count: string }>(`SELECT count(*) FROM supplier_items WHERE ${where}`, values)).rows[0].count);

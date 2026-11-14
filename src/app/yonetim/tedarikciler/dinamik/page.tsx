@@ -1,193 +1,136 @@
-import { Fragment } from "react";
 import Link from "next/link";
-import { ArrowRight, CircleAlert, CircleCheck, History, Info, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
-import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { supplierRunError } from "@/modules/suppliers/run-error";
+import { scheduleLines, type StatusTone } from "@/modules/suppliers/run-status";
+import { formatDate, formatNumber } from "@/modules/admin/format";
 import { SupplierFactCards } from "@/components/admin/supplier-fact-cards";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { adminDinamikOverview, adminSupplierFeedStatus, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
 import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
-import { SupplierTabs } from "@/components/admin/supplier-tabs";
+import { SupplierPage, SupplierSourceCard } from "@/components/admin/supplier-page";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
-import { dinamikPartTableProps } from "@/components/admin/supplier-part-table-data";
+import { costNotes, dinamikPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
+import { SupplierPagination } from "@/components/admin/supplier-pagination";
+import { SupplierQualityCard } from "@/components/admin/supplier-quality-card";
+import { SupplierRunHistory } from "@/components/admin/supplier-run-history";
 import { DinamikProductFilters } from "@/components/admin/dinamik-product-filters";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { refreshDinamik } from "./actions";
 
-const number = (value: number | null | undefined) => new Intl.NumberFormat("tr-TR").format(value ?? 0);
-const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Henüz yok";
-const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
-const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
 const runError = (reason: string) => supplierRunError(reason, "dinamik");
+// Connection settings; only the missing ones are named (the feed badge and the overview already say "Bağlantı eksik").
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
 const errors: Record<string, string> = {
-  busy: "Bir Dinamik aktarımı zaten sürüyor. Biraz sonra yeniden deneyin.",
+  busy: "Bir Dinamik çekimi zaten sürüyor. Biraz sonra yeniden deneyin.",
   config: "Dinamik bağlantı değişkenleri eksik.",
   contract: "Marka adı veya yanıt beklenen yapıya uymadı. Önceki veriler korunuyor.",
   rejected: "Veri kalite kontrolünden geçemedi; önceki veriler korunuyor.",
   upstream: "Dinamik verileri alınamadı. Önceki veriler korunuyor; yeniden deneyebilirsiniz.",
   forbidden: "Dinamik bu sunucunun IP adresine izin vermiyor (HTTP 401/403). Dinamik yalnız izinli IP'lerden çağrılabilir: AWS'te VPS proxy'si, yerelde SSH tüneli (DINAMIK_DIRECT_TUNNEL).",
 };
-const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence", "sort", "dir"] as const;
-type Tone = "success" | "warning" | "error" | "info" | "neutral";
-const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "warning" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "info" ? <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
+const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence"] as const;
 
 export default async function DinamikAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const status = supplierStatuses().find(s => s.name === "Dinamik");
   const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
     supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan(), adminSupplierFeedStatus().catch(() => null)]);
   const { items: rows, total, page, pages } = list;
   const region = dinamikRegion(params.region);
-  function pageUrl(target: number) {
-    const query = new URLSearchParams({ page: String(target) });
-    for (const key of filterKeys) if (params[key]) query.set(key, params[key]!);
-    return `/yonetim/tedarikciler/dinamik?${query}`;
-  }
-  const pageNumbers = Array.from(new Set([1, ...Array.from({ length: 5 }, (_, i) => Math.max(1, Math.min(page - 2, pages - 4)) + i), pages])).filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const { items, scopes, runs } = data;
   const lastRun = data.recent[0];
   const { lastSucceeded } = data;
-  const stats: [string, string, string, Tone?][] = [
-    ["Güncel ürün", number(items.present), `${number(items.brands)} marka · ${number(items.priced)} fiyatlı`],
-    ["Bölgede stokta", number(items.available), "En az bir depoda VAR (adet değil)"],
-    ["Markalar", `${number(scopes.synced)} / ${number(scopes.enabled)}`, data.discovery ? `Liste ${time(data.discovery.checked_at)} okundu · ${number(data.discovery.listed)} marka` : "Marka listesi henüz okunmadı",
+  const missingVariables = variables.filter(name => !process.env[name]);
+  const schedule = scheduleLines(health?.scopes ?? [], { catalogLabel: "Markalar" });
+  const stats: [string, string, string, StatusTone?][] = [
+    ["Güncel ürün", formatNumber(items.present), `${formatNumber(items.brands)} marka · ${formatNumber(items.priced)} fiyatlı`],
+    ["Bölgede stokta", formatNumber(items.available), "En az bir depoda VAR (adet değil)"],
+    ["Markalar", `${formatNumber(scopes.synced)} / ${formatNumber(scopes.enabled)}`, data.discovery ? `Liste ${formatDate(data.discovery.checked_at)} okundu · ${formatNumber(data.discovery.listed)} marka` : "Marka listesi henüz okunmadı",
       scopes.failing ? "warning" : scopes.synced === scopes.enabled && scopes.enabled ? "success" : "neutral"],
-    ["Son 24 saat", `${number(runs.total)} çekim`, runs.failed ? `${number(runs.failed)} başarısız / inceleme · ${number(scopes.due)} sırada` : `Hatasız · ${number(scopes.due)} sırada`, runs.failed ? "warning" : "success"],
+    ["Son 24 saat", `${formatNumber(runs.total)} çekim`, runs.failed ? `${formatNumber(runs.failed)} başarısız / inceleme · ${formatNumber(scopes.due)} sırada` : `Hatasız · ${formatNumber(scopes.due)} sırada`, runs.failed ? "warning" : "success"],
   ];
-  return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Dinamik</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Dinamik API</h1>
-          <p className="text-muted-foreground">Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir.</p>
-        </div>
-        <SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{feeds ? <FeedStatusBadge status={feeds.dinamik}/> : statusBadge("error", "Okunamadı")}</SupplierActivityBadge>
-      </div>
-    </div>
-    {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
-    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
-    <SupplierFactCards label="Dinamik özet" health={health} feed={feeds?.dinamik} checkoutMode={checkoutMode}
-      checkoutNote={checkoutMode === "snapshot" ? "Başbuğ ile ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"}
-      lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${number(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
-      lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group}${lastRun.status === "succeeded" ? ` · ${number(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
-      notes={{
-        scheduler: ["Markalar her gece 04:00"],
-        run: [lastRun?.error_reason && runError(lastRun.error_reason)],
-      }}/>
-    {health && <SupplierHealthStatus health={health} supplier="dinamik" name="Dinamik" unit="marka" refresh={refreshDinamik} refreshField="brand"
-      liveCheckout={checkoutMode === "live"} refreshDescription="Seçilen markanın stok ve fiyat listesi birlikte yenilenir. Tüm güncel olmayan markalar için Senkronizasyon sekmesini kullanın."/>}
-    <SupplierTabs label="Dinamik yönetimi" key={params.error ? `error-${params.error}` : params.updated ? "updated" : "workspace"} initialTab={params.error || params.updated ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader><CardTitle><h2>Kaynağı güncelle</h2></CardTitle><CardDescription>Her marka tek istekle çekilir (stok ve fiyat listesi birlikte). Zamanlayıcı kapalıyken veriler buradan tazelenir.</CardDescription><CardAction><Badge variant="outline">API · marka bazlı</Badge></CardAction></CardHeader>
-        <CardContent>
-          <form action={refreshDinamik}><Field>
-            <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
-            <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-brand" name="brand" defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}>{plan.dinamikBrands.map(brand => <NativeSelectOption key={brand} value={brand}>{brand}</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
-            <FieldDescription>{number(plan.dinamikBrands.length)} etkin marka · {number(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
-          </Field></form>
-        </CardContent>
-        <CardFooter><SupplierRefreshRunner tasks={plan.dinamikStale.map(brand => ({ supplier: "dinamik" as const, group: brand }))} label={`Güncel olmayan ${number(plan.dinamikStale.length)} markayı yenile`}
-          description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/></CardFooter>
-      </Card>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Dinamik özeti">
+  return <SupplierPage crumb="Dinamik" title="Dinamik API" tabsLabel="Dinamik yönetimi"
+    description="Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir."
+    badge={<SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{feeds ? <FeedStatusBadge status={feeds.dinamik}/> : <StatusBadge tone="error">Okunamadı</StatusBadge>}</SupplierActivityBadge>}
+    attention={Boolean(params.error)} hasData={items.present > 0} tabKey={[params.error, params.updated, params.brand].join("|")}
+    alerts={<>
+      {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
+      {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
+      {missingVariables.length > 0 && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Dinamik bağlantı ayarları eksik</AlertTitle>
+        <AlertDescription>Tanımlanmayan ortam değişkenleri: <span className="font-mono">{missingVariables.join(", ")}</span>. Tanımlanana kadar veri çekilemez.</AlertDescription></Alert>}
+    </>}
+    facts={<>
+      <SupplierFactCards label="Dinamik özet" health={health} feed={feeds?.dinamik} checkoutMode={checkoutMode}
+        checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"}
+        lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${formatNumber(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
+        lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group}${lastRun.status === "succeeded" ? ` · ${formatNumber(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
+        notes={{ scheduler: schedule, run: [lastRun?.error_reason && runError(lastRun.error_reason)] }}/>
+      {health && <SupplierHealthStatus health={health} supplier="dinamik" name="Dinamik" unit="marka" refresh={refreshDinamik} refreshField="brand"
+        liveCheckout={checkoutMode === "live"} refreshDescription="Seçilen markanın stok ve fiyat listesi birlikte yenilenir. Tüm güncel olmayan markalar için Senkronizasyon sekmesini kullanın."/>}
+    </>}
+    sync={<div className="flex flex-col gap-4">
+      <SupplierSourceCard description="Her marka tek istekle çekilir (stok ve fiyat listesi birlikte). Zamanlayıcı kapalıyken veriler buradan tazelenir."
+        badge={<Badge variant="outline">API · marka bazlı</Badge>} schedule={schedule}
+        footer={<SupplierRefreshRunner tasks={plan.dinamikStale.map(brand => ({ supplier: "dinamik" as const, group: brand }))} label={`Güncel olmayan ${formatNumber(plan.dinamikStale.length)} markayı yenile`}
+          description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/>}>
+        <form action={refreshDinamik}><Field>
+          <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
+          <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-brand" name="brand" defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}>{plan.dinamikBrands.map(brand => <NativeSelectOption key={brand} value={brand}>{brand}</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
+          <FieldDescription>{formatNumber(plan.dinamikBrands.length)} etkin marka · {formatNumber(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
+        </Field></form>
+      </SupplierSourceCard>
+      <SupplierQualityCard quality={lastSucceeded?.quality} completedAt={lastSucceeded?.completed_at} scope={lastSucceeded?.list_group}
+        filters={{ brand: lastSucceeded?.list_group }}>
+        {lastSucceeded && <p className="text-muted-foreground tabular-nums">Yalnız son çekilen marka · Stok satırı: {formatNumber(lastSucceeded.quality.stockRows)} · Fiyat satırı: {formatNumber(lastSucceeded.quality.priceRows)} · Tüm markalarda çelişkili kod: {formatNumber(items.conflicting)}</p>}
+      </SupplierQualityCard>
+      <SupplierRunHistory runs={data.recent} supplier="dinamik" name="Dinamik" emptyDescription="Zamanlayıcı marka listesini okuyup markaları sırayla çeker."/>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Dinamik marka kapsamı">
         {stats.map(([label, value, note, statTone]) => <Card key={label}>
           <CardHeader>
             <CardDescription>{label}</CardDescription>
             <CardTitle className="text-2xl font-semibold tabular-nums">{value}</CardTitle>
-            {statTone && statTone !== "neutral" && <CardAction>{statusBadge(statTone, statTone === "success" ? "Güncel" : "Dikkat")}</CardAction>}
+            {statTone && statTone !== "neutral" && <CardAction><StatusBadge tone={statTone}>{statTone === "success" ? "Güncel" : "Dikkat"}</StatusBadge></CardAction>}
           </CardHeader>
           <CardContent className="text-muted-foreground">{note}</CardContent>
         </Card>)}
       </div>
-      <div className="grid items-start gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader><CardTitle><h2>Son çekimler</h2></CardTitle><CardDescription>En eski güncel marka: {time(scopes.oldest_success)} · en son: {time(scopes.last_success)}</CardDescription></CardHeader>
-          <CardContent>
-            {data.recent.length ? <Table><caption className="sr-only">Son Dinamik çekimleri</caption>
-              <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Başlangıç</TableHead><TableHead className="text-right">Ürün</TableHead><TableHead className="text-right">Yeni / değişen</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
-              <TableBody>{data.recent.map(run => <TableRow key={`${run.list_group}-${run.started_at.toISOString()}`}>
-                <TableCell className="font-medium">{run.list_group}</TableCell>
-                <TableCell className="tabular-nums">{time(run.started_at)}</TableCell>
-                <TableCell className="text-right tabular-nums">{number(run.quality.uniqueProducts)}</TableCell>
-                <TableCell className="text-right tabular-nums">{number(run.stats.added)} / {number((run.stats.changed ?? 0) + (run.stats.restored ?? 0))}</TableCell>
-                <TableCell className="whitespace-normal"><div className="flex flex-wrap items-center gap-2">{statusBadge(runTones[run.status] ?? "neutral", runLabels[run.status] ?? run.status)}{run.error_reason && <span className="text-muted-foreground">{runError(run.error_reason)}</span>}</div></TableCell>
-              </TableRow>)}</TableBody>
-            </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz çekim kaydı bulunmuyor</EmptyTitle><EmptyDescription>Zamanlayıcı marka listesini okuyup markaları sırayla çeker.</EmptyDescription></EmptyHeader></Empty>}
-          </CardContent>
-        </Card>
-        <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader><CardTitle><h2>Hata veren markalar</h2></CardTitle></CardHeader>
-            <CardContent>
-              {data.failing.length ? <Table><TableBody>{data.failing.map(scope => <TableRow key={scope.list_group}>
-                <TableCell className="whitespace-normal"><div className="font-medium">{scope.list_group}</div><div className="text-muted-foreground">{scope.error_reason ? runError(scope.error_reason) : "Bilinmeyen hata"}</div></TableCell>
-                <TableCell className="text-right text-muted-foreground tabular-nums">{scope.consecutive_failures}× · sonraki {time(scope.next_run_at)}</TableCell>
-              </TableRow>)}</TableBody></Table> : <p className="text-muted-foreground">Hata veren marka yok.</p>}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle><h2>Ortam değişkenleri</h2></CardTitle></CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <Table><TableBody>{variables.map(name => <TableRow key={name}><TableCell className="font-mono">{name}</TableCell><TableCell className="text-right">{statusBadge(process.env[name] ? "success" : "warning", process.env[name] ? "Tanımlı" : "Eksik")}</TableCell></TableRow>)}</TableBody></Table>
-              <p className="text-muted-foreground">{status?.message}</p>
-            </CardContent>
-            <CardFooter><Button variant="link" nativeButton={false} render={<Link href="/yonetim/tedarikciler"/>}>Tüm tedarikçiler<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
-          </Card>
-        </div>
-      </div>
-    </div>} products={
-    <SupplierBrowser><Card>
+      <Card>
+        <CardHeader><CardTitle><h2>Hata veren markalar</h2></CardTitle><CardDescription>En eski güncel marka: {formatDate(scopes.oldest_success, { fallback: "Henüz yok" })} · en son: {formatDate(scopes.last_success, { fallback: "Henüz yok" })}</CardDescription></CardHeader>
+        <CardContent>
+          {data.failing.length ? <Table><TableBody>{data.failing.map(scope => <TableRow key={scope.list_group}>
+            <TableCell className="whitespace-normal"><div className="font-medium">{scope.list_group}</div><div className="text-muted-foreground">{scope.error_reason ? runError(scope.error_reason) : "Bilinmeyen hata"}</div></TableCell>
+            <TableCell className="text-right text-muted-foreground tabular-nums">{scope.consecutive_failures}× · sonraki {formatDate(scope.next_run_at)}</TableCell>
+          </TableRow>)}</TableBody></Table> : <p className="text-muted-foreground">Hata veren marka yok.</p>}
+        </CardContent>
+      </Card>
+    </div>}
+    products={<SupplierBrowser><Card>
       <CardHeader className="border-b">
-        <DinamikProductFilters key={filterKeys.map(key => params[key]).join("|")} params={params} brands={list.brands} groups={list.groups}/>
+        <DinamikProductFilters key={[...filterKeys, "sort", "dir"].map(key => params[key]).join("|")} params={params} brands={list.brands} groups={list.groups}/>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
-        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>Fiyat: KDV hariç maliyet · Satış: kâr + KDV dahil (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Stok: VAR/YOK · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.dinamik} (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
         <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present), { brands: list.brands, groups: list.groups })}/>
       </CardContent>
-      <CardFooter className="flex-wrap justify-between gap-3">
-        <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
-        <Pagination className="mx-0 w-auto" aria-label="Ürün sayfaları"><PaginationContent>
-          <PaginationItem><PaginationPrevious text="Önceki" aria-label="Önceki sayfa" href={page > 1 ? pageUrl(page - 1) : undefined} aria-disabled={page <= 1 || undefined}/></PaginationItem>
-          {pageNumbers.map((n, i, ns) => <Fragment key={n}>{i > 0 && n - ns[i - 1] > 1 && <PaginationItem><PaginationEllipsis/></PaginationItem>}<PaginationItem><PaginationLink href={pageUrl(n)} isActive={n === page}>{n}</PaginationLink></PaginationItem></Fragment>)}
-          <PaginationItem><PaginationNext text="Sonraki" aria-label="Sonraki sayfa" href={page < pages ? pageUrl(page + 1) : undefined} aria-disabled={page >= pages || undefined}/></PaginationItem>
-        </PaginationContent></Pagination>
-        <form action="/yonetim/tedarikciler/dinamik" className="flex items-center gap-2">{filterKeys.filter(key => params[key]).map(key => <input key={key} type="hidden" name={key} value={params[key] || ""}/>)}<Label htmlFor="page-jump">Sayfaya git</Label><Input id="page-jump" className="w-20" type="number" name="page" min={1} max={pages} defaultValue={page}/><Button type="submit" variant="outline">Git</Button></form>
-      </CardFooter>
-    </Card></SupplierBrowser>
-    }/>
-  </div>;
+      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/dinamik" params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
+    </Card></SupplierBrowser>}/>;
 }

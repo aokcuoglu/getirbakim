@@ -29,7 +29,15 @@ function checkCell(item: { presence: string; conflicting: boolean }, missingPric
 
 const saleColumn: SupplierPartColumn = { key: "sale", label: "Satış (₺)", align: "right", numeric: true, emphasized: true };
 const nameColumn: SupplierPartColumn = { key: "name", label: "Ürün adı", width: "wide", emphasized: true, sortKey: "name" };
-const costColumn: SupplierPartColumn = { key: "cost", label: "NF", title: "KDV hariç maliyet", align: "right", numeric: true, missingLabel: "Eksik", sortKey: "cost" };
+// One cost header on every supplier table; each page's note line says what the supplier's cost is (costNotes).
+const costColumn: SupplierPartColumn = { key: "cost", label: "Maliyet (KDV hariç)", title: "KDV hariç maliyet", align: "right", numeric: true, missingLabel: "Eksik", sortKey: "cost" };
+/** Note line above each supplier table: what "Maliyet" is for that supplier; "Satış" is always the store price with VAT. */
+export const costNotes = {
+  basbug: "Maliyet: Başbuğ NF fiyatı, kaynak para biriminde · Satış: kâr + KDV dahil",
+  dinamik: "Maliyet: Dinamik liste fiyatı (₺) · Satış: kâr + KDV dahil · Stok: var/yok",
+  seta: "Maliyet: SETA bayi fiyatı · Satış: kâr + KDV dahil · Stok: var/yok",
+  manual: "Maliyet: dosyadaki alış fiyatı · Satış: kâr + KDV dahil",
+} as const;
 const options = (values: string[]) => values.map(value => ({ value, label: value }));
 // The "Kontrol" header filters by the list's ?quality= values.
 const checkColumn = (qualities: [string, string][]): SupplierPartColumn => ({ key: "check", label: "Kontrol", width: "medium",
@@ -71,7 +79,7 @@ export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: Basb
           fields: [
             ["Marka", p.uk], ["OEM", p.oe], ["Ek açıklama", p.ac2], ["Model", p.m],
             ["Motor", p.mo], ["Yıl", p.y], ["Birim", p.b], ["Liste grubu", p.lgk],
-            ["NF · KDV hariç maliyet", item.price_data ? `${number(item.price_data.nf)} ${p.dc}` : "Fiyat eksik"],
+            ["Maliyet · KDV hariç (NF)", item.price_data ? `${number(item.price_data.nf)} ${p.dc}` : "Fiyat eksik"],
             ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"],
             ["Satış durumu", item.sale_stock_label || "Satışa kapalı"], ["Listede bulunma", presenceLabel(item.presence)],
             ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : !item.price_data ? "Fiyat eksik" : repeated ? "Tekrarlanan kod" : "—"],
@@ -94,7 +102,7 @@ export function setaPartTableProps(items: SetaItem[]): SupplierPartTableProps {
       { key: "currency", label: "PB", title: "Kaynak para birimi" },
       { ...costColumn, title: "KDV hariç bayi fiyatı" }, saleColumn,
       { key: "stock", label: "Stok", align: "center", filter: { param: "stock", options: stockOptions } },
-      checkColumn([["missing-price", "Fiyatı eksik"], ["conflicts", "Çelişkili kayıt"]]),
+      checkColumn([["missing-price", "Fiyatı eksik"], ["duplicates", "Tekrarlanan kod"], ["conflicts", "Çelişkili kayıt"]]),
     ],
     rows: items.map(item => {
       const p = item.product_data;
@@ -110,6 +118,20 @@ export function setaPartTableProps(items: SetaItem[]): SupplierPartTableProps {
           stock: stockCell(stock === null ? null : stock > 0, "Kaynak adet değil, var/yok bildirir"),
           check: checkCell(item, !item.price_data, item.product_count > 1),
         },
+        details: {
+          title: p.ac || "Ürün bilgisi yok", supplier: "SETA",
+          fields: [
+            ["Marka", p.uk], ["OEM", p.oe], ["Ek açıklama", p.ac2], ["Araç", p.vehicle_brand],
+            ["Kategori", p.source_category], ["Çapraz referans", cross],
+            ["Maliyet · KDV hariç bayi fiyatı", item.price_data ? `${number(item.price_data.nf)} ${p.dc}` : "Fiyat eksik"],
+            ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"],
+            ["Satış durumu", item.sale_stock_label || "Satışa kapalı"], ["Listede bulunma", presenceLabel(item.presence)],
+            ["Veri kontrolü", item.conflicting ? "Çelişkili kayıt" : !item.price_data ? "Fiyat eksik" : item.product_count > 1 ? "Tekrarlanan kod" : "—"],
+            ["Kaynak satırları", `${item.product_count} ürün`],
+          ],
+          stockTitle: "Stok durumu", stocks: [{ label: "SETA", available: stock === null ? null : stock > 0 }],
+          footer: <AdminAddToCart productId={item.id} name={p.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/>,
+        },
       };
     }),
   };
@@ -123,7 +145,7 @@ export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegio
     columns: [
       nameColumn, { key: "brand", label: "Marka", sortKey: "brand", filter: { param: "brand", options: options(lists.brands) } }, { key: "vehicle", label: "Araç" },
       { key: "group", label: "Grup", width: "medium", filter: lists.groups.length <= 200 ? { param: "group", options: options(lists.groups) } : { param: "group", placeholder: "Grup adı" } },
-      { ...costColumn, label: "Fiyat (₺)", title: "KDV hariç maliyet (₺)" },
+      { ...costColumn, title: "KDV hariç maliyet (₺)" },
       { ...saleColumn, title: "Mağaza satış fiyatı, KDV dahil" },
       { key: "campaign", label: "Kamp.", title: "Kampanya oranı", align: "right", numeric: true },
       ...dinamikRegions.map(r => ({ key: r.key, label: r.key === region ? <strong>{r.short}</strong> : r.short, align: "center" as const, title: `${r.label} stok durumu (${r.key})` })),
@@ -195,6 +217,20 @@ export function manualPartTableProps(items: ManualItem[], lists: { categories: s
           image: item.has_image ? { value: "Var", variant: "success" } : { value: "Yok", variant: "outline" },
           check: item.presence !== "present" ? checkCell(item, false, false) : !item.price_data ? { value: "Fiyat eksik", variant: "warning" }
             : !p.package ? { value: "Ambalaj eksik", variant: "warning" } : item.overridden ? { value: "Panelden tamamlandı", variant: "info" } : { value: null },
+        },
+        details: {
+          title: p.ac || "Ürün bilgisi yok", supplier: `Manuel · ${p.list_name}`,
+          fields: [
+            ["Marka", p.uk], ["Kategori", p.category_name], ["Ambalaj", p.package ?? "Ambalaj eksik"], ["Viskozite", p.viscosity],
+            ["Onaylar", p.approvals], ["Barkod", p.barcode],
+            ["Maliyet · KDV hariç alış", item.price_data ? number(item.price_data.nf) : "Fiyat eksik"],
+            ["Satış fiyatı · KDV dahil", item.sale_price_kurus ? money(item.sale_price_kurus) : "Satışa kapalı"],
+            ["Satış durumu", item.sale_stock_label || "Satışa kapalı"], ["Listede bulunma", presenceLabel(item.presence)],
+            ["Stok adedi", stock === null ? "Stok girilmemiş" : number(stock)], ["Resim", item.has_image ? "Var" : "Yok"],
+            ["Veri kontrolü", !item.price_data ? "Fiyat eksik" : !p.package ? "Ambalaj eksik" : item.overridden ? "Panelden tamamlandı" : "—"],
+          ],
+          stockTitle: "Stok durumu", stocks: [{ label: "Liste", available: stock === null ? null : stock > 0 }],
+          footer: <AdminAddToCart productId={item.id} name={p.ac} available={Boolean(item.sale_available && item.sale_price_kurus)}/>,
         },
       };
     }),

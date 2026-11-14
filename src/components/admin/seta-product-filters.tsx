@@ -30,7 +30,7 @@ export function SetaProductFilters({ params, categories }: { params: SetaParams;
           <PopoverHeader><PopoverTitle>Diğer filtreler</PopoverTitle></PopoverHeader>
           <FieldGroup>
             <Field><FieldLabel htmlFor="filter-presence">Listede bulunma</FieldLabel><NativeSelect id="filter-presence" value={presence} onChange={event => setPresence(event.target.value)}><NativeSelectOption value="present">Güncel listede var</NativeSelectOption><NativeSelectOption value="pending_missing">İlk kez bulunamadı</NativeSelectOption><NativeSelectOption value="inactive">İki çekimde bulunamadı</NativeSelectOption><NativeSelectOption value="all">Tüm kayıtlar</NativeSelectOption></NativeSelect></Field>
-            <Field><FieldLabel htmlFor="filter-quality">Veri kalitesi</FieldLabel><NativeSelect id="filter-quality" value={quality} onChange={event => setQuality(event.target.value)}><NativeSelectOption value="">Kalite: tümü</NativeSelectOption><NativeSelectOption value="missing-price">Fiyatı eksik</NativeSelectOption><NativeSelectOption value="conflicts">Çelişkili kayıt</NativeSelectOption></NativeSelect></Field>
+            <Field><FieldLabel htmlFor="filter-quality">Veri kalitesi</FieldLabel><NativeSelect id="filter-quality" value={quality} onChange={event => setQuality(event.target.value)}><NativeSelectOption value="">Kalite: tümü</NativeSelectOption><NativeSelectOption value="missing-price">Fiyatı eksik</NativeSelectOption><NativeSelectOption value="duplicates">Tekrarlanan kod</NativeSelectOption><NativeSelectOption value="conflicts">Çelişkili kayıt</NativeSelectOption></NativeSelect></Field>
             <FieldDescription>Seçimlerini uygulamak için Filtrele düğmesini kullan.</FieldDescription>
           </FieldGroup>
         </PopoverContent>

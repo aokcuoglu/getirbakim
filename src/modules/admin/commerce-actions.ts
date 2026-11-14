@@ -12,6 +12,14 @@ export async function savePricing(form:FormData) {
  await db.query('UPDATE commerce_settings SET markup_percent=$1,vat_percent=$2,max_age_hours=$3,updated_at=now(),updated_by=$4 WHERE id=true',[input.data.markup,input.data.vat,input.data.age,admin.id]);
  revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?saved=1');
 }
+/** Checkout data source shared by every supplier (commerce_settings.basbug_checkout_mode; the column name is historical). */
+export async function saveCheckoutMode(form:FormData) {
+ const admin=await requireAdmin();
+ const mode=z.enum(['live','snapshot']).safeParse(form.get('checkoutMode'));
+ if(!mode.success) redirect('/yonetim/fiyatlandirma?error=mode');
+ await db.query('UPDATE commerce_settings SET basbug_checkout_mode=$1,updated_at=now(),updated_by=$2 WHERE id=true',[mode.data,admin.id]);
+ revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?modeSaved=1');
+}
 export async function saveShipping(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({fee:z.coerce.number().min(0).max(100000).multipleOf(0.01),threshold:z.coerce.number().min(0).max(10000000).multipleOf(0.01)}).safeParse(Object.fromEntries(form));
