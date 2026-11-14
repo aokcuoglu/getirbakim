@@ -106,7 +106,7 @@ export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegio
   return {
     caption: "Dinamik ürünleri, liste fiyatları ve bölge stok durumları",
     codeLabel: "Stok kodu",
-    emptyDescription: hasProducts ? "Aramayı veya filtreleri değiştirebilirsiniz." : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker.",
+    emptyDescription: hasProducts ? undefined : "Henüz Dinamik verisi çekilmedi; zamanlayıcı markaları sırayla çeker.",
     columns: [
       nameColumn, { key: "brand", label: "Marka", sortKey: "brand", filter: { param: "brand", values: lists.brands } }, { key: "vehicle", label: "Araç" },
       { key: "group", label: "Grup", width: "medium", filter: lists.groups.length <= 200 ? { param: "group", values: lists.groups } : { param: "group", placeholder: "Grup adı" } },
@@ -142,7 +142,6 @@ export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegio
 export function manualPartTableProps(items: ManualItem[], lists: { categories: string[] }): SupplierPartTableProps {
   return {
     caption: "Manuel listedeki ürünler, fiyatları ve stokları",
-    emptyDescription: "Aramayı veya filtreleri değiştirebilirsiniz.",
     columns: [
       nameColumn, { key: "brand", label: "Marka", sortKey: "brand" },
       { key: "category", label: "Kategori", width: "medium", filter: { param: "category", values: lists.categories } },

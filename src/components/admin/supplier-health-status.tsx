@@ -101,7 +101,7 @@ export function SupplierHealthStatus({ health, supplier, name, unit, warehouse, 
       </AccordionItem></Accordion>}
       {listed.length > 0 && <form action={refresh} className="flex flex-wrap items-end gap-2">
         {refreshField && <Field className="w-52"><FieldLabel htmlFor={`${supplier}-health-retry`}>Yeniden denenecek {unit}</FieldLabel>
-          <ScopeCombobox id={`${supplier}-health-retry`} name={refreshField} values={[...new Set(listed.map(scope => scope.list_group))]} defaultValue={group || listed[0]?.list_group} empty={`Eşleşen ${unit} yok.`}/></Field>}
+          <ScopeCombobox id={`${supplier}-health-retry`} name={refreshField} label={`Yeniden denenecek ${unit}`} placeholder={`${words.title} ara…`} values={[...new Set(listed.map(scope => scope.list_group))]} defaultValue={listed.some(scope => scope.list_group === group) ? group : listed[0]?.list_group} empty={`Eşleşen ${unit} yok.`}/></Field>}
         <SupplierRefreshButton label={refreshField ? `Seçili ${words.accusative} yeniden dene` : `${words.accusative[0].toLocaleUpperCase("tr-TR")}${words.accusative.slice(1)} yeniden dene`} pendingLabel={`${name} verileri çekiliyor…`}/>
         <FieldDescription className="basis-full">{refreshDescription}</FieldDescription>
       </form>}

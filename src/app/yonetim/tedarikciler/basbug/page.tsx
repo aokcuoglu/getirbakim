@@ -10,7 +10,7 @@ import { supplierRunError } from "@/modules/suppliers/run-error";
 import { runKindLabel, scheduleLines } from "@/modules/suppliers/run-status";
 import { durationSeconds, formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { SupplierPage, SupplierSourceCard } from "@/components/admin/supplier-page";
-import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { SupplierPartTable, supplierPartEmpty } from "@/components/admin/supplier-part-table";
 import { basbugPartTableProps, costNotes } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
@@ -154,7 +154,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Bu grubun verileri henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.basbug}</span></div>
-        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })}/>
+        <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })} empty={supplierPartEmpty("/yonetim/tedarikciler/basbug", params, filterKeys)}/>
       </CardContent>
       <CardFooter><SupplierPagination base="/yonetim/tedarikciler/basbug" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
       </>}

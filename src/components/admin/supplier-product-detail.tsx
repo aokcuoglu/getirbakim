@@ -174,11 +174,18 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
   const snapshot = sale?.pricing_snapshot.checkout_mode === "snapshot";
   const presence = item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Son listede bulunamadı";
   const saleState = sale?.available && sale.price_kurus ? snapshot ? "Teyit bekliyor" : "Satışa açık" : item.conflicting ? "İnceleme gerekli" : item.presence !== "present" || noSaleMessage ? "Satışa kapalı" : !sale?.price_kurus ? "Hazırlıkta" : "Satışa kapalı";
-  return <div className="flex min-w-0 flex-col gap-6">
-    {modal ? <DialogHeader>
-      <DialogTitle tabIndex={-1} className="wrap-anywhere font-mono">{item.code}</DialogTitle>
+  const body = <SupplierProductBody item={item} sale={sale} pricing={pricing} cost={cost} sourcePriceLabel={sourcePriceLabel} noSaleMessage={noSaleMessage}
+    productInfo={productInfo} stockInfo={stockInfo} dataInfo={dataInfo} cart={cart} snapshot={snapshot} presence={presence} saleState={saleState}/>;
+  // In the dialog the header stays put (with the close button) and only the body scrolls.
+  if (modal) return <>
+    <DialogHeader>
+      <DialogTitle tabIndex={-1} className="wrap-anywhere pr-8 font-mono">{item.code}</DialogTitle>
       <DialogDescription className="wrap-anywhere">{supplier} · {description}</DialogDescription>
-    </DialogHeader> : <div className="flex min-w-0 flex-col gap-2">
+    </DialogHeader>
+    <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto">{notice}{body}</div>
+  </>;
+  return <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
@@ -189,8 +196,17 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         <div className="min-w-0"><h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1><p className="wrap-anywhere text-muted-foreground">{description}</p></div>
         <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
       </div>
-    </div>}
+    </div>
     {notice}
+    {body}
+  </div>;
+}
+
+function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSaleMessage, productInfo, stockInfo, dataInfo, cart, snapshot, presence, saleState }: {
+  item: DetailItem; sale: CatalogProduct | undefined; pricing: ProductPricing; cost: number | null; sourcePriceLabel: string; noSaleMessage?: string;
+  productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode; cart?: string; snapshot: boolean; presence: string; saleState: string;
+}) {
+  return <>
     <Card role="region" aria-label="Fiyat ve satış durumu">
       <CardHeader>
         <CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle>
@@ -225,5 +241,5 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         <SourceJson label="Kaynak alanlarını göster" value={{ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }}/>
       </CardContent>
     </Card>
-  </div>;
+  </>;
 }

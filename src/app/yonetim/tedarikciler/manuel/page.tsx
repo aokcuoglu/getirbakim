@@ -4,7 +4,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierPage } from "@/components/admin/supplier-page";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
 import { StatusBadge } from "@/components/admin/status-badge";
-import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { SupplierPartTable, supplierPartEmpty } from "@/components/admin/supplier-part-table";
 import { costNotes, manualPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { formatDate, formatNumber } from "@/modules/admin/format";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
@@ -189,7 +189,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       {!list || !products ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Henüz manuel liste yok.</EmptyTitle><EmptyDescription>Yükleme sekmesinden şablondaki bir dosyayı yükleyin.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span>{costNotes.manual}</span></div>
-        <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })}/>
+        <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })} empty={supplierPartEmpty(base, params, filterKeys, ["liste"])}/>
       </CardContent>
       <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages} capped={products?.capped}/></CardFooter>
       </>}

@@ -15,7 +15,7 @@ import { adminDinamikOverview, adminSupplierFeedStatus, adminSupplierRefreshPlan
 import { adminDinamikItems } from "@/modules/admin/dinamik";
 import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { SupplierPage, SupplierSourceCard } from "@/components/admin/supplier-page";
-import { SupplierPartTable } from "@/components/admin/supplier-part-table";
+import { SupplierPartTable, supplierPartEmpty } from "@/components/admin/supplier-part-table";
 import { costNotes, dinamikPartTableProps } from "@/components/admin/supplier-part-table-data";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
@@ -95,7 +95,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
           description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/>}>
         <form action={refreshDinamik}><Field>
           <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
-          <div className="flex flex-wrap gap-2"><ScopeCombobox id="refresh-brand" name="brand" className="w-64" values={plan.dinamikBrands} empty="Eşleşen marka yok." defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}/><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
+          <div className="flex flex-wrap gap-2"><ScopeCombobox id="refresh-brand" name="brand" label="Tek marka" placeholder="Marka ara…" className="w-64" values={plan.dinamikBrands} empty="Eşleşen marka yok." defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}/><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
           <FieldDescription>{formatNumber(plan.dinamikBrands.length)} etkin marka · {formatNumber(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
         </Field></form>
       </SupplierSourceCard>
@@ -130,7 +130,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
       </CardHeader>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.dinamik} (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Ürün bilgisi olmayan kodlar mağazada yok</span></div>
-        <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present), { brands: list.brands, groups: list.groups })}/>
+        <SupplierPartTable {...dinamikPartTableProps(rows, region, Boolean(data.items.present), { brands: list.brands, groups: list.groups })} empty={supplierPartEmpty("/yonetim/tedarikciler/dinamik", params, filterKeys)}/>
       </CardContent>
       <CardFooter><SupplierPagination base="/yonetim/tedarikciler/dinamik" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
     </Card></SupplierBrowser>}/>;
