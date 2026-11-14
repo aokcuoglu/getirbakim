@@ -141,7 +141,8 @@ try {
     }
     await worker.query("BEGIN");
     try {
-      console.log({ retention: await pruneSupplierHistory(worker) });
+      console.log({ retention: await pruneSupplierHistory(worker),
+        restockRequests: (await worker.query<{ pruned: unknown }>("SELECT prune_restock_requests() AS pruned")).rows[0].pruned });
       await worker.query("COMMIT");
     } catch (error) { await worker.query("ROLLBACK"); throw error; }
     const alerts = (await worker.query(`SELECT supplier,company,list_group,warehouse,consecutive_failures,last_success_at

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import {Info,Gauge} from "lucide-react";
+import {Info,Gauge,BellRing} from "lucide-react";
 import {PartArtImage} from "@/components/part-art";
 import {categories,money,servicePrice,type CatalogProduct as CatalogEntry} from "@/modules/store/catalog";
 import type {Account} from "@/modules/auth/session";
@@ -23,7 +23,8 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  const title=displayName+" "+p.brand+" "+(details?.partNumber??p.code).replace(new RegExp("^"+p.brand.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s+","i"),"");
  const specifications=details?.specifications??([["Üretici",p.brand],...(p.oem?[["OEM",p.oem]]:[])] as [string,string][]);
  const brandClass=details?.specifications.find(s=>s[0]==="Brand class")?.[1];
- const price=p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
+ // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock.
+ const price=p.unavailable?"Şu an tedarik edilemiyor":p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
  return <article className="product-card">
  <div className="product-card-media">
   <div className="product-card-labels">
@@ -46,7 +47,8 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  <div className="product-card-buy">
   <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}</div>}
-  <p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>
+  {p.unavailable?<Link className="product-card-stock font-medium text-[#0065c3] hover:underline" href={"/urun/"+p.id+"#haber-ver"}><BellRing size={18} className="shrink-0"/>Gelince haber ver</Link>
+   :<p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>}
   <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden"/>
   <CompareCheckbox entry={{id:p.id,title,price,specifications}}/>
   <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/>Güvenlik ve uyumluluk bilgileri</Link>

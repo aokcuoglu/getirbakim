@@ -10,7 +10,7 @@ const schema = z.object({
   brand: optionalText(200),
   brands: optionalText(6500),
   attributes: optionalText(18000),
-  availability: z.enum(["in_stock","out_of_stock"]).optional().catch(undefined),
+  availability: z.enum(["in_stock","out_of_stock","supplied"]).optional().catch(undefined),
   // Only products linked to the garage vehicle's engine type; the vehicle itself comes from the garage cookie.
   fits: z.enum(["vehicle"]).optional().catch(undefined),
   // Engine oils meeting the garage vehicle's recommended oil: "viscosity", "approval" or both, comma separated.

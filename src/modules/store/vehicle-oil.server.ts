@@ -25,7 +25,7 @@ const cachedOils = staleCache<{ id: string; spec: ProductOilSpec }[]>(10 * 60 * 
  * Expanding every enrichment's specifications to find oils instead scans the whole enrichment table.
  */
 export const engineOils = () => cachedOils("all", async () => {
-  const candidates = (await db.query<{ id: string; name: string }>(`SELECT catalog.id::text,catalog.name FROM commerce_catalog_entries catalog
+  const candidates = (await db.query<{ id: string; name: string }>(`SELECT catalog.id::text,catalog.name FROM storefront_catalog_entries catalog
    WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`,
   [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
   if (!candidates.length) return [];

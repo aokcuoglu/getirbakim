@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readdir, readFile } from "node:fs/promises";
 import { minPartnerKeyLength, parsePartnerKeys, resolvePartner } from "../src/modules/partner/auth";
 import { matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
 import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
@@ -109,4 +110,11 @@ test("rate limiter: fixed window per key", () => {
   assert.deepEqual(limit("a"), { allowed: false, retryAfterSeconds: 1 });
   now = 1000;
   assert.equal(limit("a").allowed, true);
+});
+
+test("partner catalog reads only saleable rows, never the storefront's unavailable products (#475)", async () => {
+  for (const file of await readdir("src/modules/partner")) {
+    const source = await readFile(`src/modules/partner/${file}`, "utf8");
+    assert.doesNotMatch(source, /storefront_catalog|storefrontCatalogSql|commerce_unavailable_items|getStorefrontProduct/, file);
+  }
 });
