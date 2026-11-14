@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
+import { pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
@@ -9,7 +10,6 @@ export type MatchingParams = { tab?: string; scope?: string; names?: string; q?:
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
-  same: { primary: "primary_price", selling: "selling_price" },
   candidates: { reason: "c.reason", similarity: "c.name_similarity" },
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
@@ -102,40 +102,75 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
   return { scope, brands, names, total, page, pages };
 }
 
-/**
- * Başbuğ products that Dinamik also sells, priced live through commerce_catalog (~2 s for every group). The
- * offer sold is the cheapest available one, the Başbuğ row winning ties: the rule of withBestOffers (store catalog).
- */
+// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the Başbuğ row
+// winning ties: the rule of withBestOffers (store catalog). `filter` narrows the offers before grouping.
+const sameGroups = (filter: string, columns: string) => `WITH offers AS MATERIALIZED (
+    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
+  )
+  SELECT primary_id::text,
+   (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
+   min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,${columns}
+  FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')`;
+type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };
+// Pricing every grouped offer takes ~2 s, so the groups (without their offers) are kept in this process for up to a
+// minute. The key changes with the grouping (product_grouping_version, bumped by a trigger on every product_offers
+// write from any process: db/product-matching.sql) and with each successful supplier import; actions in this process
+// also clear it at once (forgetSameProducts). Past a minute the next request waits for a fresh read, so other price
+// changes (markup/VAT settings, rows ageing out of freshness) show within 60 s. Admin-wide data, nothing per user.
+const sameTtlMs = 60_000;
+let sameCache: { key: string; at: number; index: Promise<SameIndex> } | null = null;
+export function forgetSameProducts() { sameCache = null; }
+async function sameKey() {
+  const imported = "(SELECT max(completed_at) FROM supplier_imports WHERE status='succeeded')";
+  try {
+    return (await db.query<{ key: string }>(`SELECT concat_ws('/',(SELECT version FROM product_grouping_version WHERE id=1),${imported}) AS key`)).rows[0].key;
+  } catch (error) {
+    // Before db:setup adds the counter (42P01), the latest matching run stands in for it.
+    if ((error as { code?: string }).code !== "42P01") throw error;
+    return (await db.query<{ key: string }>(`SELECT concat_ws('/','run',(SELECT max(id) FROM product_match_runs),${imported}) AS key`)).rows[0].key;
+  }
+}
+async function sameIndex() {
+  const key = await sameKey();
+  if (sameCache && sameCache.key === key && Date.now() - sameCache.at <= sameTtlMs) return sameCache.index;
+  const entry = { key, at: Date.now(), index: loadSameIndex() };
+  sameCache = entry;
+  // A failed read is not reused: the next request tries again.
+  entry.index.catch(() => { if (sameCache === entry) sameCache = null; });
+  return entry.index;
+}
+async function loadSameIndex(): Promise<SameIndex> {
+  // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
+  const entries = (await db.query<SameEntry>(sameGroups("", `
+   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`))).rows;
+  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0 };
+  for (const entry of entries) {
+    if (entry.selling === "dinamik") summary.dinamik++;
+    else if (entry.selling === "basbug") summary.basbug++;
+    else if (entry.selling === null) summary.none++;
+  }
+  return { entries, summary };
+}
+/** Başbuğ products that Dinamik also sells, priced live through commerce_catalog; the page's offers are read fresh. */
 async function sameProducts(params: MatchingParams) {
   const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
-  if (params.scope === "split") {
+  const scope = sameScope(params.scope);
+  if (scope === "split") {
     const split = (await db.query<SplitItem>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at
       FROM product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id WHERE x.method='manual' ORDER BY x.linked_at DESC LIMIT 200`)).rows;
-    return { split, same: [] as SameProduct[], summary: undefined, scope: "split", total: split.length, page: 1, pages: 1, exclusions };
+    return { split, same: [] as SameProduct[], summary: undefined, scope, total: split.length, page: 1, pages: 1, exclusions };
   }
-  const scope = ["dinamik", "basbug", "none"].includes(params.scope ?? "") ? params.scope! : "all";
-  const q = compact(params.q);
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
-  const row = (await db.query<{ summary: Record<string, number>; total: number; groups: SameProduct[] | null }>(`WITH offers AS MATERIALIZED (
-      SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id
-    ), grouped AS MATERIALIZED (
-      SELECT primary_id::text,
-       (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
-       min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,
-       jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
-        ORDER BY (id=primary_id) DESC,supplier,code) AS offers
-      FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')
-    ), filtered AS (
-      SELECT * FROM grouped WHERE ($1='all' OR ($1='none' AND selling IS NULL) OR selling=$1)
-       AND ($2='' OR EXISTS (SELECT 1 FROM jsonb_array_elements(offers) e WHERE regexp_replace(upper(e->>'code'),'[^A-Z0-9]','','g') LIKE '%'||$2||'%'))
-    )
-    SELECT (SELECT jsonb_build_object('all',count(*),'dinamik',count(*) FILTER (WHERE selling='dinamik'),'basbug',count(*) FILTER (WHERE selling='basbug'),
-       'none',count(*) FILTER (WHERE selling IS NULL)) FROM grouped) AS summary,
-     (SELECT count(*)::int FROM filtered) AS total,
-     (SELECT jsonb_agg(f) FROM (SELECT * FROM filtered ORDER BY ${sortOrder(params, sorts.same, "(primary_price-selling_price) DESC NULLS LAST,primary_id")} LIMIT ${pageSize} OFFSET $3) f) AS groups`,
-    [scope, q, (page - 1) * pageSize])).rows[0];
-  const { pages } = pageOf(String(page), row.total);
-  return { same: row.groups ?? [], summary: row.summary, scope, total: row.total, page: Math.min(page, pages), pages, exclusions };
+  const { entries, summary } = await sameIndex();
+  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
+  const ids = listed.map(entry => entry.primary_id);
+  const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
+   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
+    ORDER BY (id=primary_id) DESC,supplier,code) AS offers`), [ids])).rows : [];
+  const byId = new Map(rows.map(row => [row.primary_id, row]));
+  const same = ids.flatMap(id => byId.get(id) ?? []);
+  const { pages } = pageOf(String(page), total);
+  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions };
 }
 
 /** Reviewable candidates the automatic key missed; most similar names first. `q` narrows to a brand or code. */
@@ -184,9 +219,17 @@ async function dinamikOnly(params: MatchingParams) {
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM commerce_supplier_items i WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
   const order = sortOrder(params, sorts.dinamik, "i.changed_at DESC,i.id");
-  const items = (await db.query<DinamikItem>(`SELECT i.id,(SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=i.id) AS product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
-      c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=i.id) AS enriched
+  // "Enriched" reads the materialized per-product states (db/enrichment-states.sql) instead of evaluating
+  // product_enrichment_shared for the whole catalog (~1.5 s). Like /yonetim/urun-verileri, drain the state queue first so
+  // the flag is current; an empty queue costs a few milliseconds. The flag is informational: if the sync fails, the
+  // page reads the last synced states.
+  try { await db.query("SELECT enrichment_product_states_sync()"); }
+  catch (error) { console.error("enrichment_product_states_sync failed; Dinamik enriched flags may be stale", error); }
+  // product_sources is keyed by the supplier row and the states by product: at most one row each.
+  const items = (await db.query<DinamikItem>(`SELECT i.id,ps.product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
+      c.price_kurus,c.available,COALESCE(st.enriched,false) AS enriched
     FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
+    LEFT JOIN product_sources ps ON ps.supplier_item_id=i.id LEFT JOIN enrichment_product_states st ON st.product_id=ps.product_id
     LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
   return { dinamik: items, total, page, pages };
 }
@@ -200,10 +243,18 @@ async function setaReferences(params: MatchingParams) {
     ${q ? `AND (regexp_replace(upper(s.code),'[^A-Z0-9]','','g') LIKE '%'||$1||'%' OR EXISTS (SELECT 1 FROM product_seta_references r WHERE r.seta_item_id=s.id AND r.part_number LIKE $1||'%'))` : ""}`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM supplier_items s WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
-  const items = (await db.query<Omit<SetaItem, "products">>(`SELECT s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,
-      (SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked
-    FROM supplier_items s LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true
-    WHERE ${where} ORDER BY ${sortOrder(params, sorts.seta, "linked DESC,s.code")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+  // Priced after the page is cut: commerce_catalog per row before LIMIT walks every listed row (~3 s). Sorting by price
+  // needs every price first, read in one batch for the listed ids.
+  const order = sortOrder(params, sorts.seta, "linked DESC,s.code");
+  const linked = "(SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked";
+  const columns = "s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,s.linked";
+  const slice = `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  const items = (await db.query<Omit<SetaItem, "products">>(params.sort === "price" ? `WITH listed AS MATERIALIZED (
+      SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where}
+    ), c AS MATERIALIZED (SELECT id,price_kurus,available FROM commerce_catalog WHERE id=ANY(ARRAY(SELECT id FROM listed)))
+    SELECT ${columns} FROM listed s LEFT JOIN c ON c.id=s.id ORDER BY ${order} ${slice}`
+    : `SELECT ${columns} FROM (SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where} ORDER BY ${order} ${slice}) s
+    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
   // Listings, not raw rows: a Dinamik offer grouped under a Başbuğ product shows as that product.
   const products = items.length ? (await db.query<SetaProduct & { seta_item_id: string }>(`SELECT * FROM (
       SELECT DISTINCT ON (r.seta_item_id,p.id) r.seta_item_id::text,p.id::text,p.supplier,p.code,supplier_item_name(p.supplier,p.product_data) AS name,

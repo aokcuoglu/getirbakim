@@ -70,6 +70,7 @@
     "test:description-fitment": "node --import tsx --test scripts/test-description-fitment.ts",
     "verify:fitment": "node --env-file=.env.local --import tsx scripts/verify-product-fitments.ts",
     "test:matching": "node --env-file=.env.local --import tsx --test scripts/test-product-matching.ts",
+    "test:matching-same": "node --import tsx --test scripts/test-product-matching-same.ts",
     "products:match": "node --env-file=.env.local --import tsx scripts/match-products.ts",
     "supplier:health": "node --env-file=.env.local --import tsx scripts/supplier-health.ts",
     "supplier:auto:install": "node --import tsx scripts/install-supplier-launchd.ts",

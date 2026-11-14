@@ -5,12 +5,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+// Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
+// it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
+// re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
+import { forgetSameProducts } from "@/modules/admin/product-matching";
 
 export async function refreshMatches() {
   await requireAdmin();
   let error = "";
   try { await db.query("SELECT refresh_product_matches()"); }
   catch { error = "refresh"; }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(`/yonetim/urun-eslestirme?${error ? `error=${error}` : "refreshed=1"}`);
 }
@@ -33,6 +38,7 @@ export async function splitOffers(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, "split=1"));
 }
@@ -43,6 +49,7 @@ export async function undoSplit(form: FormData) {
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
   await db.query("SELECT product_reset_item($1)", [input.data.item_id]);
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
 }
@@ -73,6 +80,7 @@ export async function decideCandidate(form: FormData) {
     }
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, failed ? "error=merge" : `matched=${status}`));
 }
@@ -102,6 +110,7 @@ export async function acceptCandidates(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}`));
 }

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { forgetSameProducts } from "@/modules/admin/product-matching";
 import { requireAdmin } from "@/modules/auth/session";
 
 const input = z.object({ item_id: z.uuid(), product_id: z.uuid() });
@@ -30,6 +31,8 @@ export async function splitSource(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // Regrouped offers: the matching page's cached groups are stale.
+  forgetSameProducts();
   revalidatePath("/yonetim/urunler");
   redirect(created ? `/yonetim/urunler/${product_id}?split=${created}` : `/yonetim/urunler/${product_id}?error=split`);
 }
@@ -41,6 +44,8 @@ export async function undoSplitSource(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const target = (await db.query<{ id: string | null }>(`SELECT product_reset_item(supplier_item_id) AS id FROM product_sources
     WHERE supplier_item_id=$1 AND product_id=$2 AND method='manual'`, [data.data.item_id, data.data.product_id])).rows[0]?.id;
+  // Regrouped offers: the matching page's cached groups are stale.
+  forgetSameProducts();
   revalidatePath("/yonetim/urunler");
   // Stay on the product while it still has rows; an emptied split product hands over to the row's own product.
   const remaining = (await db.query("SELECT 1 FROM product_sources WHERE product_id=$1 LIMIT 1", [data.data.product_id])).rowCount;
@@ -74,6 +79,8 @@ export async function mergeProducts(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // Regrouped offers: the matching page's cached groups are stale.
+  forgetSameProducts();
   revalidatePath("/yonetim/urunler");
   redirect(target ? `/yonetim/urunler/${target}?merged=1` : `/yonetim/urunler/${product_id}?error=merge`);
 }

@@ -179,6 +179,48 @@ CREATE TABLE IF NOT EXISTS product_offers (
  primary_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_id);
+-- One counter bumped by every statement that changes product_offers, whatever the writer (matcher, admin decisions,
+-- supplier_items cascades) or process. App processes key their in-memory grouping (admin "Eşleşenler", #504) by it;
+-- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
+-- when rows changed: the matcher's bulk rewrite costs one UPDATE per statement, not per row. The row lock is held
+-- until the writer commits, so concurrent offer writers queue on it; the matcher and the admin regrouping functions
+-- also share advisory lock 6, so they serialise before taking any row lock.
+CREATE TABLE IF NOT EXISTS product_grouping_version (
+ id integer PRIMARY KEY DEFAULT 1 CHECK (id=1), version bigint NOT NULL DEFAULT 0
+);
+INSERT INTO product_grouping_version(id,version) VALUES (1,0) ON CONFLICT DO NOTHING;
+CREATE OR REPLACE FUNCTION product_grouping_bump() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ -- Transition tables exist only for their own event; each branch names only its own.
+ IF TG_OP='TRUNCATE' THEN
+  UPDATE product_grouping_version SET version=version+1 WHERE id=1;
+ ELSIF TG_OP='DELETE' THEN
+  IF EXISTS (SELECT 1 FROM old_rows) THEN UPDATE product_grouping_version SET version=version+1 WHERE id=1; END IF;
+ ELSIF EXISTS (SELECT 1 FROM new_rows) THEN
+  UPDATE product_grouping_version SET version=version+1 WHERE id=1;
+ END IF;
+ RETURN NULL;
+END $$;
+-- Created only when missing: CREATE/DROP TRIGGER would lock product_offers against the matcher for the rest of the
+-- setup transaction on every deploy. A changed definition needs a DROP TRIGGER here first.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_insert') THEN
+  CREATE TRIGGER product_offers_grouping_insert AFTER INSERT ON product_offers
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_update') THEN
+  CREATE TRIGGER product_offers_grouping_update AFTER UPDATE ON product_offers
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_delete') THEN
+  CREATE TRIGGER product_offers_grouping_delete AFTER DELETE ON product_offers
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_truncate') THEN
+  CREATE TRIGGER product_offers_grouping_truncate AFTER TRUNCATE ON product_offers
+   FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+END $$;
 -- Items an admin split off a group ("Ayır"); they stay separate listings across refreshes.
 CREATE TABLE IF NOT EXISTS product_offer_exclusions (
  item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -449,6 +491,9 @@ CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpg
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
+ -- Also the admin regrouping lock (product_merge/split/reset take 6 before touching rows): matcher and admin then queue
+ -- on the advisory lock instead of meeting on product_sources rows and the grouping version row (deadlock, #504).
+ PERFORM pg_advisory_xact_lock(20261001,6);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
  DELETE FROM product_match_groups; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
