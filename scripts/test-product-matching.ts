@@ -231,6 +231,8 @@ test("known different-part suffix patterns get a 'different' verdict; safe ones 
 });
 
 test("the candidate passes skip known different-part suffix pairs", async () => {
+  const installed = (await pool.query<{ def: string }>("SELECT pg_get_functiondef('refresh_product_matches()'::regprocedure) AS def")).rows[0].def;
+  assert.ok(installed.includes("product_suffix_verdict"), "refresh_product_matches() predates #534; run npm run db:setup from this branch");
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

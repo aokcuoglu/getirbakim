@@ -327,7 +327,8 @@ $$;
 -- Part-number endings known to name another part (#534). Measured on the fully decided local suffix queue (438 pairs,
 -- 240 different / 198 same): these rows block 213 different and 3 same pairs. Rows are (brand key or '*', pattern of
 -- the shorter number, pattern of the extension, verdict); a brand row wins over '*'. Ambiguous endings (STONE "1",
--- DAYCO/GATES xPK…HD, letter suffixes, colour/index letters) are left out or marked 'review' on purpose.
+-- DAYCO/GATES xPK…HD, letter suffixes, colour/index letters) are left out or marked 'review' on purpose. Brand rows use
+-- canonical brand keys (products.brand); update the row when a brand key is merged or renamed.
 CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
  ('*','[0-9]$','^[0-9]$','different'),
