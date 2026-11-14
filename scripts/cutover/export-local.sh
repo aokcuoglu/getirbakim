@@ -1,6 +1,6 @@
 #!/bin/bash
-# Cutover: export the local catalog database and media for the AWS restore. AWS is built from the local catalog;
-# transactional tables and commerce_settings come from the VPS (export-vps-transactional.sh).
+# Cutover: export the local catalog database and media for the AWS restore. AWS is built from the local catalog alone:
+# the VPS only ever held demo orders and the same single admin account, so nothing is carried over from it (#457).
 #
 #   bash scripts/cutover/export-local.sh media              # day before: all media (+ media-keys.txt)
 #   bash scripts/cutover/export-local.sh final <media-keys> # cutover: database + media added since that list
@@ -32,7 +32,8 @@ files=()
 
 if [ "$MODE" != media ]; then
   # Data left out (tables still created): enrichment worker scratch, supplier change log, and the transactional
-  # tables that come from the VPS (commerce_settings too: the VPS checkout mode is live, local is snapshot).
+  # tables, which start empty on AWS. accounts is kept (the admin that catalog decisions point to). commerce_settings
+  # is left out so setup.ts writes the defaults (Başbuğ checkout live; local runs in snapshot mode).
   EXCL=(enrichment_run_items enrichment_source_cache enrichment_source_requests enrichment_search_products
     enrichment_request_events parts2world_article_oems parts2world_job_articles parts2world_articles
     supplier_item_changes account_vehicles sessions login_attempts commerce_orders commerce_order_items
