@@ -14,6 +14,8 @@ import { overrideValueText, productOverrideFields, productOverrideLabels, type P
 import { getStoreCategories } from "@/modules/store/categories";
 import { categoryPath } from "@/modules/store/category-tree";
 import { ProductOverrideForm } from "@/components/admin/product-override-form";
+import { ProductImagesCard } from "@/components/admin/product-images-card";
+import { imageHistoryValue, productImageChangeLabels } from "@/modules/admin/product-image-store";
 import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime } from "@/modules/admin/format";
@@ -36,9 +38,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
   // A history value as the admin knows it: category names, published/hidden, NULL as the automatic value.
-  const historyValue = (field: string, value: string | null) => value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
+  const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
-    : field === "hidden" ? overrideValueText(value === "true") : value;
+    : field === "hidden" ? overrideValueText(value === "true") : value);
 
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -59,6 +61,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {query.joined && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}
     {query.merged && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ürünler birleştirildi; tüm kaynaklar bu üründe ve mağazada tek ürün olarak satılıyor. Yanlışsa ilgili kaynağı “Geri al” ile ayırın.</AlertDescription></Alert>}
     {query.merged === "hidden" && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>Birleşen ürün mağazada gizliydi; gizlilik bu ürüne taşındı ve ürün artık mağazada görünmüyor. Satışa açmak için “Mağazada yayında”yı açıp kaydedin.</AlertDescription></Alert>}
+    {query.merged && query.images && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{query.images === "kept"
+      ? "Birleşen ürünün görselleri, bu üründe görsel olduğu için taşınmadı."
+      : `${Number(query.images) || 0} görsel birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.`}</AlertDescription></Alert>}
     {query.reset && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
     {query.linked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
     {query.unlinked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
@@ -79,6 +84,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null }}/>
       </CardContent>
     </Card>}
+
+    {!merged && <ProductImagesCard productId={product.id}/>}
 
     <Card>
       <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
@@ -169,7 +176,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
         <TableBody>{override.changes.map(change => <TableRow key={change.id}>
           <TableCell className="tabular-nums">{formatDateTime(change.changed_at, { year: true })}</TableCell>
-          <TableCell>{productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field}</TableCell>
+          <TableCell>{productImageChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
           <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>
