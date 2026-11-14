@@ -12,6 +12,7 @@ import { productOverrideValuesSchema } from "../src/modules/admin/product-overri
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: typeof import("../src/modules/store/catalog");
 let store: typeof import("../src/modules/admin/product-override-store");
+let cart: typeof import("../src/modules/store/cart");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
@@ -45,10 +46,11 @@ before(async () => {
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
   await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw)
     VALUES('trodo',200,NULL,'Rulmanlar','rulmanlar','{200}','','{}')`);
-  const [{ db }, catalogModule, storeModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
-    import("../src/modules/admin/product-override-store")]);
+  const [{ db }, catalogModule, storeModule, cartModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
+    import("../src/modules/admin/product-override-store"), import("../src/modules/store/cart")]);
   catalog = catalogModule;
   store = storeModule;
+  cart = cartModule;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -79,15 +81,20 @@ test("a matching refresh keeps the edit", async () => {
   assert.deepEqual((await projected()).map(row => row.supplier_item_id), [ids.mahle]);
 });
 
-test("the projection follows rows merged into and split from a product", async () => {
+test("a merge carries the edits to a product without its own; split rows leave them behind", async () => {
   const febi = await productOf("febiBasbug"), mahle = await productOf("mahle");
   assert.equal(await productOf("febiDinamik"), febi);
-  // MAHLE's row joins the FEBI product (no edit): it shows its supplier name again; the edit stays on the merged product.
-  await schema.pool.query("SELECT product_merge($1,$2,$3)", [mahle, febi, admin]);
-  assert.equal((await catalog.getStorefrontProduct(ids.mahle))?.name, "MAHLE YENI AD");
-  assert.deepEqual(await projected(), []);
+  // As the merge actions do: product_merge, then product_overrides_carry in the same statement.
+  const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: boolean }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
+    SELECT id::text, product_overrides_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
+  assert.deepEqual((await merge(mahle, febi)).rows[0], { id: febi, carried: true });
+  for (const key of ["febiBasbug", "febiDinamik", "mahle"]) assert.equal((await catalog.getStorefrontProduct(ids[key]))?.name, "Mahle Özel Yağ Filtresi", key);
+  // The edit stays on the merged product's id too; the target's history records the carried values.
   assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_overrides WHERE product_id=$1", [mahle])).rows[0].n, 1);
-  // An edit of the FEBI product reaches every row it sells, the merged one included.
+  assert.deepEqual((await store.loadProductOverride(schema.pool, febi)).changes.map(change => [change.field, change.old_value, change.new_value]).sort(),
+    [["description", null, "Elle yazıldı"], ["name", null, "Mahle Özel Yağ Filtresi"]]);
+  // A target with edits of its own keeps them.
+  assert.equal((await schema.pool.query("SELECT product_overrides_carry($1,$2,$3) AS carried", [mahle, febi, admin])).rows[0].carried, false);
   await store.persistProductOverride(schema.pool, febi, { name: "Febi Ön Balata" }, admin);
   for (const key of ["febiBasbug", "febiDinamik", "mahle"]) assert.equal((await catalog.getStorefrontProduct(ids[key]))?.name, "Febi Ön Balata", key);
   // Split off, the MAHLE row is a product of its own without an edit.
@@ -105,6 +112,14 @@ test("a hidden product is off sale everywhere and its old links do not loop", as
   assert.deepEqual(await catalog.searchProducts("NGK 30030"), []);
   assert.deepEqual(await catalog.searchCatalogItems("NGK 30030", "code"), []);
   assert.deepEqual(await catalog.getStoreProduct(ids.ngk), {});
+  // Already in a cart: shown as no longer on sale, and it cannot be added again.
+  const owner = { kind: "guest" as const, id: randomUUID().replace(/-/g, "") };
+  await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
+  await schema.pool.query("INSERT INTO commerce_cart_items(owner_kind,owner_id,product_id,quantity) VALUES('guest',$1,$2,1)", [owner.id, ids.ngk]);
+  const [line] = await cart.cartFor(owner, schema.pool);
+  assert.equal(line.name, "Ürün artık satışta değil");
+  assert.equal(line.available, false);
+  assert.equal(await cart.setCartQuantity(owner, ids.ngk, 1), false);
   // A product sold by two rows: neither row redirects to the other.
   await store.persistProductOverride(schema.pool, await productOf("febiBasbug"), { hidden: true }, admin);
   assert.deepEqual(await catalog.getStoreProduct(ids.febiBasbug), {});
@@ -113,6 +128,14 @@ test("a hidden product is off sale everywhere and its old links do not loop", as
   // Shown again: the name edit still applies.
   await store.persistProductOverride(schema.pool, await productOf("febiBasbug"), { hidden: false }, admin);
   assert.equal((await catalog.getStorefrontProduct(ids.febiDinamik))?.name, "Febi Ön Balata");
+});
+
+test("a new supplier row of a hidden product is visible until the matching refresh links it (known limit)", async () => {
+  await item("ngkDinamik", { supplier: "dinamik", code: "NGK 30030", brand: "NGK", name: "NGK BUJI YENI" });
+  assert.ok(await catalog.getStorefrontProduct(ids.ngkDinamik));
+  await schema.pool.query("SELECT refresh_product_matches()");
+  assert.equal(await productOf("ngkDinamik"), await productOf("ngk"));
+  assert.equal(await catalog.getStorefrontProduct(ids.ngkDinamik), undefined);
 });
 
 test("search finds a product by its edited name and ranks the edit", async () => {
@@ -154,6 +177,42 @@ test("edits of a missing or merged product and unknown categories are refused", 
   const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
   assert.deepEqual(await store.persistProductOverride(schema.pool, merged, { name: "x" }, admin), { ok: false, reason: "merged" });
   assert.deepEqual(await store.persistProductOverride(schema.pool, await productOf("sachs"), { category_id: 123456 }, admin), { ok: false, reason: "category" });
+});
+
+test("a save from a form opened before another save is refused", async () => {
+  const sachs = await productOf("sachs");
+  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Sachs amortisör" }, admin, store.automaticVersion), { ok: true, changed: ["seo_title"] });
+  const { override } = await store.loadProductOverride(schema.pool, sachs);
+  assert.ok(override);
+  // The tab still holding "auto" is stale now; the current version saves.
+  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Eski sekme" }, admin, store.automaticVersion), { ok: false, reason: "stale" });
+  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: null }, admin, override.version), { ok: true, changed: ["seo_title"] });
+  assert.deepEqual(await store.persistProductOverride(schema.pool, sachs, { seo_title: "Yine eski" }, admin, override.version), { ok: false, reason: "stale" });
+});
+
+test("a dropped row of a hidden product is no unavailable card; a deleted row takes its projection with it", async () => {
+  await item("valeo", { supplier: "basbug", code: "VAL 60060", brand: "VALEO", name: "VALEO SILECEK" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await schema.pool.query("UPDATE supplier_items SET presence='inactive',stock_data='{\"stok\":0}' WHERE id=$1", [ids.valeo]);
+  const unavailable = async () => (await schema.pool.query<{ id: string }>("SELECT id::text FROM commerce_unavailable_items")).rows.map(row => row.id);
+  assert.ok((await unavailable()).includes(ids.valeo));
+  const valeo = await productOf("valeo");
+  await store.persistProductOverride(schema.pool, valeo, { hidden: true }, admin);
+  assert.ok(!(await unavailable()).includes(ids.valeo));
+  assert.equal(await catalog.getStorefrontProduct(ids.valeo), undefined);
+  // The supplier row goes (cascading to product_sources, whose delete trigger runs): the copy goes, the product's edit stays.
+  await schema.pool.query("DELETE FROM supplier_items WHERE id=$1", [ids.valeo]);
+  assert.ok(!(await projected()).some(row => row.supplier_item_id === ids.valeo));
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_overrides WHERE product_id=$1", [valeo])).rows[0].n, 1);
+});
+
+test("setup keeps the source triggers instead of recreating them", async () => {
+  const triggers = async () => (await schema.pool.query<{ oid: number }>(`SELECT oid::int FROM pg_trigger
+    WHERE tgrelid='product_sources'::regclass AND tgname LIKE 'product_overrides_sources_%' ORDER BY tgname`)).rows.map(row => row.oid);
+  const before = await triggers();
+  assert.equal(before.length, 3);
+  await schema.pool.query(await readFile("db/product-overrides.sql", "utf8"));
+  assert.deepEqual(await triggers(), before);
 });
 
 test("the form schema trims, empties to automatic and reads the published switch", () => {
