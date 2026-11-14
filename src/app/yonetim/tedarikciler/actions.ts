@@ -1,5 +1,4 @@
 "use server";
-import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
@@ -11,7 +10,7 @@ export type SupplierRefreshResult = { ok: boolean; error?: string; products?: nu
 const supplierSchema = z.enum(["basbug", "dinamik", "seta"]);
 
 // One request per scope (Başbuğ group, Dinamik brand, SETA list) keeps a manual refresh from becoming one long request;
-// the admin page runs them in sequence. Imports record their own runs and scope health, as scheduled runs do.
+// the admin page runs them in sequence and refreshes itself once at the end (no per-scope revalidation: it re-rendered the page every time). Imports record their own runs and scope health, as scheduled runs do.
 export async function refreshSupplierScope(supplier: string, group: string): Promise<SupplierRefreshResult> {
   await requireAdmin();
   const parsed = supplierSchema.safeParse(supplier);
@@ -33,7 +32,5 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
     if (cause instanceof DinamikImportError && cause.reason === "upstream" && /HTTP 40[13]\b/.test(cause.message)) return { ok: false, error: "forbidden" };
     const known = cause instanceof BasbugImportError || cause instanceof DinamikImportError || cause instanceof SetaImportError;
     return { ok: false, error: known ? cause.reason : "upstream" };
-  } finally {
-    revalidatePath("/yonetim/tedarikciler", "layout");
   }
 }
