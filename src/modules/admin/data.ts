@@ -119,9 +119,11 @@ export async function adminDashboard() {
       count(*) FILTER (WHERE paid_at>=now()-interval '30 days' AND payment_status='paid')::int AS paid_30d,
       COALESCE(sum(total_kurus) FILTER (WHERE paid_at>=now()-interval '60 days' AND paid_at<now()-interval '30 days' AND payment_status='paid'),0) AS revenue_prev_30d
       FROM commerce_orders o`),
-    db.query<DashboardDay>(`SELECT to_char(d,'YYYY-MM-DD') AS day,count(o.id)::int AS orders
-      FROM generate_series((now() AT TIME ZONE 'Europe/Istanbul')::date-13,(now() AT TIME ZONE 'Europe/Istanbul')::date,interval '1 day') d
-      LEFT JOIN commerce_orders o ON (o.created_at AT TIME ZONE 'Europe/Istanbul')::date=d::date GROUP BY d ORDER BY d`),
+    // An Istanbul calendar day as a created_at range, so commerce_orders_created_idx is used instead of a full scan.
+    db.query<DashboardDay>(`SELECT to_char(d.day,'YYYY-MM-DD') AS day,count(o.id)::int AS orders
+      FROM (SELECT (now() AT TIME ZONE 'Europe/Istanbul')::date-n AS day FROM generate_series(13,0,-1) n) d
+      LEFT JOIN commerce_orders o ON o.created_at>=d.day::timestamp AT TIME ZONE 'Europe/Istanbul' AND o.created_at<(d.day+1)::timestamp AT TIME ZONE 'Europe/Istanbul'
+      GROUP BY d.day ORDER BY d.day`),
     db.query<Pick<CommerceOrder, "id" | "number" | "customer_name" | "total_kurus" | "status" | "payment_status" | "created_at">>(
       "SELECT id,number,customer_name,total_kurus,status,payment_status,created_at FROM commerce_orders ORDER BY created_at DESC,id DESC LIMIT 6"),
     basbugPresentItems(),

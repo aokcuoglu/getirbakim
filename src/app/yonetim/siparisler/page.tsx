@@ -38,6 +38,8 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     return `/yonetim/siparisler${query.size ? `?${query}` : ""}`;
   };
   const shown = orders.slice(0, 50);
+  // Actions return to this tab, sort and page.
+  const back = href({ page });
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
@@ -89,11 +91,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell>
               {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <form action={changeOrderStatus} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
+                <input type="hidden" name="back" value={back}/>
                 <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
                 <Button type="submit">Uygula</Button>
               </form>}
               {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
+                <input type="hidden" name="back" value={back}/>
                 <Input className="w-40" name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required/>
                 <Button type="submit">İade yapıldı</Button>
               </form>}

@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
+import { releaseReservedStock } from "@/modules/store/stock-reservation";
 import {
   createHostedToken, buildHostedPaymentUrl, queryPaymentByOrderId, verifiedPaymentSuccess, verifySecurityHash,
   TamiRequestError, type TamiQueryResponse,
@@ -209,6 +210,7 @@ async function clearPurchasedCart(client: PoolClient, orderId: string) {
     WHERE o.id=$1 AND i.order_id=o.id AND c.owner_kind=o.owner_kind AND c.owner_id=o.owner_id AND c.product_id=i.product_id`, [orderId]);
 }
 
+/** Takes store stock again for an expired order paid late; a line that cannot be covered keeps 0 reserved. */
 async function reserveStoreStock(client: PoolClient, orderId: string) {
   const lines = (await client.query<{ product_id: string; quantity: number }>(
     "SELECT i.product_id,i.quantity FROM commerce_order_items i JOIN store_products p ON p.id=i.product_id WHERE i.order_id=$1 ORDER BY i.product_id FOR UPDATE OF p", [orderId],
@@ -217,6 +219,7 @@ async function reserveStoreStock(client: PoolClient, orderId: string) {
   for (const line of lines) {
     const taken = await client.query("UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2", [line.product_id, line.quantity]);
     if (!taken.rowCount) short = true;
+    await client.query("UPDATE commerce_order_items SET reserved_quantity=$3 WHERE order_id=$1 AND product_id=$2", [orderId, line.product_id, taken.rowCount ? line.quantity : 0]);
   }
   return short;
 }
@@ -230,7 +233,7 @@ async function expireIfDue(orderId: string) {
        AND NOT EXISTS(SELECT 1 FROM commerce_payments WHERE order_id=$1 AND status='succeeded') FOR UPDATE`, [orderId],
     )).rows[0];
     if (order) {
-      await client.query(`UPDATE store_products p SET stock=p.stock+i.quantity,updated_at=now() FROM commerce_order_items i WHERE i.order_id=$1 AND i.product_id=p.id`, [orderId]);
+      await releaseReservedStock(client, orderId);
       await client.query("UPDATE commerce_orders SET status='cancelled',payment_status='expired' WHERE id=$1", [orderId]);
     }
     await client.query("COMMIT");

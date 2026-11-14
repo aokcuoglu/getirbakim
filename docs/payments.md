@@ -23,6 +23,7 @@
 ### Kenar durumlar
 
 - **Geç ödeme** (süre dolup iptal edildikten sonra): sipariş `pending`+`paid` olarak geri alınır, mağaza stoku yeniden ayrılmaya çalışılır, `payment_note` ile işaretlenir. Denemeler oluşturulduktan sonra 2 saat izlenir, sonra `abandoned`.
+- **Stok iadesi** (#516): her sipariş satırı gerçekten düşülen mağaza stokunu `commerce_order_items.reserved_quantity` alanında tutar. İptal ve süre dolumu yalnız bu adedi iade eder ve alanı 0'a çeker; ikinci iptal hiçbir şey iade etmez. Geç ödemede stok yetmeyen satır 0 olarak kalır, yani sonradan yapılan iptal o satır için stok iade etmez. `reserved_quantity` NULL olan eski satırlarda eski kural geçerlidir (tam adet). `db:setup` backfill'i bu alanı yalnız NULL satırlarda doldurur: "mağaza stoku yetersiz" notu taşıyan geç ödenmiş siparişlerin bütün satırları 0 sayılır. Bu siparişlerin stoğunu operasyon elle düzeltmelidir.
 - **Mükerrer ödeme** (aynı siparişe ikinci başarılı deneme): `payment_note` "fazla tahsilatı iade edin" uyarısı alır.
 - **İptal**: yönetim yalnız ödenmiş (veya ödeme öncesi dönemden kalan `none`) siparişleri onaylar/iptal eder. Ödenmiş sipariş iptal edilince `refund_required`; iade TAMI portalından yapılıp referansı `/yonetim/siparisler`'de girilince `refunded`.
 
