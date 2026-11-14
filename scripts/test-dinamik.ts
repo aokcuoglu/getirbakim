@@ -58,14 +58,16 @@ test("repeated and contradicting rows are counted and preserved", () => {
 });
 
 test("duplicate price rows only conflict when they quote different positive prices", () => {
-  const { items, quality } = prepareDinamikImport({ brand: "FEBI", stock: [stockRow("FEBI 4", 375.86)], prices: [
+  const { items, quality } = prepareDinamikImport({ brand: "FEBI", stock: [stockRow("FEBI 4", 398.77)], prices: [
     // Same price, code padded differently (ORJINAL 1C0945511A): one row.
     priceRow("FEBI 1", 57.5), priceRow("FEBI 1  ", 57.5),
     // A zero next to a positive price (DELPHI GN10174-12B1): the positive price wins, in either order.
     priceRow("FEBI 2", 458.535), priceRow("FEBI 2 ", 0),
     priceRow("FEBI 3 ", 0), priceRow("FEBI 3", 1248.38),
-    // Two positive prices (FEBI 171180): held back, nothing chosen.
+    // Two positive prices, one row written exactly and one padded (FEBI 171180): the exact row is the supplier's record.
     priceRow("FEBI 4", 398.77), priceRow("FEBI 4  ", 375.86),
+    // Two positive prices with no exact row to prefer: held back, nothing chosen.
+    priceRow("FEBI 5 ", 10), priceRow("FEBI 5  ", 12),
   ] });
   const byCode = Object.fromEntries(items.map(item => [item.code, item]));
   assert.equal(byCode["FEBI 1"].conflicting, false);
@@ -74,9 +76,25 @@ test("duplicate price rows only conflict when they quote different positive pric
   assert.equal((byCode["FEBI 2"].price_data as { fiyat: number }).fiyat, 458.535);
   assert.equal(byCode["FEBI 3"].conflicting, false);
   assert.equal((byCode["FEBI 3"].price_data as { nf: number }).nf, 1248.38);
-  assert.equal(byCode["FEBI 4"].conflicting, true);
-  assert.equal((byCode["FEBI 4"].source_variants.prices as unknown[]).length, 2);
+  assert.equal(byCode["FEBI 4"].conflicting, false);
+  assert.equal((byCode["FEBI 4"].price_data as { nf: number }).nf, 398.77);
+  assert.equal((byCode["FEBI 4"].source_variants.prices as unknown[]).length, 2, "the padded row stays visible");
+  assert.equal(byCode["FEBI 4"].source_variants.usedExactCode, true);
+  assert.equal(byCode["FEBI 5"].conflicting, true);
   assert.equal(quality.conflictingCodes, 1);
+});
+
+test("a padded duplicate in the stock list yields to the row written exactly", () => {
+  // ORJINAL 1520900Q0H: the padded row is 0 / YOK and names another vehicle; the exact row is the live product.
+  const { items } = prepareDinamikImport({ brand: "FEBI",
+    stock: [{ ...stockRow("FEBI 6 ", 0, "YOK"), varyok4: "YOK", varyokAll: "YOK", stokAdi: "ESKI KAYIT" }, { ...stockRow("FEBI 6", 1248.38), stokAdi: "YAG FILTRESI" }],
+    prices: [priceRow("FEBI 6 ", 0), priceRow("FEBI 6", 1248.38)] });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].conflicting, false);
+  assert.equal((items[0].product_data as { ac: string }).ac, "YAG FILTRESI");
+  assert.equal((items[0].price_data as { nf: number }).nf, 1248.38);
+  assert.equal((items[0].stock_data as { stok: number }).stok, 1);
+  assert.equal((items[0].source_variants.stocks as unknown[]).length, 2);
 });
 
 test("unexpected response shapes are refused", () => {
