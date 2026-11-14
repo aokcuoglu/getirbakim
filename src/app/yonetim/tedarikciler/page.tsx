@@ -7,9 +7,9 @@ import { adminManualLists } from "@/modules/admin/manual";
 import { supplierSchedulerManual } from "@/modules/suppliers/health";
 import { feedIssueCount, feedStateLabels, feedStateTones, importErrorLabel, type FeedStatus } from "@/modules/suppliers/data-status";
 import { SupplierRefreshRunner, type SupplierRefreshScopes } from "@/components/admin/supplier-refresh-runner";
-import { formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
+import { formatAgo, formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,21 +22,10 @@ const number = formatNumber;
 const percent = (part: number, whole: number) => whole
   ? `%${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: part === whole || part === 0 ? 0 : 1 }).format(Math.floor(part / whole * 1000) / 10)}` : "—";
 const time = (value: Date | null | undefined) => formatDate(value);
-const ago = (value: Date | null | undefined, now: Date) => {
-  if (!value) return "Hiç çekilmedi";
-  const minutes = Math.max(0, Math.round((now.getTime() - value.getTime()) / 60_000));
-  if (minutes < 1) return "Az önce";
-  if (minutes < 60) return `${minutes} dk önce`;
-  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} sa önce`;
-  return `${Math.round(minutes / 1440)} gün önce`;
-};
 const duration = (minutes: number | null) => !minutes ? "—" : minutes % 1440 === 0 && minutes > 1440 ? `${minutes / 1440} gün` : `${Math.round(minutes / 60)} saat`;
-const icons = { success: CircleCheck, warning: TriangleAlert, destructive: CircleAlert, info: Info, outline: Info } as const;
-const toneBadge = (tone: keyof typeof icons, text: string) => {
-  const Icon = icons[tone];
-  return <Badge variant={tone}><Icon data-icon="inline-start" aria-hidden="true"/>{text}</Badge>;
-};
-const issueColor = { destructive: "text-destructive", warning: "text-warning", info: "text-info" } as const;
+const issueLooks = {
+  destructive: { color: "text-destructive", icon: CircleAlert }, warning: { color: "text-warning", icon: TriangleAlert }, info: { color: "text-info", icon: Info },
+} as const;
 const sample = (names: string[], limit = 6) => names.length > limit ? `${names.slice(0, limit).join(", ")} ve ${number(names.length - limit)} diğer` : names.join(", ");
 
 // Issue links open the supplier page already filtered to the products the issue counts (filters of each page's table).
@@ -58,7 +47,7 @@ async function CatalogFigure({ catalog, render }: { catalog: Promise<CatalogMetr
 const streamed = (catalog: Promise<CatalogMetrics | null>, render: (metrics: CatalogMetrics) => ReactNode, size: string) =>
   <Suspense fallback={<Skeleton className={size}><span className="sr-only">Yükleniyor…</span></Skeleton>}><CatalogFigure catalog={catalog} render={render}/></Suspense>;
 
-type Issue = { key: string; tone: keyof typeof issueColor; title: string; description: string; href: string; action: string };
+type Issue = { key: string; tone: keyof typeof issueLooks; title: string; description: string; href: string; action: string };
 type Row = {
   key: keyof CatalogMetrics; name: string; source: string; href: string; status: ReactNode; last: Date | null; scope: string; scopeNote: string;
   present: number; priced: number;
@@ -96,7 +85,7 @@ export default async function Suppliers() {
     const m = metrics[key];
     return {
       key, name, source, href, last: feed.lastSuccess, present: m.present, priced: m.priced,
-      status: toneBadge(feedStateTones[feed.state], feedStateLabels[feed.state]),
+      status: <StatusBadge tone={feedStateTones[feed.state]}>{feedStateLabels[feed.state]}</StatusBadge>,
       scope: feed.tracked ? `${number(feed.fresh)} / ${number(feed.tracked)} ${unit}` : "—",
       scopeNote: feed.tracked ? `${method(feed)} · süre ${duration(feed.staleMinutes)}` : "Kapsam tanımlı değil",
     };
@@ -107,7 +96,7 @@ export default async function Suppliers() {
   rows.push({
     key: "manual", name: "Manuel yükleme", source: `Excel · ${manualLists.map(list => list.list_name).join(", ") || "liste yok"}`, href: "/yonetim/tedarikciler/manuel",
     last: manualLast, present: manualPresent, priced: manualPresent - manualMissing,
-    status: !manualLists.length ? toneBadge("outline", "Liste yok") : manualMissing ? toneBadge("warning", "Fiyat eksik") : toneBadge("success", "Yüklendi"),
+    status: !manualLists.length ? <StatusBadge tone="neutral">Liste yok</StatusBadge> : manualMissing ? <StatusBadge tone="warning">Fiyat eksik</StatusBadge> : <StatusBadge tone="success">Yüklendi</StatusBadge>,
     scope: `${number(manualLists.length)} liste`, scopeNote: "Onaylı dosya yüklemesi",
   });
 
@@ -169,7 +158,7 @@ export default async function Suppliers() {
     </div>
 
     {feedProblems === 0 && allFresh
-      ? <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertTitle>Tüm tedarikçi verileri güncel</AlertTitle>
+      ? <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Tüm tedarikçi verileri güncel</AlertTitle>
           <AlertDescription>Son güncelleme {time(lastUpdate)}. API akışlarının bütün kapsamları güncellik süresi içinde çekildi; eksik veya hata veren kapsam yok.</AlertDescription></Alert>
       : <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>{number(feedProblems)} kapsamda veri sorunu var</AlertTitle>
           <AlertDescription>Ayrıntılar “Açık sorunlar” bölümünde. Sorunlu kapsamlarda mağaza son başarılı çekimin verisini kullanıyor.</AlertDescription></Alert>}
@@ -206,7 +195,7 @@ export default async function Suppliers() {
           <TableBody>{rows.map(row => <TableRow key={row.key} className="align-top">
             <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div></TableCell>
             <TableCell>{row.status}</TableCell>
-            <TableCell><div>{ago(row.last, now)}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
+            <TableCell><div>{formatAgo(row.last, { now, fallback: "Hiç çekilmedi", justNow: "Az önce" })}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
             <TableCell><div className="tabular-nums">{row.scope}</div><div className="text-muted-foreground">{row.scopeNote}</div></TableCell>
             <TableCell className="text-right tabular-nums">{number(row.present)}</TableCell>
             <TableCell className="text-right"><div className="tabular-nums">{percent(row.priced, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(row.priced)}</div></TableCell>
@@ -224,9 +213,9 @@ export default async function Suppliers() {
         <CardDescription>Yalnız şu an geçerli olanlar. Sonradan başarıyla yenilenen kapsamların eski hataları burada yer almaz.</CardDescription></CardHeader>
       <CardContent>
         {issues.length ? <ItemGroup>{issues.map(issue => {
-          const Icon = icons[issue.tone];
+          const { icon: Icon, color } = issueLooks[issue.tone];
           return <Item key={issue.key} variant="outline" size="sm">
-            <ItemMedia variant="icon"><Icon aria-hidden="true" className={issueColor[issue.tone]}/></ItemMedia>
+            <ItemMedia variant="icon"><Icon aria-hidden="true" className={color}/></ItemMedia>
             <ItemContent><ItemTitle>{issue.title}</ItemTitle><ItemDescription>{issue.description}</ItemDescription></ItemContent>
             <ItemActions><Button variant="outline" size="sm" nativeButton={false} render={<Link href={issue.href}/>}>{issue.action}</Button></ItemActions>
           </Item>;
@@ -250,7 +239,7 @@ export default async function Suppliers() {
             <TableCell className="text-right tabular-nums">{number(row.succeeded)}</TableCell>
             <TableCell className="text-right tabular-nums">{number(row.failed)}</TableCell>
             <TableCell className="text-right tabular-nums">{number(row.rejected)}</TableCell>
-            <TableCell>{row.unresolved ? toneBadge("warning", `${number(row.unresolved)} kapsam`) : toneBadge("success", "Yok")}</TableCell>
+            <TableCell>{row.unresolved ? <StatusBadge tone="warning">{number(row.unresolved)} kapsam</StatusBadge> : <StatusBadge tone="success">Yok</StatusBadge>}</TableCell>
           </TableRow>)}</TableBody>
         </Table>
         : <p className="text-muted-foreground">Son 24 saatte çekim yapılmadı.</p>}

@@ -7,6 +7,8 @@ import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, recordRefund } from "@/modules/admin/commerce-actions";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
+import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -21,7 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const time = (value: Date | string) => formatDateTime(value, { year: true });
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -50,13 +52,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
       <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
       <p className="max-w-3xl text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödeme iadesini TAMI portalından yapıp referansı kaydet. Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
     </div>
-    {params.saved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
-    {params.error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">
       <TabsList variant="line" aria-label="Sipariş durumları">
         {tabOrder.map(key => <TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({ status: key })} scroll={false}/>}>
-          {orderFilters[key].label}<Badge variant="secondary" className="tabular-nums">{new Intl.NumberFormat("tr-TR").format(counts[key])}</Badge>
+          {orderFilters[key].label}<Badge variant="secondary" className="tabular-nums">{formatNumber(counts[key])}</Badge>
         </TabsTrigger>)}
       </TabsList>
       <ScrollBar orientation="horizontal"/>
@@ -93,13 +95,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 <input type="hidden" name="id" value={o.id}/>
                 <input type="hidden" name="back" value={back}/>
                 <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
-                <Button type="submit">Uygula</Button>
+                <SubmitButton>Uygula</SubmitButton>
               </form>}
               {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
                 <input type="hidden" name="back" value={back}/>
                 <Input className="w-40" name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required/>
-                <Button type="submit">İade yapıldı</Button>
+                <SubmitButton>İade yapıldı</SubmitButton>
               </form>}
             </TableCell>
           </TableRow>)}</TableBody>
@@ -114,9 +116,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
       </CardContent>
       {(page > 1 || orders.length > 50) && <CardFooter className="justify-between gap-4">
         <span className="text-muted-foreground">Sayfa {page}</span>
-        <Pagination className="mx-0 w-auto"><PaginationContent>
-          <PaginationItem>{page > 1 ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={href({ page: page - 1 })} scroll={false}/>}><ChevronLeft data-icon="inline-start"/>Önceki</Button> : <Button variant="ghost" disabled><ChevronLeft data-icon="inline-start"/>Önceki</Button>}</PaginationItem>
-          <PaginationItem>{orders.length > 50 ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={href({ page: page + 1 })} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end"/></Button> : <Button variant="ghost" disabled>Sonraki<ChevronRight data-icon="inline-end"/></Button>}</PaginationItem>
+        <Pagination aria-label="Sayfalar" className="mx-0 w-auto"><PaginationContent>
+          <PaginationItem>{page > 1 ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={href({ page: page - 1 })} scroll={false}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Önceki</Button> : <Button variant="ghost" aria-label="Önceki sayfa" disabled><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Önceki</Button>}</PaginationItem>
+          <PaginationItem>{orders.length > 50 ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={href({ page: page + 1 })} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button> : <Button variant="ghost" aria-label="Sonraki sayfa" disabled>Sonraki<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button>}</PaginationItem>
         </PaginationContent></Pagination>
       </CardFooter>}
     </Card>
@@ -127,7 +129,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
         <CardDescription>İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler sevk edilen siparişin sayfasından kaydedilir.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Table><TableHeader><TableRow><TableHead>Uyumluluk</TableHead><TableHead className="text-right">Satır</TableHead><TableHead className="text-right">İade edilen</TableHead><TableHead className="text-right">“Aracıma uymadı”</TableHead></TableRow></TableHeader>
+        <Table controls={false}><TableHeader><TableRow><TableHead>Uyumluluk</TableHead><TableHead className="text-right">Satır</TableHead><TableHead className="text-right">İade edilen</TableHead><TableHead className="text-right">“Aracıma uymadı”</TableHead></TableRow></TableHeader>
           <TableBody>{fitment.map(row => <TableRow key={row.level}><TableCell>{row.level === "unrecorded" ? "Kayıt yok (eski sipariş)" : fitmentLevelLabels[row.level as FitmentLevel] ?? row.level}</TableCell><TableCell className="text-right tabular-nums">{row.lines}</TableCell><TableCell className="text-right tabular-nums">{row.returned}</TableCell><TableCell className="text-right tabular-nums">{row.not_fit}</TableCell></TableRow>)}</TableBody></Table>
       </CardContent>
     </Card>}

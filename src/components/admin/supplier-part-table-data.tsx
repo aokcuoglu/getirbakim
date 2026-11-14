@@ -4,24 +4,25 @@ import type { DinamikItem } from "@/modules/admin/dinamik";
 import type { SetaItem } from "@/modules/admin/seta";
 import type { ManualItem } from "@/modules/admin/manual";
 import { money } from "@/modules/store/catalog";
+import { formatDecimal, formatNumber } from "@/modules/admin/format";
 import { basbugStockLabel, basbugWarehouses, basbugWarehouseStock, type BasbugWarehouse } from "@/modules/suppliers/basbug-stock";
 import { dinamikRegions, dinamikRegionStock, type DinamikRegionKey } from "@/modules/suppliers/dinamik-stock";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(value);
-const price = (value: number | null | undefined) => value == null ? null : new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+const number = formatNumber;
+const price = (value: number | null | undefined) => value == null ? null : formatDecimal(value);
 const text = (value: SupplierPartCell["value"], title?: string): SupplierPartCell => ({ value, title: title ?? (value == null ? undefined : String(value)) });
 const stockCell = (available: boolean | null, title: string): SupplierPartCell => ({
   value: available === null ? "Veri yok" : available ? "Var" : "Yok",
-  variant: available === null ? "warning" : available ? "success" : "outline",
+  tone: available === null ? "warning" : available ? "success" : "neutral",
   title,
 });
 
 function checkCell(item: { presence: string; conflicting: boolean }, missingPrice: boolean, repeated: boolean, priceOnly = false): SupplierPartCell {
-  if (item.presence !== "present") return { value: item.presence === "inactive" ? "Pasif" : "Listede yok", variant: "warning" };
-  if (item.conflicting) return { value: "Çelişkili", variant: "destructive" };
-  if (missingPrice) return { value: "Fiyat eksik", variant: "warning" };
-  if (priceOnly) return { value: "Yalnız fiyat", variant: "outline" };
-  if (repeated) return { value: "Tekrar var", variant: "info" };
+  if (item.presence !== "present") return { value: item.presence === "inactive" ? "Pasif" : "Listede yok", tone: "warning" };
+  if (item.conflicting) return { value: "Çelişkili", tone: "error" };
+  if (missingPrice) return { value: "Fiyat eksik", tone: "warning" };
+  if (priceOnly) return { value: "Yalnız fiyat", tone: "neutral" };
+  if (repeated) return { value: "Tekrar var", tone: "info" };
   return { value: null };
 }
 
@@ -161,10 +162,10 @@ export function manualPartTableProps(items: ManualItem[], lists: { categories: s
           viscosity: text(p.viscosity),
           cost: text(item.price_data ? number(item.price_data.nf) : null, item.price_data ? number(item.price_data.nf) : "Fiyat eksik"),
           sale: text(item.sale_price_kurus ? money(item.sale_price_kurus) : null, item.sale_price_kurus ? `${money(item.sale_price_kurus)} · ${item.sale_stock_label || ""}` : "Satışa kapalı"),
-          stock: stock === null ? { value: "Veri yok", variant: "warning", title: "Stok girilmemiş" } : text(number(stock)),
-          image: item.has_image ? { value: "Var", variant: "success" } : { value: "Yok", variant: "outline" },
-          check: item.presence !== "present" ? checkCell(item, false, false) : !item.price_data ? { value: "Fiyat eksik", variant: "warning" }
-            : !p.package ? { value: "Ambalaj eksik", variant: "warning" } : item.overridden ? { value: "Panelden tamamlandı", variant: "info" } : { value: null },
+          stock: stock === null ? { value: "Veri yok", tone: "warning", title: "Stok girilmemiş" } : text(number(stock)),
+          image: item.has_image ? { value: "Var", tone: "success" } : { value: "Yok", tone: "neutral" },
+          check: item.presence !== "present" ? checkCell(item, false, false) : !item.price_data ? { value: "Fiyat eksik", tone: "warning" }
+            : !p.package ? { value: "Ambalaj eksik", tone: "warning" } : item.overridden ? { value: "Panelden tamamlandı", tone: "info" } : { value: null },
         },
       };
     }),

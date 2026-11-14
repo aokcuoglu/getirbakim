@@ -1,4 +1,4 @@
-import { CalendarClock, CircleAlert, CircleCheck, History, PackageSearch } from "lucide-react";
+import { CalendarClock, CircleAlert, CircleCheck, History, PackageSearch, RefreshCw } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
@@ -34,7 +34,7 @@ import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { basbugWarehouse, basbugWarehouses } from "@/modules/suppliers/basbug-stock";
 
 // Remove only insignificant trailing zeroes; preserve the source precision.
@@ -55,7 +55,7 @@ const runError = (reason: string) => supplierRunError(reason, "basbug");
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   await requireAdmin();
-  const [data, checkoutMode, activity, feeds] = await Promise.all([adminBasbugData(params), supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
+  const [data, checkoutMode, activity, feeds] = await Promise.all([adminBasbugData(params), supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus().catch(() => null)]);
   const { snapshot, group, knownGroups, items, currencies, total, page, pages, capped } = data;
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
   const schedule = scheduleLines(mrkScopes, { commerceLabel });
@@ -71,14 +71,14 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const groupCount = new Set(knownGroups.map(g => g.kod)).size;
   return <SupplierPage crumb="Başbuğ" title="Başbuğ API" tabsLabel="Başbuğ yönetimi"
     description="Ürün, kaynak fiyat ve depo stok verilerini incele; senkronizasyonu yönet."
-    badge={<SupplierActivityBadge supplier="basbug" initial={activity}><FeedStatusBadge status={feeds.basbug}/></SupplierActivityBadge>}
+    badge={<SupplierActivityBadge supplier="basbug" initial={activity}><FeedStatusBadge status={feeds?.basbug}/></SupplierActivityBadge>}
     attention={Boolean(params.error)} hasData={data.snapshots.length > 0} tabKey={[params.error, params.updated, group].join("|")}
     alerts={<>
       {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
       {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
     </>}
     facts={<>
-      <SupplierFactCards label="Başbuğ özet" health={data.health} feed={feeds.basbug} checkoutMode={checkoutMode}
+      <SupplierFactCards label="Başbuğ özet" health={data.health} feed={feeds?.basbug} checkoutMode={checkoutMode}
         checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte API doğrulaması"}
         lastSuccess={lastSucceeded ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${runKindLabel(lastSucceeded.run_kind, "basbug")} · ${formatNumber(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
         lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: `${lastRun.list_group} · ${runKindLabel(lastRun.run_kind, "basbug")}${lastRun.status === "succeeded" ? ` · ${formatNumber(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
@@ -95,7 +95,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         footer={<SupplierRefreshRunner scopes={[{ supplier: "basbug", groups: [...new Set(knownGroups.map(g => g.kod))] }]} label="Tüm grupları API’den yenile" description={`${groupCount} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/>}>
         <form action={refreshBasbug}><Field>
           <FieldLabel htmlFor="refresh-group">Tek grup</FieldLabel>
-          <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili grubu API’den güncelle" pendingLabel="Başbuğ verileri çekiliyor…"/></div>
+          <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-group" name="group" defaultValue={group || "FIAT"}>{knownGroups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad} ({g.kod})</NativeSelectOption>)}</NativeSelect><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Başbuğ verileri çekiliyor…">Seçili grubu API’den güncelle</SubmitButton></div>
           <FieldDescription>Seçilen grup {basbugWarehouses.join(" · ")} depolarından çekilir.</FieldDescription>
         </Field></form>
       </SupplierSourceCard>
@@ -106,22 +106,22 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
       <SupplierRunHistory runs={data.recentRuns} supplier="basbug" name="Başbuğ" emptyDescription="Periyodik çekim için sunucuda zamanlayıcı çalışmalı."/>
       <div className="grid items-start gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle><h2>Grup güncelliği</h2></CardTitle><CardDescription>{group || "Tüm liste grupları"}</CardDescription><CardAction><Badge variant={data.sync?.enabled ? "success" : "outline"}>{data.sync?.enabled ? "Periyodik çekim etkin" : "Periyodik çekim kapalı"}</Badge></CardAction></CardHeader>
+          <CardHeader><CardTitle><h2>Grup güncelliği</h2></CardTitle><CardDescription>{group || "Tüm liste grupları"}</CardDescription><CardAction><StatusBadge tone={data.sync?.enabled ? "success" : "neutral"}>{data.sync?.enabled ? "Periyodik çekim etkin" : "Periyodik çekim kapalı"}</StatusBadge></CardAction></CardHeader>
           <CardContent className="flex flex-col gap-4">
             {scopes.length ? <div className="grid items-center gap-4 sm:grid-cols-2">
               <GroupFreshnessChart fresh={freshness.fresh} retry={freshness.retry} stale={freshness.stale}/>
-              <ItemGroup>{([["fresh", "success", "Güncel"], ["retry", "warning", "Yeniden deneme bekliyor"], ["stale", "destructive", "Güncellik aşıldı"]] as const).map(([key, variant, label]) => <Item key={key} size="sm" variant="muted">
+              <ItemGroup>{([["fresh", "success", "Güncel"], ["retry", "warning", "Yeniden deneme bekliyor"], ["stale", "error", "Güncellik aşıldı"]] as const).map(([key, tone, label]) => <Item key={key} size="sm" variant="muted">
                 <ItemContent><ItemTitle>{label}</ItemTitle></ItemContent>
-                <ItemActions><Badge variant={variant} className="tabular-nums">{formatNumber(freshness[key])}</Badge></ItemActions>
+                <ItemActions><StatusBadge tone={tone} className="tabular-nums">{formatNumber(freshness[key])}</StatusBadge></ItemActions>
               </Item>)}</ItemGroup>
             </div> : <Empty><EmptyHeader><EmptyMedia variant="icon"><CalendarClock/></EmptyMedia><EmptyTitle>Otomatik güncelleme kapsamı tanımlı değil</EmptyTitle><EmptyDescription>Zamanlayıcı yapılandırıldığında gruplar burada listelenir.</EmptyDescription></EmptyHeader></Empty>}
-            {scopes.length > 0 && <Accordion className="rounded-lg border"><AccordionItem value="plan" className="px-4">
+            {scopes.length > 0 && <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="plan">
               <AccordionTrigger>Grup bazında plan</AccordionTrigger>
               <AccordionContent><Table><TableHeader><TableRow><TableHead>Grup</TableHead><TableHead>Ürün listesi</TableHead><TableHead>{commerceLabel}</TableHead><TableHead>Son {commerceLabel.toLocaleLowerCase("tr")}</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>{scopes.map(scope => <TableRow key={`${scope.company}-${scope.list_group}-${scope.warehouse}`}>
                 <TableCell className="font-medium">{scope.list_group}</TableCell><TableCell>{scope.enabled ? formatInterval(scope.interval_minutes, scope.daily_at) : "Kapalı"}</TableCell><TableCell>{scope.commerce_enabled ? formatInterval(scope.commerce_interval_minutes) : "Kapalı"}</TableCell><TableCell className="tabular-nums">{formatDate(scope.commerce_last_success_at, { fallback: "Henüz yok" })}</TableCell>
                 <TableCell><StatusBadge tone={scopeState(scope) === "stale" ? "error" : scopeState(scope) === "retry" ? "warning" : "success"}>{scopeState(scope) === "stale" ? "Güncellik aşıldı" : scopeState(scope) === "retry" ? "Yeniden deneme bekliyor" : "Güncel"}</StatusBadge></TableCell>
               </TableRow>)}</TableBody></Table></AccordionContent>
-            </AccordionItem></Accordion>}
+            </AccordionItem></Accordion></CardContent></Card>}
           </CardContent>
           <CardFooter className="text-muted-foreground">Sonraki deneme: {data.sync ? formatDate(data.sync.next_run_at) : "zamanlama kaydı yok"}</CardFooter>
         </Card>
@@ -140,10 +140,10 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
               <ItemDescription className="tabular-nums" title={c.alis}>Alış {rate(c.alis)}</ItemDescription>
             </ItemContent>
           </Item>)}</div>
-          <Accordion className="rounded-lg border"><AccordionItem value="observations" className="px-4">
+          <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="observations">
             <AccordionTrigger>Verilerin çekilme zamanları</AccordionTrigger>
             <AccordionContent><Table><caption className="sr-only">Kaynak verilerinin çekilme zamanları</caption><TableHeader><TableRow><TableHead>Veri kaynağı</TableHead><TableHead>Liste / Depo</TableHead><TableHead>Çekilme zamanı (İstanbul)</TableHead></TableRow></TableHeader><TableBody>{Object.entries(snapshot.observations).filter(([key]) => key !== "StokGetir" || !snapshot.observations["StokGetir:MRK"]).map(([key,value]) => { const [service,depot,error] = key.split(":"); return <TableRow key={key}><TableCell className="font-medium"><div className="flex items-center gap-2">{({MalzemeleriGetir:"Ürünler",FiyatGetir:"Fiyatlar",StokGetir:"Stoklar",DovizBilgisiGetir:"Kurlar",ListeGrubuGetir:"Liste grupları",products:"Ürünler",prices:"Fiyatlar",stocks:"Stoklar",currencies:"Kurlar",groups:"Liste grupları"} as Record<string,string>)[service] || service}{error === "607" && <StatusBadge tone="warning">Depo erişimi yok (607)</StatusBadge>}</div></TableCell><TableCell>{snapshot.list_group} / {depot || snapshot.warehouse}</TableCell><TableCell className="tabular-nums"><time dateTime={new Date(value).toISOString()}>{formatDate(new Date(value))}</time></TableCell></TableRow>; })}</TableBody></Table></AccordionContent>
-          </AccordionItem></Accordion>
+          </AccordionItem></Accordion></CardContent></Card>
         </CardContent>
       </Card>}
     </div>}

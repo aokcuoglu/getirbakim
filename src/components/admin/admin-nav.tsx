@@ -55,7 +55,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
     <SidebarHeader>
       <SidebarMenu><SidebarMenuItem>
         <SidebarMenuButton size="lg" render={<Link href="/yonetim"/>} tooltip="Genel bakış">
-          <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">g</div>
+          <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">g</div>{/* admin-ui-lint-ignore: logo tile of the stock shadcn sidebar block (sidebar-07), kept as the registry ships it */}
           <div className="grid flex-1 text-left text-sm leading-tight"><span className="truncate font-medium">getirbakim</span><span className="truncate text-xs">Yönetim paneli</span></div>
         </SidebarMenuButton>
       </SidebarMenuItem></SidebarMenu>
@@ -85,7 +85,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
         <SidebarMenuItem>
           <DropdownMenu>
             <DropdownMenuTrigger render={<SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"/>}>
-              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg">{initials}</AvatarFallback></Avatar>
+              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg">{initials}</AvatarFallback></Avatar>{/* admin-ui-lint-ignore: NavUser avatar of the stock shadcn sidebar block (sidebar-07), kept as the registry ships it */}
               <div className="grid flex-1 text-left text-sm leading-tight"><span className="truncate font-medium">{account.name}</span><span className="truncate text-xs">{account.email}</span></div>
               <ChevronsUpDown className="ml-auto size-4" aria-hidden="true"/>
             </DropdownMenuTrigger>

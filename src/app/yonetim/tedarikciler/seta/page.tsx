@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, PackageSearch } from "lucide-react";
+import { CircleAlert, CircleCheck, PackageSearch, RefreshCw } from "lucide-react";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
 import { adminSupplierFeedStatus } from "@/modules/admin/data";
 import { requireAdmin } from "@/modules/auth/session";
@@ -13,7 +13,7 @@ import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
 import { SupplierQualityCard } from "@/components/admin/supplier-quality-card";
 import { SupplierRunHistory } from "@/components/admin/supplier-run-history";
-import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { SetaProductFilters } from "@/components/admin/seta-product-filters";
 import { SupplierFactCards } from "@/components/admin/supplier-fact-cards";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
@@ -48,21 +48,21 @@ const runScope = (run: SetaRun) => run.run_kind === "full" && run.status === "su
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus()]);
+  const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus().catch(() => null)]);
   const { snapshot, lastSucceeded, health, items, categories, total, page, pages, capped } = data;
   const lastRun = data.recentRuns[0];
   const scope = health.scopes[0];
   const schedule = scheduleLines(health.scopes);
   return <SupplierPage crumb="SETA" title="SETA API" tabsLabel="SETA yönetimi"
     description="Seta Filtre B2B listesi: ürün, OEM, çapraz referans, KDV hariç bayi fiyatı ve stok durumu."
-    badge={<SupplierActivityBadge supplier="seta" initial={activity} unit="liste"><FeedStatusBadge status={feeds.seta}/></SupplierActivityBadge>}
+    badge={<SupplierActivityBadge supplier="seta" initial={activity} unit="liste"><FeedStatusBadge status={feeds?.seta}/></SupplierActivityBadge>}
     attention={Boolean(params.error)} hasData={Boolean(snapshot)} tabKey={[params.error, params.updated].join("|")}
     alerts={<>
       {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Liste API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
       {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
     </>}
     facts={<>
-      <SupplierFactCards label="SETA özet" health={health} feed={feeds.seta} checkoutMode={checkoutMode} checkoutNote="Tüm tedarikçilerde ortak ayar"
+      <SupplierFactCards label="SETA özet" health={health} feed={feeds?.seta} checkoutMode={checkoutMode} checkoutNote="Tüm tedarikçilerde ortak ayar"
         lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: runScope(lastSucceeded) } : null}
         lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: runScope(lastRun) } : null}
         notes={{
@@ -80,7 +80,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
     sync={<div className="flex flex-col gap-4">
       <SupplierSourceCard description="Tüm liste tek istekle çekilir (yaklaşık 1.400 ürün, birkaç saniye)." badge={<Badge variant="outline">API · tek liste</Badge>}
         schedule={scope ? [...schedule, scope.enabled ? `sonraki tam liste ${formatDate(scope.next_run_at)}` : null].filter((line): line is string => Boolean(line)) : []}>
-        <form action={refreshSeta} className="flex flex-wrap items-end gap-2"><SupplierRefreshButton label="Listeyi API’den güncelle" pendingLabel="SETA verileri çekiliyor…"/></form>
+        <form action={refreshSeta} className="flex flex-wrap items-end gap-2"><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="SETA verileri çekiliyor…">Listeyi API’den güncelle</SubmitButton></form>
         <p className="text-muted-foreground">Maliyet KDV hariç bayi alışıdır; satış fiyatı fiyatlandırma ekranındaki kâr ve KDV ile hesaplanır. 0,00 TL fiyatlı ürünler satışa kapalıdır. Stok adet değil, var/yok sinyalidir.</p>
       </SupplierSourceCard>
       {/* The last full list: its duplicate/conflict counts match the product filters (price · stock runs recount the source only). */}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CircleAlert, CircleCheck, Download, FileSpreadsheet, History, Info, PackageSearch, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, Download, FileSpreadsheet, History, Info, PackageSearch, TriangleAlert, Upload } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierPage } from "@/components/admin/supplier-page";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
@@ -9,7 +9,7 @@ import { costNotes, manualPartTableProps } from "@/components/admin/supplier-par
 import { formatDate, formatNumber } from "@/modules/admin/format";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { ManualProductFilters } from "@/components/admin/manual-product-filters";
-import { ManualSubmitButton } from "@/components/admin/manual-submit-button";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,8 @@ import { confirmManualDraft, discardManualDraft, uploadManualList } from "./acti
 const base = "/yonetim/tedarikciler/manuel";
 const number = formatNumber;
 const date = (value: Date) => formatDate(value);
+// The row-by-row findings list stops here; the summary table above still counts every finding.
+const issueRowLimit = 500;
 const filterKeys = ["liste", "q", "category", "stock", "quality", "presence"] as const;
 const errors: Record<string, string> = {
   file: "Bir .xlsx dosyası seçin (en fazla 8 MB).",
@@ -61,7 +63,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     if (issue.code && group.codes.length < 5) group.codes.push(issue.code);
     return groups.set(key, group);
   }, new Map<string, { issue: ManualIssue; count: number; codes: string[] }>()).values()].sort((a, b) => Number(a.issue.level === "warning") - Number(b.issue.level === "warning") || b.count - a.count) : [];
-  const detailed = draft ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, 500) : [];
+  const detailed = draft ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, issueRowLimit) : [];
   return <SupplierPage crumb="Manuel yükleme" title="Manuel yükleme" tabsLabel="Manuel yükleme" syncLabel="Yükleme ve kontrol"
     description="Şablondaki .xlsx listeleri bir tedarikçi listesi gibi içe aktarılır: önce kontrol edilir, onaydan sonra mağazaya yansır."
     badge={<Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>}
@@ -91,19 +93,19 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
               <Card key={label} size="sm"><CardHeader><CardDescription>{label}</CardDescription><CardTitle className={label === "Hata" && value ? "text-destructive tabular-nums" : "tabular-nums"}>{number(value)}</CardTitle></CardHeader></Card>)}
           </div>
           <p className="text-muted-foreground">Sayfalar: {draft.report.sheets.map(sheet => `${sheet.name} (${number(sheet.rows)})`).join(" · ") || "—"}</p>
-          {draft.report.errors > 0 && <Alert variant="destructive"><CircleAlert aria-hidden="true"/><AlertTitle>{number(draft.report.errors)} hata var</AlertTitle><AlertDescription>Hatalı satırlar içe aktarılamaz. Dosyayı düzeltip yeniden yükleyin.</AlertDescription></Alert>}
+          {draft.report.errors > 0 && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{number(draft.report.errors)} hata var</AlertTitle><AlertDescription>Hatalı satırlar içe aktarılamaz. Dosyayı düzeltip yeniden yükleyin.</AlertDescription></Alert>}
           {draft.report.removed > 0 && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>{number(draft.report.removed)} ürün bu dosyada yok</AlertTitle><AlertDescription>Onaylarsanız “son yüklemede yok” olarak işaretlenir ve mağazadan kalkar; bir sonraki yüklemede de yoksa pasife alınır. {draft.report.removedCodes.slice(0, 20).join(", ")}{draft.report.removed > 20 && "…"}</AlertDescription></Alert>}
-          {grouped.length > 0 && <Table><caption className="sr-only">Kontrol sonuçlarının özeti</caption>
+          {grouped.length > 0 && <Table controls={false}><caption className="sr-only">Kontrol sonuçlarının özeti</caption>
             <TableHeader><TableRow><TableHead>Seviye</TableHead><TableHead>Alan</TableHead><TableHead>Bulgu</TableHead><TableHead className="text-right">Satır</TableHead><TableHead>Örnek kodlar</TableHead></TableRow></TableHeader>
             <TableBody>{grouped.map(({ issue, count, codes }) => <TableRow key={issueKind(issue)}>
-              <TableCell>{issue.level === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Hata</Badge> : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Uyarı</Badge>}</TableCell>
+              <TableCell>{issue.level === "error" ? <StatusBadge tone="error">Hata</StatusBadge> : <StatusBadge tone="warning">Uyarı</StatusBadge>}</TableCell>
               <TableCell>{fieldLabel(issue.field)}</TableCell>
               <TableCell className="whitespace-normal">{count === 1 ? issue.message : issue.message.replace(/:.*$/, "")}</TableCell>
               <TableCell className="text-right tabular-nums">{number(count)}</TableCell>
               <TableCell className="whitespace-normal font-mono text-muted-foreground">{codes.join(", ")}{count > codes.length && "…"}</TableCell>
             </TableRow>)}</TableBody>
           </Table>}
-          {detailed.length > 0 && <Accordion className="rounded-lg border"><AccordionItem value="rows" className="px-4">
+          {detailed.length > 0 && <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="rows">
             <AccordionTrigger>Satır satır bulgular ({number(draft.report.issues.length)}{draft.report.issues.length > detailed.length ? `, ilk ${number(detailed.length)} gösteriliyor` : ""})</AccordionTrigger>
             <AccordionContent><Table><caption className="sr-only">Satır satır kontrol sonuçları</caption>
               <TableHeader><TableRow><TableHead>Seviye</TableHead><TableHead>Sayfa</TableHead><TableHead className="text-right">Satır</TableHead><TableHead>Kod</TableHead><TableHead>Alan</TableHead><TableHead>Bulgu</TableHead></TableRow></TableHeader>
@@ -112,8 +114,9 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
                 <TableCell className="text-right tabular-nums">{issue.row ?? "—"}</TableCell><TableCell className="font-mono">{issue.code ?? "—"}</TableCell>
                 <TableCell>{fieldLabel(issue.field)}</TableCell><TableCell className="whitespace-normal">{issue.message}</TableCell>
               </TableRow>)}</TableBody>
-            </Table></AccordionContent>
-          </AccordionItem></Accordion>}
+            </Table>
+            {draft.report.issues.length > detailed.length && <p className="mt-2 text-muted-foreground">İlk {number(detailed.length)} bulgu gösteriliyor; toplam {number(draft.report.issues.length)}. Hatalar önce listelenir.</p>}</AccordionContent>
+          </AccordionItem></Accordion></CardContent></Card>}
           {draft.row_count > 0 && <Table><caption className="sr-only">İlk satırlar</caption>
             <TableHeader><TableRow><TableHead>Kod</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Kategori</TableHead><TableHead>Ambalaj</TableHead><TableHead>Viskozite</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-right">Stok</TableHead></TableRow></TableHeader>
             <TableBody>{draft.preview.map(row => <TableRow key={row.code}>
@@ -126,9 +129,9 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
         </CardContent>
         {draft.status === "draft" && <CardFooter className="flex-wrap gap-2">
           <form action={confirmManualDraft}><input type="hidden" name="id" value={draft.id}/><input type="hidden" name="list" value={draft.list_group}/>
-            <ManualSubmitButton icon="check" label={`${number(draft.report.products)} ürünü içe aktar`} pendingLabel="İçe aktarılıyor, resimler indiriliyor…" disabled={draft.report.errors > 0 || !draft.row_count}/></form>
+            <SubmitButton icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>} pendingLabel="İçe aktarılıyor, resimler indiriliyor…" disabled={draft.report.errors > 0 || !draft.row_count}>{number(draft.report.products)} ürünü içe aktar</SubmitButton></form>
           <form action={discardManualDraft}><input type="hidden" name="id" value={draft.id}/><input type="hidden" name="list" value={draft.list_group}/>
-            <Button type="submit" variant="ghost">Vazgeç</Button></form>
+            <SubmitButton variant="ghost">Vazgeç</SubmitButton></form>
         </CardFooter>}
       </Card>}
       <Card>
@@ -147,17 +150,17 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
               <Field><FieldLabel htmlFor="manual-file">Dosya</FieldLabel><Input id="manual-file" name="file" type="file" required accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>
                 <FieldDescription>Numbers dosyasını Dosya › Dışa Aktar › Excel ile .xlsx yapın.</FieldDescription></Field>
             </FieldGroup>
-            <div><ManualSubmitButton label="Yükle ve kontrol et" pendingLabel="Dosya kontrol ediliyor…"/></div>
+            <div><SubmitButton icon={<Upload data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dosya kontrol ediliyor…">Yükle ve kontrol et</SubmitButton></div>
           </form>
         </CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle><h2>Şablon</h2></CardTitle><CardDescription>Sütunlar başlık adıyla bulunur; sıraları ve sayfa adları serbesttir. Kategori, şablondaki Kategoriler sayfasından seçilir.</CardDescription></CardHeader>
-        <CardContent><Table><caption className="sr-only">Şablon sütunları</caption>
+        <CardContent><Table controls={false}><caption className="sr-only">Şablon sütunları</caption>
           <TableHeader><TableRow><TableHead>Sütun</TableHead><TableHead>Durum</TableHead><TableHead>Açıklama</TableHead></TableRow></TableHeader>
           <TableBody>{manualColumns.map(column => <TableRow key={column.key}>
             <TableCell className="font-medium">{column.header}</TableCell>
-            <TableCell>{column.required ? <Badge variant="info">Zorunlu</Badge> : <Badge variant="outline">İsteğe bağlı</Badge>}</TableCell>
+            <TableCell>{column.required ? <StatusBadge tone="info">Zorunlu</StatusBadge> : <StatusBadge tone="neutral">İsteğe bağlı</StatusBadge>}</TableCell>
             <TableCell className="whitespace-normal text-muted-foreground">{column.note}</TableCell>
           </TableRow>)}</TableBody>
         </Table></CardContent>

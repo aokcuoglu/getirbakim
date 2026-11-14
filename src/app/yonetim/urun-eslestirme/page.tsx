@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Info, Link2, Merge, PackagePlus, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, RefreshCw, SearchX, Store, Tags, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { SubmitButton } from "@/components/admin/submit-button";
+import { StatusBadge } from "@/components/admin/status-badge";
+import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
 import { BrandDialog, ConfirmBrand, MergeSuggestion, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
 import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
@@ -20,8 +22,7 @@ import { candidateNames, candidateReasons, productMatchingData, type BrandSugges
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffers, undoSplit } from "./actions";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
-const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const number = formatNumber;
 const percent = (value: number | null) => value === null ? null : `%${Math.round(value * 100)}`;
 const price = (kurus: number | null | undefined) => kurus ? money(kurus) : "—";
 const suppliers: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
@@ -41,11 +42,6 @@ function OfferCell({ offer }: { offer: Offer | undefined }) {
   if (!offer) return <span className="text-muted-foreground">—</span>;
   return <div className="flex min-w-0 flex-col gap-1"><span className="max-w-48 truncate font-mono" title={offer.code}>{offer.code}</span>
     <span className="flex items-center gap-2 tabular-nums"><span className="font-medium">{price(offer.price)}</span><StockLabel stock={offer.available}/></span></div>;
-}
-
-function ToneBadge({ tone, children }: { tone: "success" | "warning" | "info" | "neutral"; children: ReactNode }) {
-  const Icon = tone === "success" ? CircleCheck : tone === "warning" ? TriangleAlert : tone === "info" ? Info : null;
-  return <Badge variant={tone === "neutral" ? "outline" : tone}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{children}</Badge>;
 }
 
 // Why a brand was suggested: shared part numbers when they decided it, else the name.
@@ -101,7 +97,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={data.brands[index].labels.filter(label => label.supplier === supplier).map(({ label, items, method }) => ({ label, items: number(items), method }))}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
-            <TableCell>{brand.fresh ? <ToneBadge tone="info">Yeni marka</ToneBadge> : brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
+            <TableCell>{brand.fresh ? <StatusBadge tone="info">Yeni marka</StatusBadge> : brand.pending ? <StatusBadge tone="warning">Otomatik</StatusBadge> : <StatusBadge tone="success">Onaylı</StatusBadge>}</TableCell>
             <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.id}|${brand.name}|${data.brands[index].labels.length}|${data.brands[index].labels.filter(label => label.method === "auto").length}`} brand={brand} back={back}/></div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
       </CardContent>
@@ -132,26 +128,26 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.names !== "conflict" && data.acceptableTotal > 0 && <form action={acceptCandidates}>
             <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline" title={`${bulkBrand}: yalnız uygun öneriler birleştirilir`}><CircleCheck data-icon="inline-start" aria-hidden="true"/>Tümünü birleştir ({number(data.acceptableTotal)})</Button>
+            <SubmitButton variant="outline" title={`${bulkBrand}: yalnız uygun öneriler birleştirilir`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>Tümünü birleştir ({number(data.acceptableTotal)})</SubmitButton>
           </form>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
-            <Button type="submit" variant="outline"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tümünü farklı say ({number(data.total)})</Button>
+            <SubmitButton variant="outline" icon={<CircleAlert data-icon="inline-start" aria-hidden="true"/>}>Tümünü farklı say ({number(data.total)})</SubmitButton>
           </form>}
         </div>}
         {data.candidates.length ? <Table server><caption className="sr-only">Olası aynı ürünler</caption>
           <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead title="Aynı ürün denirse bu ürün korunur">Mevcut ürün</TableHead><TableHead title="Aynı ürün denirse bu ürün mevcut ürüne katılır">Önerilen eş</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`}>
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
-              {item.name_conflict && <Badge variant="destructive" title="İki tanım farklı parça türü söylüyor"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Tanımı farklı</Badge>}
-              {item.shared_b && <Badge variant="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Birden çok eş</Badge>}</div></TableCell>
+              {item.name_conflict && <StatusBadge tone="error" title="İki tanım farklı parça türü söylüyor">Tanımı farklı</StatusBadge>}
+              {item.shared_b && <StatusBadge tone="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir">Birden çok eş</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
-            <TableCell className="text-center">{item.name_similarity === null ? "—" : <ToneBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</ToneBadge>}</TableCell>
+            <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</StatusBadge>}</TableCell>
             <TableCell><div className="flex flex-wrap gap-2">{(["same", "different"] as const).map(status => <form key={status} action={decideCandidate}>
               <input type="hidden" name="product_a" value={item.a.id}/><input type="hidden" name="product_b" value={item.b.id}/>
               <input type="hidden" name="status" value={status}/><input type="hidden" name="back" value={back}/>
-              <Button type="submit" variant={status === "same" ? "outline" : "ghost"}>{status === "same" ? "Aynı ürün" : "Farklı"}</Button>
+              <SubmitButton variant={status === "same" ? "outline" : "ghost"}>{status === "same" ? "Aynı ürün" : "Farklı"}</SubmitButton>
             </form>)}</div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="İncelenecek öneri yok." icon={<GitCompareArrows/>}/>}
       </CardContent>
@@ -174,8 +170,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell>{suppliers[item.supplier] ?? item.supplier}</TableCell>
             <TableCell className="max-w-44 truncate font-mono" title={item.code}>{item.code}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
-            <TableCell className="text-muted-foreground">{date(item.decided_at)}</TableCell>
-            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><Button type="submit" variant="outline">Geri al</Button></form></TableCell>
+            <TableCell className="text-muted-foreground">{formatDateTime(item.decided_at)}</TableCell>
+            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline">Geri al</SubmitButton></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Elle karar verilmiş kayıt yok." icon={<Boxes/>}/>) : <>
           {"same" in data && data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
             <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead>Dinamik</TableHead>
@@ -187,10 +183,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
                 <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
                 <TableCell><OfferCell offer={primary}/></TableCell>
                 <TableCell><OfferCell offer={dinamik[0]}/>{dinamik.length > 1 && <div className="text-muted-foreground">+{dinamik.length - 1} kayıt</div>}</TableCell>
-                <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><ToneBadge tone={group.selling === "dinamik" ? "success" : "neutral"}>{suppliers[group.selling]}</ToneBadge>
+                <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><StatusBadge tone={group.selling === "dinamik" ? "success" : "neutral"} icon={group.selling === "dinamik" ? undefined : Store}>{suppliers[group.selling]}</StatusBadge>
                   <span className="tabular-nums">{price(group.selling_price)}{saving > 0 && <span className="text-muted-foreground"> · %{saving} ucuz</span>}</span></div> : <span className="text-muted-foreground">Stok yok</span>}</TableCell>
                 <TableCell><form action={splitOffers}><input type="hidden" name="primary_id" value={group.primary_id}/><input type="hidden" name="back" value={back}/>
-                  <Button type="submit" variant="ghost" title="Yanlış eşleşme: Dinamik kaydı ayrı ürün olsun">Ayır</Button></form></TableCell>
+                  <SubmitButton variant="ghost" title="Yanlış eşleşme: Dinamik kaydı ayrı ürün olsun">Ayır</SubmitButton></form></TableCell>
               </TableRow>;
             })}</TableBody></Table> : <EmptyState title="Bu görünümde ürün yok." icon={<SearchX/>}/>}
         </>}
@@ -209,7 +205,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>
-            <TableCell><ToneBadge tone={item.enriched ? "success" : "warning"}>{item.enriched ? "Hazır" : "Bekliyor"}</ToneBadge></TableCell>
+            <TableCell><StatusBadge tone={item.enriched ? "success" : "warning"}>{item.enriched ? "Hazır" : "Bekliyor"}</StatusBadge></TableCell>
             <TableCell>{item.product_id && <Button variant="ghost" nativeButton={false} render={<Link href={`/yonetim/urunler/${item.product_id}#birlestir`}/>}>Eşleştir</Button>}</TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Ürün bulunamadı." icon={<SearchX/>}/>}
       </CardContent>
@@ -238,7 +234,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </>;
   }
 
-  const notice = (text: ReactNode) => <Alert variant="success" role="status"><CircleCheck/><AlertDescription>{text}</AlertDescription></Alert>;
+  const notice = (text: ReactNode) => <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{text}</AlertDescription></Alert>;
   const metrics: { icon: LucideIcon; label: string; value: number }[] = stats ? [
     { icon: Tags, label: "Bekleyen markalar", value: data.brandCount.pending },
     { icon: Merge, label: "Ürün önerileri", value: data.pendingCandidates },
@@ -256,7 +252,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
       </BreadcrumbList></Breadcrumb>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
-        <form action={refreshMatches}><SupplierRefreshButton label="Yenile" pendingLabel="Eşleştiriliyor…"/></form>
+        <form action={refreshMatches}><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
       </div>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
@@ -264,7 +260,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
     {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
       : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
-    {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : params.error === "merge" ? "Birleştirilemedi: Dinamik ürünü zaten başka bir ürüne bağlı. Ürün sayfasından kontrol edin." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : params.error === "merge" ? "Birleştirilemedi: Dinamik ürünü zaten başka bir ürüne bağlı. Ürün sayfasından kontrol edin." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
     {!stats ? <EmptyState title="Henüz eşleştirme yok" icon={<Boxes/>}/> : <>
       <Card size="sm"><CardContent>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5" aria-label="Eşleştirme özeti">{metrics.map(metric => <div key={metric.label} className="flex flex-col gap-1">

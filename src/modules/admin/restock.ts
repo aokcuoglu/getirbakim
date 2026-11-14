@@ -3,12 +3,17 @@ import "server-only";
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 
-/** A "Gelince haber ver" request (#475) with the cheapest offer that can be ordered now, if any. */
-export type RestockRequestRow = {
+/**
+ * A "Gelince haber ver" request (#475) with the cheapest offer that can be ordered now, if any. The offer's columns
+ * come together: the query only picks a priced offer, so a row with offer_id always has its price.
+ */
+type RestockRequestRow = {
   id: string; email: string; supplier: string; code: string; brand: string; name: string; status: "pending" | "notified";
   requested_at: Date; notified_at: Date | null; supplier_item_id: string | null;
-  offer_id: string | null; offer_price_kurus: number | null; offer_stock_label: string | null;
-};
+} & (
+  | { offer_id: string; offer_price_kurus: number; offer_stock_label: string | null }
+  | { offer_id: null; offer_price_kurus: null; offer_stock_label: null }
+);
 export type RestockTab = "pending" | "notified";
 export const restockListLimit = 500;
 

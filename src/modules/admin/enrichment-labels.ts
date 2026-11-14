@@ -1,8 +1,13 @@
 import { partialGaps, sourceHosts, type PartialGap, type SourceKey } from "./enrichment-pace";
+import type { StatusTone } from "../suppliers/run-status";
 
 export const enrichmentStatuses: Record<string, string> = {
   complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
   pending: "Bekliyor", blocked: "Erişim engellendi", failed: "Başarısız",
+};
+/** Badge tone of each enrichment status (table and details dialog). */
+export const enrichmentStatusTones: Record<string, StatusTone> = {
+  complete: "success", partial: "warning", review: "warning", failed: "error", blocked: "error", not_found: "error", pending: "neutral",
 };
 export const sourceLabels: Record<string, { name: string; role: string }> = {
   trodo: { name: "Trodo", role: "Birincil kaynak · bekleyen kuyruk" },

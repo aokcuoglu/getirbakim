@@ -42,14 +42,14 @@ export function SupplierPagination({ base, params, keys, page, pages, capped = f
     {capped && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Sonuç çok fazla: yalnız ilk {formatNumber(pages)} sayfa listelenir. Diğer ürünler için arama yapın veya filtreleri daraltın.</AlertDescription></Alert>}
     <span className="text-muted-foreground tabular-nums">Sayfa {formatNumber(page)} / {formatNumber(pages)}{capped && " (sınırlı)"}</span>
     <Pagination className="mx-0 w-auto" aria-label="Ürün sayfaları"><PaginationContent>
-      <PaginationItem>{page > 1 ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={href(page - 1)} scroll={false}/>}><ChevronLeft data-icon="inline-start"/><span className="hidden sm:block">Önceki</span></Button>
-        : <Button variant="ghost" aria-label="Önceki sayfa" disabled><ChevronLeft data-icon="inline-start"/><span className="hidden sm:block">Önceki</span></Button>}</PaginationItem>
+      <PaginationItem>{page > 1 ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={href(page - 1)} scroll={false}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/><span className="hidden sm:block">Önceki</span></Button>
+        : <Button variant="ghost" aria-label="Önceki sayfa" disabled><ChevronLeft data-icon="inline-start" aria-hidden="true"/><span className="hidden sm:block">Önceki</span></Button>}</PaginationItem>
       {numbers.map((n, i) => <Fragment key={n}>
         {i > 0 && n - numbers[i - 1] > 1 && <PaginationItem><PaginationEllipsis/></PaginationItem>}
         <PaginationItem><Button variant={n === page ? "outline" : "ghost"} size="icon" aria-current={n === page ? "page" : undefined} aria-label={`Sayfa ${n}`} nativeButton={false} render={<Link href={href(n)} scroll={false}/>}>{n}</Button></PaginationItem>
       </Fragment>)}
-      <PaginationItem>{page < pages ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={href(page + 1)} scroll={false}/>}><span className="hidden sm:block">Sonraki</span><ChevronRight data-icon="inline-end"/></Button>
-        : <Button variant="ghost" aria-label="Sonraki sayfa" disabled><span className="hidden sm:block">Sonraki</span><ChevronRight data-icon="inline-end"/></Button>}</PaginationItem>
+      <PaginationItem>{page < pages ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={href(page + 1)} scroll={false}/>}><span className="hidden sm:block">Sonraki</span><ChevronRight data-icon="inline-end" aria-hidden="true"/></Button>
+        : <Button variant="ghost" aria-label="Sonraki sayfa" disabled><span className="hidden sm:block">Sonraki</span><ChevronRight data-icon="inline-end" aria-hidden="true"/></Button>}</PaginationItem>
     </PaginationContent></Pagination>
     <form action={base} className="flex items-center gap-2">
       {carried.filter(key => params[key]).map(key => <input key={key} type="hidden" name={key} value={params[key]}/>)}
