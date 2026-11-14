@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product-matching-sql";
 // Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
 // it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
@@ -85,10 +85,12 @@ export async function decideCandidate(form: FormData) {
   redirect(withFlag(back, failed ? "error=merge" : `matched=${status}`));
 }
 
-// Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1").
+// Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1"). Suffix
+// pairs, name conflicts, shared Dinamik products and Başbuğ products with several numbers are left for a decision by
+// hand (#524).
 export async function acceptCandidates(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ reason: z.enum(["prefix", "leading_zero", "suffix"]), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })
+  const input = z.object({ reason: z.enum(bulkCandidateReasons), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })
     .safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
   const { reason, brand, back } = input.data;
@@ -97,8 +99,8 @@ export async function acceptCandidates(form: FormData) {
   try {
     await client.query("BEGIN");
     const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
-      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 AND c.name_conflict IS NOT TRUE
-      AND NOT ${sharedCandidateSql} LIMIT 500`, [reason, brand])).rows;
+      JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b
+      WHERE c.reason=$1 AND a.brand=$2 AND ${bulkAcceptableSql} LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
       if (!(await client.query<{ id: string | null }>("SELECT product_merge($2,$1,$3) AS id", [pair.product_a, pair.product_b, admin.id])).rows[0].id) continue;

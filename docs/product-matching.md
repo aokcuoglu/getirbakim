@@ -23,6 +23,10 @@ Tedarikçiden ilk kez gelen marka etiketi yenilemede `sync_supplier_brands()` il
 3. **İnceleme.** `/yonetim/urun-eslestirme` → Markalar → Bekleyen: yeni markalar "Yeni marka" rozetiyle, öneri "Benzer: X · kanıt" satırıyla görünür. "X ile birleştir" `brand_merge` çağırır; "Onayla" markayı ayrı tutar ve öneri kalkar. Kararlar ürünlere bir sonraki yenilemede yansır.
 4. **Uyarı.** Bekleyen ana marka sayısı kenar çubuğunda "Ürün eşleştirme"nin yanında ve genel bakışta "Onay bekleyen marka" olarak görünür.
 
+## Ürün önerileri ve toplu birleştirme (#524)
+
+Otomatik anahtarın kaçırdığı olası aynı ürünler `product_match_candidates`'a üç nedenle düşer: kod ön eki farkı (`prefix`, ör. CONTITECH `CT 978K1` ↔ `978K1`), baştaki sıfır farkı (`leading_zero`) ve son ek farkı (`suffix`). "Tümünü birleştir" yalnız `prefix` ve `leading_zero` için ve bir marka süzülüyken görünür; kural tek yerde, `src/modules/admin/product-matching-sql.ts` içindeki `bulkAcceptableSql`'dedir (sayaç, eylem ve testler aynı parçayı kullanır). Toplu birleştirmede tanımı farklı (`name_conflict`), Dinamik ürünü birden çok Başbuğ ürününe önerilen ("Birden çok eş") ve Başbuğ ürününe farklı kodlu birden çok Dinamik ürünü önerilen ya da zaten bağlanmış ("Birden çok kod") öneriler atlanır ve tek tek karar bekler. Son ek farkı hiç topluca birleştirilmez: fazladan hane veya ek çoğu zaman farklı parçadır (FEBI `100261` ↔ `1002610`…`1002619`). 2026-11-14 denetiminde elle birleştirilen 1.281 eşleşmenin 91'i yanlış çıktı; çoğu son ek farkıydı.
+
 ## Tablolar ve çalıştırma
 
 `refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.
