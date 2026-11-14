@@ -51,7 +51,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
   const cards=[
     {label:"OEM referansıyla eşleşen",value:data.metrics.oem_matches,icon:GitCompareArrows,note:`${number(data.metrics.direct_matches)} doğrudan marka / parça eşleşmesi`},
     {label:"Araç / motor kaydı",value:data.metrics.vehicles,icon:CarFront,note:`${number(data.metrics.oem_numbers)} OEM referansı toplandı`},
-    {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
+    {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:data.metrics.bytes===null?"":`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
   ];
   // Every product is in exactly one tab (#388); the status column repeats it per row.
   const errors=(counts.blocked||0)+(counts.failed||0);
@@ -143,9 +143,9 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
       </div>
     </>:<>
       <Card role="region" aria-labelledby="enrichment-records">
-        <CardHeader><CardTitle><h2 id="enrichment-records">Ürün kayıtları</h2></CardTitle><CardDescription>Her ana ürün bir kez listelenir; bağlı tedarikçi teklifleri aynı doğrulanmış veriyi kullanır.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
+        <CardHeader><CardTitle><h2 id="enrichment-records">Kayıt listesi</h2></CardTitle><CardDescription>Her ana ürün bir kez listelenir; bağlı tedarikçi teklifleri aynı doğrulanmış veriyi kullanır.</CardDescription><CardAction><Badge variant="outline" className="tabular-nums">{number(data.total)} kayıt</Badge></CardAction></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Tabs value={data.filters.status}><ScrollArea><TabsList variant="line" aria-label="Zenginleştirme durumları">{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList><ScrollBar orientation="horizontal"/></ScrollArea></Tabs>
+          <Tabs value={data.filters.status}><ScrollArea><TabsList variant="line" aria-label="Zenginleştirme durumları" activateOnFocus={false}>{tabs.map(([key,label,count])=><TabsTrigger key={key} value={key} nativeButton={false} render={<Link href={href({status:key,match:"all",page:"1"})} scroll={false}/>}>{label}<Badge variant="secondary" className="tabular-nums">{number(count)}</Badge></TabsTrigger>)}</TabsList><ScrollBar orientation="horizontal"/></ScrollArea></Tabs>
           <form key={`${data.filters.status}:${data.filters.match}:${data.filters.q}`} className="flex flex-wrap items-center gap-2" method="get">
             {(["status","sort","dir","source","name","code","brand","gap"] as const).map(key=>data.filters[key]&&<input key={key} type="hidden" name={key} value={data.filters[key]}/>)}
             <InputGroup className="w-full sm:w-96"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ürün, marka veya OEM ara" defaultValue={data.filters.q} placeholder="Ürün kodu, marka veya OEM ara…"/></InputGroup>
