@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Pool } from "pg";
-import { sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, multiNumberCandidateSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -235,6 +235,32 @@ test("a Dinamik product suggested to several Başbuğ products is marked shared"
     const shared = (await client.query<{ product_a: string; shared: boolean }>(`SELECT product_a,${sharedCandidateSql} AS shared
       FROM product_match_candidates c WHERE product_b=ANY($1) ORDER BY product_a`, [[b, b2]])).rows;
     assert.deepEqual(shared.map(row => row.shared), [true, true, false]);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("bulk accept skips suffix and multi-number candidates, keeps leading_zero", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Distinct part numbers, and no suggestion or decision of their own that would count as "another number".
+    const ids = (await client.query<{ id: string }>(`SELECT id FROM (SELECT DISTINCT ON (p.part_number) p.id FROM products p
+      WHERE p.part_number IS NOT NULL AND NOT EXISTS (SELECT 1 FROM product_match_candidates c WHERE p.id IN (c.product_a,c.product_b))
+       AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE p.id IN (d.product_a,d.product_b)) ORDER BY p.part_number LIMIT 10) x`)).rows.map(row => row.id);
+    assert.equal(ids.length, 10);
+    const [a1, a2, a3, a4, b1, b2, b3, b4, b5, b6] = ids;
+    await client.query(`INSERT INTO product_match_candidates(product_a,product_b,reason) VALUES
+      ($1,$5,'leading_zero'),($2,$6,'suffix'),($3,$7,'leading_zero'),($3,$8,'leading_zero'),($4,$9,'prefix')`, ids.slice(0, 9));
+    await client.query("INSERT INTO product_match_decisions(product_a,product_b,status) VALUES($1,$2,'same')", [a4, b6]);
+    const rows = (await client.query<{ product_a: string; product_b: string; bulk: boolean; multi: boolean }>(`SELECT c.product_a,c.product_b,
+      ${bulkAcceptableSql} AS bulk,${multiNumberCandidateSql} AS multi
+      FROM product_match_candidates c JOIN products b ON b.id=c.product_b WHERE c.product_a=ANY($1::uuid[])`, [[a1, a2, a3, a4]])).rows;
+    assert.equal(rows.length, 5);
+    assert.deepEqual(rows.filter(row => row.bulk).map(row => row.product_a), [a1]);
+    const multi = new Map(rows.map(row => [row.product_b, row.multi]));
+    assert.deepEqual([b1, b2, b3, b4, b5].map(id => multi.get(id)), [false, false, true, true, true]);
   } finally {
     await client.query("ROLLBACK");
     client.release();

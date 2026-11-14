@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
+import { bulkCandidateReasons, isBulkReason } from "../src/modules/admin/product-matching-sql";
 
 // The "Eşleşenler" tab's order must stay the SQL it replaced (#504): ORDER BY <column> ASC|DESC NULLS LAST, then
 // (primary_price-selling_price) DESC NULLS LAST, then primary_id (position).
@@ -59,4 +60,12 @@ test("pages are cut after filtering and sorting; total counts the filtered group
   assert.equal(first.listed[0].primary_id, "p29");
   assert.deepEqual(second.listed.map(item => item.primary_id), ["p4", "p3", "p2", "p1", "p0"]);
   assert.deepEqual(pickSameProducts(entries, { scope: "all", q: "", page: 9, pageSize: 25 }).listed, []);
+});
+
+// Suffix differences are mostly other parts (FEBI 100261 vs 1002610, #524): never merged in bulk.
+test("bulk merge covers prefix and leading_zero, never suffix", () => {
+  assert.deepEqual([...bulkCandidateReasons].sort(), ["leading_zero", "prefix"]);
+  assert.equal(isBulkReason("suffix"), false);
+  assert.equal(isBulkReason("leading_zero"), true);
+  assert.equal(isBulkReason("prefix"), true);
 });
