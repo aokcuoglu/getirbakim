@@ -28,17 +28,3 @@ export async function refreshBasbug(form: FormData) {
   revalidatePath("/yonetim/tedarikciler/basbug");
   redirect(`/yonetim/tedarikciler/basbug?group=${encodeURIComponent(input.data.group)}&${error ? `error=${error}` : "updated=1"}`);
 }
-
-// One request per group keeps a bulk refresh from becoming a single long-running request.
-export async function refreshBasbugGroup(group: string): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
-  const input = importOptions.safeParse({ group, warehouse: "MRK" });
-  if (!input.success) return { ok: false, error: "contract" };
-  try {
-    await importBasbug(db, input.data);
-    revalidatePath("/yonetim/tedarikciler/basbug");
-    return { ok: true };
-  } catch (cause) {
-    return { ok: false, error: cause instanceof BasbugImportError ? cause.reason : "upstream" };
-  }
-}

@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { SupplierRefreshAll } from "@/components/admin/supplier-refresh-all";
+import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
@@ -198,7 +198,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
             <FieldDescription>{checkoutMode === "snapshot" ? "Siparişte API çağrılmaz; kayıtlar teyit bekler." : "Siparişte fiyat ve stok API’den doğrulanır."}</FieldDescription>
           </Field></form>
         </CardContent>
-        <CardFooter><SupplierRefreshAll groups={knownGroups.map(group => group.kod)}/></CardFooter>
+        <CardFooter><SupplierRefreshRunner tasks={[...new Set(knownGroups.map(g => g.kod))].map(kod => ({ supplier: "basbug" as const, group: kod }))} label="Tüm grupları API’den yenile" description={`${new Set(knownGroups.map(g => g.kod)).size} grup sırayla yenilenir; sayfayı açık tutun.`} ariaLabel="Tüm Başbuğ gruplarını güncelle"/></CardFooter>
       </Card>
       {snapshot && <Card>
         <CardHeader><CardTitle><h2>Döviz kurları</h2></CardTitle><CardDescription>Kaynak API · {snapshot.list_group} · {date(snapshot.completed_at)}</CardDescription></CardHeader>
