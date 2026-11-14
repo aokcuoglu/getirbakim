@@ -25,18 +25,20 @@ Herdr içindeysen (`HERDR_ENV=1`) aynı işi `herdr worktree create --branch <t�
 `getirbakim-planner`'ı Issue no + `WT` ile çağır (tek dosyalık küçük düzeltmede atla). Plan geliştiricinin brief'i ve QA rota listesidir. Plan "çok büyük" diyorsa takip Issue'larını şimdi aç, ilk dilimle devam et.
 
 ## 3. Uygulama
-`getirbakim-developer`'ı `WT`, Issue no ve planın tamamıyla çağır. Varsayılan sonnet; `db/*.sql` şema değişikliği, yetki/ödeme/sipariş kodu, tedarikçi sync çekirdeği, modüller arası refactor veya iki inceleme döngüsünde kalan sonnet çalışması için `model: "opus"` geç. Rapordaki **Kontroller** ve **Yapılmayanlar**'ı oku; başarısız kontrolü aynı ajana SendMessage ile geri gönder (yeni ajan açma).
+`getirbakim-developer`'ı `WT`, Issue no ve planın tamamıyla çağır. Varsayılan sonnet; `db/*.sql` şema değişikliği, yetki/ödeme/sipariş kodu, tedarikçi sync çekirdeği, modüller arası refactor veya iki inceleme döngüsünde kalan sonnet çalışması için `model: "opus"` geç. Rapordaki **Kontroller** (ve kontrollerin SHA'sı) ile **Yapılmayanlar**'ı oku; Kontroller ve SHA'yı inceleyicilere ve QA'ya brief'te aynen ilet; başarısız kontrolü aynı ajana SendMessage ile geri gönder (yeni ajan açma).
 
-## 4. İnceleme (paralel)
-Tek mesajda:
+## 4. İnceleme
+Küçük salt-UI değişiklikte (≤2 `.tsx`/`.css` dosyası; `db/`, `src/modules/`, `src/lib/`, `actions.ts`, `route.ts`, yetki/ödeme/sync dokunuşu yok) yalnız `getirbakim-ui-ux` (`WT` + QA rotaları) çağrılır. Diğer durumlarda tek mesajda paralel:
 - `getirbakim-reviewer` (`WT`).
 - `getirbakim-ui-ux` (`WT` + QA rotaları) — yalnız `.tsx`/`.css` değiştiyse.
-🔴 ve 🟡 bulguları geliştiriciye gönder → ilgili inceleyiciyi bir kez yeniden çalıştır. En fazla iki düzeltme döngüsü; sonra kalanları kullanıcıya raporla.
+🔴 ve 🟡 bulguları geliştiriciye gönder → düzeltme turunda aynı inceleyiciye SendMessage ile yalnız düzeltilen maddeleri sor, yeni ajan açma. En fazla iki düzeltme döngüsü; sonra kalanları kullanıcıya raporla.
 
 ## 5. QA
-Rota/bileşen değiştiyse `getirbakim-qa`'yı `WT`, plandaki rotalar/roller ve Issue kabul kriterleriyle çağır. Tarayıcı QA'sı aynı anda yalnız bir tane (Chrome tek). ❌ → geliştiriciye bir döngü, sonra kullanıcıya.
+Rota/bileşen değiştiyse `getirbakim-qa`'yı `WT`, plandaki rotalar/roller ve Issue kabul kriterleriyle çağır; kontrollerin SHA'sını ver, QA tarayıcı turuna odaklanır. Tarayıcı QA'sı aynı anda yalnız bir tane (Chrome tek). ❌ → geliştiriciye bir döngü, sonra kullanıcıya.
 
 ## 6. PR
+Son deterministik kapı CI'dır. QA sonrası küçük düzeltme commit'leri için yerelde yalnız `admin-ui-lint --changed` (gerekirse `tsc`) yeter; kalanını CI yakalar.
+
 `WT`'de:
 - `git status` temiz; commit'ler conventional; `git fetch origin && git rebase origin/dev` (çakışmayı geliştirici çözer); `git push -u origin <dal>`.
 - `gh pr create --base dev --title "<tür>(<alan>): <özet>" --body-file -` — gövde: Özet (problem, ortaya çıkan davranış), Doğrulama (inceleme/QA kararları, koşulan testler), Operasyon (prod'da gereken komut ya da "yok"), `Closes #<N>`; sonunda sistem hatırlatmasındaki attribution satırı. Etiketler Issue ile aynı: tür etiketi + `area:*` + davranış değişiyorsa `release:minor|patch` (`--label`).

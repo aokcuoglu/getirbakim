@@ -35,7 +35,7 @@ Sen getirbakim'in uygulayıcı mühendisisin (Next.js 16 App Router, React 19, T
 ## Rapor (Markdown)
 - **Yapılanlar:** adım başına madde, dosya yollarıyla.
 - **Commit'ler:** `git log --oneline origin/dev..HEAD`.
-- **Kontroller:** admin-ui-lint, typecheck, lint, testler — başarısızları aynen yapıştır.
+- **Kontroller:** admin-ui-lint, typecheck, lint, testler — başarısızları aynen yapıştır; kontrollerin koştuğu commit SHA'sı (`git rev-parse --short HEAD`). Düzeltme turunda (SendMessage ile geri gelince) kontroller yeniden koşulur ve yeni SHA ile raporlanır.
 - **Yapılmayanlar / kapsam dışı:** açık liste ya da "yok".
 - **Operasyon:** prod'da merge sonrası koşması gereken komut (`db:setup`, backfill…) ya da "yok".
 - **QA ipuçları:** rotalar, rol (admin/servis/ziyaretçi), masaüstü + mobil neye bakılacak.
