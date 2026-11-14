@@ -18,6 +18,8 @@ import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
 import { ProductGallery } from "@/components/product-gallery";
+import { getItemImages } from "@/modules/store/product-images";
+import { galleryImages } from "@/modules/store/product-image-display";
 import { GarageButton } from "@/components/garage/garage-button";
 import { currentVehicle } from "@/modules/store/garage";
 import { fitmentLevel } from "@/modules/store/fitment-level";
@@ -64,7 +66,11 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
-  const [enrichment, override] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id)]);
+  const [enrichment, override, uploads] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
+    getItemImages(product.id)]);
+  // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
+  const images = galleryImages(uploads.images,
+    enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
   const logos = await getManufacturerLogos([product.brand]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
@@ -80,7 +86,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const description = productDescription(override, enrichment?.description, product.description);
   const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: title,
     sku: product.code, brand: { "@type": "Brand", name: product.brand },
-    description: description || undefined, image: enrichment?.imagePath ? `${siteUrl}${enrichment.imagePath}` : undefined, url: `${siteUrl}/urun/${product.id}` };
+    description: description || undefined, image: images.length ? images.map(image => `${siteUrl}${image.src}`) : undefined, url: `${siteUrl}/urun/${product.id}` };
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
@@ -142,7 +148,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
       <div className="relative min-w-0 max-[750px]:pt-8">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={product.brand} logo={logos.get(product.brand)} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
-        {enrichment?.imagePath ? <ProductGallery src={enrichment.imagePath} width={enrichment.imageWidth} height={enrichment.imageHeight} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
+        {images.length ? <ProductGallery images={images} alt={`${product.brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {product.brand} {displayPartNumber}</h1>

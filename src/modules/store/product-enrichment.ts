@@ -3,11 +3,27 @@ import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
+import { getOverrideImages } from "./product-images";
 
 export type CatalogProductImage = { src: string; width: number; height: number };
 
-// Load only the visible page in one query, without fetching vehicle fitments.
+/**
+ * The image cards, the cart and the partner API show per store row (#581): the product's first admin upload, else its
+ * automatic enrichment image unless the admin hid it. Rows with neither are left out (the caller draws PartArt).
+ */
 export async function getCatalogProductImages(products: { id: string; code: string; brand: string }[]) {
+  const [automatic, uploads] = await Promise.all([getAutomaticProductImages(products), getOverrideImages(products.map(product => product.id))]);
+  const images = new Map<string, CatalogProductImage>();
+  for (const product of products) {
+    const own = uploads.get(product.id);
+    const image = own?.images[0] ?? (own?.hideAutomatic ? undefined : automatic.get(product.id));
+    if (image) images.set(product.id, image);
+  }
+  return images;
+}
+
+// The enrichment image of the visible page in one query, without fetching vehicle fitments.
+export async function getAutomaticProductImages(products: { id: string; code: string; brand: string }[]) {
   const images = new Map<string, CatalogProductImage>();
   if (!products.length) return images;
   const productsById = new Map(products.map(product => [product.id, product]));
