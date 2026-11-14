@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+// Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
+// it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
+// re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
 
 export async function refreshMatches() {
@@ -130,7 +133,6 @@ export async function rejectCandidates(form: FormData) {
     )
     DELETE FROM product_match_candidates c USING listed l WHERE c.product_a=l.product_a AND c.product_b=l.product_b`,
     [reason ?? null, q ?? null, admin.id])).rowCount ?? 0;
-  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk-different&count=${rejected}`));
 }
@@ -151,7 +153,6 @@ async function brandDecision(back: string, flag: string, run: (client: import("p
     await client.query(done ? "COMMIT" : "ROLLBACK");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
-  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, done ? `brand=${flag}` : "error=brand"));
 }

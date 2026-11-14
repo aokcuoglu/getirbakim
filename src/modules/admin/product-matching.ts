@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
+import { pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
 import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
@@ -9,7 +10,6 @@ export type MatchingParams = { tab?: string; scope?: string; names?: string; q?:
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
-  same: { primary: "primary_price", selling: "selling_price" } as const,
   candidates: { reason: "c.reason", similarity: "c.name_similarity" },
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
@@ -111,18 +111,27 @@ const sameGroups = (filter: string, columns: string) => `WITH offers AS MATERIAL
    (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
    min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,${columns}
   FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')`;
-type SameEntry = Omit<SameProduct, "offers"> & { codes: string; position: number };
 type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };
 // Pricing every grouped offer takes ~2 s, so the groups (without their offers) are kept in this process for up to a
-// minute, keyed by the latest matching run and supplier import; the actions that regroup offers clear it at once
-// (forgetSameProducts). Past a minute the next request waits for a fresh read: nothing older is ever shown. Another
-// app process sees an action's change when its own minute runs out. Admin-wide data, nothing per user.
+// minute. The key changes with the grouping (product_grouping_version, bumped by a trigger on every product_offers
+// write from any process: db/product-matching.sql) and with each successful supplier import; actions in this process
+// also clear it at once (forgetSameProducts). Past a minute the next request waits for a fresh read, so other price
+// changes (markup/VAT settings, rows ageing out of freshness) show within 60 s. Admin-wide data, nothing per user.
 const sameTtlMs = 60_000;
 let sameCache: { key: string; at: number; index: Promise<SameIndex> } | null = null;
 export function forgetSameProducts() { sameCache = null; }
+async function sameKey() {
+  const imported = "(SELECT max(completed_at) FROM supplier_imports WHERE status='succeeded')";
+  try {
+    return (await db.query<{ key: string }>(`SELECT concat_ws('/',(SELECT version FROM product_grouping_version WHERE id=1),${imported}) AS key`)).rows[0].key;
+  } catch (error) {
+    // Before db:setup adds the counter (42P01), the latest matching run stands in for it.
+    if ((error as { code?: string }).code !== "42P01") throw error;
+    return (await db.query<{ key: string }>(`SELECT concat_ws('/','run',(SELECT max(id) FROM product_match_runs),${imported}) AS key`)).rows[0].key;
+  }
+}
 async function sameIndex() {
-  const key = (await db.query<{ key: string }>(`SELECT concat_ws('/',(SELECT max(id) FROM product_match_runs),
-    (SELECT max(completed_at) FROM supplier_imports WHERE status='succeeded')) AS key`)).rows[0].key;
+  const key = await sameKey();
   if (sameCache && sameCache.key === key && Date.now() - sameCache.at <= sameTtlMs) return sameCache.index;
   const entry = { key, at: Date.now(), index: loadSameIndex() };
   sameCache = entry;
@@ -142,36 +151,26 @@ async function loadSameIndex(): Promise<SameIndex> {
   }
   return { entries, summary };
 }
-// ORDER BY <column> ASC|DESC NULLS LAST, then the largest saving (primary_price-selling_price DESC NULLS LAST), then primary_id.
-const nullsLast = (a: number | null, b: number | null, desc: boolean) => a === null || b === null ? (a === null ? 1 : 0) - (b === null ? 1 : 0) : desc ? b - a : a - b;
-const saving = (entry: SameEntry) => entry.primary_price === null || entry.selling_price === null ? null : entry.primary_price - entry.selling_price;
-
 /** Başbuğ products that Dinamik also sells, priced live through commerce_catalog; the page's offers are read fresh. */
 async function sameProducts(params: MatchingParams) {
   const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
-  if (params.scope === "split") {
+  const scope = sameScope(params.scope);
+  if (scope === "split") {
     const split = (await db.query<SplitItem>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at
       FROM product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id WHERE x.method='manual' ORDER BY x.linked_at DESC LIMIT 200`)).rows;
-    return { split, same: [] as SameProduct[], summary: undefined, scope: "split", total: split.length, page: 1, pages: 1, exclusions };
+    return { split, same: [] as SameProduct[], summary: undefined, scope, total: split.length, page: 1, pages: 1, exclusions };
   }
-  const scope = ["dinamik", "basbug", "none"].includes(params.scope ?? "") ? params.scope! : "all";
-  const q = compact(params.q);
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
   const { entries, summary } = await sameIndex();
-  const filtered = entries.filter(entry => (scope === "all" || (scope === "none" ? entry.selling === null : entry.selling === scope))
-    && (!q || entry.codes.includes(q)));
-  const column = params.sort && Object.hasOwn(sorts.same, params.sort) ? sorts.same[params.sort as keyof typeof sorts.same] : null;
-  const desc = params.dir === "desc";
-  const listed = filtered.sort((a, b) => (column ? nullsLast(a[column], b[column], desc) : 0) || nullsLast(saving(a), saving(b), true)
-    || a.position - b.position).slice((page - 1) * pageSize, page * pageSize);
+  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
   const ids = listed.map(entry => entry.primary_id);
   const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
    jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
     ORDER BY (id=primary_id) DESC,supplier,code) AS offers`), [ids])).rows : [];
   const byId = new Map(rows.map(row => [row.primary_id, row]));
   const same = ids.flatMap(id => byId.get(id) ?? []);
-  const { pages } = pageOf(String(page), filtered.length);
-  return { same, summary, scope, total: filtered.length, page: Math.min(page, pages), pages, exclusions };
+  const { pages } = pageOf(String(page), total);
+  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions };
 }
 
 /** Reviewable candidates the automatic key missed; most similar names first. `q` narrows to a brand or code. */
@@ -222,8 +221,10 @@ async function dinamikOnly(params: MatchingParams) {
   const order = sortOrder(params, sorts.dinamik, "i.changed_at DESC,i.id");
   // "Enriched" reads the materialized per-product states (db/enrichment-states.sql) instead of evaluating
   // product_enrichment_shared for the whole catalog (~1.5 s). Like /yonetim/urun-verileri, drain the state queue first so
-  // the flag is current; an empty queue costs a few milliseconds.
-  await db.query("SELECT enrichment_product_states_sync()");
+  // the flag is current; an empty queue costs a few milliseconds. The flag is informational: if the sync fails, the
+  // page reads the last synced states.
+  try { await db.query("SELECT enrichment_product_states_sync()"); }
+  catch (error) { console.error("enrichment_product_states_sync failed; Dinamik enriched flags may be stale", error); }
   // product_sources is keyed by the supplier row and the states by product: at most one row each.
   const items = (await db.query<DinamikItem>(`SELECT i.id,ps.product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
       c.price_kurus,c.available,COALESCE(st.enriched,false) AS enriched
