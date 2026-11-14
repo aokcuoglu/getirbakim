@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { AlertTriangle, Building2, CheckCircle2, ChevronRight, CircleAlert, CircleCheck, Clock, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, TriangleAlert, Truck, Wallet, type LucideIcon } from "lucide-react";
-import { adminDashboard, adminOverview } from "@/modules/admin/data";
+import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
+import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { approveService } from "@/modules/admin/actions";
-import { supplierHealth } from "@/modules/suppliers/health";
-import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
-import { db } from "@/lib/db";
 import { EnrichmentRefresh } from "@/components/admin/enrichment-refresh";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { OrdersChart } from "@/components/admin/orders-chart";
@@ -35,7 +33,6 @@ function ToneBadge({ tone, children }: { tone: Tone; children: React.ReactNode }
   const look = looks[tone];
   return <Badge variant={look.variant}><look.icon data-icon="inline-start" aria-hidden="true"/>{children}</Badge>;
 }
-const healthLabel = (tone: Tone) => tone === "success" ? "Sağlıklı" : tone === "warning" ? "Dikkat" : tone === "neutral" ? "Bekliyor" : "Hata";
 
 function ago(value: Date | null | undefined) {
   if (!value) return "Henüz yok";
@@ -49,12 +46,10 @@ function ago(value: Date | null | undefined) {
 export default async function Admin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const { approved, error } = normalizeSearchParams(await searchParams);
-  const [{ accounts }, data, health, dinamikHealth] = await Promise.all([
-    adminOverview(), adminDashboard(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
-    supplierHealth(db, DINAMIK_COMPANY).catch(() => null),
-  ]);
-  const dinamikLast = dinamikHealth?.scopes.reduce<Date | null>((latest, scope) => scope.last_success_at && (!latest || scope.last_success_at > latest) ? scope.last_success_at : latest, null);
-  const dinamikTone: Tone = !dinamikHealth ? "danger" : dinamikHealth.healthy ? "success" : dinamikLast ? "warning" : "neutral";
+  const [{ accounts }, data, feeds] = await Promise.all([adminOverview(), adminDashboard(), adminSupplierFeedStatus().catch(() => null)]);
+  // Supplier tones follow the supplier overview: data freshness and open feed problems, not the scheduler heartbeat.
+  const dinamikTone: Tone = feeds ? feedNavTone(feeds.dinamik) : "danger";
+  const setaTone: Tone = feeds ? feedNavTone(feeds.seta) : "danger";
   const pending = accounts.filter(a => !a.approved);
   const { orders, days, recent } = data;
   const revenue = Number(orders.revenue_30d), previous = Number(orders.revenue_prev_30d);
@@ -62,9 +57,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const enrichment = Object.fromEntries(data.enrichment.map(row => [row.status, row.count])) as Record<string, number>;
   const enrichmentTotal = data.enrichment.reduce((sum, row) => sum + row.count, 0);
   const enrichmentAttention = (enrichment.review || 0) + (enrichment.blocked || 0) + (enrichment.failed || 0);
-  const lastSuccess = [...(health?.scopes.map(scope => scope.commerce_last_success_at ?? scope.last_success_at) ?? []), data.lastSuccess?.completed_at]
+  const lastSuccess = [feeds?.basbug.lastSuccess, data.lastSuccess?.completed_at]
     .filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-  const basbugTone: Tone = !health ? "danger" : health.healthy ? "success" : "warning";
+  const basbugTone: Tone = feeds ? feedNavTone(feeds.basbug) : "danger";
+  const feedProblems = feeds ? [feeds.basbug, feeds.dinamik, feeds.seta].reduce((sum, feed) => sum + feedIssueCount(feed), 0) : 1;
+  const feedLabel = (key: "basbug" | "dinamik" | "seta") => feeds ? feedStateLabels[feeds[key].state] : "Okunamadı";
 
   const attention = [
     { href: "/yonetim/siparisler?status=action", icon: ReceiptText, tone: "warning", title: "Teyit bekleyen sipariş", note: "Tedarikçi stok ve teslim süresini teyit edip onayla", count: orders.action },
@@ -73,7 +70,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
     { href: "/yonetim/servisler", icon: Building2, tone: "warning", title: "Onay bekleyen servis başvurusu", note: "Onay, fiyat ve sepet erişimini açar", count: pending.length },
     { href: `/yonetim/urun-verileri?status=${enrichment.review ? "review" : "error"}`, icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },
     { href: "/yonetim/urun-eslestirme?scope=pending", icon: Tags, tone: "warning", title: "Onay bekleyen marka", note: data.brands.fresh ? `${number(data.brands.fresh)} yeni marka; tedarikçi etiketini doğrula veya mevcut markayla birleştir` : "Otomatik eklenen tedarikçi etiketini doğrula", count: data.brands.pending },
-    { href: "/yonetim/tedarikciler/basbug", icon: AlertTriangle, tone: "danger", title: "Başbuğ senkronizasyon sorunu", note: health && !health.manual && !health.heartbeat?.alive ? "Zamanlayıcıdan çalışma sinyali alınamıyor" : "Güncelliği aşılan veya hata veren grup", count: health ? health.issues.length + (health.manual || health.heartbeat?.alive ? 0 : 1) : 1 },
+    { href: "/yonetim/tedarikciler", icon: AlertTriangle, tone: "danger", title: "Tedarikçi veri sorunu", note: feeds ? "Güncellik süresini aşan veya son denemede güncellenemeyen kapsam" : "Tedarikçi durumu okunamadı", count: feedProblems },
   ];
   const open = attention.filter(item => item.count > 0);
 
@@ -125,9 +122,9 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       </Card>
       <Card>
         <CardHeader>
-          <CardDescription>Başbuğ senkronizasyonu</CardDescription>
-          <CardTitle className="text-2xl font-semibold">{basbugTone === "success" ? "Sağlıklı" : basbugTone === "warning" ? "Dikkat" : "Hata"}</CardTitle>
-          <CardAction><ToneBadge tone={basbugTone}>{health?.manual ? "Zamanlayıcı kapalı (elle)" : health?.heartbeat?.alive ? "Zamanlayıcı çalışıyor" : "Sinyal yok"}</ToneBadge></CardAction>
+          <CardDescription>Başbuğ verileri</CardDescription>
+          <CardTitle className="text-2xl font-semibold">{feedLabel("basbug")}</CardTitle>
+          <CardAction><ToneBadge tone={basbugTone}>{!feeds ? "Okunamadı" : feeds.basbug.automated ? "Otomatik çekim" : "Elle güncelleniyor"}</ToneBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
           <div className="flex items-center gap-2 font-medium"><Truck className="size-4" aria-hidden="true"/>Son başarılı çekim {ago(lastSuccess)}</div>
@@ -214,13 +211,13 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           </CardHeader>
           <CardContent>
             <ItemGroup>{supplierStatuses().map((s, index) => {
-              const isBasbug = s.name === "Başbuğ", isDinamik = s.name === "Dinamik";
-              const tone: Tone = isBasbug ? basbugTone : isDinamik ? dinamikTone : s.verified ? "success" : "neutral";
+              const isBasbug = s.name === "Başbuğ", isDinamik = s.name === "Dinamik", isSeta = s.name === "SETA";
+              const tone: Tone = isBasbug ? basbugTone : isDinamik ? dinamikTone : isSeta ? setaTone : s.verified ? "success" : "neutral";
               return <div key={s.name}>
                 {index > 0 && <ItemSeparator/>}
                 <Item size="sm" render={<Link href={s.href}/>}>
-                  <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : !s.configured ? "Bağlantı değişkenleri eksik" : isDinamik ? `Son çekim ${ago(dinamikLast)} · ${dinamikHealth?.scopes.length ?? 0} marka` : s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı"}</ItemDescription></ItemContent>
-                  <ItemActions><ToneBadge tone={tone}>{isBasbug || isDinamik ? healthLabel(tone) : s.verified ? "Bağlı" : "Doğrulanmadı"}</ToneBadge></ItemActions>
+                  <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : !s.configured ? "Bağlantı değişkenleri eksik" : isDinamik ? `Son çekim ${ago(feeds?.dinamik.lastSuccess)} · ${feeds?.dinamik.tracked ?? 0} marka` : s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı"}</ItemDescription></ItemContent>
+                  <ItemActions><ToneBadge tone={tone}>{isBasbug ? feedLabel("basbug") : isDinamik ? feedLabel("dinamik") : isSeta ? feedLabel("seta") : s.verified ? "Bağlı" : "Doğrulanmadı"}</ToneBadge></ItemActions>
                 </Item>
               </div>;
             })}</ItemGroup>

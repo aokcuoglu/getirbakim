@@ -5,8 +5,9 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { schedulerLabel, supplierHealth } from "@/modules/suppliers/health";
+import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
-import { adminDinamikOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
+import { adminDinamikOverview, adminSupplierFeedStatus, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
 import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
@@ -58,8 +59,8 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const status = supplierStatuses().find(s => s.name === "Dinamik");
-  const [data, health, list, activity, checkoutMode, plan] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
-    supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan()]);
+  const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
+    supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan(), adminSupplierFeedStatus().catch(() => null)]);
   const { items: rows, total, page, pages } = list;
   const region = dinamikRegion(params.region);
   function pageUrl(target: number) {
@@ -76,7 +77,6 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
     ["Son aktarım", lastRun ? time(lastRun.started_at) : "Henüz yok", !lastRun ? "Kayıt yok" : lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group} · ${number(lastRun.quality.uniqueProducts)} ürün · ${runLabels[lastRun.status] ?? lastRun.status}`],
     ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Başbuğ ile ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"],
   ];
-  const tone: Tone = !health ? "error" : health.healthy ? "success" : scopes.synced ? "warning" : "neutral";
   const stats: [string, string, string, Tone?][] = [
     ["Güncel ürün", number(items.present), `${number(items.brands)} marka · ${number(items.priced)} fiyatlı`],
     ["Bölgede stokta", number(items.available), "En az bir depoda VAR (adet değil)"],
@@ -96,7 +96,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
           <h1 className="text-2xl font-semibold tracking-tight">Dinamik API</h1>
           <p className="text-muted-foreground">Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir.</p>
         </div>
-        <SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{statusBadge(tone, !health ? "Okunamadı" : health.healthy ? "Sağlıklı" : scopes.synced ? "Dikkat gerekiyor" : "İlk çekim bekleniyor")}</SupplierActivityBadge>
+        <SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{feeds ? <FeedStatusBadge status={feeds.dinamik}/> : statusBadge("error", "Okunamadı")}</SupplierActivityBadge>
       </div>
     </div>
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}

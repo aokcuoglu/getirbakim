@@ -1,109 +1,228 @@
 import Link from "next/link";
-import { ArrowRight, CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
-import { requireAdmin } from "@/modules/auth/session";
-import { supplierStatuses } from "@/modules/suppliers/clients";
-import { schedulerLabel, supplierHealth } from "@/modules/suppliers/health";
-import { adminDinamikOverview, adminSetaOverview, adminSupplierOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
-import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
-import { adminManualLists } from "@/modules/admin/manual";
-import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
-import { db } from "@/lib/db";
-import { setaCompany } from "@/modules/suppliers/storefront-sources";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { requireAdmin } from "@/modules/auth/session";
+import { adminSupplierFeeds, adminSupplierRefreshPlan } from "@/modules/admin/data";
+import { adminManualLists } from "@/modules/admin/manual";
+import { supplierSchedulerManual } from "@/modules/suppliers/health";
+import { feedIssueCount, feedStateLabels, feedStateTones, importErrorLabel, type FeedStatus } from "@/modules/suppliers/data-status";
+import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
-const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Henüz yok";
-const statusBadge = (tone: "success" | "warning" | "error" | "neutral", text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "error" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
-  : tone === "warning" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{text}</Badge> : <Badge variant="outline">{text}</Badge>;
-const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
+const percent = (part: number, whole: number) => whole
+  ? `%${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: part === whole || part === 0 ? 0 : 1 }).format(Math.floor(part / whole * 1000) / 10)}` : "—";
+const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+const ago = (value: Date | null | undefined, now: Date) => {
+  if (!value) return "Hiç çekilmedi";
+  const minutes = Math.max(0, Math.round((now.getTime() - value.getTime()) / 60_000));
+  if (minutes < 1) return "Az önce";
+  if (minutes < 60) return `${minutes} dk önce`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} sa önce`;
+  return `${Math.round(minutes / 1440)} gün önce`;
+};
+const duration = (minutes: number | null) => !minutes ? "—" : minutes % 1440 === 0 && minutes > 1440 ? `${minutes / 1440} gün` : `${Math.round(minutes / 60)} saat`;
+const icons = { success: CircleCheck, warning: TriangleAlert, destructive: CircleAlert, info: Info, outline: Info } as const;
+const toneBadge = (tone: keyof typeof icons, text: string) => {
+  const Icon = icons[tone];
+  return <Badge variant={tone}><Icon data-icon="inline-start" aria-hidden="true"/>{text}</Badge>;
+};
+const issueColor = { destructive: "text-destructive", warning: "text-warning", info: "text-info" } as const;
+const sample = (names: string[], limit = 6) => names.length > limit ? `${names.slice(0, limit).join(", ")} ve ${number(names.length - limit)} diğer` : names.join(", ");
 
+type Issue = { key: string; tone: keyof typeof issueColor; title: string; description: string; href: string; action: string };
+type Row = {
+  key: string; name: string; source: string; href: string; status: ReactNode; last: Date | null; scope: string; scopeNote: string;
+  present: number; priced: number; available: number; saleable: number;
+};
+
+// Modeled on supplier-feed dashboards: one row per feed answering "is the data current, how complete is it,
+// what is open". Freshness is judged per scope against its SLA (stale_minutes), not by whether the scheduler runs.
 export default async function Suppliers() {
   await requireAdmin();
-  const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [overview, health, dinamikData, dinamikHealth, seta, setaHealth, manualLists, plan] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
-    adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null), adminManualLists(), adminSupplierRefreshPlan()]);
-  const manualLast = manualLists.reduce<Date | null>((latest, list) => list.last_import && (!latest || list.last_import > latest) ? list.last_import : latest, null);
-  const statuses = supplierStatuses();
-  const basbug = statuses.find(s => s.name === "Başbuğ");
-  const dinamik = statuses.find(s => s.name === "Dinamik");
-  const setaStatus = statuses.find(s => s.name === "SETA");
-  const healthy = Boolean(health?.healthy);
+  const [{ status, metrics, attempts, scheduler }, manualLists, plan] = await Promise.all([adminSupplierFeeds(), adminManualLists(), adminSupplierRefreshPlan()]);
+  const now = new Date();
+  const feeds = [
+    { key: "basbug", name: "Başbuğ", source: "API · ürün, NF maliyet, MRK stoğu, döviz kuru", unit: "grup", href: "/yonetim/tedarikciler/basbug", feed: status.basbug },
+    { key: "dinamik", name: "Dinamik", source: "API · marka bazlı ürün, fiyat, bölge stoğu", unit: "marka", href: "/yonetim/tedarikciler/dinamik", feed: status.dinamik },
+    { key: "seta", name: "SETA", source: "API · filtre, OEM, bayi fiyatı, stok", unit: "liste", href: "/yonetim/tedarikciler/seta", feed: status.seta },
+  ] as const;
+
   // SETA is one quick list, Başbuğ 15 groups, Dinamik only the brands not refreshed in the last day.
   const refreshTasks: SupplierRefreshTask[] = [
     ...(plan.seta ? [{ supplier: "seta" as const, group: "ALL" }] : []),
-    ...(basbug?.configured ? plan.basbug.map(group => ({ supplier: "basbug" as const, group })) : []),
-    ...(dinamik?.configured ? plan.dinamikStale.map(group => ({ supplier: "dinamik" as const, group })) : []),
+    ...(status.basbug.state !== "unconfigured" ? plan.basbug.map(group => ({ supplier: "basbug" as const, group })) : []),
+    ...(status.dinamik.state !== "unconfigured" ? plan.dinamikStale.map(group => ({ supplier: "dinamik" as const, group })) : []),
   ];
-  const last = overview.last;
-  const card = (props: { id: string; letter: string; title: string; subtitle: string; badge: ReactNode; facts: [string, ReactNode, ReactNode][]; note?: string; footer: string; href: string; action: string }) =>
-    <Card role="region" aria-labelledby={props.id}>
-      <CardHeader className="border-b">
-        <CardTitle className="flex items-center gap-3"><Avatar aria-hidden="true"><AvatarFallback>{props.letter}</AvatarFallback></Avatar><h2 id={props.id}>{props.title}</h2></CardTitle>
-        <CardDescription>{props.subtitle}</CardDescription>
-        <CardAction>{props.badge}</CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-4">
-        <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {props.facts.map(([label, value, note]) => <div key={label} className="flex flex-col gap-1">
-            <dt className="text-muted-foreground">{label}</dt><dd className="font-medium tabular-nums">{value}</dd><dd className="text-muted-foreground">{note}</dd>
-          </div>)}
-        </dl>
-        {props.note && <p className="text-muted-foreground">{props.note}</p>}
-      </CardContent>
-      <CardFooter className="justify-between gap-2"><span className="text-muted-foreground">{props.footer}</span><Button variant="outline" nativeButton={false} render={<Link href={props.href}/>}>{props.action}<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button></CardFooter>
-    </Card>;
+
+  const method = (feed: FeedStatus) => feed.automated === 0 ? "Elle güncellenir"
+    : feed.automated === feed.tracked ? `Otomatik, ${duration(feed.intervalMinutes)}te bir`
+    : `${number(feed.automated)} / ${number(feed.tracked)} kapsam otomatik`;
+  const rows: Row[] = feeds.map(({ key, name, source, unit, href, feed }) => {
+    const m = metrics[key];
+    return {
+      key, name, source, href, last: feed.lastSuccess, present: m.present, priced: m.priced, available: m.available, saleable: m.saleable,
+      status: toneBadge(feedStateTones[feed.state], feedStateLabels[feed.state]),
+      scope: feed.tracked ? `${number(feed.fresh)} / ${number(feed.tracked)} ${unit}` : "—",
+      scopeNote: feed.tracked ? `${method(feed)} · süre ${duration(feed.staleMinutes)}` : "Kapsam tanımlı değil",
+    };
+  });
+  const manual = metrics.manual;
+  const manualMissing = manualLists.reduce((sum, list) => sum + list.missing_prices, 0);
+  const manualLast = manualLists.reduce<Date | null>((latest, list) => list.last_import && (!latest || list.last_import > latest) ? list.last_import : latest, null);
+  rows.push({
+    key: "manual", name: "Manuel yükleme", source: `Excel · ${manualLists.map(list => list.list_name).join(", ") || "liste yok"}`, href: "/yonetim/tedarikciler/manuel",
+    last: manualLast, present: manual.present, priced: manual.priced, available: manual.available, saleable: manual.saleable,
+    status: !manualLists.length ? toneBadge("outline", "Liste yok") : manualMissing ? toneBadge("warning", "Fiyat eksik") : toneBadge("success", "Yüklendi"),
+    scope: `${number(manualLists.length)} liste`, scopeNote: "Onaylı dosya yüklemesi",
+  });
+
+  const issues: Issue[] = [];
+  for (const { key, name, unit, href, feed } of feeds) {
+    if (feed.state === "unconfigured") { issues.push({ key: `${key}-config`, tone: "warning", title: `${name}: bağlantı ayarları eksik`, description: "Ortam değişkenleri tanımlanmadan veri çekilemez.", href, action: "Ayrıntılar" }); continue; }
+    if (feed.stale.length) issues.push({ key: `${key}-stale`, tone: "destructive", href, action: "Yenile",
+      title: `${name}: ${number(feed.stale.length)} ${unit} güncellik süresini aştı`,
+      description: `${sample(feed.stale.map(scope => scope.list_group))}. En eski başarılı çekim ${time(feed.oldestSuccess)}; mağaza bu ürünleri son bilinen fiyat ve stokla gösteriyor.` });
+    if (feed.never.length) issues.push({ key: `${key}-never`, tone: "warning", href, action: "Yenile",
+      title: `${name}: ${number(feed.never.length)} ${unit} hiç çekilmedi`, description: sample(feed.never.map(scope => scope.list_group)) });
+    const retrying = feed.failing.filter(scope => !feed.stale.includes(scope) && !feed.never.includes(scope));
+    if (retrying.length) {
+      const reasons = [...new Set(retrying.map(scope => importErrorLabel(scope.error_reason)))];
+      issues.push({ key: `${key}-failing`, tone: "warning", href, action: "İncele",
+        title: `${name}: ${number(retrying.length)} ${unit} son denemede güncellenemedi`,
+        description: `${sample(retrying.map(scope => scope.list_group))} · ${reasons.join("; ")}. Önceki veri güncellik süresi içinde olduğu için mağazada kullanılmaya devam ediyor.` });
+    }
+  }
+  if (manualMissing) issues.push({ key: "manual-prices", tone: "warning", href: "/yonetim/tedarikciler/manuel", action: "Fiyat gir",
+    title: `Manuel yükleme: ${number(manualMissing)} ürünün fiyatı yok`, description: "Fiyatı olmayan ürünler mağazada satışa kapalı kalır." });
+  for (const { key, name, href } of feeds) {
+    const unstocked = metrics[key].unstocked;
+    if (unstocked) issues.push({ key: `${key}-unstocked`, tone: "info", href, action: "İncele",
+      title: `${name}: ${number(unstocked)} ürün stok listesinde yok`, description: "Tedarikçi bu ürünlerin fiyatını gönderiyor ama stok bilgisini göndermiyor; stok bilgisi gelene kadar satışa açılmazlar." });
+    const conflicting = metrics[key].conflicting;
+    if (conflicting) issues.push({ key: `${key}-conflict`, tone: "info", href, action: "İncele",
+      title: `${name}: ${number(conflicting)} ürün kodu çakışıyor`, description: "Aynı kod tedarikçi listesinde birden fazla ürüne ait; bu satırlar satışa açılmaz." });
+  }
+
+  const apiFeeds = feeds.map(entry => entry.feed);
+  const feedProblems = apiFeeds.reduce((sum, feed) => sum + (feed.state === "unconfigured" ? 1 : feedIssueCount(feed)), 0);
+  const lastUpdate = [...apiFeeds.map(feed => feed.lastSuccess), manualLast].filter((value): value is Date => Boolean(value)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+  const totals = rows.reduce((sum, row) => ({ present: sum.present + row.present, priced: sum.priced + row.priced, available: sum.available + row.available, saleable: sum.saleable + row.saleable }),
+    { present: 0, priced: 0, available: 0, saleable: 0 });
+  const allFresh = apiFeeds.every(feed => feed.state === "fresh");
+  const automated = apiFeeds.some(feed => feed.automated > 0);
+  const manualScheduler = supplierSchedulerManual();
+  const history = feeds.map(({ key, name }) => ({ key, name, ...attempts[key] })).filter(row => row.total);
+
+  const kpis = [
+    { label: "Tedarikçi ürünü", value: number(totals.present), note: `${number(rows.length)} kaynağın güncel listelerinde` },
+    { label: "Satışa açık", value: number(totals.saleable), note: `${percent(totals.saleable, totals.present)} · fiyatlı ve stokta` },
+    { label: "Fiyat bilgisi olan", value: percent(totals.priced, totals.present), note: `${number(totals.priced)} ürün` },
+    { label: "Stokta olan", value: percent(totals.available, totals.present), note: `${number(totals.available)} ürün` },
+  ];
+
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
         <BreadcrumbItem><BreadcrumbPage>Tedarikçiler</BreadcrumbPage></BreadcrumbItem>
       </BreadcrumbList></Breadcrumb>
-      <h1 className="text-2xl font-semibold tracking-tight">Tedarikçi entegrasyonları</h1>
-      <p className="text-muted-foreground">Tedarikçi API bağlantılarının durumu, senkronizasyon sağlığı ve çekilen veri hacmi.</p>
+      <h1 className="text-2xl font-semibold tracking-tight">Tedarikçi veri akışları</h1>
+      <p className="text-muted-foreground">Tedarikçilerden gelen ürün, fiyat ve stok verilerinin güncelliği, kapsamı ve açık sorunları.</p>
     </div>
+
+    {feedProblems === 0 && allFresh
+      ? <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertTitle>Tüm tedarikçi verileri güncel</AlertTitle>
+          <AlertDescription>Son güncelleme {time(lastUpdate)}. API akışlarının bütün kapsamları güncellik süresi içinde çekildi; eksik veya hata veren kapsam yok.</AlertDescription></Alert>
+      : <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>{number(feedProblems)} kapsamda veri sorunu var</AlertTitle>
+          <AlertDescription>Ayrıntılar “Açık sorunlar” bölümünde. Sorunlu kapsamlarda mağaza son başarılı çekimin verisini kullanıyor.</AlertDescription></Alert>}
+    {!scheduler?.alive && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>{manualScheduler ? "Otomatik güncelleme kapalı" : "Otomatik güncelleme çalışmıyor"}</AlertTitle>
+      <AlertDescription>
+        {manualScheduler ? "Bu ortamda zamanlayıcı bilerek çalıştırılmıyor (SUPPLIER_SCHEDULER=manual)." : automated ? "Zamanlayıcıdan çalışma sinyali gelmiyor; veriler kendiliğinden yenilenmeyecek." : "Bütün kapsamlarda otomatik çekim kapalı."} Güncellik süresi dolmadan “Tüm tedarikçileri güncelle” ile yenileyin. Son otomatik geçiş: {scheduler ? `${time(scheduler.finished_at ?? scheduler.started_at)}${scheduler.succeeded === false ? " (hatayla bitti)" : ""}` : "kayıt yok"}.
+      </AlertDescription></Alert>}
+
     <Card role="region" aria-labelledby="supplier-refresh">
       <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>
-        <CardDescription>Zamanlayıcıyı beklemeden tedarikçi verilerini API’lerden çeker. Sıra: SETA, Başbuğ’un {number(plan.basbug.length)} grubu, son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
+        <CardDescription>Zamanlayıcıyı beklemeden API’lerden çeker: SETA, Başbuğ’un {number(plan.basbug.length)} grubu ve son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
       <CardContent><SupplierRefreshRunner tasks={refreshTasks} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
         description={`${number(refreshTasks.length)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
     </Card>
-    <div className="grid gap-4 lg:grid-cols-2">
-      {card({ id: "supplier-basbug", letter: "B", title: "Başbuğ API", subtitle: "Ürün, NF maliyet, MRK stok ve döviz kuru",
-        badge: statusBadge(!health ? "error" : healthy ? "success" : "warning", !health ? "Okunamadı" : healthy ? "Sağlıklı" : "Dikkat gerekiyor"),
-        facts: [
-          ["Güncel ürün", number(overview.items.present), `${number(overview.items.groups)} liste grubu`],
-          ["Son çekim", time(last?.started_at), last ? `${last.list_group} · ${runLabels[last.status] ?? last.status}` : "Kayıt yok"],
-          ["Son 24 saat", `${number(overview.runs.total)} çekim`, overview.runs.failed ? `${number(overview.runs.failed)} başarısız / inceleme` : "Hatasız"],
-          ["Zamanlayıcı", schedulerLabel(health), health ? `${health.issues.length} grupta sorun` : "Durum okunamadı"],
-        ], note: basbug?.message, footer: basbug?.configured ? "Bağlantı değişkenleri tanımlı" : "Bağlantı değişkenleri eksik", href: "/yonetim/tedarikciler/basbug", action: "Yönet" })}
-      {card({ id: "supplier-dinamik", letter: "D", title: "Dinamik API", subtitle: "Marka bazlı ürün, fiyat ve bölge stok listeleri",
-        badge: statusBadge(!dinamikHealth ? "error" : dinamikHealth.healthy ? "success" : dinamikData.scopes.synced ? "warning" : "neutral", !dinamikHealth ? "Okunamadı" : dinamikHealth.healthy ? "Sağlıklı" : dinamikData.scopes.synced ? "Dikkat gerekiyor" : "İlk çekim bekleniyor"),
-        facts: [
-          ["Güncel ürün", number(dinamikData.items.present), `${number(dinamikData.items.brands)} marka`],
-          ["Son başarılı", time(dinamikData.scopes.last_success), `${number(dinamikData.scopes.synced)} / ${number(dinamikData.scopes.enabled)} marka güncel`],
-          ["Son 24 saat", `${number(dinamikData.runs.total)} çekim`, dinamikData.runs.failed ? `${number(dinamikData.runs.failed)} başarısız / inceleme` : "Hatasız"],
-          ["Hata veren", number(dinamikData.scopes.failing), "marka"],
-        ], note: dinamik?.message, footer: dinamik?.configured ? "Erişim VPS IP iznine bağlı" : "Bağlantı değişkenleri eksik", href: "/yonetim/tedarikciler/dinamik", action: "Yönet" })}
-      {card({ id: "supplier-seta", letter: "S", title: "SETA API", subtitle: "Filtre ürünleri, OEM, KDV hariç bayi fiyatı ve stok durumu",
-        badge: statusBadge(!setaStatus?.configured ? "warning" : !setaHealth?.scopes.length ? "neutral" : setaHealth.healthy ? "success" : "warning", !setaStatus?.configured ? "Anahtar eksik" : !setaHealth?.scopes.length ? "Henüz aktarılmadı" : setaHealth.healthy ? "Sağlıklı" : "Dikkat gerekiyor"),
-        facts: [
-          ["Güncel ürün", number(seta.present), `${number(seta.saleable)} satışta`],
-          ["Son çekim", time(seta.last?.started_at), seta.last ? runLabels[seta.last.status] ?? seta.last.status : "Kayıt yok"],
-        ], note: setaStatus?.message, footer: setaStatus?.configured ? "SETA_API_KEY tanımlı" : "SETA_API_KEY eksik", href: "/yonetim/tedarikciler/seta", action: "Yönet" })}
-      {card({ id: "supplier-manual", letter: "M", title: "Manuel yükleme", subtitle: "Şablondaki .xlsx listeleri (madeni yağlar…)",
-        badge: statusBadge(manualLists.length ? "success" : "neutral", manualLists.length ? `${number(manualLists.length)} liste` : "Henüz liste yok"),
-        facts: [
-          ["Güncel ürün", number(manualLists.reduce((sum, list) => sum + list.present, 0)), manualLists.map(list => list.list_name).join(", ") || "—"],
-          ["Son yükleme", time(manualLast), "Elle içe aktarılır"],
-          ["Fiyatı eksik", number(manualLists.reduce((sum, list) => sum + list.missing_prices, 0)), "Satışa kapalı"],
-          ["Ambalajı eksik", number(manualLists.reduce((sum, list) => sum + list.missing_packages, 0)), "Panelden girilebilir"],
-        ], note: "API yerine yöneticinin yüklediği listeler. Dosya önce kontrol edilir, onaydan sonra mağazaya yansır.", footer: "Zamanlanmış çekim yok", href: "/yonetim/tedarikciler/manuel", action: "Yönet" })}
+
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {kpis.map(kpi => <Card key={kpi.label} size="sm">
+        <CardHeader><CardDescription>{kpi.label}</CardDescription><CardTitle className="text-2xl font-semibold tabular-nums">{kpi.value}</CardTitle></CardHeader>
+        <CardFooter className="text-muted-foreground">{kpi.note}</CardFooter>
+      </Card>)}
     </div>
+
+    <Card role="region" aria-labelledby="supplier-feeds">
+      <CardHeader><CardTitle><h2 id="supplier-feeds">Veri akışları</h2></CardTitle>
+        <CardDescription>Durum, her kapsamın güncellik süresi içinde çekilip çekilmediğini gösterir; zamanlayıcıdan bağımsızdır. Oranlar tedarikçinin güncel listesindeki ürünlere göredir; satışa açık ürün fiyatlı ve stokta olandır.</CardDescription></CardHeader>
+      <CardContent>
+        <Table controls={false}>
+          <caption className="sr-only">Tedarikçi veri akışları · İstanbul saati</caption>
+          <TableHeader><TableRow>
+            <TableHead>Tedarikçi</TableHead><TableHead>Durum</TableHead><TableHead>Son güncelleme</TableHead><TableHead>Güncel kapsam</TableHead>
+            <TableHead className="text-right">Ürün</TableHead><TableHead className="text-right">Fiyatlı</TableHead><TableHead className="text-right">Stokta</TableHead>
+            <TableHead className="text-right">Satışa açık</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{rows.map(row => <TableRow key={row.key} className="align-top">
+            <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div></TableCell>
+            <TableCell>{row.status}</TableCell>
+            <TableCell><div>{ago(row.last, now)}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
+            <TableCell><div className="tabular-nums">{row.scope}</div><div className="text-muted-foreground">{row.scopeNote}</div></TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.present)}</TableCell>
+            <TableCell className="text-right"><div className="tabular-nums">{percent(row.priced, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(row.priced)}</div></TableCell>
+            <TableCell className="text-right"><div className="tabular-nums">{percent(row.available, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(row.available)}</div></TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.saleable)}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+
+    <Card role="region" aria-labelledby="supplier-issues">
+      <CardHeader><CardTitle><h2 id="supplier-issues">Açık sorunlar</h2></CardTitle>
+        <CardDescription>Yalnız şu an geçerli olanlar. Sonradan başarıyla yenilenen kapsamların eski hataları burada yer almaz.</CardDescription></CardHeader>
+      <CardContent>
+        {issues.length ? <ItemGroup>{issues.map(issue => {
+          const Icon = icons[issue.tone];
+          return <Item key={issue.key} variant="outline" size="sm">
+            <ItemMedia variant="icon"><Icon aria-hidden="true" className={issueColor[issue.tone]}/></ItemMedia>
+            <ItemContent><ItemTitle>{issue.title}</ItemTitle><ItemDescription>{issue.description}</ItemDescription></ItemContent>
+            <ItemActions><Button variant="outline" size="sm" nativeButton={false} render={<Link href={issue.href}/>}>{issue.action}</Button></ItemActions>
+          </Item>;
+        })}</ItemGroup>
+        : <Empty className="border"><EmptyHeader><EmptyMedia variant="icon"><CircleCheck aria-hidden="true" className="text-success"/></EmptyMedia>
+            <EmptyTitle>Açık sorun yok</EmptyTitle><EmptyDescription>Tüm akışlar güncellik süresi içinde ve son denemeler başarılı.</EmptyDescription></EmptyHeader></Empty>}
+      </CardContent>
+    </Card>
+
+    <Card role="region" aria-labelledby="supplier-history">
+      <CardHeader><CardTitle><h2 id="supplier-history">Son 24 saatteki çekimler</h2></CardTitle>
+        <CardDescription>Geçmiş kaydıdır. Başarısız ya da kalite kontrolünde reddedilen bir denemeden sonra aynı kapsam başarıyla yenilendiyse çözülmüş sayılır; reddedilen çekimlerde önceki veri korunur.</CardDescription></CardHeader>
+      <CardContent>
+        {history.length ? <Table controls={false}>
+          <caption className="sr-only">Son 24 saatteki tedarikçi çekimleri</caption>
+          <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead className="text-right">Deneme</TableHead><TableHead className="text-right">Başarılı</TableHead>
+            <TableHead className="text-right">Başarısız</TableHead><TableHead className="text-right">Kalite reddi</TableHead><TableHead>Çözülmemiş</TableHead></TableRow></TableHeader>
+          <TableBody>{history.map(row => <TableRow key={row.key}>
+            <TableCell className="font-medium">{row.name}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.total)}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.succeeded)}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.failed)}</TableCell>
+            <TableCell className="text-right tabular-nums">{number(row.rejected)}</TableCell>
+            <TableCell>{row.unresolved ? toneBadge("warning", `${number(row.unresolved)} kapsam`) : toneBadge("success", "Yok")}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+        : <p className="text-muted-foreground">Son 24 saatte çekim yapılmadı.</p>}
+      </CardContent>
+    </Card>
   </div>;
 }

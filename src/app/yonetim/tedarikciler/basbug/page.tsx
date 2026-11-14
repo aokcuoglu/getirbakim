@@ -3,6 +3,8 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { schedulerLabel } from "@/modules/suppliers/health";
+import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
+import { adminSupplierFeedStatus } from "@/modules/admin/data";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
 import { basbugPartTableProps } from "@/components/admin/supplier-part-table-data";
@@ -72,7 +74,7 @@ const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge va
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await adminBasbugData(params);
-  const [checkoutMode, activity] = await Promise.all([supplierCheckoutMode(), supplierActivity(db, "basbug")]);
+  const [checkoutMode, activity, feeds] = await Promise.all([supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
   const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
   function pageUrl(target: number) {
     const query = new URLSearchParams({ group, page: String(target) });
@@ -110,7 +112,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
           <h1 className="text-2xl font-semibold tracking-tight">Başbuğ API</h1>
           <p className="text-muted-foreground">Ürün, kaynak fiyat ve depo stok verilerini incele; senkronizasyonu yönet.</p>
         </div>
-        <SupplierActivityBadge supplier="basbug" initial={activity}>{statusBadge(data.health.healthy ? "success" : "warning", data.health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor")}</SupplierActivityBadge>
+        <SupplierActivityBadge supplier="basbug" initial={activity}><FeedStatusBadge status={feeds.basbug}/></SupplierActivityBadge>
       </div>
     </div>
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Veriler API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
