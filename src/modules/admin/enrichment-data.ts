@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/modules/auth/session";
 import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
@@ -70,6 +71,7 @@ export const gapConditions: Record<PartialGap, string> = {
 };
 const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.supplier_item_id";
 export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string }) {
+  await requireAdmin();
   const q = query.q?.trim().slice(0,120) || "";
   const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
   const name = text("name"), code = text("code"), brand = text("brand");
@@ -171,10 +173,14 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const totalCount=total?.rows[0].count??counts.rows.filter(row=>tabStatuses(status).includes(row.status)).reduce((sum,row)=>sum+row.count,0);
   const pageSize=25, pages=Math.max(1,Math.ceil(totalCount/pageSize));
   const requested=Number(query.page), page=Number.isSafeInteger(requested)?Math.max(1,Math.min(pages,requested)):1;
-  // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index.
+  // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index; the
+  // updated column keeps that shape in both directions (sortOrder's "DESC NULLS LAST" does not match a backward scan).
   const direction=query.sort==='updated'&&query.dir!=='desc'?'ASC':'DESC';
   const sortColumns={updated:"j.sorted_at",name:"j.product_name",brand:"COALESCE(j.supplier_brand,j.product_brand)",code:"COALESCE(j.supplier_code,j.part_number)",
     status:"j.status",source:"split_part(j.source_url,'/',3)",match:"j.match_type",oems:"j.oem_count",vehicles:"j.vehicle_count",specs:"j.specification_count"};
+  const order=query.sort==='updated'?`j.sorted_at ${direction},j.supplier_item_id ${direction}`:sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`);
+  // The page is cut first so the per-row subqueries run for its 25 rows only; in the outer SELECT they also ran for
+  // every row OFFSET skipped (a deep pending page took minutes).
   const rows=await db.query<EnrichmentRow>(`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
@@ -183,10 +189,10 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
     array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
       AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
-     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a WHERE a.supplier_item_id=j.supplier_item_id
-      OR a.supplier_item_id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id) ORDER BY 1) AS searched
-    ${from} ORDER BY ${sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
-    LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
+     -- One ANY over the product's items keeps the attempts index usable; an OR of the two lookups did not.
+     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a
+      WHERE a.supplier_item_id=ANY(ARRAY(SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id)||j.supplier_item_id) ORDER BY 1) AS searched
+    FROM (SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) j ORDER BY ${order}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
   return { pass, pilot:pilot.rows[0]??null, run:run.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows, gaps:gaps?.rows[0]??null,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
