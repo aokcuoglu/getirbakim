@@ -5,7 +5,9 @@ export const sharedCandidateSql = "EXISTS (SELECT 1 FROM product_match_candidate
 
 /**
  * Candidate reasons that may be merged in bulk. "suffix" is left out (#524): an extra digit or ending is mostly another
- * part (FEBI 100261 vs 1002610…1002619), so every suffix pair is decided by hand.
+ * part (FEBI 100261 vs 1002610…1002619). Known different-part endings are no longer generated at all
+ * (product_suffix_rules(), #534); the remaining suffix pairs are ambiguous and decided by hand until bulk merging is
+ * opened for them through measured 'same' rows (#535).
  */
 export const bulkCandidateReasons = ["prefix", "leading_zero"] as const;
 export type BulkCandidateReason = (typeof bulkCandidateReasons)[number];
