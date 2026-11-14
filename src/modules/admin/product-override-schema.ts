@@ -1,21 +1,12 @@
 import { z } from "zod";
+import type { ProductOverrideValues } from "./product-override-fields";
 
-/** Store card fields an admin can set by hand (db/product-overrides.sql); NULL follows the automatic sources. */
-export const productOverrideFields = ["name", "description", "seo_title", "seo_description", "category_id", "hidden"] as const;
-export type ProductOverrideField = (typeof productOverrideFields)[number];
-
-export const productOverrideLabels: Record<ProductOverrideField, string> = {
-  name: "Mağaza ürün adı",
-  description: "Açıklama",
-  seo_title: "SEO başlığı",
-  seo_description: "SEO açıklaması",
-  category_id: "Kategori",
-  hidden: "Mağazada görünürlük",
-};
+export * from "./product-override-fields";
 
 const text = (max: number) => z.string().trim().max(max, `En fazla ${max.toLocaleString("tr-TR")} karakter girin.`)
   .transform(value => value === "" ? null : value);
 
+/** The "Mağaza bilgileri" form: trimmed text, empty → automatic (NULL). */
 export const productOverrideValuesSchema = z.object({
   name: text(300),
   description: text(5000),
@@ -25,15 +16,5 @@ export const productOverrideValuesSchema = z.object({
     .transform(value => value === "" ? null : Number(value)),
   // The form's "Mağazada yayında" switch: an unchecked switch submits nothing, so a missing value means hidden.
   published: z.string().optional(),
-}).transform(({ published, ...values }) => ({ ...values, hidden: published !== "on" }));
+}).transform(({ published, ...values }): ProductOverrideValues => ({ ...values, hidden: published !== "on" }));
 export const productOverrideIdSchema = z.uuid();
-export type ProductOverrideValues = z.output<typeof productOverrideValuesSchema>;
-
-export type ProductOverrideResult = { status: "idle" | "success" | "error"; message?: string };
-
-/** Values shown for a field in the change history and form: NULL is "automatic". */
-export function overrideValueText(value: string | number | boolean | null): string | null {
-  if (value === null) return null;
-  if (typeof value === "boolean") return value ? "Gizli" : "Yayında";
-  return String(value);
-}

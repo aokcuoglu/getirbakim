@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties } from "react";
+import { Fragment, cache, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { siteUrl } from "@/lib/site";
 import Link from "next/link";
@@ -35,14 +35,19 @@ const benefits = [
   { icon: ClipboardCheck, size: 23, title: "Araç uyumluluğu", text: <>OEM kodunu, motor ve model bilgilerini karşılaştır.</> },
 ];
 
+// Metadata and the page read the same enrichment once per request.
+const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const product = await getStorefrontProduct(id);
   if (!product) return { title: "Ürün bulunamadı | Getirbakim", robots: { index: false } };
-  // An admin's SEO title and description (#575) replace the automatic ones.
-  const meta = productMeta(await getItemOverride(product.id), {
-    title: `${product.brand} ${product.name} — ${product.code}`,
-    description: `${product.brand} ${product.code}. ${product.description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`,
+  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
+  const [override, enrichment] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand)]);
+  const description = productDescription(override, enrichment?.description, product.description);
+  const meta = productMeta(override, {
+    title: `${product.brand} ${productTitle(override, enrichment?.displayName, product.name)} — ${product.code}`,
+    description: `${product.brand} ${product.code}. ${description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`,
   });
   return {
     title: `${meta.title} | Getirbakim`,
@@ -59,7 +64,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
-  const [enrichment, override] = await Promise.all([getProductEnrichment(product), getItemOverride(product.id)]);
+  const [enrichment, override] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id)]);
   const logos = await getManufacturerLogos([product.brand]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
@@ -73,7 +78,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // No Offer until payment, final tax/shipping and availability are verified.
   const title = productTitle(override, enrichment?.displayName, product.name);
   const description = productDescription(override, enrichment?.description, product.description);
-  const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: product.name,
+  const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: title,
     sku: product.code, brand: { "@type": "Brand", name: product.brand },
     description: description || undefined, image: enrichment?.imagePath ? `${siteUrl}${enrichment.imagePath}` : undefined, url: `${siteUrl}/urun/${product.id}` };
   const vehicle = await currentVehicle();

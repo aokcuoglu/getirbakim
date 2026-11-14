@@ -10,10 +10,11 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
-import { overrideValueText, productOverrideFields, productOverrideLabels, type ProductOverrideField } from "@/modules/admin/product-override-schema";
+import { overrideValueText, productOverrideFields, productOverrideLabels, type ProductOverrideField } from "@/modules/admin/product-override-fields";
 import { getStoreCategories } from "@/modules/store/categories";
 import { categoryPath } from "@/modules/store/category-tree";
 import { ProductOverrideForm } from "@/components/admin/product-override-form";
+import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -72,9 +73,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardContent>
         <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, seo_title: edit.seo_title,
           seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden }}
-          version={edit ? edit.updated_at.toISOString() : "auto"} categories={categoryOptions}
+          version={edit?.version ?? automaticVersion} categories={categoryOptions}
           automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,
-            category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || "Otomatik kategori yok." }}/>
+            category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null }}/>
       </CardContent>
     </Card>}
 
@@ -92,7 +93,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     <Card>
       <CardHeader><CardTitle><h2>Tedarikçi kaynakları</h2></CardTitle>
         <CardDescription>Mağaza stokta olan en ucuz kaynağı satar; eşitlikte ürünün kendi kaydı önce gelir. Kayıt bu ürün değilse “Ayır” deyin: ayrı bir ürün olur. Elle verilen kararları yenilemeler değiştirmez; “Geri al” kaydı kendi ürününe döndürür.</CardDescription></CardHeader>
-      <CardContent>{sources.length ? <Table><caption className="sr-only">Tedarikçi kaynakları</caption>
+      <CardContent className="flex flex-col gap-4">{edit && multiple && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
+        <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri{edit.hidden ? " (mağazada gizli)" : ""} var. “Ayır” ile çıkan kayıt bu düzenlemeleri taşımaz{edit.hidden ? " ve mağazada yeniden görünür" : ""}.</AlertDescription></Alert>}
+        {sources.length ? <Table><caption className="sr-only">Tedarikçi kaynakları</caption>
         <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead>Kod</TableHead><TableHead>Tedarikçideki ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead>Stok</TableHead><TableHead>Bağlantı</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
         <TableBody>{sources.map(source => <TableRow key={source.id}>
           <TableCell className="font-medium">{supplierNames[source.supplier] ?? source.supplier}</TableCell>
@@ -115,6 +118,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardHeader><CardTitle><h2>Başka ürünle birleştir</h2></CardTitle>
         <CardDescription>Otomatik eşleşmenin kaçırdığı aynı ürünü bulun: parça numarası veya tedarikçi koduyla arayın. Birleşince tüm kaynaklar tek üründe toplanır; Başbuğ&apos;un sattığı ürün kimliğini korur. Farklı marka aynı ürün değildir: yerine kullanılabiliyorsa “Muadil” ile bağlayın.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {edit && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
+          <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri{edit.hidden ? " (mağazada gizli)" : ""} var. Birleşince kimliğini koruyan üründe düzenleme yoksa bu düzenlemeler ona taşınır{edit.hidden ? " ve birleşen ürün gizli kalır" : ""}; varsa onunkiler geçerli olur.</AlertDescription></Alert>}
         <form className="flex flex-wrap items-center gap-2" action={`/yonetim/urunler/${product.id}#birlestir`}>
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="merge_q" aria-label="Birleştirilecek ürünü ara" defaultValue={query.merge_q ?? product.part_number} placeholder="Parça no veya kod" maxLength={60}/></InputGroup>
