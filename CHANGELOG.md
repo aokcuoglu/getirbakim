@@ -4,7 +4,7 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## v0.25.0 — 2026-11-14
 
-Release of `dev` since v0.24.0 (62 pull requests): the AWS production runtime, supplier operations in the admin, and review tools for product matching. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+Release of `dev` since v0.24.0 (63 pull requests): the AWS production runtime, supplier operations in the admin, and review tools for product matching. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
 
 ### Added
 - **AWS production runtime** and release to AWS from GitHub Actions (`release-aws.yml`, manual `workflow_dispatch` with the `production` environment approval) ([#439](https://github.com/aokcuoglu/getirbakim/pull/439), [#466](https://github.com/aokcuoglu/getirbakim/pull/466)).
@@ -28,7 +28,7 @@ Release of `dev` since v0.24.0 (62 pull requests): the AWS production runtime, s
 - Storefront and cutover: bundle products matched by supplier key; warm-up through the listening address; AWS starts with empty transactional tables ([#444](https://github.com/aokcuoglu/getirbakim/pull/444), [#450](https://github.com/aokcuoglu/getirbakim/pull/450), [#458](https://github.com/aokcuoglu/getirbakim/pull/458)).
 
 ### Maintenance
-- Claude Code agent harness (agents, skills, hooks), Fable planner/reviewer and a strict CI gate before `/ship` merges; catalog CLI worker test independent of CI speed ([#491](https://github.com/aokcuoglu/getirbakim/pull/491), [#531](https://github.com/aokcuoglu/getirbakim/pull/531), [#533](https://github.com/aokcuoglu/getirbakim/pull/533), [#536](https://github.com/aokcuoglu/getirbakim/pull/536)).
+- Claude Code agent harness (agents, skills, hooks), Fable planner/reviewer and a strict CI gate before `/ship` merges, deterministic checks once per change; catalog CLI worker test independent of CI speed ([#491](https://github.com/aokcuoglu/getirbakim/pull/491), [#531](https://github.com/aokcuoglu/getirbakim/pull/531), [#533](https://github.com/aokcuoglu/getirbakim/pull/533), [#536](https://github.com/aokcuoglu/getirbakim/pull/536), [#569](https://github.com/aokcuoglu/getirbakim/pull/569)).
 - Edge nginx config in the repo with a maintenance mode; cutover runbook and export scripts; workflow docs requiring explicit approval for `main` and manual AWS releases ([#441](https://github.com/aokcuoglu/getirbakim/pull/441), [#445](https://github.com/aokcuoglu/getirbakim/pull/445), [#452](https://github.com/aokcuoglu/getirbakim/pull/452), [#460](https://github.com/aokcuoglu/getirbakim/pull/460), [#464](https://github.com/aokcuoglu/getirbakim/pull/464)).
 
 ### Deploy and operations
