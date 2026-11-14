@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { bulkAcceptableSql, multiNumberCandidateSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
@@ -166,9 +166,44 @@ test("undoing a merge without a decision row records the pair as different in ca
     assert.deepEqual(decision, { status: "different", decided_by: actor });
     assert.equal((await client.query("SELECT count(*)::int AS n FROM product_match_decisions WHERE product_a=$1 AND product_b=$2",
       [single.product, group.product])).rows[0].n, 0);
-    // refresh_product_matches() skips a pair with a decision row keyed (a,b): the Başbuğ side first.
-    assert.equal((await client.query(`SELECT count(*)::int AS n FROM (VALUES ($1::uuid,$2::uuid)) c(a,b)
-      WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)`, [group.product, single.product])).rows[0].n, 0);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+// Runs the candidate passes of refresh_product_matches() as installed, limited to the products in `fixture_551`
+// (a full refresh takes minutes). Only the product scans are narrowed; the pairing and decision checks are the real ones.
+const runCandidatePasses = async (client: PoolClient) => {
+  const source = (await client.query<{ def: string }>("SELECT pg_get_functiondef('refresh_product_matches()'::regprocedure) AS def")).rows[0].def;
+  const loop = source.match(/FOR pairing IN 1\.\.2 LOOP[\s\S]*?END LOOP;/)?.[0];
+  assert.ok(loop, "candidate passes not found in refresh_product_matches()");
+  const scan = "FROM products WHERE merged_into IS NULL";
+  assert.equal(loop.split(scan).length - 1, 2, "expected the two product scans of the candidate passes");
+  const scoped = loop.replaceAll(scan, "FROM products WHERE id IN (SELECT id FROM fixture_551) AND merged_into IS NULL");
+  await client.query(`DO $gen$ DECLARE pairing integer; BEGIN ${scoped} END $gen$`);
+  return (await client.query<{ a: string; b: string }>(`SELECT product_a AS a, product_b AS b FROM product_match_candidates
+    WHERE product_a IN (SELECT id FROM fixture_551) ORDER BY reason, product_a, product_b`)).rows;
+};
+
+test("a 'different' decision blocks the pair in either direction, including a manual list product merged by hand", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const product = async (part: string, supplier: string) => (await client.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code,suppliers)
+      VALUES ('ZZ551TEST',$1,'TEST PARCA','ZZ551TEST',$1,ARRAY[$2]) RETURNING id`, [part, supplier])).rows[0].id;
+    // Başbuğ 0551001, Dinamik 551001 and manual 00551001 are leading-zero matches of each other.
+    const basbug = await product("0551001", "basbug"), dinamik = await product("551001", "dinamik"), manual = await product("00551001", "manual");
+    await client.query("CREATE TEMP TABLE fixture_551 ON COMMIT DROP AS SELECT unnest($1::uuid[]) AS id", [[basbug, dinamik, manual]]);
+    const pairs = (rows: { a: string; b: string }[]) => rows.map(row => `${row.a}>${row.b}`).sort();
+    // Without decisions: Başbuğ↔Dinamik (pass 1), and the manual product with both API products (pass 2, manual as b).
+    assert.deepEqual(pairs(await runCandidatePasses(client)), [`${basbug}>${dinamik}`, `${basbug}>${manual}`, `${dinamik}>${manual}`].sort());
+    await client.query("DELETE FROM product_match_candidates WHERE product_a IN (SELECT id FROM fixture_551)");
+    // Recorded in candidate direction (Başbuğ first), and the reverse of a pass-2 pair: the Dinamik product merged into
+    // the manual one from the product page and undone, as product_reset_item records it (a = merged into).
+    await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status) VALUES ($1,$2,'different'),($3,$2,'different')`,
+      [basbug, dinamik, manual]);
+    assert.deepEqual(pairs(await runCandidatePasses(client)), [`${basbug}>${manual}`]);
   } finally {
     await client.query("ROLLBACK");
     client.release();

@@ -395,7 +395,8 @@ BEGIN
 END $$;
 -- Undo a manual decision (split or merge) for one row: it rejoins the automatic product of its own key, which is
 -- created or revived when needed; a product left without rows redirects there. A merge undone this way is recorded
--- as "different" (product_a = the product the row was merged into, as candidates are keyed) so the pair is not
+-- as "different" (product_a = the product the row was merged into; refresh_product_matches() checks decisions in both
+-- directions, since a merge from the product page need not follow the candidate's a/b order) so the pair is not
 -- suggested again, whether or not the merge left a decision row (#551); undoing a split (back to the same key) records
 -- nothing. `actor` is the admin who undid it; the one-argument form came first.
 DROP FUNCTION IF EXISTS product_reset_item(uuid);
@@ -431,7 +432,8 @@ BEGIN
 END $$;
 -- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
 -- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
--- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
+-- recorded as different (product_a = the group's product; candidate generation checks both directions), so it is not
+-- suggested again.
 -- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
 -- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
 -- NULL when the row is no such offer. The two-argument form came first (#523).
@@ -680,6 +682,7 @@ BEGIN
     AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
     AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
   ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
+   AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.b AND d.product_b=c.a)
   ORDER BY a, b, priority
   ON CONFLICT DO NOTHING;
  END LOOP;
