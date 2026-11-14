@@ -67,7 +67,7 @@ export async function decideCandidate(form: FormData) {
     // product_overrides_carry: the Başbuğ product takes the merged product's store edits where it has none, and its
     // hidden state (#575); the notice says when hidden was carried.
     const merge = status === "same" ? (await client.query<{ id: string | null; carried: { hidden: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-      SELECT id, product_overrides_carry($2, id, $3) AS carried FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
+      SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
     carriedHidden = Boolean(merge?.carried?.hidden);
     if (merge && !merge.id) {
       await client.query("ROLLBACK");
@@ -106,7 +106,7 @@ export async function acceptCandidates(form: FormData) {
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
       const merge = (await client.query<{ id: string | null; carried: { hidden: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-        SELECT id, product_overrides_carry($2, id, $3) AS carried FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
+        SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
       if (!merge.id) continue;
       // A hidden product merged into a sellable one hides it too (#575); the summary counts them.
       if (merge.carried?.hidden) carriedHidden++;

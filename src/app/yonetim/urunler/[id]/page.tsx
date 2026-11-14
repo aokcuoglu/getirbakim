@@ -14,6 +14,8 @@ import { overrideValueText, productOverrideFields, productOverrideLabels, type P
 import { getStoreCategories } from "@/modules/store/categories";
 import { categoryPath } from "@/modules/store/category-tree";
 import { ProductOverrideForm } from "@/components/admin/product-override-form";
+import { ProductImagesCard } from "@/components/admin/product-images-card";
+import { imageHistoryValue, productImageChangeLabels } from "@/modules/admin/product-image-store";
 import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime } from "@/modules/admin/format";
@@ -36,9 +38,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
   // A history value as the admin knows it: category names, published/hidden, NULL as the automatic value.
-  const historyValue = (field: string, value: string | null) => value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
+  const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
-    : field === "hidden" ? overrideValueText(value === "true") : value;
+    : field === "hidden" ? overrideValueText(value === "true") : value);
 
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -79,6 +81,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null }}/>
       </CardContent>
     </Card>}
+
+    {!merged && <ProductImagesCard productId={product.id}/>}
 
     <Card>
       <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
@@ -169,7 +173,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
         <TableBody>{override.changes.map(change => <TableRow key={change.id}>
           <TableCell className="tabular-nums">{formatDateTime(change.changed_at, { year: true })}</TableCell>
-          <TableCell>{productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field}</TableCell>
+          <TableCell>{productImageChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
           <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>

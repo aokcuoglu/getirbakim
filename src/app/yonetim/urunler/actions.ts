@@ -77,6 +77,8 @@ export async function mergeProducts(form: FormData) {
       // The kept product takes the merged product's store edits (hidden included) when it has none of its own (#575).
       if (target) carriedHidden = Boolean((await client.query<{ carried: { hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
         [drop, target, admin.id])).rows[0].carried.hidden);
+      // Uploaded images and a hidden automatic image as well (#581).
+      if (target) await client.query("SELECT product_override_images_carry($1,$2,$3)", [drop, target, admin.id]);
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [keep, drop, admin.id]);
