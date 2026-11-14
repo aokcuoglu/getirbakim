@@ -16,7 +16,7 @@ import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbu
 export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
 const itemSorts = { code: "code", name: "product_data->>'ac'", brand: "product_data->>'uk'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
-export type ImportSummary = {
+type ImportSummary = {
   run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null; stats: Record<string, number>;
   id: string; company: string; list_group: string; warehouse: string;
   started_at: Date; completed_at: Date;

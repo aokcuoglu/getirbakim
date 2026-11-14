@@ -15,13 +15,13 @@ import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
   page?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; error?: string; detail?: string };
-export type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
+type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
   report: ManualDraftReport; created_at: Date; decided_at: Date | null; import_id: string | null; uploader: string | null;
   stats: Record<string, number> | null; quality: Record<string, number> | null };
 /** A draft upload with its first ten file rows (`preview`) and the file's row count. */
-export type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number };
-export type ManualItemData = { no: string; ac: string; uk: string; category_id: number; category_name: string; barcode: string | null; description: string | null;
+type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number };
+type ManualItemData = { no: string; ac: string; uk: string; category_id: number; category_name: string; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; image_url: string | null; list_name: string; file: Omit<ManualRow, "sheet" | "row"> };
 export type ManualItem = {
   id: string; code: string; list_group: string; product_data: ManualItemData; price_data: { nf: number } | null; stock_data: { stok: number } | null;

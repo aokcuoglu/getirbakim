@@ -20,16 +20,16 @@ const pageSize = 50;
 // Header sorting on the products list (TableHead sortKey → column).
 const productSorts = { brand: "p.brand_label", code: "p.part_number", name: "p.name" };
 
-export type ProductRow = {
+type ProductRow = {
   id: string; brand: string; brand_label: string; part_number: string; variant: number; code: string; name: string | null;
   suppliers: string[]; merged_into: string | null; sources: number; best_price: number | null; best_supplier: string | null; available: boolean;
   categories: string[];
 };
-export type ProductSource = {
+type ProductSource = {
   id: string; supplier: string; code: string; name: string | null; brand_label: string | null; method: "auto" | "manual"; linked_at: Date;
   saleable: boolean; price_kurus: number | null; available: boolean; stock_label: string | null; best: boolean;
 };
-export type ProductEquivalent = {
+type ProductEquivalent = {
   id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; kind: "oem" | "cross" | "brand" | "manual";
   via_brand: string; via_part: string;
 };
@@ -176,7 +176,7 @@ export async function getMasterProduct(id: string) {
   return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null };
 }
 
-export type MergeTarget = {
+type MergeTarget = {
   id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; same_brand: boolean; equivalent: boolean;
 };
 

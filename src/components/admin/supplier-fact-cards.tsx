@@ -10,11 +10,11 @@ import { feedStateLabels, type FeedStatus } from "@/modules/suppliers/data-statu
 
 type Health = Awaited<ReturnType<typeof supplierHealth>>;
 /** One import run as the summary shows it: when, how it ended and what it covered (group/brand/list · kind · products). */
-export type SupplierRunFact = { at: Date; status: string; scope: string };
+type SupplierRunFact = { at: Date; status: string; scope: string };
 
 const time = (value: Date) => formatDate(value);
 /** Where the shared checkout data source (commerce_settings.basbug_checkout_mode) is edited. */
-export const checkoutSettingHref = "/yonetim/fiyatlandirma#siparis-veri-kaynagi";
+const checkoutSettingHref = "/yonetim/fiyatlandirma#siparis-veri-kaynagi";
 
 /**
  * The four summary cards every API supplier page starts with: scheduler, last successful run, last run (any status)

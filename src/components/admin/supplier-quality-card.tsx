@@ -7,7 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { StatusBadge } from "@/components/admin/status-badge";
 import { formatDate, formatNumber } from "@/modules/admin/format";
 
-export type SupplierQuality = {
+type SupplierQuality = {
   uniqueProducts?: number; productRows?: number; missingPrices?: number; duplicateCodes?: number; conflictingCodes?: number;
 };
 type Metric = "missing-price" | "duplicates" | "conflicts";

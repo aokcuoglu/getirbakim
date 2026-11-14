@@ -6,7 +6,7 @@ import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-export type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
+type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
@@ -15,16 +15,16 @@ const sorts = {
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
 };
 // Keys arrived over time; runs recorded before a key lack it.
-export type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
+type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
   seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
 export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string };
 /** A Başbuğ product with the Dinamik offers grouped under it; `selling` is the supplier whose offer the store sells now. */
-export type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
-export type SplitItem = { id: string; supplier: string; code: string; name: string | null; decided_at: Date };
+type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
+type SplitItem = { id: string; supplier: string; code: string; name: string | null; decided_at: Date };
 export type DinamikItem = { id: string; product_id: string | null; code: string; brand: string | null; name: string | null; price_kurus: number | null; available: boolean | null; enriched: boolean };
-export type SetaProduct = { id: string; supplier: string; code: string; name: string | null; via: string };
+type SetaProduct = { id: string; supplier: string; code: string; name: string | null; via: string };
 export type SetaItem = { id: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null; linked: number; products: SetaProduct[] };
-export type MatchingTab = "brands" | "candidates" | "same" | "dinamik" | "seta";
+type MatchingTab = "brands" | "candidates" | "same" | "dinamik" | "seta";
 export type BrandLabel = { supplier: string; label: string; items: number; method: "auto" | "manual" };
 /** The reviewed brand a new master brand most likely is under another spelling (db brand_merge_suggestions). */
 export type BrandSuggestion = { id: string; name: string; shared_parts: number; parts: number; name_similarity: number };
@@ -32,9 +32,9 @@ export type BrandSuggestion = { id: string; name: string; shared_parts: number; 
  * A master brand and the supplier labels deduplicated into it; `pending` while any label was placed automatically,
  * `fresh` while every label was (a brand created by a new label), with the existing brand it may belong to.
  */
-export type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; fresh: boolean; suggestion: BrandSuggestion | null; labels: BrandLabel[] };
-export type BrandScope = "pending" | "single" | "all";
-export const brandScopes: BrandScope[] = ["pending", "single", "all"];
+type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; fresh: boolean; suggestion: BrandSuggestion | null; labels: BrandLabel[] };
+type BrandScope = "pending" | "single" | "all";
+const brandScopes: BrandScope[] = ["pending", "single", "all"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
