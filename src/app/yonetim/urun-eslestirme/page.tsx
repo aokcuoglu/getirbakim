@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,16 +49,18 @@ const suggestionEvidence = (suggestion: BrandSuggestion) => suggestion.shared_pa
 
 function EmptyState({ title, icon, clearHref }: { title: string; icon: ReactNode; clearHref?: string }) {
   return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader>
-    {clearHref && <Button variant="outline" nativeButton={false} render={<Link href={clearHref} scroll={false}/>}>Karar süzgecini temizle</Button>}</Empty>;
+    {clearHref && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={clearHref} scroll={false}/>}>Filtreyi temizle</Button></EmptyContent>}</Empty>;
 }
 
 export default async function ProductMatching({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await productMatchingData(params);
   const stats = data.run?.stats;
+  // The kind filter belongs to the manual decisions view only.
+  const kind = "decisions" in data ? params.kind : undefined;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, kind: params.kind, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, kind, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
   const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined, kind: undefined });
@@ -73,8 +75,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </PaginationContent></Pagination>
   </CardFooter>;
   const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
-    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}|${params.kind}`}
-    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir, kind: params.kind }}
+    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}|${kind}`}
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir, kind }}
     placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, kind: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
@@ -181,10 +183,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="max-w-64"><div className="flex min-w-0 flex-col gap-1">
               <Link className="truncate font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.product_id}`} title={`${item.product_label} ${item.product_code}`}>{item.product_label} {item.product_code}</Link>
               <span className="truncate text-muted-foreground" title={item.product_name ?? ""}>{item.product_name || "—"}</span></div></TableCell>
-            <TableCell className="max-w-48"><span className="block truncate" title={item.decided_by_name ?? "Karar veren kaydedilmemiş"}>{item.decided_by_name ?? "Bilinmiyor"}</span></TableCell>
+            <TableCell className="max-w-48"><span className={item.decided_by_name ? "block truncate" : "block truncate text-muted-foreground"} title={item.decided_by_name ?? "Karar veren kaydedilmemiş"}>{item.decided_by_name ?? "Bilinmiyor"}</span></TableCell>
             <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(item.decided_at)}</TableCell>
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
-          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q || params.kind ? "Aramayla veya süzgeçle eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={params.kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
+          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q && kind ? "Arama ve filtreyle eşleşen elle karar yok." : kind ? "Bu filtreyle eşleşen elle karar yok." : params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
             <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>
