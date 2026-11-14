@@ -16,7 +16,8 @@ export const matchingBack = z.unknown().optional().transform(safeMatchingBack);
 // Adds the flag(s) ("refreshed=1", "matched=bulk&count=3") to a back path; older result flags are dropped
 // and every other parameter is kept.
 export function withMatchingFlag(back: string, flag: string): string {
-  const [path, query = ""] = back.split("?", 2);
+  const cut = back.indexOf("?");
+  const [path, query] = cut < 0 ? [back, ""] : [back.slice(0, cut), back.slice(cut + 1)];
   const params = new URLSearchParams(query);
   params.delete("refreshed");
   params.delete("error");
