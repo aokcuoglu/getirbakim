@@ -23,6 +23,7 @@ References: [Airbnb analysis](https://github.com/VoltAgent/awesome-design-md/blo
 - Desktop catalog: filter sidebar plus results. Mobile: collapsible filter group, stacked search and full-width product cards. Preserve URL-based filtering, sorting and pagination.
 - Product detail: clear heading, gallery and technical attributes on the left; sticky purchase summary on the right. At 600px and below, the same quantity/purchase form becomes a fixed bottom action bar. Reserve space so it does not obscure the last page content.
 - Supplier observations with unconfirmed retail price/stock retain their preparation state and have no purchase form. Do not add invented ratings, offers, delivery dates, photos or compatibility badges.
+- A running campaign (#580) shows the regular price struck through (`<s>` with a screen-reader "Önceki fiyat", `text-muted-foreground`) beside the selling price, and its end date ("Kampanya … tarihine kadar", Istanbul time) where space allows; no percentage badges, countdowns or urgency copy. Cart and maintenance kits show the selling price only.
 
 ## Operational workspace and accessibility
 
