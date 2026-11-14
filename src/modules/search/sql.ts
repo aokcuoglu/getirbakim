@@ -57,6 +57,19 @@ export function vehicleTypeMatch(alias: string, parsed: ParsedSearch, bind: Bind
   return where.length ? where.join(" AND ") : "TRUE";
 }
 
+/**
+ * Supplier rows whose admin-edited name or description (commerce_item_overrides, #575) matches every word: the stored
+ * search text of a row is the supplier's, so a renamed product is found by its new name here. The table holds only
+ * edited rows, so it is read whole. Null when the query has no words (a code search keeps the supplier's codes).
+ */
+export function overrideItemMatch(parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
+  const query = prefixTsQuery(parsed);
+  if (mode !== "all" || !query) return null;
+  return `SELECT o.supplier_item_id FROM commerce_item_overrides o JOIN supplier_items s ON s.id = o.supplier_item_id
+    WHERE (o.name IS NOT NULL OR o.description IS NOT NULL) AND to_tsvector('simple', search_normalize(concat_ws(' ', COALESCE(o.name, NULLIF(s.product_data->>'ac', ''), s.code),
+      s.product_data->>'uk', s.code, s.product_data->>'oe', o.description))) @@ to_tsquery('simple', ${bind(query)})`;
+}
+
 /** Same condition for the hand-entered store `products` table (small, unindexed). */
 export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
   const clauses: string[] = [];
@@ -73,9 +86,11 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   const columns = ["name", "brand", "code", "oem", "description"].map(column => `${alias}.${column}`).join(", ");
   // Supplier rows rank their stored inputs (db/search.sql trigger): ~6 normalisations fewer per row, which
   // turned a 23k-match search from ~0.8 s of ranking into a primary-key lookup each. Store products, and
-  // any row the trigger has not filled yet, compute the same values on the fly.
+  // any row the trigger has not filled yet, compute the same values on the fly. So do rows with an admin-edited name or
+  // description (#575): the stored inputs are the supplier's, the view columns carry the edit.
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
-    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL), catalog_search_rank(${columns}, ${queries}))`;
+    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id)), catalog_search_rank(${columns}, ${queries}))`;
 }
 
 /**

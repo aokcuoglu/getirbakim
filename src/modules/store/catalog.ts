@@ -10,7 +10,7 @@ import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
-import {binder,catalogRank,correctSearch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
@@ -78,6 +78,7 @@ const canonicalSql = `WITH source AS (SELECT id,supplier,code FROM supplier_item
   UNION ALL SELECT u.id,2,0,0,u.code FROM source JOIN commerce_unavailable_items u ON u.supplier=source.supplier AND u.code=source.code
   UNION ALL SELECT u.id,3,0,0,u.code FROM members m JOIN commerce_unavailable_items u ON u.id=m.id) target
  WHERE id<>$2 AND EXISTS (SELECT 1 FROM supplier_items i WHERE i.id=target.id AND i.company=ANY($1::text[]))
+  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=target.id AND h.hidden)
  ORDER BY step,own,supplier_rank,code,id LIMIT 1`;
 /**
  * The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`), and a row the
@@ -87,10 +88,13 @@ export async function getStoreProduct(id: string): Promise<{ product?: CatalogPr
  if (!z.uuid().safeParse(id).success) return {};
  // product_offers is rebuilt by the matching refresh; a primary no longer sold is not followed (it would lead back here).
  const primaryId = (await db.query<{ primary_id: string }>(`SELECT o.primary_id::text FROM product_offers o
-  WHERE o.item_id=$2 AND o.primary_id<>o.item_id AND EXISTS (SELECT 1 FROM commerce_supplier_items c WHERE c.id=o.primary_id AND c.company=ANY($1::text[]))`, [company(), id])).rows[0]?.primary_id;
+  WHERE o.item_id=$2 AND o.primary_id<>o.item_id AND EXISTS (SELECT 1 FROM commerce_supplier_items c WHERE c.id=o.primary_id AND c.company=ANY($1::text[]))
+  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=o.primary_id AND h.hidden)`, [company(), id])).rows[0]?.primary_id;
  if (primaryId) return { primaryId };
  const product = await getStorefrontProduct(id);
  if (product) return { product: (await withBestOffers([product]))[0] };
+ // Hidden by an admin (#575): a 404, not a redirect to another row of the same hidden product (which would lead back here).
+ if ((await db.query("SELECT 1 FROM commerce_item_overrides WHERE supplier_item_id=$1 AND hidden", [id])).rowCount) return {};
  const canonical = (await db.query<{ id: string }>(canonicalSql, [company(), id])).rows[0]?.id;
  return canonical ? { primaryId: canonical } : {};
 }
@@ -168,12 +172,17 @@ export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fi
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await boundedQuery<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
-  UNION SELECT id::text FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
-  UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
+ (await boundedQuery<{id:string}>(`SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
+  UNION SELECT id FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
+  UNION SELECT e.supplier_item_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
+   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])) automatic
+  -- An admin's category (#575) replaces the automatic ones: the product leaves other categories and joins its own.
+  WHERE NOT EXISTS (SELECT 1 FROM product_sources ps JOIN product_overrides o ON o.product_id=ps.product_id
+   WHERE ps.supplier_item_id=automatic.id AND o.category_id IS NOT NULL AND o.category_id<>ALL($2::int[]))
+  UNION SELECT ps.supplier_item_id::text FROM product_overrides o JOIN product_sources ps ON ps.product_id=o.product_id
+   WHERE o.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
 /**
  * `vehicle`: the query named a part and a vehicle ("fren balatası passat"). `fitted` says whether
  * the ids are the parts linked to that vehicle, or (no linked part yet) every match of `productText`.
@@ -196,6 +205,9 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
     CROSS JOIN LATERAL jsonb_each(e.payload->'oemNumbers') refs
     CROSS JOIN LATERAL jsonb_array_elements_text(refs.value) reference(number)
     WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}`);
+ // Rows renamed by an admin are found by the new name (#575).
+ const overridden=overrideItemMatch(parsed,bind,mode);
+ if(overridden)hits.push(overridden);
  return hits.join(" UNION ALL ");
 }
 /** Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. */
@@ -207,8 +219,10 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
   // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
   // A secondary supplier offer counts as a hit of the product listing it.
+  // Rows an admin hid (#575) are not hits.
   return (await db.query<{id:string}>(`SELECT id::text FROM (SELECT DISTINCT COALESCE(o.primary_id,hit.id) AS id FROM (${searchHits(candidate,binder(values),mode)}) hit(id)
-   LEFT JOIN product_offers o ON o.item_id=hit.id LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
+   LEFT JOIN product_offers o ON o.item_id=hit.id
+   WHERE NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=hit.id AND h.hidden) LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};
@@ -368,12 +382,14 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
    SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
-    COALESCE(catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}),
-     catalog_search_rank(COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
-      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(i.product_data->>'ac2',''),${queries})) AS rank
+    -- The stored ranking inputs are the supplier's; a row with an admin-edited name or description ranks the edit (#575).
+    COALESCE(CASE WHEN ov.supplier_item_id IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
+     catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries})) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
     UNION ALL
     SELECT u.*,u.last_seen_at,true FROM commerce_unavailable_items u WHERE ${includeUnavailable} AND u.id=ANY($2::uuid[]) AND u.company=ANY($1::text[])) i
+   LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
    UNION ALL
    SELECT p.id,p.brand,p.updated_at,false,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM store_products p WHERE p.id=ANY($2::uuid[]))
   SELECT (SELECT array_agg(id::text ORDER BY unavailable,rank DESC,updated_at DESC,id) FROM hits) AS ids,
