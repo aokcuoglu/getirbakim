@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
+import { manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
 import { bulkCandidateReasons, isBulkReason } from "../src/modules/admin/product-matching-sql";
 
 // The "Eşleşenler" tab's order must stay the SQL it replaced (#504): ORDER BY <column> ASC|DESC NULLS LAST, then
@@ -38,7 +38,9 @@ test("scope keeps groups by the supplier sold now; none is nothing sold; split a
   assert.deepEqual(ids(entries, { scope: "dinamik" }), ["a"]);
   assert.deepEqual(ids(entries, { scope: "basbug" }), ["b"]);
   assert.deepEqual(ids(entries, { scope: "all" }), ["a", "d", "b", "c"]);
-  assert.equal(sameScope("split"), "split");
+  assert.equal(sameScope("manual"), "manual");
+  // "split" is the manual view's old name; saved links keep working.
+  assert.equal(sameScope("split"), "manual");
   assert.equal(sameScope("none"), "none");
   assert.equal(sameScope(undefined), "all");
   assert.equal(sameScope("everything"), "all");
@@ -60,6 +62,15 @@ test("pages are cut after filtering and sorting; total counts the filtered group
   assert.equal(first.listed[0].primary_id, "p29");
   assert.deepEqual(second.listed.map(item => item.primary_id), ["p4", "p3", "p2", "p1", "p0"]);
   assert.deepEqual(pickSameProducts(entries, { scope: "all", q: "", page: 9, pageSize: 25 }).listed, []);
+});
+
+// "Elle kararlar" search (#523): codes compare compacted, names as db search_normalize writes them.
+test("manual decision search splits into a code and a normalized text", () => {
+  assert.deepEqual(manualSearchTerms("hu 7008-z"), { code: "HU7008Z", text: "hu 7008 z" });
+  assert.deepEqual(manualSearchTerms("Yağ Filtresi"), { code: "YAFILTRESI", text: "yag filtresi" });
+  assert.deepEqual(manualSearchTerms("  "), { code: "", text: "" });
+  assert.deepEqual(manualSearchTerms(undefined), { code: "", text: "" });
+  assert.equal(manualSearchTerms("x".repeat(120)).code.length, 80);
 });
 
 // Suffix differences are mostly other parts (FEBI 100261 vs 1002610, #524): never merged in bulk.
