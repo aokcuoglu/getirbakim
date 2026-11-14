@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
+import { refreshProductMatchesIfDue } from "../src/modules/suppliers/product-match-schedule";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
 // Invoke every 15 minutes. Due scopes choose their own interval (default: once a day).
@@ -48,7 +49,7 @@ try {
       "SELECT 1 FROM supplier_discovery WHERE supplier='dinamik' AND checked_at>now()-interval '1 day'")).rowCount)) {
       try {
         const discovery = await discoverDinamikBrands(pool);
-        console.log({ dinamikBrands: discovery.listed, added: discovery.added.length, disabled: discovery.disabled, invalid: discovery.invalid });
+        console.log({ dinamikBrands: discovery.listed, added: discovery.added.length, reenabled: discovery.reenabled, disabled: discovery.disabled, retired: discovery.retired, invalid: discovery.invalid });
       } catch (error) {
         console.error({ dinamikBrands: "failed", reason: error instanceof DinamikImportError ? error.message : "upstream" });
         process.exitCode = 1;
@@ -131,9 +132,17 @@ try {
         console.log({ searchVocabulary: "refreshed", seconds: Math.round((Date.now() - started) / 1000) });
       } catch (error) { console.error({ searchVocabulary: "failed", code: (error as { code?: string }).code }); }
     }
+    // New brand labels and products reach the master catalog only through this refresh (~1–2 min); scheduled ticks run
+    // it after supplier changes at most every PRODUCT_MATCH_INTERVAL_HOURS. Forced runs (admin refresh) leave it to them.
+    if (!args.force) {
+      const match = await refreshProductMatchesIfDue(worker);
+      if (match.productMatch === "failed") console.error(match);
+      else if (match.productMatch === "refreshed") console.log(match);
+    }
     await worker.query("BEGIN");
     try {
-      console.log({ retention: await pruneSupplierHistory(worker) });
+      console.log({ retention: await pruneSupplierHistory(worker),
+        restockRequests: (await worker.query<{ pruned: unknown }>("SELECT prune_restock_requests() AS pruned")).rows[0].pruned });
       await worker.query("COMMIT");
     } catch (error) { await worker.query("ROLLBACK"); throw error; }
     const alerts = (await worker.query(`SELECT supplier,company,list_group,warehouse,consecutive_failures,last_success_at

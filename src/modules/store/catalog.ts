@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { boundedQuery, db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
@@ -20,10 +20,15 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
  available: boolean; max_quantity: number; stock_label: string; pricing_snapshot: Record<string, unknown>;
  /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
  offer_id?: string; offers?: number;
+ /** No supplier sells the product now (db/storefront-catalog.sql, #475): listed last, without a price, not orderable. */
+ unavailable?: boolean;
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
-const catalogEntriesSql = "SELECT * FROM commerce_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+// The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
+// checkout, partner API and maintenance kits keep reading the saleable catalogSql.
+export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
+const catalogEntriesSql = "SELECT * FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 const company = storefrontCompanies;
 export async function searchProducts(code: string): Promise<CatalogProduct[]> {
  if (!code.trim()) return [];
@@ -38,7 +43,7 @@ export async function getProduct(id: string): Promise<CatalogProduct | undefined
  * the cheapest offer that can be sold now; the primary itself wins ties. Without a sellable offer the row is kept.
  */
 export async function withBestOffers<T extends CatalogProduct>(items: T[]): Promise<T[]> {
- const ids = items.filter(item => item.source === "supplier").map(item => item.id);
+ const ids = items.filter(item => item.source === "supplier" && !item.unavailable).map(item => item.id);
  if (!ids.length) return items;
  const offers = (await db.query<CatalogProduct & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
@@ -53,13 +58,41 @@ export async function withBestOffers<T extends CatalogProduct>(items: T[]): Prom
    pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
  });
 }
-/** The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`). */
+/** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
+export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
+ if (!z.uuid().safeParse(id).success) return undefined;
+ return (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
+}
+/**
+ * Where the store shows a row it does not list itself (an old link): the same supplier code sold from another scope
+ * or list (Dinamik's FALKON → "FALKON - AUTOKIT"), a saleable row of its product group, else the group's or the code's
+ * unavailable card. Product ids are row ids; a merged product follows `merged_into`.
+ */
+const canonicalSql = `WITH source AS (SELECT id,supplier,code FROM supplier_items WHERE id=$2),
+ product AS (SELECT COALESCE(p.merged_into,p.id) AS id FROM products p WHERE p.id=$2
+  UNION SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=$2),
+ members AS (SELECT m.supplier_item_id AS id,m.product_id FROM product_sources m WHERE m.product_id IN (SELECT id FROM product))
+ SELECT id::text FROM (
+  SELECT c.id,0 AS step,0 AS own,storefront_supplier_rank(c.supplier) AS supplier_rank,c.code FROM source JOIN commerce_supplier_items c ON c.supplier=source.supplier AND c.code=source.code
+  UNION ALL SELECT c.id,1,CASE WHEN c.id=m.product_id THEN 0 ELSE 1 END,storefront_supplier_rank(c.supplier),c.code FROM members m JOIN commerce_supplier_items c ON c.id=m.id
+  UNION ALL SELECT u.id,2,0,0,u.code FROM source JOIN commerce_unavailable_items u ON u.supplier=source.supplier AND u.code=source.code
+  UNION ALL SELECT u.id,3,0,0,u.code FROM members m JOIN commerce_unavailable_items u ON u.id=m.id) target
+ WHERE id<>$2 AND EXISTS (SELECT 1 FROM supplier_items i WHERE i.id=target.id AND i.company=ANY($1::text[]))
+ ORDER BY step,own,supplier_rank,code,id LIMIT 1`;
+/**
+ * The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`), and a row the
+ * store does not show (a dropped duplicate, a code sold elsewhere) to the page showing that product instead of a 404.
+ */
 export async function getStoreProduct(id: string): Promise<{ product?: CatalogProduct; primaryId?: string }> {
  if (!z.uuid().safeParse(id).success) return {};
- const primaryId = (await db.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1 AND primary_id<>item_id", [id])).rows[0]?.primary_id;
+ // product_offers is rebuilt by the matching refresh; a primary no longer sold is not followed (it would lead back here).
+ const primaryId = (await db.query<{ primary_id: string }>(`SELECT o.primary_id::text FROM product_offers o
+  WHERE o.item_id=$2 AND o.primary_id<>o.item_id AND EXISTS (SELECT 1 FROM commerce_supplier_items c WHERE c.id=o.primary_id AND c.company=ANY($1::text[]))`, [company(), id])).rows[0]?.primary_id;
  if (primaryId) return { primaryId };
- const product = await getProduct(id);
- return { product: product && (await withBestOffers([product]))[0] };
+ const product = await getStorefrontProduct(id);
+ if (product) return { product: (await withBestOffers([product]))[0] };
+ const canonical = (await db.query<{ id: string }>(canonicalSql, [company(), id])).rows[0]?.id;
+ return canonical ? { primaryId: canonical } : {};
 }
 /** SETA products stating one of this product's (or its grouped offers') OEM numbers or its own number. */
 export async function getSetaEquivalents(id: string) {
@@ -68,6 +101,27 @@ export async function getSetaEquivalents(id: string) {
   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=r.seta_item_id OFFSET 0) priced ON true
   WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)
   ORDER BY priced.id) seta ORDER BY available DESC,price_kurus NULLS LAST,code LIMIT 24`, [company(), id])).rows;
+}
+/**
+ * Equivalents an admin decided (a hand-made link, or a brand pair decided as equivalent: same numbering, another
+ * product) under their master brand's name. `id` is the store row the equivalent is listed under (its own row first,
+ * never a grouped offer's secondary row), null when none is on sale: its code is still a valid reference number.
+ * Automatic OEM/cross equivalents are left out; the page shows them as reference numbers already.
+ */
+export async function getDecidedEquivalents(id: string) {
+ if (!z.uuid().safeParse(id).success) return [];
+ return (await db.query<{ id: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+   COALESCE(b.name,q.brand_label) AS brand, COALESCE(listed.code,q.code) AS code, listed.available
+  FROM product_sources s
+  JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
+  JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
+  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available FROM product_sources o
+   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
+   WHERE o.product_id=q.id
+    AND NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)
+   ORDER BY o.supplier_item_id=q.id DESC, priced.available DESC, o.supplier_item_id LIMIT 1) listed ON true
+  WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48`, [company(), id])).rows
+  .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code));
 }
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
 export function money(kurus: number) { return new Intl.NumberFormat("tr-TR",{ style:"currency", currency:"TRY" }).format(kurus/100); }
@@ -85,12 +139,13 @@ export const categories = [
  * observed in the product's current, trusted enrichment payload. Steps are materialised in order:
  * matching types (through their indexes), their fitments, then each candidate's payload vehicles read
  * once. Joined row by row instead, the multi-kB payload was re-read per fitment: 20 s for "passat",
- * 1-2 min for a make page.
+ * 1-2 min for a make page. Read from the materialized links (#446): the live view, expected as one row,
+ * was nested against a make's 600k fitments and never finished (BMW: minutes, 504 at the CDN).
  */
 async function fittedProductIds(typesSql:string,values:unknown[]){
- return (await db.query<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
+ return (await boundedQuery<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
   fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
-  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
+  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
@@ -98,8 +153,13 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 }
 // Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
 const cachedFitted=staleCache<string[]>(10*60*1000);
-const makeFittedIds=(brandId:number)=>cachedFitted(`make:${brandId}`,()=>fittedProductIds(
- "SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1",[brandId]));
+/**
+ * Products fitting one make, precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455). Matching a
+ * make's fitments to the payloads per read took 20-57 s on RDS for the large makes; the table answers in ms and is
+ * kept current within seconds of a write, so it is not cached here.
+ */
+const makeFittedIds=async(brandId:number)=>(await db.query<{id:string}>(
+ "SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1",[brandId])).rows.map(row=>row.id);
 /** Ids of the products linked to one vehicle type (cached per process). */
 export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
@@ -108,9 +168,9 @@ export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fi
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await db.query<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
+ (await boundedQuery<{id:string}>(`SELECT id::text FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id::text FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
-  UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN product_enrichment_shared e ON e.donor_item_id=pc.supplier_item_id
+  UNION SELECT e.supplier_item_id::text FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
@@ -125,9 +185,11 @@ const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
-  `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`];
+  `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`,
+  // Products no supplier sells now are found too; the listing puts them last (#475).
+  `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)}`];
  // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
- if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM product_enrichment_shared e
+ if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
@@ -217,8 +279,10 @@ async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean
  const correctedParsed=corrected&&parse(corrected.text);
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }
-// Secondary offers of a product sold by several suppliers are reached through the product listing them.
-export const listedOnly="NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=catalog.id AND o.primary_id<>o.item_id)";
+// Secondary offers of a product sold by several suppliers are reached through the product listing them. An unavailable
+// card is never hidden by product_offers, which only the next matching refresh rebuilds. NOT IN is planned as one
+// hashed set; the correlated NOT EXISTS under the OR ran per row (~0.7 s instead of ~0.3 s for a full listing).
+export const listedOnly="(catalog.unavailable OR catalog.id NOT IN (SELECT o.item_id FROM product_offers o WHERE o.primary_id<>o.item_id))";
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
@@ -266,15 +330,16 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM product_enrichment_shared e JOIN supplier_items s ON s.id=e.supplier_item_id
+  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
    AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
    WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
    AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part'))`);
  }
- // In stock: the row or any offer grouped under it can be sold now.
- if(query.availability)clauses.push(query.availability==='in_stock'
+ // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
+ else if(query.availability)clauses.push(query.availability==='in_stock'
   ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${catalogSql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
   :`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
@@ -297,19 +362,21 @@ function filterKey(query:CatalogQuery,context:CatalogContext){
  * the generic path joined the 23k-row id list against the catalog view four times (count, brands,
  * attribute facet, ranked page: ~0.6 s together) for the same answer. Same fields and order as that path.
  */
-async function summarizeSearch(search:CatalogSearch){
+async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  if(!search.ids.length)return {ids:[] as string[],brands:[] as string[]};
  const values:unknown[]=[company(),search.ids],bind=binder(values);
  const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
-   SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.changed_at AS updated_at,
+   SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
     COALESCE(catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}),
      catalog_search_rank(COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
       i.code,COALESCE(i.product_data->>'oe',''),COALESCE(i.product_data->>'ac2',''),${queries})) AS rank
-   FROM commerce_supplier_items i WHERE i.id=ANY($2::uuid[]) AND i.company=ANY($1::text[])
+   FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
+    UNION ALL
+    SELECT u.*,u.last_seen_at,true FROM commerce_unavailable_items u WHERE ${includeUnavailable} AND u.id=ANY($2::uuid[]) AND u.company=ANY($1::text[])) i
    UNION ALL
-   SELECT p.id,p.brand,p.updated_at,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM store_products p WHERE p.id=ANY($2::uuid[]))
-  SELECT (SELECT array_agg(id::text ORDER BY rank DESC,updated_at DESC,id) FROM hits) AS ids,
+   SELECT p.id,p.brand,p.updated_at,false,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM store_products p WHERE p.id=ANY($2::uuid[]))
+  SELECT (SELECT array_agg(id::text ORDER BY unavailable,rank DESC,updated_at DESC,id) FROM hits) AS ids,
    (SELECT array_agg(DISTINCT brand ORDER BY brand) FROM hits) AS brands`,values)).rows[0];
  return {ids:row?.ids??[],brands:row?.brands??[]};
 }
@@ -332,6 +399,17 @@ function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
+/**
+ * The best matches of a search, priced, without the listing's counts and facets (#431). For API consumers that only
+ * need the first results (the BakımX partner API): the facets of a broad search read every match and took 11-20 s
+ * cold, while the ids and their ranking take ~0.2 s. Same ids, order and prices as the first page of a plain search.
+ */
+export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalogPageSize){
+ const {ids}=await summarizeSearch(await catalogSearch(raw,mode),false);
+ const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
+  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,limit)])).rows;
+ return withBestOffers(items);
+}
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
   const mode=query.searchBy==="code"?"code":"all",plain=await plainSearch(query.q!,mode);
@@ -341,7 +419,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const ranked=page<=cachedPages?plain.ids:(await summarizeSearch(await catalogSearch(query.q!,mode))).ids;
   const ids=ranked.slice((page-1)*pageSize,page*pageSize);
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
  const {values,where,from,search}=await catalogFilter(query,context);
@@ -350,7 +428,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
- const order=query.sort === "price-asc" ? "price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "price_kurus DESC NULLS LAST,id" : "updated_at DESC,id";
+ // Products nobody supplies now come after every saleable one, in every order (#475).
+ const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
  const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
  // A search lists the best matches first unless the shopper picked another order.
  const pageValues=[...values],bind=binder(pageValues);
@@ -358,16 +437,16 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const offset=bind((page-1)*pageSize);
  if(!search&&!pricedSort){
   const ids=await cachedPageIds(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
-   `SELECT id::text FROM (SELECT id,updated_at ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
+   `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  const items = (await db.query<CatalogProduct>(pricedSort
-  ? `SELECT * FROM (${catalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offset}`
-  : `WITH page AS MATERIALIZED (SELECT id,updated_at,${rank} AS rank ${from} ORDER BY rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
-     SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
-     ORDER BY page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
+  ? `SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offset}`
+  : `WITH page AS MATERIALIZED (SELECT id,updated_at,unavailable,${rank} AS rank ${from} ORDER BY unavailable,rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
+     SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
+     ORDER BY page.unavailable,page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */
@@ -391,9 +470,9 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
  const products=(await db.query<{id:string;name:string;brand:string;code:string}>(`SELECT id,name,brand,code FROM (
-  SELECT DISTINCT ON (name,brand) id::text,name,brand,code,rank,updated_at FROM (
+  SELECT DISTINCT ON (name,brand) id::text,name,brand,code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
-  ORDER BY name,brand,rank DESC,updated_at DESC,id) best ORDER BY rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
+  ORDER BY name,brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
  return {products:products.map(row=>({kind:"product" as const,...row})),...notes};
 }
 export async function catalogBrands() {
@@ -432,7 +511,7 @@ async function attributeFacets(brands:string[],values:unknown[],scopedSql:string
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
  const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql})
  SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values
- FROM scoped JOIN product_enrichment_shared e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
+ FROM scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec

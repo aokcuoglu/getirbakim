@@ -1,25 +1,25 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ExternalLink, History, TriangleAlert } from "lucide-react";
 import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
+import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
 import { supplierFieldChanges, type SupplierChange } from "@/modules/admin/supplier-changes";
 import { dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { formatExact, formatTimestamp } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 
-export const supplierDate = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-export const supplierNumber = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 }).format(value);
 const changeKinds: Record<string, string> = { added: "Yeni ürün", changed: "Veri değişti", missing: "Listede bulunamadı", inactive: "Pasife alındı", restored: "Geri geldi" };
 const fieldNames: Record<string, string> = {
   product: "Ürün", price: "Fiyat", stock: "Stok", presence: "Liste durumu", conflicting: "Çelişki", variants: "Kaynak varyantları", stockListPrice: "Stok listesi fiyatı",
@@ -34,11 +34,11 @@ const fieldNames: Record<string, string> = {
 };
 
 export function Timestamp({ value }: { value: Date }) {
-  return <time dateTime={value.toISOString()} className="tabular-nums">{supplierDate(value)}</time>;
+  return <time dateTime={value.toISOString()} className="tabular-nums">{formatTimestamp(value)}</time>;
 }
 
 export function Fields({ values, numeric = [] }: { values: Record<string, ReactNode>; numeric?: string[] }) {
-  return <Table><TableBody>{Object.entries(values).map(([key, value]) => <TableRow key={key}>
+  return <Table controls={false}><TableBody>{Object.entries(values).map(([key, value]) => <TableRow key={key}>
     <TableHead scope="row" className="w-2/5 whitespace-normal wrap-anywhere text-muted-foreground">{key}</TableHead>
     <TableCell className={cn("whitespace-normal wrap-anywhere tabular-nums", numeric.includes(key) && "text-right")}>{value === null || value === undefined || value === "" ? "—" : value}</TableCell>
   </TableRow>)}</TableBody></Table>;
@@ -49,43 +49,38 @@ function ChangeValue({ value, path, currency }: { value: unknown; path: string[]
   if (value === null) return <span className="text-muted-foreground">Boş</span>;
   if (value === "") return <span className="text-muted-foreground">Boş metin</span>;
   if (path.at(-1) === "presence" && typeof value === "string") return ({ present: "Güncel listede var", pending_missing: "Son listede bulunamadı", inactive: "Pasif" } as Record<string, string>)[value] ?? value;
-  if (typeof value === "number") return <span className="block text-right tabular-nums">{["fiyat", "nf", "stockListPrice"].includes(path.at(-1) ?? "") ? sourceMoney(value, currency) : supplierNumber(value)}</span>;
+  if (typeof value === "number") return <span className="block text-right tabular-nums">{["fiyat", "nf", "stockListPrice"].includes(path.at(-1) ?? "") ? sourceMoney(value, currency) : formatExact(value)}</span>;
   if (typeof value === "boolean") return value ? "Evet" : "Hayır";
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function statusBadge(tone: "success" | "warning" | "destructive" | "info" | "neutral", text: string) {
-  return <Badge variant={tone === "neutral" ? "outline" : tone}>
-    {tone === "success" ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : tone === "warning" ? <TriangleAlert data-icon="inline-start" aria-hidden="true"/> : tone === "info" ? <Info data-icon="inline-start" aria-hidden="true"/> : tone === "destructive" ? <CircleAlert data-icon="inline-start" aria-hidden="true"/> : null}{text}
-  </Badge>;
-}
-export function SourceJson({ label, value }: { label: string; value: unknown }) {
-  return <Accordion className="rounded-lg border">
-    <AccordionItem value="source" className="px-4">
+function SourceJson({ label, value }: { label: string; value: unknown }) {
+  return <Card size="sm" className="py-0"><CardContent><Accordion>
+    <AccordionItem value="source">
       <AccordionTrigger>{label}</AccordionTrigger>
       <AccordionContent><Textarea readOnly aria-label={label} className="max-h-80 font-mono" value={JSON.stringify(value, null, 2)}/></AccordionContent>
     </AccordionItem>
-  </Accordion>;
+  </Accordion></CardContent></Card>;
 }
 export function sourceMoney(value: number, currency = "TRY") {
-  return currency === "TRY" || currency === "TL" ? money(Math.round(value * 100)) : `${supplierNumber(value)} ${currency || "Para birimi belirtilmemiş"}`;
+  return currency === "TRY" || currency === "TL" ? money(Math.round(value * 100)) : `${formatExact(value)} ${currency || "Para birimi belirtilmemiş"}`;
 }
 function historyCurrency(data: Record<string, unknown> | null, fallback: string) {
   const product = data?.product as Record<string, unknown> | undefined;
   return typeof product?.dc === "string" ? product.dc : fallback;
 }
-export function SupplierHistory({ changes, currency = "TRY" }: { changes: SupplierChange[]; currency?: string }) {
+function SupplierHistory({ changes, currency = "TRY" }: { changes: SupplierChange[]; currency?: string }) {
   return <Card>
     <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle><CardDescription>Son 90 gün içindeki en son 20 kayıt. Önce yalnız değişen alanlar gösterilir; ham kayıtlar ayrıntılarda korunur.</CardDescription></CardHeader>
     <CardContent>
-      {changes.length ? <Accordion multiple className="rounded-lg border">{changes.map(change => {
+      {changes.length ? <Card size="sm" className="py-0"><CardContent><Accordion multiple>{changes.map(change => {
         const fields = supplierFieldChanges(change.before_data, change.after_data);
-        return <AccordionItem key={change.id} value={change.id} className="border-b px-4 last:border-b-0">
+        return <AccordionItem key={change.id} value={change.id}>
           <AccordionTrigger className="items-center">
-            <span className="flex flex-wrap items-center gap-2"><Timestamp value={change.changed_at}/>{statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind] ?? change.kind)}</span>
+            <span className="flex flex-wrap items-center gap-2"><Timestamp value={change.changed_at}/><StatusBadge tone={change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning"}>{changeKinds[change.kind] ?? change.kind}</StatusBadge></span>
           </AccordionTrigger>
           <AccordionContent className="flex min-w-0 flex-col gap-4">
-            {fields.length ? <Table aria-label={`${supplierDate(change.changed_at)} değişen alanlar`}>
+            {fields.length ? <Table controls={false} aria-label={`${formatTimestamp(change.changed_at)} değişen alanlar`}>
                 <TableHeader><TableRow><TableHead className="w-2/5">Alan</TableHead><TableHead>Önce</TableHead><TableHead>Sonra</TableHead></TableRow></TableHeader>
                 <TableBody>{fields.map(field => <TableRow key={JSON.stringify(field.path)}>
                   <TableHead scope="row" className="whitespace-normal wrap-anywhere">{field.path.map(key => fieldNames[key] ?? key).join(" · ") || "Kayıt"}</TableHead>
@@ -96,76 +91,143 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
             <SourceJson label="Ham geçmiş kaydı" value={{ önce: change.before_data, sonra: change.after_data }}/>
           </AccordionContent>
         </AccordionItem>;
-      })}</Accordion> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
+      })}</Accordion></CardContent></Card> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
     </CardContent>
   </Card>;
 }
 export function SupplierStocks({ stocks }: { stocks: { label: string; available: boolean | null; note?: string }[] }) {
   const notes = stocks.some(stock => stock.note);
-  return <Table>
+  return <Table controls={false}>
     <TableHeader><TableRow><TableHead className="w-2/5">Depo</TableHead><TableHead>Stok</TableHead>{notes && <TableHead>Yolda</TableHead>}</TableRow></TableHeader>
     <TableBody>{stocks.map(stock => <TableRow key={stock.label}>
       <TableHead scope="row" className="whitespace-normal wrap-anywhere text-muted-foreground">{stock.label}</TableHead>
-      <TableCell><Badge variant={stock.available === null ? "warning" : stock.available ? "success" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge></TableCell>
+      <TableCell><StatusBadge tone={stock.available === null ? "warning" : stock.available ? "success" : "neutral"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</StatusBadge></TableCell>
       {notes && <TableCell className="whitespace-normal text-muted-foreground">{stock.note ?? "—"}</TableCell>}
     </TableRow>)}</TableBody>
   </Table>;
+}
+const variantGroups: Record<string, string> = { products: "Ürün listesi", prices: "Fiyat listesi", stocks: "Stok listesi" };
+const variantFields: Record<string, string> = { stokKodu: "Stok kodu", no: "Kod", fiyat: "Fiyat", nf: "Net fiyat", lf: "Liste fiyatı", price: "Fiyat",
+  stok: "Stok", ac: "Ürün adı", ac2: "İkinci ad", ingilizceAdi: "İngilizce ad", stokAdi: "Ürün adı", marka: "Marka", uk: "Marka", kampanyaOrani: "Kampanya oranı" };
+// Padding is what usually tells two rows of the same code apart ("X" / "X  "), so text with it is shown quoted.
+const variantValue = (value: unknown) => typeof value === "number" ? new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 }).format(value)
+  : typeof value === "string" ? (value !== value.trim() || !value ? JSON.stringify(value) : value)
+  : value === null || value === undefined ? "—" : JSON.stringify(value);
+/** The rows a supplier sent for one code that disagree, with only the fields that differ between them. */
+function SupplierVariantRows({ variants }: { variants: unknown }) {
+  if (!variants || typeof variants !== "object") return null;
+  const source = variants as Record<string, unknown>;
+  const groups = Object.entries(source).filter((entry): entry is [string, Record<string, unknown>[]] =>
+    Array.isArray(entry[1]) && entry[1].length > 1 && entry[1].every(row => row && typeof row === "object"));
+  const stockListPrice = typeof source.stockListPrice === "number" ? source.stockListPrice : null;
+  // Dinamik: the row written exactly (no padding in stokKodu) is the supplier's record and was used.
+  const usedExact = source.usedExactCode === true;
+  const isUsed = (row: Record<string, unknown>) => usedExact && typeof row.stokKodu === "string" && row.stokKodu === row.stokKodu.trim();
+  if (!groups.length && stockListPrice === null) return null;
+  return <div className="flex min-w-0 flex-col gap-4">
+    {groups.map(([group, rows]) => {
+      const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].filter(key => key !== "$type"
+        && new Set(rows.map(row => JSON.stringify(row[key] ?? null))).size > 1);
+      return <div key={group} className="flex min-w-0 flex-col gap-2">
+        <h3 className="font-medium">Çakışan satırlar · {variantGroups[group] ?? group}</h3>
+        <p className="text-muted-foreground">Tedarikçi bu kod için {rows.length} farklı satır gönderdi. Yalnız birbirinden farklı alanlar gösteriliyor. {usedExact
+          ? "Kodu tam yazılan satır tedarikçinin asıl kaydı (sipariş bu kodla verilir) olduğu için kullanıldı; sonunda boşluk olan satır yok sayıldı."
+          : "Hangisinin doğru olduğu belirsiz olduğu için ürün satışa açılmaz."}</p>
+        <Table controls={false}>
+          <TableHeader><TableRow><TableHead>Satır</TableHead>{keys.map(key => <TableHead key={key}>{variantFields[key] ?? key}</TableHead>)}{usedExact && <TableHead>Durum</TableHead>}</TableRow></TableHeader>
+          <TableBody>{rows.map((row, index) => <TableRow key={index}>
+            <TableCell className="tabular-nums">{index + 1}</TableCell>
+            {keys.map(key => <TableCell key={key} className="whitespace-pre font-mono tabular-nums">{variantValue(row[key])}</TableCell>)}
+            {usedExact && <TableCell>{isUsed(row) ? <StatusBadge tone="success">Kullanılan</StatusBadge> : <StatusBadge tone="neutral">Yok sayıldı</StatusBadge>}</TableCell>}
+          </TableRow>)}</TableBody>
+        </Table>
+      </div>;
+    })}
+    {stockListPrice !== null && <p className="text-muted-foreground">Stok listesindeki fiyat: <span className="font-mono tabular-nums">{variantValue(stockListPrice)}</span> (fiyat listesinden farklı).</p>}
+  </div>;
 }
 type DetailItem = {
   id: string; code: string; presence: string; conflicting: boolean; last_seen_at: Date;
   product_data: unknown; price_data: unknown; stock_data: unknown; source_variants: unknown; changes: SupplierChange[];
 };
-export function SupplierProductDetail({ item, supplier, listHref, description, sale, pricing, cost, sourcePriceLabel = "Kaynak liste fiyatı", noSaleMessage, productInfo, stockInfo, dataInfo }: {
+/**
+ * A supplier product's page body. The same body opens in a dialog over the supplier list (`modal`, the
+ * @modal/(.)urun/[id] intercepting route) and as its own page on a direct visit or reload.
+ */
+export function SupplierProductDetail({ item, supplier, listHref, description, sale, pricing, cost, sourcePriceLabel = "Kaynak liste fiyatı", noSaleMessage, productInfo, stockInfo, dataInfo, notice, cart, modal = false }: {
   item: DetailItem; supplier: string; listHref: string; description: ReactNode; sale: CatalogProduct | undefined; pricing: ProductPricing;
   cost: number | null; sourcePriceLabel?: string; noSaleMessage?: string; productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode;
+  /** Alerts shown under the title (e.g. a save result). */
+  notice?: ReactNode;
+  /** Product name for the add-to-cart form; without it the product has no cart form here. */
+  cart?: string;
+  /** Rendered inside the list's dialog: the dialog header replaces the page title. */
+  modal?: boolean;
 }) {
   const snapshot = sale?.pricing_snapshot.checkout_mode === "snapshot";
   const presence = item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Son listede bulunamadı";
   const saleState = sale?.available && sale.price_kurus ? snapshot ? "Teyit bekliyor" : "Satışa açık" : item.conflicting ? "İnceleme gerekli" : item.presence !== "present" || noSaleMessage ? "Satışa kapalı" : !sale?.price_kurus ? "Hazırlıkta" : "Satışa kapalı";
+  const body = <SupplierProductBody item={item} sale={sale} pricing={pricing} cost={cost} sourcePriceLabel={sourcePriceLabel} noSaleMessage={noSaleMessage}
+    productInfo={productInfo} stockInfo={stockInfo} dataInfo={dataInfo} cart={cart} presence={presence} saleState={saleState}/>;
+  // In the dialog the header stays put (with the close button) and only the body scrolls; the cards keep their content height (shrink-0) instead of being squeezed to the dialog height.
+  if (modal) return <>
+    <DialogHeader>
+      <DialogTitle tabIndex={-1} className="wrap-anywhere pr-8 font-mono">{item.code}</DialogTitle>
+      <DialogDescription className="wrap-anywhere">{supplier} · {description}</DialogDescription>
+    </DialogHeader>
+    <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto *:shrink-0">{notice}{body}</div>
+  </>;
   return <div className="flex min-w-0 flex-col gap-6">
-    <div className="flex min-w-0 flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href={listHref}/>}>{supplier}</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem className="min-w-0"><BreadcrumbPage className="wrap-anywhere">{item.code}</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0"><h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1><p className="wrap-anywhere text-muted-foreground">{description}</p></div>
-        <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1>
+        <p className="wrap-anywhere text-muted-foreground">{description}</p>
       </div>
+      <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
     </div>
+    {notice}
+    {body}
+  </div>;
+}
+
+function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSaleMessage, productInfo, stockInfo, dataInfo, cart, presence, saleState }: {
+  item: DetailItem; sale: CatalogProduct | undefined; pricing: ProductPricing; cost: number | null; sourcePriceLabel: string; noSaleMessage?: string;
+  productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode; cart?: string; presence: string; saleState: string;
+}) {
+  return <>
     <Card role="region" aria-label="Fiyat ve satış durumu">
       <CardHeader>
         <CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle>
-        <CardAction className="flex flex-wrap gap-2">
-          <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing}/>
-          {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
-        </CardAction>
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-wrap gap-2">
+          <ProductPricingDialog id={item.id} code={item.code} cost={cost} pricing={pricing}/>
+          {sale && <Button nativeButton={false} render={<Link href={`/urun/${sale.id}`}/>}>Katalogda aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+        </div>
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
-          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "destructive", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
+          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{<StatusBadge tone={saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "error"}>{saleState}</StatusBadge>}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
         </div>
-        <p className="text-muted-foreground tabular-nums">Kâr %{supplierNumber(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{supplierNumber(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
+        {cart !== undefined && <AdminAddToCart productId={item.id} name={cart} available={Boolean(sale?.available && sale.price_kurus)}/>}
+        <p className="text-muted-foreground tabular-nums">Kâr %{formatExact(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{formatExact(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
         <Separator/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground">
-          {statusBadge(item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning", presence)}<span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
+          <StatusBadge tone={item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning"}>{presence}</StatusBadge><span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
         </div>
       </CardContent>
     </Card>
-    {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Aynı ürün kodu için çelişkili değerler bulundu. Farklı yanıtları veri kontrolü bölümünde inceleyebilirsiniz.</AlertDescription></Alert>}
+    {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Tedarikçi bu kod için birbirini tutmayan satırlar gönderdi (ör. farklı fiyat); ürün satışa kapalı. Satırlar aşağıdaki “Veri kontrolü” bölümünde.</AlertDescription></Alert>}
     <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">{productInfo}{stockInfo}</div>
     <SupplierHistory changes={item.changes} currency={pricing.currency ?? "TRY"}/>
     <Card>
       <CardHeader><CardTitle><h2>Veri kontrolü</h2></CardTitle><CardDescription>Kaynak tarihler, fiyat karşılaştırması ve ham API alanları.</CardDescription></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
-        <div>{statusBadge(item.conflicting ? "warning" : "neutral", item.conflicting ? "İnceleme gerekli" : "Çelişki bulunmadı")}</div>
+        <div><StatusBadge tone={item.conflicting ? "warning" : "neutral"}>{item.conflicting ? "İnceleme gerekli" : "Çelişki bulunmadı"}</StatusBadge></div>
+        <SupplierVariantRows variants={item.source_variants}/>
         {dataInfo}
         <SourceJson label="Kaynak alanlarını göster" value={{ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }}/>
       </CardContent>
     </Card>
-  </div>;
+  </>;
 }

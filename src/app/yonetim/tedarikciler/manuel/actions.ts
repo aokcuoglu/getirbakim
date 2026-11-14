@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, RedirectType } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
@@ -84,7 +84,7 @@ export async function saveManualItem(form: FormData) {
   const stock = parseDecimal(text(form, "stock", 40));
   const image = imageLink(text(form, "imageUrl", 2000));
   if (price === "invalid" || stock === "invalid" || (typeof stock === "number" && !Number.isInteger(stock)) || image.ignored)
-    redirect(`${back}?error=input`);
+    redirect(`${back}?error=input`, RedirectType.replace);
   let error = "", detail = "";
   try {
     await updateManualItem(db, id.data, {
@@ -99,5 +99,7 @@ export async function saveManualItem(form: FormData) {
   }
   revalidatePath(base);
   revalidatePath(back);
-  redirect(`${back}?${new URLSearchParams(error ? { error, ...(detail ? { detail } : {}) } : { saved: "1" })}`);
+  // Replace, not push: in the list's product dialog a pushed entry would make closing (router.back) land on the
+  // unsaved product URL with the dialog gone.
+  redirect(`${back}?${new URLSearchParams(error ? { error, ...(detail ? { detail } : {}) } : { saved: "1" })}`, RedirectType.replace);
 }

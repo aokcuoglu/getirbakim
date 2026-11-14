@@ -38,11 +38,11 @@ try {
  }
  for(const route of ['/yonetim/fiyatlandirma','/yonetim/servisler','/yonetim/siparisler']) {assert.equal((await get(route,adminCookie)).res.status,200);assert.equal((await get(route)).res.status,307);}
  const originalMode=(await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode;
- const sourcePage=await get('/yonetim/tedarikciler/basbug',adminCookie);assert.equal(sourcePage.res.status,200);
+ const sourcePage=await get('/yonetim/fiyatlandirma',adminCookie);assert.equal(sourcePage.res.status,200);
  const source=fields(sourcePage.html,'checkoutMode');source.set('checkoutMode',originalMode==='snapshot'?'live':'snapshot');
- assert.equal((await post('/yonetim/tedarikciler/basbug',source)).status,303);
+ assert.equal((await post('/yonetim/fiyatlandirma',source)).status,303);
  assert.equal((await db.query('SELECT basbug_checkout_mode FROM commerce_settings')).rows[0].basbug_checkout_mode,originalMode);
- source.set('checkoutMode','invalid');assert.ok((await post('/yonetim/tedarikciler/basbug',source,adminCookie)).headers.get('location')?.includes('error=mode'));
+ source.set('checkoutMode','invalid');assert.ok((await post('/yonetim/fiyatlandirma',source,adminCookie)).headers.get('location')?.includes('error=mode'));
  const pricing=await get('/yonetim/fiyatlandirma',adminCookie);const badPricing=fields(pricing.html,'markup');badPricing.set('markup','-1');badPricing.set('vat','20');badPricing.set('age','36');
  const rejected=await post('/yonetim/fiyatlandirma',badPricing,adminCookie);assert.ok(rejected.headers.get('location')?.includes('error=1'));
  const services=await get('/yonetim/servisler',adminCookie);const service=fields(services.html,'id');service.set('id',accountId);service.set('discount','15');service.set('approved','true');assert.equal((await post('/yonetim/servisler',service)).status,303);

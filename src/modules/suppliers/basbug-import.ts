@@ -38,6 +38,19 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
+const empty = (value: unknown) => value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+
+/** Two rows agree when no field has two different non-empty values; one side merely leaving a field blank is not a conflict. */
+export function compatibleRows(a: Record<string, unknown>, b: Record<string, unknown>) {
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(field => empty(a[field]) || empty(b[field]) || canonical(a[field]) === canonical(b[field]));
+}
+
+function fillEmpty<T extends Record<string, unknown>>(target: T, source: T): T {
+  const merged: Record<string, unknown> = { ...target };
+  for (const [field, value] of Object.entries(source)) if (empty(merged[field]) && !empty(value)) merged[field] = value;
+  return merged as T;
+}
+
 function indexRows<T extends { no: string }>(rows: T[]) {
   const map = new Map<string, { value: T; count: number; conflicting: boolean; variants: T[]; keys: Set<string> }>();
   for (const value of rows) {
@@ -45,9 +58,12 @@ function indexRows<T extends { no: string }>(rows: T[]) {
     const key = canonical(value);
     if (previous) {
       previous.count++;
-      if (!previous.keys.has(key)) {
-        previous.keys.add(key); previous.variants.push(value); previous.conflicting = true;
-      }
+      if (previous.keys.has(key)) continue;
+      previous.keys.add(key); previous.variants.push(value);
+      // FILT AP 026/5 came twice, once with ac2 empty: the rows describe the same product, so their filled fields merge.
+      if (!previous.conflicting && compatibleRows(previous.value as Record<string, unknown>, value as Record<string, unknown>))
+        previous.value = fillEmpty(previous.value as Record<string, unknown>, value as Record<string, unknown>) as T;
+      else previous.conflicting = true;
     } else map.set(value.no, { value, count: 1, conflicting: false, variants: [value], keys: new Set([key]) });
   }
   return map;

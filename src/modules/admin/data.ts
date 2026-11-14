@@ -1,9 +1,14 @@
 import "server-only";
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { sortOrder } from "@/lib/table-sort";
-import { setaCompany } from "@/modules/suppliers/storefront-sources";
+import { pickKey, sortOrder } from "@/lib/table-sort";
+import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sources";
+import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
+import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import { restockDueCount } from "./restock";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -17,13 +22,11 @@ type CurrencySnapshot = {
 
 const serviceColumns = "id,name,email,approved,discount_percent,contact_name,phone,city";
 
+/** Service applications waiting for approval (the dashboard list). */
 export async function adminOverview() {
   await requireAdmin();
-  const [counts, accounts] = await Promise.all([
-    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM store_products) as products"),
-    db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY approved,name`),
-  ]);
-  return { counts: counts.rows[0], accounts: accounts.rows };
+  const accounts = await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' AND NOT approved ORDER BY name`);
+  return { accounts: accounts.rows };
 }
 
 export async function adminServiceAccounts() {
@@ -41,7 +44,7 @@ export async function adminPricing() {
   return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [] };
 }
 
-export type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
 
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
@@ -60,7 +63,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
-  const filter: OrderFilter = rawFilter && rawFilter in orderFilters ? rawFilter as OrderFilter : "all";
+  const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] }>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
@@ -73,19 +76,40 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */
+// Master brands with a supplier label placed automatically (a new label or brand) and not yet reviewed.
+const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_brands WHERE method='auto'";
 export async function adminNavCounts() {
   await requireAdmin();
-  const { rows } = await db.query<{ orders: number; services: number; enrichment: number }>(`SELECT
+  const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
     (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
-    (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment`);
-  return rows[0];
+    (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
+    (${pendingBrandsSql}) AS brands`), restockDueCount()]);
+  return { ...rows[0], restock };
 }
 
-export type DashboardDay = { day: string; orders: number; revenue_kurus: number };
+type DashboardDay = { day: string; orders: number };
+// Admin-wide figures that walk a large table and move slowly (no per-user content). Reused for up to a minute;
+// after that the next request waits for a fresh read, so a long-idle panel never shows day-old numbers.
+function ttlMemo<T>(ttlMs: number, load: () => Promise<T>) {
+  let cached: { value: Promise<T>; at: number } | null = null;
+  return () => {
+    if (cached && Date.now() - cached.at <= ttlMs) return cached.value;
+    const entry = { value: load(), at: Date.now() };
+    cached = entry;
+    // A failed read is not reused: the next request tries again.
+    entry.value.catch(() => { if (cached === entry) cached = null; });
+    return entry.value;
+  };
+}
+const basbugPresentItems = ttlMemo(60_000, async () =>
+  (await db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'")).rows[0]);
+const enrichmentStatusCounts = ttlMemo(60_000, async () =>
+  (await db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status")).rows);
+
 export async function adminDashboard() {
   await requireAdmin();
-  const [orders, days, recent, catalog, enrichment, imports, succeeded] = await Promise.all([
+  const [orders, days, recent, catalog, enrichment, imports, brands] = await Promise.all([
     db.query<{ action: number; shipping: number; refund: number; awaiting_payment: number; revenue_30d: string; paid_30d: number; revenue_prev_30d: string }>(`SELECT
       count(*) FILTER (WHERE ${orderFilters.action.where})::int AS action,
       count(*) FILTER (WHERE ${orderFilters.shipping.where})::int AS shipping,
@@ -95,22 +119,24 @@ export async function adminDashboard() {
       count(*) FILTER (WHERE paid_at>=now()-interval '30 days' AND payment_status='paid')::int AS paid_30d,
       COALESCE(sum(total_kurus) FILTER (WHERE paid_at>=now()-interval '60 days' AND paid_at<now()-interval '30 days' AND payment_status='paid'),0) AS revenue_prev_30d
       FROM commerce_orders o`),
-    db.query<DashboardDay>(`SELECT to_char(d,'YYYY-MM-DD') AS day,count(o.id)::int AS orders,
-      COALESCE(sum(o.total_kurus) FILTER (WHERE o.payment_status='paid'),0)::bigint::float8 AS revenue_kurus
-      FROM generate_series((now() AT TIME ZONE 'Europe/Istanbul')::date-13,(now() AT TIME ZONE 'Europe/Istanbul')::date,interval '1 day') d
-      LEFT JOIN commerce_orders o ON (o.created_at AT TIME ZONE 'Europe/Istanbul')::date=d::date GROUP BY d ORDER BY d`),
+    // An Istanbul calendar day as a created_at range, so commerce_orders_created_idx is used instead of a full scan.
+    db.query<DashboardDay>(`SELECT to_char(d.day,'YYYY-MM-DD') AS day,count(o.id)::int AS orders
+      FROM (SELECT (now() AT TIME ZONE 'Europe/Istanbul')::date-n AS day FROM generate_series(13,0,-1) n) d
+      LEFT JOIN commerce_orders o ON o.created_at>=d.day::timestamp AT TIME ZONE 'Europe/Istanbul' AND o.created_at<(d.day+1)::timestamp AT TIME ZONE 'Europe/Istanbul'
+      GROUP BY d.day ORDER BY d.day`),
     db.query<Pick<CommerceOrder, "id" | "number" | "customer_name" | "total_kurus" | "status" | "payment_status" | "created_at">>(
       "SELECT id,number,customer_name,total_kurus,status,payment_status,created_at FROM commerce_orders ORDER BY created_at DESC,id DESC LIMIT 6"),
-    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'"),
-    db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status"),
+    basbugPresentItems(),
+    enrichmentStatusCounts(),
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
-    db.query<{ completed_at: Date }>("SELECT completed_at FROM supplier_imports WHERE supplier='basbug' AND status='succeeded' ORDER BY completed_at DESC LIMIT 1"),
+    db.query<{ pending: number; fresh: number }>(`SELECT (${pendingBrandsSql}) AS pending,
+      (SELECT count(*)::int FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b) AS fresh`),
   ]);
-  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog: catalog.rows[0], enrichment: enrichment.rows, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null };
+  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog, enrichment, lastImport: imports.rows[0] ?? null, brands: brands.rows[0] };
 }
 
-export type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
+type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
 /** Compatibility level at checkout against returns, for orders that were not cancelled. */
 export async function fitmentReturnReport() {
   await requireAdmin();
@@ -124,60 +150,124 @@ export async function fitmentReturnReport() {
   )).rows;
 }
 
-export type OrderReturn = { id: string; product_id: string; quantity: number; reason: string; note: string; created_at: Date };
+type OrderReturn = { id: string; product_id: string; quantity: number; reason: string; note: string; created_at: Date };
 export async function orderReturns(orderId: string) {
   await requireAdmin();
   return (await db.query<OrderReturn>("SELECT id,product_id,quantity,reason,note,created_at FROM commerce_returns WHERE order_id=$1 ORDER BY created_at", [orderId])).rows;
 }
 
 /** Light-weight Başbuğ figures for the integrations overview; the full browser lives in modules/admin/basbug.ts. */
-export async function adminSupplierOverview() {
-  await requireAdmin();
-  const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [items, runs, last] = await Promise.all([
-    db.query<{ present: number; groups: number; conflicting: number }>(
-      "SELECT count(*) FILTER (WHERE presence='present')::int AS present,count(DISTINCT list_group)::int AS groups,count(*) FILTER (WHERE conflicting)::int AS conflicting FROM supplier_items WHERE supplier='basbug' AND company=$1", [company]),
-    db.query<{ total: number; failed: number }>(
-      "SELECT count(*)::int AS total,count(*) FILTER (WHERE status IN ('failed','rejected'))::int AS failed FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND started_at>now()-interval '24 hours'", [company]),
-    db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
-      "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' AND company=$1 ORDER BY started_at DESC LIMIT 1", [company]),
-  ]);
-  return { items: items.rows[0], runs: runs.rows[0], last: last.rows[0] ?? null };
-}
-
-export type DinamikRun = { list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number } };
+type DinamikRun = { id: string; run_kind: string; warehouse: string; review_note: string | null; list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number; missingPrices?: number; duplicateCodes?: number; conflictingCodes?: number; stockRows?: number; priceRows?: number } };
 /** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
 export async function adminDinamikOverview() {
   await requireAdmin();
-  const [items, scopes, runs, recent, failing, discovery] = await Promise.all([
-    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
-      count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
-      count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
-      FROM supplier_items WHERE supplier='dinamik' AND presence='present'`),
+  const [items, scopes, runs, recent, lastSucceeded, failing, discovery] = await Promise.all([
+    // Brands are counted as groups of one hash aggregate: count(DISTINCT) sorted ~940k rows on disk (#502). Scope rows are
+    // not a substitute, they include brands that have no current item.
+    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT COALESCE(sum(present),0)::int AS present,
+      COALESCE(sum(available),0)::int AS available,COALESCE(sum(priced),0)::int AS priced,COALESCE(sum(conflicting),0)::int AS conflicting,count(*)::int AS brands
+      FROM (SELECT list_group,count(*) AS present,count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%') AS available,
+        count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL) AS priced,count(*) FILTER (WHERE conflicting) AS conflicting
+        FROM supplier_items WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND presence='present' GROUP BY list_group) brands`,
+      [DINAMIK_COMPANY, DINAMIK_WAREHOUSE]),
     db.query<{ enabled: number; synced: number; failing: number; due: number; last_success: Date | null; oldest_success: Date | null }>(`SELECT count(*) FILTER (WHERE enabled)::int AS enabled,
       count(*) FILTER (WHERE enabled AND last_success_at IS NOT NULL)::int AS synced,count(*) FILTER (WHERE enabled AND consecutive_failures>0)::int AS failing,
       count(*) FILTER (WHERE enabled AND next_run_at<=now())::int AS due,max(last_success_at) AS last_success,min(last_success_at) FILTER (WHERE enabled) AS oldest_success
       FROM supplier_sync_scopes WHERE supplier='dinamik'`),
     db.query<{ total: number; failed: number }>(`SELECT count(*)::int AS total,count(*) FILTER (WHERE status IN ('failed','rejected'))::int AS failed
       FROM supplier_imports WHERE supplier='dinamik' AND started_at>now()-interval '24 hours'`),
-    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
-      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT 12`),
+    db.query<DinamikRun>(`SELECT id,run_kind,warehouse,review_note,list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT $1`, [supplierRunHistoryLimit]),
+    db.query<DinamikRun>(`SELECT id,run_kind,warehouse,review_note,list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1`),
     db.query<{ list_group: string; consecutive_failures: number; next_run_at: Date; error_reason: string | null }>(`SELECT s.list_group,s.consecutive_failures,s.next_run_at,r.error_reason
       FROM supplier_sync_scopes s LEFT JOIN LATERAL (SELECT error_reason FROM supplier_imports i WHERE i.supplier=s.supplier AND i.company=s.company
         AND i.list_group=s.list_group AND i.warehouse=s.warehouse ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
       WHERE s.supplier='dinamik' AND s.enabled AND s.consecutive_failures>0 ORDER BY s.consecutive_failures DESC,s.list_group LIMIT 20`),
     db.query<{ checked_at: Date; listed: number }>("SELECT checked_at,listed FROM supplier_discovery WHERE supplier='dinamik'"),
   ]);
-  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, failing: failing.rows, discovery: discovery.rows[0] ?? null };
+  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, lastSucceeded: lastSucceeded.rows[0] ?? null, failing: failing.rows, discovery: discovery.rows[0] ?? null };
 }
 
-export async function adminSetaOverview() {
+const supplierFeedCompanies = (): Record<FeedSupplier, string> => ({ basbug: process.env.BASBUG_FIRMA_ADI || "BASBUG", dinamik: DINAMIK_COMPANY, seta: setaCompany });
+
+/** Freshness of each API feed, evaluated without the scheduler (sidebar, dashboard and supplier pages share it). */
+export const adminSupplierFeedStatus = cache(async () => {
   await requireAdmin();
-  const [items, last] = await Promise.all([
-    db.query<{ present: number; saleable: number }>(`SELECT count(*) FILTER (WHERE i.presence='present')::int AS present,
-      count(c.id) FILTER (WHERE c.available AND c.price_kurus IS NOT NULL)::int AS saleable
-      FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id WHERE i.supplier='seta' AND i.company=$1`, [setaCompany]),
-    db.query<{ status: string; started_at: Date }>("SELECT status,started_at FROM supplier_imports WHERE supplier='seta' AND company=$1 ORDER BY started_at DESC LIMIT 1", [setaCompany]),
+  const scopes = await supplierFeedScopes(db, supplierFeedCompanies());
+  const now = new Date();
+  return {
+    basbug: evaluateFeed(scopes.basbug, now, Boolean(process.env.BASBUG_BASE_URL)),
+    dinamik: evaluateFeed(scopes.dinamik, now, Boolean(process.env.DINAMIK_BASE)),
+    seta: evaluateFeed(scopes.seta, now, Boolean(process.env.SETA_API_KEY)),
+  };
+});
+
+type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; conflicting: number };
+type SupplierCatalogMetrics = { available: number; saleable: number };
+type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
+
+const apiFeedKeys = ["basbug", "dinamik", "seta"] as const;
+const pickBySupplier = <K extends string, T>(keys: readonly K[], rows: (T & { supplier: string })[], fallback: T) =>
+  Object.fromEntries(keys.map(key => [key, rows.find(row => row.supplier === key) ?? fallback])) as Record<K, T>;
+
+/** Feed status, what each API supplier sent and the 24h attempts of the supplier overview; the manual list's figures come
+ * from adminManualLists and the store-side figures from adminSupplierCatalogMetrics, which the page streams. */
+export async function adminSupplierFeeds() {
+  await requireAdmin();
+  const companies = supplierFeedCompanies();
+  const pairs = [companies.basbug, companies.dinamik, companies.seta];
+  const [status, metrics, attempts, scheduler] = await Promise.all([
+    adminSupplierFeedStatus(),
+    // What the supplier sent: Dinamik prices products missing from its stock list, and commerce_catalog leaves those out.
+    db.query<SupplierFeedMetrics & { supplier: string }>(`SELECT supplier,count(*)::int AS present,
+        count(*) FILTER (WHERE price_data IS NOT NULL)::int AS priced,count(*) FILTER (WHERE stock_data IS NULL)::int AS unstocked,
+        count(*) FILTER (WHERE conflicting)::int AS conflicting
+      FROM supplier_items WHERE (supplier,company) IN (('basbug',$1),('dinamik',$2),('seta',$3)) AND presence='present' GROUP BY supplier`, pairs),
+    // A failed attempt is unresolved only while its scope has not succeeded since.
+    db.query<SupplierFeedAttempts & { supplier: string }>(`SELECT r.supplier,count(*)::int AS total,count(*) FILTER (WHERE r.status='succeeded')::int AS succeeded,
+        count(*) FILTER (WHERE r.status='failed')::int AS failed,count(*) FILTER (WHERE r.status='rejected')::int AS rejected,
+        count(DISTINCT r.list_group) FILTER (WHERE r.status IN ('failed','rejected') AND NOT EXISTS (SELECT 1 FROM supplier_imports n
+          WHERE n.supplier=r.supplier AND n.company=r.company AND n.list_group=r.list_group AND n.warehouse=r.warehouse
+          AND n.status='succeeded' AND n.started_at>r.started_at))::int AS unresolved
+      FROM supplier_imports r WHERE r.started_at>now()-interval '24 hours'
+        AND (r.supplier,r.company) IN (('basbug',$1),('dinamik',$2),('seta',$3)) GROUP BY r.supplier`, pairs),
+    supplierSchedulerState(db),
   ]);
-  return { ...items.rows[0], last: last.rows[0] ?? null };
+  return {
+    status, scheduler,
+    metrics: pickBySupplier(apiFeedKeys, metrics.rows, { present: 0, priced: 0, unstocked: 0, conflicting: 0 }),
+    attempts: pickBySupplier(apiFeedKeys, attempts.rows, { total: 0, succeeded: 0, failed: 0, rejected: 0, unresolved: 0 }),
+  };
+}
+
+/** What the store shows of each supplier ("in stock", "saleable"): commerce_catalog prices every row, so this takes
+ * seconds and the overview streams it. Its supplier rows are exactly the present supplier_items it accepts. */
+export const adminSupplierCatalogMetrics = cache(async () => {
+  await requireAdmin();
+  const companies = supplierFeedCompanies();
+  const { rows } = await db.query<SupplierCatalogMetrics & { supplier: string }>(`SELECT supplier,count(*) FILTER (WHERE available)::int AS available,
+      count(*) FILTER (WHERE available AND price_kurus IS NOT NULL)::int AS saleable
+    FROM commerce_catalog WHERE (supplier,company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY supplier`,
+  [companies.basbug, companies.dinamik, companies.seta, manualCompany]);
+  return pickBySupplier([...apiFeedKeys, "manual"], rows, { available: 0, saleable: 0 });
+});
+
+// Scopes the manual "refresh" buttons run, in order. Dinamik has ~800 brands, so only the ones without a successful run
+// in the last day are offered (the oldest first); Başbuğ's 15 groups and SETA's single list always run in full.
+export async function adminSupplierRefreshPlan() {
+  await requireAdmin();
+  const basbugCompany = process.env.BASBUG_FIRMA_ADI || "BASBUG";
+  const [basbug, dinamik] = await Promise.all([
+    db.query<{ list_group: string }>("SELECT list_group FROM supplier_sync_scopes WHERE supplier='basbug' AND company=$1 AND warehouse='MRK' ORDER BY list_group", [basbugCompany]),
+    db.query<{ list_group: string; enabled: boolean; stale: boolean }>(`SELECT list_group,enabled,(last_success_at IS NULL OR last_success_at<now()-interval '24 hours') AS stale
+      FROM supplier_sync_scopes WHERE supplier='dinamik' ORDER BY last_success_at NULLS FIRST,list_group`),
+  ]);
+  const enabled = dinamik.rows.filter(row => row.enabled);
+  return {
+    basbug: basbug.rows.map(row => row.list_group),
+    seta: Boolean(process.env.SETA_API_KEY),
+    dinamikBrands: enabled.map(row => row.list_group).sort((a, b) => a.localeCompare(b, "tr")),
+    dinamikStale: enabled.filter(row => row.stale).map(row => row.list_group),
+  };
 }

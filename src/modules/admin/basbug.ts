@@ -5,13 +5,18 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { supplierHealth } from "@/modules/suppliers/health";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import { z } from "zod";
+import { supplierItemPage } from "./supplier-items";
+import { getProduct } from "@/modules/store/catalog";
+import { adminProductPricing } from "@/modules/admin/product-pricing";
+import type { SupplierChange } from "./supplier-changes";
 import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbug-stock";
 
 export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
 const itemSorts = { code: "code", name: "product_data->>'ac'", brand: "product_data->>'uk'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
-export type ImportSummary = {
+type ImportSummary = {
   run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null; stats: Record<string, number>;
   id: string; company: string; list_group: string; warehouse: string;
   started_at: Date; completed_at: Date;
@@ -34,27 +39,9 @@ export type AdminSupplierItem = {
 
 export async function adminBasbugData(params: BasbugParams) {
   await requireAdmin();
-  const summaries = await db.query<ImportSummary>(
-    `SELECT DISTINCT ON (company,list_group,warehouse) * FROM supplier_imports
-     WHERE supplier='basbug' AND company=$1 AND status='succeeded' ORDER BY company,list_group,warehouse,completed_at DESC,id DESC`,
-    [process.env.BASBUG_FIRMA_ADI || "BASBUG"],
-  );
-  const snapshots = summaries.rows;
+  const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
   const group = params.group || "";
-  const snapshot = snapshots.filter(i => (!group || i.list_group === group) && i.warehouse === "MRK").sort((a,b) => b.completed_at.getTime() - a.completed_at.getTime())[0];
-  const latest = snapshots.reduce<ImportSummary | undefined>((current, item) => !current || item.completed_at > current.completed_at ? item : current, undefined);
-  const sync = snapshot ? (await db.query<{ stale_minutes: number; consecutive_failures: number; next_run_at: Date; enabled: boolean }>(
-    "SELECT * FROM supplier_sync_scopes WHERE supplier='basbug' AND company=$1 AND list_group=$2 AND warehouse='MRK'", [snapshot.company,snapshot.list_group],
-  )).rows[0] : undefined;
-  const recentRuns = (await db.query<ImportSummary>(
-    "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' ORDER BY started_at DESC,id DESC LIMIT 10",
-    [process.env.BASBUG_FIRMA_ADI || "BASBUG", group],
-  )).rows;
-  const health = await supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG");
-  const stale = health.scopes.some(scope => (!group || scope.list_group===group) && (scope.catalog_stale || scope.commerce_stale));
-  const knownGroups = latest?.groups_data.malzemeGruplariListesi ?? [{ kod: "FIAT", ad: "FIAT" }];
-  if (!snapshot) return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: [] as AdminSupplierItem[], brands: [] as string[], currencies: [] as string[], total: 0, page: 1, pages: 1 };
-  const values: unknown[] = [snapshot.company];
+  const values: unknown[] = [company];
   const conditions = ["supplier='basbug'", "company=$1", "warehouse='MRK'"];
   if (group) { values.push(group); conditions.push("list_group=$2"); }
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence : "present";
@@ -75,33 +62,58 @@ export async function adminBasbugData(params: BasbugParams) {
   if (params.quality === "duplicates") conditions.push("(product_count>1 OR price_count>1 OR stock_count>1)");
   if (params.quality === "conflicts") conditions.push("conflicting");
   const where = conditions.join(" AND ");
-  const [count, brands, currencies] = await Promise.all([
-    db.query<{ count: string }>(`SELECT count(*) FROM supplier_items WHERE ${where}`, values),
-    db.query<{ value: string }>("SELECT DISTINCT product_data->>'uk' AS value FROM supplier_items WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' AND presence='present' ORDER BY value", [snapshot.company,group]),
-    db.query<{ value: string }>("SELECT DISTINCT product_data->>'dc' AS value FROM supplier_items WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' AND presence='present' ORDER BY value", [snapshot.company,group]),
+  // Every read needs only the company and the URL, except the schedule row, which follows the latest snapshot.
+  const summaries = db.query<ImportSummary>(
+    `SELECT DISTINCT ON (company,list_group,warehouse) * FROM supplier_imports
+     WHERE supplier='basbug' AND company=$1 AND status='succeeded' ORDER BY company,list_group,warehouse,completed_at DESC,id DESC`,
+    [company],
+  ).then(result => {
+    const snapshots = result.rows;
+    const snapshot = snapshots.filter(i => (!group || i.list_group === group) && i.warehouse === "MRK").sort((a,b) => b.completed_at.getTime() - a.completed_at.getTime())[0];
+    return { snapshots, snapshot };
+  });
+  const [{ snapshots, snapshot }, sync, recentRuns, lastSucceeded, health, facets, list] = await Promise.all([
+    summaries,
+    summaries.then(async ({ snapshot }) => snapshot ? (await db.query<{ stale_minutes: number; consecutive_failures: number; next_run_at: Date; enabled: boolean }>(
+      "SELECT * FROM supplier_sync_scopes WHERE supplier='basbug' AND company=$1 AND list_group=$2 AND warehouse='MRK'", [snapshot.company,snapshot.list_group],
+    )).rows[0] : undefined),
+    db.query<ImportSummary>(
+      "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' ORDER BY started_at DESC,id DESC LIMIT $3",
+      [company, group, supplierRunHistoryLimit],
+    ).then(result => result.rows),
+    // Latest succeeded run of any kind (full list or price · stock · rate) in the page's scope.
+    db.query<ImportSummary>(
+      "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1",
+      [company, group],
+    ).then(result => result.rows[0]),
+    supplierHealth(db, company),
+    // Brand and currency filter options from one scan: the few distinct (brand, currency) pairs, then each column's values.
+    db.query<{ brands: string[]; currencies: string[] }>(`WITH pairs AS (
+        SELECT product_data->>'uk' AS brand,product_data->>'dc' AS currency FROM supplier_items
+        WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' AND presence='present' GROUP BY 1,2
+      ) SELECT ARRAY(SELECT DISTINCT brand FROM pairs ORDER BY 1) AS brands,ARRAY(SELECT DISTINCT currency FROM pairs ORDER BY 1) AS currencies`,
+      [company, group],
+    ).then(result => result.rows[0]),
+    supplierItemPage<AdminSupplierItem>({ where, values, order: sortOrder(params, itemSorts, "code,id"), page: params.page }),
   ]);
-  const total = Number(count.rows[0].count), pages = Math.max(1, Math.ceil(total / 50));
-  const parsedPage = Number(params.page);
-  const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
-  const order = sortOrder(params, itemSorts, "code,id");
-  const items = await db.query<AdminSupplierItem>(`WITH page AS MATERIALIZED (
-    SELECT * FROM supplier_items WHERE ${where} ORDER BY ${order} LIMIT 50 OFFSET $${values.length + 1}
-  ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
-    FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
-    ORDER BY ${order}`, [...values, (page - 1) * 50]);
-  return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: items.rows, brands: brands.rows.map(r => r.value), currencies: currencies.rows.map(r => r.value), total, page, pages };
+  const latest = snapshots.reduce<ImportSummary | undefined>((current, item) => !current || item.completed_at > current.completed_at ? item : current, undefined);
+  const stale = health.scopes.some(scope => (!group || scope.list_group===group) && (scope.catalog_stale || scope.commerce_stale));
+  const knownGroups = latest?.groups_data.malzemeGruplariListesi ?? [{ kod: "FIAT", ad: "FIAT" }];
+  if (!snapshot) return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, lastSucceeded, items: [] as AdminSupplierItem[], brands: [] as string[], currencies: [] as string[], total: 0, page: 1, pages: 1, capped: false };
+  return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, lastSucceeded, ...list, brands: facets.brands, currencies: facets.currencies };
 }
 
 export async function adminBasbugItem(id: string) {
   await requireAdmin();
   if (!z.uuid().safeParse(id).success) return null;
-  const result = await db.query<AdminSupplierItem & { list_group: string; warehouse: string; completed_at: Date }>(
-    `SELECT i.*,i.last_seen_at AS completed_at FROM supplier_items i WHERE i.id=$1 AND i.supplier='basbug'`, [id],
-  );
+  // Everything below needs only the id, so the detail page waits for one round of queries.
+  const [result, changes, sale, pricing] = await Promise.all([
+    db.query<AdminSupplierItem & { list_group: string; warehouse: string; completed_at: Date }>(
+      `SELECT i.*,i.last_seen_at AS completed_at FROM supplier_items i WHERE i.id=$1 AND i.supplier='basbug'`, [id],
+    ),
+    db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),
+    getProduct(id), adminProductPricing(id),
+  ]);
   const item = result.rows[0];
-  if (!item) return null;
-  const changes = (await db.query<{ id: string; changed_at: Date; kind: string; before_data: Record<string, unknown> | null; after_data: Record<string, unknown> }>(
-    "SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id],
-  )).rows;
-  return { ...item, changes };
+  return item ? { ...item, changes: changes.rows, sale, pricing } : null;
 }

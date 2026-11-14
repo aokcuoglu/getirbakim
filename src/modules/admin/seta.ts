@@ -5,15 +5,19 @@ import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { supplierHealth } from "@/modules/suppliers/health";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import { setaCompany } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
+import { getProduct } from "@/modules/store/catalog";
+import { adminProductPricing } from "@/modules/admin/product-pricing";
 import type { SupplierChange } from "./supplier-changes";
+import { supplierItemPage } from "./supplier-items";
 
 export type SetaParams = { q?: string; category?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
 const itemSorts = { code: "code", name: "product_data->>'ac'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
-export type SetaImportSummary = {
-  id: string; run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null;
+type SetaImportSummary = {
+  id: string; list_group: string; warehouse: string; run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null;
   stats: Record<string, number>; started_at: Date; completed_at: Date | null; observations: Record<string, string>;
   quality: { productRows: number; uniqueProducts: number; missingPrices: number; outOfStock: number; duplicateCodes: number; conflictingCodes: number };
 };
@@ -29,12 +33,6 @@ const scope = "supplier='seta' AND company=$1";
 
 export async function adminSetaData(params: SetaParams) {
   await requireAdmin();
-  const [snapshot, recentRuns, health, categories] = await Promise.all([
-    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} AND status='succeeded' AND run_kind='full' ORDER BY completed_at DESC,id DESC LIMIT 1`, [setaCompany]),
-    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} ORDER BY started_at DESC,id DESC LIMIT 10`, [setaCompany]),
-    supplierHealth(db, setaCompany),
-    db.query<{ value: string }>(`SELECT DISTINCT product_data->>'source_category' AS value FROM supplier_items WHERE ${scope} AND presence='present' AND product_data->>'source_category' IS NOT NULL ORDER BY value`, [setaCompany]),
-  ]);
   const values: unknown[] = [setaCompany];
   const conditions = [scope];
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence : "present";
@@ -44,31 +42,35 @@ export async function adminSetaData(params: SetaParams) {
   if (q) conditions.push(supplierItemMatch("supplier_items", parseSearchQuery(q), binder(values)));
   if (params.category) { values.push(params.category.slice(0, 200)); conditions.push(`product_data->>'source_category'=$${values.length}`); }
   if (params.stock === "1" || params.stock === "0") { values.push(params.stock); conditions.push(`stock_data->>'stok'=$${values.length}`); }
+  if (params.stock === "unknown") conditions.push("stock_data->>'stok' IS NULL");
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
+  if (params.quality === "duplicates") conditions.push("product_count>1");
   if (params.quality === "conflicts") conditions.push("conflicting");
   const where = conditions.join(" AND ");
-  const total = Number((await db.query<{ count: string }>(`SELECT count(*) FROM supplier_items WHERE ${where}`, values)).rows[0].count);
-  const pages = Math.max(1, Math.ceil(total / 50));
-  const parsedPage = Number(params.page);
-  const page = Number.isSafeInteger(parsedPage) ? Math.min(pages, Math.max(1, parsedPage)) : 1;
-  const order = sortOrder(params, itemSorts, "code,id");
-  const items = await db.query<SetaItem>(`WITH page AS MATERIALIZED (
-    SELECT * FROM supplier_items WHERE ${where} ORDER BY ${order} LIMIT 50 OFFSET $${values.length + 1}
-  ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
-    FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
-    ORDER BY ${order}`, [...values, (page - 1) * 50]);
-  return { snapshot: snapshot.rows[0], recentRuns: recentRuns.rows, health, categories: categories.rows.map(row => row.value),
-    items: items.rows, total, page, pages };
+  const [snapshot, lastSucceeded, recentRuns, health, categories, list] = await Promise.all([
+    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} AND status='succeeded' AND run_kind='full' ORDER BY completed_at DESC,id DESC LIMIT 1`, [setaCompany]),
+    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1`, [setaCompany]),
+    db.query<SetaImportSummary>(`SELECT * FROM supplier_imports WHERE ${scope} ORDER BY started_at DESC,id DESC LIMIT $2`, [setaCompany, supplierRunHistoryLimit]),
+    supplierHealth(db, setaCompany),
+    db.query<{ value: string }>(`SELECT DISTINCT product_data->>'source_category' AS value FROM supplier_items WHERE ${scope} AND presence='present' AND product_data->>'source_category' IS NOT NULL ORDER BY value`, [setaCompany]),
+    supplierItemPage<SetaItem>({ where, values, order: sortOrder(params, itemSorts, "code,id"), page: params.page }),
+  ]);
+  return { snapshot: snapshot.rows[0], lastSucceeded: lastSucceeded.rows[0], recentRuns: recentRuns.rows, health, categories: categories.rows.map(row => row.value),
+    ...list };
 }
 
 export async function adminSetaItem(id: string) {
   await requireAdmin();
   if (!z.uuid().safeParse(id).success) return null;
-  const { rows } = await db.query<SetaItem & {
-    first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number;
-    missing_count: number; source_variants: Record<string, unknown>;
-  }>("SELECT * FROM supplier_items WHERE supplier='seta' AND company=$1 AND id=$2", [setaCompany, id]);
-  if (!rows[0]) return null;
-  const changes = (await db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id])).rows;
-  return { ...rows[0], changes };
+  // Everything below needs only the id, so the detail page waits for one round of queries.
+  const [result, changes, sale, pricing] = await Promise.all([
+    db.query<SetaItem & {
+      first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number;
+      missing_count: number; source_variants: Record<string, unknown>;
+    }>("SELECT * FROM supplier_items WHERE supplier='seta' AND company=$1 AND id=$2", [setaCompany, id]),
+    db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),
+    getProduct(id), adminProductPricing(id),
+  ]);
+  const item = result.rows[0];
+  return item ? { ...item, changes: changes.rows, sale, pricing } : null;
 }

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
+import { formatDecimal, formatNumber } from "@/modules/admin/format";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 
 type Settings = {
@@ -19,8 +20,8 @@ type Settings = {
   shipping_fee_kurus: number; free_shipping_threshold_kurus: number;
 };
 type Currency = { dovizCinsi: string; satis: string };
-const tl = (value: number) => value.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const percent = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+const tl = (value: number) => formatDecimal(value);
+const percent = formatNumber;
 const decimalPattern = "[0-9]+([.,][0-9]{1,2})?";
 const numberRules = {
   markup: { min: 0, max: 1000 },
@@ -162,14 +163,14 @@ export function PricingWorkspace({ settings, currencies, children }: { settings:
             </Field>
           </FieldGroup>
           <div>
-            <Table aria-label="Fiyat hesaplama adımları">
+            <Table controls={false} aria-label="Fiyat hesaplama adımları">
               <TableBody>
                 <TableRow><TableCell className="whitespace-normal">TL maliyeti</TableCell><TableCell className="text-right tabular-nums">{previewValid ? `${tl(baseCost)} TL` : "—"}</TableCell></TableRow>
                 <TableRow><TableCell className="whitespace-normal">Kâr eklemesi (%{markupValid ? percent(Number(markup)) : "—"})</TableCell><TableCell className="text-right tabular-nums">{previewValid ? `+${tl(profit)} TL` : "—"}</TableCell></TableRow>
                 <TableRow><TableCell className="whitespace-normal">KDV (%{vatValid ? percent(Number(vat)) : "—"})</TableCell><TableCell className="text-right tabular-nums">{previewValid ? `+${tl(tax)} TL` : "—"}</TableCell></TableRow>
               </TableBody>
             </Table>
-            {currency !== "TRY" && <FieldDescription className="mt-2">1 {currency} = {exchangeRate.toLocaleString("tr-TR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} TL</FieldDescription>}
+            {currency !== "TRY" && <FieldDescription className="mt-2">1 {currency} = {formatDecimal(exchangeRate, 4)} TL</FieldDescription>}
           </div>
           <Item variant="muted" className="mt-auto" role="status" aria-live="polite" aria-atomic="true">
             <ItemContent>

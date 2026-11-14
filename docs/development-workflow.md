@@ -51,7 +51,7 @@ Davranış değişikliği taşıyan işlerde sürüm etkisi etiketi kullanılır
 
 ## `main` sürümleri ve Git tag'leri
 
-`dev` geliştirmelerin birleştiği branch'tir. `main` sürüme alınan kodu temsil eder. Rutin `dev` merge'i `main` merge yetkisi vermez. `main`'e geçiş, sürüm hazırlığı ve GitHub Release oluşturma kullanıcının sürüm çıkarma talebi kapsamında yapılır.
+`dev` geliştirmelerin birleştiği branch'tir. `main` production'a çıkabilecek sürümlü kodu temsil eder; AWS yayını `main` üzerinden elle tetiklenir (aşağıdaki deploy kararı). Rutin `dev` merge'i `main` merge yetkisi vermez; `main`'e push, `dev` → `main` merge veya `main`'i değiştiren her işlem (doğrudan push, `gh api` ref güncellemesi dahil) öncesinde kullanıcının **açık onayı** alınır. Onay istenirken sürüm numarası ve kapsam gösterilir; bir sürüm için verilen onay sonrakini kapsamaz. `main`'e doğrudan commit veya hotfix push yapılmaz; acil düzeltmeler de `dev` üzerinden sürüm PR'ı ile gider. `main`'e geçiş, sürüm hazırlığı ve GitHub Release oluşturma kullanıcının sürüm çıkarma talebi kapsamında yapılır.
 
 Sürüm numarası [SemVer](https://semver.org/) biçimindedir: `MAJOR.MINOR.PATCH`. Önemli, geriye uyumlu özellikler `feat` olarak sınıflandırılır ve `main` sürümünde **MINOR** artırılır. Bir sürüm birden fazla işi içerebilir; en yüksek etki sürüm artışını belirler.
 
@@ -67,20 +67,22 @@ Sürüm çıkarırken:
 
 1. `origin/main..origin/dev` kapsamını, son ilgili `main` sürüm tag'ini ve manifest sürümlerini incele. Release içine girecek tüm işleri ve sürüm etkilerini listele; ilgisiz veya hazır olmayan işleri dahil etme.
 2. Sürüm hazırlığını ayrı worktree/branch ve Issue ile takip et. `package.json` ve `package-lock.json` sürümlerini birlikte güncelle. `CHANGELOG.md` dosyasına sürümün özelliklerini, düzeltmelerini, Issue/PR bağlantılarını ve varsa migration adımlarını yaz; dosya yoksa ilk sürüm hazırlığında oluştur.
-3. Hazırlığı kontrol ve PR üzerinden `dev`'e merge et. Sonrasında kapsamı belirli `dev` → `main` sürüm PR'ını aç; sürüm etiketini ve doğrulamayı ekle. Kullanıcının onayladığı sürüm kapsamı ve zorunlu CI geçtikten sonra merge et.
+3. Hazırlığı kontrol ve PR üzerinden `dev`'e merge et. Sonrasında kapsamı belirli `dev` → `main` sürüm PR'ını aç; sürüm etiketini ve doğrulamayı ekle. Merge'den hemen önce kullanıcıdan açık onay al; onaylanan sürüm kapsamı ve zorunlu CI geçtikten sonra merge et. Merge deploy başlatmaz.
 4. İlgili `main` merge commit'ine açıklamalı (annotated) `vX.Y.Z` Git tag'i koy ve aynı sürümün GitHub Release notlarını yayımla. Tag ve Release notlarında sürüm kapsamını ve PR'ı belirt. Mevcut tag'leri taşıma, silme veya üzerine yazma.
-5. Merge, sürüm numarası, tag ve Release bağlantısını bildir. Tag/Release oluşturulması sunucu deploy'u başlatmaz.
+5. Merge, sürüm numarası, tag ve Release bağlantısını bildir.
+6. Production yayını ayrı adımdır: kullanıcı açıkça onaylarsa `main` üzerinden `release-aws` workflow'unu elle tetikle, GitHub `production` ortam onayını kullanıcıya bırak, sonucu ve smoke testleri bildir.
 
 11 Ekim 2026 itibarıyla `main` geçmişindeki en yüksek normal sürüm tag'i `v0.22.0`, mevcut paket sürümü ise `0.1.0`'dır. Eski GitHub Release kayıtları da legacy döneme aittir. Sonraki sürüm hazırlığında ilgili yeni sistemin tag geçmişi esas alınarak manifestler uyumlu hale getirilir; eski etiketlerden veya `0.1.0` değerinden bağımsız, geriye giden sürüm üretilmez. Bu politika çalışması sürüm artırmaz.
 
 ## Deploy ve staging kararı
 
-- Commit, push, PR, `dev`/`main` merge, tag veya GitHub Release sonrasında **otomatik Contabo deploy yapılmaz**.
-- Şu aşamada staging kurulmaz veya güncellenmez. AWS'e taşındıktan sonra staging, kullanıcının ayrı talebiyle tasarlanır ve devreye alınır. AWS geçişi tek başına staging/deploy otomasyonu açma yetkisi vermez.
-- Production deploy yalnızca kullanıcının açık yayınlama talebiyle manuel başlatılır. `dev` merge veya `main` sürüm talebi kendi başına deploy talebi sayılmaz.
-- PR CI kontrolleri devam eder. CI build'inde kullanılan ortam ayarları bir staging sunucusu kurmaz veya mevcut sunucuya bağlanmaz.
-- Mevcut canlı servisler, zamanlayıcılar, yedekler ve veriler bu karar nedeniyle durdurulmaz veya silinmez. Bu karar geliştirme sonrası kod dağıtımını düzenler.
+Karar tarihi: 14 Kasım 2026 (11 Ekim 2026 Contabo kararının yerine geçer).
 
-Repo tarafında staging workflow'u yalnızca duraklatma mesajı içerir; hiçbir SSH, image aktarımı veya deploy adımı yoktur. Production workflow'unda `push` tetikleyicisi kaldırılmıştır; yalnız `workflow_dispatch` ve `main` koşulu vardır. GitHub tarafında her iki deploy workflow'u da 11 Ekim 2026'da devre dışı bırakılmış, bekleyen/çalışan iki staging run'ı iptal edilmiştir.
+- Production AWS'tedir. Yayın, `main` üzerinden `release-aws.yml` workflow'unun elle (`workflow_dispatch`) tetiklenmesiyle yapılır; GitHub `production` ortamı onay ister. `main`'e push/merge kendi başına deploy etmez.
+- Akış: `dev`'de geliştirme → kullanıcı onayıyla sürümlü `dev → main` merge → kullanıcının ayrı ve açık yayın onayıyla `release-aws` tetikleme. İki onay birbirinin yerine geçmez.
+- `dev` merge'i hiçbir ortama deploy etmez. Staging yoktur; kurulması kullanıcının ayrı talebiyle tasarlanır.
+- Contabo'ya otomatik deploy yapılmaz. Eski `deploy-production.yml` / `deploy-staging.yml` workflow'ları GitHub'da devre dışıdır ve açık talep olmadan etkinleştirilmez.
+- CI kontrolleri zorunludur; geçmeyen kontrollerle `dev`'e de `main`'e de merge yapılmaz. Deploy workflow'larını açık talep olmadan değiştirme veya tetikleme.
+- Mevcut canlı servisler, zamanlayıcılar, yedekler ve veriler bu karar nedeniyle durdurulmaz veya silinmez.
 
-Production workflow'u yeniden etkinleştirilmeden önce `main` üzerindeki dosyanın da manuel tetikleme politikasını içerdiği doğrulanmalıdır; değişiklik önce `dev`'e alınır. Yeniden etkinleştirme ve dispatch yalnızca açık deploy talebi kapsamında yapılır. Staging için önce AWS tasarımı ve workflow revizyonu gerekir. Operasyon dosyaları tarihsel bilgi olarak [geçiş rehberinde](deployment-migration.md) korunur; buradaki güncel yayın politikası önceliklidir.
+Operasyon dosyaları tarihsel bilgi olarak [geçiş rehberinde](deployment-migration.md) korunur; buradaki güncel yayın politikası önceliklidir.

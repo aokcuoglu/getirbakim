@@ -1,19 +1,20 @@
-import { CircleAlert, CircleCheck, Clock, Info, TriangleAlert, type LucideIcon } from "lucide-react";
+import { CircleCheck, Clock, type LucideIcon } from "lucide-react";
 import { orderStatus, paymentStatus } from "@/modules/store/orders";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
 
-type Look = { variant: "success" | "warning" | "destructive" | "info" | "outline"; icon: LucideIcon };
-const success: Look = { variant: "success", icon: CircleCheck }, warning: Look = { variant: "warning", icon: TriangleAlert },
-  error: Look = { variant: "destructive", icon: CircleAlert }, info: Look = { variant: "info", icon: Info }, neutral: Look = { variant: "outline", icon: Clock };
-const orderLooks: Record<string, Look> = { awaiting_payment: warning, pending: warning, confirmed: info, shipped: success, cancelled: error };
-const paymentLooks: Record<string, Look> = { none: neutral, awaiting: warning, paid: success, expired: error, refund_required: error, refunded: error };
+type Look = { tone: StatusTone; icon?: LucideIcon };
+const waiting: Look = { tone: "neutral", icon: Clock };
+const orderLooks: Record<string, Look> = { awaiting_payment: { tone: "warning" }, pending: { tone: "warning" }, confirmed: { tone: "info" }, shipped: { tone: "success" }, cancelled: { tone: "error" } };
+// A recorded refund is a finished step, not a failure: neutral, with the check icon and its "İade edildi" label.
+const paymentLooks: Record<string, Look> = {
+  none: waiting, awaiting: { tone: "warning" }, paid: { tone: "success" }, expired: { tone: "error" }, refund_required: { tone: "error" }, refunded: { tone: "neutral", icon: CircleCheck },
+};
 
-function LookBadge({ look, children }: { look: Look; children: React.ReactNode }) {
-  return <Badge variant={look.variant}><look.icon data-icon="inline-start" aria-hidden="true"/>{children}</Badge>;
-}
 export function OrderStatusBadge({ status }: { status: string }) {
-  return <LookBadge look={orderLooks[status] ?? neutral}>{orderStatus[status] ?? status}</LookBadge>;
+  const look = orderLooks[status] ?? waiting;
+  return <StatusBadge tone={look.tone} icon={look.icon}>{orderStatus[status] ?? status}</StatusBadge>;
 }
-export function PaymentStatusBadge({ status }: { status: string }) {
-  return <LookBadge look={paymentLooks[status] ?? neutral}>{paymentStatus[status] ?? status}</LookBadge>;
+export function PaymentStatusBadge({ status, prefix }: { status: string; prefix?: boolean }) {
+  const look = paymentLooks[status] ?? waiting;
+  return <StatusBadge tone={look.tone} icon={look.icon}>{prefix && <span className="sr-only">Ödeme: </span>}{paymentStatus[status] ?? status}</StatusBadge>;
 }

@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { paymentState } from "@/app/siparis/[id]/actions";
+import { paymentState } from "@/app/(store)/siparis/[id]/actions";
 import { PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
 
 type Phase = "open" | "returned" | "closed" | "paid" | "blocked" | { error: string };

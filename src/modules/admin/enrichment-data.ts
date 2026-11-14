@@ -1,15 +1,14 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/modules/auth/session";
 import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
 import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
 
-export const enrichmentStatuses: Record<string, string> = {
-  complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
-  pending: "Bekliyor", blocked: "Erişim engellendi", failed: "Başarısız",
-};
+import { dashboardTab, enrichmentStatuses } from "./enrichment-labels";
+export { enrichmentStatuses };
 export type EnrichmentRow = {
   id: string; product_id: string; code: string; brand: string; name: string; oem: string; status: string; attempts: number;
   last_error: string | null; updated_at: Date; imported_at: Date | null; source_url: string | null;
@@ -21,7 +20,7 @@ export type EnrichmentRow = {
   searched: SourceKey[];
 };
 /** The record tabs: every product is in exactly one (#388). "error" groups the access and processing failures. */
-export const recordTabs = ["complete", "partial", "review", "not_found", "error", "pending"] as const;
+const recordTabs = ["complete", "partial", "review", "not_found", "error", "pending"] as const;
 export type RecordTab = typeof recordTabs[number];
 const errorStatuses = ["blocked", "failed"];
 // Links from before #388: "enriched" (complete + partial) and "attention" (review + errors) overlapped the other tabs.
@@ -60,7 +59,7 @@ function passPace() {
 const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
 // SQL twins of partialGaps() over the import note, for the partial tab's header filter and its counts.
 const coveredBelow = (label: string) => `(SELECT m[1]::int < m[2]::int FROM regexp_match(g.source_method,'${label} (\\d+)/(\\d+)') m)`;
-export const gapConditions: Record<PartialGap, string> = {
+const gapConditions: Record<PartialGap, string> = {
   image: "j.image_id IS NULL",
   vehicles_not_collected: "g.source_method ~ 'vehicles not collected'",
   no_vehicles: "g.source_method ~ 'no vehicles listed' AND g.source_method !~ 'vehicles not collected'",
@@ -69,7 +68,27 @@ export const gapConditions: Record<PartialGap, string> = {
   failed_makes: "g.source_method ~ 'failed makes [1-9]'",
 };
 const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.supplier_item_id";
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string }) {
+// The columns of one record row; `source` is a subquery of enrichment_product_states aliased j.
+const rowQuery=(source:string)=>`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
+    COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
+    j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
+    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
+    CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
+    -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
+    array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
+      AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
+     -- One ANY over the product's items keeps the attempts index usable; an OR of the two lookups did not.
+     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a
+      WHERE a.supplier_item_id=ANY(ARRAY(SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id)||j.supplier_item_id) ORDER BY 1) AS searched
+    FROM (${source}) j`;
+/** One record row for the details dialog; the id is the row id of the list (the supplier item, or the product for pending rows). */
+export async function enrichmentRow(id:string){
+  const result=await db.query<EnrichmentRow>(rowQuery("SELECT j.* FROM enrichment_product_states j WHERE j.supplier_item_id=$1 OR (j.supplier_item_id IS NULL AND j.product_id=$1) LIMIT 1"),[id]);
+  return result.rows[0]??null;
+}
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string; tab?: string }) {
+  await requireAdmin();
+  const tab = dashboardTab(query.tab), records = tab === "records";
   const q = query.q?.trim().slice(0,120) || "";
   const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
   const name = text("name"), code = text("code"), brand = text("brand");
@@ -84,7 +103,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (status === "error") conditions.push(`j.status IN (${literal(errorStatuses)})`);
   else { values.push(status); conditions.push(`j.status=$${values.length}`); }
   if (match !== "all") { values.push(match); conditions.push(`j.match_type=$${values.length}`); }
-  const source = query.source && query.source in sourceHosts ? query.source as SourceKey : "";
+  const source = query.source && Object.hasOwn(sourceHosts, query.source) ? query.source as SourceKey : "";
   if (source) { values.push(sourceHosts[source]); conditions.push(`split_part(j.source_url,'/',3)=$${values.length}`); }
   // Header filters: typed text on the name and code, one brand chosen from the tab's list.
   if (name) { values.push(like(name)); conditions.push(`j.product_name ILIKE $${values.length}`); }
@@ -115,8 +134,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       count(image_id)::int AS images,COALESCE(sum(vehicle_count),0)::int AS vehicles,COALESCE(sum(oem_count),0)::int AS oem_numbers,
       max(imported_at) AS latest FROM enrichment_product_states WHERE status IN (${literal(attemptedStatuses)}) GROUP BY status`),
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
-    db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
-    q||match!=="all"||source||name||code||brand||gap?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
+    records?Promise.resolve(null):db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
+    records&&(q||match!=="all"||source||name||code||brand||gap)?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
       count(*) FILTER(WHERE i.status NOT IN ('queued','collecting','skipped'))::int AS processed,
@@ -147,13 +166,13 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE outcome<>'blocked')::int AS searched,count(*) FILTER(WHERE outcome='found')::int AS found,
         count(*) FILTER(WHERE outcome='error')::int AS errors,count(*) FILTER(WHERE outcome<>'blocked' AND attempted_at>now()-interval '1 hour')::int AS last_hour
         FROM enrichment_source_attempts a WHERE a.source=s.source AND attempted_at>now()-interval '24 hours') r ON true`),
-    db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
-    db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
+    records?Promise.resolve(null):db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
+    !records?Promise.resolve(null):db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
       ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
-    status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
+    records&&status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
       ${facetFrom.replace(" WHERE ", `${gapJoin} WHERE `)}`, facetValues):Promise.resolve(null),
     // parts2world's latest queue run: products searched (any outcome but a block answer) since it started (#403).
-    db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
+    records?Promise.resolve(null):db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
       (SELECT * FROM enrichment_source_runs WHERE source='parts2world' ORDER BY started_at DESC LIMIT 1) r
       CROSS JOIN LATERAL (SELECT count(DISTINCT supplier_item_id) FILTER(WHERE outcome<>'blocked')::int AS processed,
         count(*) FILTER(WHERE outcome='error')::int AS errors,max(attempted_at) AS last FROM enrichment_source_attempts
@@ -163,7 +182,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
   counts.rows.push({status:'pending',count:Math.max(0,pending),enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null});
-  const summary={enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null as Date|null,bytes:metrics.rows[0].bytes};
+  const summary={enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null as Date|null,bytes:metrics?metrics.rows[0].bytes:null as string|null};
   for(const row of counts.rows){
     for(const key of ['enriched','oem_matches','direct_matches','images','oem_numbers','vehicles'] as const)summary[key]+=row[key];
     if(row.latest&&(!summary.latest||row.latest>summary.latest))summary.latest=row.latest;
@@ -171,23 +190,16 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const totalCount=total?.rows[0].count??counts.rows.filter(row=>tabStatuses(status).includes(row.status)).reduce((sum,row)=>sum+row.count,0);
   const pageSize=25, pages=Math.max(1,Math.ceil(totalCount/pageSize));
   const requested=Number(query.page), page=Number.isSafeInteger(requested)?Math.max(1,Math.min(pages,requested)):1;
-  // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index.
+  // Both keys share a direction so either order is one walk of the (status, sorted_at, supplier_item_id) index; the
+  // updated column keeps that shape in both directions (sortOrder's "DESC NULLS LAST" does not match a backward scan).
   const direction=query.sort==='updated'&&query.dir!=='desc'?'ASC':'DESC';
   const sortColumns={updated:"j.sorted_at",name:"j.product_name",brand:"COALESCE(j.supplier_brand,j.product_brand)",code:"COALESCE(j.supplier_code,j.part_number)",
     status:"j.status",source:"split_part(j.source_url,'/',3)",match:"j.match_type",oems:"j.oem_count",vehicles:"j.vehicle_count",specs:"j.specification_count"};
-  const rows=await db.query<EnrichmentRow>(`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
-    COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
-    j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
-    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
-    CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
-    -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
-    array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
-      AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
-     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a WHERE a.supplier_item_id=j.supplier_item_id
-      OR a.supplier_item_id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id) ORDER BY 1) AS searched
-    ${from} ORDER BY ${sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`)}
-    LIMIT ${pageSize} OFFSET $${values.length+1}`,[...values,(page-1)*pageSize]);
-  const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { pass, pilot:pilot.rows[0]??null, run:run.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows, gaps:gaps?.rows[0]??null,
+  const order=query.sort==='updated'?`j.sorted_at ${direction},j.supplier_item_id ${direction}`:sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`);
+  // The page is cut first so the per-row subqueries run for its 25 rows only; in the outer SELECT they also ran for
+  // every row OFFSET skipped (a deep pending page took minutes).
+  const rows=records?await db.query<EnrichmentRow>(`${rowQuery(`SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`)} ORDER BY ${order}`,[...values,(page-1)*pageSize]):{rows:[] as EnrichmentRow[]};
+  const sourceSummary=summarizeSources(activity.rows,Object.fromEntries((written?.rows??[]).map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
+  return { tab, pass, pilot:pilot.rows[0]??null, run:run?.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands?.rows??[], gaps:gaps?.rows[0]??null,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
 }

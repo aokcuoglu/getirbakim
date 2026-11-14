@@ -179,6 +179,48 @@ CREATE TABLE IF NOT EXISTS product_offers (
  primary_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_id);
+-- One counter bumped by every statement that changes product_offers, whatever the writer (matcher, admin decisions,
+-- supplier_items cascades) or process. App processes key their in-memory grouping (admin "Eşleşenler", #504) by it;
+-- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
+-- when rows changed: the matcher's bulk rewrite costs one UPDATE per statement, not per row. The row lock is held
+-- until the writer commits, so concurrent offer writers queue on it; the matcher and the admin regrouping functions
+-- also share advisory lock 6, so they serialise before taking any row lock.
+CREATE TABLE IF NOT EXISTS product_grouping_version (
+ id integer PRIMARY KEY DEFAULT 1 CHECK (id=1), version bigint NOT NULL DEFAULT 0
+);
+INSERT INTO product_grouping_version(id,version) VALUES (1,0) ON CONFLICT DO NOTHING;
+CREATE OR REPLACE FUNCTION product_grouping_bump() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ -- Transition tables exist only for their own event; each branch names only its own.
+ IF TG_OP='TRUNCATE' THEN
+  UPDATE product_grouping_version SET version=version+1 WHERE id=1;
+ ELSIF TG_OP='DELETE' THEN
+  IF EXISTS (SELECT 1 FROM old_rows) THEN UPDATE product_grouping_version SET version=version+1 WHERE id=1; END IF;
+ ELSIF EXISTS (SELECT 1 FROM new_rows) THEN
+  UPDATE product_grouping_version SET version=version+1 WHERE id=1;
+ END IF;
+ RETURN NULL;
+END $$;
+-- Created only when missing: CREATE/DROP TRIGGER would lock product_offers against the matcher for the rest of the
+-- setup transaction on every deploy. A changed definition needs a DROP TRIGGER here first.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_insert') THEN
+  CREATE TRIGGER product_offers_grouping_insert AFTER INSERT ON product_offers
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_update') THEN
+  CREATE TRIGGER product_offers_grouping_update AFTER UPDATE ON product_offers
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_delete') THEN
+  CREATE TRIGGER product_offers_grouping_delete AFTER DELETE ON product_offers
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_offers'::regclass AND tgname='product_offers_grouping_truncate') THEN
+  CREATE TRIGGER product_offers_grouping_truncate AFTER TRUNCATE ON product_offers
+   FOR EACH STATEMENT EXECUTE FUNCTION product_grouping_bump();
+ END IF;
+END $$;
 -- Items an admin split off a group ("Ayır"); they stay separate listings across refreshes.
 CREATE TABLE IF NOT EXISTS product_offer_exclusions (
  item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -205,6 +247,10 @@ CREATE TABLE IF NOT EXISTS products (
  UNIQUE (brand,part_number,variant)
 );
 CREATE INDEX IF NOT EXISTS products_part_idx ON products(part_number);
+-- The admin product list's default order (and its brand A→Z header sort) among listed products: the first pages read
+-- the index instead of sorting every product (deep pages spilled ~36 MB to disk). The columns are NOT NULL, so the
+-- index's ascending NULLS LAST order is what sortOrder()'s `ASC NULLS LAST` asks for.
+CREATE INDEX IF NOT EXISTS products_listing_idx ON products(brand_label,part_number,variant) WHERE merged_into IS NULL;
 -- Suppliers currently selling the product (saleable sources), kept by the refresh and by split/undo for list filters.
 ALTER TABLE products ADD COLUMN IF NOT EXISTS suppliers text[] NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS products_suppliers_idx ON products USING gin(suppliers);
@@ -217,6 +263,8 @@ CREATE TABLE IF NOT EXISTS product_sources (
  decided_by uuid REFERENCES accounts(id), linked_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS product_sources_product_idx ON product_sources(product_id);
+-- The matching page's "Elle kararlar" list, newest first (#523); only the few manual rows are indexed.
+CREATE INDEX IF NOT EXISTS product_sources_manual_idx ON product_sources(linked_at DESC,supplier_item_id) WHERE method='manual';
 -- Equivalent (muadil) products, both directions; rebuilt by every refresh. `brand`/`part_number` is the shared
 -- reference: ORIJINAL + OEM number (oem), a competitor's number stated by a supplier (cross), or the shared part
 -- number of a brand pair decided as equivalent (brand).
@@ -249,6 +297,8 @@ CREATE TABLE IF NOT EXISTS product_match_candidates (
  PRIMARY KEY (product_a,product_b)
 );
 ALTER TABLE product_match_candidates ADD COLUMN IF NOT EXISTS name_conflict boolean;
+-- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
+CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
 -- vs MOTOR SUBAP TAKIMI). Turkish letters are folded, possessive endings and position words dropped, and words cut to
 -- four letters so AYNA/AYNASI and FILTRE/FILTRESI meet; a few trade synonyms share one term (SUPAP=SUBAP,
@@ -373,16 +423,106 @@ BEGIN
  PERFORM product_refresh_offers(ARRAY[pid,old_id]);
  RETURN pid;
 END $$;
+-- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
+-- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
+-- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
+-- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
+-- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
+-- NULL when the row is no such offer. The two-argument form came first (#523).
+DROP FUNCTION IF EXISTS product_split_offer(uuid, uuid);
+CREATE OR REPLACE FUNCTION product_split_offer(item uuid, expected_primary uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE src record; pid uuid;
+BEGIN
+ PERFORM pg_advisory_xact_lock(20261001,6);
+ SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
+  AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ IF src.method='manual' THEN pid := product_reset_item(item); END IF;
+ IF pid IS NULL OR pid=src.product_id THEN
+  -- product_split_item locks the link and refreshes suppliers; the storefront grouping is refreshed here.
+  pid := product_split_item(item, actor);
+  IF pid IS NULL THEN RETURN NULL; END IF;
+  PERFORM product_refresh_offers(ARRAY[src.product_id,pid]);
+ END IF;
+ INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES (src.product_id,pid,'different',actor)
+ ON CONFLICT (product_a,product_b) DO UPDATE SET status='different', decided_by=excluded.decided_by, decided_at=now();
+ RETURN pid;
+END $$;
 CREATE TABLE IF NOT EXISTS product_match_runs (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, started_at timestamptz NOT NULL, completed_at timestamptz NOT NULL,
  stats jsonb NOT NULL
 );
+
+-- New master brands (every label placed automatically, none confirmed yet) and the existing brand each most likely
+-- is under another spelling (KALE RADYATOR / KALE): shared part numbers first, then name similarity. Rebuilt by
+-- refresh_product_matches(); confirming the brand ("Onayla") keeps it separate, merging removes it (cascade).
+CREATE TABLE IF NOT EXISTS brand_merge_suggestions (
+ brand_id bigint PRIMARY KEY REFERENCES brands(id) ON DELETE CASCADE,
+ target_id bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+ shared_parts integer NOT NULL, parts integer NOT NULL, name_similarity real NOT NULL
+);
+-- Evidence, strongest first: one key starts with the other (KRAFTVOLL AKS / KRAFTVOLL, MONROE AGIR VASITA / MONROE;
+-- the longest such key wins), then shared part numbers of 5+ characters when at least 3 and half of the new brand's
+-- numbers are shared (unrelated brands share up to ~10% through short numeric codes and reused OEM numbers; BEHR
+-- shares 78% with MAHLE), then trigram name similarity 0.4+. Targets are reviewed brands; another new brand is one
+-- only when its key is a shorter prefix of this one (PRESTOLITE AV / PRESTOLITE arriving together, #471), never the
+-- other way round, so two new brands never point at each other; a reviewed target wins over a new one. ORIJINAL is
+-- never a target: its numbers are OEMs. Measured locally (#469): 148 of the 154 labels merged
+-- by hand before get the brand they were merged into; 95 of 598 brands reviewed as separate get a suggestion (19 by
+-- part numbers), which "Onayla" dismisses.
+CREATE OR REPLACE FUNCTION brand_keys_prefixed(a text, b text) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT least(length(a),length(b))>=3 AND (starts_with(a,b) OR starts_with(b,a))
+$$;
+CREATE OR REPLACE FUNCTION refresh_brand_merge_suggestions() RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE added integer;
+BEGIN
+ DELETE FROM brand_merge_suggestions;
+ INSERT INTO brand_merge_suggestions
+ WITH fresh AS (
+  SELECT b.id, b.key, b.name FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id
+  WHERE b.key<>'ORIJINAL' GROUP BY b.id HAVING bool_and(sb.method='auto')
+ ), targets AS (
+  -- A renamed brand keeps its key (MAHLEFILTRE named MAHLE): prefixes are checked against the name's spelling too.
+  SELECT b.id, b.key, b.name, regexp_replace(upper(b.name),'[^A-Z0-9]','','g') AS spelled FROM brands b
+  WHERE b.key<>'ORIJINAL' AND NOT EXISTS (SELECT 1 FROM fresh f WHERE f.id=b.id)
+ ), parts AS (
+  SELECT f.id, m.part_number FROM fresh f JOIN product_match_items m ON m.brand=f.key WHERE length(m.part_number)>=5 GROUP BY 1,2
+ ), sizes AS (SELECT id, count(*)::int AS parts FROM parts GROUP BY id
+ ), shared AS (
+  SELECT p.id, t.id AS target_id, count(DISTINCT p.part_number)::int AS shared_parts
+  FROM parts p JOIN product_match_items o ON o.part_number=p.part_number JOIN targets t ON t.key=o.brand GROUP BY 1,2
+ ), named AS (
+  SELECT f.id, t.id AS target_id FROM fresh f JOIN targets t
+   ON similarity(f.name,t.name)>=0.4 OR brand_keys_prefixed(f.key,t.key) OR brand_keys_prefixed(f.key,t.spelled)
+ ), scored AS (
+  SELECT c.id, c.target_id, COALESCE(s.shared_parts,0) AS shared_parts, COALESCE(z.parts,0) AS parts,
+   similarity(f.name,t.name) AS name_similarity, length(t.key) AS target_length,
+   brand_keys_prefixed(f.key,t.key) OR brand_keys_prefixed(f.key,t.spelled) AS prefix,
+   COALESCE(s.shared_parts,0)>=3 AND COALESCE(s.shared_parts,0)>=0.5*COALESCE(z.parts,0) AS by_parts, true AS reviewed
+  FROM (SELECT id, target_id FROM shared UNION SELECT id, target_id FROM named) c
+  JOIN fresh f ON f.id=c.id JOIN targets t ON t.id=c.target_id
+  LEFT JOIN shared s ON s.id=c.id AND s.target_id=c.target_id LEFT JOIN sizes z ON z.id=c.id
+  UNION ALL
+  SELECT f.id, e.id, 0, COALESCE(z.parts,0), similarity(f.name,e.name), length(e.key), true, false, false
+  FROM fresh f JOIN fresh e ON length(e.key)>=3 AND length(e.key)<length(f.key) AND starts_with(f.key,e.key)
+  LEFT JOIN sizes z ON z.id=f.id
+ )
+ SELECT DISTINCT ON (id) id, target_id, shared_parts, parts, name_similarity FROM scored
+ WHERE prefix OR by_parts OR name_similarity>=0.4
+ ORDER BY id, prefix DESC, reviewed DESC, CASE WHEN prefix THEN target_length END DESC NULLS LAST, by_parts DESC, shared_parts DESC,
+  name_similarity DESC, target_id;
+ GET DIAGNOSTICS added = ROW_COUNT;
+ RETURN added;
+END $$;
 
 -- Short part numbers ("1", "12") collide across unrelated brands; they never form groups.
 CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
+ -- Also the admin regrouping lock (product_merge/split/reset take 6 before touching rows): matcher and admin then queue
+ -- on the advisory lock instead of meeting on product_sources rows and the grouping version row (deadlock, #504).
+ PERFORM pg_advisory_xact_lock(20261001,6);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
  DELETE FROM product_match_groups; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
@@ -397,6 +537,7 @@ BEGIN
  WHERE COALESCE(b.key,product_brand_key(i.label)) IS NOT NULL;
  DELETE FROM product_match_items WHERE length(part_number)<4;
  ANALYZE product_match_items;
+ PERFORM refresh_brand_merge_suggestions();
  INSERT INTO product_match_groups
  SELECT brand, part_number, count(*), array_agg(DISTINCT supplier ORDER BY supplier)
  FROM product_match_items GROUP BY brand, part_number HAVING count(*)>1;
@@ -486,6 +627,17 @@ BEGIN
  WHERE p.id=t.product_id AND p.merged_into IS DISTINCT FROM t.target AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
  UPDATE products p SET merged_into=NULL, updated_at=now()
  WHERE p.merged_into IS NOT NULL AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id);
+ -- Rows a supplier dropped before they were ever linked (#475) join the existing product of their key, so the storefront
+ -- lists that product once (storefront_catalog) and old links redirect. No product, offer or supplier list changes.
+ INSERT INTO product_sources(supplier_item_id,product_id)
+ SELECT i.id, p.id FROM (SELECT *, supplier_item_brand(supplier,product_data) AS label FROM supplier_items
+  WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL))
+   AND presence IN ('pending_missing','inactive') AND NOT conflicting) i
+ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=i.label LEFT JOIN brands b ON b.id=sb.brand_id
+ JOIN products p ON p.brand=COALESCE(b.key,product_brand_key(i.label)) AND p.part_number=supplier_item_part_number(i.supplier,i.code,i.product_data)
+  AND p.variant=0 AND p.merged_into IS NULL
+ WHERE length(p.part_number)>=4 AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=i.id)
+ ON CONFLICT DO NOTHING;
  ANALYZE products; ANALYZE product_sources;
  -- Storefront projection until the store reads products directly: the listed row is the product's own row (else
  -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik/manual row of the product competes on price and stock.
@@ -597,6 +749,9 @@ BEGIN
   'merged_products', (SELECT count(*) FROM products WHERE merged_into IS NOT NULL),
   'product_equivalents', (SELECT count(*) FROM product_equivalents),
   'match_candidates', (SELECT count(*) FROM product_match_candidates),
+  'pending_brands', (SELECT count(DISTINCT brand_id) FROM supplier_brands WHERE method='auto'),
+  'new_brands', (SELECT count(*) FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b),
+  'brand_merge_suggestions', (SELECT count(*) FROM brand_merge_suggestions),
   'seta_linked_items', (SELECT count(DISTINCT seta_item_id) FROM product_seta_references),
   'seta_linked_products', (SELECT count(DISTINCT item_id) FROM product_seta_references),
   'items', (SELECT count(*) FROM product_match_items),

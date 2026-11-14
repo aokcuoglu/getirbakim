@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.25.0 — 2026-11-14
+
+Release of `dev` since v0.24.0 (63 pull requests): the AWS production runtime, supplier operations in the admin, and review tools for product matching. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **AWS production runtime** and release to AWS from GitHub Actions (`release-aws.yml`, manual `workflow_dispatch` with the `production` environment approval) ([#439](https://github.com/aokcuoglu/getirbakim/pull/439), [#466](https://github.com/aokcuoglu/getirbakim/pull/466)).
+- **BakımX partner products API** restored ([#425](https://github.com/aokcuoglu/getirbakim/pull/425)).
+- **Supplier operations**: refresh supplier data manually from the supplier pages; supplier feeds judged by data freshness rather than scheduler health ([#463](https://github.com/aokcuoglu/getirbakim/pull/463), [#482](https://github.com/aokcuoglu/getirbakim/pull/482)).
+- **Product matching**: automatic matching refresh, merge suggestion for new brands and a pending-brand warning ([#470](https://github.com/aokcuoglu/getirbakim/pull/470)); split a single offer out of a matched group, stale-form guard, and a paged, word-searchable "Elle kararlar" view of manual decisions ([#557](https://github.com/aokcuoglu/getirbakim/pull/557)).
+- **Storefront**: admin-decided equivalents on the product page; products without a supplier offer stay visible with a notify-me request ([#477](https://github.com/aokcuoglu/getirbakim/pull/477), [#478](https://github.com/aokcuoglu/getirbakim/pull/478)).
+- **Enrichment**: parts2world articles reached through the supplier's OE numbers; Trodo leaves long vehicle lists and parts2world products for last ([#419](https://github.com/aokcuoglu/getirbakim/pull/419), [#428](https://github.com/aokcuoglu/getirbakim/pull/428)).
+
+### Changed
+- Bulk "Tümünü birleştir" in product matching accepts only prefix and leading-zero candidates and skips name conflicts, shared and multi-code candidates; suffix candidates need a decision one by one ([#545](https://github.com/aokcuoglu/getirbakim/pull/545)).
+- `/yonetim`: one shared layout and route body for supplier pages, breadcrumb in the shell top bar with one page-header pattern, consistent states/badges/formatters, actionable items first on the dashboard, read-first supplier overview, enrichment page in tabs ([#493](https://github.com/aokcuoglu/getirbakim/pull/493), [#525](https://github.com/aokcuoglu/getirbakim/pull/525), [#544](https://github.com/aokcuoglu/getirbakim/pull/544), [#546](https://github.com/aokcuoglu/getirbakim/pull/546), [#552](https://github.com/aokcuoglu/getirbakim/pull/552), [#554](https://github.com/aokcuoglu/getirbakim/pull/554), [#555](https://github.com/aokcuoglu/getirbakim/pull/555)).
+- Performance: materialized storefront enrichment links, precomputed make fitments, warm-up of the most visited pages, response compression, lighter admin layout/dashboard/supplier/enrichment/product queries and payloads, storefront chrome only on store routes, and new matching indexes ([#433](https://github.com/aokcuoglu/getirbakim/pull/433), [#447](https://github.com/aokcuoglu/getirbakim/pull/447), [#449](https://github.com/aokcuoglu/getirbakim/pull/449), [#454](https://github.com/aokcuoglu/getirbakim/pull/454), [#456](https://github.com/aokcuoglu/getirbakim/pull/456), [#501](https://github.com/aokcuoglu/getirbakim/pull/501), [#505](https://github.com/aokcuoglu/getirbakim/pull/505), [#506](https://github.com/aokcuoglu/getirbakim/pull/506), [#510](https://github.com/aokcuoglu/getirbakim/pull/510), [#511](https://github.com/aokcuoglu/getirbakim/pull/511), [#513](https://github.com/aokcuoglu/getirbakim/pull/513), [#514](https://github.com/aokcuoglu/getirbakim/pull/514), [#518](https://github.com/aokcuoglu/getirbakim/pull/518), [#522](https://github.com/aokcuoglu/getirbakim/pull/522), [#548](https://github.com/aokcuoglu/getirbakim/pull/548)).
+
+### Fixed
+- Sessions are extended while in use ([#468](https://github.com/aokcuoglu/getirbakim/pull/468)).
+- Supplier sync: Dinamik duplicate and padded rows, retired Dinamik brands, Başbuğ rows that only fill empty fields, manual item saves no longer wait for a matching run ([#474](https://github.com/aokcuoglu/getirbakim/pull/474), [#492](https://github.com/aokcuoglu/getirbakim/pull/492), [#495](https://github.com/aokcuoglu/getirbakim/pull/495), [#508](https://github.com/aokcuoglu/getirbakim/pull/508), [#528](https://github.com/aokcuoglu/getirbakim/pull/528)).
+- Admin: supplier page labels, errors and filters aligned; page-level auth on vehicle oils and prototype-key rejection in list filters; Turkish screen-reader labels; order list state kept after actions and only reserved stock restored on cancel; pricing card actions on narrow screens ([#481](https://github.com/aokcuoglu/getirbakim/pull/481), [#487](https://github.com/aokcuoglu/getirbakim/pull/487), [#488](https://github.com/aokcuoglu/getirbakim/pull/488), [#498](https://github.com/aokcuoglu/getirbakim/pull/498), [#527](https://github.com/aokcuoglu/getirbakim/pull/527), [#519](https://github.com/aokcuoglu/getirbakim/pull/519), [#556](https://github.com/aokcuoglu/getirbakim/pull/556)).
+- Matching: a new brand is suggested to the new brand its key extends ([#472](https://github.com/aokcuoglu/getirbakim/pull/472)).
+- Enrichment: streamed parts2world checkpoint; OE-matched parts2world products keep vehicles and image only ([#421](https://github.com/aokcuoglu/getirbakim/pull/421), [#423](https://github.com/aokcuoglu/getirbakim/pull/423)).
+- Storefront and cutover: bundle products matched by supplier key; warm-up through the listening address; AWS starts with empty transactional tables ([#444](https://github.com/aokcuoglu/getirbakim/pull/444), [#450](https://github.com/aokcuoglu/getirbakim/pull/450), [#458](https://github.com/aokcuoglu/getirbakim/pull/458)).
+
+### Maintenance
+- Claude Code agent harness (agents, skills, hooks), Fable planner/reviewer and a strict CI gate before `/ship` merges, deterministic checks once per change; catalog CLI worker test independent of CI speed ([#491](https://github.com/aokcuoglu/getirbakim/pull/491), [#531](https://github.com/aokcuoglu/getirbakim/pull/531), [#533](https://github.com/aokcuoglu/getirbakim/pull/533), [#536](https://github.com/aokcuoglu/getirbakim/pull/536), [#569](https://github.com/aokcuoglu/getirbakim/pull/569)).
+- Edge nginx config in the repo with a maintenance mode; cutover runbook and export scripts; workflow docs requiring explicit approval for `main` and manual AWS releases ([#441](https://github.com/aokcuoglu/getirbakim/pull/441), [#445](https://github.com/aokcuoglu/getirbakim/pull/445), [#452](https://github.com/aokcuoglu/getirbakim/pull/452), [#460](https://github.com/aokcuoglu/getirbakim/pull/460), [#464](https://github.com/aokcuoglu/getirbakim/pull/464)).
+
+### Deploy and operations
+- `scripts/setup.ts` (`db:setup`, run by the AWS release) applies every `db/*.sql` idempotently, including the new matching functions (`product_split_offer`) and indexes (`product_match_candidates_b_idx`, `product_sources_manual_idx`).
+- Supplier sync scheduling on AWS is currently disabled (`SUPPLIER_SCHEDULER=manual`); after the release refresh suppliers manually (one group at a time), then the matching refresh runs with it.
+- Pending data decisions kept locally (KORJAP approval, KORJAP↔WAGENBURG equivalents) are to be recreated in production after the release.
+- The supplier egress proxy (`SUPPLIER_EGRESS_PROXY`) must be set in AWS Secrets Manager for the Dinamik API.
+
 ## v0.24.0 — 2026-11-09
 
 Full release of `dev` (130 pull requests since the v0.22 line forked). It contains the hotfixes of v0.22.1–v0.23.0 in their `dev` form. This is the release for the AWS migration; it was not deployed to Contabo.

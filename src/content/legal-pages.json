@@ -2981,6 +2981,32 @@
         ]
       },
       {
+        "title": "Stok Bildirim Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satışta olmayan bir ürünün sayfasındaki “Gelince haber ver” formunu gönderdiğinde e-posta adresin, talep ettiğin ürün (tedarikçi, ürün kodu, marka ve ad), bilgilendirme izni metni ve sürümü, talep tarihi ve hesabınla giriş yaptıysan hesabın kaydedilir. Kötüye kullanımı önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri bir saat boyunca deneme sayısıyla tutulur. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde talep kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu veriler yalnızca ürün yeniden satışa sunulduğunda sana bir kez bilgi vermek için işlenir. Talep tek seferlik bir bilgilendirmedir; bülten aboneliği veya pazarlama izni değildir ve pazarlama amaçlı e-posta gönderimi için kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim yapılan talepler bildirimden 30 gün sonra, bildirim yapılmayan talepler talep tarihinden 12 ay sonra silinir. Talepler şu anda bir e-posta hizmeti sağlayıcısına aktarılmaz; bildirim gerektiğinde yetkili çalışanlarımızca gönderilir. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin; geri çekilen talep hemen silinir."
+            ]
+          }
+        ]
+      },
+      {
         "title": "Mevcut Hizmetlerde İşlenen Veriler",
         "blocks": [
           {
@@ -3185,7 +3211,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Tarayıcıdaki oturum çerezinin süresi 30 dakika, ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
+              "Tarayıcıdaki oturum çerezi sitede işlem yapılmayan 30 dakikanın sonunda sona erer (her istekle yenilenir); ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
             ]
           },
           {
@@ -3688,6 +3714,32 @@
         ]
       },
       {
+        "title": "Stok Bildirim Talepleri",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Satışta olmayan bir ürünün sayfasındaki “Gelince haber ver” formunu gönderdiğinde e-posta adresin, talep ettiğin ürün (tedarikçi, ürün kodu, marka ve ad), bilgilendirme izni metni ve sürümü, talep tarihi ve hesabınla giriş yaptıysan hesabın kaydedilir. Kötüye kullanımı önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri bir saat boyunca deneme sayısıyla tutulur. İzin kutusu başlangıçta işaretli değildir; izin vermediğinde talep kaydedilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu veriler yalnızca ürün yeniden satışa sunulduğunda sana bir kez bilgi vermek için işlenir. Talep tek seferlik bir bilgilendirmedir; bülten aboneliği veya pazarlama izni değildir ve pazarlama amaçlı e-posta gönderimi için kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bildirim yapılan talepler bildirimden 30 gün sonra, bildirim yapılmayan talepler talep tarihinden 12 ay sonra silinir. Talepler şu anda bir e-posta hizmeti sağlayıcısına aktarılmaz; bildirim gerektiğinde yetkili çalışanlarımızca gönderilir. Talebini geri çekmek veya verilerinle ilgili başvuruda bulunmak için iletişim sayfasındaki kanalları kullanabilirsin; geri çekilen talep hemen silinir."
+            ]
+          }
+        ]
+      },
+      {
         "title": "Verilerin Toplanma Yöntemi",
         "blocks": [
           {
@@ -3832,7 +3884,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Tarayıcıdaki oturum çerezinin süresi 30 dakika, ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
+              "Tarayıcıdaki oturum çerezi sitede işlem yapılmayan 30 dakikanın sonunda sona erer (her istekle yenilenir); ziyaretçi sepeti ve araç tercihi çerezlerinin süresi 30 gündür. Çerez tercih kaydının geçerlilik süresi 180 gündür. Bu süreler, sunucudaki tüm hesap veya işlem kayıtlarının aynı anda silindiği anlamına gelmez."
             ]
           },
           {

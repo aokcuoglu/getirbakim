@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { renderToString } from "react-dom/server";
 import { Table, TableBody, TableCell, TableControls, TableHead, TableHeader, TableRow, serverOptionList } from "../src/components/ui/table";
 import { sortOrder } from "../src/lib/table-sort";
+import { headFilter } from "../src/components/admin/supplier-part-head";
 
 const rows = (count: number) => Array.from({ length: count }, (_, i) => <TableRow key={i}><TableCell>Ürün {i}</TableCell><TableCell>{i * 10},50 ₺</TableCell><TableCell>x</TableCell></TableRow>);
 const table = (count: number) => <Table>
@@ -60,4 +61,13 @@ test("long server option lists are searched and cut, keeping the selected option
   const found = serverOptionList(options, [], "SAHIN");
   assert.deepEqual(found.list.map(option => option.value), ["", "B7"]);
   assert.equal(serverOptionList(options, [], "yok").matches, 0);
+});
+
+test("supplier header filters send plain values and label each option by itself", () => {
+  assert.equal(headFilter(undefined), undefined);
+  assert.deepEqual(headFilter({ param: "brand", values: ["BOSCH", "", "MANN"] }),
+    { param: "brand", options: [{ value: "BOSCH", label: "BOSCH" }, { value: "MANN", label: "MANN" }] });
+  const quality = { param: "quality", options: [{ value: "missing-price", label: "Fiyatı eksik" }] };
+  assert.deepEqual(headFilter(quality), quality);
+  assert.deepEqual(headFilter({ param: "group", placeholder: "Grup adı" }), { param: "group", placeholder: "Grup adı" });
 });

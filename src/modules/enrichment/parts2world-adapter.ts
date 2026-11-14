@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {enrichmentDataSchema,matchesSupplierPart,partCodeOems,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
+import {enrichmentDataSchema,matchesSupplierPart,partCodeOems,supplierOemReferences,type EnrichmentData,type matchBasisSchema} from '../store/enrichment-contract';
 type MatchBasis=z.infer<typeof matchBasisSchema>;
 
 // parts2world.com runs ABCP's TecDoc module: a public JSON API behind its vehicle catalog (#382). It has no part-number
@@ -112,11 +112,33 @@ export const identify=(supplier:Supplier,info:ArticleInfo)=>matchesSupplierPart(
 export function identifyBasis(supplier:Supplier&{oemReference?:string|null},info:ArticleInfo):MatchBasis|null{
  if(identify(supplier,info))return {type:'exact_part'};
  const wanted=supplier.oemReference?normalize(supplier.oemReference):'';
- const own=wanted?partCodeOems(supplier.brand,supplier.code).find(r=>normalize(r.reference)===wanted):undefined;
- if(!own)return null;
- const listed=(info.oenNumbers||[]).some(o=>normalize(o.code)===wanted);
- return listed?{type:'oem_reference',reference:own.reference,supplierOem:supplier.oem,referenceSource:own.source}:null;
+ if(!wanted||!(info.oenNumbers||[]).some(o=>normalize(o.code)===wanted))return null;
+ const own=partCodeOems(supplier.brand,supplier.code).find(r=>normalize(r.reference)===wanted);
+ if(own)return {type:'oem_reference',reference:own.reference,supplierOem:supplier.oem,referenceSource:own.source};
+ // One of the OE numbers the supplier lists for the product (#418).
+ return supplierOemReferences(supplier.oem).includes(wanted)
+  ?{type:'oem_reference',reference:supplier.oemReference!,supplierOem:supplier.oem,referenceSource:'supplier_oem'}:null;
 }
+/** The makers whose OE number the live answer (or a stored package) lists as `reference` (VW → the VAG group): a supplier OE match has no
+ *  maker in its part code, so the answer's own OE brands decide which of the article's vehicles apply (#418). */
+export function oemBrandMakers(oens:{brand:string;code:string}[]|null|undefined,reference:string):string[]|null{
+ const wanted=normalize(reference),makers=new Set<string>();
+ for(const brand of new Set((oens||[]).filter(o=>normalize(o.code)===wanted).map(o=>plain(o.brand)).filter(Boolean))){
+  const group=MAKE_MAKERS[brand]??Object.values(MAKE_MAKERS).find(g=>g.some(maker=>brand===maker||brand.startsWith(maker+' ')));
+  for(const maker of group??[brand])makers.add(maker);
+ }
+ return makers.size?[...makers]:null;
+}
+
+/** An OE-matched article is another product (#422): its vehicles and image apply, its EAN, properties (a 2138 mm belt
+ *  for our 2150 mm one) and cross references do not. OE numbers stay for the makers and the matched number itself. */
+export function oemMatchedData(data:EnrichmentData,makers:string[]|null,reference:string):EnrichmentData{
+ const wanted=normalize(reference);
+ const oemNumbers=Object.fromEntries(Object.entries(data.oemNumbers).filter(([brand,codes])=>(makers&&madeBy(makers,brand))||codes.some(code=>normalize(code)===wanted)));
+ return {...data,specifications:[],crossReferences:{},oemNumbers};
+}
+/** A stored package's OE numbers as the answer's brand/code list. */
+export const oemList=(oemNumbers:Record<string,string[]>)=>Object.entries(oemNumbers).flatMap(([brand,codes])=>codes.map(code=>({brand,code})));
 
 /** The first product photo as an absolute URL on the site's own image path. */
 export function imageUrl(info:ArticleInfo){

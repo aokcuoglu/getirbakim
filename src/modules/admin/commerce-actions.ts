@@ -5,12 +5,22 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
+import { transitionOrder,recordOrderRefund } from './orders';
+import { orderListBack,orderListReturn } from './order-list-return';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect('/yonetim/fiyatlandirma?error=1');
  await db.query('UPDATE commerce_settings SET markup_percent=$1,vat_percent=$2,max_age_hours=$3,updated_at=now(),updated_by=$4 WHERE id=true',[input.data.markup,input.data.vat,input.data.age,admin.id]);
  revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?saved=1');
+}
+/** Checkout data source shared by every supplier (commerce_settings.basbug_checkout_mode; the column name is historical). */
+export async function saveCheckoutMode(form:FormData) {
+ const admin=await requireAdmin();
+ const mode=z.enum(['live','snapshot']).safeParse(form.get('checkoutMode'));
+ if(!mode.success) redirect('/yonetim/fiyatlandirma?error=mode');
+ await db.query('UPDATE commerce_settings SET basbug_checkout_mode=$1,updated_at=now(),updated_by=$2 WHERE id=true',[mode.data,admin.id]);
+ revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?modeSaved=1');
 }
 export async function saveShipping(form:FormData) {
  const admin=await requireAdmin();
@@ -24,38 +34,27 @@ export async function saveService(form:FormData) {
  const input=z.object({id:z.uuid(),discount:z.coerce.number().int().min(0).max(50),approved:z.enum(['true','false'])}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect('/yonetim/servisler?error=1');
  await db.query("UPDATE accounts SET discount_percent=$2,approved=$3 WHERE id=$1 AND role='service'",[input.data.id,input.data.discount,input.data.approved==='true']);
- revalidatePath('/','layout'); redirect('/yonetim/servisler?saved=1');
+ revalidatePath('/yonetim','layout'); redirect('/yonetim/servisler?saved=1');
 }
 export async function changeOrderStatus(form:FormData) {
  await requireAdmin();
- const input=z.object({id:z.uuid(),status:z.enum(['confirmed','shipped','cancelled'])}).safeParse(Object.fromEntries(form));
- if(!input.success) redirect('/yonetim/siparisler?error=1');
- const client=await db.connect();
- let ok=false;
- try {
-  await client.query('BEGIN');
-  const old=(await client.query<{status:string;payment_status:string}>('SELECT status,payment_status FROM commerce_orders WHERE id=$1 FOR UPDATE',[input.data.id])).rows[0];
-  const allowed:Record<string,string[]>={pending:['confirmed','cancelled'],confirmed:['shipped','cancelled']};
-  // Unpaid online orders expire on their own; operations only handle paid (or legacy offline) orders.
-  if(old && ['paid','none'].includes(old.payment_status) && allowed[old.status]?.includes(input.data.status)) {
-   if(input.data.status==='cancelled') {
-    // Only in-house stock was reserved; supplier signals are never decremented.
-    await client.query(`UPDATE store_products p SET stock=p.stock+i.quantity,updated_at=now() FROM commerce_order_items i WHERE i.order_id=$1 AND i.product_id=p.id`,[input.data.id]);
-   }
-   // Refunds are made in the TAMI portal; the order waits until its reference is recorded.
-   await client.query(`UPDATE commerce_orders SET status=$2,payment_status=CASE WHEN $2='cancelled' AND payment_status='paid' THEN 'refund_required' ELSE payment_status END WHERE id=$1`,[input.data.id,input.data.status]);ok=true;
-  }
-  await client.query('COMMIT');
- } catch(error) { await client.query('ROLLBACK');throw error; }
- finally {client.release();}
- revalidatePath('/','layout');redirect(ok ? '/yonetim/siparisler?saved=1' : '/yonetim/siparisler?error=1');
+ const input=z.object({id:z.uuid(),status:z.enum(['confirmed','shipped','cancelled']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await transitionOrder(input.data.id,input.data.status);
+ revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }
 export async function recordRefund(form:FormData) {
  await requireAdmin();
- const input=z.object({id:z.uuid(),reference:z.string().trim().min(3).max(120)}).safeParse(Object.fromEntries(form));
- if(!input.success) redirect('/yonetim/siparisler?error=1');
- const updated=await db.query("UPDATE commerce_orders SET payment_status='refunded',refund_reference=$2 WHERE id=$1 AND payment_status='refund_required'",[input.data.id,input.data.reference]);
- revalidatePath('/','layout');redirect(updated.rowCount ? '/yonetim/siparisler?saved=1' : '/yonetim/siparisler?error=1');
+ const input=z.object({id:z.uuid(),reference:z.string().trim().min(3).max(120),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await recordOrderRefund(input.data.id,input.data.reference);
+ revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+// The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
+function revalidateOrder(id:string) {
+ revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
 }
 /** Shipped lines only; partial returns may add up to the ordered quantity. */
 export async function recordReturn(form:FormData) {

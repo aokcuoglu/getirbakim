@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
+import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -111,6 +111,40 @@ test('an OE-number match keeps only the part code maker\'s vehicles (#401)',()=>
  // The catalog type's brand decides; a type the catalog lacks is read by the source's maker name.
  const rows=[{modificationId:19013,manuName:'X'},{modificationId:1,manuName:'VW'},{modificationId:2,manuName:'MINI'}] as SourceVehicle[];
  assert.deepEqual(makerApplicability(rows,['BMW','MINI'],new Map([[19013,catalogType]])).map(r=>r.modificationId),[19013,2]);
+});
+
+test('a supplier OE number reaches the article and keeps only the vehicles of the makers listing it (#418)',async()=>{
+ const info=parseArticleInfo(await fixture())!;
+ const row={brand:'MAHLE',code:'MAHLE OX 123',oem:'11 53 7 522 999, 7522999/KIT',oemReference:'11537522999'};
+ const basis=identifyBasis(row,info);
+ assert.deepEqual(basis,{type:'oem_reference',reference:'11537522999',supplierOem:row.oem,referenceSource:'supplier_oem'});
+ assert.ok(matchesEnrichment(row,{manufacturer:info.brand,partNumber:info.name,data:buildData(info),matchBasis:basis!}));
+ // The number must be the supplier's own and listed on the live answer.
+ assert.equal(identifyBasis({...row,oem:'11537522998'},info),null);
+ assert.equal(identifyBasis({...row,oemReference:'7522999'},info),null);
+ assert.deepEqual(oemBrandMakers(info.oenNumbers,'11537522999'),['BMW','MINI']);
+ assert.equal(oemBrandMakers(info.oenNumbers,'11537522998'),null);
+ const listing=(brand:string)=>({...info,oenNumbers:[{brand,code:'1K0 129 620 D'},{brand:'PEUGEOT',code:'1444 TT'}]});
+ assert.deepEqual(oemBrandMakers(listing('VW').oenNumbers,'1K0129620D'),['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE']);
+ assert.deepEqual(oemBrandMakers(listing('CITROËN').oenNumbers,'1K0129620D'),['PEUGEOT','CITROEN','DS']);
+ assert.deepEqual(oemBrandMakers(listing('TESLA').oenNumbers,'1K0129620D'),['TESLA']);
+ assert.deepEqual(oemBrandMakers(listing('VAG').oenNumbers,'1K0129620D'),['VW','AUDI','SEAT','SKODA','CUPRA','PORSCHE']);
+});
+
+test('an OE-matched article keeps vehicles and image, not its EAN, properties or cross references (#422)',async()=>{
+ const info=parseArticleInfo(await fixture())!;
+ const data={...buildData(info),oemNumbers:{'MERCEDES-BENZ':['A0109978692'],HONDA:['38920-RCA-A01'],'FORD USA':['BR3Z-8620-E']}};
+ assert.ok(data.specifications.length&&Object.keys(data.crossReferences).length);
+ const kept=oemMatchedData(data,['MERCEDES-BENZ','SMART'],'A 010 997 86 92');
+ assert.deepEqual(kept.specifications,[]);assert.deepEqual(kept.crossReferences,{});
+ assert.deepEqual(kept.oemNumbers,{'MERCEDES-BENZ':['A0109978692']});
+ // Without known makers only the matched number's brand stays; a stored package gives the makers back.
+ assert.deepEqual(oemMatchedData(data,null,'38920RCAA01').oemNumbers,{HONDA:['38920-RCA-A01']});
+ assert.deepEqual(oemMatchedData(data,['FORD'],'X').oemNumbers,{'FORD USA':['BR3Z-8620-E']});
+ assert.deepEqual(oemBrandMakers(oemList(data.oemNumbers),'A0109978692'),['MERCEDES-BENZ','SMART']);
+ // The import contract still accepts the stripped package.
+ const row={brand:'C',code:'C 6PK 2150',oem:'A0109978692'};
+ assert.ok(matchesEnrichment(row,{manufacturer:'GATES',partNumber:'6PK2138',data:kept,matchBasis:{type:'oem_reference',reference:'A0109978692',supplierOem:'A0109978692',referenceSource:'supplier_oem'}}));
 });
 
 test('complete needs an image and vehicles with no invalid rows',()=>{

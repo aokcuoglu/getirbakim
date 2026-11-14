@@ -4,13 +4,18 @@ import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product-matching-sql";
+// Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
+// it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
+// re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
+import { forgetSameProducts } from "@/modules/admin/product-matching";
 
 export async function refreshMatches() {
   await requireAdmin();
   let error = "";
   try { await db.query("SELECT refresh_product_matches()"); }
   catch { error = "refresh"; }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(`/yonetim/urun-eslestirme?${error ? `error=${error}` : "refreshed=1"}`);
 }
@@ -18,31 +23,28 @@ export async function refreshMatches() {
 const backPath = z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme");
 const withFlag = (back: string, flag: string) => `${back}${back.includes("?") ? "&" : "?"}${flag}`;
 
-// "Ayır": the group's other rows become products of their own (locked manual sources), listed on their own at once.
-export async function splitOffers(form: FormData) {
+// "Ayır" on one offer of a group (#523): only that row leaves; a hand-merged row returns to its own key's product, an
+// automatically grouped one becomes a locked product of its own. The pair is recorded as different (db
+// product_split_offer). `primary_id` is the group the form was shown for: NULL when the row is no longer a non-primary
+// offer of it (a refresh, another admin or an earlier click got there first).
+export async function splitOffer(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ primary_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
+  const input = z.object({ item_id: z.uuid(), primary_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
-  const { primary_id, back } = input.data;
-  const client = await db.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SELECT product_split_item(item_id,$2) FROM product_offers WHERE primary_id=$1 AND item_id<>primary_id",
-      [primary_id, admin.id]);
-    await client.query("DELETE FROM product_offers WHERE primary_id=$1", [primary_id]);
-    await client.query("COMMIT");
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
+  const { item_id, primary_id, back } = input.data;
+  const { id } = (await db.query<{ id: string | null }>("SELECT product_split_offer($1,$2,$3) AS id", [item_id, primary_id, admin.id])).rows[0];
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
-  redirect(withFlag(back, "split=1"));
+  redirect(withFlag(back, id ? "split=1" : "error=split"));
 }
 
 // Undo a manual decision (split or merge): the row rejoins its own key's product and the store regroups at once.
 export async function undoSplit(form: FormData) {
   await requireAdmin();
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
-  if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
+  if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&scope=manual&error=input");
   await db.query("SELECT product_reset_item($1)", [input.data.item_id]);
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
 }
@@ -73,14 +75,17 @@ export async function decideCandidate(form: FormData) {
     }
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, failed ? "error=merge" : `matched=${status}`));
 }
 
-// Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1").
+// Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1"). Suffix
+// pairs, name conflicts, shared Dinamik products and Başbuğ products with several numbers are left for a decision by
+// hand (#524).
 export async function acceptCandidates(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ reason: z.enum(["prefix", "leading_zero", "suffix"]), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })
+  const input = z.object({ reason: z.enum(bulkCandidateReasons), brand: z.string().regex(/^[A-Z0-9]{2,80}$/), back: backPath })
     .safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
   const { reason, brand, back } = input.data;
@@ -89,8 +94,8 @@ export async function acceptCandidates(form: FormData) {
   try {
     await client.query("BEGIN");
     const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
-      JOIN products a ON a.id=c.product_a WHERE c.reason=$1 AND a.brand=$2 AND c.name_conflict IS NOT TRUE
-      AND NOT ${sharedCandidateSql} LIMIT 500`, [reason, brand])).rows;
+      JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b
+      WHERE c.reason=$1 AND a.brand=$2 AND ${bulkAcceptableSql} LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
       if (!(await client.query<{ id: string | null }>("SELECT product_merge($2,$1,$3) AS id", [pair.product_a, pair.product_b, admin.id])).rows[0].id) continue;
@@ -102,6 +107,7 @@ export async function acceptCandidates(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}`));
 }
@@ -189,13 +195,18 @@ export async function moveBrandLabel(form: FormData) {
   });
 }
 
-// Every label of this brand joins the target brand, which keeps its name and key.
+// Every label of this brand joins the target brand, which keeps its name and key. The target is what an admin typed,
+// or the suggested brand's id (names are not unique).
 export async function mergeBrand(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ id: z.coerce.number().int().positive(), target: brandName, back: brandBack }).safeParse(Object.fromEntries(form));
+  const input = z.object({ id: z.coerce.number().int().positive(), back: brandBack }).and(z.union([
+    z.object({ targetId: z.coerce.number().int().positive() }), z.object({ target: brandName }),
+  ])).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
-  await brandDecision(input.data.back, "merged", async client => {
-    const target = (await client.query<{ id: string }>(findBrand, [input.data.target])).rows[0]?.id;
+  const data = input.data;
+  await brandDecision(data.back, "merged", async client => {
+    const target = "targetId" in data ? (await client.query<{ id: string }>("SELECT id FROM brands WHERE id=$1", [data.targetId])).rows[0]?.id
+      : (await client.query<{ id: string }>(findBrand, [data.target])).rows[0]?.id;
     return Boolean(target) && (await client.query("SELECT brand_merge($1,$2,$3) AS id", [input.data.id, target, admin.id])).rows[0].id !== null;
   });
 }

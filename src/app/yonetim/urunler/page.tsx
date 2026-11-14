@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Package, Search, TriangleAlert, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, Package, Search, X } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -15,8 +14,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listProducts, productFilters, supplierNames, type ProductFilter } from "@/modules/admin/products";
 import { money } from "@/modules/store/catalog";
+import { formatNumber } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
+const number = formatNumber;
 
 export default async function Products({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const raw = await searchParams;
@@ -33,18 +34,13 @@ export default async function Products({ searchParams }: { searchParams: Promise
   const filterHref = (filter: ProductFilter) => query({ filter: filter === "all" ? undefined : filter });
 
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Ürünler</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex max-w-3xl flex-col gap-1">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Ürünler</h1>
         <p className="text-muted-foreground">Ana ürün kataloğu. Her ürün bir marka ve parça numarasıdır; Başbuğ, Dinamik ve SETA kayıtları bu ürüne kaynak olarak bağlanır. Fiyat ve stok kaynaklardan gelir: stokta olan en ucuz kaynak satılır.</p>
       </div>
     </div>
-    {params.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
     <Card>
       <CardHeader className="flex flex-col gap-4">
         <Tabs value={filterHref(data.filter)}><ScrollArea className="w-full pb-2">
@@ -85,11 +81,11 @@ export default async function Products({ searchParams }: { searchParams: Promise
               ? product.categories.join(", ") : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell><div className="flex flex-wrap gap-1">{product.suppliers.length
               ? product.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>)
-              : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Satışta değil</Badge>}</div></TableCell>
+              : <StatusBadge tone="warning">Satışta değil</StatusBadge>}</div></TableCell>
             <TableCell className="text-right font-medium tabular-nums">{product.best_price ? money(product.best_price) : "—"}</TableCell>
             <TableCell>{product.best_supplier ? product.available
-              ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{supplierNames[product.best_supplier]}</Badge>
-              : <Badge variant="outline">Stok yok</Badge> : <span className="text-muted-foreground">—</span>}</TableCell>
+              ? <StatusBadge tone="success">{supplierNames[product.best_supplier]}</StatusBadge>
+              : <StatusBadge tone="neutral">Stok yok</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Package/></EmptyMedia><EmptyTitle>Ürün bulunamadı.</EmptyTitle>
             <EmptyDescription>{data.q || data.brands.length || data.categories.length ? "Aramayı veya filtreyi değiştirin." : <>Ürünler eşleştirme yenilemesiyle oluşur (<code>npm run products:match</code>).</>}</EmptyDescription></EmptyHeader></Empty>}
@@ -97,8 +93,8 @@ export default async function Products({ searchParams }: { searchParams: Promise
       <CardFooter className="flex-wrap justify-between gap-3">
         <span className="text-muted-foreground tabular-nums">{number(data.total)} ürün · Sayfa {number(data.page)} / {number(data.pages)}</span>
         <Pagination aria-label="Sayfalar" className="mx-0 w-auto"><PaginationContent>
-          <PaginationItem>{prev ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start"/>Önceki</Button> : <Button variant="ghost" disabled><ChevronLeft data-icon="inline-start"/>Önceki</Button>}</PaginationItem>
-          <PaginationItem>{next ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end"/></Button> : <Button variant="ghost" disabled>Sonraki<ChevronRight data-icon="inline-end"/></Button>}</PaginationItem>
+          <PaginationItem>{prev ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Önceki</Button> : <Button variant="ghost" aria-label="Önceki sayfa" disabled><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Önceki</Button>}</PaginationItem>
+          <PaginationItem>{next ? <Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button> : <Button variant="ghost" aria-label="Sonraki sayfa" disabled>Sonraki<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button>}</PaginationItem>
         </PaginationContent></Pagination>
       </CardFooter>
     </Card>

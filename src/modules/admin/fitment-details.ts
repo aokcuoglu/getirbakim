@@ -1,6 +1,6 @@
 import type { SourceVehicle } from "@/modules/store/fitment-matcher";
 
-export type AdminFitmentRow = {
+type AdminFitmentRow = {
   index: number; source: SourceVehicle; status: string;
   catalog: { typeId: number; brand: string; model: string; engine: string; ps: number; kw: number; cc: number; from: string; to: string | null } | null;
 };

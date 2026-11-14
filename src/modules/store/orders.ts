@@ -79,9 +79,13 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   for(const p of items) {
    const vehicle=parseGarageVehicle(p.vehicle) ?? garage;
    const fitment=await productFitmentLevel(p,vehicle);
-   await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment]);
-   if(p.source==='store') await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1',[p.id,p.quantity]);
+   // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
+   const reserved=p.source==='store' ? p.quantity : 0;
+   if(reserved && !(await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2',[p.id,reserved])).rowCount) {
+    await client.query('ROLLBACK'); return {error:'stock'};
+   }
+   await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment,reserved]);
   }
   // The cart stays until TAMI confirms payment, so a declined card can be retried.
   await client.query('COMMIT'); return {id:order.id};

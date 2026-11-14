@@ -173,7 +173,10 @@ function omit(row: Record<string, unknown>, keys: readonly string[]) {
 export function prepareDinamikImport(input: { brand: string; stock: unknown; prices: unknown }) {
   const stock = z.array(stockRowSchema).parse(input.stock);
   const prices = z.array(priceRowSchema).parse(input.prices);
-  type Entry<T> = { value: T; count: number; variants: T[] };
+  type Entry<T> = { value: T; count: number; variants: T[]; exact?: boolean };
+  // Codes are matched trimmed, so rows that differ only by padding in stokKodu ("X" / "X  ") are the same row.
+  const same = <T extends { stokKodu: string }>(a: T, b: T) =>
+    JSON.stringify({ ...a, stokKodu: a.stokKodu.trim() }) === JSON.stringify({ ...b, stokKodu: b.stokKodu.trim() });
   const index = <T extends { stokKodu: string }>(rows: T[]) => {
     const map = new Map<string, Entry<T>>();
     for (const row of rows) {
@@ -181,12 +184,34 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
       if (!previous) map.set(code, { value: row, count: 1, variants: [row] });
       else {
         previous.count++;
-        if (!previous.variants.some(variant => JSON.stringify(variant) === JSON.stringify(row))) previous.variants.push(row);
+        if (!previous.variants.some(variant => same(variant, row))) previous.variants.push(row);
       }
     }
     return map;
   };
   const s = index(stock), p = index(prices);
+  // Dinamik sometimes lists a code twice in one response: once as written and once padded with spaces ("FEBI 171180" /
+  // "FEBI 171180  "), with different prices or descriptions. The row written exactly is its own record and the code we
+  // order with (refreshDinamikItems asks for it), so it wins; the padded rows stay in source_variants for review.
+  for (const map of [s, p] as Map<string, Entry<{ stokKodu: string }>>[]) {
+    for (const [code, entry] of map) {
+      if (entry.variants.length < 2) continue;
+      const exact = entry.variants.filter(row => row.stokKodu === code);
+      if (exact.length === 1) { entry.value = exact[0]; entry.exact = true; }
+    }
+  }
+  // A price row of 0 next to a positive one is a placeholder, not a second price. Only different positive prices stay
+  // a conflict: the code is held back for review instead of picking one (FEBI 171180 came as 398,77 and 375,86).
+  for (const entry of p.values()) {
+    if (entry.variants.length < 2 || entry.exact) continue;
+    const positive = entry.variants.filter(row => typeof row.fiyat === "number" && row.fiyat > 0);
+    const distinct = new Map(positive.map(row => [row.fiyat, row]));
+    if (distinct.size === 1) entry.value = positive[0];
+  }
+  const priceConflict = (entry: Entry<{ fiyat?: unknown }> | undefined) => {
+    if (!entry || entry.variants.length < 2 || entry.exact) return false;
+    return new Set(entry.variants.map(row => row.fiyat).filter(price => typeof price === "number" && price > 0)).size > 1;
+  };
   const codes = [...new Set([...p.keys(), ...s.keys()])].sort();
   const items: ObservationItem[] = codes.map(code => {
     const st = s.get(code), pr = p.get(code);
@@ -195,7 +220,7 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
     const storefront = dinamikStorefrontFields(stockRow, priceRow);
     // Both lists quote a price; a disagreement is kept visible instead of picking one.
     const priceMismatch = Boolean(st && pr && st.value.fiyat !== pr.value.fiyat);
-    const conflicting = (st?.variants.length ?? 0) > 1 || (pr?.variants.length ?? 0) > 1 || priceMismatch;
+    const conflicting = ((st?.variants.length ?? 0) > 1 && !st!.exact) || priceConflict(pr) || priceMismatch;
     return {
       code,
       product_data: stockRow ? { ...omit(stockRow, [...stockFields, ...offerFields]), ...storefront.product } : { stokKodu: code, marka: priceRow!.marka },
@@ -207,6 +232,7 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
         ...((st?.variants.length ?? 0) > 1 ? { stocks: st!.variants } : {}),
         ...((pr?.variants.length ?? 0) > 1 ? { prices: pr!.variants } : {}),
         ...(priceMismatch ? { stockListPrice: st!.value.fiyat } : {}),
+        ...(st?.exact || pr?.exact ? { usedExactCode: true } : {}),
       },
     };
   });
@@ -221,19 +247,67 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
   } };
 }
 
-/** Adds newly listed brands as enabled scopes and disables brands Dinamik no longer lists. */
-export async function discoverDinamikBrands(pool: Pool, fetchJson: DinamikFetch = dinamikClient()) {
+/** A brand list shorter than this share of the enabled scopes is treated as an upstream fault: nothing is disabled. */
+export const DINAMIK_MIN_LISTED_SHARE = 0.8;
+
+/**
+ * Syncs the brand scopes with Dinamik's brand list: new brands become enabled scopes, brands that come back are
+ * re-enabled and queued, and brands Dinamik no longer lists are disabled. A disabled brand's rows are retired
+ * (presence 'inactive', logged in supplier_item_changes) instead of staying 'present' on month-old stock and price;
+ * nothing is deleted, and the first successful import after a brand returns restores them.
+ */
+export async function discoverDinamikBrands(pool: Pool, fetchJson: DinamikFetch = dinamikClient(), { minListedShare = DINAMIK_MIN_LISTED_SHARE } = {}) {
   const brands = await fetchDinamikBrands(fetchJson);
   const invalid = brands.filter(brand => !dinamikBrandPattern.test(brand));
   const valid = brands.filter(brand => dinamikBrandPattern.test(brand));
-  const added = await pool.query<{ list_group: string }>(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,next_run_at)
-    SELECT 'dinamik',$1,brand,$2,true,'04:00',2160,now() FROM unnest($3::text[]) brand
-    ON CONFLICT(supplier,company,list_group,warehouse) DO NOTHING RETURNING list_group`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE, valid]);
-  const removed = await pool.query<{ list_group: string }>(`UPDATE supplier_sync_scopes SET enabled=false
-    WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled AND NOT list_group=ANY($3::text[]) RETURNING list_group`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE, valid]);
-  await pool.query(`INSERT INTO supplier_discovery(supplier,checked_at,listed) VALUES('dinamik',now(),$1)
-    ON CONFLICT(supplier) DO UPDATE SET checked_at=EXCLUDED.checked_at,listed=EXCLUDED.listed`, [brands.length]);
-  return { listed: brands.length, added: added.rows.map(r => r.list_group), disabled: removed.rows.map(r => r.list_group), invalid };
+  const keys = [DINAMIK_COMPANY, DINAMIK_WAREHOUSE];
+  const enabledCount = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_sync_scopes WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled", keys)).rows[0].n;
+  if (enabledCount && valid.length < enabledCount * minListedShare) {
+    throw new DinamikImportError("contract", `brand list shrank to ${valid.length} of ${enabledCount} enabled brands`);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const scopes = await client.query<{ list_group: string; kind: "added" | "reenabled" }>(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,next_run_at)
+      SELECT 'dinamik',$1,brand,$2,true,'04:00',2160,now() FROM unnest($3::text[]) brand
+      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET enabled=true,next_run_at=now(),consecutive_failures=0
+        WHERE NOT supplier_sync_scopes.enabled
+      RETURNING list_group, CASE WHEN xmax=0 THEN 'added' ELSE 'reenabled' END AS kind`, [...keys, valid]);
+    const removed = await client.query<{ list_group: string }>(`UPDATE supplier_sync_scopes SET enabled=false
+      WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled AND NOT list_group=ANY($3::text[]) RETURNING list_group`, [...keys, valid]);
+    // Every disabled brand, also ones disabled before this rule existed.
+    const retired = await client.query<{ list_group: string }>(`WITH gone AS (
+      SELECT o.id,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data,
+        'conflicting',o.conflicting,'variants',o.source_variants,'presence',o.presence) AS before_data
+      FROM supplier_items o JOIN supplier_sync_scopes s ON s.supplier=o.supplier AND s.company=o.company AND s.list_group=o.list_group AND s.warehouse=o.warehouse
+      WHERE o.supplier='dinamik' AND o.company=$1 AND o.warehouse=$2 AND NOT s.enabled AND o.presence<>'inactive'
+    ), updated AS (
+      UPDATE supplier_items o SET presence='inactive',changed_at=clock_timestamp() FROM gone g WHERE o.id=g.id RETURNING o.*
+    ), logged AS (
+      INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
+      SELECT o.id,NULL,o.changed_at,'inactive',g.before_data,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data,
+        'conflicting',o.conflicting,'variants',o.source_variants,'presence',o.presence)
+      FROM updated o JOIN gone g ON g.id=o.id
+    ) SELECT list_group FROM updated`, keys);
+    await client.query(`INSERT INTO supplier_discovery(supplier,checked_at,listed) VALUES('dinamik',now(),$1)
+      ON CONFLICT(supplier) DO UPDATE SET checked_at=EXCLUDED.checked_at,listed=EXCLUDED.listed`, [brands.length]);
+    await client.query("COMMIT");
+    const retiredByBrand: Record<string, number> = {};
+    for (const row of retired.rows) retiredByBrand[row.list_group] = (retiredByBrand[row.list_group] ?? 0) + 1;
+    return {
+      listed: brands.length,
+      added: scopes.rows.filter(r => r.kind === "added").map(r => r.list_group),
+      reenabled: scopes.rows.filter(r => r.kind === "reenabled").map(r => r.list_group),
+      disabled: removed.rows.map(r => r.list_group),
+      retired: retiredByBrand,
+      invalid,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function importDinamik(pool: Pool, options: z.input<typeof dinamikImportOptions>, fetchJson?: DinamikFetch) {
@@ -340,7 +414,9 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
           stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
         return;
       }
-      const item = prepareDinamikImport({ brand: row.list_group, stock: [stock[0]], prices: [{ marka: stock[0].marka, stokKodu: row.code, fiyat: stock[0].fiyat }] }).items[0];
+      // The same code may come back padded as well ("X  "); the row written exactly is the one we order.
+      const match = stock.find(item => item.stokKodu === row.code) ?? stock[0];
+      const item = prepareDinamikImport({ brand: row.list_group, stock: [match], prices: [{ marka: match.marka, stokKodu: row.code, fiyat: match.fiyat }] }).items[0];
       observed.push({ id: row.id, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
     }));
   }

@@ -25,7 +25,7 @@ export function LiveRefresh({ seconds = 10, defaultOn = true }: { seconds?: numb
       <Label htmlFor={id}>Canlı ({seconds} sn)</Label>
     </div>
     <Button variant="outline" disabled={pending} aria-busy={pending} onClick={() => startTransition(() => router.refresh())}>
-      {pending ? <Spinner data-icon="inline-start"/> : <RefreshCw data-icon="inline-start" aria-hidden="true"/>}{pending ? "Yenileniyor…" : "Yenile"}
+      {pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <RefreshCw data-icon="inline-start" aria-hidden="true"/>}{pending ? "Yenileniyor…" : "Yenile"}
     </Button>
   </div>;
 }

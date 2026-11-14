@@ -51,9 +51,50 @@ test("repeated and contradicting rows are counted and preserved", () => {
   assert.equal(items[0].price_count, 3);
   assert.equal(items[0].stock_count, 2);
   assert.equal(items[0].conflicting, true);
-  assert.equal((items[0].source_variants.prices as unknown[]).length, 3);
+  // "FEBI 1" and "FEBI 1 " are the same row once the code is trimmed; 106,09 and 120 remain.
+  assert.equal((items[0].source_variants.prices as unknown[]).length, 2);
   assert.ok(!("stocks" in items[0].source_variants), "identical repeats are not conflicts");
   assert.equal(quality.duplicateCodes, 1);
+});
+
+test("duplicate price rows only conflict when they quote different positive prices", () => {
+  const { items, quality } = prepareDinamikImport({ brand: "FEBI", stock: [stockRow("FEBI 4", 398.77)], prices: [
+    // Same price, code padded differently (ORJINAL 1C0945511A): one row.
+    priceRow("FEBI 1", 57.5), priceRow("FEBI 1  ", 57.5),
+    // A zero next to a positive price (DELPHI GN10174-12B1): the positive price wins, in either order.
+    priceRow("FEBI 2", 458.535), priceRow("FEBI 2 ", 0),
+    priceRow("FEBI 3 ", 0), priceRow("FEBI 3", 1248.38),
+    // Two positive prices, one row written exactly and one padded (FEBI 171180): the exact row is the supplier's record.
+    priceRow("FEBI 4", 398.77), priceRow("FEBI 4  ", 375.86),
+    // Two positive prices with no exact row to prefer: held back, nothing chosen.
+    priceRow("FEBI 5 ", 10), priceRow("FEBI 5  ", 12),
+  ] });
+  const byCode = Object.fromEntries(items.map(item => [item.code, item]));
+  assert.equal(byCode["FEBI 1"].conflicting, false);
+  assert.ok(!("prices" in byCode["FEBI 1"].source_variants));
+  assert.equal(byCode["FEBI 2"].conflicting, false);
+  assert.equal((byCode["FEBI 2"].price_data as { fiyat: number }).fiyat, 458.535);
+  assert.equal(byCode["FEBI 3"].conflicting, false);
+  assert.equal((byCode["FEBI 3"].price_data as { nf: number }).nf, 1248.38);
+  assert.equal(byCode["FEBI 4"].conflicting, false);
+  assert.equal((byCode["FEBI 4"].price_data as { nf: number }).nf, 398.77);
+  assert.equal((byCode["FEBI 4"].source_variants.prices as unknown[]).length, 2, "the padded row stays visible");
+  assert.equal(byCode["FEBI 4"].source_variants.usedExactCode, true);
+  assert.equal(byCode["FEBI 5"].conflicting, true);
+  assert.equal(quality.conflictingCodes, 1);
+});
+
+test("a padded duplicate in the stock list yields to the row written exactly", () => {
+  // ORJINAL 1520900Q0H: the padded row is 0 / YOK and names another vehicle; the exact row is the live product.
+  const { items } = prepareDinamikImport({ brand: "FEBI",
+    stock: [{ ...stockRow("FEBI 6 ", 0, "YOK"), varyok4: "YOK", varyokAll: "YOK", stokAdi: "ESKI KAYIT" }, { ...stockRow("FEBI 6", 1248.38), stokAdi: "YAG FILTRESI" }],
+    prices: [priceRow("FEBI 6 ", 0), priceRow("FEBI 6", 1248.38)] });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].conflicting, false);
+  assert.equal((items[0].product_data as { ac: string }).ac, "YAG FILTRESI");
+  assert.equal((items[0].price_data as { nf: number }).nf, 1248.38);
+  assert.equal((items[0].stock_data as { stok: number }).stok, 1);
+  assert.equal((items[0].source_variants.stocks as unknown[]).length, 2);
 });
 
 test("unexpected response shapes are refused", () => {
@@ -136,10 +177,30 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.equal((await refreshDinamikItems(pool, [ids["FEBI 1"]], perCode)).changed, 0);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes")).rows[0].n, before + 2);
 
-    // A brand Dinamik stops listing is disabled, not deleted.
-    brands = ["FEBI", "SCHADEK"];
-    assert.deepEqual((await discoverDinamikBrands(pool, fake)).disabled, ["EMPTY"]);
-    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='EMPTY'")).rows[0].enabled, false);
+    // A brand list that shrinks past the guard disables nothing.
+    brands = ["FEBI"];
+    await assert.rejects(discoverDinamikBrands(pool, fake), /brand list shrank to 1 of 3/);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_sync_scopes WHERE supplier='dinamik' AND enabled")).rows[0].n, 3);
+
+    // A brand Dinamik stops listing is disabled and its rows retired (logged, not deleted).
+    brands = ["FEBI", "EMPTY"];
+    const schadekBefore = (await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK'")).rows[0].n;
+    const gone = await discoverDinamikBrands(pool, fake, { minListedShare: 0.5 });
+    assert.deepEqual(gone.disabled, ["SCHADEK"]); assert.deepEqual(gone.retired, { SCHADEK: 1 });
+    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='SCHADEK'")).rows[0].enabled, false);
+    assert.equal((await pool.query("SELECT presence FROM supplier_items WHERE code='SCHADEK 1'")).rows[0].presence, "inactive");
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK' AND c.kind='inactive'")).rows[0].n, 1);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id WHERE i.list_group='SCHADEK'")).rows[0].n, schadekBefore + 1);
+    // Running discovery again retires nothing twice.
+    assert.deepEqual((await discoverDinamikBrands(pool, fake, { minListedShare: 0.5 })).retired, {});
+
+    // The brand comes back: its scope is re-enabled and queued, the first import restores its rows.
+    brands = ["FEBI", "SCHADEK", "EMPTY"];
+    const back = await discoverDinamikBrands(pool, fake);
+    assert.deepEqual(back.reenabled, ["SCHADEK"]); assert.deepEqual(back.added, []);
+    assert.equal((await pool.query("SELECT enabled FROM supplier_sync_scopes WHERE list_group='SCHADEK' AND next_run_at<=now()")).rows[0].enabled, true);
+    assert.equal((await importDinamik(pool, { brand: "SCHADEK" }, fake)).stats.restored, 1);
+    assert.equal((await pool.query("SELECT presence FROM supplier_items WHERE code='SCHADEK 1'")).rows[0].presence, "present");
   } finally {
     await pool.end(); await root.query(`DROP SCHEMA ${namespace} CASCADE`); await root.end();
   }

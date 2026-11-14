@@ -112,6 +112,11 @@ export function partCodeOems(brand: string, code: string): PartCodeOem[] {
   return [];
 }
 
+/** The supplier's OE field as normalized numbers; kit notation ("HX7G 6065 AB/SET") also yields the base number. */
+export function supplierOemReferences(oem: string): string[] {
+  return [...new Set(oem.split(/[,;|\n]+|(?<=\d{7})\s+(?=\d{7})/)
+    .flatMap(value => [value, value.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i, "")]).map(normalize).filter(value => value.length >= 4))];
+}
 export function matchesEnrichment(supplier: { brand: string; code: string; oem: string; masterBrand?: string | null }, source: {
   manufacturer: string; partNumber: string; data: Pick<EnrichmentData, "oemNumbers" | "crossReferences">; matchBasis: z.infer<typeof matchBasisSchema>;
 }) {
@@ -122,11 +127,8 @@ export function matchesEnrichment(supplier: { brand: string; code: string; oem: 
   if (supplier.oem !== basis.supplierOem) return false;
   const reference = normalize(basis.reference);
   if (!reference) return false;
-  // Kit notation ("HX7G 6065 AB/SET") also authorizes the base OE number.
-  const supplierReferences = supplier.oem.split(/[,;|\n]+|(?<=\d{7})\s+(?=\d{7})/)
-    .flatMap(value => [value, value.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i, "")]).map(normalize).filter(value => value.length >= 4);
   const authorized = basis.referenceSource === "supplier_oem"
-    ? supplierReferences.includes(reference)
+    ? supplierOemReferences(supplier.oem).includes(reference)
     // A part code that is (or carries) an OE number authorizes it, whatever the supplier OEM field holds.
     : partCodeOems(supplier.brand, supplier.code).some(own => own.source === basis.referenceSource && normalize(own.reference) === reference);
   return authorized && (normalize(source.partNumber) === reference

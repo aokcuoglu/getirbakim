@@ -15,6 +15,6 @@ export function HomeProductCard({product,image,partNumber,category,account}:{pro
       <Link className="mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground" href={category?"/katalog?category="+category.slug:"/katalog"}>{category?.name??"Yedek parçalar"}</Link>
       <Link className="line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]" href={"/urun/"+product.id}>{title}</Link>
     </div>
-    <div className="mt-2 min-h-[42px]">{product.price_kurus===null?<span className="text-[13px] leading-5 text-muted-foreground">Fiyat bilgisi güncelleniyor</span>:<><strong className="block text-base leading-[21px] font-medium">{money(servicePrice(product.price_kurus,discounted?account!.discount_percent:0))}</strong><small className="block text-[13px] leading-[21px] text-muted-foreground">KDV dahil · Kargo hariç</small></>}</div>
+    <div className="mt-2 min-h-[42px]">{product.unavailable?<Link className="text-[13px] leading-5 text-muted-foreground hover:text-primary" href={"/urun/"+product.id+"#haber-ver"}>Şu an tedarik edilemiyor · Gelince haber ver</Link>:product.price_kurus===null?<span className="text-[13px] leading-5 text-muted-foreground">Fiyat bilgisi güncelleniyor</span>:<><strong className="block text-base leading-[21px] font-medium">{money(servicePrice(product.price_kurus,discounted?account!.discount_percent:0))}</strong><small className="block text-[13px] leading-[21px] text-muted-foreground">KDV dahil · Kargo hariç</small></>}</div>
   </article>;
 }
