@@ -4,7 +4,28 @@ type AdminFitmentRow = {
   index: number; source: SourceVehicle; status: string;
   catalog: { typeId: number; brand: string; model: string; engine: string; ps: number; kw: number; cc: number; from: string; to: string | null } | null;
 };
-export type AdminFitmentDetails = { rows: AdminFitmentRow[]; modelCount: number };
+export type AdminFitmentDetails = { rows: AdminFitmentRow[]; modelCount: number; total: number; matched: number };
+
+export const fitmentPageSize = 50;
+export const fitmentMaxLimit = 200;
+export type FitmentFilter = "all" | "matched" | "unmatched";
+export type FitmentPaging = { offset: number; limit: number; filter: FitmentFilter };
+
+// Query parameters arrive as untrusted strings; anything but a plain in-range integer is rejected.
+export function parseFitmentPaging(params: URLSearchParams): FitmentPaging | null {
+  const integer = (name: string, fallback: number, max: number) => {
+    const raw = params.get(name);
+    if (raw === null) return fallback;
+    if (!/^\d{1,9}$/.test(raw)) return null;
+    const value = Number(raw);
+    return value <= max ? value : null;
+  };
+  const offset = integer("vehiclesOffset", 0, 10_000_000), limit = integer("vehiclesLimit", fitmentPageSize, fitmentMaxLimit);
+  const filter = params.get("vehiclesFilter") ?? "all";
+  if (offset === null || limit === null || limit < 1) return null;
+  if (filter !== "all" && filter !== "matched" && filter !== "unmatched") return null;
+  return { offset, limit, filter };
+}
 export const fitmentStatusLabels: Record<string, string> = {
   matched: "Eşleşti", model_missing: "Model bulunamadı", attributes_missing: "Teknik değerler eşleşmedi",
   dates_differ: "Üretim tarihi farklı", engine_name_differs: "Motor / çekiş adı farklı", ambiguous: "Birden fazla aday",

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
+import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
 const base: FitmentCatalogType = { id: 10, model_id: 1, name: "2.0 TDI", cc: 1968, fuel_type: "Diesel", hp: 150, kwt: 110, date_from: "2013-04", date_to: "2017-03" };
@@ -77,4 +78,12 @@ test("an open-ended source may match a closed catalog type only on the same star
   assert.equal(createFitmentMatcher(models, [base, { ...base, id: 13, date_to: null }])(open, 0).typeId, 13);
   // The reverse — a closed source against an open catalog type — still differs.
   assert.equal(createFitmentMatcher(models, [{ ...base, date_to: null }])(source, 0).status, "dates_differ");
+});
+
+test("fitment paging parameters default to the first page and reject unsafe values", () => {
+  assert.deepEqual(parseFitmentPaging(new URLSearchParams()), { offset: 0, limit: 50, filter: "all" });
+  assert.deepEqual(parseFitmentPaging(new URLSearchParams("vehiclesOffset=100&vehiclesLimit=200&vehiclesFilter=matched")), { offset: 100, limit: 200, filter: "matched" });
+  for (const query of ["vehiclesOffset=-1", "vehiclesOffset=1.5", "vehiclesOffset=abc", "vehiclesLimit=0", "vehiclesLimit=201", "vehiclesLimit=1e3", "vehiclesFilter=all%27--", "vehiclesOffset=99999999999"]) {
+    assert.equal(parseFitmentPaging(new URLSearchParams(query)), null, query);
+  }
 });
