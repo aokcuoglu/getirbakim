@@ -38,6 +38,15 @@ function roundedProduct(values: (Decimal | null)[]): number | null {
   return rounded > zero && rounded <= maxKurus ? Number(rounded) : null;
 }
 
+/** round(price × 100 / (100 + vat)) half up, exactly; null for a missing or negative rate or a non-integer price. */
+function withoutVat(priceKurus: number, vat: Decimal | null): number | null {
+  if (!Number.isSafeInteger(priceKurus) || priceKurus <= 0 || !vat || vat.digits < zero) return null;
+  const scale = ten ** BigInt(vat.scale);
+  const numerator = BigInt(priceKurus) * hundred * scale, denominator = hundred * scale + vat.digits;
+  const rounded = (numerator * two + denominator) / (denominator * two);
+  return rounded > zero && rounded <= maxKurus ? Number(rounded) : null;
+}
+
 export function resolvePartnerDiscountBps(raw: string | undefined | null): number {
   const parsed = Number((raw ?? "").trim());
   if (!raw?.trim() || !Number.isFinite(parsed) || parsed <= 0) return defaultPartnerDiscountBps;
@@ -45,7 +54,7 @@ export function resolvePartnerDiscountBps(raw: string | undefined | null): numbe
 }
 
 /** The storefront's pricing inputs (`commerce_catalog.pricing_snapshot` of a supplier row). */
-export type SupplierPricing = { nf?: unknown; exchange_rate?: unknown; markup_percent?: unknown; vat_percent?: unknown };
+export type SupplierPricing = { source?: unknown; nf?: unknown; exchange_rate?: unknown; markup_percent?: unknown; vat_percent?: unknown };
 
 export type PartnerPrice = {
   /** Storefront price before VAT. */
@@ -59,22 +68,28 @@ export type PartnerPrice = {
 };
 
 /**
- * `priced`: the storefront has a sellable price for the row right now (`commerce_catalog.price_kurus` is not
- * null). Its freshness and exchange-rate gates decide, so a stale observation never becomes a partner price.
+ * `priceKurus`: the storefront's VAT-included price for the row right now (`commerce_catalog.price_kurus`); null
+ * means no sellable price, whose freshness and exchange-rate gates decide, so a stale observation never becomes a
+ * partner price. A price an admin set (`source: "override"`, #580: fixed or campaign) is the partner's too: its VAT
+ * is taken out of the storefront price. Otherwise the formula is recomputed before VAT, exactly.
  */
-export function resolvePartnerPrice(pricing: SupplierPricing, priced: boolean, discountBps: number): PartnerPrice {
+export function resolvePartnerPrice(pricing: SupplierPricing, priceKurus: number | null, discountBps: number): PartnerPrice {
   const hundredPercent = toDecimal(100);
   const vat = toDecimal(pricing.vat_percent);
   const vatRateBps = vat?.digits === zero ? 0 : roundedProduct([vat, hundredPercent]) ?? 2000;
   const unpriced: PartnerPrice = { listPriceKurus: null, b2bPriceKurus: null, discountBps: 0, vatRateBps, currency: "TRY" };
-  if (!priced) return unpriced;
-  // cost × rate × (100 + markup) is the price in kuruş before VAT; the same expression as commerce_catalog.
-  const markup = toDecimal(pricing.markup_percent);
-  if (!markup || markup.digits < zero) return unpriced;
+  if (priceKurus == null) return unpriced;
   const cost = toDecimal(pricing.nf), rate = toDecimal(pricing.exchange_rate);
-  const markupFactor = { digits: hundred * ten ** BigInt(markup.scale) + markup.digits, scale: markup.scale };
-  const listPriceKurus = roundedProduct([cost, rate, markupFactor]);
   const costKurus = roundedProduct([cost, rate, hundredPercent]);
+  let listPriceKurus: number | null;
+  if (pricing.source === "override") listPriceKurus = withoutVat(priceKurus, vat);
+  else {
+    // cost × rate × (100 + markup) is the price in kuruş before VAT; the same expression as commerce_catalog.
+    const markup = toDecimal(pricing.markup_percent);
+    if (!markup || markup.digits < zero) return unpriced;
+    const markupFactor = { digits: hundred * ten ** BigInt(markup.scale) + markup.digits, scale: markup.scale };
+    listPriceKurus = roundedProduct([cost, rate, markupFactor]);
+  }
   if (listPriceKurus == null) return unpriced;
   const requested = Math.min(Math.max(Math.trunc(discountBps), 0), maxPartnerDiscountBps);
   const discounted = Math.round(listPriceKurus * (10000 - requested) / 10000);

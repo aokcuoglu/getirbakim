@@ -15,6 +15,21 @@ Satış fiyatı kuruş olarak `round(NF × döviz satış kuru × (1+kâr/100) �
 
 Kur kaynağı aynı firma için son başarılı `supplier_imports.currencies_data.dovizListesi` kaydının `satis` değeridir. TL/TRY için kur 1'dir. Canlı modda kur veya ürün/stok verisi geçerlilik süresini aşarsa satış engellenir. Eksik NF veya bilinmeyen döviz sıfır fiyatla değiştirilmez. LF/MIF/K satış formülünde kullanılmaz.
 
+### Sabit fiyat ve kampanya fiyatı (#580)
+
+Yönetici ürün sayfasındaki “Fiyat” kartından (`/yonetim/urunler/<id>#fiyat`) ürüne sabit satış fiyatı ve kampanya fiyatı girer. Değerler ürün düzeyinde `product_overrides` tablosunda (`price_kurus`, `sale_price_kurus`, `sale_from`, `sale_until`) tutulur ve ürünün bütün tedarikçi satırlarına `commerce_item_overrides` üzerinden yansıtılır. Tedarikçi senkronizasyonu, eşleştirme yenilemesi ve zenginleştirme bu değerleri değiştirmez; ürün birleştirmesinde diğer elle alanlar gibi taşınır, birleştirme geri alınınca geri döner. Kampanya (fiyat ve tarihleri) tek birimdir: yönetici taşınan kampanyanın herhangi bir parçasını değiştirirse kampanyanın tamamı onun olur ve geri almada dokunulmaz.
+
+- **Birim:** tamsayı kuruş, **KDV dahil**. Giriş `1.249,90` ya da `1249.90` biçiminde, en fazla iki ondalıkla; boş alan formüle döner.
+- **Öncelik:** önce formül fiyatı (`auto`) hesaplanır. `auto` yoksa (maliyet, kur ya da güncellik eksik) satır fiyatsız kalır; sabit fiyat da satışı açmaz. `auto` varsa normal fiyat `sabit fiyat ?? auto` olur. Kampanya penceresi içindeyse ve kampanya fiyatı normal fiyattan düşükse satış fiyatı kampanya fiyatıdır; değilse normal fiyat.
+- **Kampanya penceresi:** `sale_from <= now() < sale_until`; boş başlangıç hemen, boş bitiş süresiz demektir. Saatler İstanbul saatiyle girilir ve gösterilir, veritabanında `timestamptz` saklanır. Tarih girildiyse kampanya fiyatı zorunludur; kampanya sabit fiyattan düşük, bitiş başlangıçtan sonra olmalıdır. Bitişi geçmişe çekilen kampanya kaydedilmez; daha önce bitmiş ve değiştirilmeyen kampanya diğer fiyat değişikliklerini engellemez (formda “Kampanya sona erdi” görünür).
+- **Maliyet altı:** fiyat bir satılabilir kaynağın KDV dahil maliyetinin (`cost_kurus × (1 + KDV/100)`) altındaysa kayıt yapılır, uyarı gösterilir (form, kayıt sonucu ve kaynak tablosunda “Maliyet altı”). Engelleme yoktur.
+- **Kâr/KDV oranları:** sabit fiyat varken ürüne özel oranlar formül fiyatını (`auto`) ve KDV ayrıştırmasını etkiler, satış fiyatını değiştirmez.
+- **En iyi teklif:** aynı ürünü satan kaynaklardan fiyatı en düşük olan satılır; eşitlikte (sabit fiyat bütün kaynakları eşitler) maliyeti düşük olan, sonra ürünün kendi satırı, sonra kimlik (`src/modules/store/best-offer.ts`, `compareOffers`).
+- **Servis indirimi:** kampanya dahil satış fiyatının üzerine uygulanır.
+- **Mağaza:** kampanya sürerken satış fiyatının yanında normal fiyat üstü çizili gösterilir (ürün sayfası, katalog kartı, ana sayfa kartı); bitiş varsa “Kampanya … tarihine kadar” (İstanbul saati). Sepet ve bakım robotunda yalnız satış fiyatı görünür.
+- **`pricing_snapshot` anahtarları:** formül anahtarları aynen kalır, her satıra `cost_kurus` (KDV hariç maliyet × kur × 100) eklenir. Elle fiyat uygulanıyorsa `source: "override"` (yoksa `"supplier"`), `price_kind` (`"fixed"` ya da `"sale"`), `auto_price_kurus` (formül fiyatı) ve sabit fiyat varsa `fixed_price_kurus`; kampanyada ayrıca `list_price_kurus` (normal fiyat) ve `sale_until`. Sipariş kalemi bu snapshot'ı saklar; sonradan yapılan fiyat değişikliği verilmiş siparişi değiştirmez. Kampanya teklif ile sipariş arasında biterse toplam yeniden onaylanır.
+- **Partner API:** elle fiyatlı satırda liste fiyatı satış fiyatından KDV ayrıştırılarak bulunur (`round(fiyat × 100 / (100 + KDV))`, tam ondalık, yarım yukarı); kampanya fiyatı da buna dahildir. İndirim ve maliyet tabanı kuralı aynıdır. Elle fiyat yoksa formül eskisi gibi KDV'siz yeniden hesaplanır.
+
 ### Başbuğ bakım süresince kayıtlı veri modu
 
 `/yonetim/tedarikciler/basbug` üzerindeki **Sipariş veri kaynağı** ayarı `commerce_settings.basbug_checkout_mode` alanını yönetir. Yeni kurulumlarda `live` varsayılandır. Kullanıcının 7 Ekim 2026 talebiyle yerel veritabanında `snapshot` etkinleştirildi.
@@ -59,7 +74,7 @@ Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kur
 - `npm run verify:commerce`: fiyat formülü, stok sinyali, sepet, eşzamanlı sipariş/idempotency, fiyat değişimi ve stok ayırma.
 - `npm run verify:commerce:http`: çalışan sunucuda gerçek Server Action formları, B2B fiyatı, sipariş yetkisi, yönetim ekranları, servis indirimi ve iptalde stok iadesi.
 - `npm run test:supplier-checkout`: geçici şemada canlı API hata/fiyat/stok kontrolleri, kayıtlı modda eski NF/kur/stokla API’siz sipariş, eksik/çelişkili/pasif kayıtların reddi, adet sınırı, eşzamanlı gönderim ve değişmeyen sipariş fiyat/gözlem kayıtları. API yanıtları mock edilir; yerel durdurma dosyasına dokunulmaz.
-- `npm run test:product-pricing`: oran doğrulaması, kuruş yuvarlama, ürüne özel kâr/KDV, genel ayardan devralma ve sıfır oranları; geçici PostgreSQL şemasında fiyat hesabı, diğer ürünlerin korunması, senkronizasyon sonrası oranların korunması ve genel oranlara dönüş. CI bu testi ve sipariş testiyle oran değişikliklerini PostgreSQL üzerinde çalıştırır.
+- `npm run test:product-pricing`: sabit/kampanya fiyatı girişi (TL → kuruş, tarih kuralları), en iyi teklif sırası, maliyet altı uyarısı ve fiyat formu; yalıtılmış şemada sabit fiyatın formülü ezmesi, kampanya penceresi, eksik tedarikçi verisinde fiyatsızlık, snapshot anahtarları, İstanbul saati dönüşümü ve geçmiş kayıtları. Ayrıca oran doğrulaması, kuruş yuvarlama, ürüne özel kâr/KDV, genel ayardan devralma ve sıfır oranları; geçici PostgreSQL şemasında fiyat hesabı, diğer ürünlerin korunması, senkronizasyon sonrası oranların korunması ve genel oranlara dönüş. CI bu testi ve sipariş testiyle oran değişikliklerini PostgreSQL üzerinde çalıştırır.
 - `npm run test:fitment-level`: uyumluluk seviyesi kuralı.
 - `npm run verify:catalog`: katalog arama/filtre/paginasyon ve ürün detayları.
 

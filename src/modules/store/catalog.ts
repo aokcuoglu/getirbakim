@@ -14,6 +14,7 @@ import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,sup
 import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
+import {compareOffers} from './best-offer';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -40,7 +41,8 @@ export async function getProduct(id: string): Promise<CatalogProduct | undefined
 }
 /**
  * Same product from several suppliers (product_offers): the listing shows the primary row, priced and stocked by
- * the cheapest offer that can be sold now; the primary itself wins ties. Without a sellable offer the row is kept.
+ * the cheapest offer that can be sold now (compareOffers: lower cost, then the primary itself, win ties). Without a
+ * sellable offer the row is kept.
  */
 export async function withBestOffers<T extends CatalogProduct>(items: T[]): Promise<T[]> {
  const ids = items.filter(item => item.source === "supplier" && !item.unavailable).map(item => item.id);
@@ -51,8 +53,7 @@ export async function withBestOffers<T extends CatalogProduct>(items: T[]): Prom
  return items.map(item => {
   const group = offers.filter(offer => offer.primary_id === item.id);
   if (group.length < 2) return item;
-  const best = group.filter(offer => offer.available && offer.price_kurus !== null)
-   .sort((a, b) => a.price_kurus! - b.price_kurus! || Number(b.id === item.id) - Number(a.id === item.id))[0];
+  const best = group.filter(offer => offer.available && offer.price_kurus !== null).sort(compareOffers(item.id))[0];
   if (!best) return { ...item, offers: group.length };
   return { ...item, price_kurus: best.price_kurus, available: best.available, max_quantity: best.max_quantity, stock_label: best.stock_label,
    pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
@@ -383,7 +384,8 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
    SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
     -- The stored ranking inputs are the supplier's; a row with an admin-edited name or description ranks the edit (#575).
-    COALESCE(CASE WHEN ov.supplier_item_id IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
+    -- A price-only edit (#580) keeps the stored inputs (src/modules/search/sql.ts, catalogRank).
+    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
      catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
       i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries})) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])

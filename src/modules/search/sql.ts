@@ -87,10 +87,11 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // Supplier rows rank their stored inputs (db/search.sql trigger): ~6 normalisations fewer per row, which
   // turned a 23k-match search from ~0.8 s of ranking into a primary-key lookup each. Store products, and
   // any row the trigger has not filled yet, compute the same values on the fly. So do rows with an admin-edited name or
-  // description (#575): the stored inputs are the supplier's, the view columns carry the edit.
+  // description (#575): the stored inputs are the supplier's, the view columns carry the edit (a price edit, #580, does not).
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
     FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id)), catalog_search_rank(${columns}, ${queries}))`;
+      AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id AND (o.name IS NOT NULL OR o.description IS NOT NULL))),
+    catalog_search_rank(${columns}, ${queries}))`;
 }
 
 /**

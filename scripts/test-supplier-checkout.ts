@@ -83,6 +83,30 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     assert.deepEqual(line.vehicle,vehicle);assert.equal(line.fitment_level,"unknown");
     assert.equal((await db.query("SELECT status FROM commerce_orders")).rows[0].status,"awaiting_payment");
 
+    // Admin prices (#580): with nf 50 the formula sells at 78.00; a fixed 90.00 and a running 80.00 campaign override it.
+    const buyer={kind:"guest" as const,id:randomBytes(32).toString("hex")};
+    await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)",[buyer.id]);
+    await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,price_kurus,sale_price_kurus,sale_until) VALUES($1,$2,9000,8000,now()+interval '1 day')",[id,randomUUID()]);
+    assert.equal(await setCartQuantity(buyer,id,1,true),true);
+    assert.equal((await cartFor(buyer))[0].price_kurus,8000);
+    const campaignInput={...input,requestKey:randomUUID(),quote:await cartQuote(await cartFor(buyer),0)};
+    // The campaign ends between the quote and the order: the price moved, so the order is refused.
+    await db.query("UPDATE commerce_item_overrides SET sale_until=now()-interval '1 second' WHERE supplier_item_id=$1",[id]);
+    assert.equal((await submitOrder(buyer,campaignInput)).error,"price");
+    campaignInput.quote=await cartQuote(await cartFor(buyer),0);
+    const fixedOrder=await submitOrder(buyer,campaignInput);assert.ok(fixedOrder.id);
+    const fixedLine=async()=>(await db.query("SELECT unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[fixedOrder.id])).rows[0];
+    let placed=await fixedLine();
+    assert.equal(Number(placed.unit_price_kurus),9000);
+    assert.deepEqual([placed.pricing_snapshot.source,placed.pricing_snapshot.price_kind,placed.pricing_snapshot.auto_price_kurus,placed.pricing_snapshot.fixed_price_kurus,
+      Number(placed.pricing_snapshot.cost_kurus),placed.pricing_snapshot.nf,placed.pricing_snapshot.discount_percent],["override","fixed",7800,9000,5000,50,0]);
+    // A later price change never touches the placed line.
+    await db.query("UPDATE commerce_item_overrides SET price_kurus=12000 WHERE supplier_item_id=$1",[id]);
+    assert.equal((await db.query("SELECT price_kurus FROM commerce_catalog WHERE id=$1",[id])).rows[0].price_kurus,12000);
+    placed=await fixedLine();
+    assert.equal(Number(placed.unit_price_kurus),9000);assert.equal(placed.pricing_snapshot.fixed_price_kurus,9000);
+    await db.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1",[id]);
+
     // Maintenance mode uses stored NF, stock and FX, without an API call.
     await db.query("UPDATE supplier_items SET last_seen_at=now()-interval '10 days',product_data=jsonb_set(product_data,'{dc}','\"EUR\"') WHERE id=$1",[id]);
     await db.query("UPDATE supplier_imports SET completed_at=now()-interval '10 days'");

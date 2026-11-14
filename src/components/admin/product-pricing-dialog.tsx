@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useId, useRef, useState } from "react";
-import { CircleAlert, CircleCheck, RotateCcw, Save } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, RotateCcw, Save } from "lucide-react";
 import { saveProductPricing } from "@/modules/admin/product-pricing-actions";
 import { productPricePreview, productPricingRatesSchema, type ProductPricing, type ProductPricingResult } from "@/modules/admin/product-pricing-schema";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,7 +17,10 @@ import { formatNumber } from "@/modules/admin/format";
 const percent = formatNumber;
 const money = (value: number) => (value / 100).toLocaleString("tr-TR", { style: "currency", currency: "TRY" });
 
-export function ProductPricingDialog({ id, code, cost, pricing }: { id: string; code: string; cost: number | null; pricing: ProductPricing }) {
+/** `fixedPrice`: the product's hand-set price (#580), which the store sells instead of this formula's result. */
+export function ProductPricingDialog({ id, code, cost, pricing, fixedPrice = null }: {
+  id: string; code: string; cost: number | null; pricing: ProductPricing; fixedPrice?: number | null;
+}) {
   const initialFocus = useRef<HTMLInputElement>(null);
   return <Dialog>
     <DialogTrigger render={<Button variant="outline"/>}>Kâr ve KDV oranları</DialogTrigger>
@@ -26,6 +29,8 @@ export function ProductPricingDialog({ id, code, cost, pricing }: { id: string; 
         <DialogTitle>Kâr ve KDV oranları</DialogTitle>
         <DialogDescription><span className="break-all font-mono">{code}</span> · Değişiklikler yalnız bu ürüne uygulanır.</DialogDescription>
       </DialogHeader>
+      {fixedPrice !== null && <Alert variant="info"><Info aria-hidden="true"/>
+        <AlertDescription>Bu ürüne sabit fiyat tanımlı ({money(fixedPrice)}); oranlar sabit fiyat kaldırıldığında ve KDV ayrıştırmasında uygulanır.</AlertDescription></Alert>}
       <PricingForm id={id} cost={cost} pricing={pricing} initialFocus={initialFocus}/>
     </DialogContent>
   </Dialog>;

@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS commerce_item_overrides (
  name text, description text, hidden boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
+-- Hand-set prices (#580), VAT included, in kuruş. price_kurus replaces the formula's price; sale_price_kurus sells below
+-- it between sale_from and sale_until (a NULL end is open). Neither opens a row the formula cannot price: missing cost,
+-- rate or freshness keeps the row unpriced (commerce_catalog below).
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS price_kurus integer CHECK(price_kurus>0);
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK(sale_price_kurus>0);
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -120,13 +127,40 @@ WITH latest AS (
  AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
- (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description
+ (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
+ ov.price_kurus AS override_price,ov.sale_until,
+ -- The campaign price only inside its window; a NULL end is open.
+ CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
+ -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
+ (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
  WHERE ov.hidden IS NOT TRUE
+), priced AS (
+ -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
+ SELECT *,CASE WHEN cost>0 AND exchange_rate>0
+ AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
+ AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
+ THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END AS auto_price
+ FROM supplier_prices
+), sold AS (
+ -- These CTEs are inlined, so each column below is its expression wherever it is used: auto_price is evaluated in
+ -- CASE branches only, the formula's branch first, so a row without an admin price computes it exactly once (as
+ -- before #580). Rows with one recompute it a few times. A campaign at or above the regular price is ignored.
+ SELECT *,CASE WHEN NOT admin_priced THEN NULL WHEN auto_price IS NOT NULL THEN COALESCE(override_price,auto_price) END AS regular_price
+ FROM priced
+), final AS (
+ SELECT *,CASE WHEN NOT admin_priced THEN auto_price WHEN sale_price<regular_price THEN sale_price ELSE regular_price END AS final_price,
+ CASE WHEN NOT admin_priced THEN false ELSE COALESCE(regular_price IS NOT NULL AND sale_price<regular_price,false) END AS on_sale,
+ CASE WHEN NOT admin_priced THEN false ELSE regular_price IS NOT NULL AND (override_price IS NOT NULL OR COALESCE(sale_price<regular_price,false)) END AS overridden,
+ jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
+ 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at,
+ 'checkout_mode',basbug_checkout_mode,'source_fresh',source_fresh,'company',company,'list_group',list_group,'warehouse',warehouse,
+ 'cost_kurus',round(cost*exchange_rate*100)) AS formula_snapshot
+ FROM sold
 )
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,
@@ -138,10 +172,7 @@ UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(override_name,NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(override_description,product_data->>'ac2',''),
- CASE WHEN cost>0 AND exchange_rate>0
- AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
- AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
- THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END,
+ final_price,
  NULL::integer,changed_at,COALESCE(product_data->>'oe',''),'supplier',company,
  (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
@@ -153,10 +184,13 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
  WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
  ELSE 'Stokta yok' END,
- jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
- 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at,
- 'checkout_mode',basbug_checkout_mode,'source_fresh',source_fresh,'company',company,'list_group',list_group,'warehouse',warehouse)
-FROM supplier_prices;
+ -- docs/commerce.md: price_kind fixed (the admin's price) or sale (the campaign; list_price_kurus is the price it replaces).
+ CASE WHEN NOT overridden THEN formula_snapshot ELSE formula_snapshot
+  || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
+  || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
+  || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
+ END
+FROM final;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000
  CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);

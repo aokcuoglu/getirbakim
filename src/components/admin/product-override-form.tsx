@@ -3,7 +3,7 @@
 import { startTransition, useActionState, useId, useReducer, useState } from "react";
 import { CircleAlert, CircleCheck, Pencil, RotateCcw, Save } from "lucide-react";
 import { saveProductOverride } from "@/app/yonetim/urunler/actions";
-import { productOverrideLabels, type ProductOverrideField, type ProductOverrideResult, type ProductOverrideValues } from "@/modules/admin/product-override-fields";
+import { productOverrideLabels, type ProductCardField, type ProductCardValues, type ProductOverrideResult } from "@/modules/admin/product-override-fields";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ const excerpt = (text: string, length = 160) => text.length > length ? `${text.s
  */
 export function ProductOverrideForm({ productId, values, version, automatic, categories }: {
   productId: string;
-  values: ProductOverrideValues | null;
+  values: ProductCardValues | null;
   version: string;
   /** `category` is null when the enrichment gives the product no category. */
   automatic: { name: string; description: string; category: string | null };
@@ -48,9 +48,9 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
   }, { status: "idle" });
   const edit = (change: Partial<OverrideFormValues>) => { dispatch({ type: "edit", values: change }); setShowResult(false); };
   const current = values ?? { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false };
-  const overridden = (field: ProductOverrideField) => field === "hidden" ? current.hidden : current[field] !== null;
+  const overridden = (field: ProductCardField) => field === "hidden" ? current.hidden : current[field] !== null;
   // Submitted from state (not the DOM form), so React's reset of a form action never touches what the admin typed.
-  const submit = (reset?: ProductOverrideField) => {
+  const submit = (reset?: ProductCardField) => {
     const data = new FormData();
     data.set("id", productId);
     data.set("version", form.version);
@@ -61,7 +61,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     }
     startTransition(() => action(data));
   };
-  const label = (field: ProductOverrideField, htmlFor: string, title = productOverrideLabels[field]) => <div className="flex flex-wrap items-center justify-between gap-2">
+  const label = (field: ProductCardField, htmlFor: string, title = productOverrideLabels[field]) => <div className="flex flex-wrap items-center justify-between gap-2">
     <div className="flex flex-wrap items-center gap-2">
       <FieldLabel htmlFor={htmlFor}>{title}</FieldLabel>
       {overridden(field) ? <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle</Badge> : <Badge variant="outline">Otomatik</Badge>}
@@ -70,7 +70,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
       <RotateCcw data-icon="inline-start" aria-hidden="true"/>Otomatiğe dön<span className="sr-only"> ({productOverrideLabels[field]})</span>
     </Button>}
   </div>;
-  const id = (field: ProductOverrideField) => `${fieldId}-${field}`;
+  const id = (field: ProductCardField) => `${fieldId}-${field}`;
   const textInput = (field: "name" | "seo_title") => ({
     id: id(field), name: field, value: form.values[field], "aria-describedby": `${id(field)}-hint`,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => edit({ [field]: event.currentTarget.value }),

@@ -29,6 +29,7 @@ import { ProductFitment } from "@/components/product-fitment";
 import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
+import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -80,6 +81,9 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const productCategoryPath=leafId?categoryPath(storeCategories,leafId):[];
   const category = categories.find(c => c.slug === product.category);
   const price = product.price_kurus === null ? null : money(servicePrice(product.price_kurus!, isB2B ? account!.discount_percent : 0));
+  // A running campaign (#580): the regular price struck through, with the same service discount as the price.
+  const regular = listPrice(product), campaignEnd = saleUntil(product);
+  const previousPrice = regular === null || product.price_kurus === null ? null : money(servicePrice(regular, isB2B ? account!.discount_percent : 0));
 
   // No Offer until payment, final tax/shipping and availability are verified.
   const title = productTitle(override, enrichment?.displayName, product.name);
@@ -161,6 +165,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
         </> : product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
           <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px] text-[#ed3821]">{price}</p>
+          {previousPrice && <p className="mb-1 text-[15px] text-muted-foreground"><span className="sr-only">Önceki fiyat: </span><s>{previousPrice}</s>
+            {campaignEnd && <span className="block text-[13px]">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</p>}
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
           <PurchaseForm productId={product.offer_id ?? product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
         </>}
