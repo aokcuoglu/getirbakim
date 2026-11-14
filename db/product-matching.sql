@@ -183,8 +183,8 @@ CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_
 -- supplier_items cascades) or process. App processes key their in-memory grouping (admin "Eşleşenler", #504) by it;
 -- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
 -- when rows changed: the matcher's bulk rewrite costs one UPDATE per statement, not per row. The row lock is held
--- until the writer commits, so concurrent offer writers queue on it; they already conflict on product_offers rows
--- (the matcher deletes and rewrites every row).
+-- until the writer commits, so concurrent offer writers queue on it; the matcher and the admin regrouping functions
+-- also share advisory lock 6, so they serialise before taking any row lock.
 CREATE TABLE IF NOT EXISTS product_grouping_version (
  id integer PRIMARY KEY DEFAULT 1 CHECK (id=1), version bigint NOT NULL DEFAULT 0
 );
@@ -491,6 +491,9 @@ CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpg
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,5);
+ -- Also the admin regrouping lock (product_merge/split/reset take 6 before touching rows): matcher and admin then queue
+ -- on the advisory lock instead of meeting on product_sources rows and the grouping version row (deadlock, #504).
+ PERFORM pg_advisory_xact_lock(20261001,6);
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
  DELETE FROM product_match_groups; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;
