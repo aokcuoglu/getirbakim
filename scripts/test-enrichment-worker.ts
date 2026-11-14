@@ -11,6 +11,7 @@ import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQue
 import {SourceQueue,unblockSources} from '../src/modules/enrichment/source-queue';
 import {matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
+import {fitmentDonorLateral} from '../src/modules/admin/fitment-donor';
 test('long-running Chrome collectors close between successive catalog batches',async t=>{
  const sockets:FakeSocket[]=[];
  class FakeSocket extends EventTarget {
@@ -372,6 +373,14 @@ test('master product sharing excludes equivalents, split offers and changed supp
    const linkDiffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT * FROM product_enrichment_shared EXCEPT ALL SELECT * FROM storefront_enrichments)
     UNION ALL (SELECT * FROM storefront_enrichments EXCEPT ALL SELECT * FROM product_enrichment_shared)) d`)).rows[0].n;
    assert.equal(linkDiffs,0);
+   // The fitment details' per-item donor lookup (#574) must pick the view's donor and payload, one row per job.
+   const lookup=(await pool.query(`SELECT count(*)::int AS n,
+     count(*) FILTER (WHERE (n.donor_item_id,n.payload) IS DISTINCT FROM (o.donor_item_id,o.payload))::int AS diffs
+    FROM product_enrichment_jobs j
+    LEFT JOIN LATERAL (${fitmentDonorLateral}) n ON true
+    LEFT JOIN product_enrichment_shared o ON o.supplier_item_id=j.supplier_item_id`)).rows[0];
+   assert.equal(lookup.diffs,0);
+   assert.equal(lookup.n,(await pool.query('SELECT count(*)::int AS n FROM product_enrichment_jobs')).rows[0].n);
   };
   const donor=randomUUID(),target=randomUUID(),equivalent=randomUUID(),pending=randomUUID(),duplicate=randomUUID(),unlinked=randomUUID();
   await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES
@@ -455,5 +464,21 @@ test('master product sharing excludes equivalents, split offers and changed supp
   await consistent();
   // The Başbuğ row no longer agrees with the product's brand key, so the coherent Dinamik duplicate represents it.
   assert.deepEqual((await pool.query('SELECT status,supplier_item_id FROM enrichment_product_states WHERE product_id=$1',[pending])).rows[0],{status:'pending',supplier_item_id:duplicate});
+  // Donor order among the valid enrichments of one product: complete beats partial, then the newest import wins.
+  const older=randomUUID(),newer=randomUUID();
+  await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES($1,'MAHLE OC90','{"uk":"MAHLE"}','basbug'),($2,'MAHLE OC90','{"uk":"MAHLE"}','basbug')`,[older,newer]);
+  await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'MAHLE','OC90')",[older]);
+  await pool.query('INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)',[older,newer]);
+  await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'MAHLE OC90','MAHLE','complete'),($2,'MAHLE OC90','MAHLE','partial')`,[older,newer]);
+  await pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload,imported_at)
+   VALUES($1,'MAHLE OC90','MAHLE','https://www.trodo.com/mahle-oc90-a','test','MAHLE','OC90','{"vehicles":[{"model":"A"}]}',now()-interval '1 day'),
+    ($2,'MAHLE OC90','MAHLE','https://www.trodo.com/mahle-oc90-b','test','MAHLE','OC90','{"vehicles":[{"model":"B"}]}',now())`,[older,newer]);
+  const donors=async()=>(await pool.query(`SELECT j.supplier_item_id,n.donor_item_id FROM product_enrichment_jobs j
+   CROSS JOIN LATERAL (${fitmentDonorLateral}) n WHERE j.supplier_item_id=ANY($1::uuid[]) ORDER BY j.supplier_item_id`,[[older,newer]])).rows.map(row=>row.donor_item_id);
+  assert.deepEqual(await donors(),[older,older]);
+  await consistent();
+  await pool.query("UPDATE product_enrichment_jobs SET status='complete',updated_at=now() WHERE supplier_item_id=$1",[newer]);
+  assert.deepEqual(await donors(),[newer,newer]);
+  await consistent();
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });
