@@ -27,6 +27,28 @@ Tedarikçiden ilk kez gelen marka etiketi yenilemede `sync_supplier_brands()` il
 
 Otomatik anahtarın kaçırdığı olası aynı ürünler `product_match_candidates`'a üç nedenle düşer: kod ön eki farkı (`prefix`, ör. CONTITECH `CT 978K1` ↔ `978K1`), baştaki sıfır farkı (`leading_zero`) ve son ek farkı (`suffix`). "Tümünü birleştir" yalnız `prefix` ve `leading_zero` için ve bir marka süzülüyken görünür; kural tek yerde, `src/modules/admin/product-matching-sql.ts` içindeki `bulkAcceptableSql`'dedir (sayaç, eylem ve testler aynı parçayı kullanır). Toplu birleştirmede tanımı farklı (`name_conflict`), Dinamik ürünü birden çok Başbuğ ürününe önerilen ("Birden çok eş") ve Başbuğ ürününe farklı kodlu birden çok Dinamik ürünü önerilen ya da zaten bağlanmış ("Birden çok kod") öneriler atlanır ve tek tek karar bekler. Son ek farkı hiç topluca birleştirilmez: fazladan hane veya ek çoğu zaman farklı parçadır (FEBI `100261` ↔ `1002610`…`1002619`). 2026-11-14 denetiminde elle birleştirilen 1.281 eşleşmenin 91'i yanlış çıktı; çoğu son ek farkıydı.
 
+**Son ek kuralları (#534).** Bilinen farklı parça desenleri son ek önerisi olarak hiç üretilmez. Kurallar `db/product-matching.sql` içinde iki fonksiyondadır: `product_suffix_rules()` (marka anahtarı veya `*`, kısa numaranın deseni, ekin deseni, karar) ve `product_suffix_verdict(marka, numara, numara)` — biri diğerini uzatmıyorsa `NULL`, yoksa `different` (önerilmez) veya `review` (önerilir, elle karar verilir); marka satırı `*` satırını ezer. Marka satırları kanonik marka anahtarını (`products.brand`) kullanır; bir marka anahtarı birleştirilir veya yeniden adlandırılırsa satırı da güncelleyin. `refresh_product_matches()` `different` çiftleri atlar, `db:setup` daha önce yazılmış böyle adayları siler. Kurallar:
+
+- `*`: rakamla biten numaraya tek hane eki (FEBI `100261` ↔ `1002610`, TRW `GDB328` ↔ `GDB3281`, MANN `/1`).
+- `*`: yalnız rakamdan oluşan numaraya 2–3 hane eki (ORIJINAL `425270` ↔ `42527025`).
+- STONE: tek hane `1` eki `review` olarak kalır (muafiyet).
+- OSRAM `…nHB` (ikili kutu), DAYCO `KPV…HD`, DAYCO/GATES `…SF`, SILBAK harfle biten numaraya `2`, CONTITECH `…PKnnn` ↔ `…Kn`.
+
+Ölçüm (yerel, 2026-11-14; tamamı karara bağlanmış 438 son ek çifti, 240 farklı / 198 aynı):
+
+| Kural | Farklı | Aynı |
+| --- | ---: | ---: |
+| Tek hane eki (G1) | 186 | 3 |
+| Rakam numaraya 2–3 hane (G2) | 5 | 0 |
+| OSRAM `nHB` | 10 | 0 |
+| DAYCO `KPV…HD` | 5 | 0 |
+| DAYCO/GATES `SF` | 2 | 0 |
+| SILBAK `2` | 4 | 0 |
+| CONTITECH `Kn` | 1 | 0 |
+| **Toplam** | **213** | **3** |
+
+İsabet %98,6; farklı çiftlerin %88,8'i engellenir. Belirsiz desenler bilerek öneride bırakıldı: STONE `-1`, DAYCO/GATES `xPK…HD` (4 farklı / 6 aynı), RAPRO harf ekleri, VW indeks harfleri, Ford renk ekleri (`…YZ9`), MAYSAN `…MM` gibi. Yeni desen = `product_suffix_rules()`'a bir satır + `scripts/test-product-matching.ts`'e test.
+
 ## Eşleşenler: tek teklifi ayırma ve elle kararlar (#523)
 
 Eşleşenler tablosunda gruptaki her bağlı teklifin (birincil Başbuğ satırı hariç) kendi "Ayır" düğmesi vardır; yalnız o kayıt gruptan çıkar (`product_split_offer(item, expected_primary, actor)`): elle birleştirilmiş bir kayıt kendi anahtarının ürününe döner (`product_reset_item`), anahtarıyla gruplanmış bir kayıt kilitli yeni bir varyant olur (`product_split_item`). Her iki durumda çift `product_match_decisions`'a "different" yazılır ve tekrar önerilmez; form, gösterildiği grubun birincil kaydını (`expected_primary` = `product_offers.primary_id`) taşır; kayıt artık o grubun birincil olmayan teklifi değilse (yenileme, başka bir yönetici veya önceki bir tıklama onu taşıdıysa) bayat form hiçbir şey değiştirmez ve "Ayrılamadı" uyarısı çıkar. "Satıştaki teklif" süzgecindeki **Elle kararlar** görünümü (`scope=manual`; eski `scope=split` bağlantıları da açılır) tüm `method='manual'` kaynakları sayfalı listeler: karar türü (Birleştirme / Ayırma), tedarikçi kaydı, bağlı ürün ve tarih; arama kelime kelimedir ve her kelime tutmalıdır ("FEBI 100261" = FEBI markalı 100261): bir kelime tedarikçi kodunda veya parça noda (sıkıştırılmış), ya da kaydın adı, ürünün markası ve adında (`search_normalize`) geçebilir. Liste başlıktan sıralanır ve "Geri al" kaydı kendi anahtarının ürününe döndürür; geri alınan bir birleştirme, önceden karar satırı olmasa da `product_match_decisions`'a "different" (product_a = birleştirildiği ürün) yazılır ve çift tekrar önerilmez (#551); aday üretimi kararı iki yönde de arar, ürün sayfasından yapılan birleştirme aday sırasına (a = Başbuğ/API tarafı, b = katılan) uymasa da geçerlidir.

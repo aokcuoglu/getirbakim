@@ -124,7 +124,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı olan öneriler topluca birleştirilmez: koda eklenen fazladan hane veya ek çoğu zaman farklı bir parçadır (ör. FEBI 100261 ve 1002610). Her çifti ayrı inceleyip karar verin.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı olan öneriler topluca birleştirilmez. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB) önerilmez; kalan çiftleri ayrı inceleyip karar verin.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
             {data.acceptableTotal > 0 && <form action={acceptCandidates}>

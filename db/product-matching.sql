@@ -324,8 +324,37 @@ CREATE OR REPLACE FUNCTION product_names_conflict(name_a text, name_b text) RETU
   AND NOT EXISTS (SELECT 1 FROM unnest(a) t WHERE position(t IN product_name_glued(name_b))>0)
  FROM (SELECT product_name_terms(name_a) a, product_name_terms(name_b) b) x
 $$;
+-- Part-number endings known to name another part (#534). Measured on the fully decided local suffix queue (438 pairs,
+-- 240 different / 198 same): these rows block 213 different and 3 same pairs. Rows are (brand key or '*', pattern of
+-- the shorter number, pattern of the extension, verdict); a brand row wins over '*'. Ambiguous endings (STONE "1",
+-- DAYCO/GATES xPK…HD, letter suffixes, colour/index letters) are left out or marked 'review' on purpose. Brand rows use
+-- canonical brand keys (products.brand); update the row when a brand key is merged or renamed.
+CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
+ ('*','[0-9]$','^[0-9]$','different'),
+ ('*','^[0-9]+$','^[0-9]{2,3}$','different'),
+ ('STONE','[0-9]$','^1$','review'),
+ ('OSRAM','.','^[0-9]HB$','different'),
+ ('DAYCO','^KPV','^HD$','different'),
+ ('DAYCO','.','^SF$','different'),
+ ('GATES','.','^SF$','different'),
+ ('SILBAK','[A-Z]$','^2$','different'),
+ ('CONTITECH','PK[0-9]+$','^K[0-9]$','different')
+$$;
+-- Verdict for two part numbers of one brand (brand, number, number): NULL when neither number extends the other, else
+-- 'different' (never suggested as a suffix candidate) or 'review' (suggested and decided by hand).
+CREATE OR REPLACE FUNCTION product_suffix_verdict(text, text, text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT COALESCE((SELECT r.verdict FROM product_suffix_rules() r
+   WHERE r.brand IN ($1,'*') AND x.base ~ r.base_pattern AND x.ext ~ r.ext_pattern ORDER BY r.brand='*' LIMIT 1),'review')
+ FROM (SELECT CASE WHEN length($2)<length($3) THEN $2 ELSE $3 END AS base,
+   substr(CASE WHEN length($2)<length($3) THEN $3 ELSE $2 END, least(length($2),length($3))+1) AS ext) x
+ WHERE $2<>$3 AND (starts_with($2,$3) OR starts_with($3,$2))
+$$;
 UPDATE product_match_candidates c SET name_conflict=product_names_conflict(a.name,b.name) FROM products a, products b
 WHERE c.name_conflict IS NULL AND a.id=c.product_a AND b.id=c.product_b;
+-- Suffix candidates written before the rules above (#534) are dropped; the next refresh does not suggest them again.
+DELETE FROM product_match_candidates c USING products a, products b
+WHERE c.reason='suffix' AND a.id=c.product_a AND b.id=c.product_b AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='different';
 CREATE TABLE IF NOT EXISTS product_match_decisions (
  product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
  product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -681,6 +710,7 @@ BEGIN
    UNION ALL SELECT a.id, b.id, 'suffix', a.name, b.name, 3 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND left(b.part_number,5)=left(a.part_number,5)
     AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
     AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
+    AND product_suffix_verdict(a.brand,a.part_number,b.part_number)<>'different'
   ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
    AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.b AND d.product_b=c.a)
   ORDER BY a, b, priority

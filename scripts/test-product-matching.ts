@@ -172,7 +172,7 @@ test("undoing a merge without a decision row records the pair as different in ca
   }
 });
 
-// Runs the candidate passes of refresh_product_matches() as installed, limited to the products in `fixture_551`
+// Runs the candidate passes of refresh_product_matches() as installed, limited to the products in `candidate_fixture`
 // (a full refresh takes minutes). Only the product scans are narrowed; the pairing and decision checks are the real ones.
 const runCandidatePasses = async (client: PoolClient) => {
   const source = (await client.query<{ def: string }>("SELECT pg_get_functiondef('refresh_product_matches()'::regprocedure) AS def")).rows[0].def;
@@ -180,10 +180,10 @@ const runCandidatePasses = async (client: PoolClient) => {
   assert.ok(loop, "candidate passes not found in refresh_product_matches()");
   const scan = "FROM products WHERE merged_into IS NULL";
   assert.equal(loop.split(scan).length - 1, 2, "expected the two product scans of the candidate passes");
-  const scoped = loop.replaceAll(scan, "FROM products WHERE id IN (SELECT id FROM fixture_551) AND merged_into IS NULL");
+  const scoped = loop.replaceAll(scan, "FROM products WHERE id IN (SELECT id FROM candidate_fixture) AND merged_into IS NULL");
   await client.query(`DO $gen$ DECLARE pairing integer; BEGIN ${scoped} END $gen$`);
-  return (await client.query<{ a: string; b: string }>(`SELECT product_a AS a, product_b AS b FROM product_match_candidates
-    WHERE product_a IN (SELECT id FROM fixture_551) ORDER BY reason, product_a, product_b`)).rows;
+  return (await client.query<{ a: string; b: string; reason: string }>(`SELECT product_a AS a, product_b AS b, reason FROM product_match_candidates
+    WHERE product_a IN (SELECT id FROM candidate_fixture) ORDER BY reason, product_a, product_b`)).rows;
 };
 
 test("a 'different' decision blocks the pair in either direction, including a manual list product merged by hand", async () => {
@@ -194,16 +194,62 @@ test("a 'different' decision blocks the pair in either direction, including a ma
       VALUES ('ZZ551TEST',$1,'TEST PARCA','ZZ551TEST',$1,ARRAY[$2]) RETURNING id`, [part, supplier])).rows[0].id;
     // Başbuğ 0551001, Dinamik 551001 and manual 00551001 are leading-zero matches of each other.
     const basbug = await product("0551001", "basbug"), dinamik = await product("551001", "dinamik"), manual = await product("00551001", "manual");
-    await client.query("CREATE TEMP TABLE fixture_551 ON COMMIT DROP AS SELECT unnest($1::uuid[]) AS id", [[basbug, dinamik, manual]]);
+    await client.query("CREATE TEMP TABLE candidate_fixture ON COMMIT DROP AS SELECT unnest($1::uuid[]) AS id", [[basbug, dinamik, manual]]);
     const pairs = (rows: { a: string; b: string }[]) => rows.map(row => `${row.a}>${row.b}`).sort();
     // Without decisions: Başbuğ↔Dinamik (pass 1), and the manual product with both API products (pass 2, manual as b).
     assert.deepEqual(pairs(await runCandidatePasses(client)), [`${basbug}>${dinamik}`, `${basbug}>${manual}`, `${dinamik}>${manual}`].sort());
-    await client.query("DELETE FROM product_match_candidates WHERE product_a IN (SELECT id FROM fixture_551)");
+    await client.query("DELETE FROM product_match_candidates WHERE product_a IN (SELECT id FROM candidate_fixture)");
     // Recorded in candidate direction (Başbuğ first), and the reverse of a pass-2 pair: the Dinamik product merged into
     // the manual one from the product page and undone, as product_reset_item records it (a = merged into).
     await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status) VALUES ($1,$2,'different'),($3,$2,'different')`,
       [basbug, dinamik, manual]);
     assert.deepEqual(pairs(await runCandidatePasses(client)), [`${basbug}>${manual}`]);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+// Suffix endings known to name another part are never suggested (#534); ambiguous ones stay for a manual decision.
+test("known different-part suffix patterns get a 'different' verdict; safe ones stay for review", async () => {
+  const verdict = async (brand: string, a: string, b: string) =>
+    (await pool.query<{ verdict: string | null }>("SELECT product_suffix_verdict($1,$2,$3) AS verdict", [brand, a, b])).rows[0].verdict;
+  const different: [string, string, string][] = [
+    ["FEBI", "100261", "1002610"], ["FEBI", "1007521", "100752"], ["TRW", "GDB328", "GDB3281"], ["TRW", "JTC4023", "JTC402"],
+    ["BLUEPRINT", "ADG04319", "ADG043192"], ["MANN", "C25024", "C250241"], ["OSRAM", "64150CBN", "64150CBN2HB"],
+    ["DAYCO", "KPV134", "KPV134HD"], ["GATES", "4PK970", "4PK970SF"], ["SILBAK", "SB2421C", "SB2421C2"], ["ORIJINAL", "425270", "42527025"],
+  ];
+  const review: [string, string, string][] = [
+    ["ORIJINAL", "KK21R19952BB5YZ", "KK21R19952BB5YZ9"], ["ORIJINAL", "BM51F31148AF3JA", "BM51F31148AF3JA6"],
+    ["MAYSAN", "PN7210200", "PN7210200MM"], ["KENTPAR", "152T001", "152T00101"], ["STONE", "JF16443", "JF164431"],
+    ["OSRAM", "64150NBS", "64150NBS1BL"], ["DAYCO", "8PK1480", "8PK1480HD"],
+  ];
+  for (const [brand, a, b] of different) assert.equal(await verdict(brand, a, b), "different", `${brand} ${a} / ${b}`);
+  for (const [brand, a, b] of review) assert.equal(await verdict(brand, a, b), "review", `${brand} ${a} / ${b}`);
+  assert.equal(await verdict("FEBI", "100261", "100262"), null);
+  assert.equal(await verdict("FEBI", "100261", "100261"), null);
+});
+
+test("the candidate passes skip known different-part suffix pairs", async () => {
+  const installed = (await pool.query<{ def: string }>("SELECT pg_get_functiondef('refresh_product_matches()'::regprocedure) AS def")).rows[0].def;
+  assert.ok(installed.includes("product_suffix_verdict"), "refresh_product_matches() predates #534; run npm run db:setup from this branch");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const product = async (brand: string, part: string, supplier: string) => (await client.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code,suppliers)
+      VALUES ($1,$2,'TEST PARCA',$1,$2,ARRAY[$3]) RETURNING id`, [brand, part, supplier])).rows[0].id;
+    const pair = async (brand: string, a: string, b: string) => ({ a: await product(brand, a, "basbug"), b: await product(brand, b, "dinamik") });
+    const digit = await pair("ZZ534TEST", "5340261", "53402610");
+    const colour = await pair("ZZ534TEST", "ZZ534AB5YZ", "ZZ534AB5YZ9");
+    const box = await pair("OSRAM", "ZZ534CBN", "ZZ534CBN2HB");
+    const bulb = await pair("OSRAM", "ZZ534NBS", "ZZ534NBS1BL");
+    const stone = await pair("STONE", "ZZ53416443", "ZZ534164431");
+    const zero = await pair("ZZ534TEST", "0534001", "534001");
+    const all = [digit, colour, box, bulb, stone, zero].flatMap(({ a, b }) => [a, b]);
+    await client.query("CREATE TEMP TABLE candidate_fixture ON COMMIT DROP AS SELECT unnest($1::uuid[]) AS id", [all]);
+    const rows = (await runCandidatePasses(client)).map(row => `${row.a}>${row.b}:${row.reason}`).sort();
+    const expected = [[colour, "suffix"], [bulb, "suffix"], [stone, "suffix"], [zero, "leading_zero"]] as const;
+    assert.deepEqual(rows, expected.map(([{ a, b }, reason]) => `${a}>${b}:${reason}`).sort());
   } finally {
     await client.query("ROLLBACK");
     client.release();
