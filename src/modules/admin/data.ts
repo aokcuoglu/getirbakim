@@ -3,7 +3,6 @@ import { cache } from "react";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
-import { staleCache } from "@/lib/stale-cache";
 import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sources";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
