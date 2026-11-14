@@ -111,6 +111,40 @@ export function SupplierStocks({ stocks }: { stocks: { label: string; available:
     </TableRow>)}</TableBody>
   </Table>;
 }
+const variantGroups: Record<string, string> = { products: "Ürün listesi", prices: "Fiyat listesi", stocks: "Stok listesi" };
+const variantFields: Record<string, string> = { stokKodu: "Stok kodu", no: "Kod", fiyat: "Fiyat", nf: "Net fiyat", lf: "Liste fiyatı", price: "Fiyat",
+  stok: "Stok", ac: "Ürün adı", ac2: "İkinci ad", ingilizceAdi: "İngilizce ad", stokAdi: "Ürün adı", marka: "Marka", uk: "Marka", kampanyaOrani: "Kampanya oranı" };
+// Padding is what usually tells two rows of the same code apart ("X" / "X  "), so text with it is shown quoted.
+const variantValue = (value: unknown) => typeof value === "number" ? new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 }).format(value)
+  : typeof value === "string" ? (value !== value.trim() || !value ? JSON.stringify(value) : value)
+  : value === null || value === undefined ? "—" : JSON.stringify(value);
+/** The rows a supplier sent for one code that disagree, with only the fields that differ between them. */
+export function SupplierVariantRows({ variants }: { variants: unknown }) {
+  if (!variants || typeof variants !== "object") return null;
+  const source = variants as Record<string, unknown>;
+  const groups = Object.entries(source).filter((entry): entry is [string, Record<string, unknown>[]] =>
+    Array.isArray(entry[1]) && entry[1].length > 1 && entry[1].every(row => row && typeof row === "object"));
+  const stockListPrice = typeof source.stockListPrice === "number" ? source.stockListPrice : null;
+  if (!groups.length && stockListPrice === null) return null;
+  return <div className="flex min-w-0 flex-col gap-4">
+    {groups.map(([group, rows]) => {
+      const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].filter(key => key !== "$type"
+        && new Set(rows.map(row => JSON.stringify(row[key] ?? null))).size > 1);
+      return <div key={group} className="flex min-w-0 flex-col gap-2">
+        <h3 className="font-medium">Çakışan satırlar · {variantGroups[group] ?? group}</h3>
+        <p className="text-muted-foreground">Tedarikçi bu kod için {rows.length} farklı satır gönderdi. Yalnız birbirinden farklı alanlar gösteriliyor; hangisinin doğru olduğu belirsiz olduğu için ürün satışa açılmaz.</p>
+        <Table controls={false}>
+          <TableHeader><TableRow><TableHead>Satır</TableHead>{keys.map(key => <TableHead key={key}>{variantFields[key] ?? key}</TableHead>)}</TableRow></TableHeader>
+          <TableBody>{rows.map((row, index) => <TableRow key={index}>
+            <TableCell className="tabular-nums">{index + 1}</TableCell>
+            {keys.map(key => <TableCell key={key} className="whitespace-pre font-mono tabular-nums">{variantValue(row[key])}</TableCell>)}
+          </TableRow>)}</TableBody>
+        </Table>
+      </div>;
+    })}
+    {stockListPrice !== null && <p className="text-muted-foreground">Stok listesindeki fiyat: <span className="font-mono tabular-nums">{variantValue(stockListPrice)}</span> (fiyat listesinden farklı).</p>}
+  </div>;
+}
 type DetailItem = {
   id: string; code: string; presence: string; conflicting: boolean; last_seen_at: Date;
   product_data: unknown; price_data: unknown; stock_data: unknown; source_variants: unknown; changes: SupplierChange[];
@@ -156,13 +190,14 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         </div>
       </CardContent>
     </Card>
-    {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Aynı ürün kodu için çelişkili değerler bulundu. Farklı yanıtları veri kontrolü bölümünde inceleyebilirsiniz.</AlertDescription></Alert>}
+    {item.conflicting && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Kaynak verisi inceleme gerektiriyor</AlertTitle><AlertDescription>Tedarikçi bu kod için birbirini tutmayan satırlar gönderdi (ör. farklı fiyat); ürün satışa kapalı. Satırlar aşağıdaki “Veri kontrolü” bölümünde.</AlertDescription></Alert>}
     <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">{productInfo}{stockInfo}</div>
     <SupplierHistory changes={item.changes} currency={pricing.currency ?? "TRY"}/>
     <Card>
       <CardHeader><CardTitle><h2>Veri kontrolü</h2></CardTitle><CardDescription>Kaynak tarihler, fiyat karşılaştırması ve ham API alanları.</CardDescription></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         <div>{statusBadge(item.conflicting ? "warning" : "neutral", item.conflicting ? "İnceleme gerekli" : "Çelişki bulunmadı")}</div>
+        <SupplierVariantRows variants={item.source_variants}/>
         {dataInfo}
         <SourceJson label="Kaynak alanlarını göster" value={{ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }}/>
       </CardContent>
