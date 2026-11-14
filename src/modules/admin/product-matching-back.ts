@@ -21,6 +21,7 @@ export function withMatchingFlag(back: string, flag: string): string {
   const params = new URLSearchParams(query);
   params.delete("refreshed");
   params.delete("error");
+  params.delete("carried_hidden");
   for (const [key, value] of new URLSearchParams(flag)) params.set(key, value);
   return `${path}?${params}`;
 }

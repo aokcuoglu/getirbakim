@@ -65,7 +65,7 @@ export async function mergeProducts(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const { product_id, other_id } = data.data;
   const client = await db.connect();
-  let target: string | null = null;
+  let target: string | null = null, carriedHidden = false;
   try {
     await client.query("BEGIN");
     const rows = (await client.query<{ id: string; basbug: boolean }>("SELECT id,'basbug'=ANY(suppliers) AS basbug FROM products WHERE id=ANY($1::uuid[])",
@@ -75,7 +75,8 @@ export async function mergeProducts(form: FormData) {
       const [keep, drop] = other.basbug && !self.basbug ? [other_id, product_id] : [product_id, other_id];
       target = (await client.query<{ id: string | null }>("SELECT product_merge($1,$2,$3) AS id", [drop, keep, admin.id])).rows[0].id;
       // The kept product takes the merged product's store edits (hidden included) when it has none of its own (#575).
-      if (target) await client.query("SELECT product_overrides_carry($1,$2,$3)", [drop, target, admin.id]);
+      if (target) carriedHidden = Boolean((await client.query<{ carried: { hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
+        [drop, target, admin.id])).rows[0].carried.hidden);
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [keep, drop, admin.id]);
@@ -87,7 +88,7 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=1` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}` : `/yonetim/urunler/${product_id}?error=merge`);
 }
 
 const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);
@@ -185,8 +186,9 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
     return { status: "error", message: "Değişiklikler kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: overrideFailures[result.reason] };
-  if (!result.changed.length) return { status: "success", message: "Değişiklik yok; kayıtlı değerler aynı." };
+  const saved = { values: result.values, version: result.version, reset };
+  if (!result.changed.length) return { status: "success", message: "Değişiklik yok; kayıtlı değerler aynı.", ...saved };
   // The store's product page, listings and search, and this admin page: every page may show the product.
   revalidatePath("/", "layout");
-  return reset ? { status: "success", message: "Alan otomatik değere döndü.", reset } : { status: "success", message: "Mağaza bilgileri kaydedildi." };
+  return { status: "success", message: reset ? "Alan otomatik değere döndü." : "Mağaza bilgileri kaydedildi.", ...saved };
 }

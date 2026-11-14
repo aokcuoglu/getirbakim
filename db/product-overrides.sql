@@ -73,23 +73,43 @@ DO $$ BEGIN
  END IF;
 END $$;
 
--- "Aynı ürün" (product_merge): the merged product's rows now sell as `target`. When `target` has no edits of its own it
--- takes the merged product's (hidden included, so a hidden product does not reappear through a merge); the edits stay
--- on the merged product's id as well. Called by the merge actions right after product_merge; true when carried.
-CREATE OR REPLACE FUNCTION product_overrides_carry(source uuid, target uuid, actor uuid) RETURNS boolean LANGUAGE plpgsql AS $$
+-- "Aynı ürün" (product_merge): the merged product's rows now sell as `target`, so `target` takes the merged product's
+-- edits where it has none: each NULL field gets the merged product's value, and hidden is carried whenever the merged
+-- product was hidden (it is the same physical product the admin took off sale). The edits stay on the merged product's
+-- id as well. Called by the merge actions right after product_merge; returns the carried fields and whether hidden was
+-- carried, so the actions can say so. The first version returned boolean.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('product_overrides_carry(uuid,uuid,uuid)') AND prorettype='boolean'::regtype) THEN
+  DROP FUNCTION product_overrides_carry(uuid, uuid, uuid);
+ END IF;
+END $$;
+CREATE OR REPLACE FUNCTION product_overrides_carry(source uuid, target uuid, actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE s product_overrides; t product_overrides; carried text[] := '{}';
 BEGIN
- IF source IS NULL OR target IS NULL OR source=target
-  OR NOT EXISTS (SELECT 1 FROM product_overrides WHERE product_id=source)
-  OR EXISTS (SELECT 1 FROM product_overrides WHERE product_id=target) THEN RETURN false; END IF;
+ IF source IS NULL OR target IS NULL OR source=target THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
+ SELECT * INTO s FROM product_overrides WHERE product_id=source;
+ IF NOT FOUND THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
+ SELECT * INTO t FROM product_overrides WHERE product_id=target FOR UPDATE;
+ IF NOT FOUND THEN t.product_id := target; t.hidden := false; END IF;
+ IF t.name IS NULL AND s.name IS NOT NULL THEN t.name := s.name; carried := array_append(carried,'name'); END IF;
+ IF t.description IS NULL AND s.description IS NOT NULL THEN t.description := s.description; carried := array_append(carried,'description'); END IF;
+ IF t.seo_title IS NULL AND s.seo_title IS NOT NULL THEN t.seo_title := s.seo_title; carried := array_append(carried,'seo_title'); END IF;
+ IF t.seo_description IS NULL AND s.seo_description IS NOT NULL THEN t.seo_description := s.seo_description; carried := array_append(carried,'seo_description'); END IF;
+ IF t.category_id IS NULL AND s.category_id IS NOT NULL THEN t.category_id := s.category_id; carried := array_append(carried,'category_id'); END IF;
+ IF s.hidden AND NOT t.hidden THEN t.hidden := true; carried := array_append(carried,'hidden'); END IF;
+ IF cardinality(carried)=0 THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
  INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,updated_by)
- SELECT target,name,description,seo_title,seo_description,category_id,hidden,actor FROM product_overrides WHERE product_id=source;
+ VALUES (target,t.name,t.description,t.seo_title,t.seo_description,t.category_id,t.hidden,actor)
+ ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,seo_title=excluded.seo_title,
+  seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,updated_by=excluded.updated_by,updated_at=now();
+ -- Every carried field was automatic (NULL; hidden false) on the target before.
  INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
- SELECT target,f.field,NULL,f.value,actor FROM product_overrides o
- CROSS JOIN LATERAL (VALUES ('name',o.name),('description',o.description),('seo_title',o.seo_title),('seo_description',o.seo_description),
-  ('category_id',o.category_id::text),('hidden',CASE WHEN o.hidden THEN 'true' END)) f(field,value)
- WHERE o.product_id=source AND f.value IS NOT NULL;
+ SELECT target,f.field,NULL,f.value,actor
+ FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+  ('category_id',t.category_id::text),('hidden','true')) f(field,value)
+ WHERE f.field=ANY(carried);
  PERFORM product_overrides_project(ARRAY[target]);
- RETURN true;
+ RETURN jsonb_build_object('fields',to_jsonb(carried),'hidden','hidden'=ANY(carried));
 END $$;
 
 -- Reconcile the copy on every setup (a changed projection rule applies to existing edits; a deleted product's edits go).

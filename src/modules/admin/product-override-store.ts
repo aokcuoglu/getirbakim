@@ -14,7 +14,11 @@ export type ProductOverrideDetails = {
   automatic: { name: string | null; description: string; categories: { id: number; name: string }[] };
   changes: ProductOverrideChange[];
 };
-export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" | "stale" } | { ok: true; changed: ProductOverrideField[] };
+export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" | "stale" } | {
+  ok: true; changed: ProductOverrideField[];
+  /** The stored edits after the call and their version: the form shows these instead of waiting for the page refresh. */
+  values: ProductOverrideValues; version: string;
+};
 /** Version of a product's edits as the form saw them: the row's updated_at in microseconds, "auto" without a row. */
 export const automaticVersion = "auto";
 const versionSql = "(extract(epoch FROM updated_at)*1000000)::bigint::text";
@@ -58,7 +62,7 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     const next: ProductOverrideValues = { ...current };
     for (const field of productOverrideFields) if (patch[field] !== undefined) Object.assign(next, { [field]: patch[field] });
     const changed = productOverrideFields.filter(field => historyValue(field, current[field]) !== historyValue(field, next[field]));
-    if (!changed.length) { await client.query("ROLLBACK"); return { ok: true, changed }; }
+    if (!changed.length) { await client.query("ROLLBACK"); return { ok: true, changed, values: current, version: row?.version ?? automaticVersion }; }
     for (const field of changed) await client.query(`INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
       VALUES($1,$2,$3,$4,$5)`, [productId, field, historyValue(field, current[field]), historyValue(field, next[field]), adminId]);
     const anySet = productOverrideFields.some(field => historyValue(field, next[field]) !== null);
@@ -68,9 +72,11 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       updated_by=excluded.updated_by,updated_at=now()`,
     [productId, next.name, next.description, next.seo_title, next.seo_description, next.category_id, next.hidden, adminId]);
     else await client.query("DELETE FROM product_overrides WHERE product_id=$1", [productId]);
+    const version = anySet ? (await client.query<{ version: string }>(`SELECT ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0].version
+      : automaticVersion;
     await client.query("SELECT product_overrides_project(ARRAY[$1::uuid])", [productId]);
     await client.query("COMMIT");
-    return { ok: true, changed };
+    return { ok: true, changed, values: anySet ? next : empty, version };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -81,7 +87,7 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
 export async function loadProductOverride(database: Pick<Pool, "query">, productId: string): Promise<ProductOverrideDetails> {
   const [override, automatic, categories, changes] = await Promise.all([
     database.query<ProductOverride>(`SELECT o.name,o.description,o.seo_title,o.seo_description,o.category_id,o.hidden,o.updated_at,a.name AS updated_by,
-      (extract(epoch FROM o.updated_at)*1000000)::bigint::text AS version
+      ${versionSql} AS version
       FROM product_overrides o LEFT JOIN accounts a ON a.id=o.updated_by WHERE o.product_id=$1`, [productId]),
     // The listed source: the product's own row, then Başbuğ, Dinamik, SETA, manual (the storefront's order).
     database.query<{ name: string | null; description: string | null }>(`SELECT p.name,
