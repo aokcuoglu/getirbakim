@@ -9,7 +9,7 @@ import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product
 // it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
-import { safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
+import { matchingBack, safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
 
 export async function refreshMatches(form: FormData) {
   await requireAdmin();
@@ -19,10 +19,10 @@ export async function refreshMatches(form: FormData) {
   catch { error = "refresh"; }
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
-  redirect(withMatchingFlag(back.replace(/([?&])(refreshed|error)=[^&]*&?/g, "$1").replace(/[?&]$/, ""), error ? `error=${error}` : "refreshed=1"));
+  redirect(withMatchingFlag(back, error ? `error=${error}` : "refreshed=1"));
 }
 
-const backPath = z.unknown().transform(safeMatchingBack);
+const backPath = matchingBack;
 const withFlag = withMatchingFlag;
 
 // "Ayır" on one offer of a group (#523): only that row leaves; a hand-merged row returns to its own key's product, an
@@ -136,7 +136,7 @@ export async function rejectCandidates(form: FormData) {
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk-different&count=${rejected}`));
 }
 
-const brandBack = z.string().regex(/^\/yonetim\/urun-eslestirme(\?.*)?$/).catch("/yonetim/urun-eslestirme");
+const brandBack = matchingBack;
 const brandName = z.string().trim().min(1).max(80);
 // A master brand by what an admin typed: its exact name, its key, or the brand a label of that spelling belongs to.
 const findBrand = `SELECT id FROM (

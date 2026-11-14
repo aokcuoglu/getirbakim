@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { z } from "zod";
 import { manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
-import { safeMatchingBack, withMatchingFlag } from "../src/modules/admin/product-matching-back";
+import { matchingBack, safeMatchingBack, withMatchingFlag } from "../src/modules/admin/product-matching-back";
 import { bulkCandidateReasons, isBulkReason } from "../src/modules/admin/product-matching-sql";
 
 // The "Eşleşenler" tab's order must stay the SQL it replaced (#504): ORDER BY <column> ASC|DESC NULLS LAST, then
@@ -93,11 +94,24 @@ test("safeMatchingBack keeps this page and its query", () => {
 
 test("safeMatchingBack rejects anything else", () => {
   for (const value of ["//evil", "//evil.com/yonetim/urun-eslestirme", "https://x", "https://x/yonetim/urun-eslestirme", "/yonetim/urunler",
-    "/yonetim/urun-eslestirme/../urunler", "/yonetim/urun-eslestirme#x", "/yonetim/urun-eslestirme?a=b\nc", "", undefined, null, 5])
+    "/yonetim/urun-eslestirme/../urunler", "/yonetim/urun-eslestirme#x", "/yonetim/urun-eslestirme?a=b\nc", "/yonetim/urun-eslestirme\n", "/yonetim/urun-eslestirme?a=b\u0000", "/\\evil", "%2F%2Fevil",
+    "/yonetim%2F%2Fevil", "/yonetim/urun-eslestirme-x", "/YONETIM/urun-eslestirme", "", undefined, null, 5])
     assert.equal(safeMatchingBack(value), "/yonetim/urun-eslestirme", String(value));
 });
 
 test("withMatchingFlag appends to the existing query", () => {
   assert.equal(withMatchingFlag("/yonetim/urun-eslestirme", "refreshed=1"), "/yonetim/urun-eslestirme?refreshed=1");
   assert.equal(withMatchingFlag("/yonetim/urun-eslestirme?tab=same", "refreshed=1"), "/yonetim/urun-eslestirme?tab=same&refreshed=1");
+});
+
+test("withMatchingFlag drops earlier result flags and keeps the rest", () => {
+  const url = new URL(`http://x${withMatchingFlag("/yonetim/urun-eslestirme?tab=same&error=refresh&refreshed=1&q=ab", "refreshed=1")}`);
+  assert.equal(url.pathname, "/yonetim/urun-eslestirme");
+  assert.deepEqual([...url.searchParams], [["tab", "same"], ["q", "ab"], ["refreshed", "1"]]);
+});
+
+test("matchingBack schema falls back to the plain page when back is missing", () => {
+  assert.equal(matchingBack.parse(undefined), "/yonetim/urun-eslestirme");
+  assert.equal(z.object({ back: matchingBack }).parse({}).back, "/yonetim/urun-eslestirme");
+  assert.equal(z.object({ back: matchingBack }).parse({ back: "/yonetim/urun-eslestirme?tab=same" }).back, "/yonetim/urun-eslestirme?tab=same");
 });
