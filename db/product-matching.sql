@@ -205,6 +205,10 @@ CREATE TABLE IF NOT EXISTS products (
  UNIQUE (brand,part_number,variant)
 );
 CREATE INDEX IF NOT EXISTS products_part_idx ON products(part_number);
+-- The admin product list's default order (and its brand A→Z header sort) among listed products: the first pages read
+-- the index instead of sorting every product (deep pages spilled ~36 MB to disk). The columns are NOT NULL, so the
+-- index's ascending NULLS LAST order is what sortOrder()'s `ASC NULLS LAST` asks for.
+CREATE INDEX IF NOT EXISTS products_listing_idx ON products(brand_label,part_number,variant) WHERE merged_into IS NULL;
 -- Suppliers currently selling the product (saleable sources), kept by the refresh and by split/undo for list filters.
 ALTER TABLE products ADD COLUMN IF NOT EXISTS suppliers text[] NOT NULL DEFAULT '{}';
 CREATE INDEX IF NOT EXISTS products_suppliers_idx ON products USING gin(suppliers);

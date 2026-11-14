@@ -52,6 +52,21 @@ const productCategoriesSql = `SELECT s.product_id, pc.category_id, l.name FROM p
   JOIN product_sources s ON s.supplier_item_id=pc.supplier_item_id
   JOIN source_category_labels l ON l.source=pc.source AND l.category_id=pc.category_id AND l.locale='tr' WHERE pc.source='trodo'`;
 
+type ListedProduct = Omit<ProductRow, "best_price" | "best_supplier" | "available" | "sources" | "categories">;
+
+/**
+ * Whether product `p` has a supplier row whose code contains the compact query `n` (punctuation ignored). From three
+ * characters on, the trigram index on supplier_item_search_codes (db/search.sql: the same compact code, lowercased, plus
+ * the OEM number) narrows supplier_items first and the original condition still decides; scanning every supplier row
+ * took ~1 s per query. The index folds Turkish letters (Ç → c) where this condition drops them, so only a query running
+ * across such a letter could differ. Shorter queries have no trigram to look up and keep the plain scan.
+ */
+const codeMatch = (q: string, n: string) => q.length >= 3
+  ? `p.id IN (SELECT s.product_id FROM supplier_items i JOIN product_sources s ON s.supplier_item_id=i.id
+      WHERE supplier_item_search_codes(i.code,i.product_data) LIKE '%'||lower(${n})||'%' AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%')`
+  : `EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
+      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%')`;
+
 export async function listProducts(params: { q?: string; filter?: string; brands?: string[]; categories?: string[]; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
   const filter: ProductFilter = pickKey(productFilters, params.filter, "all");
@@ -73,16 +88,34 @@ export async function listProducts(params: { q?: string; filter?: string; brands
     values.push(q);
     const n = `$${values.length}`;
     // Part number or any supplier code of the product, ignoring punctuation and the supplier's brand prefix.
-    where.push(`(p.part_number LIKE '%'||${n}||'%' OR p.brand=${n} OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
-      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%'))`);
+    where.push(`(p.part_number LIKE '%'||${n}||'%' OR p.brand=${n} OR ${codeMatch(q, n)})`);
   }
   const sql = where.join(" AND ");
+  const order = sortOrder(params, productSorts, "p.brand_label,p.part_number,p.variant");
+  const columns = "p.id,p.brand,p.brand_label,p.part_number,p.variant,p.code,p.name,p.suppliers,p.merged_into";
+  // The count and the page run together; only a request past the last page re-reads the clamped one. A search finds
+  // its products once and counts and pages them from there.
+  const pageAt = async (page: number): Promise<{ total: number; rows: ListedProduct[] }> => {
+    const window = `ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+    if (q) {
+      const found = (await db.query<{ total: number; rows: ListedProduct[] | null }>(`WITH matched AS MATERIALIZED (SELECT ${columns} FROM products p WHERE ${sql})
+        SELECT (SELECT count(*)::int FROM matched) AS total,
+         (SELECT json_agg(p ORDER BY ${order}) FROM (SELECT * FROM matched p ${window}) p) AS rows`, values)).rows[0];
+      return { total: found.total, rows: found.rows ?? [] };
+    }
+    const [total, rows] = await Promise.all([
+      db.query<{ count: number }>(`SELECT count(*)::int FROM products p WHERE ${sql}`, values),
+      db.query<ListedProduct>(`SELECT ${columns} FROM products p WHERE ${sql} ${window}`, values),
+    ]);
+    return { total: total.rows[0].count, rows: rows.rows };
+  };
+  const requested = Number(params.page), wanted = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
   // Each column filter offers the choices left by the tab and the other column filter; selected ones stay listed.
   const brandValues: unknown[] = [brands], categoryValues: unknown[] = [categories];
   const brandWhere = [...listed, ...categories.length ? [byCategory(brandValues)] : []].join(" AND ");
   const categoryWhere = [...listed, ...brands.length ? [byBrand(categoryValues)] : []].join(" AND ");
-  const [total, counts, brandOptions, categoryOptions] = await Promise.all([
-    db.query<{ count: number }>(`SELECT count(*)::int FROM products p WHERE ${sql}`, values),
+  const [first, counts, brandOptions, categoryOptions] = await Promise.all([
+    pageAt(wanted),
     q ? Promise.resolve(null) : db.query<Record<ProductFilter, number>>(`SELECT count(*) FILTER (WHERE merged_into IS NULL)::int AS all,
       count(*) FILTER (WHERE cardinality(suppliers)>1)::int AS multi, count(*) FILTER (WHERE suppliers='{basbug}')::int AS basbug,
       count(*) FILTER (WHERE suppliers='{dinamik}')::int AS dinamik, count(*) FILTER (WHERE suppliers @> '{seta}')::int AS seta,
@@ -94,24 +127,24 @@ export async function listProducts(params: { q?: string; filter?: string; brands
       count(DISTINCT p.id) FILTER (WHERE ${categoryWhere})::int AS count FROM (${productCategoriesSql}) c JOIN products p ON p.id=c.product_id
       GROUP BY c.category_id, c.name HAVING count(*) FILTER (WHERE ${categoryWhere})>0 OR c.category_id=ANY($1::int[]) ORDER BY c.name`, categoryValues),
   ]);
-  const pages = Math.max(1, Math.ceil(total.rows[0].count / pageSize));
-  const requested = Number(params.page), page = Math.min(Number.isSafeInteger(requested) && requested > 0 ? requested : 1, pages);
-  const rows = (await db.query<Omit<ProductRow, "best_price" | "best_supplier" | "available" | "sources" | "categories">>(`SELECT p.id,p.brand,p.brand_label,p.part_number,
-    p.variant,p.code,p.name,p.suppliers,p.merged_into FROM products p WHERE ${sql}
-    ORDER BY ${sortOrder(params, productSorts, "p.brand_label,p.part_number,p.variant")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
-  const offers = rows.length ? (await db.query<{ product_id: string; sources: number; best_price: number | null; best_supplier: string | null; available: boolean }>(
-    `${offersSql}, counted AS (SELECT product_id, count(*)::int AS sources FROM sources GROUP BY product_id)
-    SELECT c.product_id, c.sources, b.price_kurus AS best_price, b.supplier AS best_supplier, COALESCE(b.available,false) AS available FROM counted c
-    LEFT JOIN LATERAL (SELECT * FROM priced x WHERE x.product_id=c.product_id AND x.price_kurus IS NOT NULL
-      ORDER BY x.available DESC, x.price_kurus, x.id=c.product_id DESC LIMIT 1) b ON true`, [rows.map(row => row.id)])).rows : [];
-  const labels = rows.length ? (await db.query<{ product_id: string; categories: string[] }>(
-    `SELECT c.product_id, array_agg(DISTINCT c.name ORDER BY c.name) AS categories FROM (${productCategoriesSql} AND s.product_id=ANY($1::uuid[])) c GROUP BY c.product_id`,
-    [rows.map(row => row.id)])).rows : [];
+  const total = first.total, pages = Math.max(1, Math.ceil(total / pageSize)), page = Math.min(wanted, pages);
+  const rows = page === wanted ? first.rows : (await pageAt(page)).rows;
+  const ids = [rows.map(row => row.id)];
+  const [offers, labels] = rows.length ? await Promise.all([
+    db.query<{ product_id: string; sources: number; best_price: number | null; best_supplier: string | null; available: boolean }>(
+      `${offersSql}, counted AS (SELECT product_id, count(*)::int AS sources FROM sources GROUP BY product_id)
+      SELECT c.product_id, c.sources, b.price_kurus AS best_price, b.supplier AS best_supplier, COALESCE(b.available,false) AS available FROM counted c
+      LEFT JOIN LATERAL (SELECT * FROM priced x WHERE x.product_id=c.product_id AND x.price_kurus IS NOT NULL
+        ORDER BY x.available DESC, x.price_kurus, x.id=c.product_id DESC LIMIT 1) b ON true`, ids).then(result => result.rows),
+    db.query<{ product_id: string; categories: string[] }>(
+      `SELECT c.product_id, array_agg(DISTINCT c.name ORDER BY c.name) AS categories FROM (${productCategoriesSql} AND s.product_id=ANY($1::uuid[])) c GROUP BY c.product_id`,
+      ids).then(result => result.rows),
+  ]) : [[], []];
   const byId = new Map(offers.map(offer => [offer.product_id, offer]));
   const categoriesById = new Map(labels.map(row => [row.product_id, row.categories]));
   const products: ProductRow[] = rows.map(row => ({ ...row, sources: 0, best_price: null, best_supplier: null, available: false, ...byId.get(row.id),
     categories: categoriesById.get(row.id) ?? [] }));
-  return { products, filter, q, brands, categories, brandOptions: brandOptions.rows, categoryOptions: categoryOptions.rows, total: total.rows[0].count, counts: counts?.rows[0] ?? null, page, pages };
+  return { products, filter, q, brands, categories, brandOptions: brandOptions.rows, categoryOptions: categoryOptions.rows, total, counts: counts?.rows[0] ?? null, page, pages };
 }
 
 export async function getMasterProduct(id: string) {
@@ -151,12 +184,12 @@ export type MergeTarget = {
 export async function findMergeTargets(id: string, query: string | undefined) {
   await requireAdmin();
   const q = compact(query);
-  if (q.length < 3) return { q, targets: [] as MergeTarget[] };
+  // The product page asks alongside getMasterProduct, before the id is known to exist.
+  if (q.length < 3 || !/^[0-9a-f-]{36}$/i.test(id)) return { q, targets: [] as MergeTarget[] };
   const targets = (await db.query<MergeTarget>(`SELECT p.id,p.brand_label,p.code,p.name,p.suppliers,p.brand=self.brand AS same_brand,
     EXISTS (SELECT 1 FROM product_equivalents e WHERE e.product_id=$1 AND e.equivalent_id=p.id) AS equivalent
     FROM products p, (SELECT brand FROM products WHERE id=$1) self
-    WHERE p.id<>$1 AND p.merged_into IS NULL AND (p.part_number LIKE '%'||$2||'%' OR EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
-      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||$2||'%'))
+    WHERE p.id<>$1 AND p.merged_into IS NULL AND (p.part_number LIKE '%'||$2||'%' OR ${codeMatch(q, "$2")})
     ORDER BY p.brand=self.brand DESC, p.part_number=$2 DESC, p.suppliers='{}', length(p.part_number), p.code LIMIT 20`, [id, q])).rows;
   return { q, targets };
 }
