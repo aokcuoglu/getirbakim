@@ -40,10 +40,10 @@ export async function splitOffer(form: FormData) {
 
 // Undo a manual decision (split or merge): the row rejoins its own key's product and the store regroups at once.
 export async function undoSplit(form: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&scope=manual&error=input");
-  await db.query("SELECT product_reset_item($1)", [input.data.item_id]);
+  await db.query("SELECT product_reset_item($1,$2)", [input.data.item_id, admin.id]);
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));

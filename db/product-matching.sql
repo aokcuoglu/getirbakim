@@ -395,8 +395,12 @@ BEGIN
 END $$;
 -- Undo a manual decision (split or merge) for one row: it rejoins the automatic product of its own key, which is
 -- created or revived when needed; a product left without rows redirects there. A merge undone this way is recorded
--- as "different" so the pair is not suggested again.
-CREATE OR REPLACE FUNCTION product_reset_item(item uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+-- as "different" (product_a = the product the row was merged into; refresh_product_matches() checks decisions in both
+-- directions, since a merge from the product page need not follow the candidate's a/b order) so the pair is not
+-- suggested again, whether or not the merge left a decision row (#551); undoing a split (back to the same key) records
+-- nothing. `actor` is the admin who undid it; the one-argument form came first.
+DROP FUNCTION IF EXISTS product_reset_item(uuid);
+CREATE OR REPLACE FUNCTION product_reset_item(item uuid, actor uuid DEFAULT NULL) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE k record; old_id uuid; pid uuid;
 BEGIN
  SELECT s.product_id INTO old_id FROM product_sources s WHERE s.supplier_item_id=item AND s.method='manual';
@@ -417,7 +421,10 @@ BEGIN
  UPDATE product_sources SET product_id=pid, method='auto', decided_by=NULL, linked_at=now() WHERE supplier_item_id=item;
  IF old_id<>pid THEN
   UPDATE products SET merged_into=pid, updated_at=now() WHERE id=old_id AND NOT EXISTS (SELECT 1 FROM product_sources WHERE product_id=old_id);
-  UPDATE product_match_decisions SET status='different', decided_at=now() WHERE status='same' AND product_a=old_id AND product_b=pid;
+  IF NOT EXISTS (SELECT 1 FROM products WHERE id=old_id AND brand=k.brand AND part_number=k.part_number) THEN
+   INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES (old_id,pid,'different',actor)
+   ON CONFLICT (product_a,product_b) DO UPDATE SET status='different', decided_by=excluded.decided_by, decided_at=now();
+  END IF;
  END IF;
  PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
  PERFORM product_refresh_offers(ARRAY[pid,old_id]);
@@ -425,7 +432,8 @@ BEGIN
 END $$;
 -- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
 -- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
--- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
+-- recorded as different (product_a = the group's product; candidate generation checks both directions), so it is not
+-- suggested again.
 -- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
 -- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
 -- NULL when the row is no such offer. The two-argument form came first (#523).
@@ -437,7 +445,7 @@ BEGIN
  SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
   AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
  IF NOT FOUND THEN RETURN NULL; END IF;
- IF src.method='manual' THEN pid := product_reset_item(item); END IF;
+ IF src.method='manual' THEN pid := product_reset_item(item, actor); END IF;
  IF pid IS NULL OR pid=src.product_id THEN
   -- product_split_item locks the link and refreshes suppliers; the storefront grouping is refreshed here.
   pid := product_split_item(item, actor);
@@ -674,6 +682,7 @@ BEGIN
     AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
     AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
   ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
+   AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.b AND d.product_b=c.a)
   ORDER BY a, b, priority
   ON CONFLICT DO NOTHING;
  END LOOP;

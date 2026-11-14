@@ -39,11 +39,11 @@ export async function splitSource(form: FormData) {
 
 // Undo a manual decision (split or merge) for one row: it rejoins its own key's product, and the store regroups at once.
 export async function undoSplitSource(form: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const data = input.safeParse(Object.fromEntries(form));
   if (!data.success) redirect("/yonetim/urunler?error=input");
-  const target = (await db.query<{ id: string | null }>(`SELECT product_reset_item(supplier_item_id) AS id FROM product_sources
-    WHERE supplier_item_id=$1 AND product_id=$2 AND method='manual'`, [data.data.item_id, data.data.product_id])).rows[0]?.id;
+  const target = (await db.query<{ id: string | null }>(`SELECT product_reset_item(supplier_item_id,$3) AS id FROM product_sources
+    WHERE supplier_item_id=$1 AND product_id=$2 AND method='manual'`, [data.data.item_id, data.data.product_id, admin.id])).rows[0]?.id;
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
