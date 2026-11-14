@@ -125,6 +125,29 @@ test("a merge fills only the target's automatic fields and always carries hidden
   for (const key of ["bosch", "conti"]) assert.equal(await catalog.getStorefrontProduct(ids[key]), undefined, key);
 });
 
+test("undoing a merge takes back what it carried, except fields an admin changed since", async () => {
+  await item("lemA", { supplier: "basbug", code: "LEM 90090", brand: "LEMFORDER", name: "LEMFORDER ROT" });
+  await item("lemB", { supplier: "basbug", code: "TRW 91091", brand: "TRW", name: "TRW ROT" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const a = await productOf("lemA"), b = await productOf("lemB");
+  await persist(schema.pool, a, { name: "AAAx", seo_title: "A SEO", hidden: true }, admin);
+  await schema.pool.query("WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT product_overrides_carry($1, id, $3) FROM merged", [a, b, admin]);
+  assert.equal(await catalog.getStorefrontProduct(ids.lemB), undefined);
+  // The admin rewrites the carried SEO title on B: that field is B's own now.
+  await persist(schema.pool, b, { seo_title: "B SEO" }, admin);
+  // "Geri al" on the moved row: it returns to A, which is revived.
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.lemA]);
+  assert.equal((await schema.pool.query("SELECT merged_into FROM products WHERE id=$1", [a])).rows[0].merged_into, null);
+  const { override, changes } = await store.loadProductOverride(schema.pool, b);
+  assert.deepEqual([override?.name, override?.seo_title, override?.hidden], [null, "B SEO", false]);
+  assert.deepEqual(changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value, change.new_value]).sort(),
+    [["hidden", "true", null], ["name", "AAAx", null]]);
+  assert.equal((await catalog.getStorefrontProduct(ids.lemB))?.name, "TRW ROT");
+  // A keeps its own edits and hides its row again.
+  assert.equal(await catalog.getStorefrontProduct(ids.lemA), undefined);
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_carries WHERE source=$1", [a])).rows[0].n, 0);
+});
+
 test("a hidden product is off sale everywhere and its old links do not loop", async () => {
   await persist(schema.pool, await productOf("ngk"), { hidden: true }, admin);
   assert.equal(await catalog.getStorefrontProduct(ids.ngk), undefined);
@@ -256,7 +279,8 @@ test("the form shows stored values after a save, keeps other input on a revert a
   // Reverting the category: only the category takes the stored (automatic) value; typed text stays.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "category_id", version: "2",
     values: { ...stored, category_id: null } } });
-  assert.deepEqual(state, { version: "2", values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false } });
+  assert.deepEqual(state, { version: "2", dirty: ["name", "seo_title"],
+    values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false } });
   // The page refresh after our own save carries the version already adopted: nothing changes.
   assert.equal(overrideFormReducer(state, { type: "server", values: { ...stored, category_id: null }, version: "2" }), state);
   // An error (stale, unknown category) keeps every typed value and the version.
@@ -269,9 +293,28 @@ test("the form shows stored values after a save, keeps other input on a revert a
   state = overrideFormReducer(overrideFormReducer(state, { type: "edit", values: { name: "Yeni" } }),
     { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false } } });
   assert.deepEqual([state.values.name, state.values.category_id, state.values.published, state.version], ["Yeni", "241", true, "4"]);
-  // Another version from the page (someone else saved, then a refresh): adopted as a whole.
+  // Edited "Yeni" is still unsaved: another version from the page keeps it and the old version; untouched inputs follow.
   assert.deepEqual(overrideFormReducer(state, { type: "server", values: null, version: "auto" }),
-    { version: "auto", values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
+    { version: "4", dirty: ["name"], values: { name: "Yeni", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
+  // Nothing edited: another version is adopted as a whole.
+  const clean = initialOverrideForm(stored, "5");
+  assert.deepEqual(overrideFormReducer(clean, { type: "server", values: null, version: "auto" }),
+    { version: "auto", dirty: [], values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
+});
+
+test("a second tab's stale save keeps what it typed, whatever the page refresh brings", () => {
+  // Both tabs opened at version 1; tab 1 saved name "AAAx" (version 2) meanwhile.
+  const opened = { name: "Ad", description: "Eski", seo_title: null, seo_description: null, category_id: null, hidden: false };
+  let tab2 = initialOverrideForm(opened, "1");
+  tab2 = overrideFormReducer(tab2, { type: "edit", values: { name: "BBB" } });
+  tab2 = overrideFormReducer(tab2, { type: "edit", values: { description: "DESC-B" } });
+  const typed = tab2;
+  tab2 = overrideFormReducer(tab2, { type: "result", result: { status: "error", message: "Bu ürün siz düzenlerken … değiştirildi." } });
+  assert.equal(tab2, typed);
+  // The refresh after the action renders tab 1's save (name AAAx, description cleared): typed fields stay, so does version 1.
+  tab2 = overrideFormReducer(tab2, { type: "server", values: { ...opened, name: "AAAx", description: null, seo_title: "Tab 1 SEO" }, version: "2" });
+  assert.deepEqual(tab2, { version: "1", dirty: ["name", "description"],
+    values: { name: "BBB", description: "DESC-B", seo_title: "Tab 1 SEO", seo_description: "", category_id: "", published: true } });
 });
 
 test("the form schema trims, empties to automatic and reads the published switch", () => {
