@@ -204,20 +204,20 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     fail=false; globalThis.fetch=previousFetch;
     await importBasbug(pool,{group:"FIAT",warehouse:"MRK",company:"TEST"});
     // Independent monitoring detects a stopped scheduler and stale individual groups.
-    assert.equal((await supplierHealth(pool)).healthy,false);
+    assert.equal((await supplierHealth(pool,undefined,false)).healthy,false);
     await client.query("INSERT INTO supplier_scheduler_health VALUES(true,now(),now(),true)");
     await client.query("UPDATE supplier_sync_scopes SET enabled=false WHERE list_group='AV'");
-    assert.equal((await supplierHealth(pool)).healthy,true);
+    assert.equal((await supplierHealth(pool,undefined,false)).healthy,true);
     // Scheduler off on purpose: a missing heartbeat is not a fault, stale data still is.
     await pool.query("UPDATE supplier_scheduler_health SET started_at=now()-interval '2 days 1 minute',finished_at=now()-interval '2 days',succeeded=true");
-    assert.equal((await supplierHealth(pool)).healthy,false);
+    assert.equal((await supplierHealth(pool,undefined,false)).healthy,false);
     const manual=await supplierHealth(pool,undefined,true);
     assert.equal(manual.manual,true); assert.equal(manual.issues.length,0); assert.equal(manual.healthy,true);
     await client.query("UPDATE supplier_scheduler_health SET started_at=now()-interval '2 hours',finished_at=now()-interval '2 hours'");
-    assert.equal((await supplierHealth(pool)).healthy,false);
+    assert.equal((await supplierHealth(pool,undefined,false)).healthy,false);
     await client.query("UPDATE supplier_scheduler_health SET started_at=now(),finished_at=now()");
     await client.query("UPDATE supplier_sync_scopes SET commerce_enabled=true,commerce_last_success_at=now()-interval '3 hours'");
-    assert.equal((await supplierHealth(pool)).issues.length,1);
+    assert.equal((await supplierHealth(pool,undefined,false)).issues.length,1);
     await client.query("UPDATE supplier_sync_scopes SET commerce_last_success_at=now()");
     // The storefront stops purchasing commercial data before the older global age limit.
     await client.query(await readFile("db/commerce.sql","utf8"));

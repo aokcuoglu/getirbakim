@@ -50,10 +50,15 @@ export async function adminBasbugData(params: BasbugParams) {
     "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' ORDER BY started_at DESC,id DESC LIMIT 10",
     [process.env.BASBUG_FIRMA_ADI || "BASBUG", group],
   )).rows;
+  // Latest succeeded run of any kind (full list or price · stock · rate) in the page's scope.
+  const lastSucceeded = (await db.query<ImportSummary>(
+    "SELECT * FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND ($2='' OR list_group=$2) AND warehouse='MRK' AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1",
+    [process.env.BASBUG_FIRMA_ADI || "BASBUG", group],
+  )).rows[0];
   const health = await supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG");
   const stale = health.scopes.some(scope => (!group || scope.list_group===group) && (scope.catalog_stale || scope.commerce_stale));
   const knownGroups = latest?.groups_data.malzemeGruplariListesi ?? [{ kod: "FIAT", ad: "FIAT" }];
-  if (!snapshot) return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: [] as AdminSupplierItem[], brands: [] as string[], currencies: [] as string[], total: 0, page: 1, pages: 1 };
+  if (!snapshot) return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, lastSucceeded, items: [] as AdminSupplierItem[], brands: [] as string[], currencies: [] as string[], total: 0, page: 1, pages: 1 };
   const values: unknown[] = [snapshot.company];
   const conditions = ["supplier='basbug'", "company=$1", "warehouse='MRK'"];
   if (group) { values.push(group); conditions.push("list_group=$2"); }
@@ -89,7 +94,7 @@ export async function adminBasbugData(params: BasbugParams) {
   ) SELECT page.*,sale.price_kurus AS sale_price_kurus,sale.available AS sale_available,sale.stock_label AS sale_stock_label
     FROM page LEFT JOIN LATERAL (SELECT price_kurus,available,stock_label FROM commerce_catalog WHERE id=page.id OFFSET 0) sale ON true
     ORDER BY ${order}`, [...values, (page - 1) * 50]);
-  return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, items: items.rows, brands: brands.rows.map(r => r.value), currencies: currencies.rows.map(r => r.value), total, page, pages };
+  return { snapshots, snapshot, group, knownGroups, sync, stale, health, recentRuns, lastSucceeded, items: items.rows, brands: brands.rows.map(r => r.value), currencies: currencies.rows.map(r => r.value), total, page, pages };
 }
 
 export async function adminBasbugItem(id: string) {
