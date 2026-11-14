@@ -111,6 +111,8 @@ test("a split row gets its own locked product and rejoins on undo", async () => 
     assert.deepEqual((await client.query("SELECT product_id,method FROM product_sources WHERE supplier_item_id=$1", [pick.item])).rows[0],
       { product_id: pick.product, method: "auto" });
     assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [split])).rows[0].merged_into, pick.product);
+    // Undoing a split returns the row to its own key: no pair to block.
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [split, pick.product])).rows[0].n, 0);
   } finally {
     await client.query("ROLLBACK");
     client.release();
@@ -134,6 +136,39 @@ test("merging a candidate locks the rows into the Başbuğ product; resetting a 
     assert.equal((await client.query("SELECT product_reset_item($1) AS id", [items[0]])).rows[0].id, pair.b);
     assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [pair.b])).rows[0].merged_into, null);
     assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [pair.a, pair.b])).rows[0].status, "different");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+// A merge made without a decision row (older merges, "Aynı ürün" from the product page) is still blocked on undo (#551).
+test("undoing a merge without a decision row records the pair as different in candidate direction", async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const group = (await client.query<{ product: string }>(`SELECT s.product_id AS product FROM product_sources s
+      JOIN products p ON p.id=s.product_id AND p.variant=0 AND p.merged_into IS NULL
+      JOIN commerce_supplier_items i ON i.id=s.supplier_item_id AND i.supplier='basbug' WHERE s.method='auto' LIMIT 1`)).rows[0];
+    assert.ok(group, "expected a Başbuğ product");
+    const single = (await client.query<{ item: string; product: string }>(`SELECT s.supplier_item_id AS item, s.product_id AS product FROM product_sources s
+      JOIN products p ON p.id=s.product_id AND p.variant=0 AND p.merged_into IS NULL AND p.suppliers='{dinamik}'
+      WHERE s.method='auto' AND s.product_id<>$1
+       AND NOT EXISTS (SELECT 1 FROM product_sources t WHERE t.product_id=s.product_id AND t.supplier_item_id<>s.supplier_item_id) LIMIT 1`,
+      [group.product])).rows[0];
+    assert.ok(single, "expected a Dinamik-only product");
+    const actor = (await client.query<{ id: string }>("SELECT id FROM accounts LIMIT 1")).rows[0]?.id ?? null;
+    await client.query("DELETE FROM product_match_decisions WHERE (product_a,product_b) IN (($1,$2),($2,$1))", [group.product, single.product]);
+    assert.equal((await client.query("SELECT product_merge($1,$2,NULL) AS id", [single.product, group.product])).rows[0].id, group.product);
+    assert.equal((await client.query("SELECT product_reset_item($1,$2) AS id", [single.item, actor])).rows[0].id, single.product);
+    const decision = (await client.query("SELECT status,decided_by FROM product_match_decisions WHERE product_a=$1 AND product_b=$2",
+      [group.product, single.product])).rows[0];
+    assert.deepEqual(decision, { status: "different", decided_by: actor });
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM product_match_decisions WHERE product_a=$1 AND product_b=$2",
+      [single.product, group.product])).rows[0].n, 0);
+    // refresh_product_matches() skips a pair with a decision row keyed (a,b): the Başbuğ side first.
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM (VALUES ($1::uuid,$2::uuid)) c(a,b)
+      WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)`, [group.product, single.product])).rows[0].n, 0);
   } finally {
     await client.query("ROLLBACK");
     client.release();
