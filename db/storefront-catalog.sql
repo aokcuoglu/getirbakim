@@ -42,24 +42,26 @@ WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','man
   AND NOT EXISTS (SELECT 1 FROM supplier_items n WHERE n.supplier=d.supplier AND n.code=d.code
    AND ((n.supplier='basbug' AND n.warehouse='MRK') OR n.supplier IN ('seta','manual') OR (n.supplier='dinamik' AND n.stock_data IS NOT NULL))
    AND n.presence IN ('pending_missing','inactive') AND NOT n.conflicting
-   AND (n.last_seen_at>d.last_seen_at OR (n.last_seen_at=d.last_seen_at AND n.id<d.id))));
+   AND (n.last_seen_at>d.last_seen_at OR (n.last_seen_at=d.last_seen_at AND n.id<d.id))))
+ -- Hidden by an admin (#575).
+ AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=r.id AND h.hidden);
 -- Columns are listed (not e.*): CREATE OR REPLACE VIEW cannot reorder or drop columns on a later run.
 CREATE OR REPLACE VIEW storefront_catalog_entries AS
 SELECT e.id,e.category,e.supplier,e.code,e.name,e.brand,e.description,e.updated_at,e.oem,e.source,e.company,false AS unavailable
 FROM commerce_catalog_entries e
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
- COALESCE(NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(u.product_data->>'ac2',''),u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,true
-FROM commerce_unavailable_items u;
+ COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,true
+FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id;
 CREATE OR REPLACE VIEW storefront_catalog AS
 SELECT c.id,c.category,c.supplier,c.code,c.name,c.brand,c.description,c.price_kurus,c.stock,c.updated_at,c.oem,c.source,c.company,
  c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable
 FROM commerce_catalog c
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
- COALESCE(NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,
+ COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,
  false,0,'Şu an tedarik edilemiyor'::text,
  jsonb_build_object('source','unavailable','presence',u.presence,'observed_at',u.last_seen_at),true
-FROM commerce_unavailable_items u;
+FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id;

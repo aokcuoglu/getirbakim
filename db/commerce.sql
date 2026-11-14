@@ -14,6 +14,16 @@ CREATE TABLE IF NOT EXISTS commerce_product_pricing (
  updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid NOT NULL REFERENCES accounts(id),
  CHECK(markup_percent IS NOT NULL OR vat_percent IS NOT NULL)
 );
+-- Admin edits of the store card (#575), projected onto supplier rows by db/product-overrides.sql: the product-level
+-- product_overrides table is the source of truth; this copy exists because the catalog views below are created
+-- before the master catalog. NULL keeps the supplier's value; hidden takes the row off sale everywhere.
+CREATE TABLE IF NOT EXISTS commerce_item_overrides (
+ supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ -- No FK: products is created later (db/product-matching.sql).
+ product_id uuid NOT NULL,
+ name text, description text, hidden boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -71,9 +81,12 @@ SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
- COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
-FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
+ COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
+FROM commerce_supplier_items i CROSS JOIN commerce_settings s
+LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+-- Hidden by an admin (#575): not for sale anywhere.
+WHERE ov.hidden IS NOT TRUE;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
@@ -107,11 +120,13 @@ WITH latest AS (
  AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
- (i.price_data->>'nf')::numeric AS cost
+ (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
+ LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
+ WHERE ov.hidden IS NOT TRUE
 )
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,
@@ -121,8 +136,8 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
 FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
- COALESCE(NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(product_data->>'ac2',''),
+ COALESCE(override_name,NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(override_description,product_data->>'ac2',''),
  CASE WHEN cost>0 AND exchange_rate>0
  AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
  AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647

@@ -265,8 +265,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
-    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
-      : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
+    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.${Number(params.carried_hidden) > 0
+        ? ` ${number(Number(params.carried_hidden))} tanesinde birleşen ürün mağazada gizli olduğu için gizlilik hedef ürüne taşındı; hedef ürünler artık mağazada görünmüyor.` : ""}`)
+      : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`)
+      : matchedMessages[params.matched] && notice(`${matchedMessages[params.matched]}${params.matched === "same" && params.carried_hidden === "1" ? " Birleşen ürün mağazada gizliydi; gizlilik hedef ürüne taşındı, ürün artık mağazada görünmüyor." : ""}`))}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : params.error === "merge" ? "Birleştirilemedi: Dinamik ürünü zaten başka bir ürüne bağlı. Ürün sayfasından kontrol edin." : params.error === "split" ? "Ayrılamadı: kayıt artık bu grupta değil. Listeyi yenileyip tekrar deneyin." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
     {!stats ? <EmptyState title="Henüz eşleştirme yok" icon={<Boxes/>}/> : <>
       <Card size="sm"><CardContent>

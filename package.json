@@ -20,6 +20,7 @@
     "test:pick-key": "node --import tsx --test scripts/test-pick-key.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",
+    "test:product-overrides": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-overrides.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",

@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties } from "react";
+import { Fragment, cache, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { siteUrl } from "@/lib/site";
 import Link from "next/link";
@@ -11,6 +11,8 @@ import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
+import { getItemOverride } from "@/modules/store/product-overrides";
+import { productDescription, productMeta, productTitle } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
@@ -33,13 +35,23 @@ const benefits = [
   { icon: ClipboardCheck, size: 23, title: "Araç uyumluluğu", text: <>OEM kodunu, motor ve model bilgilerini karşılaştır.</> },
 ];
 
+// Metadata and the page read the same enrichment once per request.
+const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const product = await getStorefrontProduct(id);
   if (!product) return { title: "Ürün bulunamadı | Getirbakim", robots: { index: false } };
+  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
+  const [override, enrichment] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand)]);
+  const description = productDescription(override, enrichment?.description, product.description);
+  const meta = productMeta(override, {
+    title: `${product.brand} ${productTitle(override, enrichment?.displayName, product.name)} — ${product.code}`,
+    description: `${product.brand} ${product.code}. ${description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`,
+  });
   return {
-    title: `${product.brand} ${product.name} — ${product.code} | Getirbakim`,
-    description: `${product.brand} ${product.code}. ${product.description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`.slice(0, 180),
+    title: `${meta.title} | Getirbakim`,
+    description: meta.description.slice(0, 180),
     alternates: { canonical: `/urun/${id}` },
     robots: product.supplier === "demo" || product.source === "supplier" ? { index: false, follow: true } : undefined,
   };
@@ -52,27 +64,29 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
-  const enrichment = await getProductEnrichment(product);
+  const [enrichment, override] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id)]);
   const logos = await getManufacturerLogos([product.brand]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
   const storeCategories=await getStoreCategories();
-  const leaf=enrichment?.categories[0];
-  const productCategoryPath=leaf?categoryPath(storeCategories,leaf.id):[];
+  // An admin's category (#575) replaces the enrichment's.
+  const leafId=override?.category_id ?? enrichment?.categories[0]?.id;
+  const productCategoryPath=leafId?categoryPath(storeCategories,leafId):[];
   const category = categories.find(c => c.slug === product.category);
   const price = product.price_kurus === null ? null : money(servicePrice(product.price_kurus!, isB2B ? account!.discount_percent : 0));
 
   // No Offer until payment, final tax/shipping and availability are verified.
-  const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: product.name,
+  const title = productTitle(override, enrichment?.displayName, product.name);
+  const description = productDescription(override, enrichment?.description, product.description);
+  const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: title,
     sku: product.code, brand: { "@type": "Brand", name: product.brand },
-    description: enrichment?.description || product.description || undefined, image: enrichment?.imagePath ? `${siteUrl}${enrichment.imagePath}` : undefined, url: `${siteUrl}/urun/${product.id}` };
+    description: description || undefined, image: enrichment?.imagePath ? `${siteUrl}${enrichment.imagePath}` : undefined, url: `${siteUrl}/urun/${product.id}` };
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
   const descriptionModels = enrichment?.vehicles.length || enrichment?.vehicleModels.length ? [] : await getDescriptionFitments(product.id);
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     enrichment?.vehicles.length ? enrichment.vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
-  const title = enrichment?.displayName || product.name;
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
   // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
@@ -166,7 +180,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
       <section className="scroll-mt-[110px]" id="product-specifications" aria-labelledby="specifications-title">
         <h2 id="specifications-title" className={sectionTitle}>{title} {product.brand} {displayPartNumber} teknik bilgileri</h2>
         <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
-        {(enrichment?.description || product.description) && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{enrichment?.description || product.description}</p>}
+        {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
       {enrichment && (enrichment.vehicles.length > 0 ? <ProductFitment vehicles={enrichment.vehicles}/> : enrichment.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{enrichment.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{model}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>)}
       {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{row.brand} {row.model}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</span>)}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}

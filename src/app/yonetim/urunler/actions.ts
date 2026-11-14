@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { forgetSameProducts } from "@/modules/admin/product-matching";
+import { productOverrideFields, productOverrideIdSchema, productOverrideValuesSchema, type ProductOverrideResult,
+  type ProductOverrideValues } from "@/modules/admin/product-override-schema";
+import { persistProductOverride } from "@/modules/admin/product-override-store";
 import { requireAdmin } from "@/modules/auth/session";
 
 const input = z.object({ item_id: z.uuid(), product_id: z.uuid() });
@@ -62,7 +65,7 @@ export async function mergeProducts(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const { product_id, other_id } = data.data;
   const client = await db.connect();
-  let target: string | null = null;
+  let target: string | null = null, carriedHidden = false;
   try {
     await client.query("BEGIN");
     const rows = (await client.query<{ id: string; basbug: boolean }>("SELECT id,'basbug'=ANY(suppliers) AS basbug FROM products WHERE id=ANY($1::uuid[])",
@@ -71,6 +74,9 @@ export async function mergeProducts(form: FormData) {
     if (other && self) {
       const [keep, drop] = other.basbug && !self.basbug ? [other_id, product_id] : [product_id, other_id];
       target = (await client.query<{ id: string | null }>("SELECT product_merge($1,$2,$3) AS id", [drop, keep, admin.id])).rows[0].id;
+      // The kept product takes the merged product's store edits (hidden included) when it has none of its own (#575).
+      if (target) carriedHidden = Boolean((await client.query<{ carried: { hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
+        [drop, target, admin.id])).rows[0].carried.hidden);
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [keep, drop, admin.id]);
@@ -82,7 +88,7 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=1` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}` : `/yonetim/urunler/${product_id}?error=merge`);
 }
 
 const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);
@@ -141,4 +147,48 @@ export async function unlinkEquivalent(form: FormData) {
   finally { client.release(); }
   revalidatePath(`/yonetim/urunler/${product_id}`);
   redirect(`/yonetim/urunler/${product_id}?unlinked=1#muadil`);
+}
+
+const overrideFailures = {
+  "not-found": "Ürün bulunamadı. Sayfayı yenileyin.",
+  merged: "Bu ürün başka bir ürünle birleştirildi; düzenlemeyi birleştirilen üründe yapın.",
+  category: "Seçilen kategori bulunamadı. Listeden yeniden seçin.",
+  stale: "Bu ürün siz düzenlerken başka bir sekmede veya kullanıcı tarafından değiştirildi. Sayfayı yenileyip yeniden deneyin.",
+} as const;
+
+/**
+ * Store card edits (#575): "save" stores every field of the form, "reset" returns one field to its automatic value.
+ * Both carry the version the form was opened with, so a stale form cannot overwrite a newer save. Supplier syncs and
+ * enrichment never write these values; the store reads them at once (lists within 10 minutes).
+ */
+export async function saveProductOverride(_previous: ProductOverrideResult, form: FormData): Promise<ProductOverrideResult> {
+  const admin = await requireAdmin();
+  const id = productOverrideIdSchema.safeParse(form.get("id"));
+  const version = form.get("version");
+  if (!id.success || typeof version !== "string" || !/^(auto|\d{1,20})$/.test(version)) return { status: "error", message: "Ürün tanınmadı. Sayfayı yenileyin." };
+  const resetValue = form.get("reset");
+  const reset = typeof resetValue === "string" && resetValue ? productOverrideFields.find(field => field === resetValue) : undefined;
+  if (typeof resetValue === "string" && resetValue && !reset) return { status: "error", message: "Alan tanınmadı. Yeniden deneyin." };
+  let patch: Partial<ProductOverrideValues>;
+  if (reset) patch = reset === "hidden" ? { hidden: false } : { [reset]: null };
+  else {
+    const input = productOverrideValuesSchema.safeParse({
+      name: form.get("name") ?? "", description: form.get("description") ?? "", seo_title: form.get("seo_title") ?? "",
+      seo_description: form.get("seo_description") ?? "", category_id: form.get("category_id") ?? "", published: form.get("published") ?? undefined,
+    });
+    if (!input.success) return { status: "error", message: input.error.issues[0]?.message ?? "Alanları kontrol edin." };
+    patch = input.data;
+  }
+  let result: Awaited<ReturnType<typeof persistProductOverride>>;
+  try {
+    result = await persistProductOverride(db, id.data, patch, admin.id, version);
+  } catch {
+    return { status: "error", message: "Değişiklikler kaydedilemedi. Yeniden deneyin." };
+  }
+  if (!result.ok) return { status: "error", message: overrideFailures[result.reason] };
+  const saved = { values: result.values, version: result.version, reset };
+  if (!result.changed.length) return { status: "success", message: "Değişiklik yok; kayıtlı değerler aynı.", ...saved };
+  // The store's product page, listings and search, and this admin page: every page may show the product.
+  revalidatePath("/", "layout");
+  return { status: "success", message: reset ? "Alan otomatik değere döndü." : "Mağaza bilgileri kaydedildi.", ...saved };
 }

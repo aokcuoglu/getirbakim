@@ -38,6 +38,8 @@ try {
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
    await client.query(await readFile("db/product-matching.sql", "utf8"));
+   // Admin edits of the store card (#575): reads products/product_sources, writes the copy commerce views read.
+   await client.query(await readFile("db/product-overrides.sql", "utf8"));
    // Reads product_sources: the storefront catalog with unavailable products (#475), then their restock requests.
    await client.query(await readFile("db/storefront-catalog.sql", "utf8"));
    await client.query(await readFile("db/restock-requests.sql", "utf8"));
