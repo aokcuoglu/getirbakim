@@ -24,14 +24,14 @@ Orkestratör ürün kodu yazmaz; ajanlara brief verir, bulguları taşır, kapsa
 
 | Ajan | Rol | Model | Kod yazar mı? | Brief |
 |------|-----|-------|---------------|-------|
-| `getirbakim-planner` | Mimar: kodu tarar, uygulanabilir plan döner | opus | hayır | Issue no, worktree |
+| `getirbakim-planner` | Mimar: kodu tarar, uygulanabilir plan döner | fable | hayır | Issue no, worktree |
 | `getirbakim-developer` | Mühendis: uygular, `db/*.sql` idempotent değişiklik, test, commit | sonnet | evet | worktree, Issue, plan |
-| `getirbakim-reviewer` | Kod incelemesi: yetki, SQL/veri bütünlüğü, Next 16, performans, testler | opus | hayır | worktree veya PR no |
+| `getirbakim-reviewer` | Kod incelemesi: yetki, SQL/veri bütünlüğü, Next 16, performans, testler | fable | hayır | worktree veya PR no |
 | `getirbakim-ui-ux` | /yonetim stok-shadcn kuralı + DESIGN.md; isteğe bağlı ekran görüntüsü | sonnet | hayır | worktree, rotalar, sunucu adresi |
 | `getirbakim-qa` | Kontroller + tarayıcı turu (masaüstü/mobil, admin/servis/ziyaretçi) | sonnet | hayır | worktree, rotalar, roller, kabul kriterleri |
 | `getirbakim-triage` | Backlog: her açık Issue'yu kanıtla sınıflar, paralel dalga önerir | sonnet | hayır | — (`/backlog`) |
 
-**Model seçimi:** yargısı sonraki her adımı belirleyen planlayıcı ve veri kaybı/yetki açığının tek kapısı olan inceleyici opus; mekanik ağırlıklı geliştirme, UI denetimi, QA ve triage sonnet. Orkestratör `getirbakim-developer`'a `model: "opus"` geçer: `db/*.sql` şema değişikliği, yetki/ödeme/sipariş, tedarikçi sync çekirdeği, modüller arası refactor ya da iki inceleme döngüsünde kalan sonnet çalışması.
+**Model seçimi:** yargısı sonraki her adımı belirleyen planlayıcı ve veri kaybı/yetki açığının tek kapısı olan inceleyici fable (orkestratörden farklı model → bağımsız ikinci göz; az token harcadıkları için ayrı Fable kotası burada değerlendirilir); mekanik ağırlıklı geliştirme, UI denetimi, QA ve triage sonnet. Orkestratör `getirbakim-developer`'a `model: "opus"` geçer: `db/*.sql` şema değişikliği, yetki/ödeme/sipariş, tedarikçi sync çekirdeği, modüller arası refactor ya da iki inceleme döngüsünde kalan sonnet çalışması.
 
 ## Skill'ler (`.claude/skills/`)
 
