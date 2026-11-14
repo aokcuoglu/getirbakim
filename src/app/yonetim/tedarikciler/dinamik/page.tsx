@@ -1,11 +1,14 @@
 import { Fragment } from "react";
 import Link from "next/link";
-import { ArrowRight, CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleAlert, CircleCheck, History, Info, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
-import { schedulerLabel, supplierHealth } from "@/modules/suppliers/health";
+import { supplierHealth } from "@/modules/suppliers/health";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
+import { supplierRunError } from "@/modules/suppliers/run-error";
+import { SupplierFactCards } from "@/components/admin/supplier-fact-cards";
+import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { adminDinamikOverview, adminSupplierFeedStatus, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
@@ -19,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
@@ -39,6 +42,7 @@ const number = (value: number | null | undefined) => new Intl.NumberFormat("tr-T
 const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Henüz yok";
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
 const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
+const runError = (reason: string) => supplierRunError(reason, "dinamik");
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
 const errors: Record<string, string> = {
   busy: "Bir Dinamik aktarımı zaten sürüyor. Biraz sonra yeniden deneyin.",
@@ -71,12 +75,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   const pageNumbers = Array.from(new Set([1, ...Array.from({ length: 5 }, (_, i) => Math.max(1, Math.min(page - 2, pages - 4)) + i), pages])).filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const { items, scopes, runs } = data;
   const lastRun = data.recent[0];
-  const facts: [string, string, string][] = [
-    ["Zamanlayıcı", schedulerLabel(health), health?.heartbeat && !health.heartbeat.finished_at ? `Tur sürüyor · başladı ${time(health.heartbeat.started_at)}` : `Son kontrol: ${health?.heartbeat?.finished_at ? time(health.heartbeat.finished_at) : "henüz yok"}`],
-    ["Son başarılı çekim", time(scopes.last_success), `${number(scopes.synced)} / ${number(scopes.enabled)} marka · her gece 04:00`],
-    ["Son aktarım", lastRun ? time(lastRun.started_at) : "Henüz yok", !lastRun ? "Kayıt yok" : lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group} · ${number(lastRun.quality.uniqueProducts)} ürün · ${runLabels[lastRun.status] ?? lastRun.status}`],
-    ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Başbuğ ile ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"],
-  ];
+  const { lastSucceeded } = data;
   const stats: [string, string, string, Tone?][] = [
     ["Güncel ürün", number(items.present), `${number(items.brands)} marka · ${number(items.priced)} fiyatlı`],
     ["Bölgede stokta", number(items.available), "En az bir depoda VAR (adet değil)"],
@@ -101,12 +100,16 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
     </div>
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Dinamik özet">
-      {facts.map(([label, value, note]) => <Card key={label} size="sm">
-        <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
-        <CardContent className="text-muted-foreground">{note}</CardContent>
-      </Card>)}
-    </div>
+    <SupplierFactCards label="Dinamik özet" health={health} feed={feeds?.dinamik} checkoutMode={checkoutMode}
+      checkoutNote={checkoutMode === "snapshot" ? "Başbuğ ile ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"}
+      lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${number(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
+      lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group}${lastRun.status === "succeeded" ? ` · ${number(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
+      notes={{
+        scheduler: ["Markalar her gece 04:00"],
+        run: [lastRun?.error_reason && runError(lastRun.error_reason)],
+      }}/>
+    {health && <SupplierHealthStatus health={health} supplier="dinamik" name="Dinamik" unit="marka" refresh={refreshDinamik} refreshField="brand"
+      liveCheckout={checkoutMode === "live"} refreshDescription="Seçilen markanın stok ve fiyat listesi birlikte yenilenir. Tüm güncel olmayan markalar için Senkronizasyon sekmesini kullanın."/>}
     <SupplierTabs label="Dinamik yönetimi" key={params.error ? `error-${params.error}` : params.updated ? "updated" : "workspace"} initialTab={params.error || params.updated ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
       <Card>
         <CardHeader><CardTitle><h2>Kaynağı güncelle</h2></CardTitle><CardDescription>Her marka tek istekle çekilir (stok ve fiyat listesi birlikte). Zamanlayıcı kapalıyken veriler buradan tazelenir.</CardDescription><CardAction><Badge variant="outline">API · marka bazlı</Badge></CardAction></CardHeader>
@@ -141,9 +144,9 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
                 <TableCell className="tabular-nums">{time(run.started_at)}</TableCell>
                 <TableCell className="text-right tabular-nums">{number(run.quality.uniqueProducts)}</TableCell>
                 <TableCell className="text-right tabular-nums">{number(run.stats.added)} / {number((run.stats.changed ?? 0) + (run.stats.restored ?? 0))}</TableCell>
-                <TableCell><div className="flex items-center gap-2">{statusBadge(runTones[run.status] ?? "neutral", runLabels[run.status] ?? run.status)}{run.error_reason && <span className="text-muted-foreground">{run.error_reason}</span>}</div></TableCell>
+                <TableCell className="whitespace-normal"><div className="flex flex-wrap items-center gap-2">{statusBadge(runTones[run.status] ?? "neutral", runLabels[run.status] ?? run.status)}{run.error_reason && <span className="text-muted-foreground">{runError(run.error_reason)}</span>}</div></TableCell>
               </TableRow>)}</TableBody>
-            </Table> : <Empty><EmptyHeader><EmptyTitle>Henüz çekim yok</EmptyTitle><EmptyDescription>Zamanlayıcı marka listesini okuyup markaları sırayla çeker.</EmptyDescription></EmptyHeader></Empty>}
+            </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz çekim kaydı bulunmuyor</EmptyTitle><EmptyDescription>Zamanlayıcı marka listesini okuyup markaları sırayla çeker.</EmptyDescription></EmptyHeader></Empty>}
           </CardContent>
         </Card>
         <div className="flex flex-col gap-4">
@@ -151,7 +154,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
             <CardHeader><CardTitle><h2>Hata veren markalar</h2></CardTitle></CardHeader>
             <CardContent>
               {data.failing.length ? <Table><TableBody>{data.failing.map(scope => <TableRow key={scope.list_group}>
-                <TableCell className="whitespace-normal"><div className="font-medium">{scope.list_group}</div><div className="text-muted-foreground">{scope.error_reason ?? "Bilinmeyen hata"}</div></TableCell>
+                <TableCell className="whitespace-normal"><div className="font-medium">{scope.list_group}</div><div className="text-muted-foreground">{scope.error_reason ? runError(scope.error_reason) : "Bilinmeyen hata"}</div></TableCell>
                 <TableCell className="text-right text-muted-foreground tabular-nums">{scope.consecutive_failures}× · sonraki {time(scope.next_run_at)}</TableCell>
               </TableRow>)}</TableBody></Table> : <p className="text-muted-foreground">Hata veren marka yok.</p>}
             </CardContent>

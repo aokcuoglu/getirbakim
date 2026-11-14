@@ -143,7 +143,7 @@ export type DinamikRun = { list_group: string; status: string; error_reason: str
 /** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
 export async function adminDinamikOverview() {
   await requireAdmin();
-  const [items, scopes, runs, recent, failing, discovery] = await Promise.all([
+  const [items, scopes, runs, recent, lastSucceeded, failing, discovery] = await Promise.all([
     db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
       count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
       count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
@@ -156,13 +156,15 @@ export async function adminDinamikOverview() {
       FROM supplier_imports WHERE supplier='dinamik' AND started_at>now()-interval '24 hours'`),
     db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
       WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT 12`),
+    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1`),
     db.query<{ list_group: string; consecutive_failures: number; next_run_at: Date; error_reason: string | null }>(`SELECT s.list_group,s.consecutive_failures,s.next_run_at,r.error_reason
       FROM supplier_sync_scopes s LEFT JOIN LATERAL (SELECT error_reason FROM supplier_imports i WHERE i.supplier=s.supplier AND i.company=s.company
         AND i.list_group=s.list_group AND i.warehouse=s.warehouse ORDER BY started_at DESC,id DESC LIMIT 1) r ON true
       WHERE s.supplier='dinamik' AND s.enabled AND s.consecutive_failures>0 ORDER BY s.consecutive_failures DESC,s.list_group LIMIT 20`),
     db.query<{ checked_at: Date; listed: number }>("SELECT checked_at,listed FROM supplier_discovery WHERE supplier='dinamik'"),
   ]);
-  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, failing: failing.rows, discovery: discovery.rows[0] ?? null };
+  return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, lastSucceeded: lastSucceeded.rows[0] ?? null, failing: failing.rows, discovery: discovery.rows[0] ?? null };
 }
 
 export const supplierFeedCompanies = (): Record<FeedSupplier, string> => ({ basbug: process.env.BASBUG_FIRMA_ADI || "BASBUG", dinamik: DINAMIK_COMPANY, seta: setaCompany });

@@ -12,6 +12,9 @@ import { setaPartTableProps } from "@/components/admin/supplier-part-table-data"
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { SetaProductFilters } from "@/components/admin/seta-product-filters";
+import { SupplierFactCards } from "@/components/admin/supplier-fact-cards";
+import { SupplierHealthStatus } from "@/components/admin/supplier-health-status";
+import { supplierRunError } from "@/modules/suppliers/run-error";
 import { CircleAlert, CircleCheck, History, Info, PackageSearch, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -46,20 +49,19 @@ const errors: Record<string, string> = {
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
 const runTones: Record<string, Tone> = { running: "info", succeeded: "success", failed: "error", rejected: "warning" };
 
-function runError(reason: string) {
-  if (reason === "product-drop-over-20-percent") return "Ürün sayısı %20’den fazla azaldı; inceleme gerekli";
-  if (reason === "missing-prices-increased-over-10-points") return "Eksik fiyat oranı 10 puandan fazla arttı; inceleme gerekli";
-  if (reason === "worker-interrupted") return "İşlem tamamlanmadan kesildi";
-  if (reason.startsWith("config")) return "Bağlantı ayarları eksik veya geçersiz";
-  if (reason.startsWith("contract")) return "Yanıt veri yapısı doğrulanamadı";
-  if (reason.startsWith("upstream:")) return `Ürün servisi: ${reason.endsWith(": timeout") ? "yanıt zaman aşımına uğradı" : reason.match(/HTTP \d{3}$/)?.[0] || "veri alınamadı"}`;
-  return "Servis veya kayıt işlemi tamamlanamadı";
-}
+const runError = (reason: string) => supplierRunError(reason, "seta");
+const runKind = (kind: string) => kind === "commerce" ? "Fiyat · stok" : "Tam liste";
+type SetaRun = Awaited<ReturnType<typeof adminSetaData>>["recentRuns"][number];
+// A full list's quality figures; a price · stock run only refreshes the list it found.
+const runScope = (run: SetaRun) => run.run_kind === "full" && run.status === "succeeded"
+  ? `Tam liste · ${number(run.quality.uniqueProducts)} ürün · ${number(run.quality.missingPrices)} fiyatsız · ${number(run.quality.outOfStock)} stokta yok`
+  : runKind(run.run_kind);
 
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus()]);
-  const { snapshot, health, items, categories, total, page, pages } = data;
+  const { snapshot, lastSucceeded, health, items, categories, total, page, pages } = data;
+  const lastRun = data.recentRuns[0];
   const scope = health.scopes[0];
   const pageUrl = (target: number) => {
     const query = new URLSearchParams({ page: String(target) });
@@ -67,12 +69,6 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
     return `/yonetim/tedarikciler/seta?${query}`;
   };
   const pageNumbers = Array.from(new Set([1, ...Array.from({ length: 5 }, (_, i) => Math.max(1, Math.min(page - 2, pages - 4)) + i), pages])).filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
-  const facts: [string, string, string][] = [
-    ["Son tam aktarım", snapshot?.completed_at ? date(snapshot.completed_at) : "Henüz yok", snapshot ? `${number(snapshot.quality.uniqueProducts)} ürün · ${number(snapshot.quality.missingPrices)} fiyatsız` : "İlk aktarımı başlatın"],
-    ["Son fiyat · stok", scope?.commerce_last_success_at ? date(scope.commerce_last_success_at) : "Henüz yok", scope?.commerce_enabled ? `${scope.commerce_interval_minutes} dakikada bir` : "Periyodik fiyat/stok kapalı"],
-    ["Stokta yok", snapshot ? number(snapshot.quality.outOfStock) : "—", "Kaynak yalnız var/yok bildirir"],
-    ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", "Başbuğ ile ortak ayar"],
-  ];
   return <div className="flex flex-col gap-6">
     <div className="flex flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
@@ -85,17 +81,25 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
           <h1 className="text-2xl font-semibold tracking-tight">SETA API</h1>
           <p className="text-muted-foreground">Seta Filtre B2B listesi: ürün, OEM, çapraz referans, KDV hariç bayi fiyatı ve stok durumu.</p>
         </div>
-        <SupplierActivityBadge supplier="seta" initial={activity}><FeedStatusBadge status={feeds.seta}/></SupplierActivityBadge>
+        <SupplierActivityBadge supplier="seta" initial={activity} unit="liste"><FeedStatusBadge status={feeds.seta}/></SupplierActivityBadge>
       </div>
     </div>
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Liste API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="SETA özet">
-      {facts.map(([label, value, note]) => <Card key={label} size="sm">
-        <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
-        <CardContent className="text-muted-foreground">{note}</CardContent>
-      </Card>)}
-    </div>
+    <SupplierFactCards label="SETA özet" health={health} feed={feeds.seta} checkoutMode={checkoutMode} checkoutNote="Başbuğ ile ortak ayar"
+      lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: runScope(lastSucceeded) } : null}
+      lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: runScope(lastRun) } : null}
+      notes={{
+        scheduler: [scope?.commerce_enabled ? `Fiyat · stok ${scope.commerce_interval_minutes} dakikada bir` : "Periyodik fiyat/stok kapalı"],
+        success: [
+          snapshot?.completed_at && snapshot.id !== lastSucceeded?.id && `Son tam liste: ${date(snapshot.completed_at)} · ${number(snapshot.quality.outOfStock)} stokta yok`,
+          scope?.commerce_last_success_at && `Son fiyat · stok: ${date(scope.commerce_last_success_at)}`,
+          !snapshot && "İlk aktarımı başlatın",
+        ],
+        run: [lastRun?.error_reason && runError(lastRun.error_reason)],
+      }}/>
+    <SupplierHealthStatus health={health} supplier="seta" name="SETA" unit="liste" refresh={refreshSeta} liveCheckout={checkoutMode === "live"}
+      refreshDescription="Tüm liste tek istekle çekilir (yaklaşık 1.400 ürün, birkaç saniye)."/>
     <SupplierTabs label="SETA yönetimi" key={params.error ? `error-${params.error}` : params.updated ? "updated" : "workspace"} initialTab={params.error || !snapshot ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
       <Card>
         <CardHeader><CardTitle><h2>Kaynağı güncelle</h2></CardTitle><CardDescription>Tüm liste tek istekle çekilir (yaklaşık 1.400 ürün, birkaç saniye).</CardDescription><CardAction><Badge variant="outline">API · tek liste</Badge></CardAction></CardHeader>
@@ -108,7 +112,6 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
         <CardHeader><CardTitle><h2>Otomatik güncelleme planı</h2></CardTitle><CardDescription>{scope ? `${scope.enabled ? `Ürün listesi: ${scope.interval_minutes === 1440 ? "her gün" : `${scope.interval_minutes} dakikada bir`} · sonraki ${date(scope.next_run_at)}` : "Ürün listesi çekimi kapalı"} · ${scope.commerce_enabled ? `Fiyat/stok: ${scope.commerce_interval_minutes} dakikada bir` : "Fiyat/stok çekimi kapalı"}` : "İlk başarılı aktarım günlük planı oluşturur."}</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-muted-foreground">Plan ayarı: <code className="font-mono">supplier-configure --supplier=seta --group=ALL --daily-at=03:00 --commerce-enabled=true --commerce-interval-minutes=30 --commerce-stale-minutes=90</code></p>
-          {scope && (scope.catalog_stale || scope.commerce_stale || scope.consecutive_failures > 0 || scope.commerce_failures > 0) && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertDescription>{scope.catalog_stale || scope.commerce_stale ? "Güncellik süresi aşıldı; fiyatlar satışta gizleniyor." : `Son çekimler başarısız; sonraki deneme ${date(scope.commerce_failures ? scope.commerce_next_run_at : scope.next_run_at)}.`}</AlertDescription></Alert>}
         </CardContent>
       </Card>
       <Card>
@@ -130,7 +133,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
       </CardHeader>
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>SETA listesi henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden listeyi API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
-        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : "Stok yok"}`}</span><span>NF: KDV hariç bayi fiyatı · Satış: KDV dahil · Stok: var/yok</span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>NF: KDV hariç bayi fiyatı · Satış: KDV dahil · Stok: var/yok</span></div>
         <SupplierPartTable {...setaPartTableProps(items)}/>
       </CardContent>
       <CardFooter className="flex-wrap justify-between gap-3">
@@ -140,7 +143,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
           {pageNumbers.map((n, i, ns) => <Fragment key={n}>{i > 0 && n - ns[i - 1] > 1 && <PaginationItem><PaginationEllipsis/></PaginationItem>}<PaginationItem><PaginationLink href={pageUrl(n)} isActive={n === page}>{n}</PaginationLink></PaginationItem></Fragment>)}
           <PaginationItem><PaginationNext text="Sonraki" aria-label="Sonraki sayfa" href={page < pages ? pageUrl(page + 1) : undefined} aria-disabled={page >= pages || undefined}/></PaginationItem>
         </PaginationContent></Pagination>
-        <form action="/yonetim/tedarikciler/seta" className="flex items-center gap-2">{Object.entries(params).filter(([key]) => ["q", "category", "stock", "quality", "presence"].includes(key)).map(([key, value]) => <input key={key} type="hidden" name={key} value={value || ""}/>)}<Label htmlFor="page-jump">Sayfaya git</Label><Input id="page-jump" className="w-20" type="number" name="page" min={1} max={pages} defaultValue={page}/><Button type="submit" variant="outline">Git</Button></form>
+        <form action="/yonetim/tedarikciler/seta" className="flex items-center gap-2">{Object.entries(params).filter(([key]) => ["q", "category", "stock", "quality", "presence", "sort", "dir"].includes(key)).map(([key, value]) => <input key={key} type="hidden" name={key} value={value || ""}/>)}<Label htmlFor="page-jump">Sayfaya git</Label><Input id="page-jump" className="w-20" type="number" name="page" min={1} max={pages} defaultValue={page}/><Button type="submit" variant="outline">Git</Button></form>
       </CardFooter>
       </>}
     </Card></SupplierBrowser>

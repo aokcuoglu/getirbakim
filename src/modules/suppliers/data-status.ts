@@ -1,3 +1,5 @@
+import { supplierRunError } from "./run-error";
+
 // Supplier data status for the admin: is the data on the shelf fresh, and which problems are open right now?
 // Deliberately independent of the scheduler: a manual refresh makes data just as current as a scheduled pass, and a
 // stopped scheduler is an operational notice, not a data problem. /api/health/suppliers keeps the monitoring view
@@ -90,20 +92,9 @@ export function feedNavTone(status: FeedStatus): "success" | "warning" | "danger
   return status.state === "fresh" && feedIssueCount(status) === 0 ? "success" : "warning";
 }
 
-/** Plain-language reason of a failed or rejected import (supplier_imports.error_reason). */
-export function importErrorLabel(reason: string | null | undefined) {
-  if (!reason) return "Neden kaydedilmemiş";
-  if (/HTTP 40[13]\b/.test(reason)) return "Tedarikçi erişimi reddetti (IP izni veya anahtar)";
-  if (/HTTP 5\d\d\b/.test(reason)) return "Tedarikçi sunucusu hata verdi";
-  if (/missing-stocks-increased/.test(reason)) return "Stok verisi önceki çekime göre çok azaldı; kalite kontrolü önceki veriyi korudu";
-  if (/product-drop/.test(reason)) return "Ürün listesi önceki çekime göre çok küçüldü; kalite kontrolü önceki veriyi korudu";
-  if (/timeout|ETIMEDOUT|ECONNRESET|aborted/i.test(reason)) return "Tedarikçiye bağlanılamadı (zaman aşımı)";
-  if (/^upstream: Auth/.test(reason)) return "Tedarikçi oturumu açılamadı";
-  if (reason === "worker-interrupted") return "Çekim yarıda kesildi";
-  if (reason === "operator-paused") return "Çekimler elle durduruldu";
-  if (/^upstream/.test(reason)) return "Tedarikçiden veri alınamadı";
-  if (/^contract/.test(reason)) return "Yanıt beklenen biçimde değil";
-  return reason;
+/** Plain-language reason of a failed or rejected import (supplier_imports.error_reason); the wording lives in run-error.ts. */
+export function importErrorLabel(reason: string | null | undefined, source?: FeedSupplier) {
+  return reason ? supplierRunError(reason, source) : "Neden kaydedilmemiş";
 }
 
 export type FeedSupplier = "basbug" | "dinamik" | "seta";
