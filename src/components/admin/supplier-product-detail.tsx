@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
 import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
+import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
 import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog";
 import { supplierFieldChanges, type SupplierChange } from "@/modules/admin/supplier-changes";
 import { dinamikRegions } from "@/modules/suppliers/dinamik-stock";
@@ -12,6 +13,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -155,15 +157,28 @@ type DetailItem = {
   id: string; code: string; presence: string; conflicting: boolean; last_seen_at: Date;
   product_data: unknown; price_data: unknown; stock_data: unknown; source_variants: unknown; changes: SupplierChange[];
 };
-export function SupplierProductDetail({ item, supplier, listHref, description, sale, pricing, cost, sourcePriceLabel = "Kaynak liste fiyatı", noSaleMessage, productInfo, stockInfo, dataInfo }: {
+/**
+ * A supplier product's page body. The same body opens in a dialog over the supplier list (`modal`, the
+ * @modal/(.)urun/[id] intercepting route) and as its own page on a direct visit or reload.
+ */
+export function SupplierProductDetail({ item, supplier, listHref, description, sale, pricing, cost, sourcePriceLabel = "Kaynak liste fiyatı", noSaleMessage, productInfo, stockInfo, dataInfo, notice, cart, modal = false }: {
   item: DetailItem; supplier: string; listHref: string; description: ReactNode; sale: CatalogProduct | undefined; pricing: ProductPricing;
   cost: number | null; sourcePriceLabel?: string; noSaleMessage?: string; productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode;
+  /** Alerts shown under the title (e.g. a save result). */
+  notice?: ReactNode;
+  /** Product name for the add-to-cart form; without it the product has no cart form here. */
+  cart?: string;
+  /** Rendered inside the list's dialog: the dialog header replaces the breadcrumb and page title. */
+  modal?: boolean;
 }) {
   const snapshot = sale?.pricing_snapshot.checkout_mode === "snapshot";
   const presence = item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Son listede bulunamadı";
   const saleState = sale?.available && sale.price_kurus ? snapshot ? "Teyit bekliyor" : "Satışa açık" : item.conflicting ? "İnceleme gerekli" : item.presence !== "present" || noSaleMessage ? "Satışa kapalı" : !sale?.price_kurus ? "Hazırlıkta" : "Satışa kapalı";
   return <div className="flex min-w-0 flex-col gap-6">
-    <div className="flex min-w-0 flex-col gap-2">
+    {modal ? <DialogHeader>
+      <DialogTitle tabIndex={-1} className="wrap-anywhere font-mono">{item.code}</DialogTitle>
+      <DialogDescription className="wrap-anywhere">{supplier} · {description}</DialogDescription>
+    </DialogHeader> : <div className="flex min-w-0 flex-col gap-2">
       <Breadcrumb><BreadcrumbList>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
         <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
@@ -174,7 +189,8 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
         <div className="min-w-0"><h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1><p className="wrap-anywhere text-muted-foreground">{description}</p></div>
         <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
       </div>
-    </div>
+    </div>}
+    {notice}
     <Card role="region" aria-label="Fiyat ve satış durumu">
       <CardHeader>
         <CardTitle><h2>Fiyat ve satış durumu</h2></CardTitle>
@@ -189,6 +205,7 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "destructive", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
         </div>
+        {cart !== undefined && <AdminAddToCart productId={item.id} name={cart} available={Boolean(sale?.available && sale.price_kurus)}/>}
         <p className="text-muted-foreground tabular-nums">Kâr %{supplierNumber(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{supplierNumber(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
         <Separator/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground">
