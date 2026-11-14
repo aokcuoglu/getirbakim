@@ -84,6 +84,7 @@ export function acquireLock(path: string, owner: { pid: number; target: SyncTarg
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const held = readLock(path);
       const age = Date.now() - new Date(held.startedAt).getTime();
+      if (Number.isNaN(age)) throw new Error(`Lock ${path} has no valid startedAt; delete it if no sync is running.`);
       if (alive(held.pid) && age < LOCK_STALE_MS) {
         throw new Error(`Another storefront sync is running (pid ${held.pid}, target ${held.target}, since ${held.startedAt}); `
           + `lock ${path} — delete it if that process is not a sync.`);
@@ -150,6 +151,14 @@ export function parseRetryItems(text: string): BundleItem[] {
   });
 }
 
+/**
+ * Where import-storefront-inbound.ts writes its report: the media bucket (S3_BUCKET), which the operations task may
+ * write, under a private prefix keyed by the inbound prefix (the task may only read the inbound bucket).
+ */
+export function reportKey(prefix: string) {
+  return `internal/storefront-sync/${prefix.replace(/^\/+|\/+$/g, "")}/report.json`;
+}
+
 export type PartReport = { report: Record<string, unknown>; skipped: BundleItem[] };
 export type InboundReport = { snapshotAt?: string | null; parts: number; totals: Record<string, number>; skippedEnrichments: number; skipped: BundleItem[]; truncated: boolean };
 
@@ -168,23 +177,32 @@ export function buildInboundReport(parts: PartReport[], limit = RETRY_LIMIT): In
 }
 
 /**
- * The retry list after a run: the new report's skipped items replace the old list (the run re-sent the old ones,
- * so whatever is still missing is in the report again). Without a report (an operations image older than #553,
- * or the upload failed) the previous list is kept.
+ * The report of this run, or an error that keeps the watermark where it was: a missing report (an operations image
+ * older than #553) or one written for another bundle says nothing about what this run skipped. The next run sends
+ * the same data again, which the import applies idempotently.
  */
-export function nextRetry(previous: BundleItem[] | undefined, report: InboundReport | null, limit = RETRY_LIMIT) {
-  const warnings: string[] = [];
-  if (!report) {
-    warnings.push(`No import report from the target; keeping the previous retry list (${previous?.length ?? 0} items).`);
-    return { retry: previous ?? [], warnings };
+export function checkInboundReport(report: InboundReport | null, snapshotAt: string): InboundReport {
+  if (!report) throw new Error("The import task finished but wrote no report.json (operations image older than #553?); the watermark stays, the next run re-sends.");
+  if (report.snapshotAt !== snapshotAt) {
+    throw new Error(`report.json belongs to another bundle (snapshotAt ${report.snapshotAt ?? "none"}, this run ${snapshotAt}); the watermark stays, the next run re-sends.`);
   }
+  return report;
+}
+
+/**
+ * The retry list after a run: the new report's skipped items replace the old list (the run re-sent the old ones,
+ * so whatever is still missing is in the report again).
+ */
+export function nextRetry(report: InboundReport, limit = RETRY_LIMIT) {
+  const warnings: string[] = [];
   const retry = uniqueItems(report.skipped).slice(0, limit);
   if (report.skippedEnrichments > 0) {
     warnings.push(`${report.skippedEnrichments} enrichments were skipped on the target (supplier item not found there); `
       + `${retry.length} are sent again next run.`);
   }
   if (report.truncated || report.skippedEnrichments > retry.length) {
-    warnings.push(`The retry list is capped at ${limit}; the other skipped enrichments return only when they are re-imported locally.`);
+    warnings.push(`The retry list is capped at ${limit}; the other skipped enrichments return only when they are re-imported locally `
+      + "or when the target has their products and a run with --full sends everything.");
   }
   return { retry, warnings };
 }

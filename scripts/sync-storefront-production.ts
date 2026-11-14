@@ -4,8 +4,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR,
-  type SyncState,
+  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR,
+  reportKey, type SyncState,
 } from "./storefront-sync-state";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
@@ -29,7 +29,8 @@ import {
 //                      otherwise, so a full send is always deliberate).
 // Any other argument is an error. Real runs and --baseline hold .local/storefront-sync/sync.lock, so two syncs
 // (launchd and a manual run) never overlap.
-// aws: the import task writes report.json; enrichments it skipped (supplier item not on AWS yet) are kept in
+// aws: the import task writes report.json (media bucket, storefront-sync-state.ts reportKey); without a report
+// matching this bundle the watermark does not move. Enrichments it skipped (supplier item not on AWS yet) are kept in
 // state.aws.json as `retry` and exported again next run whatever the watermark (export --retry-file).
 const target = process.env.STOREFRONT_SYNC_TARGET || "vps";
 if (target !== "vps" && target !== "aws") throw new Error("STOREFRONT_SYNC_TARGET must be vps or aws");
@@ -93,6 +94,12 @@ function awsTarget() {
     if (running.taskArns.length) throw new Error(`A storefront import task is still running: ${running.taskArns.join(", ")}`);
     const bucket = data.InboundBucketName;
     const prefix = "storefront/current";
+    // The import task writes report.json to its media bucket (S3_BUCKET): a Data stack output if there is one,
+    // otherwise the operations task definition's own S3_BUCKET, the value the task runs with.
+    const mediaBucket: string | undefined = data.MediaBucketName ?? (aws(["ecs", "describe-task-definition", "--task-definition", app.OperationsTaskFamily])
+      .taskDefinition.containerDefinitions as { name: string; environment?: { name: string; value: string }[] }[])
+      .find(container => container.name === app.OperationsContainerName)?.environment?.find(variable => variable.name === "S3_BUCKET")?.value;
+    if (!mediaBucket) throw new Error("The media bucket (S3_BUCKET of the operations task) could not be determined");
     // One fixed prefix: `s3 sync` then uploads only changed files (category images repeat every run).
     run("aws", ["s3", "sync", "--delete", "--only-show-errors", `${partsDir}/`, `s3://${bucket}/${prefix}/`, "--profile", profile, "--region", region], env);
     const overrides = { containerOverrides: [{ name: app.OperationsContainerName,
@@ -111,12 +118,12 @@ function awsTarget() {
       if (task.lastStatus !== "STOPPED") continue;
       const exitCode = task.containers?.[0]?.exitCode;
       if (exitCode !== 0) throw new Error(`Import task stopped with exit code ${exitCode ?? "none"} (${task.stoppedReason})`);
-      // An operations image older than #553 writes no report; the caller then keeps its retry list.
+      // An operations image older than #553 writes no report (checkInboundReport then stops the run).
       try {
-        return aws(["s3", "cp", `s3://${bucket}/${prefix}/report.json`, "-"]) as InboundReport;
+        return aws(["s3", "cp", `s3://${mediaBucket}/${reportKey(prefix)}`, "-"]) as InboundReport;
       } catch (error) {
-        console.warn(`No import report: ${(error as Error).message}`);
-        return null;
+        if (/\b404\b|Not Found|NoSuchKey/i.test((error as Error).message)) return null;
+        throw error;
       }
     }
   };
@@ -179,9 +186,8 @@ try {
       const result = await transfer(partsDir, parts);
       let next = previous?.retry;
       if (target === "aws") {
-        // A report from another run (an upload of an earlier bundle) does not describe this one.
-        const report = result && result.snapshotAt === manifest.snapshotAt ? result : null;
-        const outcome = nextRetry(previous?.retry, report);
+        // Throws (the watermark stays) when the report is missing or belongs to another bundle.
+        const outcome = nextRetry(checkInboundReport(result, manifest.snapshotAt));
         for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
         next = outcome.retry;
       }

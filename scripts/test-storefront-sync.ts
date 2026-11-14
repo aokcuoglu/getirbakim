@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, buildInboundReport, nextRetry, parseBaseline, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts,
+  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parseRetryItems, parseSyncArgs, releaseLock, reportKey, sinceFrom,
+  statePath, summarizeParts,
 } from "./storefront-sync-state";
 
 test("each target keeps its own watermark; the VPS keeps state.json", () => {
@@ -82,6 +83,11 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
     acquireLock(path, { pid: process.pid, target: "vps" });
     assert.equal(JSON.parse(readFileSync(path, "utf8")).target, "vps");
     releaseLock(path);
+
+    // A lock without a valid start time is not taken over.
+    writeFileSync(path, JSON.stringify({ pid: process.pid, startedAt: "soon", target: "aws" }));
+    assert.throws(() => acquireLock(path, { pid: process.pid, target: "aws" }), /no valid startedAt/);
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).startedAt, "soon");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -132,22 +138,29 @@ test("the inbound report sums the applied parts and lists each skipped item once
   assert.deepEqual(report, { parts: 2, totals: { enrichments: 5, skippedEnrichments: 3 }, skippedEnrichments: 2, skipped: [item(1)], truncated: true });
 });
 
-test("the retry list is replaced by the new report, and kept without one", () => {
+test("the retry list is replaced by each new report", () => {
   const report = (skipped: ReturnType<typeof item>[], truncated = false) => ({ parts: 1, totals: {}, skippedEnrichments: skipped.length, skipped, truncated });
   // Item 1 was retried and is still missing; item 2 arrived on the target; item 3 is new.
-  const replaced = nextRetry([item(1), item(2)], report([item(1), item(3)]));
+  const replaced = nextRetry(report([item(1), item(3)]));
   assert.deepEqual(replaced.retry, [item(1), item(3)]);
   assert.match(replaced.warnings[0], /2 enrichments were skipped/);
+  assert.deepEqual(nextRetry(report([])), { retry: [], warnings: [] });
 
-  const clean = nextRetry([item(1)], report([]));
-  assert.deepEqual(clean, { retry: [], warnings: [] });
-
-  const missing = nextRetry([item(1)], null);
-  assert.deepEqual(missing.retry, [item(1)]);
-  assert.match(missing.warnings[0], /keeping the previous retry list \(1 items\)/);
-  assert.deepEqual(nextRetry(undefined, null).retry, []);
-
-  const capped = nextRetry([], report([item(1), item(2), item(3)]), 2);
+  const capped = nextRetry(report([item(1), item(2), item(3)]), 2);
   assert.deepEqual(capped.retry, [item(1), item(2)]);
   assert.match(capped.warnings[1], /capped at 2/);
+  assert.match(capped.warnings[1], /--full/);
+});
+
+test("only this bundle's report lets the watermark move", () => {
+  const report = { snapshotAt: "2026-11-14T16:38:43.465Z", parts: 2, totals: {}, skippedEnrichments: 0, skipped: [], truncated: false };
+  assert.equal(checkInboundReport(report, "2026-11-14T16:38:43.465Z"), report);
+  assert.throws(() => checkInboundReport(null, "2026-11-14T16:38:43.465Z"), /wrote no report\.json/);
+  assert.throws(() => checkInboundReport(report, "2026-11-15T00:00:00.000Z"), /belongs to another bundle \(snapshotAt 2026-11-14T16:38:43\.465Z/);
+  assert.throws(() => checkInboundReport({ ...report, snapshotAt: undefined }, "2026-11-15T00:00:00.000Z"), /snapshotAt none/);
+});
+
+test("the report lives in the media bucket under a private prefix keyed by the inbound prefix", () => {
+  assert.equal(reportKey("storefront/current"), "internal/storefront-sync/storefront/current/report.json");
+  assert.equal(reportKey("/storefront/current/"), "internal/storefront-sync/storefront/current/report.json");
 });

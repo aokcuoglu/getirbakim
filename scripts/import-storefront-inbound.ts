@@ -7,13 +7,14 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
-import { buildInboundReport, type PartReport } from "./storefront-sync-state";
+import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
 // AWS counterpart of the VPS steps in sync-storefront-production.ts. Runs in the operations task, reads the parts
 // that the sync uploaded to s3://$INBOUND_BUCKET/<prefix>/<part>/ and does what the SSH steps did on the VPS:
 // dry-run every part → apply every part → rebuild fitments → drain the derived enrichment tables → write
-// <prefix>/report.json (summed counts and the supplier items whose enrichments were skipped because they do not exist
+// s3://$S3_BUCKET/internal/storefront-sync/<prefix>/report.json (the media bucket: the task may only read the inbound
+// one; summed counts and the supplier items whose enrichments were skipped because they do not exist
 // here; the sync downloads it and sends those enrichments again next run). A failed dry run stops before anything is written.
 // Parts are downloaded one at a time, so task storage holds a single part (≤ ~100 MB of media) at a time.
 //
@@ -115,15 +116,13 @@ try {
   node([], "scripts/rebuild-product-fitments.ts", []);
   await drainSharedLinks();
   node([], "scripts/enrichment-states.ts", ["sync"]);
-  // Everything is committed by now: a report that cannot be written must not fail the task (the sync then keeps its
-  // previous retry list and warns).
+  // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so
+  // the sync keeps its watermark and the next run re-sends (idempotent). Each run overwrites the report.
   const report = { snapshotAt, ...buildInboundReport(applied) };
   console.log(JSON.stringify({ report: { ...report, skipped: report.skipped.length } }));
-  try {
-    await storage.send(new PutObjectCommand({ Bucket: bucket, Key: `${prefix}/report.json`, Body: JSON.stringify(report), ContentType: "application/json" }));
-  } catch (error) {
-    console.error(`report.json could not be written to s3://${bucket}/${prefix}/: ${(error as Error).message}`);
-  }
+  const mediaBucket = process.env.S3_BUCKET;
+  if (!mediaBucket) throw new Error("S3_BUCKET required for report.json");
+  await storage.send(new PutObjectCommand({ Bucket: mediaBucket, Key: reportKey(prefix), Body: JSON.stringify(report), ContentType: "application/json" }));
 } finally {
   await rm(work, { recursive: true, force: true });
 }
