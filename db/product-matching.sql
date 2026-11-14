@@ -295,6 +295,8 @@ CREATE TABLE IF NOT EXISTS product_match_candidates (
  PRIMARY KEY (product_a,product_b)
 );
 ALTER TABLE product_match_candidates ADD COLUMN IF NOT EXISTS name_conflict boolean;
+-- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
+CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
 -- vs MOTOR SUBAP TAKIMI). Turkish letters are folded, possessive endings and position words dropped, and words cut to
 -- four letters so AYNA/AYNASI and FILTRE/FILTRESI meet; a few trade synonyms share one term (SUPAP=SUBAP,
