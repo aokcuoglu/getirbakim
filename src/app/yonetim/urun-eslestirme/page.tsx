@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Link2, Merge, PackagePlus, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Info, Link2, Merge, PackagePlus, SearchX, Tags, TriangleAlert, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
-import { BrandDialog, ConfirmBrand, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
+import { BrandDialog, ConfirmBrand, MergeSuggestion, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
 import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/p
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { candidateNames, candidateReasons, productMatchingData, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
+import { candidateNames, candidateReasons, productMatchingData, type BrandSuggestion, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffers, undoSplit } from "./actions";
 
@@ -43,10 +43,14 @@ function OfferCell({ offer }: { offer: Offer | undefined }) {
     <span className="flex items-center gap-2 tabular-nums"><span className="font-medium">{price(offer.price)}</span><StockLabel stock={offer.available}/></span></div>;
 }
 
-function ToneBadge({ tone, children }: { tone: "success" | "warning" | "neutral"; children: ReactNode }) {
-  const Icon = tone === "success" ? CircleCheck : tone === "warning" ? TriangleAlert : null;
+function ToneBadge({ tone, children }: { tone: "success" | "warning" | "info" | "neutral"; children: ReactNode }) {
+  const Icon = tone === "success" ? CircleCheck : tone === "warning" ? TriangleAlert : tone === "info" ? Info : null;
   return <Badge variant={tone === "neutral" ? "outline" : tone}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{children}</Badge>;
 }
+
+// Why a brand was suggested: shared part numbers when they decided it, else the name.
+const suggestionEvidence = (suggestion: BrandSuggestion) => suggestion.shared_parts >= 3 && suggestion.shared_parts >= suggestion.parts / 2
+  ? `${number(suggestion.shared_parts)}/${number(suggestion.parts)} parça no ortak` : `ad benzer${suggestion.shared_parts ? ` · ${number(suggestion.shared_parts)} parça no ortak` : ""}`;
 
 function EmptyState({ title, icon }: { title: string; icon: ReactNode }) {
   return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader></Empty>;
@@ -79,6 +83,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
+      fresh: brand.fresh, suggestion: brand.suggestion && { id: brand.suggestion.id, name: brand.suggestion.name, evidence: suggestionEvidence(brand.suggestion) },
       labels: brand.labels.map(label => ({ ...label, supplierName: suppliers[label.supplier] ?? label.supplier, items: number(label.items) })) }));
     body = <>
       <CardContent className="flex flex-col gap-4">
@@ -92,13 +97,14 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
           <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(brand => <TableRow key={brand.id}>
-            <TableCell className="max-w-48 truncate font-medium" title={brand.name}>{brand.name}</TableCell>
+            <TableCell className="max-w-56"><div className="flex min-w-0 flex-col gap-1"><span className="truncate font-medium" title={brand.name}>{brand.name}</span>
+              {brand.suggestion && <span className="truncate text-muted-foreground" title={`${brand.suggestion.name}: ${brand.suggestion.evidence}`}>Benzer: {brand.suggestion.name} · {brand.suggestion.evidence}</span>}</div></TableCell>
             {brandSuppliers.map(supplier => {
               return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={brand.labels.filter(label => label.supplier === supplier)}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
-            <TableCell>{brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
-            <TableCell><div className="flex items-center gap-1">{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.name}|${brand.labels.map(label => `${label.supplier}:${label.label}:${label.method}`).join(",")}`} brand={brand} back={back}/></div></TableCell>
+            <TableCell>{brand.fresh ? <ToneBadge tone="info">Yeni marka</ToneBadge> : brand.pending ? <ToneBadge tone="warning">Otomatik</ToneBadge> : <ToneBadge tone="success">Onaylı</ToneBadge>}</TableCell>
+            <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.name}|${brand.labels.map(label => `${label.supplier}:${label.label}:${label.method}`).join(",")}`} brand={brand} back={back}/></div></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
       </CardContent>
       {pager}

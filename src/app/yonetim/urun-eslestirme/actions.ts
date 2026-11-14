@@ -189,13 +189,18 @@ export async function moveBrandLabel(form: FormData) {
   });
 }
 
-// Every label of this brand joins the target brand, which keeps its name and key.
+// Every label of this brand joins the target brand, which keeps its name and key. The target is what an admin typed,
+// or the suggested brand's id (names are not unique).
 export async function mergeBrand(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ id: z.coerce.number().int().positive(), target: brandName, back: brandBack }).safeParse(Object.fromEntries(form));
+  const input = z.object({ id: z.coerce.number().int().positive(), back: brandBack }).and(z.union([
+    z.object({ targetId: z.coerce.number().int().positive() }), z.object({ target: brandName }),
+  ])).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
-  await brandDecision(input.data.back, "merged", async client => {
-    const target = (await client.query<{ id: string }>(findBrand, [input.data.target])).rows[0]?.id;
+  const data = input.data;
+  await brandDecision(data.back, "merged", async client => {
+    const target = "targetId" in data ? (await client.query<{ id: string }>("SELECT id FROM brands WHERE id=$1", [data.targetId])).rows[0]?.id
+      : (await client.query<{ id: string }>(findBrand, [data.target])).rows[0]?.id;
     return Boolean(target) && (await client.query("SELECT brand_merge($1,$2,$3) AS id", [input.data.id, target, admin.id])).rows[0].id !== null;
   });
 }

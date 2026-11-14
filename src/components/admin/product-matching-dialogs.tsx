@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CircleAlert, CircleCheck, Maximize2, Pencil, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, Maximize2, Merge, Pencil, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -44,12 +44,20 @@ export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
 
 
 export type BrandLabelRow = { supplier: string; supplierName: string; label: string; items: string; method: "auto" | "manual" };
-export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; labels: BrandLabelRow[] };
+export type BrandSuggestionRow = { id: string; name: string; evidence: string };
+export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; fresh: boolean; suggestion: BrandSuggestionRow | null; labels: BrandLabelRow[] };
 
 /** "Onayla": the automatically placed labels stay where they are. */
 export function ConfirmBrand({ id, back }: { id: string; back: string }) {
   return <form action={confirmBrand}><input type="hidden" name="id" value={id}/><input type="hidden" name="back" value={back}/>
     <Button type="submit" variant="outline"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Onayla</Button></form>;
+}
+
+/** A new brand joins the reviewed brand suggested for it (shared part numbers or a similar name). */
+export function MergeSuggestion({ id, suggestion, back }: { id: string; suggestion: BrandSuggestionRow; back: string }) {
+  return <form action={mergeBrand}><input type="hidden" name="id" value={id}/><input type="hidden" name="targetId" value={suggestion.id}/>
+    <input type="hidden" name="back" value={back}/>
+    <Button type="submit" variant="outline" title={`Tüm etiketler ${suggestion.name} markasına geçer`}><Merge data-icon="inline-start" aria-hidden="true"/>{suggestion.name} ile birleştir</Button></form>;
 }
 
 /**
@@ -92,8 +100,8 @@ export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) 
         <form action={mergeBrand} className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="id" value={brand.id}/>{hidden}
           <Field className="w-full sm:w-72"><FieldLabel htmlFor={`brand-merge-${brand.id}`}>Başka bir ana markayla birleştir</FieldLabel>
-            <Input id={`brand-merge-${brand.id}`} name="target" list="brand-names" placeholder="Ana marka adı" maxLength={80} required/>
-            <FieldDescription>Tüm etiketler hedef markaya geçer; {brand.name} listeden kalkar.</FieldDescription></Field>
+            <Input id={`brand-merge-${brand.id}`} name="target" list="brand-names" placeholder="Ana marka adı" maxLength={80} required defaultValue={brand.suggestion?.name}/>
+            <FieldDescription>{brand.suggestion && <>Öneri: {brand.suggestion.name} ({brand.suggestion.evidence}). </>}Tüm etiketler hedef markaya geçer; {brand.name} listeden kalkar.</FieldDescription></Field>
           <Button type="submit" variant="outline">Birleştir</Button>
         </form>
       </div>

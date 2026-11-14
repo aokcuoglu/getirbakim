@@ -378,6 +378,62 @@ CREATE TABLE IF NOT EXISTS product_match_runs (
  stats jsonb NOT NULL
 );
 
+-- New master brands (every label placed automatically, none confirmed yet) and the existing brand each most likely
+-- is under another spelling (KALE RADYATOR / KALE): shared part numbers first, then name similarity. Rebuilt by
+-- refresh_product_matches(); confirming the brand ("Onayla") keeps it separate, merging removes it (cascade).
+CREATE TABLE IF NOT EXISTS brand_merge_suggestions (
+ brand_id bigint PRIMARY KEY REFERENCES brands(id) ON DELETE CASCADE,
+ target_id bigint NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+ shared_parts integer NOT NULL, parts integer NOT NULL, name_similarity real NOT NULL
+);
+-- Evidence, strongest first: one key starts with the other (KRAFTVOLL AKS / KRAFTVOLL, MONROE AGIR VASITA / MONROE;
+-- the longest such key wins), then shared part numbers of 5+ characters when at least 3 and half of the new brand's
+-- numbers are shared (unrelated brands share up to ~10% through short numeric codes and reused OEM numbers; BEHR
+-- shares 78% with MAHLE), then trigram name similarity 0.4+. Targets are reviewed brands only (another new brand is
+-- no reference); ORIJINAL is never one: its numbers are OEMs. Measured locally (#469): 148 of the 154 labels merged
+-- by hand before get the brand they were merged into; 95 of 598 brands reviewed as separate get a suggestion (19 by
+-- part numbers), which "Onayla" dismisses.
+CREATE OR REPLACE FUNCTION brand_keys_prefixed(a text, b text) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT least(length(a),length(b))>=3 AND (starts_with(a,b) OR starts_with(b,a))
+$$;
+CREATE OR REPLACE FUNCTION refresh_brand_merge_suggestions() RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE added integer;
+BEGIN
+ DELETE FROM brand_merge_suggestions;
+ INSERT INTO brand_merge_suggestions
+ WITH fresh AS (
+  SELECT b.id, b.key, b.name FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id
+  WHERE b.key<>'ORIJINAL' GROUP BY b.id HAVING bool_and(sb.method='auto')
+ ), targets AS (
+  -- A renamed brand keeps its key (MAHLEFILTRE named MAHLE): prefixes are checked against the name's spelling too.
+  SELECT b.id, b.key, b.name, regexp_replace(upper(b.name),'[^A-Z0-9]','','g') AS spelled FROM brands b
+  WHERE b.key<>'ORIJINAL' AND NOT EXISTS (SELECT 1 FROM fresh f WHERE f.id=b.id)
+ ), parts AS (
+  SELECT f.id, m.part_number FROM fresh f JOIN product_match_items m ON m.brand=f.key WHERE length(m.part_number)>=5 GROUP BY 1,2
+ ), sizes AS (SELECT id, count(*)::int AS parts FROM parts GROUP BY id
+ ), shared AS (
+  SELECT p.id, t.id AS target_id, count(DISTINCT p.part_number)::int AS shared_parts
+  FROM parts p JOIN product_match_items o ON o.part_number=p.part_number JOIN targets t ON t.key=o.brand GROUP BY 1,2
+ ), named AS (
+  SELECT f.id, t.id AS target_id FROM fresh f JOIN targets t
+   ON similarity(f.name,t.name)>=0.4 OR brand_keys_prefixed(f.key,t.key) OR brand_keys_prefixed(f.key,t.spelled)
+ ), scored AS (
+  SELECT c.id, c.target_id, COALESCE(s.shared_parts,0) AS shared_parts, COALESCE(z.parts,0) AS parts,
+   similarity(f.name,t.name) AS name_similarity, length(t.key) AS target_length,
+   brand_keys_prefixed(f.key,t.key) OR brand_keys_prefixed(f.key,t.spelled) AS prefix,
+   COALESCE(s.shared_parts,0)>=3 AND COALESCE(s.shared_parts,0)>=0.5*COALESCE(z.parts,0) AS by_parts
+  FROM (SELECT id, target_id FROM shared UNION SELECT id, target_id FROM named) c
+  JOIN fresh f ON f.id=c.id JOIN targets t ON t.id=c.target_id
+  LEFT JOIN shared s ON s.id=c.id AND s.target_id=c.target_id LEFT JOIN sizes z ON z.id=c.id
+ )
+ SELECT DISTINCT ON (id) id, target_id, shared_parts, parts, name_similarity FROM scored
+ WHERE prefix OR by_parts OR name_similarity>=0.4
+ ORDER BY id, prefix DESC, CASE WHEN prefix THEN target_length END DESC NULLS LAST, by_parts DESC, shared_parts DESC,
+  name_similarity DESC, target_id;
+ GET DIAGNOSTICS added = ROW_COUNT;
+ RETURN added;
+END $$;
+
 -- Short part numbers ("1", "12") collide across unrelated brands; they never form groups.
 CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
@@ -397,6 +453,7 @@ BEGIN
  WHERE COALESCE(b.key,product_brand_key(i.label)) IS NOT NULL;
  DELETE FROM product_match_items WHERE length(part_number)<4;
  ANALYZE product_match_items;
+ PERFORM refresh_brand_merge_suggestions();
  INSERT INTO product_match_groups
  SELECT brand, part_number, count(*), array_agg(DISTINCT supplier ORDER BY supplier)
  FROM product_match_items GROUP BY brand, part_number HAVING count(*)>1;
@@ -597,6 +654,9 @@ BEGIN
   'merged_products', (SELECT count(*) FROM products WHERE merged_into IS NOT NULL),
   'product_equivalents', (SELECT count(*) FROM product_equivalents),
   'match_candidates', (SELECT count(*) FROM product_match_candidates),
+  'pending_brands', (SELECT count(DISTINCT brand_id) FROM supplier_brands WHERE method='auto'),
+  'new_brands', (SELECT count(*) FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b),
+  'brand_merge_suggestions', (SELECT count(*) FROM brand_merge_suggestions),
   'seta_linked_items', (SELECT count(DISTINCT seta_item_id) FROM product_seta_references),
   'seta_linked_products', (SELECT count(DISTINCT item_id) FROM product_seta_references),
   'items', (SELECT count(*) FROM product_match_items),

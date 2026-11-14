@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
+import { refreshProductMatchesIfDue } from "../src/modules/suppliers/product-match-schedule";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
 // Invoke every 15 minutes. Due scopes choose their own interval (default: once a day).
@@ -130,6 +131,13 @@ try {
         await worker.query("SELECT refresh_search_vocabulary()");
         console.log({ searchVocabulary: "refreshed", seconds: Math.round((Date.now() - started) / 1000) });
       } catch (error) { console.error({ searchVocabulary: "failed", code: (error as { code?: string }).code }); }
+    }
+    // New brand labels and products reach the master catalog only through this refresh (~1–2 min); scheduled ticks run
+    // it after supplier changes at most every PRODUCT_MATCH_INTERVAL_HOURS. Forced runs (admin refresh) leave it to them.
+    if (!args.force) {
+      const match = await refreshProductMatchesIfDue(worker);
+      if (match.productMatch === "failed") console.error(match);
+      else if (match.productMatch === "refreshed") console.log(match);
     }
     await worker.query("BEGIN");
     try {
