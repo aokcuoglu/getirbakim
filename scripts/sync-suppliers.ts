@@ -49,7 +49,7 @@ try {
       "SELECT 1 FROM supplier_discovery WHERE supplier='dinamik' AND checked_at>now()-interval '1 day'")).rowCount)) {
       try {
         const discovery = await discoverDinamikBrands(pool);
-        console.log({ dinamikBrands: discovery.listed, added: discovery.added.length, disabled: discovery.disabled, invalid: discovery.invalid });
+        console.log({ dinamikBrands: discovery.listed, added: discovery.added.length, reenabled: discovery.reenabled, disabled: discovery.disabled, retired: discovery.retired, invalid: discovery.invalid });
       } catch (error) {
         console.error({ dinamikBrands: "failed", reason: error instanceof DinamikImportError ? error.message : "upstream" });
         process.exitCode = 1;

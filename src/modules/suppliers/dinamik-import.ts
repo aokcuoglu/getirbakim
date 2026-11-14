@@ -221,19 +221,67 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
   } };
 }
 
-/** Adds newly listed brands as enabled scopes and disables brands Dinamik no longer lists. */
-export async function discoverDinamikBrands(pool: Pool, fetchJson: DinamikFetch = dinamikClient()) {
+/** A brand list shorter than this share of the enabled scopes is treated as an upstream fault: nothing is disabled. */
+export const DINAMIK_MIN_LISTED_SHARE = 0.8;
+
+/**
+ * Syncs the brand scopes with Dinamik's brand list: new brands become enabled scopes, brands that come back are
+ * re-enabled and queued, and brands Dinamik no longer lists are disabled. A disabled brand's rows are retired
+ * (presence 'inactive', logged in supplier_item_changes) instead of staying 'present' on month-old stock and price;
+ * nothing is deleted, and the first successful import after a brand returns restores them.
+ */
+export async function discoverDinamikBrands(pool: Pool, fetchJson: DinamikFetch = dinamikClient(), { minListedShare = DINAMIK_MIN_LISTED_SHARE } = {}) {
   const brands = await fetchDinamikBrands(fetchJson);
   const invalid = brands.filter(brand => !dinamikBrandPattern.test(brand));
   const valid = brands.filter(brand => dinamikBrandPattern.test(brand));
-  const added = await pool.query<{ list_group: string }>(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,next_run_at)
-    SELECT 'dinamik',$1,brand,$2,true,'04:00',2160,now() FROM unnest($3::text[]) brand
-    ON CONFLICT(supplier,company,list_group,warehouse) DO NOTHING RETURNING list_group`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE, valid]);
-  const removed = await pool.query<{ list_group: string }>(`UPDATE supplier_sync_scopes SET enabled=false
-    WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled AND NOT list_group=ANY($3::text[]) RETURNING list_group`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE, valid]);
-  await pool.query(`INSERT INTO supplier_discovery(supplier,checked_at,listed) VALUES('dinamik',now(),$1)
-    ON CONFLICT(supplier) DO UPDATE SET checked_at=EXCLUDED.checked_at,listed=EXCLUDED.listed`, [brands.length]);
-  return { listed: brands.length, added: added.rows.map(r => r.list_group), disabled: removed.rows.map(r => r.list_group), invalid };
+  const keys = [DINAMIK_COMPANY, DINAMIK_WAREHOUSE];
+  const enabledCount = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_sync_scopes WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled", keys)).rows[0].n;
+  if (enabledCount && valid.length < enabledCount * minListedShare) {
+    throw new DinamikImportError("contract", `brand list shrank to ${valid.length} of ${enabledCount} enabled brands`);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const scopes = await client.query<{ list_group: string; kind: "added" | "reenabled" }>(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,next_run_at)
+      SELECT 'dinamik',$1,brand,$2,true,'04:00',2160,now() FROM unnest($3::text[]) brand
+      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET enabled=true,next_run_at=now(),consecutive_failures=0
+        WHERE NOT supplier_sync_scopes.enabled
+      RETURNING list_group, CASE WHEN xmax=0 THEN 'added' ELSE 'reenabled' END AS kind`, [...keys, valid]);
+    const removed = await client.query<{ list_group: string }>(`UPDATE supplier_sync_scopes SET enabled=false
+      WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND enabled AND NOT list_group=ANY($3::text[]) RETURNING list_group`, [...keys, valid]);
+    // Every disabled brand, also ones disabled before this rule existed.
+    const retired = await client.query<{ list_group: string }>(`WITH gone AS (
+      SELECT o.id,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data,
+        'conflicting',o.conflicting,'variants',o.source_variants,'presence',o.presence) AS before_data
+      FROM supplier_items o JOIN supplier_sync_scopes s ON s.supplier=o.supplier AND s.company=o.company AND s.list_group=o.list_group AND s.warehouse=o.warehouse
+      WHERE o.supplier='dinamik' AND o.company=$1 AND o.warehouse=$2 AND NOT s.enabled AND o.presence<>'inactive'
+    ), updated AS (
+      UPDATE supplier_items o SET presence='inactive',changed_at=clock_timestamp() FROM gone g WHERE o.id=g.id RETURNING o.*
+    ), logged AS (
+      INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
+      SELECT o.id,NULL,o.changed_at,'inactive',g.before_data,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data,
+        'conflicting',o.conflicting,'variants',o.source_variants,'presence',o.presence)
+      FROM updated o JOIN gone g ON g.id=o.id
+    ) SELECT list_group FROM updated`, keys);
+    await client.query(`INSERT INTO supplier_discovery(supplier,checked_at,listed) VALUES('dinamik',now(),$1)
+      ON CONFLICT(supplier) DO UPDATE SET checked_at=EXCLUDED.checked_at,listed=EXCLUDED.listed`, [brands.length]);
+    await client.query("COMMIT");
+    const retiredByBrand: Record<string, number> = {};
+    for (const row of retired.rows) retiredByBrand[row.list_group] = (retiredByBrand[row.list_group] ?? 0) + 1;
+    return {
+      listed: brands.length,
+      added: scopes.rows.filter(r => r.kind === "added").map(r => r.list_group),
+      reenabled: scopes.rows.filter(r => r.kind === "reenabled").map(r => r.list_group),
+      disabled: removed.rows.map(r => r.list_group),
+      retired: retiredByBrand,
+      invalid,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function importDinamik(pool: Pool, options: z.input<typeof dinamikImportOptions>, fetchJson?: DinamikFetch) {
