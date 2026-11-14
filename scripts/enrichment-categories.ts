@@ -28,7 +28,8 @@ try{
      rejected++;await client.query('ROLLBACK');continue;
     }
     data.categories=await productCategories(client,product);
-    const result=await client.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{categories}',$2::jsonb)
+    // imported_at moves so storefront:sync carries the new categories (same reason as otoparcasan-enrichment.ts images).
+    const result=await client.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{categories}',$2::jsonb),imported_at=now()
      WHERE supplier_item_id=$1 AND payload=$3::jsonb AND source_url=$4 AND match_basis=$5::jsonb RETURNING supplier_item_id`,
      [row.supplier_item_id,JSON.stringify(data.categories),JSON.stringify(row.payload),row.source_url,JSON.stringify(row.match_basis)]);
     if(result.rowCount){

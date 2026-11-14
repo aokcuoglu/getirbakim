@@ -5,7 +5,7 @@ import { referencedItemIds, type BundleItem } from "./storefront-bundle-items";
 type Media = { id: string; object_key: string; size_bytes: number | string };
 type Row = Record<string, unknown>;
 type Manifest = Row & {
-  images: Row[]; products: Row[]; enrichments: Row[]; logos?: Row[]; vehicleImages?: Row[]; media: Media[]; items?: BundleItem[];
+  images: Row[]; products: Row[]; enrichments: Row[]; logos?: Row[]; jobs?: Row[]; vehicleImages?: Row[]; media: Media[]; items?: BundleItem[];
 };
 
 // Production's operations container is limited to 512 MB and import-storefront-bundle.ts holds every media
@@ -27,7 +27,7 @@ export async function splitStorefrontBundle(source: string, out: string, maxByte
     ...manifest, products: [], enrichments: [],
     media: pick([...manifest.images.map(row => row.media_id), ...(manifest.vehicleImages ?? []).map(row => row.media_id)]),
   }];
-  const startPart = () => parts.push({ ...manifest, images: [], logos: [], vehicleSpecs: [], vehicleImages: [], products: [], enrichments: [], media: [] });
+  const startPart = () => parts.push({ ...manifest, images: [], logos: [], jobs: [], vehicleSpecs: [], vehicleImages: [], products: [], enrichments: [], media: [] });
   let bytes = 0;
   let ids = new Set<string>();
   const sizeIn = (image: string | null) => image && !ids.has(image) ? Number(pick([image])[0].size_bytes) : 0;

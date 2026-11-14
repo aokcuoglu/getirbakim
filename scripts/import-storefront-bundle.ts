@@ -5,11 +5,13 @@ import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
+import { importBundleJobs } from "./storefront-bundle-jobs";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
 // matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
 // and rows whose supplier item does not exist here are skipped and counted.
+// manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts).
 // Run scripts/rebuild-product-fitments.ts afterwards to derive vehicle fitments.
 const root = resolve(process.argv[2] || "/bundle");
 const apply = process.argv.includes("--apply");
@@ -51,6 +53,8 @@ try {
     JOIN product_media_objects m ON m.sha256=b.sha256`, [json(manifest.media)]);
   if (await count("SELECT count(*) FROM bundle_media") !== manifest.media.length) throw new Error("Media rows could not be resolved by sha256");
 
+  // Bundles written before job statuses were carried have none; their jobs are left as they are.
+  const jobs = await importBundleJobs(client, manifest.jobs ?? []);
   const report = {
     categories: await run(`INSERT INTO source_categories SELECT * FROM jsonb_populate_recordset(null::source_categories,$1::jsonb)
       ON CONFLICT (source,category_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,name=EXCLUDED.name,slug=EXCLUDED.slug,path_ids=EXCLUDED.path_ids,
@@ -89,6 +93,8 @@ try {
       ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=EXCLUDED.imported_at`, json(vehicleImages)),
     skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleSpecs)),
     skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleImages)),
+    jobs: jobs.jobs,
+    skippedJobs: jobs.skipped,
     media: manifest.media.length,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, json(manifest.enrichments)),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),

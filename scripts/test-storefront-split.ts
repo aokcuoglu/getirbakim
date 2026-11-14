@@ -86,3 +86,21 @@ test("a bundle without enrichments is a single part", async () => {
     assert.equal((await splitStorefrontBundle(source, join(root, "parts"), 100)).length, 1);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("enrichment job statuses go whole in part 0 with their supplier item keys", async () => {
+  const key = (id: string) => ({ id, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: `CODE ${id}` });
+  const jobs = [{ supplier_item_id: "i1", status: "complete" }, { supplier_item_id: "i8", status: "partial" }];
+  const { root, source } = await bundle([{ id: "a", key: "p/a.jpg", size: 60 }, { id: "b", key: "p/b.jpg", size: 60 }], {
+    categories: [], labels: [], images: [], logos: [], jobs,
+    enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }], products: [],
+    items: [key("i1"), key("i2"), key("i8")],
+  });
+  try {
+    const parts = await Promise.all((await splitStorefrontBundle(source, join(root, "parts"), 100)).map(read));
+    assert.equal(parts.length, 3);
+    assert.deepEqual(parts[0].jobs, jobs);
+    assert.deepEqual(parts.slice(1).map(part => part.jobs), [[], []]);
+    assert.deepEqual(parts[0].items, [key("i1"), key("i8")]);
+    assert.deepEqual(parts.map(part => part.items.map((item: { id: string }) => item.id)), [["i1", "i8"], ["i1"], ["i2"]]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
