@@ -3,7 +3,7 @@ import test from "node:test";
 import { z } from "zod";
 import { manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "../src/modules/admin/product-matching-same";
 import { matchingBack, safeMatchingBack, withMatchingFlag } from "../src/modules/admin/product-matching-back";
-import { bulkCandidateReasons, isBulkReason } from "../src/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, bulkCandidateReasons, isBulkReason, isPatternBulkReason, wholeBulkReasons } from "../src/modules/admin/product-matching-sql";
 
 // The "Eşleşenler" tab's order must stay the SQL it replaced (#504): ORDER BY <column> ASC|DESC NULLS LAST, then
 // (primary_price-selling_price) DESC NULLS LAST, then primary_id (position).
@@ -78,12 +78,20 @@ test("manual decision search requires every word, each as a code or a normalized
   assert.equal(manualSearchTerms("x".repeat(120))[0].code.length, 80);
 });
 
-// Suffix differences are mostly other parts (FEBI 100261 vs 1002610, #524): never merged in bulk.
-test("bulk merge covers prefix and leading_zero, never suffix", () => {
-  assert.deepEqual([...bulkCandidateReasons].sort(), ["leading_zero", "prefix"]);
-  assert.equal(isBulkReason("suffix"), false);
-  assert.equal(isBulkReason("leading_zero"), true);
-  assert.equal(isBulkReason("prefix"), true);
+// Suffix differences are mostly other parts (FEBI 100261 vs 1002610, #524): only reviewed safe endings are merged in
+// bulk (#535), so suffix is a pattern-checked bulk reason; prefix and leading_zero are bulk as a whole.
+test("bulk merge covers prefix and leading_zero, and suffix only through reviewed patterns", () => {
+  assert.deepEqual([...bulkCandidateReasons].sort(), ["leading_zero", "prefix", "suffix"]);
+  assert.deepEqual([...wholeBulkReasons].sort(), ["leading_zero", "prefix"]);
+  for (const reason of ["prefix", "leading_zero", "suffix"]) assert.equal(isBulkReason(reason), true, reason);
+  assert.equal(isBulkReason("oem"), false);
+  assert.equal(isPatternBulkReason("suffix"), true);
+  assert.equal(isPatternBulkReason("prefix"), false);
+  assert.equal(isPatternBulkReason("leading_zero"), false);
+  assert.equal(isPatternBulkReason("oem"), false);
+  // The SQL rule lets suffix in only with a 'same' verdict; prefix/leading_zero are listed whole.
+  assert.match(bulkAcceptableSql, /c\.reason IN \('prefix','leading_zero'\) OR c\.reason='suffix' AND product_suffix_verdict\(a\.brand,a\.part_number,b\.part_number\)='same'/);
+  assert.match(bulkAcceptableSql, /c\.name_conflict IS NOT TRUE/);
 });
 
 // The "back" field of the matching forms (#560): only this page, with its query, is a valid return path.

@@ -210,24 +210,78 @@ test("a 'different' decision blocks the pair in either direction, including a ma
   }
 });
 
-// Suffix endings known to name another part are never suggested (#534); ambiguous ones stay for a manual decision.
-test("known different-part suffix patterns get a 'different' verdict; safe ones stay for review", async () => {
-  const verdict = async (brand: string, a: string, b: string) =>
-    (await pool.query<{ verdict: string | null }>("SELECT product_suffix_verdict($1,$2,$3) AS verdict", [brand, a, b])).rows[0].verdict;
+// Suffix endings known to name another part are never suggested (#534); reviewed safe ones may be merged in bulk
+// (#535); ambiguous ones stay for a manual decision.
+const installedDef = async (signature: string) =>
+  (await pool.query<{ def: string }>("SELECT pg_get_functiondef($1::regprocedure) AS def", [signature])).rows[0].def;
+const assertSafeSuffixRules = async () => {
+  assert.ok((await installedDef("product_suffix_verdict(text,text,text)")).includes("ORDINALITY")
+    && (await installedDef("product_suffix_rules()")).includes("'same'"), "product_suffix_rules() predates #535; apply db/product-matching.sql from this branch");
+};
+const suffixVerdict = async (brand: string, a: string, b: string, client: Pool | PoolClient = pool) =>
+  (await client.query<{ verdict: string | null }>("SELECT product_suffix_verdict($1,$2,$3) AS verdict", [brand, a, b])).rows[0].verdict;
+
+test("known different-part suffix patterns get a 'different' verdict, reviewed safe ones 'same', the rest 'review'", async () => {
+  await assertSafeSuffixRules();
   const different: [string, string, string][] = [
     ["FEBI", "100261", "1002610"], ["FEBI", "1007521", "100752"], ["TRW", "GDB328", "GDB3281"], ["TRW", "JTC4023", "JTC402"],
     ["BLUEPRINT", "ADG04319", "ADG043192"], ["MANN", "C25024", "C250241"], ["OSRAM", "64150CBN", "64150CBN2HB"],
     ["DAYCO", "KPV134", "KPV134HD"], ["GATES", "4PK970", "4PK970SF"], ["SILBAK", "SB2421C", "SB2421C2"], ["ORIJINAL", "425270", "42527025"],
+    ["STONE", "JF36420", "JF364204"], ["ORIJINAL", "672007", "6720073"], ["OSRAM", "5007ULT2BL", "5007ULT"], ["OSRAM", "64150NBS", "64150NBS3BL"],
+  ];
+  const same: [string, string, string][] = [
+    ["ORIJINAL", "KK21R19952BB5YZ", "KK21R19952BB5YZ9"], ["ORIJINAL", "BM51F31148AF3JA6", "BM51F31148AF3JA"],
+    ["MAYSAN", "PN7210200", "PN7210200MM"], ["MAYSAN", "N7217004", "N7217004WM"], ["MAYSAN", "N6237601PM", "N6237601"],
+    ["KENTPAR", "152T001", "152T00101"], ["GMB", "GH10280", "GH10280M"], ["GMB", "GH20030T", "GH20030"], ["GMB", "GH31585", "GH31585A"],
+    ["STONE", "JF16443", "JF164431"], ["OSRAM", "64150NBS", "64150NBS1BL"], ["OSRAM", "5201DWP1BL", "5201DWP"],
   ];
   const review: [string, string, string][] = [
-    ["ORIJINAL", "KK21R19952BB5YZ", "KK21R19952BB5YZ9"], ["ORIJINAL", "BM51F31148AF3JA", "BM51F31148AF3JA6"],
-    ["MAYSAN", "PN7210200", "PN7210200MM"], ["KENTPAR", "152T001", "152T00101"], ["STONE", "JF16443", "JF164431"],
-    ["OSRAM", "64150NBS", "64150NBS1BL"], ["DAYCO", "8PK1480", "8PK1480HD"],
+    ["DAYCO", "8PK1480", "8PK1480HD"], ["ORIJINAL", "KK21R19952BB5YX", "KK21R19952BB5YX9"], ["MAYSAN", "PN7210200", "PN7210200XM"],
+    ["KENTPAR", "152A001", "152A00101"], ["GMB", "GH10280", "GH10280X"], ["SKF", "VKBA3010", "VKBA3010G"], ["SKF", "VKJA3010", "VKJA3010G"], ["ORIJINAL", "ZZ535AB5YZ", "ZZ535AB5YZ9"], ["STONE", "JFS30163RFCS", "JFS30163RFCS1"],
+    ["ZZ535TEST", "ZZ535AB5YZ", "ZZ535AB5YZ9"],
   ];
-  for (const [brand, a, b] of different) assert.equal(await verdict(brand, a, b), "different", `${brand} ${a} / ${b}`);
-  for (const [brand, a, b] of review) assert.equal(await verdict(brand, a, b), "review", `${brand} ${a} / ${b}`);
-  assert.equal(await verdict("FEBI", "100261", "100262"), null);
-  assert.equal(await verdict("FEBI", "100261", "100261"), null);
+  for (const [brand, a, b] of different) assert.equal(await suffixVerdict(brand, a, b), "different", `${brand} ${a} / ${b}`);
+  for (const [brand, a, b] of same) assert.equal(await suffixVerdict(brand, a, b), "same", `${brand} ${a} / ${b}`);
+  for (const [brand, a, b] of review) assert.equal(await suffixVerdict(brand, a, b), "review", `${brand} ${a} / ${b}`);
+  assert.equal(await suffixVerdict("FEBI", "100261", "100262"), null);
+  assert.equal(await suffixVerdict("FEBI", "100261", "100261"), null);
+});
+
+// No pair decided as different locally is called safe (#535); skipped where nothing has been decided yet.
+test("no decided 'different' suffix pair gets a 'same' verdict", async t => {
+  await assertSafeSuffixRules();
+  const decided = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_match_decisions WHERE status='different'")).rows[0].n;
+  if (!decided) return t.skip("no decisions in this database");
+  const wrong = (await pool.query<{ pair: string }>(`SELECT a.brand||' '||a.part_number||' / '||b.part_number AS pair FROM product_match_decisions d
+    JOIN products a ON a.id=d.product_a JOIN products b ON b.id=d.product_b
+    WHERE d.status='different' AND a.brand=b.brand AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='same'`)).rows.map(row => row.pair);
+  assert.deepEqual(wrong, []);
+});
+
+// Overlapping rows (#535): brand rows before '*', then 'different' before 'review' before 'same', then row order. The
+// rules are swapped inside a rolled-back transaction, so the installed list is untouched.
+test("overlapping suffix rules resolve brand first, then the safer verdict", async () => {
+  await assertSafeSuffixRules();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
+       ('ZZ535','.','^9$','same'), ('ZZ535','5$','^9$','different'),
+       ('*','.','^X$','different'), ('ZZ535','.','^X$','same'),
+       ('ZZ535','.','^Y$','same'), ('ZZ535','.','^Y$','review'),
+       ('*','.','^Z$','same'), ('*','.','^Z$','different') $$`);
+    assert.equal(await suffixVerdict("ZZ535", "ZZ5355", "ZZ53559", client), "different", "'different' wins over an earlier 'same' row");
+    assert.equal(await suffixVerdict("ZZ535", "ZZ5354", "ZZ53549", client), "same");
+    assert.equal(await suffixVerdict("ZZ535", "ZZ5354", "ZZ5354X", client), "same", "a brand row wins over '*'");
+    assert.equal(await suffixVerdict("OTHER", "ZZ5354", "ZZ5354X", client), "different");
+    assert.equal(await suffixVerdict("ZZ535", "ZZ5354", "ZZ5354Y", client), "review", "'review' wins over 'same'");
+    assert.equal(await suffixVerdict("OTHER", "ZZ5354", "ZZ5354Z", client), "different", "'different' wins within '*'");
+    assert.equal(await suffixVerdict("ZZ535", "ZZ5354", "ZZ5354Q", client), "review", "no row: review");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
 });
 
 test("the candidate passes skip known different-part suffix pairs", async () => {
@@ -494,7 +548,7 @@ test("a Dinamik product suggested to several Başbuğ products is marked shared"
   }
 });
 
-test("bulk accept skips suffix and multi-number candidates, keeps leading_zero", async () => {
+test("bulk accept skips unreviewed suffix and multi-number candidates, keeps leading_zero", async () => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -509,7 +563,7 @@ test("bulk accept skips suffix and multi-number candidates, keeps leading_zero",
     await client.query("INSERT INTO product_match_decisions(product_a,product_b,status) VALUES($1,$2,'same')", [a4, b6]);
     const rows = (await client.query<{ product_a: string; product_b: string; bulk: boolean; multi: boolean }>(`SELECT c.product_a,c.product_b,
       ${bulkAcceptableSql} AS bulk,${multiNumberCandidateSql} AS multi
-      FROM product_match_candidates c JOIN products b ON b.id=c.product_b WHERE c.product_a=ANY($1::uuid[])`, [[a1, a2, a3, a4]])).rows;
+      FROM product_match_candidates c JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b WHERE c.product_a=ANY($1::uuid[])`, [[a1, a2, a3, a4]])).rows;
     assert.equal(rows.length, 5);
     assert.deepEqual(rows.filter(row => row.bulk).map(row => row.product_a), [a1]);
     const multi = new Map(rows.map(row => [row.product_b, row.multi]));
@@ -527,8 +581,44 @@ test("bulk accept skips suffix and multi-number candidates, keeps leading_zero",
     assert.ok(variants?.a && variants.b7 && variants.b8, "expected a same-number product pair");
     await client.query("INSERT INTO product_match_candidates(product_a,product_b,reason) VALUES ($1,$2,'prefix'),($1,$3,'prefix')", [variants.a, variants.b7, variants.b8]);
     const copies = (await client.query<{ bulk: boolean; multi: boolean }>(`SELECT ${bulkAcceptableSql} AS bulk,${multiNumberCandidateSql} AS multi
-      FROM product_match_candidates c JOIN products b ON b.id=c.product_b WHERE c.product_a=$1`, [variants.a])).rows;
+      FROM product_match_candidates c JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b WHERE c.product_a=$1`, [variants.a])).rows;
     assert.deepEqual(copies, [{ bulk: true, multi: false }, { bulk: true, multi: false }]);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+// Suffix candidates join the bulk merge only with a reviewed safe ending (#535), through the same SQL as the action.
+test("bulk accept takes reviewed safe suffix pairs and skips the rest", async () => {
+  await assertSafeSuffixRules();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const product = async (brand: string, part: string, supplier: string, name = "SIS FAR CERCEVESI SAG") => (await client.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code,suppliers)
+      VALUES ($1,$2,$3,$1,$2,ARRAY[$4]) RETURNING id`, [brand, part, name, supplier])).rows[0].id;
+    const pair = async (brand: string, a: string, b: string, nameB?: string) => ({ a: await product(brand, a, "basbug"), b: await product(brand, b, "dinamik", nameB) });
+    const colour = await pair("ORIJINAL", "ZZ21R53501AB5YZ", "ZZ21R53501AB5YZ9");
+    const maysan = await pair("MAYSAN", "PN9535001", "PN9535001MM");
+    const unreviewed = await pair("ORIJINAL", "ZZ535AB5YX", "ZZ535AB5YX9");
+    const conflict = await pair("ORIJINAL", "ZZ21R53501BB5YZ", "ZZ21R53501BB5YZ9", "MOTOR SUBAP TAKIMI");
+    // A safe ending, but the Başbuğ product is suggested a second Dinamik number too.
+    const multi = await pair("ORIJINAL", "ZZ21R53501CB5YZ", "ZZ21R53501CB5YZ9");
+    const multiOther = await product("ORIJINAL", "ZZ21R53501CB5YZ1", "dinamik");
+    const zero = await pair("ZZ535TEST", "0535001", "535001");
+    await client.query(`INSERT INTO product_match_candidates(product_a,product_b,reason,name_conflict) VALUES
+      ($1,$2,'suffix',false),($3,$4,'suffix',false),($5,$6,'suffix',false),($7,$8,'suffix',true),($9,$10,'suffix',false),($9,$11,'suffix',false),
+      ($12,$13,'leading_zero',false)`, [colour.a, colour.b, maysan.a, maysan.b, unreviewed.a, unreviewed.b, conflict.a, conflict.b, multi.a, multi.b, multiOther, zero.a, zero.b]);
+    const fixture = [colour, maysan, unreviewed, conflict, multi, zero].map(({ a }) => a);
+    const bulk = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
+      JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b WHERE c.product_a=ANY($1::uuid[]) AND ${bulkAcceptableSql}`, [fixture])).rows
+      .map(row => `${row.product_a}>${row.product_b}`).sort();
+    assert.deepEqual(bulk, [colour, maysan, zero].map(({ a, b }) => `${a}>${b}`).sort());
+    // The action's query: one brand and reason at a time.
+    const action = (await client.query<{ product_b: string }>(`SELECT c.product_b FROM product_match_candidates c
+      JOIN products a ON a.id=c.product_a JOIN products b ON b.id=c.product_b
+      WHERE c.reason=$1 AND a.brand=$2 AND c.product_a=ANY($3::uuid[]) AND ${bulkAcceptableSql}`, ["suffix", "ORIJINAL", fixture])).rows;
+    assert.deepEqual(action.map(row => row.product_b), [colour.b]);
   } finally {
     await client.query("ROLLBACK");
     client.release();

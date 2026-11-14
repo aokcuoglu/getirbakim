@@ -326,26 +326,42 @@ CREATE OR REPLACE FUNCTION product_names_conflict(name_a text, name_b text) RETU
 $$;
 -- Part-number endings known to name another part (#534). Measured on the fully decided local suffix queue (438 pairs,
 -- 240 different / 198 same): these rows block 213 different and 3 same pairs. Rows are (brand key or '*', pattern of
--- the shorter number, pattern of the extension, verdict); a brand row wins over '*'. Ambiguous endings (STONE "1",
--- DAYCO/GATES xPK…HD, letter suffixes, colour/index letters) are left out or marked 'review' on purpose. Brand rows use
--- canonical brand keys (products.brand); update the row when a brand key is merged or renamed.
+-- the shorter number, pattern of the extension, verdict). Ambiguous endings (DAYCO/GATES xPK…HD, letter suffixes, VW
+-- index letters) are left out on purpose. Brand rows use canonical brand keys (products.brand); update the row when a
+-- brand key is merged or renamed.
+-- 'same' rows (#535) are endings reviewed as the same part (measured on the decided local pairs, none decided as
+-- different): Ford colour codes, MAYSAN MM/WM/PM, KENTPAR 01, GMB M/T/A, STONE 1, OSRAM 1BL. Their candidates may be
+-- merged in bulk; everything else stays a decision by hand. OSRAM nBL with n>1 is a multi-blister pack (Dinamik sells
+-- 5007ULT and 5007ULT-2BL at 2.2–2.9× the price) like nHB. SKF VKJA…G stays 'review': Başbuğ prices two such pairs
+-- far apart (VKJA3028 vs VKJA3028G).
+-- Precedence (product_suffix_verdict): brand rows before '*'; within one scope 'different' before 'review' before
+-- 'same' (safety first); then row order. A brand 'same' row therefore overrides a '*' 'different' row (STONE 1).
 CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
  ('*','[0-9]$','^[0-9]$','different'),
  ('*','^[0-9]+$','^[0-9]{2,3}$','different'),
- ('STONE','[0-9]$','^1$','review'),
  ('OSRAM','.','^[0-9]HB$','different'),
  ('DAYCO','^KPV','^HD$','different'),
  ('DAYCO','.','^SF$','different'),
  ('GATES','.','^SF$','different'),
  ('SILBAK','[A-Z]$','^2$','different'),
- ('CONTITECH','PK[0-9]+$','^K[0-9]$','different')
+ ('CONTITECH','PK[0-9]+$','^K[0-9]$','different'),
+ ('OSRAM','.','^[2-9]BL$','different'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}5YZ$','^9$','same'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}3JA$','^6$','same'),
+ ('MAYSAN','^[A-Z]{1,2}[0-9]{7}$','^(MM|WM|PM)$','same'),
+ ('KENTPAR','^[0-9]{3}T[0-9]{3}$','^01$','same'),
+ ('GMB','^GH[0-9]{5}$','^[MTA]$','same'),
+ ('STONE','[0-9]$','^1$','same'),
+ ('OSRAM','.','^1BL$','same')
 $$;
 -- Verdict for two part numbers of one brand (brand, number, number): NULL when neither number extends the other, else
--- 'different' (never suggested as a suffix candidate) or 'review' (suggested and decided by hand).
+-- 'different' (never suggested as a suffix candidate), 'same' (suggested; may be merged in bulk) or 'review'
+-- (suggested and decided by hand). Overlapping rows resolve as described above product_suffix_rules().
 CREATE OR REPLACE FUNCTION product_suffix_verdict(text, text, text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
- SELECT COALESCE((SELECT r.verdict FROM product_suffix_rules() r
-   WHERE r.brand IN ($1,'*') AND x.base ~ r.base_pattern AND x.ext ~ r.ext_pattern ORDER BY r.brand='*' LIMIT 1),'review')
+ SELECT COALESCE((SELECT r.verdict FROM product_suffix_rules() WITH ORDINALITY r(brand,base_pattern,ext_pattern,verdict,ord)
+   WHERE r.brand IN ($1,'*') AND x.base ~ r.base_pattern AND x.ext ~ r.ext_pattern
+   ORDER BY r.brand='*', CASE r.verdict WHEN 'different' THEN 0 WHEN 'review' THEN 1 ELSE 2 END, r.ord LIMIT 1),'review')
  FROM (SELECT CASE WHEN length($2)<length($3) THEN $2 ELSE $3 END AS base,
    substr(CASE WHEN length($2)<length($3) THEN $3 ELSE $2 END, least(length($2),length($3))+1) AS ext) x
  WHERE $2<>$3 AND (starts_with($2,$3) OR starts_with($3,$2))
