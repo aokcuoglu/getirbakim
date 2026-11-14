@@ -23,6 +23,19 @@ CREATE TABLE IF NOT EXISTS product_override_changes (
  changed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
+-- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
+ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS reason text;
+-- What a merge copied onto the kept product (product_overrides_carry): field → carried value as history text. Undoing
+-- the merge (the merged product revived) takes back the fields that still hold the carried value; an admin's later
+-- change of a field on the target removes it from here (the admin owns it then).
+CREATE TABLE IF NOT EXISTS product_override_carries (
+ target uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ source uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ fields jsonb NOT NULL,
+ carried_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (target,source)
+);
+CREATE INDEX IF NOT EXISTS product_override_carries_source_idx ON product_override_carries(source);
 
 -- The catalog views read edits per supplier row (commerce_item_overrides, db/commerce.sql): rewrite that copy for
 -- the given products from their current sources. Rows that left those products lose the edit.
@@ -103,13 +116,65 @@ BEGIN
  ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,seo_title=excluded.seo_title,
   seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,updated_by=excluded.updated_by,updated_at=now();
  -- Every carried field was automatic (NULL; hidden false) on the target before.
- INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
- SELECT target,f.field,NULL,f.value,actor
+ INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
+ SELECT target,f.field,NULL,f.value,actor,'carry'
  FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
   ('category_id',t.category_id::text),('hidden','true')) f(field,value)
  WHERE f.field=ANY(carried);
+ -- Qualified: the parameters share the table's column names.
+ INSERT INTO product_override_carries(target,source,fields)
+ SELECT product_overrides_carry.target,product_overrides_carry.source,jsonb_object_agg(f.field,f.value)
+ FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+  ('category_id',t.category_id::text),('hidden','true')) f(field,value)
+ WHERE f.field=ANY(carried)
+ ON CONFLICT ON CONSTRAINT product_override_carries_pkey DO UPDATE SET fields=product_override_carries.fields||excluded.fields,carried_at=now();
  PERFORM product_overrides_project(ARRAY[target]);
  RETURN jsonb_build_object('fields',to_jsonb(carried),'hidden','hidden'=ANY(carried));
+END $$;
+
+-- A merged product revived (its merged_into cleared: "Geri al" through product_reset_item, or a matching refresh giving
+-- it rows again): every product it carried edits into gives back the fields still holding the carried value. Fields an
+-- admin changed since were dropped from the record by the save and stay. Each reverted field is recorded (reason uncarry).
+CREATE OR REPLACE FUNCTION product_overrides_uncarry(source_id uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE c record; t product_overrides; reverted text[];
+BEGIN
+ FOR c IN SELECT * FROM product_override_carries WHERE source=source_id FOR UPDATE LOOP
+  SELECT * INTO t FROM product_overrides WHERE product_id=c.target FOR UPDATE;
+  IF FOUND THEN
+   reverted := ARRAY(SELECT f.key FROM jsonb_each_text(c.fields) f WHERE f.value IS NOT DISTINCT FROM CASE f.key
+     WHEN 'name' THEN t.name WHEN 'description' THEN t.description WHEN 'seo_title' THEN t.seo_title
+     WHEN 'seo_description' THEN t.seo_description WHEN 'category_id' THEN t.category_id::text
+     WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END END);
+   IF cardinality(reverted)>0 THEN
+    INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
+    SELECT c.target,f.key,f.value,NULL,NULL,'uncarry' FROM jsonb_each_text(c.fields) f WHERE f.key=ANY(reverted);
+    UPDATE product_overrides SET name=CASE WHEN 'name'=ANY(reverted) THEN NULL ELSE name END,
+     description=CASE WHEN 'description'=ANY(reverted) THEN NULL ELSE description END,
+     seo_title=CASE WHEN 'seo_title'=ANY(reverted) THEN NULL ELSE seo_title END,
+     seo_description=CASE WHEN 'seo_description'=ANY(reverted) THEN NULL ELSE seo_description END,
+     category_id=CASE WHEN 'category_id'=ANY(reverted) THEN NULL ELSE category_id END,
+     hidden=CASE WHEN 'hidden'=ANY(reverted) THEN false ELSE hidden END,
+     updated_by=NULL,updated_at=now()
+    WHERE product_id=c.target;
+    DELETE FROM product_overrides WHERE product_id=c.target AND name IS NULL AND description IS NULL AND seo_title IS NULL
+     AND seo_description IS NULL AND category_id IS NULL AND NOT hidden;
+    PERFORM product_overrides_project(ARRAY[c.target]);
+   END IF;
+  END IF;
+  DELETE FROM product_override_carries WHERE target=c.target AND source=c.source;
+ END LOOP;
+END $$;
+CREATE OR REPLACE FUNCTION product_overrides_restored() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF EXISTS (SELECT 1 FROM product_override_carries WHERE source=NEW.id) THEN PERFORM product_overrides_uncarry(NEW.id); END IF;
+ RETURN NULL;
+END $$;
+-- Created only when missing, like the source triggers (no DROP/CREATE lock on products per setup).
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='product_overrides_products_restored') THEN
+  CREATE TRIGGER product_overrides_products_restored AFTER UPDATE OF merged_into ON products FOR EACH ROW
+   WHEN (OLD.merged_into IS NOT NULL AND NEW.merged_into IS NULL) EXECUTE FUNCTION product_overrides_restored();
+ END IF;
 END $$;
 
 -- Reconcile the copy on every setup (a changed projection rule applies to existing edits; a deleted product's edits go).

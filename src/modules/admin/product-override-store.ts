@@ -7,6 +7,8 @@ import { productOverrideFields, type ProductOverrideField, type ProductOverrideV
 export type ProductOverride = ProductOverrideValues & { updated_at: Date; updated_by: string | null; version: string };
 export type ProductOverrideChange = {
   id: string; field: string; old_value: string | null; new_value: string | null; changed_at: Date; changed_by: string | null;
+  /** null: an admin's save; carry: copied by a merge; uncarry: taken back when that merge was undone. */
+  reason: "carry" | "uncarry" | null;
 };
 export type ProductOverrideDetails = {
   override: ProductOverride | null;
@@ -74,6 +76,9 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     else await client.query("DELETE FROM product_overrides WHERE product_id=$1", [productId]);
     const version = anySet ? (await client.query<{ version: string }>(`SELECT ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0].version
       : automaticVersion;
+    // Fields the admin set now are theirs: undoing a merge that carried them must not take them back.
+    await client.query("UPDATE product_override_carries SET fields=fields-$2::text[] WHERE target=$1 AND fields ?| $2::text[]", [productId, changed]);
+    await client.query("DELETE FROM product_override_carries WHERE target=$1 AND fields='{}'::jsonb", [productId]);
     await client.query("SELECT product_overrides_project(ARRAY[$1::uuid])", [productId]);
     await client.query("COMMIT");
     return { ok: true, changed, values: anySet ? next : empty, version };
@@ -96,7 +101,7 @@ export async function loadProductOverride(database: Pick<Pool, "query">, product
       FROM products p WHERE p.id=$1`, [productId]),
     database.query<{ id: number; name: string }>(`SELECT DISTINCT c.category_id AS id, c.name FROM (${productCategoriesSql} AND s.product_id=$1) c
       ORDER BY c.name`, [productId]),
-    database.query<ProductOverrideChange>(`SELECT c.id::text,c.field,c.old_value,c.new_value,c.changed_at,a.name AS changed_by
+    database.query<ProductOverrideChange>(`SELECT c.id::text,c.field,c.old_value,c.new_value,c.changed_at,a.name AS changed_by,c.reason
       FROM product_override_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.product_id=$1
       ORDER BY c.changed_at DESC,c.id DESC LIMIT 50`, [productId]),
   ]);

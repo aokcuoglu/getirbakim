@@ -172,7 +172,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <TableCell>{productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
-          <TableCell>{change.changed_by ?? <span className="text-muted-foreground">Silinmiş hesap</span>}</TableCell>
+          <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>
+            : <>{change.changed_by ?? <span className="text-muted-foreground">Silinmiş hesap</span>}{change.reason === "carry" && <span className="text-muted-foreground"> · birleştirmeden taşındı</span>}</>}</TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz elle değişiklik yok.</EmptyTitle>
           <EmptyDescription>Mağaza bilgileri tamamen otomatik kaynaklardan geliyor.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
