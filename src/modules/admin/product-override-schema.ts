@@ -23,13 +23,14 @@ const maxKurus = 2_147_483_647;
 
 /**
  * Lira as typed: "1249.90", "1249,90" or Turkish grouping "1.249,90" (a dot followed by three digits groups
- * thousands, so "1.249" is 1249 TL), at most two decimals; empty is NULL. Returns whole kuruş, exactly.
+ * thousands, so "1.249" is 1249 TL), at most two decimals; empty is NULL. A trailing separator ("1249,", "1.") is
+ * input in progress and reads as the whole lira. Returns whole kuruş, exactly.
  */
 export function parseLira(value: string): number | null | "invalid" {
   const text = value.trim();
   if (text === "") return null;
   let whole: string, fraction: string;
-  const plain = /^(\d+)(?:[.,](\d{1,2}))?$/.exec(text), grouped = /^(\d{1,3}(?:\.\d{3})+)(?:,(\d{1,2}))?$/.exec(text);
+  const plain = /^(\d+)(?:[.,](\d{0,2}))?$/.exec(text), grouped = /^(\d{1,3}(?:\.\d{3})+)(?:,(\d{0,2}))?$/.exec(text);
   if (plain) [whole, fraction] = [plain[1], plain[2] ?? ""];
   else if (grouped) [whole, fraction] = [grouped[1].replace(/\./g, ""), grouped[2] ?? ""];
   else return "invalid";

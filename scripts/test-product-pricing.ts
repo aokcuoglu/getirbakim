@@ -119,10 +119,10 @@ const priceInput = (values: Partial<Record<"price" | "sale_price" | "sale_from" 
 
 test("lira input: Turkish or plain decimals become exact kuruş; blanks are the formula", () => {
   for (const [text, kurus] of [["1.249,90", 124990], ["1249.90", 124990], ["1249,9", 124990], ["1249", 124900], ["1.249", 124900], ["0,01", 1],
-    ["12.345.678,99", 1234567899], ["21474836,47", 2147483647], [" 15 ", 1500], ["007", 700]] as const) assert.equal(parseLira(text), kurus, text);
+    ["12.345.678,99", 1234567899], ["21474836,47", 2147483647], [" 15 ", 1500], ["007", 700], ["1249,", 124900], ["1.", 100], ["1.249,", 124900]] as const) assert.equal(parseLira(text), kurus, text);
   assert.equal(parseLira(""), null);
   assert.equal(parseLira("   "), null);
-  for (const text of ["0", "0,00", "1,234", "1.249.9", "12,345.67", "-5", "1e3", "abc", "21474836,48", "999999999", "1 249,90", "₺10"]) assert.equal(parseLira(text), "invalid", text);
+  for (const text of ["0", "0,00", "1,234", "1.249.9", "12,345.67", "-5", "1e3", "abc", "21474836,48", "999999999", "1 249,90", "₺10", ",5", ".", "1,,"]) assert.equal(parseLira(text), "invalid", text);
   assert.deepEqual(priceInput({ price: "1.249,90" }).data, { price_kurus: 124990, sale_price_kurus: null, sale_from: null, sale_until: null });
   assert.equal(liraInput(124990), "1249,90");
   assert.equal(liraInput(124900), "1249");
@@ -300,6 +300,12 @@ test("PostgreSQL: fixed and campaign prices over the formula, per source, with s
     assert.deepEqual(details.changes.filter(change => change.field === "price_kurus").map(change => [change.old_value, change.new_value, change.changed_by]),
       [[null, "20000", "Fiyat"], [null, "20000", "Fiyat"]]);
 
+    // An ended campaign left as it is does not block another change (it no longer applies); a new past end does.
+    await pool.query("UPDATE product_overrides SET sale_from=now()-interval '2 days',sale_until=now()-interval '1 day' WHERE product_id=$1", [product]);
+    const stale = (await store.loadProductOverride(pool, product)).override!;
+    assert.ok((await save({ price_kurus: 21000, sale_price_kurus: stale.sale_price_kurus, sale_from: stale.sale_from, sale_until: stale.sale_until })).ok);
+    assert.deepEqual(await save({ sale_until: "2026-01-01T00:00" }), { ok: false, reason: "sale-expired" });
+    assert.equal((await row("basbug")).price_kurus, 21000);
     // Below cost is reported, never refused: 110.00 TL is under the Başbuğ row's 120.00 TL VAT-included cost.
     assert.ok((await save({ price_kurus: 11000, sale_price_kurus: null, sale_from: null, sale_until: null })).ok);
     assert.deepEqual((await store.belowCostSources(pool, product)).map(source => [source.code, source.price_kurus, source.cost_with_vat_kurus]),

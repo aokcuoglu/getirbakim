@@ -93,7 +93,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
 
     {!merged && <Card id="fiyat">
       <CardHeader><CardTitle><h2>Fiyat</h2></CardTitle>
-        <CardDescription>Sabit satış fiyatı formülün (maliyet × kur × kâr × KDV) yerine geçer; kampanya fiyatı belirlenen süre boyunca normal fiyatın altında satar. İkisi de ürünün tüm kaynaklarına uygulanır, ama tedarikçi verisi (maliyet, kur, güncellik) eksik kaynağı satışa açmaz. Maliyetin altındaki fiyat kaydedilir ve uyarı verilir.</CardDescription></CardHeader>
+        <CardDescription>Sabit fiyat formülün yerine, kampanya fiyatı belirlenen süre boyunca normal fiyatın altında tüm kaynaklara uygulanır. Tedarikçi verisi eksik kaynak satışa açılmaz; maliyet altı fiyat uyarıyla kaydedilir.</CardDescription></CardHeader>
       <CardContent>
         <ProductPriceForm productId={product.id} version={edit?.version ?? automaticVersion} now={now}
           values={edit && { price_kurus: edit.price_kurus, sale_price_kurus: edit.sale_price_kurus, sale_from: edit.sale_from, sale_until: edit.sale_until }}
@@ -117,7 +117,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
 
     <Card>
       <CardHeader><CardTitle><h2>Tedarikçi kaynakları</h2></CardTitle>
-        <CardDescription>Mağaza stokta olan en ucuz kaynağı satar; eşitlikte ürünün kendi kaydı önce gelir. Kayıt bu ürün değilse “Ayır” deyin: ayrı bir ürün olur. Elle verilen kararları yenilemeler değiştirmez; “Geri al” kaydı kendi ürününe döndürür.</CardDescription></CardHeader>
+        <CardDescription>Mağaza stokta olan en ucuz kaynağı satar; fiyat eşitse maliyeti düşük olan, o da eşitse ürünün kendi kaydı önce gelir. Kayıt bu ürün değilse “Ayır” deyin: ayrı bir ürün olur. Elle verilen kararları yenilemeler değiştirmez; “Geri al” kaydı kendi ürününe döndürür.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">{edit && multiple && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
         <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri veya fiyatı{edit.hidden ? " (mağazada gizli)" : ""} var. “Ayır” ile çıkan kayıt bu düzenlemeleri taşımaz{edit.hidden ? " ve mağazada yeniden görünür" : ""}.</AlertDescription></Alert>}
         {sources.length ? <Table><caption className="sr-only">Tedarikçi kaynakları</caption>

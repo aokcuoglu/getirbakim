@@ -384,7 +384,8 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
    SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
     -- The stored ranking inputs are the supplier's; a row with an admin-edited name or description ranks the edit (#575).
-    COALESCE(CASE WHEN ov.supplier_item_id IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
+    -- A price-only edit (#580) keeps the stored inputs (src/modules/search/sql.ts, catalogRank).
+    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
      catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
       i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries})) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
