@@ -3,8 +3,9 @@ import { EnrichmentDetails } from "@/components/admin/enrichment-details";
 import { LiveRefresh } from "@/components/admin/live-refresh";
 import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
-import { enrichmentDashboard, enrichmentStatuses, type RecordTab } from "@/modules/admin/enrichment-data";
-import { partialGaps, runProgress, sourceHosts, type PartialGap, type SourceKey } from "@/modules/admin/enrichment-pace";
+import { enrichmentDashboard, type RecordTab } from "@/modules/admin/enrichment-data";
+import { dataSource, enrichmentStatuses, gapLabels, gapText, matchLabels, sourceLabels, sourceNames } from "@/modules/admin/enrichment-labels";
+import { runProgress, type PartialGap } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,6 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
@@ -21,22 +21,10 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const sourceLabels:Record<string,{name:string;role:string}>={
-  trodo:{name:"Trodo",role:"Birincil kaynak · bekleyen kuyruk"},
-  otoparcasan:{name:"otoparcasan",role:"Eşleşmeyen + inceleme · saatlik yedek"},
-  spareto:{name:"spareto",role:"Bekleyen kuyruk + saatlik yedek"},
-  parts2world:{name:"parts2world",role:"Arşivlenmiş TecDoc ürünleri · tam araç listesi"},
-};
-// The source that wrote a product's data, from its source URL.
-const dataSource=(url:string|null)=>url?(Object.keys(sourceHosts) as SourceKey[]).find(key=>sourceHosts[key]===new URL(url).hostname)??null:null;
-const sourceNames=(keys:SourceKey[])=>keys.map(key=>sourceLabels[key].name).join(", ");
 const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemede",blocked:"Kapalı · kaynak engelledi"};
 const runStates:Record<string,[Tone,string]>={running:["success","Çalışıyor"],quiet:["warning","Son 15 dk sessiz"],complete:["success","Bitti"],blocked:["error","Kaynak engelledi"],stopped:["neutral","Durduruldu"],failed:["error","Hatayla durdu"]};
-const gapLabels:Record<PartialGap,string>={image:"Görsel yok",no_vehicles:"Araç listesi yok",vehicles_not_collected:"Araçlar toplanmadı",unresolved_vehicles:"Araçların bir kısmı eşleşmedi",invalid_rows:"Geçersiz araç satırı",failed_makes:"Bazı markaların araçları alınamadı"};
-const gapText=(row:{status:string;source_method:string|null;image_id:string|null})=>row.status==="partial"?partialGaps(row.source_method,Boolean(row.image_id)).map(gap=>gapLabels[gap]).join(" · "):"";
 const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"},{value:"parts2world",label:"parts2world"}];
 const matchOptions=[{value:"oem_reference",label:"OEM referansıyla"},{value:"exact_part",label:"Doğrudan marka / parça"},{value:"cross_reference",label:"Muadil referansıyla"}];
-const matchLabels:Record<string,string>={oem_reference:"OEM referansı",exact_part:"Doğrudan",cross_reference:"Muadil"};
 const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
 type Tone="success"|"info"|"warning"|"error"|"neutral";
 const tones:Record<Tone,{variant:"success"|"info"|"warning"|"destructive"|"outline";icon?:LucideIcon}>={success:{variant:"success",icon:CircleCheck},info:{variant:"info",icon:Info},warning:{variant:"warning",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
@@ -76,7 +64,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
       <Breadcrumb><BreadcrumbList><BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/><BreadcrumbItem><BreadcrumbPage>Ürün zenginleştirme</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div><h1 className="text-2xl font-semibold tracking-tight">Ürün zenginleştirme</h1><p className="text-sm text-muted-foreground">Trodo, otoparcasan, spareto ve parts2world&apos;den toplanan görsel, OEM, özellik ve araç verileri. Son aktarım: {data.metrics.latest?date(data.metrics.latest):"henüz yok"}.</p></div>
-        <LiveRefresh seconds={30}/>
+        <LiveRefresh seconds={30} defaultOn={false}/>
       </div>
     </div>
 
@@ -181,11 +169,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
           <TableCell className="text-right tabular-nums">{number(row.vehicle_count)}</TableCell>
           <TableCell className="text-right tabular-nums">{number(row.specification_count)}</TableCell>
           <TableCell className="tabular-nums"><time dateTime={(row.imported_at||row.updated_at).toISOString()} title={`${row.attempts} deneme`}>{date(row.imported_at||row.updated_at)}</time></TableCell>
-          <TableCell className="text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id} footer={<>{row.source_url?<Button variant="outline" nativeButton={false} render={<Link href={row.source_url} target="_blank"/>}>{new URL(row.source_url).hostname}<ArrowUpRight data-icon="inline-end"/></Button>:<span className="text-sm text-muted-foreground sm:mr-auto">Henüz kaynak verisi kaydedilmedi.</span>}<Button nativeButton={false} render={<Link href={`/urun/${row.id}`}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end"/></Button></>}>
-            <Table><TableBody>{([["Durum",statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)],["Eşleşme yöntemi",row.match_type?matchLabels[row.match_type]:"Henüz doğrulanmadı"],["Referans ürün",row.manufacturer?`${row.manufacturer} ${row.manufacturer_part_number}`:"Henüz yok"],["Veri kaynağı",source?sourceLabels[source].name:"Henüz yok"],["Aranan kaynaklar",row.searched.length?sourceNames(row.searched):"Henüz aranmadı"],...(row.status==="partial"?[["Eksik veri",gaps||"Belirtilmemiş"]]:[]),["Tedarikçi OEM",row.oem||"Belirtilmemiş"],["Görsel",row.image_id?"Kaydedildi":"Henüz yok"],["Son işlem",`${date(row.imported_at||row.updated_at)} · ${row.attempts} deneme`]] as [string,React.ReactNode][]).map(([label,value])=><TableRow key={label}><TableHead>{label}</TableHead><TableCell className="whitespace-normal">{value}</TableCell></TableRow>)}</TableBody></Table>
-            <div className="grid grid-cols-3 gap-2">{([[row.oem_count,"OEM referansı"],[row.vehicle_count,"araç / motor"],[row.specification_count,"teknik özellik"]] as const).map(([value,label])=><Item key={label} variant="muted"><ItemContent><ItemTitle className="text-xl tabular-nums">{number(value)}</ItemTitle><ItemDescription>{label}</ItemDescription></ItemContent></Item>)}</div>
-            {row.last_error&&<Alert variant="warning"><TriangleAlert/><AlertDescription>Son işlem notu: {row.last_error}</AlertDescription></Alert>}
-          </EnrichmentDetails></TableCell>
+          <TableCell className="text-right"><EnrichmentDetails name={row.name} code={row.code} productId={row.id}/></TableCell>
         </TableRow>;})}</TableBody></Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Search/></EmptyMedia><EmptyTitle>Bu filtrelerle kayıt bulunamadı</EmptyTitle><EmptyDescription>Arama kodunu veya eşleşme yöntemini değiştirerek tekrar dene.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Tüm zenginleştirilen ürünler</Button></EmptyContent></Empty>}
       </CardContent>
       <CardFooter className="flex-col gap-2 text-sm text-muted-foreground tabular-nums sm:flex-row"><span className="shrink-0">{data.total?`${number((data.page-1)*data.pageSize+1)}–${number(Math.min(data.page*data.pageSize,data.total))}`:"0"} / {number(data.total)} kayıt · Sayfa {number(data.page)} / {number(data.pages)}</span>

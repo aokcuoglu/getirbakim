@@ -7,10 +7,8 @@ import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
 
-export const enrichmentStatuses: Record<string, string> = {
-  complete: "Tamamlandı", partial: "Kısmi veri", review: "İnceleme gerekiyor", not_found: "Eşleşme bulunamadı",
-  pending: "Bekliyor", blocked: "Erişim engellendi", failed: "Başarısız",
-};
+import { enrichmentStatuses } from "./enrichment-labels";
+export { enrichmentStatuses };
 export type EnrichmentRow = {
   id: string; product_id: string; code: string; brand: string; name: string; oem: string; status: string; attempts: number;
   last_error: string | null; updated_at: Date; imported_at: Date | null; source_url: string | null;
@@ -70,6 +68,24 @@ export const gapConditions: Record<PartialGap, string> = {
   failed_makes: "g.source_method ~ 'failed makes [1-9]'",
 };
 const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.supplier_item_id";
+// The columns of one record row; `source` is a subquery of enrichment_product_states aliased j.
+const rowQuery=(source:string)=>`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
+    COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
+    j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
+    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
+    CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
+    -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
+    array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
+      AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
+     -- One ANY over the product's items keeps the attempts index usable; an OR of the two lookups did not.
+     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a
+      WHERE a.supplier_item_id=ANY(ARRAY(SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id)||j.supplier_item_id) ORDER BY 1) AS searched
+    FROM (${source}) j`;
+/** One record row for the details dialog; the id is the row id of the list (the supplier item, or the product for pending rows). */
+export async function enrichmentRow(id:string){
+  const result=await db.query<EnrichmentRow>(rowQuery("SELECT j.* FROM enrichment_product_states j WHERE j.supplier_item_id=$1 OR (j.supplier_item_id IS NULL AND j.product_id=$1) LIMIT 1"),[id]);
+  return result.rows[0]??null;
+}
 export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
   const q = query.q?.trim().slice(0,120) || "";
@@ -181,18 +197,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const order=query.sort==='updated'?`j.sorted_at ${direction},j.supplier_item_id ${direction}`:sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`);
   // The page is cut first so the per-row subqueries run for its 25 rows only; in the outer SELECT they also ran for
   // every row OFFSET skipped (a deep pending page took minutes).
-  const rows=await db.query<EnrichmentRow>(`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
-    COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
-    j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
-    j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
-    CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
-    -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
-    array_remove(ARRAY[CASE WHEN EXISTS(SELECT 1 FROM enrichment_run_items i WHERE (i.product_id=j.product_id OR i.supplier_item_id=j.supplier_item_id)
-      AND i.status NOT IN ('queued','collecting','skipped')) THEN 'trodo' END],NULL)
-     -- One ANY over the product's items keeps the attempts index usable; an OR of the two lookups did not.
-     ||ARRAY(SELECT DISTINCT a.source FROM enrichment_source_attempts a
-      WHERE a.supplier_item_id=ANY(ARRAY(SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id=j.product_id)||j.supplier_item_id) ORDER BY 1) AS searched
-    FROM (SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) j ORDER BY ${order}`,[...values,(page-1)*pageSize]);
+  const rows=await db.query<EnrichmentRow>(`${rowQuery(`SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`)} ORDER BY ${order}`,[...values,(page-1)*pageSize]);
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
   return { pass, pilot:pilot.rows[0]??null, run:run.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows, gaps:gaps?.rows[0]??null,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
