@@ -1,8 +1,6 @@
-import { BasbugItemDetail } from "@/components/admin/basbug-item-detail";
-import { requireAdmin } from "@/modules/auth/session";
+import { SupplierItemRoute, type SupplierItemRouteProps } from "@/components/admin/supplier-item-route";
 
 // The product page's body in a dialog over the list; urun/[id]/page.tsx renders the same body as a full page.
-export default async function ProductDialog({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
-  return <BasbugItemDetail id={(await params).id} modal/>;
+export default function Page(props: SupplierItemRouteProps) {
+  return <SupplierItemRoute supplier="basbug" modal {...props}/>;
 }

@@ -1,8 +1,5 @@
-import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { ManualItemDetail } from "@/components/admin/manual-item-detail";
-import { requireAdmin } from "@/modules/auth/session";
+import { SupplierItemRoute, type SupplierItemRouteProps } from "@/components/admin/supplier-item-route";
 
-export default async function ManualItemPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
-  await requireAdmin();
-  return <ManualItemDetail id={(await params).id} query={normalizeSearchParams(await searchParams)}/>;
+export default function Page(props: SupplierItemRouteProps) {
+  return <SupplierItemRoute supplier="manuel" {...props}/>;
 }

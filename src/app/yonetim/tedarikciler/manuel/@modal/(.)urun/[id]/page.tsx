@@ -1,9 +1,6 @@
-import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { ManualItemDetail } from "@/components/admin/manual-item-detail";
-import { requireAdmin } from "@/modules/auth/session";
+import { SupplierItemRoute, type SupplierItemRouteProps } from "@/components/admin/supplier-item-route";
 
 // The product page's body in a dialog over the list; urun/[id]/page.tsx renders the same body as a full page.
-export default async function ManualItemDialog({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
-  await requireAdmin();
-  return <ManualItemDetail id={(await params).id} query={normalizeSearchParams(await searchParams)} modal/>;
+export default function Page(props: SupplierItemRouteProps) {
+  return <SupplierItemRoute supplier="manuel" modal {...props}/>;
 }

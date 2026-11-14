@@ -1,7 +1,5 @@
-import { DinamikItemDetail } from "@/components/admin/dinamik-item-detail";
-import { requireAdmin } from "@/modules/auth/session";
+import { SupplierItemRoute, type SupplierItemRouteProps } from "@/components/admin/supplier-item-route";
 
-export default async function DinamikItemPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdmin();
-  return <DinamikItemDetail id={(await params).id}/>;
+export default function Page(props: SupplierItemRouteProps) {
+  return <SupplierItemRoute supplier="dinamik" {...props}/>;
 }
