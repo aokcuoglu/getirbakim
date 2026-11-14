@@ -51,7 +51,7 @@ Davranış değişikliği taşıyan işlerde sürüm etkisi etiketi kullanılır
 
 ## `main` sürümleri ve Git tag'leri
 
-`dev` geliştirmelerin birleştiği branch'tir. `main` production'dır: 14 Kasım 2026 kararıyla `main`'e yapılan her push/merge AWS üzerindeki GitHub Actions ile getirbakim.com'u günceller. Rutin `dev` merge'i `main` merge yetkisi vermez; `main`'e push, `dev` → `main` merge veya `main`'i değiştiren her işlem (doğrudan push, `gh api` ref güncellemesi dahil) öncesinde kullanıcının **açık onayı** alınır. Onay istenirken sürüm numarası ve kapsam gösterilir; bir sürüm için verilen onay sonrakini kapsamaz. `main`'e doğrudan commit veya hotfix push yapılmaz; acil düzeltmeler de `dev` üzerinden sürüm PR'ı ile gider. `main`'e geçiş, sürüm hazırlığı ve GitHub Release oluşturma kullanıcının sürüm çıkarma talebi kapsamında yapılır.
+`dev` geliştirmelerin birleştiği branch'tir. `main` production'a çıkabilecek sürümlü kodu temsil eder; AWS yayını `main` üzerinden elle tetiklenir (aşağıdaki deploy kararı). Rutin `dev` merge'i `main` merge yetkisi vermez; `main`'e push, `dev` → `main` merge veya `main`'i değiştiren her işlem (doğrudan push, `gh api` ref güncellemesi dahil) öncesinde kullanıcının **açık onayı** alınır. Onay istenirken sürüm numarası ve kapsam gösterilir; bir sürüm için verilen onay sonrakini kapsamaz. `main`'e doğrudan commit veya hotfix push yapılmaz; acil düzeltmeler de `dev` üzerinden sürüm PR'ı ile gider. `main`'e geçiş, sürüm hazırlığı ve GitHub Release oluşturma kullanıcının sürüm çıkarma talebi kapsamında yapılır.
 
 Sürüm numarası [SemVer](https://semver.org/) biçimindedir: `MAJOR.MINOR.PATCH`. Önemli, geriye uyumlu özellikler `feat` olarak sınıflandırılır ve `main` sürümünde **MINOR** artırılır. Bir sürüm birden fazla işi içerebilir; en yüksek etki sürüm artışını belirler.
 
@@ -67,9 +67,10 @@ Sürüm çıkarırken:
 
 1. `origin/main..origin/dev` kapsamını, son ilgili `main` sürüm tag'ini ve manifest sürümlerini incele. Release içine girecek tüm işleri ve sürüm etkilerini listele; ilgisiz veya hazır olmayan işleri dahil etme.
 2. Sürüm hazırlığını ayrı worktree/branch ve Issue ile takip et. `package.json` ve `package-lock.json` sürümlerini birlikte güncelle. `CHANGELOG.md` dosyasına sürümün özelliklerini, düzeltmelerini, Issue/PR bağlantılarını ve varsa migration adımlarını yaz; dosya yoksa ilk sürüm hazırlığında oluştur.
-3. Hazırlığı kontrol ve PR üzerinden `dev`'e merge et. Sonrasında kapsamı belirli `dev` → `main` sürüm PR'ını aç; sürüm etiketini ve doğrulamayı ekle. Merge'den hemen önce kullanıcıdan açık onay al; onaylanan sürüm kapsamı ve zorunlu CI geçtikten sonra merge et. Merge production deploy'unu başlatır; deploy sonucunu izle.
+3. Hazırlığı kontrol ve PR üzerinden `dev`'e merge et. Sonrasında kapsamı belirli `dev` → `main` sürüm PR'ını aç; sürüm etiketini ve doğrulamayı ekle. Merge'den hemen önce kullanıcıdan açık onay al; onaylanan sürüm kapsamı ve zorunlu CI geçtikten sonra merge et. Merge deploy başlatmaz.
 4. İlgili `main` merge commit'ine açıklamalı (annotated) `vX.Y.Z` Git tag'i koy ve aynı sürümün GitHub Release notlarını yayımla. Tag ve Release notlarında sürüm kapsamını ve PR'ı belirt. Mevcut tag'leri taşıma, silme veya üzerine yazma.
-5. Merge, sürüm numarası, tag, Release bağlantısını ve production deploy sonucunu bildir.
+5. Merge, sürüm numarası, tag ve Release bağlantısını bildir.
+6. Production yayını ayrı adımdır: kullanıcı açıkça onaylarsa `main` üzerinden `release-aws` workflow'unu elle tetikle, GitHub `production` ortam onayını kullanıcıya bırak, sonucu ve smoke testleri bildir.
 
 11 Ekim 2026 itibarıyla `main` geçmişindeki en yüksek normal sürüm tag'i `v0.22.0`, mevcut paket sürümü ise `0.1.0`'dır. Eski GitHub Release kayıtları da legacy döneme aittir. Sonraki sürüm hazırlığında ilgili yeni sistemin tag geçmişi esas alınarak manifestler uyumlu hale getirilir; eski etiketlerden veya `0.1.0` değerinden bağımsız, geriye giden sürüm üretilmez. Bu politika çalışması sürüm artırmaz.
 
@@ -77,7 +78,8 @@ Sürüm çıkarırken:
 
 Karar tarihi: 14 Kasım 2026 (11 Ekim 2026 Contabo kararının yerine geçer).
 
-- Production AWS'tedir ve `main` üzerinden GitHub Actions ile güncellenir. `main`'e giden her push/merge bir production yayınıdır; yukarıdaki onay kuralı geçerlidir.
+- Production AWS'tedir. Yayın, `main` üzerinden `release-aws.yml` workflow'unun elle (`workflow_dispatch`) tetiklenmesiyle yapılır; GitHub `production` ortamı onay ister. `main`'e push/merge kendi başına deploy etmez.
+- Akış: `dev`'de geliştirme → kullanıcı onayıyla sürümlü `dev → main` merge → kullanıcının ayrı ve açık yayın onayıyla `release-aws` tetikleme. İki onay birbirinin yerine geçmez.
 - `dev` merge'i hiçbir ortama deploy etmez. Staging yoktur; kurulması kullanıcının ayrı talebiyle tasarlanır.
 - Contabo'ya otomatik deploy yapılmaz. Eski `deploy-production.yml` / `deploy-staging.yml` workflow'ları GitHub'da devre dışıdır ve açık talep olmadan etkinleştirilmez.
 - CI kontrolleri zorunludur; geçmeyen kontrollerle `dev`'e de `main`'e de merge yapılmaz. Deploy workflow'larını açık talep olmadan değiştirme veya tetikleme.
