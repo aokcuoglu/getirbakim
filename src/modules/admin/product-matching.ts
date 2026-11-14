@@ -169,7 +169,11 @@ async function loadSameIndex(): Promise<SameIndex> {
 async function sameProducts(params: MatchingParams) {
   const exclusions = (await db.query<{ count: number }>("SELECT count(*)::int FROM product_sources WHERE method='manual'")).rows[0].count;
   const scope = sameScope(params.scope);
-  if (scope === "manual") return { ...await manualDecisions(params, exclusions), same: [] as SameProduct[], summary: undefined, scope, exclusions };
+  // The other views' counts stay on the scope selector; the groups come from the cached index.
+  if (scope === "manual") {
+    const [decided, { summary }] = await Promise.all([manualDecisions(params, exclusions), sameIndex()]);
+    return { ...decided, same: [] as SameProduct[], summary, scope, exclusions };
+  }
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
   const { entries, summary } = await sameIndex();
   const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
@@ -184,21 +188,23 @@ async function sameProducts(params: MatchingParams) {
 }
 
 /**
- * Every manual decision, newest first, paged; `q` matches the supplier code or the product's part number (compacted)
- * or either name (search_normalize). `manualTotal` is the unfiltered count the caller already read.
+ * Every manual decision, newest first, paged. Each word of `q` must match the supplier code or the product's part
+ * number (compacted), or the row's name, the product's brand or name (search_normalize): "FEBI 100261" finds FEBI's
+ * 100261. `manualTotal` is the unfiltered count the caller already read.
  */
 async function manualDecisions(params: MatchingParams, manualTotal: number) {
-  const { code, text } = manualSearchTerms(params.q);
+  const terms = manualSearchTerms(params.q);
+  const values = [terms.map(term => term.code), terms.map(term => term.text)];
   const from = "product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id";
-  const where = `x.method='manual' AND ($1='' AND $2=''
-    OR $1<>'' AND (regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||$1||'%' OR p.part_number LIKE '%'||$1||'%')
-    OR $2<>'' AND (search_normalize(supplier_item_name(i.supplier,i.product_data)) LIKE '%'||$2||'%' OR search_normalize(p.name) LIKE '%'||$2||'%'))`;
-  const total = code || text ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, [code, text])).rows[0].count : manualTotal;
+  const where = `x.method='manual' AND NOT EXISTS (SELECT 1 FROM unnest($1::text[],$2::text[]) t(code,text) WHERE NOT (
+    t.code<>'' AND (regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||t.code||'%' OR p.part_number LIKE '%'||t.code||'%')
+    OR t.text<>'' AND (search_normalize(concat_ws(' ',supplier_item_name(i.supplier,i.product_data),p.brand_label,p.name)) LIKE '%'||t.text||'%')))`;
+  const total = terms.length ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values)).rows[0].count : manualTotal;
   const { page, pages } = pageOf(params.page, total);
   const decisions = (await db.query<ManualDecision>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at,
       CASE WHEN p.variant>0 THEN 'split' ELSE 'merge' END AS kind,p.id AS product_id,p.brand_label AS product_label,p.code AS product_code,p.name AS product_name
     FROM ${from} WHERE ${where}
-    ORDER BY ${sortOrder(params, sorts.manual, "x.linked_at DESC,x.supplier_item_id")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, [code, text])).rows;
+    ORDER BY ${sortOrder(params, sorts.manual, "x.linked_at DESC,x.supplier_item_id")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   return { decisions, total, page, pages };
 }
 

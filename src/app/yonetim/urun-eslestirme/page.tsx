@@ -34,7 +34,7 @@ const matchedMessages: Record<string, string> = {
   same: "Aynı ürün olarak birleştirildi; mağazada tek ürün olarak, en uygun teklifle satılıyor.", different: "Farklı ürün olarak kaydedildi; bu çift tekrar önerilmez.",
 };
 const splitMessages: Record<string, string> = {
-  "1": "Ayrıldı: kayıt artık kendi ürünü olarak listeleniyor; bu çift tekrar önerilmez.", undone: "Karar geri alındı; kayıt kendi ürününe döndü.",
+  "1": "Ayrıldı: kayıt artık kendi ürünü olarak listeleniyor; bu çift tekrar önerilmez. Elle kararlar görünümünden geri alabilirsiniz.", undone: "Karar geri alındı; kayıt kendi ürününe döndü.",
 };
 
 function OfferCell({ offer }: { offer: Offer | undefined }) {
@@ -180,7 +180,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               <Link className="truncate font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.product_id}`} title={`${item.product_label} ${item.product_code}`}>{item.product_label} {item.product_code}</Link>
               <span className="truncate text-muted-foreground" title={item.product_name ?? ""}>{item.product_name || "—"}</span></div></TableCell>
             <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(item.decided_at)}</TableCell>
-            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline">Geri al</SubmitButton></form></TableCell>
+            <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title={params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
             <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır">Bağlı teklifler</TableHead>
@@ -192,8 +192,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
                 <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
                 <TableCell><OfferCell offer={primary}/></TableCell>
                 <TableCell><div className="flex flex-col gap-3">{group.offers.slice(1).map(offer => <div key={offer.id} className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 flex-col items-start gap-1">{offer.supplier !== "dinamik" && <Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge>}<OfferCell offer={offer}/></div>
-                  <form action={splitOffer}><input type="hidden" name="item_id" value={offer.id}/><input type="hidden" name="back" value={back}/>
+                  <div className="flex min-w-0 flex-col items-start gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge><OfferCell offer={offer}/></div>
+                  <form action={splitOffer}><input type="hidden" name="item_id" value={offer.id}/><input type="hidden" name="primary_id" value={group.primary_id}/><input type="hidden" name="back" value={back}/>
                     <SubmitButton variant="ghost" size="sm" title="Yanlış eşleşme: yalnız bu kayıt kendi ürününe dönsün" aria-label={`${offer.code} kaydını ayır`}>Ayır</SubmitButton></form>
                 </div>)}</div></TableCell>
                 <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><StatusBadge tone={group.selling === "dinamik" ? "success" : "neutral"} icon={group.selling === "dinamik" ? undefined : Store}>{suppliers[group.selling]}</StatusBadge>

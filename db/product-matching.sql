@@ -426,13 +426,16 @@ END $$;
 -- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
 -- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
 -- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
--- Only a non-primary offer can be split: the primary is the listing itself. NULL when the row is no such offer.
-CREATE OR REPLACE FUNCTION product_split_offer(item uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+-- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
+-- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
+-- NULL when the row is no such offer. The two-argument form came first (#523).
+DROP FUNCTION IF EXISTS product_split_offer(uuid, uuid);
+CREATE OR REPLACE FUNCTION product_split_offer(item uuid, expected_primary uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE src record; pid uuid;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,6);
  SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
-  AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id<>o.item_id);
+  AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
  IF NOT FOUND THEN RETURN NULL; END IF;
  IF src.method='manual' THEN pid := product_reset_item(item); END IF;
  IF pid IS NULL OR pid=src.product_id THEN

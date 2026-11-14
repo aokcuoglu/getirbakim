@@ -25,13 +25,14 @@ const withFlag = (back: string, flag: string) => `${back}${back.includes("?") ? 
 
 // "Ayır" on one offer of a group (#523): only that row leaves; a hand-merged row returns to its own key's product, an
 // automatically grouped one becomes a locked product of its own. The pair is recorded as different (db
-// product_split_offer). NULL when the row is no longer a non-primary offer (a refresh or another admin got there first).
+// product_split_offer). `primary_id` is the group the form was shown for: NULL when the row is no longer a non-primary
+// offer of it (a refresh, another admin or an earlier click got there first).
 export async function splitOffer(form: FormData) {
   const admin = await requireAdmin();
-  const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
+  const input = z.object({ item_id: z.uuid(), primary_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
-  const { item_id, back } = input.data;
-  const { id } = (await db.query<{ id: string | null }>("SELECT product_split_offer($1,$2) AS id", [item_id, admin.id])).rows[0];
+  const { item_id, primary_id, back } = input.data;
+  const { id } = (await db.query<{ id: string | null }>("SELECT product_split_offer($1,$2,$3) AS id", [item_id, primary_id, admin.id])).rows[0];
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, id ? "split=1" : "error=split"));

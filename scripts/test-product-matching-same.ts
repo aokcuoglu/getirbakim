@@ -65,12 +65,15 @@ test("pages are cut after filtering and sorting; total counts the filtered group
 });
 
 // "Elle kararlar" search (#523): codes compare compacted, names as db search_normalize writes them.
-test("manual decision search splits into a code and a normalized text", () => {
-  assert.deepEqual(manualSearchTerms("hu 7008-z"), { code: "HU7008Z", text: "hu 7008 z" });
-  assert.deepEqual(manualSearchTerms("Yağ Filtresi"), { code: "YAFILTRESI", text: "yag filtresi" });
-  assert.deepEqual(manualSearchTerms("  "), { code: "", text: "" });
-  assert.deepEqual(manualSearchTerms(undefined), { code: "", text: "" });
-  assert.equal(manualSearchTerms("x".repeat(120)).code.length, 80);
+test("manual decision search requires every word, each as a code or a normalized text", () => {
+  assert.deepEqual(manualSearchTerms("FEBI 100261"), [{ code: "FEBI", text: "febi" }, { code: "100261", text: "100261" }]);
+  assert.deepEqual(manualSearchTerms("hu 7008-z"), [{ code: "HU", text: "hu" }, { code: "7008Z", text: "7008 z" }]);
+  assert.deepEqual(manualSearchTerms("Yağ  Filtresi"), [{ code: "YAG", text: "yag" }, { code: "FILTRESI", text: "filtresi" }]);
+  assert.deepEqual(manualSearchTerms("febi FEBI - /"), [{ code: "FEBI", text: "febi" }]);
+  assert.deepEqual(manualSearchTerms("  "), []);
+  assert.deepEqual(manualSearchTerms(undefined), []);
+  assert.equal(manualSearchTerms("a b c d e f g h").length, 6);
+  assert.equal(manualSearchTerms("x".repeat(120))[0].code.length, 80);
 });
 
 // Suffix differences are mostly other parts (FEBI 100261 vs 1002610, #524): never merged in bulk.

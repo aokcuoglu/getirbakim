@@ -18,11 +18,17 @@ export function sameScope(raw: string | undefined): SameScope {
 export const compactCode = (value: string | undefined) => value?.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 80) ?? "";
 
 /**
- * The "Elle kararlar" search: `code` for supplier codes and part numbers, `text` for names as db search_normalize
- * writes them ("Yağ Filtresi" → "yag filtresi").
+ * The "Elle kararlar" search: whitespace-separated words, each required ("FEBI 100261" = brand and number). A word
+ * matches as `code` (supplier code or part number, compacted after Turkish letters are folded) or as `text` (names and
+ * the brand as db search_normalize writes them: "Yağ" → "yag"). At most 6 distinct words of the first 80 characters.
  */
 export function manualSearchTerms(raw: string | undefined) {
-  return { code: compactCode(raw), text: normalizeSearchText((raw ?? "").slice(0, 80)) };
+  const terms: { code: string; text: string }[] = [];
+  for (const word of (raw ?? "").slice(0, 80).split(/\s+/)) {
+    const text = normalizeSearchText(word), code = compactCode(text);
+    if ((code || text) && !terms.some(term => term.code === code && term.text === text)) terms.push({ code, text });
+  }
+  return terms.slice(0, 6);
 }
 
 const nullsLast = (a: number | null, b: number | null, desc: boolean) =>
