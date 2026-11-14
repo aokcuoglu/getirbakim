@@ -14,6 +14,10 @@ export function sameScope(raw: string | undefined): SameScope {
   return raw === "dinamik" || raw === "basbug" || raw === "none" ? raw : "all";
 }
 
+/** "Elle kararlar" kind filter from `?kind=`: only `merge` (Birleştirme) or `split` (Ayırma); anything else is no filter. */
+export type ManualKind = "merge" | "split";
+export const manualKind = (raw: string | undefined): ManualKind | null => raw === "merge" || raw === "split" ? raw : null;
+
 /** A code as the matching page compares codes and part numbers: A-Z0-9 only, at most 80 characters. */
 export const compactCode = (value: string | undefined) => value?.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 80) ?? "";
 
