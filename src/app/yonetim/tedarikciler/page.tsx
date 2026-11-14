@@ -118,7 +118,7 @@ export default async function Suppliers() {
       title: `${name}: ${number(unstocked)} ürün stok listesinde yok`, description: "Tedarikçi bu ürünlerin fiyatını gönderiyor ama stok bilgisini göndermiyor; stok bilgisi gelene kadar satışa açılmazlar." });
     const conflicting = metrics[key].conflicting;
     if (conflicting) issues.push({ key: `${key}-conflict`, tone: "info", href: filtered(href, { quality: "conflicts" }), action: "İncele",
-      title: `${name}: ${number(conflicting)} ürün kodu çakışıyor`, description: "Aynı kod tedarikçi listesinde birden fazla ürüne ait; bu satırlar satışa açılmaz." });
+      title: `${name}: ${number(conflicting)} ürün kodu çakışıyor`, description: "Tedarikçi aynı kod için birbirini tutmayan satırlar (ör. farklı fiyat) gönderiyor; hangisinin doğru olduğu belirsiz olduğu için satışa açılmaz." });
   }
 
   const apiFeeds = feeds.map(entry => entry.feed);
