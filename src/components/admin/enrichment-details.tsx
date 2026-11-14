@@ -59,12 +59,12 @@ export function EnrichmentDetails({ name, code, productId }: { name: string; cod
   const sourceUrl = row?.source_url;
   return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`${code} kayıt ayrıntıları`}/>}>Ayrıntı<ChevronRight data-icon="inline-end" aria-hidden="true"/></DialogTrigger>
-    <DialogContent className="sm:max-w-4xl">
+    <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-4xl">
       <DialogHeader>
         <DialogTitle>{name || code}</DialogTitle>
         <DialogDescription>Kaynak ve takip · <span className="font-mono">{code}</span></DialogDescription>
       </DialogHeader>
-      <div className="-mx-4 flex max-h-128 flex-col gap-5 overflow-y-auto px-4">
+      <div className="flex flex-col gap-5">
         {error ? <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Kayıt ayrıntıları alınamadı</AlertTitle><AlertDescription>{error}</AlertDescription><AlertAction><Button variant="outline" onClick={() => { setError(""); setAttempt(value => value + 1); }}>Tekrar dene</Button></AlertAction></Alert>
         : !row ? <div className="flex flex-col gap-2" role="status"><span className="sr-only">Kayıt ayrıntıları yükleniyor…</span><Skeleton className="h-40 w-full"/><Skeleton className="h-16 w-full"/></div>
         : <DetailsBody row={row}/>}

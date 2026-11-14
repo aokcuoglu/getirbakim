@@ -25,3 +25,7 @@ export const dataSource = (url: string | null) => url ? (Object.keys(sourceHosts
 export const sourceNames = (keys: SourceKey[]) => keys.map(key => sourceLabels[key].name).join(", ");
 export const gapText = (row: { status: string; source_method: string | null; image_id: string | null }) =>
   row.status === "partial" ? partialGaps(row.source_method, Boolean(row.image_id)).map(gap => gapLabels[gap]).join(" · ") : "";
+/** The dashboard's two views: the product records list and the sources overview. */
+export const dashboardTabs = ["records", "sources"] as const;
+export type DashboardTab = typeof dashboardTabs[number];
+export const dashboardTab = (value?: string): DashboardTab => value === "sources" ? "sources" : "records";

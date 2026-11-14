@@ -7,7 +7,7 @@ import { binder, supplierItemMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
 
-import { enrichmentStatuses } from "./enrichment-labels";
+import { dashboardTab, enrichmentStatuses } from "./enrichment-labels";
 export { enrichmentStatuses };
 export type EnrichmentRow = {
   id: string; product_id: string; code: string; brand: string; name: string; oem: string; status: string; attempts: number;
@@ -86,8 +86,9 @@ export async function enrichmentRow(id:string){
   const result=await db.query<EnrichmentRow>(rowQuery("SELECT j.* FROM enrichment_product_states j WHERE j.supplier_item_id=$1 OR (j.supplier_item_id IS NULL AND j.product_id=$1) LIMIT 1"),[id]);
   return result.rows[0]??null;
 }
-export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string }) {
+export async function enrichmentDashboard(query: { q?: string; status?: string; match?: string; source?: string; name?: string; code?: string; brand?: string; gap?: string; page?: string; sort?: string; dir?: string; tab?: string }) {
   await requireAdmin();
+  const tab = dashboardTab(query.tab), records = tab === "records";
   const q = query.q?.trim().slice(0,120) || "";
   const text = (key: "name" | "code" | "brand") => query[key]?.trim().slice(0,120) || "";
   const name = text("name"), code = text("code"), brand = text("brand");
@@ -133,8 +134,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       count(image_id)::int AS images,COALESCE(sum(vehicle_count),0)::int AS vehicles,COALESCE(sum(oem_count),0)::int AS oem_numbers,
       max(imported_at) AS latest FROM enrichment_product_states WHERE status IN (${literal(attemptedStatuses)}) GROUP BY status`),
     db.query<{count:number}>("SELECT count(*)::int AS count FROM products WHERE merged_into IS NULL"),
-    db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
-    q||match!=="all"||source||name||code||brand||gap?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
+    records?Promise.resolve(null):db.query<{bytes:string}>("SELECT COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects"),
+    records&&(q||match!=="all"||source||name||code||brand||gap)?db.query<{count:number}>(`SELECT count(*)::int AS count ${from}`,values):Promise.resolve(null),
     db.query<{id:string;status:string;sample_size:number;skipped:number;cache_hits:number;processed:number;complete:number;partial:number;review:number;not_found:number;failed:number;requests:number;rate_limits:number;last_response:Date|null}>(`SELECT r.id,r.status,r.sample_size-count(*) FILTER(WHERE i.status='skipped')::int AS sample_size,r.cache_hits,
       count(*) FILTER(WHERE i.status='skipped')::int AS skipped,
       count(*) FILTER(WHERE i.status NOT IN ('queued','collecting','skipped'))::int AS processed,
@@ -165,13 +166,13 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE outcome<>'blocked')::int AS searched,count(*) FILTER(WHERE outcome='found')::int AS found,
         count(*) FILTER(WHERE outcome='error')::int AS errors,count(*) FILTER(WHERE outcome<>'blocked' AND attempted_at>now()-interval '1 hour')::int AS last_hour
         FROM enrichment_source_attempts a WHERE a.source=s.source AND attempted_at>now()-interval '24 hours') r ON true`),
-    db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
-    db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
+    records?Promise.resolve(null):db.query<{host:string;count:number}>("SELECT split_part(source_url,'/',3) AS host,count(*)::int AS count FROM enrichment_product_states WHERE status IN ('complete','partial') GROUP BY 1"),
+    !records?Promise.resolve(null):db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
       ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
-    status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
+    records&&status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
       ${facetFrom.replace(" WHERE ", `${gapJoin} WHERE `)}`, facetValues):Promise.resolve(null),
     // parts2world's latest queue run: products searched (any outcome but a block answer) since it started (#403).
-    db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
+    records?Promise.resolve(null):db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
       (SELECT * FROM enrichment_source_runs WHERE source='parts2world' ORDER BY started_at DESC LIMIT 1) r
       CROSS JOIN LATERAL (SELECT count(DISTINCT supplier_item_id) FILTER(WHERE outcome<>'blocked')::int AS processed,
         count(*) FILTER(WHERE outcome='error')::int AS errors,max(attempted_at) AS last FROM enrichment_source_attempts
@@ -181,7 +182,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
   counts.rows.push({status:'pending',count:Math.max(0,pending),enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null});
-  const summary={enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null as Date|null,bytes:metrics.rows[0].bytes};
+  const summary={enriched:0,oem_matches:0,direct_matches:0,images:0,oem_numbers:0,vehicles:0,latest:null as Date|null,bytes:metrics?metrics.rows[0].bytes:null as string|null};
   for(const row of counts.rows){
     for(const key of ['enriched','oem_matches','direct_matches','images','oem_numbers','vehicles'] as const)summary[key]+=row[key];
     if(row.latest&&(!summary.latest||row.latest>summary.latest))summary.latest=row.latest;
@@ -197,8 +198,8 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   const order=query.sort==='updated'?`j.sorted_at ${direction},j.supplier_item_id ${direction}`:sortOrder(query, sortColumns, `j.sorted_at DESC,j.supplier_item_id ${direction}`);
   // The page is cut first so the per-row subqueries run for its 25 rows only; in the outer SELECT they also ran for
   // every row OFFSET skipped (a deep pending page took minutes).
-  const rows=await db.query<EnrichmentRow>(`${rowQuery(`SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`)} ORDER BY ${order}`,[...values,(page-1)*pageSize]);
-  const sourceSummary=summarizeSources(activity.rows,Object.fromEntries(written.rows.map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { pass, pilot:pilot.rows[0]??null, run:run.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands.rows, gaps:gaps?.rows[0]??null,
+  const rows=records?await db.query<EnrichmentRow>(`${rowQuery(`SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`)} ORDER BY ${order}`,[...values,(page-1)*pageSize]):{rows:[] as EnrichmentRow[]};
+  const sourceSummary=summarizeSources(activity.rows,Object.fromEntries((written?.rows??[]).map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
+  return { tab, pass, pilot:pilot.rows[0]??null, run:run?.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands?.rows??[], gaps:gaps?.rows[0]??null,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
 }
