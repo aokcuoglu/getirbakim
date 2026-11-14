@@ -26,6 +26,11 @@ export async function requireAdmin() {
  if (account.role !== "admin") redirect("/");
  return account;
 }
+// For route handlers, which answer 403 themselves instead of redirecting: the approved admin account or null.
+export async function adminApiAccount() {
+ const account = await currentAccount();
+ return account?.approved && account.role === "admin" ? account : null;
+}
 export async function startSession(accountId: string) {
  const token = randomBytes(32).toString("hex");
  await db.query("INSERT INTO sessions (token_hash,account_id,expires_at) VALUES ($1,$2,now()+make_interval(secs=>$3::int))",[tokenHash(token),accountId,SESSION_IDLE_SECONDS]);
