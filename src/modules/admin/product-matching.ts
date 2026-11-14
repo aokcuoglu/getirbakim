@@ -184,9 +184,15 @@ async function dinamikOnly(params: MatchingParams) {
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM commerce_supplier_items i WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
   const order = sortOrder(params, sorts.dinamik, "i.changed_at DESC,i.id");
-  const items = (await db.query<DinamikItem>(`SELECT i.id,(SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=i.id) AS product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
-      c.price_kurus,c.available,EXISTS (SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=i.id) AS enriched
+  // "Enriched" reads the materialized per-product states (db/enrichment-states.sql) instead of evaluating
+  // product_enrichment_shared for the whole catalog (~1.5 s). Like /yonetim/urun-verileri, drain the state queue first so
+  // the flag is current; an empty queue costs a few milliseconds.
+  await db.query("SELECT enrichment_product_states_sync()");
+  // product_sources is keyed by the supplier row and the states by product: at most one row each.
+  const items = (await db.query<DinamikItem>(`SELECT i.id,ps.product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
+      c.price_kurus,c.available,COALESCE(st.enriched,false) AS enriched
     FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
+    LEFT JOIN product_sources ps ON ps.supplier_item_id=i.id LEFT JOIN enrichment_product_states st ON st.product_id=ps.product_id
     LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
   return { dinamik: items, total, page, pages };
 }
@@ -200,10 +206,18 @@ async function setaReferences(params: MatchingParams) {
     ${q ? `AND (regexp_replace(upper(s.code),'[^A-Z0-9]','','g') LIKE '%'||$1||'%' OR EXISTS (SELECT 1 FROM product_seta_references r WHERE r.seta_item_id=s.id AND r.part_number LIKE $1||'%'))` : ""}`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM supplier_items s WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
-  const items = (await db.query<Omit<SetaItem, "products">>(`SELECT s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,
-      (SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked
-    FROM supplier_items s LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true
-    WHERE ${where} ORDER BY ${sortOrder(params, sorts.seta, "linked DESC,s.code")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
+  // Priced after the page is cut: commerce_catalog per row before LIMIT walks every listed row (~3 s). Sorting by price
+  // needs every price first, read in one batch for the listed ids.
+  const order = sortOrder(params, sorts.seta, "linked DESC,s.code");
+  const linked = "(SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked";
+  const columns = "s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,s.linked";
+  const slice = `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+  const items = (await db.query<Omit<SetaItem, "products">>(params.sort === "price" ? `WITH listed AS MATERIALIZED (
+      SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where}
+    ), c AS MATERIALIZED (SELECT id,price_kurus,available FROM commerce_catalog WHERE id=ANY(ARRAY(SELECT id FROM listed)))
+    SELECT ${columns} FROM listed s LEFT JOIN c ON c.id=s.id ORDER BY ${order} ${slice}`
+    : `SELECT ${columns} FROM (SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where} ORDER BY ${order} ${slice}) s
+    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
   // Listings, not raw rows: a Dinamik offer grouped under a Başbuğ product shows as that product.
   const products = items.length ? (await db.query<SetaProduct & { seta_item_id: string }>(`SELECT * FROM (
       SELECT DISTINCT ON (r.seta_item_id,p.id) r.seta_item_id::text,p.id::text,p.supplier,p.code,supplier_item_name(p.supplier,p.product_data) AS name,
