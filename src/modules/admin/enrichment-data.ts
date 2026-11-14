@@ -84,7 +84,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (status === "error") conditions.push(`j.status IN (${literal(errorStatuses)})`);
   else { values.push(status); conditions.push(`j.status=$${values.length}`); }
   if (match !== "all") { values.push(match); conditions.push(`j.match_type=$${values.length}`); }
-  const source = query.source && query.source in sourceHosts ? query.source as SourceKey : "";
+  const source = query.source && Object.hasOwn(sourceHosts, query.source) ? query.source as SourceKey : "";
   if (source) { values.push(sourceHosts[source]); conditions.push(`split_part(j.source_url,'/',3)=$${values.length}`); }
   // Header filters: typed text on the name and code, one brand chosen from the tab's list.
   if (name) { values.push(like(name)); conditions.push(`j.product_name ILIKE $${values.length}`); }

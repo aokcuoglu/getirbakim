@@ -140,8 +140,8 @@ async function sameProducts(params: MatchingParams) {
 
 /** Reviewable candidates the automatic key missed; most similar names first. `q` narrows to a brand or code. */
 async function matchCandidates(params: MatchingParams) {
-  const reason = params.scope && params.scope in candidateReasons ? params.scope as CandidateReason : null;
-  const names = params.names && params.names in candidateNames ? params.names as CandidateNames : null;
+  const reason = params.scope && Object.hasOwn(candidateReasons, params.scope) ? params.scope as CandidateReason : null;
+  const names = params.names && Object.hasOwn(candidateNames, params.names) ? params.names as CandidateNames : null;
   const q = compact(params.q);
   const values: unknown[] = [reason, q, names === null ? null : names === "conflict"];
   const where = `($1::text IS NULL OR c.reason=$1) AND ($2='' OR a.brand=$2 OR a.part_number LIKE '%'||$2||'%' OR b.part_number LIKE '%'||$2||'%')
