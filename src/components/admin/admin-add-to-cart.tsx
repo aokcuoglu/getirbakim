@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useActionState } from "react";
-import { addToCart } from "@/app/sepet/actions";
+import { addToCart } from "@/app/(store)/sepet/actions";
 import type { PurchaseState } from "@/modules/store/purchase-types";
 import { Button } from "@/components/ui/button";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";

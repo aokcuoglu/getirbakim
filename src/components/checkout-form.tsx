@@ -2,7 +2,7 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
-import { checkout, placeOrder } from "@/app/sepet/actions";
+import { checkout, placeOrder } from "@/app/(store)/sepet/actions";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PaymentDialog, loadPaymentWindow, openPaymentWindow } from "./payment-dialog";
