@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, Unlink } from "lucide-react";
+import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, TriangleAlert, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
+import { overrideValueText, productOverrideFields, productOverrideLabels, type ProductOverrideField } from "@/modules/admin/product-override-schema";
+import { getStoreCategories } from "@/modules/store/categories";
+import { categoryPath } from "@/modules/store/category-tree";
+import { ProductOverrideForm } from "@/components/admin/product-override-form";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -23,14 +27,27 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   // The merge search needs only the id; without merge_q it returns at once.
   const [data, merge] = await Promise.all([getMasterProduct(id), findMergeTargets(id, query.merge_q)]);
   if (!data) notFound();
-  const { product, sources, equivalents, merged, storeId } = data;
+  const { product, sources, equivalents, merged, storeId, override } = data;
   const multiple = sources.length > 1;
+  const edit = override.override;
+  // Category choices as their path in the store tree ("Fren sistemi › Balata").
+  const storeCategories = await getStoreCategories();
+  const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
+  const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
+  // A history value as the admin knows it: category names, published/hidden, NULL as the automatic value.
+  const historyValue = (field: string, value: string | null) => value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
+    : field === "category_id" ? categoryLabels.get(value) ?? value
+    : field === "hidden" ? overrideValueText(value === "true") : value;
 
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
         <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
+        {edit && <div className="flex flex-wrap gap-2">
+          {edit.hidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
+          <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle düzenlendi</Badge>
+        </div>}
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urunler"/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürünlere dön</Button>
@@ -46,6 +63,20 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {query.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
     {merged && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Bu ürün birleştirildi</AlertTitle>
       <AlertDescription>Kayıtları <Link className="underline underline-offset-4" href={`/yonetim/urunler/${merged.id}`}>{merged.brand_label} {merged.code}</Link> ürününe taşındı (marka eşleştirme kararı).</AlertDescription></Alert>}
+    {edit?.hidden && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Mağazada gizli</AlertTitle>
+      <AlertDescription>Ürün mağazada, sepette, bayi API&apos;sinde ve bakım setlerinde görünmez; kaynaklar satışa kapalı görünür.</AlertDescription></Alert>}
+
+    {!merged && <Card id="magaza">
+      <CardHeader><CardTitle><h2>Mağaza bilgileri</h2></CardTitle>
+        <CardDescription>Elle girilen değer tedarikçi ve zenginleştirme verisinin yerine geçer; tedarikçi güncellemeleri ve yenilemeler onu değiştirmez. Boş bırakılan alan otomatik kaynaktan gelir.</CardDescription></CardHeader>
+      <CardContent>
+        <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, seo_title: edit.seo_title,
+          seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden }}
+          version={edit ? edit.updated_at.toISOString() : "auto"} categories={categoryOptions}
+          automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,
+            category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || "Otomatik kategori yok." }}/>
+      </CardContent>
+    </Card>}
 
     <Card>
       <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
@@ -123,6 +154,22 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             <SubmitButton variant="outline" icon={<Unlink data-icon="inline-start" aria-hidden="true"/>}>Kaldır</SubmitButton></form></TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><Link2/></EmptyMedia><EmptyTitle>Muadil bulunamadı.</EmptyTitle></EmptyHeader></Empty>}</CardContent>
+    </Card>
+
+    <Card id="gecmis">
+      <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle>
+        <CardDescription>Mağaza bilgilerinde yapılan son 50 değişiklik. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden geldiğini gösterir.</CardDescription></CardHeader>
+      <CardContent>{override.changes.length ? <Table><caption className="sr-only">Değişiklik geçmişi</caption>
+        <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
+        <TableBody>{override.changes.map(change => <TableRow key={change.id}>
+          <TableCell className="tabular-nums">{formatDateTime(change.changed_at, { year: true })}</TableCell>
+          <TableCell>{productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field}</TableCell>
+          <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
+          <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
+          <TableCell>{change.changed_by ?? <span className="text-muted-foreground">Silinmiş hesap</span>}</TableCell>
+        </TableRow>)}</TableBody></Table>
+        : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz elle değişiklik yok.</EmptyTitle>
+          <EmptyDescription>Mağaza bilgileri tamamen otomatik kaynaklardan geliyor.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
     </Card>
   </div>;
 }

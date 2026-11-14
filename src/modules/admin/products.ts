@@ -2,6 +2,8 @@ import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
+import { productCategoriesSql } from "./product-categories-sql";
+import { loadProductOverride } from "./product-override-store";
 
 /** Master catalog (db/product-matching.sql): one product, the supplier rows it is sold from, and its equivalents. */
 export const productFilters = {
@@ -13,6 +15,8 @@ export const productFilters = {
   upload: { label: "Manuel liste", where: "p.suppliers @> '{manual}'" },
   manual: { label: "Elle karar verilen", where: "EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=p.id AND s.method='manual')" },
   inactive: { label: "Satışta değil", where: "p.suppliers='{}'" },
+  edited: { label: "Elle düzenlenen", where: "EXISTS (SELECT 1 FROM product_overrides o WHERE o.product_id=p.id)" },
+  hidden: { label: "Mağazada gizli", where: "EXISTS (SELECT 1 FROM product_overrides o WHERE o.product_id=p.id AND o.hidden)" },
 } as const;
 export type ProductFilter = keyof typeof productFilters;
 export const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
@@ -46,11 +50,6 @@ const offersSql = `WITH sources AS (
    SELECT s.product_id, c.id, c.supplier, c.price_kurus, c.available, c.stock_label FROM sources s
    JOIN commerce_catalog c ON c.id=s.supplier_item_id AND c.id=ANY(ARRAY(SELECT supplier_item_id FROM sources))
  )`;
-
-// A product's categories are the enrichment (Trodo) categories of its supplier rows, labelled in Turkish.
-const productCategoriesSql = `SELECT s.product_id, pc.category_id, l.name FROM product_source_categories pc
-  JOIN product_sources s ON s.supplier_item_id=pc.supplier_item_id
-  JOIN source_category_labels l ON l.source=pc.source AND l.category_id=pc.category_id AND l.locale='tr' WHERE pc.source='trodo'`;
 
 type ListedProduct = Omit<ProductRow, "best_price" | "best_supplier" | "available" | "sources" | "categories">;
 
@@ -114,13 +113,16 @@ export async function listProducts(params: { q?: string; filter?: string; brands
   const brandValues: unknown[] = [brands], categoryValues: unknown[] = [categories];
   const brandWhere = [...listed, ...categories.length ? [byCategory(brandValues)] : []].join(" AND ");
   const categoryWhere = [...listed, ...brands.length ? [byBrand(categoryValues)] : []].join(" AND ");
+  // Edited products among the listed ones (merged products only redirect), in the brand/category scope.
+  const edited = `product_overrides o JOIN products p ON p.id=o.product_id AND p.merged_into IS NULL${scope.length ? ` AND ${scope.join(" AND ")}` : ""}`;
   const [first, counts, brandOptions, categoryOptions] = await Promise.all([
     pageAt(wanted),
     q ? Promise.resolve(null) : db.query<Record<ProductFilter, number>>(`SELECT count(*) FILTER (WHERE merged_into IS NULL)::int AS all,
       count(*) FILTER (WHERE cardinality(suppliers)>1)::int AS multi, count(*) FILTER (WHERE suppliers='{basbug}')::int AS basbug,
       count(*) FILTER (WHERE suppliers='{dinamik}')::int AS dinamik, count(*) FILTER (WHERE suppliers @> '{seta}')::int AS seta,
       (SELECT count(DISTINCT s.product_id) FROM product_sources s ${scope.length ? `JOIN products p ON p.id=s.product_id AND ${scope.join(" AND ")} ` : ""}WHERE s.method='manual')::int AS manual,
-      count(*) FILTER (WHERE suppliers='{}' AND merged_into IS NULL)::int AS inactive FROM products p${scope.length ? ` WHERE ${scope.join(" AND ")}` : ""}`, scoped),
+      count(*) FILTER (WHERE suppliers='{}' AND merged_into IS NULL)::int AS inactive,
+      (SELECT count(*) FROM ${edited})::int AS edited, (SELECT count(*) FROM ${edited} WHERE o.hidden)::int AS hidden FROM products p${scope.length ? ` WHERE ${scope.join(" AND ")}` : ""}`, scoped),
     db.query<{ label: string; count: number }>(`SELECT p.brand_label AS label, count(*) FILTER (WHERE ${brandWhere})::int AS count FROM products p
       GROUP BY p.brand_label HAVING count(*) FILTER (WHERE ${brandWhere})>0 OR p.brand_label=ANY($1::text[]) ORDER BY p.brand_label`, brandValues),
     db.query<{ id: string; label: string; count: number }>(`SELECT c.category_id::text AS id, c.name AS label,
@@ -173,7 +175,7 @@ export async function getMasterProduct(id: string) {
   // The store still lists supplier rows in this phase: the row it shows for this product.
   const listed = sources.rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
     ?? sources.rows.find(row => row.saleable) ?? null;
-  return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null };
+  return { product, sources: sources.rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override: await loadProductOverride(db, id) };
 }
 
 type MergeTarget = {
