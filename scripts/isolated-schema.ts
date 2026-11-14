@@ -5,7 +5,7 @@ import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 
 // The schema files scripts/setup.ts applies, in its order.
 const setupFiles = ["schema", "brand-launch", "vehicle-schema", "vehicle-oil-specs", "commerce", "search", "garage", "product-enrichment",
-  "manual-supplier", "manufacturer-logos", "vehicle-type-specs", "enrichment-worker", "product-fitments", "source-categories", "product-matching",
+  "manual-supplier", "manufacturer-logos", "vehicle-type-specs", "enrichment-worker", "product-fitments", "source-categories", "product-matching", "product-overrides",
   "storefront-catalog", "restock-requests", "enrichment-products", "enrichment-states", "enrichment-shared-links", "storefront-make-fits", "newsletter"];
 
 /**
