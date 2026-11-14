@@ -161,10 +161,14 @@ export type DinamikRun = { id: string; run_kind: string; warehouse: string; revi
 export async function adminDinamikOverview() {
   await requireAdmin();
   const [items, scopes, runs, recent, lastSucceeded, failing, discovery] = await Promise.all([
-    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
-      count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
-      count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
-      FROM supplier_items WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND presence='present'`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE]),
+    // Brands are counted as groups of one hash aggregate: count(DISTINCT) sorted ~940k rows on disk (#502). Scope rows are
+    // not a substitute, they include brands that have no current item.
+    db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT COALESCE(sum(present),0)::int AS present,
+      COALESCE(sum(available),0)::int AS available,COALESCE(sum(priced),0)::int AS priced,COALESCE(sum(conflicting),0)::int AS conflicting,count(*)::int AS brands
+      FROM (SELECT list_group,count(*) AS present,count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%') AS available,
+        count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL) AS priced,count(*) FILTER (WHERE conflicting) AS conflicting
+        FROM supplier_items WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND presence='present' GROUP BY list_group) brands`,
+      [DINAMIK_COMPANY, DINAMIK_WAREHOUSE]),
     db.query<{ enabled: number; synced: number; failing: number; due: number; last_success: Date | null; oldest_success: Date | null }>(`SELECT count(*) FILTER (WHERE enabled)::int AS enabled,
       count(*) FILTER (WHERE enabled AND last_success_at IS NOT NULL)::int AS synced,count(*) FILTER (WHERE enabled AND consecutive_failures>0)::int AS failing,
       count(*) FILTER (WHERE enabled AND next_run_at<=now())::int AS due,max(last_success_at) AS last_success,min(last_success_at) FILTER (WHERE enabled) AS oldest_success
