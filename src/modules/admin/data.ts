@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
@@ -21,13 +22,11 @@ type CurrencySnapshot = {
 
 const serviceColumns = "id,name,email,approved,discount_percent,contact_name,phone,city";
 
+/** Service applications waiting for approval (the dashboard list). */
 export async function adminOverview() {
   await requireAdmin();
-  const [counts, accounts] = await Promise.all([
-    db.query<{ database: string; products: string }>("SELECT current_database() as database,(SELECT count(*) FROM store_products) as products"),
-    db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY approved,name`),
-  ]);
-  return { counts: counts.rows[0], accounts: accounts.rows };
+  const accounts = await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' AND NOT approved ORDER BY name`);
+  return { accounts: accounts.rows };
 }
 
 export async function adminServiceAccounts() {
@@ -89,7 +88,25 @@ export async function adminNavCounts() {
   return { ...rows[0], restock };
 }
 
-export type DashboardDay = { day: string; orders: number; revenue_kurus: number };
+export type DashboardDay = { day: string; orders: number };
+// Admin-wide figures that walk a large table and move slowly (no per-user content). Reused for up to a minute;
+// after that the next request waits for a fresh read, so a long-idle panel never shows day-old numbers.
+function ttlMemo<T>(ttlMs: number, load: () => Promise<T>) {
+  let cached: { value: Promise<T>; at: number } | null = null;
+  return () => {
+    if (cached && Date.now() - cached.at <= ttlMs) return cached.value;
+    const entry = { value: load(), at: Date.now() };
+    cached = entry;
+    // A failed read is not reused: the next request tries again.
+    entry.value.catch(() => { if (cached === entry) cached = null; });
+    return entry.value;
+  };
+}
+const basbugPresentItems = ttlMemo(60_000, async () =>
+  (await db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'")).rows[0]);
+const enrichmentStatusCounts = ttlMemo(60_000, async () =>
+  (await db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status")).rows);
+
 export async function adminDashboard() {
   await requireAdmin();
   const [orders, days, recent, catalog, enrichment, imports, succeeded, brands] = await Promise.all([
@@ -102,21 +119,20 @@ export async function adminDashboard() {
       count(*) FILTER (WHERE paid_at>=now()-interval '30 days' AND payment_status='paid')::int AS paid_30d,
       COALESCE(sum(total_kurus) FILTER (WHERE paid_at>=now()-interval '60 days' AND paid_at<now()-interval '30 days' AND payment_status='paid'),0) AS revenue_prev_30d
       FROM commerce_orders o`),
-    db.query<DashboardDay>(`SELECT to_char(d,'YYYY-MM-DD') AS day,count(o.id)::int AS orders,
-      COALESCE(sum(o.total_kurus) FILTER (WHERE o.payment_status='paid'),0)::bigint::float8 AS revenue_kurus
+    db.query<DashboardDay>(`SELECT to_char(d,'YYYY-MM-DD') AS day,count(o.id)::int AS orders
       FROM generate_series((now() AT TIME ZONE 'Europe/Istanbul')::date-13,(now() AT TIME ZONE 'Europe/Istanbul')::date,interval '1 day') d
       LEFT JOIN commerce_orders o ON (o.created_at AT TIME ZONE 'Europe/Istanbul')::date=d::date GROUP BY d ORDER BY d`),
     db.query<Pick<CommerceOrder, "id" | "number" | "customer_name" | "total_kurus" | "status" | "payment_status" | "created_at">>(
       "SELECT id,number,customer_name,total_kurus,status,payment_status,created_at FROM commerce_orders ORDER BY created_at DESC,id DESC LIMIT 6"),
-    db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'"),
-    db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status"),
+    basbugPresentItems(),
+    enrichmentStatusCounts(),
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
     db.query<{ completed_at: Date }>("SELECT completed_at FROM supplier_imports WHERE supplier='basbug' AND status='succeeded' ORDER BY completed_at DESC LIMIT 1"),
     db.query<{ pending: number; fresh: number }>(`SELECT (${pendingBrandsSql}) AS pending,
       (SELECT count(*)::int FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b) AS fresh`),
   ]);
-  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog: catalog.rows[0], enrichment: enrichment.rows, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null, brands: brands.rows[0] };
+  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog, enrichment, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null, brands: brands.rows[0] };
 }
 
 export type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
@@ -171,7 +187,7 @@ export async function adminDinamikOverview() {
 export const supplierFeedCompanies = (): Record<FeedSupplier, string> => ({ basbug: process.env.BASBUG_FIRMA_ADI || "BASBUG", dinamik: DINAMIK_COMPANY, seta: setaCompany });
 
 /** Freshness of each API feed, evaluated without the scheduler (sidebar, dashboard and supplier pages share it). */
-export async function adminSupplierFeedStatus() {
+export const adminSupplierFeedStatus = cache(async () => {
   await requireAdmin();
   const scopes = await supplierFeedScopes(db, supplierFeedCompanies());
   const now = new Date();
@@ -180,9 +196,9 @@ export async function adminSupplierFeedStatus() {
     dinamik: evaluateFeed(scopes.dinamik, now, Boolean(process.env.DINAMIK_BASE)),
     seta: evaluateFeed(scopes.seta, now, Boolean(process.env.SETA_API_KEY)),
   };
-}
+});
 
-export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; available: number; saleable: number; conflicting: number; dropped: number };
+export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; available: number; saleable: number; conflicting: number };
 export type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
 
 /** Everything the supplier overview shows: feed status, catalog coverage per supplier, 24h attempts, scheduler state. */
@@ -200,8 +216,7 @@ export async function adminSupplierFeeds() {
         count(*) FILTER (WHERE i.presence='present' AND i.stock_data IS NULL)::int AS unstocked,
         count(c.id) FILTER (WHERE i.presence='present' AND c.available)::int AS available,
         count(c.id) FILTER (WHERE i.presence='present' AND c.available AND c.price_kurus IS NOT NULL)::int AS saleable,
-        count(*) FILTER (WHERE i.presence='present' AND i.conflicting)::int AS conflicting,
-        count(*) FILTER (WHERE i.presence='pending_missing')::int AS dropped
+        count(*) FILTER (WHERE i.presence='present' AND i.conflicting)::int AS conflicting
       FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id
       WHERE (i.supplier,i.company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY i.supplier`, pairs),
     // A failed attempt is unresolved only while its scope has not succeeded since.
@@ -214,7 +229,7 @@ export async function adminSupplierFeeds() {
         AND (r.supplier,r.company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY r.supplier`, pairs),
     supplierSchedulerState(db),
   ]);
-  const empty = { present: 0, priced: 0, unstocked: 0, available: 0, saleable: 0, conflicting: 0, dropped: 0 };
+  const empty = { present: 0, priced: 0, unstocked: 0, available: 0, saleable: 0, conflicting: 0 };
   const none = { total: 0, succeeded: 0, failed: 0, rejected: 0, unresolved: 0 };
   const pick = <T,>(rows: (T & { supplier: string })[], fallback: T) =>
     Object.fromEntries(keys.map(key => [key, rows.find(row => row.supplier === key) ?? fallback])) as Record<(typeof keys)[number], T>;

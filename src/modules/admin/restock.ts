@@ -18,7 +18,9 @@ const offerSql = `LEFT JOIN products p ON p.id=r.product_id
  LEFT JOIN LATERAL (
   SELECT c.id::text,c.price_kurus,c.stock_label FROM (
    SELECT m.supplier_item_id AS id FROM product_sources m WHERE m.product_id=COALESCE(p.merged_into,p.id)
-   UNION SELECT i.id FROM supplier_items i WHERE i.supplier=r.supplier AND i.code=r.code AND i.presence='present') candidate
+   UNION SELECT i.id FROM supplier_items i WHERE i.supplier=r.supplier AND i.code=r.code AND i.presence='present'
+    -- The saleable predicate of supplier_items_saleable_code_idx (= commerce_supplier_items), so the partial index applies.
+    AND ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND NOT i.conflicting) candidate
   JOIN LATERAL (SELECT * FROM commerce_catalog cc WHERE cc.id=candidate.id OFFSET 0) c ON true
   WHERE c.available AND c.price_kurus IS NOT NULL AND c.company=ANY($1::text[])
   ORDER BY c.price_kurus,c.id LIMIT 1) offer ON r.status='pending'`;
