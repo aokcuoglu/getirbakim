@@ -76,3 +76,17 @@ test("other depot data survives a missing MRK row without pretending the primary
   assert.equal(basbugWarehouseStock(result.items[0].stock_data, "IZM"), 1);
   assert.equal(basbugWarehouseStock(result.items[0].stock_data, "KYS"), null);
 });
+
+test("a repeated row that only fills an empty field merges instead of conflicting", () => {
+  // FILT AP 026/5: the same product twice, ac2 empty in one row and "HAVA FILTRESI" in the other.
+  const result = prepareBasbugImport({ products: { malzemeListesi: [{ ...product, ac2: "" }, { ...product, ac2: "HAVA FILTRESI" }] },
+    prices: { fiyatListesi: [price] }, stock: { stokListesi: [stock] } });
+  assert.equal(result.items[0].conflicting, false);
+  assert.equal((result.items[0].product_data as { ac2: string }).ac2, "HAVA FILTRESI");
+  assert.equal(result.quality.conflictingCodes, 0);
+  // Two different filled values still conflict, also after a merge.
+  const clash = prepareBasbugImport({ products: { malzemeListesi: [{ ...product, ac2: "" }, { ...product, ac2: "HAVA FILTRESI" }, { ...product, ac2: "YAG FILTRESI" }] },
+    prices: { fiyatListesi: [price] }, stock: { stokListesi: [stock] } });
+  assert.equal(clash.items[0].conflicting, true);
+  assert.equal((clash.items[0].source_variants.products as unknown[]).length, 3);
+});
