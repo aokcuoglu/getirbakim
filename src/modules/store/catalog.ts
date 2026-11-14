@@ -69,6 +69,27 @@ export async function getSetaEquivalents(id: string) {
   WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)
   ORDER BY priced.id) seta ORDER BY available DESC,price_kurus NULLS LAST,code LIMIT 24`, [company(), id])).rows;
 }
+/**
+ * Equivalents an admin decided (a hand-made link, or a brand pair decided as equivalent: same numbering, another
+ * product) under their master brand's name. `id` is the store row the equivalent is listed under (its own row first,
+ * never a grouped offer's secondary row), null when none is on sale: its code is still a valid reference number.
+ * Automatic OEM/cross equivalents are left out; the page shows them as reference numbers already.
+ */
+export async function getDecidedEquivalents(id: string) {
+ if (!z.uuid().safeParse(id).success) return [];
+ return (await db.query<{ id: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+   COALESCE(b.name,q.brand_label) AS brand, COALESCE(listed.code,q.code) AS code, listed.available
+  FROM product_sources s
+  JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
+  JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
+  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available FROM product_sources o
+   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
+   WHERE o.product_id=q.id
+    AND NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)
+   ORDER BY o.supplier_item_id=q.id DESC, priced.available DESC, o.supplier_item_id LIMIT 1) listed ON true
+  WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48`, [company(), id])).rows
+  .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code));
+}
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
 export function money(kurus: number) { return new Intl.NumberFormat("tr-TR",{ style:"currency", currency:"TRY" }).format(kurus/100); }
 

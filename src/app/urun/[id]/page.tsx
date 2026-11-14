@@ -4,7 +4,7 @@ import { siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
-import { getProduct, getSetaEquivalents, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
+import { getDecidedEquivalents, getProduct, getSetaEquivalents, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { PurchaseForm } from "@/components/purchase-form";
 import { PartArt } from "@/components/part-art";
@@ -88,19 +88,25 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     ...Object.entries(enrichment?.crossReferences || {}).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
     ...Object.entries(enrichment?.oemNumbers || {}).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
   ]);
-  const seta = product.supplier === "seta" ? [] : await getSetaEquivalents(product.id);
+  const [seta, decided] = await Promise.all([product.supplier === "seta" ? [] : getSetaEquivalents(product.id), getDecidedEquivalents(product.id)]);
   const referenceRows: [string, { code: string; href?: string | null }[]][] = references.map(([brand, codes]) => [brand, codes.map(code => ({ code, href: referenceHref(brand, code) }))]);
-  if (seta.length > 0) {
-    const setaCodes = seta.map(item => ({ code: item.code, href: `/urun/${item.id}` }));
-    const existing = referenceRows.findIndex(([brand]) => brand.toLocaleUpperCase("tr-TR") === "SETA");
+  // Equivalents listed in the store link to their pages, first in their brand's row; a code printed by the
+  // enrichment's references as well is shown once.
+  const linkEquivalents = (brand: string, items: { id: string | null; code: string }[]) => {
+    // Dinamik codes carry the brand's first word ("WAGENBURG 15036003"), printed in the row's label already.
+    const prefix = `${brand.split(" ")[0]} `;
+    const linked = items.map(item => ({ code: brand !== "SETA" && item.code.startsWith(prefix) ? item.code.slice(prefix.length) : item.code, href: item.id && `/urun/${item.id}` }));
+    const existing = referenceRows.findIndex(([name]) => name.toLocaleUpperCase("tr-TR") === brand.toLocaleUpperCase("tr-TR"));
     if (existing >= 0) {
-      const [brand, codes] = referenceRows[existing];
-      referenceRows[existing] = [brand, [...setaCodes, ...codes.filter(({ code }) => !setaCodes.some(item => item.code === code))]];
-    } else {
-      referenceRows.push(["SETA", setaCodes]);
-      referenceRows.sort(([a], [b]) => a.localeCompare(b));
-    }
-  }
+      const [name, codes] = referenceRows[existing];
+      referenceRows[existing] = [name, [...linked, ...codes.filter(({ code }) => !linked.some(item => item.code === code))]];
+    } else referenceRows.push([brand, linked]);
+  };
+  if (seta.length > 0) linkEquivalents("SETA", seta);
+  const decidedBrands = new Map<string, typeof decided>();
+  for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
+  for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);
+  referenceRows.sort(([a], [b]) => a.localeCompare(b));
   const crumbLink = "transition-colors hover:text-[#2d78c7]";
   const crumbSeparator = <BreadcrumbSeparator className="[&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
   const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
