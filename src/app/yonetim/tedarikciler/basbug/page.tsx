@@ -56,7 +56,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
   const params = normalizeSearchParams(await searchParams);
   await requireAdmin();
   const [data, checkoutMode, activity, feeds] = await Promise.all([adminBasbugData(params), supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
-  const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages, capped } = data;
+  const { snapshot, group, knownGroups, items, currencies, total, page, pages, capped } = data;
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
   const schedule = scheduleLines(mrkScopes, { commerceLabel });
   const lastCommerce = mrkScopes.map(scope => scope.commerce_last_success_at).filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0]
@@ -149,7 +149,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </div>}
     products={<SupplierBrowser><Card>
       <CardHeader className="border-b">
-        <BasbugProductFilters key={[group,params.q,params.brand,params.currency,params.warehouse,params.stock,params.presence,params.quality].join("|")} params={params} groups={knownGroups.map(g => ({ ...g, ready: data.snapshots.some(s => s.list_group === g.kod) }))} brands={brands} currencies={currencies}/>
+        <BasbugProductFilters key={[group,params.q,params.brand,params.currency,params.warehouse,params.stock,params.presence,params.quality].join("|")} params={params} groups={knownGroups.map(g => ({ ...g, ready: data.snapshots.some(s => s.list_group === g.kod) }))} currencies={currencies}/>
       </CardHeader>
       {!snapshot ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Bu grubun verileri henüz çekilmedi.</EmptyTitle><EmptyDescription>Senkronizasyon sekmesinden liste grubunu seçip API’den çekebilirsiniz.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">

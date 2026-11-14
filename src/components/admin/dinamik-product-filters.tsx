@@ -12,16 +12,17 @@ import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } 
 import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import type { DinamikParams } from "@/modules/admin/dinamik";
 
-export function DinamikProductFilters({ params, brands, groups }: { params: DinamikParams; brands: string[]; groups: string[] }) {
+// The brand is chosen from the table's "Marka" header filter (?brand=); the form only carries it along.
+export function DinamikProductFilters({ params, groups }: { params: DinamikParams; groups: string[] }) {
   const [presence, setPresence] = useState(params.presence || "present");
   const [quality, setQuality] = useState(params.quality || "");
   const extraCount = Number(presence !== "present") + Number(Boolean(quality));
   return <form action="/yonetim/tedarikciler/dinamik" aria-label="Ürün filtreleri" className="flex items-center gap-2">
     <input type="hidden" name="presence" value={presence}/>
     <input type="hidden" name="quality" value={quality}/>
+    {params.brand && <input type="hidden" name="brand" value={params.brand}/>}
     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
       <InputGroup className="min-w-44 flex-1"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Stok kodu, ürün adı veya OEM" maxLength={120}/></InputGroup>
-      <NativeSelect className="w-36" aria-label="Marka" name="brand" defaultValue={params.brand || ""}><NativeSelectOption value="">Tüm markalar</NativeSelectOption>{brands.map(brand => <NativeSelectOption key={brand} value={brand}>{brand}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-36" aria-label="Ürün grubu" name="group" defaultValue={params.group || ""}><NativeSelectOption value="">Ürün grupları</NativeSelectOption>{groups.map(group => <NativeSelectOption key={group} value={group}>{group}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-28" aria-label="Stok bölgesi" name="region" defaultValue={dinamikRegion(params.region)}><NativeSelectOption value="any">Herhangi bölge</NativeSelectOption>{dinamikRegions.map(region => <NativeSelectOption key={region.key} value={region.key}>{region.label}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-28" aria-label="Stok durumu" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">Stok: tümü</NativeSelectOption><NativeSelectOption value="1">Stok var</NativeSelectOption><NativeSelectOption value="0">Stok yok</NativeSelectOption><NativeSelectOption value="unknown">Veri yok</NativeSelectOption></NativeSelect>

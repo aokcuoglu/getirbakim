@@ -126,7 +126,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
     </div>}
     products={<SupplierBrowser><Card>
       <CardHeader className="border-b">
-        <DinamikProductFilters key={[...filterKeys, "sort", "dir"].map(key => params[key]).join("|")} params={params} brands={list.brands} groups={list.groups}/>
+        <DinamikProductFilters key={[...filterKeys, "sort", "dir"].map(key => params[key]).join("|")} params={params} groups={list.groups}/>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.brand || "Tüm markalar"}{params.stock && ` · ${region === "any" ? "Herhangi bölge" : dinamikRegions.find(r => r.key === region)?.label}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.dinamik} (<Link className="underline" href="/yonetim/fiyatlandirma">oranlar</Link>) · Ürün bilgisi olmayan kodlar mağazada yok</span></div>

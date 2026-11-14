@@ -12,10 +12,10 @@ import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } 
 import { basbugWarehouse, basbugWarehouses } from "@/modules/suppliers/basbug-stock";
 import type { BasbugParams } from "@/modules/admin/basbug";
 
-export function BasbugProductFilters({ params, groups, brands, currencies }: {
+// The brand is chosen from the table's "Marka" header filter (?brand=); the form only carries it along.
+export function BasbugProductFilters({ params, groups, currencies }: {
   params: BasbugParams;
   groups: { kod: string; ad: string; ready: boolean }[];
-  brands: string[];
   currencies: string[];
 }) {
   const [presence, setPresence] = useState(params.presence || "present");
@@ -24,10 +24,10 @@ export function BasbugProductFilters({ params, groups, brands, currencies }: {
   return <form action="/yonetim/tedarikciler/basbug" aria-label="Ürün filtreleri" className="flex items-center gap-2">
     <input type="hidden" name="presence" value={presence}/>
     <input type="hidden" name="quality" value={quality}/>
+    {params.brand && <input type="hidden" name="brand" value={params.brand}/>}
     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
       <InputGroup className="min-w-44 flex-1"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon><InputGroupInput name="q" aria-label="Ara" defaultValue={params.q} placeholder="Parça, OEM, ürün veya marka" maxLength={120}/></InputGroup>
       <NativeSelect className="w-32" aria-label="Liste grubu" name="group" defaultValue={params.group || ""}><NativeSelectOption value="">Tüm gruplar</NativeSelectOption>{groups.map(g => <NativeSelectOption key={g.kod} value={g.kod}>{g.ad}{g.ready ? "" : " · Henüz çekilmedi"}</NativeSelectOption>)}</NativeSelect>
-      <NativeSelect className="w-28" aria-label="Marka" name="brand" defaultValue={params.brand || ""}><NativeSelectOption value="">Markalar</NativeSelectOption>{brands.map(b => <NativeSelectOption key={b} value={b}>{b || "Belirtilmemiş"}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-20" aria-label="Para birimi" name="currency" defaultValue={params.currency || ""}><NativeSelectOption value="">Döviz</NativeSelectOption>{currencies.map(c => <NativeSelectOption key={c} value={c}>{c}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-20" aria-label="Stok deposu" name="warehouse" defaultValue={basbugWarehouse(params.warehouse)}>{basbugWarehouses.map(depot => <NativeSelectOption key={depot} value={depot}>{depot}</NativeSelectOption>)}</NativeSelect>
       <NativeSelect className="w-28" aria-label="Stok durumu" name="stock" defaultValue={params.stock || ""}><NativeSelectOption value="">Stok: tümü</NativeSelectOption><NativeSelectOption value="1">Stok var</NativeSelectOption><NativeSelectOption value="0">Stok yok</NativeSelectOption><NativeSelectOption value="unknown">Veri yok</NativeSelectOption></NativeSelect>
