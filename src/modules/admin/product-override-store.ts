@@ -67,12 +67,13 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     if (expectedVersion !== undefined && expectedVersion !== (row?.version ?? automaticVersion)) {
       await client.query("ROLLBACK"); return { ok: false, reason: "stale" };
     }
-    // A campaign set to end in the past would never sell; refused instead of stored silently.
-    if (patch.sale_until && (await client.query<{ ended: boolean }>("SELECT $1::timestamp AT TIME ZONE 'Europe/Istanbul'<=now() AS ended",
-      [patch.sale_until])).rows[0].ended) {
+    const current: ProductOverrideValues = row ? Object.fromEntries(productOverrideFields.map(field => [field, row[field]])) as ProductOverrideValues : empty;
+    // A new end in the past would never sell; refused instead of stored silently. An ended campaign left as it is does
+    // not block other changes (it no longer applies).
+    if (patch.sale_until && patch.sale_until !== current.sale_until && (await client.query<{ ended: boolean }>(
+      "SELECT $1::timestamp AT TIME ZONE 'Europe/Istanbul'<=now() AS ended", [patch.sale_until])).rows[0].ended) {
       await client.query("ROLLBACK"); return { ok: false, reason: "sale-expired" };
     }
-    const current: ProductOverrideValues = row ? Object.fromEntries(productOverrideFields.map(field => [field, row[field]])) as ProductOverrideValues : empty;
     const next: ProductOverrideValues = { ...current };
     for (const field of productOverrideFields) if (patch[field] !== undefined) Object.assign(next, { [field]: patch[field] });
     const changed = productOverrideFields.filter(field => historyValue(field, current[field]) !== historyValue(field, next[field]));
@@ -92,8 +93,11 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     else await client.query("DELETE FROM product_overrides WHERE product_id=$1", [productId]);
     const version = anySet ? (await client.query<{ version: string }>(`SELECT ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0].version
       : automaticVersion;
-    // Fields the admin set now are theirs: undoing a merge that carried them must not take them back.
-    await client.query("UPDATE product_override_carries SET fields=fields-$2::text[] WHERE target=$1 AND fields ?| $2::text[]", [productId, changed]);
+    // Fields the admin set now are theirs: undoing a merge that carried them must not take them back. The campaign is
+    // one unit (price and window): touching any part of a carried campaign makes all of it the admin's.
+    const campaign = ["sale_price_kurus", "sale_from", "sale_until"];
+    const owned = changed.some(field => campaign.includes(field)) ? [...new Set([...changed, ...campaign])] : changed;
+    await client.query("UPDATE product_override_carries SET fields=fields-$2::text[] WHERE target=$1 AND fields ?| $2::text[]", [productId, owned]);
     await client.query("DELETE FROM product_override_carries WHERE target=$1 AND fields='{}'::jsonb", [productId]);
     await client.query("SELECT product_overrides_project(ARRAY[$1::uuid])", [productId]);
     await client.query("COMMIT");

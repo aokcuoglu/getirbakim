@@ -163,13 +163,13 @@ test("a merge carries prices by the same rule while the pair stays valid; undoin
   assert.deepEqual([carried?.price_kurus, carried?.sale_price_kurus, carried?.sale_from, carried?.sale_until], [30000, 25000, null, "2099-01-01T00:00"]);
   // nf 100 TL prices both rows by the formula, so the carried campaign sells on the kept product's rows.
   for (const key of ["priceA", "priceB"]) assert.equal((await catalog.getStorefrontProduct(ids[key]))?.price_kurus, 25000, key);
-  // The admin moves the carried campaign's end on B: the end is B's own, but it cannot outlive the carried price.
+  // The admin moves the carried campaign's end on B: the whole campaign (price and window) is B's own now.
   await persist(schema.pool, b, { sale_until: "2098-01-01T00:00" }, admin);
   await schema.pool.query("SELECT product_reset_item($1)", [ids.priceA]);
   const { override, changes } = await store.loadProductOverride(schema.pool, b);
-  assert.equal(override, null);
-  assert.deepEqual(changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value]).sort(),
-    [["price_kurus", "30000"], ["sale_price_kurus", "25000"], ["sale_until", "2098-01-01T00:00"]]);
+  assert.deepEqual([override?.price_kurus, override?.sale_price_kurus, override?.sale_until], [null, 25000, "2098-01-01T00:00"]);
+  assert.deepEqual(changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value]), [["price_kurus", "30000"]]);
+  // Without the fixed price the 250.00 campaign is above the 156.00 formula price: not applied.
   assert.equal((await catalog.getStorefrontProduct(ids.priceB))?.price_kurus, 15600);
   // A target's own fixed price at or below the merged campaign keeps the campaign out (the pair would be invalid);
   // the merged fixed price is not carried over the target's own either.
@@ -178,6 +178,28 @@ test("a merge carries prices by the same rule while the pair stays valid; undoin
   assert.deepEqual((await merge(c, d)).rows[0].carried, { fields: [], hidden: false });
   const kept = (await store.loadProductOverride(schema.pool, d)).override;
   assert.deepEqual([kept?.price_kurus, kept?.sale_price_kurus], [21000, null]);
+});
+
+test("a carried campaign is one unit: changing its price keeps the window when the merge is undone (#580)", async () => {
+  await item("unitA", { supplier: "basbug", code: "UNA 16016", brand: "UNITA", name: "UNIT A" });
+  await item("unitB", { supplier: "basbug", code: "UNB 17017", brand: "UNITB", name: "UNIT B" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const a = await productOf("unitA"), b = await productOf("unitB");
+  await persist(schema.pool, a, { sale_price_kurus: 14000, sale_from: "2026-01-01T00:00", sale_until: "2099-01-01T00:00" }, admin);
+  await schema.pool.query("WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT product_overrides_carry($1, id, $3) FROM merged", [a, b, admin]);
+  // The admin changes only the campaign price on B: the whole campaign is B's now.
+  assert.deepEqual(await persist(schema.pool, b, { sale_price_kurus: 13000 }, admin), { ok: true, changed: ["sale_price_kurus"] });
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_carries WHERE target=$1", [b])).rows[0].n, 0);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.unitA]);
+  const { override } = await store.loadProductOverride(schema.pool, b);
+  assert.deepEqual([override?.sale_price_kurus, override?.sale_from, override?.sale_until], [13000, "2026-01-01T00:00", "2099-01-01T00:00"]);
+  // A record from before this rule (window still carried, price not): the window stays with the admin's price.
+  await persist(schema.pool, a, { sale_price_kurus: null, sale_from: null, sale_until: null }, admin);
+  await schema.pool.query(`INSERT INTO product_override_carries(target,source,fields) VALUES($1,$2,'{"sale_from":"2026-01-01T00:00","sale_until":"2099-01-01T00:00"}')`, [b, a]);
+  await schema.pool.query("UPDATE products SET merged_into=$2 WHERE id=$1", [a, b]);
+  await schema.pool.query("UPDATE products SET merged_into=NULL WHERE id=$1", [a]);
+  const after = (await store.loadProductOverride(schema.pool, b)).override;
+  assert.deepEqual([after?.sale_price_kurus, after?.sale_from, after?.sale_until], [13000, "2026-01-01T00:00", "2099-01-01T00:00"]);
 });
 
 test("a hidden product is off sale everywhere and its old links do not loop", async () => {

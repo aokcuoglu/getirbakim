@@ -192,11 +192,14 @@ BEGIN
      WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END
      WHEN 'price_kurus' THEN t.price_kurus::text WHEN 'sale_price_kurus' THEN t.sale_price_kurus::text
      WHEN 'sale_from' THEN product_override_time_text(t.sale_from) WHEN 'sale_until' THEN product_override_time_text(t.sale_until) END);
-   -- Dates without a campaign price are invalid (CHECK): a campaign price taken back takes its window with it, even
-   -- dates an admin changed since.
+   -- The campaign is one unit: its window goes back only with its price (a window alone would leave the admin's
+   -- price running without an end), and a price taken back takes its window with it (dates without a price break
+   -- the CHECK). The admin's save drops the whole campaign from the record when any part of it changes.
    IF 'sale_price_kurus'=ANY(reverted) THEN
     IF t.sale_from IS NOT NULL AND NOT 'sale_from'=ANY(reverted) THEN reverted := array_append(reverted,'sale_from'); END IF;
     IF t.sale_until IS NOT NULL AND NOT 'sale_until'=ANY(reverted) THEN reverted := array_append(reverted,'sale_until'); END IF;
+   ELSE
+    reverted := array_remove(array_remove(reverted,'sale_from'),'sale_until');
    END IF;
    IF cardinality(reverted)>0 THEN
     INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
