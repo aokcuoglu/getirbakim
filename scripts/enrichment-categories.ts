@@ -28,7 +28,11 @@ try{
      rejected++;await client.query('ROLLBACK');continue;
     }
     data.categories=await productCategories(client,product);
-    const result=await client.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{categories}',$2::jsonb)
+    // imported_at moves only when the categories change, so storefront:sync carries them (same reason as
+    // otoparcasan-enrichment.ts images) without re-sending every enrichment a backfill revisits. The row is still
+    // updated either way, so the mapping rewrite below runs as before.
+    const result=await client.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{categories}',$2::jsonb),
+     imported_at=CASE WHEN payload->'categories' IS DISTINCT FROM $2::jsonb THEN now() ELSE imported_at END
      WHERE supplier_item_id=$1 AND payload=$3::jsonb AND source_url=$4 AND match_basis=$5::jsonb RETURNING supplier_item_id`,
      [row.supplier_item_id,JSON.stringify(data.categories),JSON.stringify(row.payload),row.source_url,JSON.stringify(row.match_basis)]);
     if(result.rowCount){

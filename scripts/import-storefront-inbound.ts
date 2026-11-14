@@ -1,21 +1,35 @@
 import { spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
+import { Pool } from "pg";
+import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
 // AWS counterpart of the VPS steps in sync-storefront-production.ts. Runs in the operations task, reads the parts
 // that the sync uploaded to s3://$INBOUND_BUCKET/<prefix>/<part>/ and does what the SSH steps did on the VPS:
-// dry-run every part → apply every part → rebuild fitments. A failed dry run stops before anything is written.
+// dry-run every part → apply every part → rebuild fitments → drain the derived enrichment tables → write
+// s3://$S3_BUCKET/internal/storefront-sync/<prefix>/report.json (the media bucket: the task may only read the inbound
+// one; summed counts and the supplier items whose enrichments were skipped because they do not exist
+// here; the sync downloads it and sends those enrichments again next run). A failed dry run stops before anything is written.
 // Parts are downloaded one at a time, so task storage holds a single part (≤ ~100 MB of media) at a time.
 //
 // Usage: node --conditions=react-server --import tsx scripts/import-storefront-inbound.ts <prefix>
 //   e.g. storefront/current
 // The pre-import backup of the VPS flow is covered on AWS by RDS point-in-time recovery (7 days).
+//
+// Table decisions (#553; the full table is in docs/product-enrichment.md):
+// - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
+//   complete/partial product_enrichment_jobs (sent whole in part-00 every run; the storefront needs the job status).
+// - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts), product_enrichment_shared_links
+//   and storefront_make_fits (the shared-link queue the import filled is drained below), enrichment_product_states
+//   (enrichment-states.ts sync). product_model_fitments comes from production's own Dinamik items, not from this sync.
+// - not carried: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils), vehicle_type_trodo_oils,
+//   product_enrichment_sources.
 const prefix = process.argv[2]?.replace(/^\/+|\/+$/g, "");
 if (!prefix) throw new Error("Usage: import-storefront-inbound.ts <prefix>");
 const bucket = process.env.INBOUND_BUCKET;
@@ -53,6 +67,26 @@ function node(flags: string[], script: string, args: string[]) {
   if (result.status !== 0) throw new Error(`${script} ${args.join(" ")} failed with exit code ${result.status}`);
 }
 
+// The import's triggers queued the products it touched; the app drains that queue every few seconds, but the task
+// must not finish before the storefront tables are current. product_enrichment_shared_sync() returns 0 while another
+// caller (the app) holds its lock, and that caller's pass empties the queue, so wait for an empty queue either way
+// (same pattern as scripts/enrichment-states.ts).
+async function drainSharedLinks() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    let written = 0;
+    // A full refresh by the app (a large queue) can take minutes.
+    const deadline = Date.now() + 10 * 60 * 1000;
+    for (;;) {
+      written += (await pool.query<{ n: number }>("SELECT product_enrichment_shared_sync() AS n")).rows[0].n;
+      if (!(await pool.query("SELECT 1 FROM product_enrichment_shared_queue LIMIT 1")).rowCount) break;
+      if (Date.now() > deadline) throw new Error("The shared-link queue is still busy after 10 minutes.");
+      await new Promise(done => setTimeout(done, 1000));
+    }
+    console.log(JSON.stringify({ sharedLinks: written }));
+  } finally { await pool.end(); }
+}
+
 // Parts are named part-01, part-02, ... (split-storefront-bundle.ts) and are imported in numeric order
 // (part-100 must follow part-99, which a plain string sort would not do).
 const partNumber = (part: string) => Number(/part-(\d+)\/$/.exec(part)?.[1] ?? Number.NaN);
@@ -63,15 +97,32 @@ console.log(JSON.stringify({ bucket, prefix, parts: parts.length }));
 
 const work = await mkdtemp(join(tmpdir(), "storefront-"));
 try {
+  const applied: PartReport[] = [];
+  let snapshotAt: string | null = null;
   for (const apply of [false, true]) {
     for (const part of parts) {
       const dir = resolve(work, "part");
+      const reportFile = resolve(work, "part-report.json");
       await rm(dir, { recursive: true, force: true });
+      await rm(reportFile, { force: true });
       await download(part, dir);
-      node(["--conditions=react-server"], "scripts/import-storefront-bundle.ts", [dir, ...(apply ? ["--apply"] : [])]);
+      node(["--conditions=react-server"], "scripts/import-storefront-bundle.ts", [dir, ...(apply ? ["--apply", `--report=${reportFile}`] : [])]);
+      if (apply) {
+        snapshotAt ??= (JSON.parse(await readFile(resolve(dir, "manifest.json"), "utf8")) as { snapshotAt?: string }).snapshotAt ?? null;
+        applied.push(JSON.parse(await readFile(reportFile, "utf8")) as PartReport);
+      }
     }
   }
   node([], "scripts/rebuild-product-fitments.ts", []);
+  await drainSharedLinks();
+  node([], "scripts/enrichment-states.ts", ["sync"]);
+  // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so
+  // the sync keeps its watermark and the next run re-sends (idempotent). Each run overwrites the report.
+  const report = { snapshotAt, ...buildInboundReport(applied) };
+  console.log(JSON.stringify({ report: { ...report, skipped: report.skipped.length } }));
+  const mediaBucket = process.env.S3_BUCKET;
+  if (!mediaBucket) throw new Error("S3_BUCKET required for report.json");
+  await storage.send(new PutObjectCommand({ Bucket: mediaBucket, Key: reportKey(prefix), Body: JSON.stringify(report), ContentType: "application/json" }));
 } finally {
   await rm(work, { recursive: true, force: true });
 }

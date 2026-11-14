@@ -5,12 +5,13 @@ import { referencedItemIds, type BundleItem } from "./storefront-bundle-items";
 type Media = { id: string; object_key: string; size_bytes: number | string };
 type Row = Record<string, unknown>;
 type Manifest = Row & {
-  images: Row[]; products: Row[]; enrichments: Row[]; logos?: Row[]; vehicleImages?: Row[]; media: Media[]; items?: BundleItem[];
+  images: Row[]; products: Row[]; enrichments: Row[]; logos?: Row[]; jobs?: Row[]; vehicleImages?: Row[]; media: Media[]; items?: BundleItem[];
 };
 
-// Production's operations container is limited to 512 MB and import-storefront-bundle.ts holds every media
+// Production's operations task has 4096 MB (2 vCPU) and import-storefront-bundle.ts holds every media
 // file of a bundle in memory, so a large export is split into self-contained parts the unchanged importer
-// loads one by one. Part 0 carries the always-complete data (category images, logos, REPXPERT vehicle data) with
+// loads one by one. Part 0 carries the always-complete data (category images, logos, REPXPERT vehicle data,
+// enrichment job statuses) with
 // its media; every later part carries a run of enrichments with their mappings and images, cut at maxBytes
 // of media. The small category tree goes in every part: each part is dry-run on its own, and its mappings
 // reference categories that may be new. An image shared by enrichments in different parts is linked into each
@@ -27,7 +28,7 @@ export async function splitStorefrontBundle(source: string, out: string, maxByte
     ...manifest, products: [], enrichments: [],
     media: pick([...manifest.images.map(row => row.media_id), ...(manifest.vehicleImages ?? []).map(row => row.media_id)]),
   }];
-  const startPart = () => parts.push({ ...manifest, images: [], logos: [], vehicleSpecs: [], vehicleImages: [], products: [], enrichments: [], media: [] });
+  const startPart = () => parts.push({ ...manifest, images: [], logos: [], jobs: [], vehicleSpecs: [], vehicleImages: [], products: [], enrichments: [], media: [] });
   let bytes = 0;
   let ids = new Set<string>();
   const sizeIn = (image: string | null) => image && !ids.has(image) ? Number(pick([image])[0].size_bytes) : 0;

@@ -1,18 +1,25 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, sep } from "node:path";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
+import { importBundleJobs } from "./storefront-bundle-jobs";
+import { replaceBundleMappings } from "./storefront-bundle-mappings";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
 // matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
 // and rows whose supplier item does not exist here are skipped and counted.
+// manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts).
+// The bundle's category mappings replace those of its enrichments' products (storefront-bundle-mappings.ts).
+// --report=<path> (with --apply) writes the counts and the supplier items whose enrichments were skipped, so the
+// sync can send them again (import-storefront-inbound.ts → report.json → the sync's retry list).
 // Run scripts/rebuild-product-fitments.ts afterwards to derive vehicle fitments.
 const root = resolve(process.argv[2] || "/bundle");
 const apply = process.argv.includes("--apply");
+const reportPath = process.argv.find(arg => arg.startsWith("--report="))?.slice("--report=".length);
 const bucket = process.env.S3_BUCKET;
 if (!bucket) throw new Error("S3_BUCKET required");
 const manifest = JSON.parse(await readFile(resolve(root, "manifest.json"), "utf8"));
@@ -37,7 +44,8 @@ try {
   const json = (value: unknown) => JSON.stringify(value);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
-  const items = await resolveBundleItems(client, bundleItems(manifest));
+  const keys = bundleItems(manifest);
+  const items = await resolveBundleItems(client, keys);
   // bi.id is the local supplier item a bundle row belongs to; null when it does not exist here.
   const resolvedItem = "JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL";
   const missingItem = "NOT EXISTS (SELECT 1 FROM bundle_items bi WHERE bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL)";
@@ -51,7 +59,9 @@ try {
     JOIN product_media_objects m ON m.sha256=b.sha256`, [json(manifest.media)]);
   if (await count("SELECT count(*) FROM bundle_media") !== manifest.media.length) throw new Error("Media rows could not be resolved by sha256");
 
-  const report = {
+  // Bundles written before job statuses were carried have none; their jobs are left as they are.
+  const jobs = await importBundleJobs(client, manifest.jobs ?? []);
+  const written = {
     categories: await run(`INSERT INTO source_categories SELECT * FROM jsonb_populate_recordset(null::source_categories,$1::jsonb)
       ON CONFLICT (source,category_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,name=EXCLUDED.name,slug=EXCLUDED.slug,path_ids=EXCLUDED.path_ids,
       source_url=EXCLUDED.source_url,raw=EXCLUDED.raw,fetched_at=EXCLUDED.fetched_at`, json(manifest.categories)),
@@ -67,9 +77,13 @@ try {
       ON CONFLICT (supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,source_url=EXCLUDED.source_url,
       source_method=EXCLUDED.source_method,manufacturer=EXCLUDED.manufacturer,manufacturer_part_number=EXCLUDED.manufacturer_part_number,image_id=EXCLUDED.image_id,
       payload=EXCLUDED.payload,imported_at=EXCLUDED.imported_at,match_basis=EXCLUDED.match_basis`, json(manifest.enrichments)),
-    productMappings: await run(`INSERT INTO product_source_categories(supplier_item_id,source,category_id)
-      SELECT bi.id,r.source,r.category_id FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r ${resolvedItem}
-      ON CONFLICT DO NOTHING`, json(manifest.products)),
+  };
+  // After the category tree (the mappings reference it) and the enrichments they belong to.
+  const mappings = await replaceBundleMappings(client, manifest);
+  const report = {
+    ...written,
+    productMappings: mappings.inserted,
+    removedMappings: mappings.removed,
     logos: await run(`INSERT INTO manufacturer_logos(brand_key,manufacturer,image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at)
       SELECT r.brand_key,r.manufacturer,r.image_data,r.sha256,r.width,r.height,r.source_url,
       bi.id,r.evidence_source_url,r.imported_at
@@ -89,6 +103,8 @@ try {
       ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=EXCLUDED.imported_at`, json(vehicleImages)),
     skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleSpecs)),
     skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleImages)),
+    jobs: jobs.jobs,
+    skippedJobs: jobs.skipped,
     media: manifest.media.length,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, json(manifest.enrichments)),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
@@ -110,8 +126,14 @@ try {
       const saved = await (await storage.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.object_key }))).Body?.transformToByteArray();
       if (!saved || createHash("sha256").update(saved).digest("hex") !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
     }
+    const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
+      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [json(manifest.enrichments)])).rows.map(row => row.id);
     await client.query("COMMIT");
     console.log("APPLIED", report);
+    if (reportPath) {
+      const byId = new Map(keys.map(item => [item.id, item]));
+      await writeFile(reportPath, JSON.stringify({ report, skipped: skippedIds.map(id => byId.get(id) ?? { id }) }));
+    }
   }
 } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error; }
 finally { client.release(); storage.destroy(); await pool.end(); }
