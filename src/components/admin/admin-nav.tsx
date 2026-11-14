@@ -12,12 +12,12 @@ import {
 } from "@/components/ui/sidebar";
 
 export type AdminNavStatus = {
-  orders: number; services: number; enrichment: number;
+  orders: number; services: number; enrichment: number; brands: number;
   basbug: "success" | "warning" | "danger" | "neutral";
   dinamik: "success" | "warning" | "danger" | "neutral";
   seta: "success" | "warning" | "danger" | "neutral";
 };
-type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
+type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment" | "brands">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
 const sections: { title: string; items: Item[] }[] = [
   { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
   { title: "Satış", items: [
@@ -28,7 +28,7 @@ const sections: { title: string; items: Item[] }[] = [
   { title: "Katalog", items: [
     { href: "/yonetim/urunler", label: "Ürünler", icon: Package },
     { href: "/yonetim/urun-verileri", label: "Ürün zenginleştirme", icon: Layers3, count: "enrichment" },
-    { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows },
+    { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows, count: "brands" },
     { href: "/yonetim/yag-verileri", label: "Yağ verileri", icon: Droplets },
   ] },
   { title: "Entegrasyonlar", items: [

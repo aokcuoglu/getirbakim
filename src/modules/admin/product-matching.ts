@@ -26,8 +26,13 @@ export type SetaProduct = { id: string; supplier: string; code: string; name: st
 export type SetaItem = { id: string; code: string; name: string | null; price_kurus: number | null; available: boolean | null; linked: number; products: SetaProduct[] };
 export type MatchingTab = "brands" | "candidates" | "same" | "dinamik" | "seta";
 export type BrandLabel = { supplier: string; label: string; items: number; method: "auto" | "manual" };
-/** A master brand and the supplier labels deduplicated into it; `pending` while any label was placed automatically. */
-export type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; labels: BrandLabel[] };
+/** The reviewed brand a new master brand most likely is under another spelling (db brand_merge_suggestions). */
+export type BrandSuggestion = { id: string; name: string; shared_parts: number; parts: number; name_similarity: number };
+/**
+ * A master brand and the supplier labels deduplicated into it; `pending` while any label was placed automatically,
+ * `fresh` while every label was (a brand created by a new label), with the existing brand it may belong to.
+ */
+export type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; fresh: boolean; suggestion: BrandSuggestion | null; labels: BrandLabel[] };
 export type BrandScope = "pending" | "single" | "all";
 export const brandScopes: BrandScope[] = ["pending", "single", "all"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
@@ -50,6 +55,7 @@ const tabs: MatchingTab[] = ["brands", "candidates", "same", "dinamik", "seta"];
 // Per master brand: its labels, whether any is unconfirmed, and how many of Başbuğ/Dinamik sell it. A brand only one
 // of them sells may be the other's under another spelling; SETA is a brand of its own.
 const brandRows = `SELECT b.id::text,b.key,b.name,COALESCE(sum(sb.items),0)::int AS items,bool_or(sb.method='auto') AS pending,
+   bool_and(sb.method='auto') AS fresh,
    count(DISTINCT sb.supplier) FILTER (WHERE sb.supplier IN ('basbug','dinamik') AND sb.items>0) AS sellers,bool_or(sb.supplier='seta') AS seta,
    jsonb_agg(jsonb_build_object('supplier',sb.supplier,'label',sb.label,'items',sb.items,'method',sb.method) ORDER BY sb.supplier,sb.items DESC,sb.label) AS labels
   FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id GROUP BY b.id`;
@@ -83,8 +89,14 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
     OR EXISTS (SELECT 1 FROM jsonb_array_elements(labels) l WHERE regexp_replace(upper(l->>'label'),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'))`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q])).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
-  const brands = (await db.query<MasterBrand>(`SELECT id,key,name,items,pending,labels FROM (${brandRows}) b WHERE ${where}
-    ORDER BY ${sortOrder(params, sorts.brands, "items DESC,name")} LIMIT ${pageSize} OFFSET $2`, [q, (page - 1) * pageSize])).rows;
+  // A suggestion only stands while the brand is still new; confirming it keeps the brand separate.
+  const order = sortOrder(params, sorts.brands, "items DESC,name");
+  const brands = (await db.query<MasterBrand>(`SELECT b.id,b.key,b.name,b.items,b.pending,b.fresh,b.labels,
+    CASE WHEN b.fresh AND t.id IS NOT NULL THEN jsonb_build_object('id',t.id::text,'name',t.name,'shared_parts',s.shared_parts,
+     'parts',s.parts,'name_similarity',s.name_similarity) END AS suggestion
+    FROM (SELECT *,row_number() OVER (ORDER BY ${order}) AS position FROM (${brandRows}) b WHERE ${where}
+     ORDER BY ${order} LIMIT ${pageSize} OFFSET $2) b
+    LEFT JOIN brand_merge_suggestions s ON s.brand_id=b.id::bigint LEFT JOIN brands t ON t.id=s.target_id ORDER BY b.position`, [q, (page - 1) * pageSize])).rows;
   // Names for the move/merge inputs' suggestions.
   const names = (await db.query<{ name: string }>("SELECT DISTINCT name FROM brands ORDER BY name")).rows.map(row => row.name);
   return { scope, brands, names, total, page, pages };

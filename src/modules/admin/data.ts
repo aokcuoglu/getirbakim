@@ -73,19 +73,22 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */
+// Master brands with a supplier label placed automatically (a new label or brand) and not yet reviewed.
+const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_brands WHERE method='auto'";
 export async function adminNavCounts() {
   await requireAdmin();
-  const { rows } = await db.query<{ orders: number; services: number; enrichment: number }>(`SELECT
+  const { rows } = await db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
     (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
-    (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment`);
+    (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
+    (${pendingBrandsSql}) AS brands`);
   return rows[0];
 }
 
 export type DashboardDay = { day: string; orders: number; revenue_kurus: number };
 export async function adminDashboard() {
   await requireAdmin();
-  const [orders, days, recent, catalog, enrichment, imports, succeeded] = await Promise.all([
+  const [orders, days, recent, catalog, enrichment, imports, succeeded, brands] = await Promise.all([
     db.query<{ action: number; shipping: number; refund: number; awaiting_payment: number; revenue_30d: string; paid_30d: number; revenue_prev_30d: string }>(`SELECT
       count(*) FILTER (WHERE ${orderFilters.action.where})::int AS action,
       count(*) FILTER (WHERE ${orderFilters.shipping.where})::int AS shipping,
@@ -106,8 +109,10 @@ export async function adminDashboard() {
     db.query<{ status: string; started_at: Date; completed_at: Date | null; list_group: string; run_kind: string }>(
       "SELECT status,started_at,completed_at,list_group,run_kind FROM supplier_imports WHERE supplier='basbug' ORDER BY started_at DESC LIMIT 1"),
     db.query<{ completed_at: Date }>("SELECT completed_at FROM supplier_imports WHERE supplier='basbug' AND status='succeeded' ORDER BY completed_at DESC LIMIT 1"),
+    db.query<{ pending: number; fresh: number }>(`SELECT (${pendingBrandsSql}) AS pending,
+      (SELECT count(*)::int FROM (SELECT brand_id FROM supplier_brands GROUP BY brand_id HAVING bool_and(method='auto')) b) AS fresh`),
   ]);
-  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog: catalog.rows[0], enrichment: enrichment.rows, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null };
+  return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog: catalog.rows[0], enrichment: enrichment.rows, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null, brands: brands.rows[0] };
 }
 
 export type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
