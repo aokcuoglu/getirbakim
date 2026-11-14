@@ -1,5 +1,5 @@
 import type { supplierHealth } from "@/modules/suppliers/health";
-import { TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import { SupplierRefreshButton } from "./supplier-refresh-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -16,7 +16,14 @@ export function SupplierHealthStatus({ health, group, refresh }: {
   const scopes = health.scopes.filter(scope => scope.supplier === "basbug" && scope.warehouse === "MRK" && (!group || scope.list_group === group));
   const affected = scopes.filter(scope => scope.catalog_stale || scope.commerce_stale || scope.consecutive_failures > 0 || scope.commerce_failures > 0);
   const schedulerAlive = Boolean(health.heartbeat?.alive);
-  if (!affected.length && schedulerAlive) return null;
+  if (!affected.length && (schedulerAlive || health.manual)) {
+    if (!health.manual) return null;
+    return <Alert variant="info" role="status">
+      <Info aria-hidden="true"/>
+      <AlertTitle>Otomatik güncelleme kapalı</AlertTitle>
+      <AlertDescription>Bu ortamda zamanlayıcı bilerek çalıştırılmıyor; veriler Tedarikçiler sayfasından elle yenileniyor. Son yenileme zamanı yukarıdaki kartlarda.</AlertDescription>
+    </Alert>;
+  }
   const commerceStale = affected.filter(scope => scope.commerce_stale).length;
   const catalogStale = affected.filter(scope => scope.catalog_stale).length;
   const retries = affected.flatMap(scope => [
@@ -30,9 +37,9 @@ export function SupplierHealthStatus({ health, group, refresh }: {
     <AlertTitle id="supplier-health-title">{commerceStale || catalogStale ? "Başbuğ verilerinin güncellenmesi gerekiyor" : affected.length ? "Başbuğ güncellemeleri yeniden deneme bekliyor" : "Otomatik güncelleme sinyali alınamıyor"}</AlertTitle>
     <AlertDescription className="flex flex-col gap-2">
       <div role="status" className="flex flex-col gap-1">
-        <p>{affected.length > 0 ? `${affected.length} grupta güncelleme sorunu var. Son başarılı veriler gösteriliyor.` : "Zamanlayıcının çalıştığını ve bilgisayarın açık olduğunu kontrol edin."}</p>
+        <p>{affected.length > 0 ? `${affected.length} grupta güncelleme sorunu var. Son başarılı veriler gösteriliyor.` : "Zamanlayıcının çalıştığını ve bilgisayarın açık olduğunu kontrol edin."}{health.manual && " Otomatik güncelleme kapalı; veriyi elle yenileyin."}</p>
         {(commerceStale > 0 || catalogStale > 0) && <p>{commerceStale > 0 && `Fiyat · stok · kur: ${commerceStale} grupta güncellik süresi aşıldı. `}{catalogStale > 0 && `Ürün listesi: ${catalogStale} grupta güncellik süresi aşıldı.`}</p>}
-        <p>Zamanlayıcı: {schedulerAlive ? "Çalışma sinyali güncel" : "Çalışma sinyali yok"} · {nextRetry ? `${schedulerAlive ? "Sonraki deneme" : "Planlanan deneme"}: ${date(nextRetry)}${nextRetry.getTime() <= health.checked_at.getTime() ? " (çalıştırılması bekleniyor)" : ""}` : "Güncel zamanlama kaydı yok"} · İstanbul saati</p>
+        <p>Zamanlayıcı: {health.manual ? "Kapalı (elle yenileme)" : schedulerAlive ? "Çalışma sinyali güncel" : "Çalışma sinyali yok"} · {health.manual ? "Otomatik deneme yok" : nextRetry ? `${schedulerAlive ? "Sonraki deneme" : "Planlanan deneme"}: ${date(nextRetry)}${nextRetry.getTime() <= health.checked_at.getTime() ? " (çalıştırılması bekleniyor)" : ""}` : "Güncel zamanlama kaydı yok"} · İstanbul saati</p>
       </div>
       {groups.length > 0 && <Accordion className="rounded-lg border"><AccordionItem value="details" className="px-4">
         <AccordionTrigger>Ayrıntıları gör{affected.length > 0 && ` · ${affected.map(scope => scope.list_group).join(", ")}`}</AccordionTrigger>

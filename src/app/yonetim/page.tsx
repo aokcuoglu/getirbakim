@@ -73,7 +73,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
     { href: "/yonetim/servisler", icon: Building2, tone: "warning", title: "Onay bekleyen servis başvurusu", note: "Onay, fiyat ve sepet erişimini açar", count: pending.length },
     { href: `/yonetim/urun-verileri?status=${enrichment.review ? "review" : "error"}`, icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },
     { href: "/yonetim/urun-eslestirme?scope=pending", icon: Tags, tone: "warning", title: "Onay bekleyen marka", note: data.brands.fresh ? `${number(data.brands.fresh)} yeni marka; tedarikçi etiketini doğrula veya mevcut markayla birleştir` : "Otomatik eklenen tedarikçi etiketini doğrula", count: data.brands.pending },
-    { href: "/yonetim/tedarikciler/basbug", icon: AlertTriangle, tone: "danger", title: "Başbuğ senkronizasyon sorunu", note: health && !health.heartbeat?.alive ? "Zamanlayıcıdan çalışma sinyali alınamıyor" : "Güncelliği aşılan veya hata veren grup", count: health ? health.issues.length + (health.heartbeat?.alive ? 0 : 1) : 1 },
+    { href: "/yonetim/tedarikciler/basbug", icon: AlertTriangle, tone: "danger", title: "Başbuğ senkronizasyon sorunu", note: health && !health.manual && !health.heartbeat?.alive ? "Zamanlayıcıdan çalışma sinyali alınamıyor" : "Güncelliği aşılan veya hata veren grup", count: health ? health.issues.length + (health.manual || health.heartbeat?.alive ? 0 : 1) : 1 },
   ];
   const open = attention.filter(item => item.count > 0);
 
@@ -127,7 +127,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <CardHeader>
           <CardDescription>Başbuğ senkronizasyonu</CardDescription>
           <CardTitle className="text-2xl font-semibold">{basbugTone === "success" ? "Sağlıklı" : basbugTone === "warning" ? "Dikkat" : "Hata"}</CardTitle>
-          <CardAction><ToneBadge tone={basbugTone}>{health?.heartbeat?.alive ? "Zamanlayıcı çalışıyor" : "Sinyal yok"}</ToneBadge></CardAction>
+          <CardAction><ToneBadge tone={basbugTone}>{health?.manual ? "Zamanlayıcı kapalı (elle)" : health?.heartbeat?.alive ? "Zamanlayıcı çalışıyor" : "Sinyal yok"}</ToneBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
           <div className="flex items-center gap-2 font-medium"><Truck className="size-4" aria-hidden="true"/>Son başarılı çekim {ago(lastSuccess)}</div>

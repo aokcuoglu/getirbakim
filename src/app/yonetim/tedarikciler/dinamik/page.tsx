@@ -4,7 +4,7 @@ import { ArrowRight, CircleAlert, CircleCheck, Info, TriangleAlert } from "lucid
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
-import { supplierHealth } from "@/modules/suppliers/health";
+import { schedulerLabel, supplierHealth } from "@/modules/suppliers/health";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { adminDinamikOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
@@ -71,7 +71,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   const { items, scopes, runs } = data;
   const lastRun = data.recent[0];
   const facts: [string, string, string][] = [
-    ["Zamanlayıcı", health?.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", health?.heartbeat && !health.heartbeat.finished_at ? `Tur sürüyor · başladı ${time(health.heartbeat.started_at)}` : `Son kontrol: ${health?.heartbeat?.finished_at ? time(health.heartbeat.finished_at) : "henüz yok"}`],
+    ["Zamanlayıcı", schedulerLabel(health), health?.heartbeat && !health.heartbeat.finished_at ? `Tur sürüyor · başladı ${time(health.heartbeat.started_at)}` : `Son kontrol: ${health?.heartbeat?.finished_at ? time(health.heartbeat.finished_at) : "henüz yok"}`],
     ["Son başarılı çekim", time(scopes.last_success), `${number(scopes.synced)} / ${number(scopes.enabled)} marka · her gece 04:00`],
     ["Son aktarım", lastRun ? time(lastRun.started_at) : "Henüz yok", !lastRun ? "Kayıt yok" : lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group} · ${number(lastRun.quality.uniqueProducts)} ürün · ${runLabels[lastRun.status] ?? lastRun.status}`],
     ["Sipariş veri kaynağı", checkoutMode === "snapshot" ? "Kayıtlı veriler" : "Canlı API", checkoutMode === "snapshot" ? "Başbuğ ile ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"],

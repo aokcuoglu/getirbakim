@@ -10,7 +10,7 @@ export async function GET() {
     const commerce = health.scopes.map(scope => scope.commerce_last_success_at?.getTime() ?? 0);
     return Response.json({
       status: health.healthy ? "ok" : "degraded",
-      scheduler: health.heartbeat?.alive ? "alive" : "stopped",
+      scheduler: health.manual ? "manual" : health.heartbeat?.alive ? "alive" : "stopped",
       groups: health.scopes.length, issues: health.issues.length,
       oldest_commerce_success: commerce.length && Math.min(...commerce) ? new Date(Math.min(...commerce)).toISOString() : null,
     }, { status: health.healthy ? 200 : 503, headers: { "Cache-Control": "no-store" } });

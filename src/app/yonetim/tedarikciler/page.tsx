@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowRight, CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
-import { supplierHealth } from "@/modules/suppliers/health";
+import { schedulerLabel, supplierHealth } from "@/modules/suppliers/health";
 import { adminDinamikOverview, adminSetaOverview, adminSupplierOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
 import { adminManualLists } from "@/modules/admin/manual";
@@ -80,7 +80,7 @@ export default async function Suppliers() {
           ["Güncel ürün", number(overview.items.present), `${number(overview.items.groups)} liste grubu`],
           ["Son çekim", time(last?.started_at), last ? `${last.list_group} · ${runLabels[last.status] ?? last.status}` : "Kayıt yok"],
           ["Son 24 saat", `${number(overview.runs.total)} çekim`, overview.runs.failed ? `${number(overview.runs.failed)} başarısız / inceleme` : "Hatasız"],
-          ["Zamanlayıcı", health?.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok", health ? `${health.issues.length} grupta sorun` : "Durum okunamadı"],
+          ["Zamanlayıcı", schedulerLabel(health), health ? `${health.issues.length} grupta sorun` : "Durum okunamadı"],
         ], note: basbug?.message, footer: basbug?.configured ? "Bağlantı değişkenleri tanımlı" : "Bağlantı değişkenleri eksik", href: "/yonetim/tedarikciler/basbug", action: "Yönet" })}
       {card({ id: "supplier-dinamik", letter: "D", title: "Dinamik API", subtitle: "Marka bazlı ürün, fiyat ve bölge stok listeleri",
         badge: statusBadge(!dinamikHealth ? "error" : dinamikHealth.healthy ? "success" : dinamikData.scopes.synced ? "warning" : "neutral", !dinamikHealth ? "Okunamadı" : dinamikHealth.healthy ? "Sağlıklı" : dinamikData.scopes.synced ? "Dikkat gerekiyor" : "İlk çekim bekleniyor"),
