@@ -1,6 +1,7 @@
 import { CircleAlert, CircleCheck, PackageSearch } from "lucide-react";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
 import { adminSupplierFeedStatus } from "@/modules/admin/data";
+import { requireAdmin } from "@/modules/auth/session";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
@@ -45,9 +46,10 @@ const runScope = (run: SetaRun) => run.run_kind === "full" && run.status === "su
   : runKindLabel(run.run_kind, "seta");
 
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus()]);
-  const { snapshot, lastSucceeded, health, items, categories, total, page, pages } = data;
+  const { snapshot, lastSucceeded, health, items, categories, total, page, pages, capped } = data;
   const lastRun = data.recentRuns[0];
   const scope = health.scopes[0];
   const schedule = scheduleLines(health.scopes);
@@ -97,7 +99,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {params.category || "Tüm kategoriler"}{params.stock && ` · ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.seta}</span></div>
         <SupplierPartTable {...setaPartTableProps(items)}/>
       </CardContent>
-      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/seta" params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
+      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/seta" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
       </>}
     </Card></SupplierBrowser>}/>;
 }

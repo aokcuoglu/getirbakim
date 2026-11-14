@@ -23,6 +23,7 @@
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
+    "test:supplier-items": "node --conditions=react-server --import tsx --test scripts/test-supplier-items.ts",
     "test:supplier-data-status": "node --import tsx --test scripts/test-supplier-data-status.ts",
     "test:admin-format": "node --import tsx --test scripts/test-admin-format.tsx",
     "test:egress-proxy": "node --import tsx --test scripts/test-egress-proxy.ts",

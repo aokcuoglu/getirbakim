@@ -1,7 +1,5 @@
 import { notFound } from "next/navigation";
-import { getProduct } from "@/modules/store/catalog";
 import { adminSetaItem } from "@/modules/admin/seta";
-import { adminProductPricing } from "@/modules/admin/product-pricing";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, supplierNumber } from "@/components/admin/supplier-product-detail";
@@ -10,7 +8,7 @@ export default async function SetaItem({ params }: { params: Promise<{ id: strin
   const item = await adminSetaItem((await params).id);
   if (!item) notFound();
   const p = item.product_data;
-  const [sale, pricing] = await Promise.all([getProduct(item.id), adminProductPricing(item.id)]);
+  const { sale, pricing } = item;
   const cross = Object.entries(p.cross ?? {});
   const stock = item.stock_data?.stok;
   return <SupplierProductDetail item={item} supplier="SETA"

@@ -33,6 +33,7 @@ import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/modules/auth/session";
 import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
 import { basbugWarehouse, basbugWarehouses } from "@/modules/suppliers/basbug-stock";
 
@@ -53,9 +54,9 @@ const runError = (reason: string) => supplierRunError(reason, "basbug");
 
 export default async function BasbugAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
-  const data = await adminBasbugData(params);
-  const [checkoutMode, activity, feeds] = await Promise.all([supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
-  const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages } = data;
+  await requireAdmin();
+  const [data, checkoutMode, activity, feeds] = await Promise.all([adminBasbugData(params), supplierCheckoutMode(), supplierActivity(db, "basbug"), adminSupplierFeedStatus()]);
+  const { snapshot, group, knownGroups, items, brands, currencies, total, page, pages, capped } = data;
   const mrkScopes = data.health.scopes.filter(scope => scope.warehouse === "MRK");
   const schedule = scheduleLines(mrkScopes, { commerceLabel });
   const lastCommerce = mrkScopes.map(scope => scope.commerce_last_success_at).filter((d): d is Date => Boolean(d)).sort((a, b) => b.getTime() - a.getTime())[0]
@@ -155,7 +156,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{formatNumber(total)}</strong> ürün · {group || "Tüm liste grupları"}{params.stock && ` · ${basbugWarehouse(params.warehouse)}: ${params.stock === "1" ? "Stok var" : params.stock === "0" ? "Stok yok" : "Veri yok"}`}</span><span>{costNotes.basbug}</span></div>
         <SupplierPartTable {...basbugPartTableProps(items, basbugWarehouse(params.warehouse), { brands: data.brands, currencies: data.currencies })}/>
       </CardContent>
-      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/basbug" params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
+      <CardFooter><SupplierPagination base="/yonetim/tedarikciler/basbug" params={params} keys={filterKeys} page={page} pages={pages} capped={capped}/></CardFooter>
       </>}
     </Card></SupplierBrowser>}/>;
 }

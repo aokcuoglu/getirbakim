@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
 import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sources";
-import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
+import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
 import { restockDueCount } from "./restock";
@@ -164,7 +164,7 @@ export async function adminDinamikOverview() {
     db.query<{ present: number; available: number; priced: number; conflicting: number; brands: number }>(`SELECT count(*)::int AS present,
       count(*) FILTER (WHERE stock_data::text LIKE '%"VAR"%')::int AS available,count(*) FILTER (WHERE price_data->>'fiyat' IS NOT NULL)::int AS priced,
       count(*) FILTER (WHERE conflicting)::int AS conflicting,count(DISTINCT list_group)::int AS brands
-      FROM supplier_items WHERE supplier='dinamik' AND presence='present'`),
+      FROM supplier_items WHERE supplier='dinamik' AND company=$1 AND warehouse=$2 AND presence='present'`, [DINAMIK_COMPANY, DINAMIK_WAREHOUSE]),
     db.query<{ enabled: number; synced: number; failing: number; due: number; last_success: Date | null; oldest_success: Date | null }>(`SELECT count(*) FILTER (WHERE enabled)::int AS enabled,
       count(*) FILTER (WHERE enabled AND last_success_at IS NOT NULL)::int AS synced,count(*) FILTER (WHERE enabled AND consecutive_failures>0)::int AS failing,
       count(*) FILTER (WHERE enabled AND next_run_at<=now())::int AS due,max(last_success_at) AS last_success,min(last_success_at) FILTER (WHERE enabled) AS oldest_success
