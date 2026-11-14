@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { startSession, tokenHash } from "@/modules/auth/session";
+import { SESSION_COOKIE } from "@/modules/auth/session-cookie";
 import { loginSchema } from "./schemas";
 import { loginPath, safeReturnTo } from "./return-to";
 import { mergeGuestCart } from "@/modules/store/cart";
@@ -18,14 +19,14 @@ export async function login(form: FormData) {
  const valid=await compare(password, rows[0]?.password_hash ?? await hash("nonexistent-account-placeholder",12));
  if (!valid || !rows[0]?.approved) redirect(loginPath(next,"1"));
  await db.query("DELETE FROM login_attempts WHERE email=$1",[normalized]);
- const old=(await cookies()).get("gb_session")?.value;
+ const old=(await cookies()).get(SESSION_COOKIE)?.value;
  if(old) await db.query("DELETE FROM sessions WHERE token_hash=$1",[tokenHash(old)]);
  await mergeGuestCart(rows[0].id);
  await adoptGuestGarage(rows[0].id);
  await startSession(rows[0].id); redirect(next ?? "/");
 }
 export async function logout() {
- const jar=await cookies(); const token=jar.get("gb_session")?.value;
+ const jar=await cookies(); const token=jar.get(SESSION_COOKIE)?.value;
  if(token) await db.query("DELETE FROM sessions WHERE token_hash=$1",[tokenHash(token)]);
- jar.delete("gb_session");redirect("/");
+ jar.delete(SESSION_COOKIE);redirect("/");
 }
