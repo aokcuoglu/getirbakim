@@ -174,6 +174,9 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
   const stock = z.array(stockRowSchema).parse(input.stock);
   const prices = z.array(priceRowSchema).parse(input.prices);
   type Entry<T> = { value: T; count: number; variants: T[] };
+  // Codes are matched trimmed, so rows that differ only by padding in stokKodu ("X" / "X  ") are the same row.
+  const same = <T extends { stokKodu: string }>(a: T, b: T) =>
+    JSON.stringify({ ...a, stokKodu: a.stokKodu.trim() }) === JSON.stringify({ ...b, stokKodu: b.stokKodu.trim() });
   const index = <T extends { stokKodu: string }>(rows: T[]) => {
     const map = new Map<string, Entry<T>>();
     for (const row of rows) {
@@ -181,12 +184,24 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
       if (!previous) map.set(code, { value: row, count: 1, variants: [row] });
       else {
         previous.count++;
-        if (!previous.variants.some(variant => JSON.stringify(variant) === JSON.stringify(row))) previous.variants.push(row);
+        if (!previous.variants.some(variant => same(variant, row))) previous.variants.push(row);
       }
     }
     return map;
   };
   const s = index(stock), p = index(prices);
+  // A price row of 0 next to a positive one is a placeholder, not a second price. Only different positive prices stay
+  // a conflict: the code is held back for review instead of picking one (FEBI 171180 came as 398,77 and 375,86).
+  for (const entry of p.values()) {
+    if (entry.variants.length < 2) continue;
+    const positive = entry.variants.filter(row => typeof row.fiyat === "number" && row.fiyat > 0);
+    const distinct = new Map(positive.map(row => [row.fiyat, row]));
+    if (distinct.size === 1) entry.value = positive[0];
+  }
+  const priceConflict = (entry: Entry<{ fiyat?: unknown }> | undefined) => {
+    if (!entry || entry.variants.length < 2) return false;
+    return new Set(entry.variants.map(row => row.fiyat).filter(price => typeof price === "number" && price > 0)).size > 1;
+  };
   const codes = [...new Set([...p.keys(), ...s.keys()])].sort();
   const items: ObservationItem[] = codes.map(code => {
     const st = s.get(code), pr = p.get(code);
@@ -195,7 +210,7 @@ export function prepareDinamikImport(input: { brand: string; stock: unknown; pri
     const storefront = dinamikStorefrontFields(stockRow, priceRow);
     // Both lists quote a price; a disagreement is kept visible instead of picking one.
     const priceMismatch = Boolean(st && pr && st.value.fiyat !== pr.value.fiyat);
-    const conflicting = (st?.variants.length ?? 0) > 1 || (pr?.variants.length ?? 0) > 1 || priceMismatch;
+    const conflicting = (st?.variants.length ?? 0) > 1 || priceConflict(pr) || priceMismatch;
     return {
       code,
       product_data: stockRow ? { ...omit(stockRow, [...stockFields, ...offerFields]), ...storefront.product } : { stokKodu: code, marka: priceRow!.marka },

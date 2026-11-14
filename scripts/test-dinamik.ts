@@ -51,9 +51,32 @@ test("repeated and contradicting rows are counted and preserved", () => {
   assert.equal(items[0].price_count, 3);
   assert.equal(items[0].stock_count, 2);
   assert.equal(items[0].conflicting, true);
-  assert.equal((items[0].source_variants.prices as unknown[]).length, 3);
+  // "FEBI 1" and "FEBI 1 " are the same row once the code is trimmed; 106,09 and 120 remain.
+  assert.equal((items[0].source_variants.prices as unknown[]).length, 2);
   assert.ok(!("stocks" in items[0].source_variants), "identical repeats are not conflicts");
   assert.equal(quality.duplicateCodes, 1);
+});
+
+test("duplicate price rows only conflict when they quote different positive prices", () => {
+  const { items, quality } = prepareDinamikImport({ brand: "FEBI", stock: [stockRow("FEBI 4", 375.86)], prices: [
+    // Same price, code padded differently (ORJINAL 1C0945511A): one row.
+    priceRow("FEBI 1", 57.5), priceRow("FEBI 1  ", 57.5),
+    // A zero next to a positive price (DELPHI GN10174-12B1): the positive price wins, in either order.
+    priceRow("FEBI 2", 458.535), priceRow("FEBI 2 ", 0),
+    priceRow("FEBI 3 ", 0), priceRow("FEBI 3", 1248.38),
+    // Two positive prices (FEBI 171180): held back, nothing chosen.
+    priceRow("FEBI 4", 398.77), priceRow("FEBI 4  ", 375.86),
+  ] });
+  const byCode = Object.fromEntries(items.map(item => [item.code, item]));
+  assert.equal(byCode["FEBI 1"].conflicting, false);
+  assert.ok(!("prices" in byCode["FEBI 1"].source_variants));
+  assert.equal(byCode["FEBI 2"].conflicting, false);
+  assert.equal((byCode["FEBI 2"].price_data as { fiyat: number }).fiyat, 458.535);
+  assert.equal(byCode["FEBI 3"].conflicting, false);
+  assert.equal((byCode["FEBI 3"].price_data as { nf: number }).nf, 1248.38);
+  assert.equal(byCode["FEBI 4"].conflicting, true);
+  assert.equal((byCode["FEBI 4"].source_variants.prices as unknown[]).length, 2);
+  assert.equal(quality.conflictingCodes, 1);
 });
 
 test("unexpected response shapes are refused", () => {
