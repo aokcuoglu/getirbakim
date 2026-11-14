@@ -53,7 +53,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const overview = adminDinamikOverview();
-  const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([overview, supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params, overview.then(o => o.items.present)),
+  const [data, health, list, activity, checkoutMode, plan, feeds] = await Promise.all([overview, supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params, overview.then(o => o.items.present, () => 0)),
     supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan(), adminSupplierFeedStatus().catch(() => null)]);
   const { items: rows, total, page, pages, capped } = list;
   const region = dinamikRegion(params.region);

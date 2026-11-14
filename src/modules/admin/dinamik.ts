@@ -58,11 +58,11 @@ export async function adminDinamikItems(params: DinamikParams, presentTotal?: Pr
   if (params.quality === "conflicts") conditions.push("conflicting");
   const where = conditions.map(condition => `(${condition})`).join(" AND ");
   const fresh = allGroups && Date.now() - allGroups.at < 10 * 60_000;
-  // Unfiltered view: the overview already counts every present Dinamik row (one company and warehouse), so the
+  // Unfiltered view: the overview counts the same rows (present, this company and warehouse), so the
   // ~0.3 s count over ~1M rows is not repeated.
   const unfiltered = presence === "present" && conditions.length === scopeConditions;
   // Default order follows supplier_items_supplier_company_list_group_warehouse_code_key (brand, then code) so the
-  // page is an index walk instead of a sort of every row; codes are brand-prefixed, so the list still reads by code.
+  // page is an index walk instead of a sort of every row: brand first, then code.
   const order = sortOrder(params, itemSorts, "list_group,code,id");
   const [list, brands, groups] = await Promise.all([
     supplierItemPage<DinamikItem>({ where, values, order, page: params.page, total: unfiltered ? presentTotal : undefined }),

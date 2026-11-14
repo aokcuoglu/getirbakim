@@ -1,6 +1,7 @@
 import { CircleAlert, CircleCheck, PackageSearch } from "lucide-react";
 import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
 import { adminSupplierFeedStatus } from "@/modules/admin/data";
+import { requireAdmin } from "@/modules/auth/session";
 import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
@@ -45,6 +46,7 @@ const runScope = (run: SetaRun) => run.run_kind === "full" && run.status === "su
   : runKindLabel(run.run_kind, "seta");
 
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus()]);
   const { snapshot, lastSucceeded, health, items, categories, total, page, pages, capped } = data;
