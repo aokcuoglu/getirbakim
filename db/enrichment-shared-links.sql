@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS product_enrichment_shared_queue (
 -- DISTINCT ON, which the view cannot do. The whole catalog runs with nested loops off (the planner expects one
 -- enrichment_valid_data row; hash joins finish in seconds), the same as enrichment_product_states_compute_all.
 -- EXECUTE plans each call afresh, so a plan cached under one setting is never reused under the other.
+-- also mirrored in src/modules/admin/fitment-donor.ts
 CREATE OR REPLACE FUNCTION product_enrichment_shared_compute(product_ids uuid[], item_ids uuid[]) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN

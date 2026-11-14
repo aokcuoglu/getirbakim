@@ -1,18 +1,20 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { fitmentDonorLateral } from "./fitment-donor";
 import { fitmentPageSize, type AdminFitmentDetails, type FitmentPaging } from "./fitment-details";
 
 // Each whitespace-separated term must appear somewhere in the vehicle text; LIKE wildcards are escaped.
 const searchPatterns = (query: string) => query.split(/\s+/).filter(Boolean).slice(0, 8).map(term => `%${term.replace(/[\\%_]/g, "\\$&")}%`);
 
-// `base` carries only light columns for every source vehicle (needed for the totals); the catalog
-// joins and the JSON build run for the requested page alone.
+// `job` reads the donor enrichment with per-offer index lookups (fitment-donor.ts) instead of the whole
+// product_enrichment_shared view. `base` carries only light columns for every source vehicle (needed for the
+// totals); the catalog joins and the JSON build run for the requested page alone.
 export async function adminFitmentDetails(id: string, paging: FitmentPaging = { offset: 0, limit: fitmentPageSize, filter: "all", query: "" }): Promise<AdminFitmentDetails | null> {
   const result = await db.query<AdminFitmentDetails>(`WITH job AS MATERIALIZED (
       SELECT COALESCE(jsonb_array_length(e.payload->'vehicleModels'),0) AS model_count,
         COALESCE(e.payload->'vehicles','[]'::jsonb) AS vehicles, e.donor_item_id
       FROM product_enrichment_jobs j
-      LEFT JOIN product_enrichment_shared e ON e.supplier_item_id=j.supplier_item_id
+      LEFT JOIN LATERAL (${fitmentDonorLateral}) e ON true
       WHERE j.supplier_item_id=$1
     ), base AS MATERIALIZED (
       SELECT source.ordinality, source.vehicle, f.vehicle_type_id,
