@@ -40,6 +40,16 @@ export type FeedStatus = {
 // products are still shown must stay fresh, because the store sells from it.
 const isTracked = (scope: FeedScope) => scope.enabled || scope.has_items;
 
+/** Most frequent value; on a tie the one that appears first wins. Null for an empty list. */
+export function mode(values: readonly number[]): number | null {
+  const counts = new Map<number, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  let best: number | null = null, bestCount = 0;
+  // Map keeps first-appearance order, so the strict comparison keeps the earliest of equally frequent values.
+  for (const [value, count] of counts) if (count > bestCount) { best = value; bestCount = count; }
+  return best;
+}
+
 export function evaluateFeed(scopes: FeedScope[], now: Date, configured = true): FeedStatus {
   const tracked = scopes.filter(isTracked);
   const freshScope = (scope: FeedScope) => Boolean(scope.last_success_at) && scope.last_success_at!.getTime() >= now.getTime() - scope.stale_minutes * 60_000;
@@ -48,7 +58,6 @@ export function evaluateFeed(scopes: FeedScope[], now: Date, configured = true):
   const stale = tracked.filter(scope => scope.last_success_at && !freshScope(scope));
   const successes = tracked.map(scope => scope.last_success_at).filter((value): value is Date => Boolean(value)).sort((a, b) => a.getTime() - b.getTime());
   const automated = tracked.filter(scope => scope.enabled);
-  const mode = (values: number[]) => values.length ? values.sort((a, b) => values.filter(v => v === b).length - values.filter(v => v === a).length)[0] : null;
   const state: FeedState = !configured ? "unconfigured"
     : !successes.length ? "never"
     : fresh.length === tracked.length ? "fresh"
