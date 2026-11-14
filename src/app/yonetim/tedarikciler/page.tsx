@@ -164,46 +164,12 @@ export default async function Suppliers() {
         {manualScheduler ? "Bu ortamda zamanlayıcı bilerek çalıştırılmıyor (SUPPLIER_SCHEDULER=manual)." : automated ? "Zamanlayıcıdan çalışma sinyali gelmiyor; veriler kendiliğinden yenilenmeyecek." : "Bütün kapsamlarda otomatik çekim kapalı."} Güncellik süresi dolmadan “Tüm tedarikçileri güncelle” ile yenileyin. Son otomatik geçiş: {scheduler ? `${time(scheduler.finished_at ?? scheduler.started_at)}${scheduler.succeeded === false ? " (hatayla bitti)" : ""}` : "kayıt yok"}.
       </AlertDescription></Alert>}
 
-    <Card role="region" aria-labelledby="supplier-refresh">
-      <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>
-        <CardDescription>Zamanlayıcıyı beklemeden API’lerden çeker: SETA, Başbuğ’un {number(plan.basbug.length)} grubu ve son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
-      <CardContent><SupplierRefreshRunner scopes={refreshScopes} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
-        description={`${number(refreshCount)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
-    </Card>
-
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      {kpis.map(kpi => <Card key={kpi.label} size="sm">
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Özet">
+      {kpis.map(kpi => <Card key={kpi.label}>
         <CardHeader><CardDescription>{kpi.label}</CardDescription><CardTitle className="text-2xl font-semibold tabular-nums">{kpi.value}</CardTitle></CardHeader>
         <CardFooter className="text-muted-foreground">{kpi.note}</CardFooter>
       </Card>)}
-    </div>
-
-    <Card role="region" aria-labelledby="supplier-feeds">
-      <CardHeader><CardTitle><h2 id="supplier-feeds">Veri akışları</h2></CardTitle>
-        <CardDescription>Durum, her kapsamın güncellik süresi içinde çekilip çekilmediğini gösterir; zamanlayıcıdan bağımsızdır. Oranlar tedarikçinin güncel listesindeki ürünlere göredir; satışa açık ürün fiyatlı ve stokta olandır.</CardDescription></CardHeader>
-      <CardContent>
-        <Table controls={false}>
-          <caption className="sr-only">Tedarikçi veri akışları · İstanbul saati</caption>
-          <TableHeader><TableRow>
-            <TableHead>Tedarikçi</TableHead><TableHead>Durum</TableHead><TableHead>Son güncelleme</TableHead><TableHead>Güncel kapsam</TableHead>
-            <TableHead className="text-right">Ürün</TableHead><TableHead className="text-right">Fiyatlı</TableHead><TableHead className="text-right">Stokta</TableHead>
-            <TableHead className="text-right">Satışa açık</TableHead>
-          </TableRow></TableHeader>
-          <TableBody>{rows.map(row => <TableRow key={row.key} className="align-top">
-            <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div></TableCell>
-            <TableCell>{row.status}</TableCell>
-            <TableCell><div>{formatAgo(row.last, { now, fallback: "Hiç çekilmedi", justNow: "Az önce" })}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
-            <TableCell><div className="tabular-nums">{row.scope}</div><div className="text-muted-foreground">{row.scopeNote}</div></TableCell>
-            <TableCell className="text-right tabular-nums">{number(row.present)}</TableCell>
-            <TableCell className="text-right"><div className="tabular-nums">{percent(row.priced, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(row.priced)}</div></TableCell>
-            <TableCell className="text-right">{streamed(catalog, all => <>
-              <div className="tabular-nums">{percent(all[row.key].available, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(all[row.key].available)}</div>
-            </>, "ml-auto h-10 w-16")}</TableCell>
-            <TableCell className="text-right tabular-nums">{streamed(catalog, all => number(all[row.key].saleable), "ml-auto h-5 w-16")}</TableCell>
-          </TableRow>)}</TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    </section>
 
     <Card role="region" aria-labelledby="supplier-issues">
       <CardHeader><CardTitle><h2 id="supplier-issues">Açık sorunlar</h2></CardTitle>
@@ -219,6 +185,40 @@ export default async function Suppliers() {
         })}</ItemGroup>
         : <Empty className="border"><EmptyHeader><EmptyMedia variant="icon"><CircleCheck aria-hidden="true" className="text-success"/></EmptyMedia>
             <EmptyTitle>Açık sorun yok</EmptyTitle><EmptyDescription>Tüm akışlar güncellik süresi içinde ve son denemeler başarılı.</EmptyDescription></EmptyHeader></Empty>}
+      </CardContent>
+    </Card>
+
+    <Card role="region" aria-labelledby="supplier-refresh">
+      <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>
+        <CardDescription>Zamanlayıcıyı beklemeden API’lerden çeker: SETA, Başbuğ’un {number(plan.basbug.length)} grubu ve son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
+      <CardContent><SupplierRefreshRunner scopes={refreshScopes} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
+        description={`${number(refreshCount)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
+    </Card>
+
+    <Card role="region" aria-labelledby="supplier-feeds">
+      <CardHeader><CardTitle><h2 id="supplier-feeds">Veri akışları</h2></CardTitle>
+        <CardDescription>Durum, her kapsamın güncellik süresi içinde çekilip çekilmediğini gösterir; zamanlayıcıdan bağımsızdır. Oranlar tedarikçinin güncel listesindeki ürünlere göredir; satışa açık ürün fiyatlı ve stokta olandır.</CardDescription></CardHeader>
+      <CardContent>
+        <Table controls={false}>
+          <caption className="sr-only">Tedarikçi veri akışları · İstanbul saati</caption>
+          <TableHeader><TableRow>
+            <TableHead>Tedarikçi</TableHead><TableHead>Durum</TableHead><TableHead className="hidden md:table-cell">Son güncelleme</TableHead><TableHead className="hidden md:table-cell">Güncel kapsam</TableHead>
+            <TableHead className="hidden text-right md:table-cell">Ürün</TableHead><TableHead className="hidden text-right md:table-cell">Fiyatlı</TableHead><TableHead className="hidden text-right md:table-cell">Stokta</TableHead>
+            <TableHead className="text-right">Satışa açık</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{rows.map(row => <TableRow key={row.key} className="align-top">
+            <TableCell><Link href={row.href} className="font-medium underline-offset-4 hover:underline">{row.name}</Link><div className="text-muted-foreground">{row.source}</div></TableCell>
+            <TableCell>{row.status}</TableCell>
+            <TableCell className="hidden md:table-cell"><div>{formatAgo(row.last, { now, fallback: "Hiç çekilmedi", justNow: "Az önce" })}</div><div className="text-muted-foreground tabular-nums">{time(row.last)}</div></TableCell>
+            <TableCell className="hidden md:table-cell"><div className="tabular-nums">{row.scope}</div><div className="text-muted-foreground">{row.scopeNote}</div></TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{number(row.present)}</TableCell>
+            <TableCell className="hidden text-right md:table-cell"><div className="tabular-nums">{percent(row.priced, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(row.priced)}</div></TableCell>
+            <TableCell className="hidden text-right md:table-cell">{streamed(catalog, all => <>
+              <div className="tabular-nums">{percent(all[row.key].available, row.present)}</div><div className="text-muted-foreground tabular-nums">{number(all[row.key].available)}</div>
+            </>, "ml-auto h-10 w-16")}</TableCell>
+            <TableCell className="text-right tabular-nums">{streamed(catalog, all => number(all[row.key].saleable), "ml-auto h-5 w-16")}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
       </CardContent>
     </Card>
 
@@ -239,7 +239,8 @@ export default async function Suppliers() {
             <TableCell>{row.unresolved ? <StatusBadge tone="warning">{number(row.unresolved)} kapsam</StatusBadge> : <StatusBadge tone="success">Yok</StatusBadge>}</TableCell>
           </TableRow>)}</TableBody>
         </Table>
-        : <p className="text-muted-foreground">Son 24 saatte çekim yapılmadı.</p>}
+        : <Empty className="border"><EmptyHeader><EmptyMedia variant="icon"><Info aria-hidden="true"/></EmptyMedia>
+            <EmptyTitle>Çekim yok</EmptyTitle><EmptyDescription>Son 24 saatte tedarikçi çekimi yapılmadı.</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
     </Card>
   </div>;
