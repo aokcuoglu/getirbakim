@@ -19,10 +19,10 @@ const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", bran
 
 export default async function MasterProduct({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
   const [{ id }, query] = await Promise.all([params, searchParams.then(normalizeSearchParams)]);
-  const data = await getMasterProduct(id);
+  // The merge search needs only the id; without merge_q it returns at once.
+  const [data, merge] = await Promise.all([getMasterProduct(id), findMergeTargets(id, query.merge_q)]);
   if (!data) notFound();
   const { product, sources, equivalents, merged, storeId } = data;
-  const merge = await findMergeTargets(product.id, query.merge_q);
   const multiple = sources.length > 1;
 
   return <div className="flex flex-col gap-6">
