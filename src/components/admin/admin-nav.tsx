@@ -43,7 +43,7 @@ const sections: { title: string; items: Item[] }[] = [
   ] },
 ];
 const dotIcons = { success: CircleCheck, warning: TriangleAlert, danger: CircleAlert, neutral: CircleDashed };
-const dotLabels = { success: "sağlıklı", warning: "dikkat gerekiyor", danger: "hata", neutral: "bağlı değil" };
+const dotLabels = { success: "veriler güncel", warning: "açık sorun var", danger: "veriler güncel değil", neutral: "veri yok" };
 const dotColors = { success: "text-success", warning: "text-warning", danger: "text-destructive", neutral: "text-muted-foreground" };
 
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {

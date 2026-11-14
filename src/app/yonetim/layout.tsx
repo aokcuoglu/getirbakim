@@ -7,11 +7,8 @@ import { Kbd } from "@/components/ui/kbd";
 import { TableControls } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { requireAdmin } from "@/modules/auth/session";
-import { adminNavCounts } from "@/modules/admin/data";
-import { supplierHealth } from "@/modules/suppliers/health";
-import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
-import { db } from "@/lib/db";
-import { setaCompany } from "@/modules/suppliers/storefront-sources";
+import { adminNavCounts, adminSupplierFeedStatus } from "@/modules/admin/data";
+import { feedNavTone } from "@/modules/suppliers/data-status";
 
 export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
 
@@ -20,13 +17,13 @@ export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false
 // layouts do not re-run on client navigation. TableControls gives every table sorting, header filters and search.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const account = await requireAdmin();
-  const [counts, health, dinamik, setaHealth, jar] = await Promise.all([adminNavCounts(), supplierHealth(db, process.env.BASBUG_FIRMA_ADI || "BASBUG").catch(() => null),
-    supplierHealth(db, DINAMIK_COMPANY).catch(() => null), supplierHealth(db, setaCompany).catch(() => null), cookies()]);
+  const [counts, feeds, jar] = await Promise.all([adminNavCounts(), adminSupplierFeedStatus().catch(() => null), cookies()]);
+  // Dots follow the supplier overview: data freshness and open feed problems, not the scheduler heartbeat.
   const status: AdminNavStatus = {
     ...counts,
-    basbug: !health ? "danger" : health.healthy ? "success" : "warning",
-    dinamik: !dinamik ? "danger" : dinamik.healthy ? "success" : dinamik.scopes.some(scope => scope.last_success_at) ? "warning" : "neutral",
-    seta: !process.env.SETA_API_KEY ? "neutral" : !setaHealth ? "danger" : setaHealth.healthy ? "success" : "warning",
+    basbug: feeds ? feedNavTone(feeds.basbug) : "danger",
+    dinamik: feeds ? feedNavTone(feeds.dinamik) : "danger",
+    seta: feeds ? feedNavTone(feeds.seta) : "danger",
   };
   return <div className="admin-app">
     <AdminTheme/>

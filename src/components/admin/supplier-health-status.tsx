@@ -32,12 +32,13 @@ export function SupplierHealthStatus({ health, group, refresh }: {
   ]);
   const nextRetry = retries.sort((a, b) => a.getTime() - b.getTime())[0];
   const groups = affected.length ? affected : scopes;
-  return <Alert variant="warning" aria-labelledby="supplier-health-title">
-    <TriangleAlert aria-hidden="true"/>
-    <AlertTitle id="supplier-health-title">{commerceStale || catalogStale ? "Başbuğ verilerinin güncellenmesi gerekiyor" : affected.length ? "Başbuğ güncellemeleri yeniden deneme bekliyor" : "Otomatik güncelleme sinyali alınamıyor"}</AlertTitle>
+  // Without affected groups the only finding is a silent scheduler: an operational notice, the data itself is current.
+  return <Alert variant={affected.length ? "warning" : "info"} aria-labelledby="supplier-health-title">
+    {affected.length ? <TriangleAlert aria-hidden="true"/> : <Info aria-hidden="true"/>}
+    <AlertTitle id="supplier-health-title">{commerceStale || catalogStale ? "Başbuğ verilerinin güncellenmesi gerekiyor" : affected.length ? "Başbuğ güncellemeleri yeniden deneme bekliyor" : "Otomatik güncelleme çalışmıyor"}</AlertTitle>
     <AlertDescription className="flex flex-col gap-2">
       <div role="status" className="flex flex-col gap-1">
-        <p>{affected.length > 0 ? `${affected.length} grupta güncelleme sorunu var. Son başarılı veriler gösteriliyor.` : "Zamanlayıcının çalıştığını ve bilgisayarın açık olduğunu kontrol edin."}{health.manual && " Otomatik güncelleme kapalı; veriyi elle yenileyin."}</p>
+        <p>{affected.length > 0 ? `${affected.length} grupta güncelleme sorunu var. Son başarılı veriler gösteriliyor.` : "Veriler güncel; ancak zamanlayıcıdan sinyal gelmediği için kendiliğinden yenilenmeyecek. Gerekirse elle güncelleyin."}{health.manual && " Otomatik güncelleme kapalı; veriyi elle yenileyin."}</p>
         {(commerceStale > 0 || catalogStale > 0) && <p>{commerceStale > 0 && `Fiyat · stok · kur: ${commerceStale} grupta güncellik süresi aşıldı. `}{catalogStale > 0 && `Ürün listesi: ${catalogStale} grupta güncellik süresi aşıldı.`}</p>}
         <p>Zamanlayıcı: {health.manual ? "Kapalı (elle yenileme)" : schedulerAlive ? "Çalışma sinyali güncel" : "Çalışma sinyali yok"} · {health.manual ? "Otomatik deneme yok" : nextRetry ? `${schedulerAlive ? "Sonraki deneme" : "Planlanan deneme"}: ${date(nextRetry)}${nextRetry.getTime() <= health.checked_at.getTime() ? " (çalıştırılması bekleniyor)" : ""}` : "Güncel zamanlama kaydı yok"} · İstanbul saati</p>
       </div>

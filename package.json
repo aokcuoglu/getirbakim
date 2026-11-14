@@ -20,6 +20,7 @@
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
+    "test:supplier-data-status": "node --import tsx --test scripts/test-supplier-data-status.ts",
     "test:egress-proxy": "node --import tsx --test scripts/test-egress-proxy.ts",
     "verify:basbug": "node --env-file=.env.local --import tsx scripts/verify-basbug.ts",
     "db:supplier:migrate": "node --env-file=.env.local --import tsx scripts/migrate-supplier-sync.ts",

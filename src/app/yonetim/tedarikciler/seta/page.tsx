@@ -1,3 +1,5 @@
+import { FeedStatusBadge } from "@/components/admin/feed-status-badge";
+import { adminSupplierFeedStatus } from "@/modules/admin/data";
 import { Fragment } from "react";
 import Link from "next/link";
 import { supplierActivity } from "@/modules/suppliers/activity";
@@ -56,7 +58,7 @@ function runError(reason: string) {
 
 export default async function SetaAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
-  const [data, checkoutMode, activity] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta")]);
+  const [data, checkoutMode, activity, feeds] = await Promise.all([adminSetaData(params), supplierCheckoutMode(), supplierActivity(db, "seta"), adminSupplierFeedStatus()]);
   const { snapshot, health, items, categories, total, page, pages } = data;
   const scope = health.scopes[0];
   const pageUrl = (target: number) => {
@@ -83,7 +85,7 @@ export default async function SetaAdmin({ searchParams }: { searchParams: Promis
           <h1 className="text-2xl font-semibold tracking-tight">SETA API</h1>
           <p className="text-muted-foreground">Seta Filtre B2B listesi: ürün, OEM, çapraz referans, KDV hariç bayi fiyatı ve stok durumu.</p>
         </div>
-        <SupplierActivityBadge supplier="seta" initial={activity}>{statusBadge(!scope ? "neutral" : health.healthy ? "success" : "warning", !scope ? "Henüz aktarılmadı" : health.healthy ? "Senkronizasyon sağlıklı" : "Dikkat gerekiyor")}</SupplierActivityBadge>
+        <SupplierActivityBadge supplier="seta" initial={activity}><FeedStatusBadge status={feeds.seta}/></SupplierActivityBadge>
       </div>
     </div>
     {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Liste API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
