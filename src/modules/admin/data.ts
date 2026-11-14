@@ -202,27 +202,27 @@ export const adminSupplierFeedStatus = cache(async () => {
   };
 });
 
-export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; available: number; saleable: number; conflicting: number };
+export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; conflicting: number };
+export type SupplierCatalogMetrics = { available: number; saleable: number };
 export type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
 
-/** Everything the supplier overview shows: feed status, catalog coverage per supplier, 24h attempts, scheduler state. */
+const apiFeedKeys = ["basbug", "dinamik", "seta"] as const;
+const pickBySupplier = <K extends string, T>(keys: readonly K[], rows: (T & { supplier: string })[], fallback: T) =>
+  Object.fromEntries(keys.map(key => [key, rows.find(row => row.supplier === key) ?? fallback])) as Record<K, T>;
+
+/** Feed status, what each API supplier sent and the 24h attempts of the supplier overview; the manual list's figures come
+ * from adminManualLists and the store-side figures from adminSupplierCatalogMetrics, which the page streams. */
 export async function adminSupplierFeeds() {
   await requireAdmin();
   const companies = supplierFeedCompanies();
-  const keys = ["basbug", "dinamik", "seta", "manual"] as const;
-  const pairs = [companies.basbug, companies.dinamik, companies.seta, manualCompany];
+  const pairs = [companies.basbug, companies.dinamik, companies.seta];
   const [status, metrics, attempts, scheduler] = await Promise.all([
     adminSupplierFeedStatus(),
-    // "Priced" and "unstocked" read what the supplier sent (Dinamik prices products missing from its stock list, and
-    // commerce_catalog leaves those out); "in stock" and "saleable" read commerce_catalog, i.e. what the store shows.
-    db.query<SupplierFeedMetrics & { supplier: string }>(`SELECT i.supplier,count(*) FILTER (WHERE i.presence='present')::int AS present,
-        count(*) FILTER (WHERE i.presence='present' AND i.price_data IS NOT NULL)::int AS priced,
-        count(*) FILTER (WHERE i.presence='present' AND i.stock_data IS NULL)::int AS unstocked,
-        count(c.id) FILTER (WHERE i.presence='present' AND c.available)::int AS available,
-        count(c.id) FILTER (WHERE i.presence='present' AND c.available AND c.price_kurus IS NOT NULL)::int AS saleable,
-        count(*) FILTER (WHERE i.presence='present' AND i.conflicting)::int AS conflicting
-      FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id
-      WHERE (i.supplier,i.company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY i.supplier`, pairs),
+    // What the supplier sent: Dinamik prices products missing from its stock list, and commerce_catalog leaves those out.
+    db.query<SupplierFeedMetrics & { supplier: string }>(`SELECT supplier,count(*)::int AS present,
+        count(*) FILTER (WHERE price_data IS NOT NULL)::int AS priced,count(*) FILTER (WHERE stock_data IS NULL)::int AS unstocked,
+        count(*) FILTER (WHERE conflicting)::int AS conflicting
+      FROM supplier_items WHERE (supplier,company) IN (('basbug',$1),('dinamik',$2),('seta',$3)) AND presence='present' GROUP BY supplier`, pairs),
     // A failed attempt is unresolved only while its scope has not succeeded since.
     db.query<SupplierFeedAttempts & { supplier: string }>(`SELECT r.supplier,count(*)::int AS total,count(*) FILTER (WHERE r.status='succeeded')::int AS succeeded,
         count(*) FILTER (WHERE r.status='failed')::int AS failed,count(*) FILTER (WHERE r.status='rejected')::int AS rejected,
@@ -230,15 +230,27 @@ export async function adminSupplierFeeds() {
           WHERE n.supplier=r.supplier AND n.company=r.company AND n.list_group=r.list_group AND n.warehouse=r.warehouse
           AND n.status='succeeded' AND n.started_at>r.started_at))::int AS unresolved
       FROM supplier_imports r WHERE r.started_at>now()-interval '24 hours'
-        AND (r.supplier,r.company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY r.supplier`, pairs),
+        AND (r.supplier,r.company) IN (('basbug',$1),('dinamik',$2),('seta',$3)) GROUP BY r.supplier`, pairs),
     supplierSchedulerState(db),
   ]);
-  const empty = { present: 0, priced: 0, unstocked: 0, available: 0, saleable: 0, conflicting: 0 };
-  const none = { total: 0, succeeded: 0, failed: 0, rejected: 0, unresolved: 0 };
-  const pick = <T,>(rows: (T & { supplier: string })[], fallback: T) =>
-    Object.fromEntries(keys.map(key => [key, rows.find(row => row.supplier === key) ?? fallback])) as Record<(typeof keys)[number], T>;
-  return { status, metrics: pick(metrics.rows, empty), attempts: pick(attempts.rows, none), scheduler };
+  return {
+    status, scheduler,
+    metrics: pickBySupplier(apiFeedKeys, metrics.rows, { present: 0, priced: 0, unstocked: 0, conflicting: 0 }),
+    attempts: pickBySupplier(apiFeedKeys, attempts.rows, { total: 0, succeeded: 0, failed: 0, rejected: 0, unresolved: 0 }),
+  };
 }
+
+/** What the store shows of each supplier ("in stock", "saleable"): commerce_catalog prices every row, so this takes
+ * seconds and the overview streams it. Its supplier rows are exactly the present supplier_items it accepts. */
+export const adminSupplierCatalogMetrics = cache(async () => {
+  await requireAdmin();
+  const companies = supplierFeedCompanies();
+  const { rows } = await db.query<SupplierCatalogMetrics & { supplier: string }>(`SELECT supplier,count(*) FILTER (WHERE available)::int AS available,
+      count(*) FILTER (WHERE available AND price_kurus IS NOT NULL)::int AS saleable
+    FROM commerce_catalog WHERE (supplier,company) IN (('basbug',$1),('dinamik',$2),('seta',$3),('manual',$4)) GROUP BY supplier`,
+  [companies.basbug, companies.dinamik, companies.seta, manualCompany]);
+  return pickBySupplier([...apiFeedKeys, "manual"], rows, { available: 0, saleable: 0 });
+});
 
 // Scopes the manual "refresh" buttons run, in order. Dinamik has ~800 brands, so only the ones without a successful run
 // in the last day are offered (the oldest first); Başbuğ's 15 groups and SETA's single list always run in full.
