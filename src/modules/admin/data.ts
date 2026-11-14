@@ -90,12 +90,22 @@ export async function adminNavCounts() {
 }
 
 export type DashboardDay = { day: string; orders: number };
-// Admin-wide figures that walk a large table and move slowly; one minute of reuse is invisible (no per-user content).
-const basbugItems = staleCache<{ items: number }>(60_000, 1);
-const basbugPresentItems = () => basbugItems("present", async () =>
+// Admin-wide figures that walk a large table and move slowly (no per-user content). Reused for up to a minute;
+// after that the next request waits for a fresh read, so a long-idle panel never shows day-old numbers.
+function ttlMemo<T>(ttlMs: number, load: () => Promise<T>) {
+  let cached: { value: Promise<T>; at: number } | null = null;
+  return () => {
+    if (cached && Date.now() - cached.at <= ttlMs) return cached.value;
+    const entry = { value: load(), at: Date.now() };
+    cached = entry;
+    // A failed read is not reused: the next request tries again.
+    entry.value.catch(() => { if (cached === entry) cached = null; });
+    return entry.value;
+  };
+}
+const basbugPresentItems = ttlMemo(60_000, async () =>
   (await db.query<{ items: number }>("SELECT count(*)::int AS items FROM supplier_items WHERE supplier='basbug' AND presence='present'")).rows[0]);
-const enrichmentCounts = staleCache<{ status: string; count: number }[]>(60_000, 1);
-const enrichmentStatusCounts = () => enrichmentCounts("statuses", async () =>
+const enrichmentStatusCounts = ttlMemo(60_000, async () =>
   (await db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status")).rows);
 
 export async function adminDashboard() {
