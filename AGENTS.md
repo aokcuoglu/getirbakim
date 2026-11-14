@@ -16,8 +16,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Başka çalışmaların dosyalarını ve worktree'lerini koru; PR'a yalnızca bu işin değişikliklerini dahil et.
 - Commit/PR başlıklarında Conventional Commits; Issue/PR'da rehberdeki iş türü, alan ve gerektiğinde sürüm etkisi etiketlerini kullan.
 - Her commit/PR için sürüm tag'i oluşturma. Kullanıcı `main` sürümü istediğinde önemli özellikleri `feat` / MINOR olarak sürümle; manifestleri ve changelog'u güncelle, `main` sürüm commit'ine annotated `vX.Y.Z` tag'i koy.
-- Commit, push, PR, merge, tag veya Release sonrasında Contabo'ya otomatik deploy yapma. Şimdilik staging yok; AWS geçişinden sonra ayrı kullanıcı talebiyle ele alınacak.
-- `main` merge/sürüm ve production deploy ayrı kullanıcı talepleridir. CI zorunludur; deploy workflow'larını veya staging'i açık talep olmadan etkinleştirme.
+- **`main` = production.** `main`'e her push/merge AWS üzerindeki GitHub Actions ile getirbakim.com'u günceller. Bu yüzden `main`'e push, `dev → main` merge veya `main`'i değiştiren her işlemden önce kullanıcıdan **açık onay** al (sürüm numarasını ve kapsamı göstererek). Önceki onay sonraki sürümü kapsamaz.
+- Geliştirme yalnız `dev` üzerinden yapılır; olgunlaşan işler `main`'e yalnız sürümlü release olarak gider. `main`'e doğrudan commit veya hotfix push yok; acil düzeltme de `dev` → sürüm PR'ı ile gider.
+- Contabo'ya otomatik deploy yok; staging yok (ayrı kullanıcı talebiyle ele alınacak). CI zorunludur; deploy workflow'larını veya staging'i açık talep olmadan değiştirme/etkinleştirme.
 - Tamamlandığında Issue/PR bağlantılarını, doğrulama ve merge durumunu bildir; varsa sürüm/tag bilgisini ekle.
 
 ## Yönetim paneli (/yonetim) UI kuralı
