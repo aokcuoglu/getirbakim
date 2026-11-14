@@ -125,15 +125,15 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı önerileri topluca birleştirilmez: fazladan hane veya ek çoğu zaman farklı parçadır (ör. FEBI 100261 ile 1002610). Her çift için tek tek karar verin.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı olan öneriler topluca birleştirilmez: koda eklenen fazladan hane veya ek çoğu zaman farklı bir parçadır (ör. FEBI 100261 ve 1002610). Her çifti ayrı inceleyip karar verin.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
-          {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && data.acceptableTotal > 0 && <>
-            <form action={acceptCandidates}>
+          {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
+            {data.acceptableTotal > 0 && <form action={acceptCandidates}>
               <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-              <SubmitButton variant="outline" title={`${bulkBrand}: son ek farkı, tanımı farklı ve birden çok eşi/numarası olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>Tümünü birleştir ({number(data.acceptableTotal)})</SubmitButton>
-            </form>
-            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor</span>}
-          </>}
+              <SubmitButton variant="outline" title={`${bulkBrand}: tanımı farklı ve birden çok eşi/kodu olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>Tümünü birleştir ({number(data.acceptableTotal)})</SubmitButton>
+            </form>}
+            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor (farklı tanım veya birden çok eş/kod)</span>}
+          </div>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
             <SubmitButton variant="outline" icon={<CircleAlert data-icon="inline-start" aria-hidden="true"/>}>Tümünü farklı say ({number(data.total)})</SubmitButton>
@@ -145,7 +145,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <StatusBadge tone="error" title="İki tanım farklı parça türü söylüyor">Tanımı farklı</StatusBadge>}
               {item.shared_b && <StatusBadge tone="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir">Birden çok eş</StatusBadge>}
-              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı numaralı birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok numara</StatusBadge>}</div></TableCell>
+              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı kodlu birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok kod</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</StatusBadge>}</TableCell>

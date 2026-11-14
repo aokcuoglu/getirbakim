@@ -261,6 +261,21 @@ test("bulk accept skips suffix and multi-number candidates, keeps leading_zero",
     assert.deepEqual(rows.filter(row => row.bulk).map(row => row.product_a), [a1]);
     const multi = new Map(rows.map(row => [row.product_b, row.multi]));
     assert.deepEqual([b1, b2, b3, b4, b5].map(id => multi.get(id)), [false, false, true, true, true]);
+    // Variant copies: two Dinamik products with the same part number suggested to one Başbuğ product are one code.
+    const variants = (await client.query<{ a: string; b7: string; b8: string }>(`SELECT
+      (SELECT p.id FROM products p WHERE p.part_number IS NOT NULL AND p.id<>ALL($1::uuid[]) AND p.id NOT IN (x.b7,x.b8)
+        AND NOT EXISTS (SELECT 1 FROM product_match_candidates c WHERE p.id IN (c.product_a,c.product_b))
+        AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE p.id IN (d.product_a,d.product_b)) LIMIT 1) AS a,
+      x.b7,x.b8 FROM (SELECT min(p.id::text)::uuid AS b7,max(p.id::text)::uuid AS b8 FROM products p
+        WHERE p.part_number IS NOT NULL AND p.id<>ALL($1::uuid[])
+         AND NOT EXISTS (SELECT 1 FROM product_match_candidates c WHERE p.id IN (c.product_a,c.product_b))
+         AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE p.id IN (d.product_a,d.product_b))
+        GROUP BY p.part_number HAVING count(*)>=2 LIMIT 1) x`, [ids])).rows[0];
+    assert.ok(variants?.a && variants.b7 && variants.b8, "expected a same-number product pair");
+    await client.query("INSERT INTO product_match_candidates(product_a,product_b,reason) VALUES ($1,$2,'prefix'),($1,$3,'prefix')", [variants.a, variants.b7, variants.b8]);
+    const copies = (await client.query<{ bulk: boolean; multi: boolean }>(`SELECT ${bulkAcceptableSql} AS bulk,${multiNumberCandidateSql} AS multi
+      FROM product_match_candidates c JOIN products b ON b.id=c.product_b WHERE c.product_a=$1`, [variants.a])).rows;
+    assert.deepEqual(copies, [{ bulk: true, multi: false }, { bulk: true, multi: false }]);
   } finally {
     await client.query("ROLLBACK");
     client.release();
