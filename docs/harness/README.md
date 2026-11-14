@@ -9,10 +9,10 @@
    │
    ├─ 1 worktree               ../getirbakim-<N>  (dal <tür>/<N>-<konu>, origin/dev'den)
    ├─ 2 getirbakim-planner     salt okur → plan (dosyalar, yeniden kullanım, SQL/yetki etkisi, testler, QA rotaları)
-   ├─ 3 getirbakim-developer   worktree'de uygular, test ekler, commit'ler, lint + tsc + testler
-   ├─ 4 getirbakim-reviewer  ┐ paralel, salt okur → bulgular → geliştiriciye (≤2 döngü)
-   │    getirbakim-ui-ux     ┘ (yalnız .tsx/.css değiştiyse)
-   ├─ 5 getirbakim-qa          kontroller + kısa ömürlü worktree sunucusunda (31NN) Chrome turu, masaüstü + mobil
+   ├─ 3 getirbakim-developer   worktree'de uygular, test ekler, commit'ler, lint + tsc + testler (bir kez, SHA ile raporlar)
+   ├─ 4 getirbakim-reviewer  ┐ paralel, salt okur → bulgular → geliştiriciye (≤2 döngü); kontrolleri yeniden koşmaz
+   │    getirbakim-ui-ux     ┘ (yalnız .tsx/.css değiştiyse; küçük salt-UI değişiklikte tek başına)
+   ├─ 5 getirbakim-qa          kısa ömürlü worktree sunucusunda (31NN) Chrome turu, masaüstü + mobil; kontrolleri SHA eşleşirse atlar
    ├─ 6 PR → dev               rebase, push, gh pr create (Closes #N + etiketler), CI'ı bekle;
    │                           merge öncesi statusCheckRollup hepsi SUCCESS (pipe'sız, #532)
    └─ 7 merge → dev            izin sormadan (politika); ana checkout ff, kendi worktree/dalını temizle
@@ -56,6 +56,9 @@ Orkestratör ürün kodu yazmaz; ajanlara brief verir, bulguları taşır, kapsa
 Hedefler (`admin-ui-lint`): argümansız tüm yönetim dosyaları; `--changed` = dalın `origin/dev...HEAD` farkı + staged/unstaged + izlenmeyen dosyalar (mevcut dizinin checkout'unda); ya da açık yollar. Kaçış: satıra `admin-ui-lint-ignore` (neden olduğunu yorumda yaz). Taban (2026-11-14): 0 hata, 13 köşe uyarısı (`rounded-lg border` sarmalayıcıları).
 
 Nerede koşar:
+- **Geliştirici bir kez, SHA ile** — kontroller developer raporunda commit SHA'sıyla gelir; inceleyici ve QA SHA HEAD ile aynı ve sonuç yeşilse yeniden koşmaz (rapor yok, SHA farklı ya da bulgu doğrulaması dışında). **CI son kapıdır**; QA sonrası küçük düzeltmelerde yerelde yalnız `admin-ui-lint --changed` (gerekirse `tsc`).
+- **Küçük salt-UI** — ≤2 `.tsx`/`.css` dosyası; `db/`, `src/modules/`, `src/lib/`, `actions.ts`, `route.ts`, yetki/ödeme/sync dokunuşu yok → yalnız `getirbakim-ui-ux` incelemesi (bariz kod sorunlarını da not eder).
+- **CI kotası** — repo private, CI ~3-4 dk/koşu, 2000 dk/ay kotaya sığıyor (2026-11-14 ölçümü ~700 dk/ay); gereksiz push/rerun yapılmaz.
 - **Her düzenlemeden sonra** — `.claude/settings.json` PostToolUse hook'u (`post-edit-check.mjs`) düzenlenen yönetim dosyasını, dosyanın ait olduğu checkout'ta (worktree dahil) lint'ler ve bulguyu ajana bağlam olarak verir. Engellemez.
 - **İstek üzerine** — `npm run harness:lint`, `npm run harness:test` (lint ve guard regresyon testleri).
 - **CI** — `.github/workflows/ci.yml` lint'ten sonra `harness:lint` + `harness:test` koşar.
