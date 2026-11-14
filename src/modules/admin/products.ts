@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { sortOrder } from "@/lib/table-sort";
+import { pickKey, sortOrder } from "@/lib/table-sort";
 
 /** Master catalog (db/product-matching.sql): one product, the supplier rows it is sold from, and its equivalents. */
 export const productFilters = {
@@ -54,7 +54,7 @@ const productCategoriesSql = `SELECT s.product_id, pc.category_id, l.name FROM p
 
 export async function listProducts(params: { q?: string; filter?: string; brands?: string[]; categories?: string[]; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
-  const filter: ProductFilter = params.filter && params.filter in productFilters ? params.filter as ProductFilter : "all";
+  const filter: ProductFilter = pickKey(productFilters, params.filter, "all");
   const q = compact(params.q);
   const brands = [...new Set((params.brands ?? []).map(brand => brand.trim().slice(0, 80)).filter(Boolean))].slice(0, 100);
   const categories = [...new Set((params.categories ?? []).filter(id => /^\d{1,9}$/.test(id)))].slice(0, 100);

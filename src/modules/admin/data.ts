@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { sortOrder } from "@/lib/table-sort";
+import { pickKey, sortOrder } from "@/lib/table-sort";
 import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sources";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
@@ -64,7 +64,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
-  const filter: OrderFilter = rawFilter && rawFilter in orderFilters ? rawFilter as OrderFilter : "all";
+  const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] }>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
