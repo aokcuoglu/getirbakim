@@ -1,55 +1,27 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BadgePercent, BellRing, Building2, CircleAlert, CircleCheck, CircleDashed, Droplets, FileSpreadsheet, GitCompareArrows, ChevronsUpDown, ExternalLink, LayoutDashboard, Layers3, LogOut, Moon, Package, PlugZap, ReceiptText, Sun, TriangleAlert, Truck, type LucideIcon } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleDashed, ChevronsUpDown, ExternalLink, LogOut, Moon, Sun, TriangleAlert } from "lucide-react";
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
+import { adminSections, isAdminRouteActive, type AdminNavStatus, type AdminRoute } from "@/components/admin/admin-routes";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu,
-  SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarRail, useSidebar,
+  SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarRail, useSidebar,
 } from "@/components/ui/sidebar";
 
-export type AdminNavStatus = {
-  orders: number; services: number; enrichment: number; brands: number;
-  /** Restock requests whose product can be ordered again ("Bildirilecek", #475). */
-  restock: number;
-  basbug: "success" | "warning" | "danger" | "neutral";
-  dinamik: "success" | "warning" | "danger" | "neutral";
-  seta: "success" | "warning" | "danger" | "neutral";
-};
-type Item = { href: string; label: string; icon: LucideIcon; count?: keyof Pick<AdminNavStatus, "orders" | "services" | "enrichment" | "brands" | "restock">; dot?: "basbug" | "dinamik" | "seta"; exact?: boolean };
-const sections: { title: string; items: Item[] }[] = [
-  { title: "Genel", items: [{ href: "/yonetim", label: "Genel bakış", icon: LayoutDashboard, exact: true }] },
-  { title: "Satış", items: [
-    { href: "/yonetim/siparisler", label: "Siparişler", icon: ReceiptText, count: "orders" },
-    { href: "/yonetim/servisler", label: "B2B servisler", icon: Building2, count: "services" },
-    { href: "/yonetim/stok-bildirimleri", label: "Stok bildirimleri", icon: BellRing, count: "restock" },
-    { href: "/yonetim/fiyatlandirma", label: "Fiyatlandırma", icon: BadgePercent },
-  ] },
-  { title: "Katalog", items: [
-    { href: "/yonetim/urunler", label: "Ürünler", icon: Package },
-    { href: "/yonetim/urun-verileri", label: "Ürün zenginleştirme", icon: Layers3, count: "enrichment" },
-    { href: "/yonetim/urun-eslestirme", label: "Ürün eşleştirme", icon: GitCompareArrows, count: "brands" },
-    { href: "/yonetim/yag-verileri", label: "Yağ verileri", icon: Droplets },
-  ] },
-  { title: "Entegrasyonlar", items: [
-    { href: "/yonetim/tedarikciler", label: "Tüm tedarikçiler", icon: PlugZap, exact: true },
-    { href: "/yonetim/tedarikciler/basbug", label: "Başbuğ API", icon: Truck, dot: "basbug" },
-    { href: "/yonetim/tedarikciler/dinamik", label: "Dinamik API", icon: Truck, dot: "dinamik" },
-    { href: "/yonetim/tedarikciler/seta", label: "SETA API", icon: Truck, dot: "seta" },
-    { href: "/yonetim/tedarikciler/manuel", label: "Manuel yükleme", icon: FileSpreadsheet },
-  ] },
-];
+export type { AdminNavStatus };
 const dotIcons = { success: CircleCheck, warning: TriangleAlert, danger: CircleAlert, neutral: CircleDashed };
 const dotLabels = { success: "veriler güncel", warning: "açık sorun var", danger: "veriler güncel değil", neutral: "veri yok" };
 const dotColors = { success: "text-success", warning: "text-warning", danger: "text-destructive", neutral: "text-muted-foreground" };
 
 export function AdminSidebar({ status, account }: { status: AdminNavStatus; account: { name: string; email: string } }) {
   const pathname = usePathname();
-  const { isMobile, setOpenMobile } = useSidebar();
-  const active = (item: Item) => item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+  const { isMobile, setOpenMobile, state } = useSidebar();
+  const collapsed = state === "collapsed" && !isMobile;
+  const active = (item: AdminRoute) => isAdminRouteActive(item, pathname, collapsed);
   const initials = account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toLocaleUpperCase("tr")).join("") || "Y";
   return <Sidebar collapsible="icon">
     <SidebarHeader>
@@ -61,7 +33,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
       </SidebarMenuItem></SidebarMenu>
     </SidebarHeader>
     <SidebarContent>
-      {sections.map(section => <SidebarGroup key={section.title}>
+      {adminSections.map(section => <SidebarGroup key={section.title}>
         <SidebarGroupLabel>{section.title}</SidebarGroupLabel>
         <SidebarMenu>{section.items.map(item => {
           const count = item.count ? status[item.count] : 0;
@@ -69,10 +41,19 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
           return <SidebarMenuItem key={item.href}>
             <SidebarMenuButton isActive={active(item)} tooltip={item.label} onClick={() => isMobile && setOpenMobile(false)}
               render={<Link href={item.href} aria-current={active(item) ? "page" : undefined}/>}>
-              <item.icon aria-hidden="true"/><span>{item.label}</span>
+              {item.icon && <item.icon aria-hidden="true"/>}<span>{item.label}</span>
             </SidebarMenuButton>
             {count > 0 && <SidebarMenuBadge><span className="sr-only">Bekleyen: </span>{count}</SidebarMenuBadge>}
             {tone && <SidebarMenuBadge><ToneIcon tone={tone}/></SidebarMenuBadge>}
+            {item.children && <SidebarMenuSub>{item.children.map(child => {
+              const childTone = child.dot ? status[child.dot] : null, current = active(child);
+              return <SidebarMenuSubItem key={child.href}>
+                <SidebarMenuSubButton isActive={current} onClick={() => isMobile && setOpenMobile(false)}
+                  render={<Link href={child.href} aria-current={current ? "page" : undefined}/>}>
+                  <span>{child.label}</span>{childTone && <span className="ml-auto flex"><ToneIcon tone={childTone}/></span>}
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>;
+            })}</SidebarMenuSub>}
           </SidebarMenuItem>;
         })}</SidebarMenu>
       </SidebarGroup>)}

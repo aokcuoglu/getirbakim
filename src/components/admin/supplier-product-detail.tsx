@@ -8,7 +8,6 @@ import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog"
 import { supplierFieldChanges, type SupplierChange } from "@/modules/admin/supplier-changes";
 import { dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -162,7 +161,7 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
   notice?: ReactNode;
   /** Product name for the add-to-cart form; without it the product has no cart form here. */
   cart?: string;
-  /** Rendered inside the list's dialog: the dialog header replaces the breadcrumb and page title. */
+  /** Rendered inside the list's dialog: the dialog header replaces the page title. */
   modal?: boolean;
 }) {
   const snapshot = sale?.pricing_snapshot.checkout_mode === "snapshot";
@@ -179,17 +178,12 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
     <div className="flex min-h-0 min-w-0 flex-col gap-6 overflow-y-auto">{notice}{body}</div>
   </>;
   return <div className="flex min-w-0 flex-col gap-6">
-    <div className="flex min-w-0 flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href={listHref}/>}>{supplier}</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem className="min-w-0"><BreadcrumbPage className="wrap-anywhere">{item.code}</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0"><h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1><p className="wrap-anywhere text-muted-foreground">{description}</p></div>
-        <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
+    <div className="flex min-w-0 flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="wrap-anywhere font-mono text-2xl font-semibold tracking-tight">{item.code}</h1>
+        <p className="wrap-anywhere text-muted-foreground">{description}</p>
       </div>
+      <Button variant="outline" nativeButton={false} render={<Link href={listHref}/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürün listesine dön</Button>
     </div>
     {notice}
     {body}

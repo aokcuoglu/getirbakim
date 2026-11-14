@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { durationSeconds, formatAgo, formatClock, formatDate, formatDateTime, formatDecimal, formatDuration, formatExact, formatInterval, formatNumber, formatTimestamp } from "../src/modules/admin/format";
 import { runKindLabel, runScopeLabel, runStatusLabel, runStatusTone, scheduleLines } from "../src/modules/suppliers/run-status";
+import { adminBreadcrumb, adminSections, isAdminRouteActive } from "../src/components/admin/admin-routes";
 import { supplierInitialTab } from "../src/components/admin/supplier-page";
 import { SupplierPagination, pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
 import { RunStatusBadge, StatusBadge } from "../src/components/admin/status-badge";
@@ -146,4 +147,46 @@ test("the submit button is a submit button with its icon until the form submits"
   assert.match(html, /data-testid="icon"/);
   assert.match(html, />Kaydet</);
   assert.doesNotMatch(html, / disabled=""|aria-busy/);
+});
+
+test("the admin breadcrumb names the dashboard alone and trails every other page from Yönetim", () => {
+  assert.deepEqual(adminBreadcrumb([]), [{ label: "Genel bakış" }]);
+  assert.deepEqual(adminBreadcrumb(["siparisler"]), [{ label: "Yönetim", href: "/yonetim" }, { label: "Siparişler" }]);
+  assert.deepEqual(adminBreadcrumb(["tedarikciler"]), [{ label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler" }]);
+  assert.deepEqual(adminBreadcrumb(["tedarikciler", "basbug"]), [
+    { label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" }, { label: "Başbuğ" },
+  ]);
+  assert.deepEqual(adminBreadcrumb(["tedarikciler", "basbug", "urun", "123"]), [
+    { label: "Yönetim", href: "/yonetim" }, { label: "Tedarikçiler", href: "/yonetim/tedarikciler" },
+    { label: "Başbuğ", href: "/yonetim/tedarikciler/basbug" }, { label: "Ürün ayrıntısı" },
+  ]);
+  assert.deepEqual(adminBreadcrumb(["urunler", "abc"]), [
+    { label: "Yönetim", href: "/yonetim" }, { label: "Ürünler", href: "/yonetim/urunler" }, { label: "Ürün ayrıntısı" },
+  ]);
+});
+
+test("the last breadcrumb is never a link, and every sidebar page produces a crumb with its label", () => {
+  const routes = adminSections.flatMap(section => section.items).flatMap(item => [item, ...(item.children ?? [])]);
+  for (const route of routes) {
+    const trail = adminBreadcrumb(route.href.split("/").slice(2));
+    assert.equal(trail.at(-1)?.label, route.label);
+    assert.equal(trail.at(-1)?.href, undefined);
+  }
+  assert.equal(adminBreadcrumb(["urunler", "abc"]).at(-1)?.href, undefined);
+});
+
+test("an unknown deep admin path gets no generic leaf", () => {
+  assert.deepEqual(adminBreadcrumb(["siparisler", "x"]), [{ label: "Yönetim", href: "/yonetim" }, { label: "Siparişler" }]);
+  assert.deepEqual(adminBreadcrumb(["bilinmeyen"]), [{ label: "Yönetim" }]);
+  assert.deepEqual(adminBreadcrumb(["tedarikciler", "basbug", "x"]).at(-1), { label: "Başbuğ" });
+});
+
+test("sidebar activity: a parent with children is exact when open and covers its pages when collapsed", () => {
+  const suppliers = adminSections.flatMap(section => section.items).find(item => item.href === "/yonetim/tedarikciler")!;
+  const basbug = suppliers.children![0];
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler", false), true);
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler/basbug", false), false);
+  assert.equal(isAdminRouteActive(suppliers, "/yonetim/tedarikciler/basbug", true), true);
+  assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/basbug/urun/1", false), true);
+  assert.equal(isAdminRouteActive(basbug, "/yonetim/tedarikciler/seta", false), false);
 });

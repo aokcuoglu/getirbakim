@@ -1,6 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 
@@ -17,13 +15,11 @@ export function supplierInitialTab({ attention, hasData }: { attention: boolean;
 }
 
 /**
- * Skeleton of every supplier page (Başbuğ, Dinamik, SETA, Manuel): breadcrumb, title and description, a badge slot on
+ * Skeleton of every supplier page (Başbuğ, Dinamik, SETA, Manuel): title and description, a badge slot on
  * the right (activity badge + FeedStatusBadge, or Manuel's template download), alerts, fact cards, then two tabs
  * [Ürünler, <syncLabel>]. Supplier-specific parts are passed in as slots.
  */
-export function SupplierPage({ crumb, title, description, badge, alerts, facts, products, sync, tabsLabel, syncLabel, attention, hasData, tabKey = "" }: {
-  /** Breadcrumb leaf, e.g. "Başbuğ". */
-  crumb: string;
+export function SupplierPage({ title, description, badge, alerts, facts, products, sync, tabsLabel, syncLabel, attention, hasData, tabKey = "" }: {
   title: string;
   description: ReactNode;
   badge?: ReactNode;
@@ -40,19 +36,12 @@ export function SupplierPage({ crumb, title, description, badge, alerts, facts, 
 }) {
   const initialTab = supplierInitialTab({ attention, hasData });
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>{crumb}</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          <p className="text-muted-foreground">{description}</p>
-        </div>
-        {badge}
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <p className="text-muted-foreground">{description}</p>
       </div>
+      {badge}
     </div>
     {alerts}
     {facts}

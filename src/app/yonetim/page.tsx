@@ -65,7 +65,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
 
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div>
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Genel bakış</h1>
         <p className="text-muted-foreground">Bugün {today()} · Siparişler, tedarikçi verisi ve katalog durumunun özeti.</p>
       </div>

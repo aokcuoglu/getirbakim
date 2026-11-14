@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CircleAlert, Droplets } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { LiveRefresh } from "@/components/admin/live-refresh";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,10 +40,10 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
   const withoutOil = summary.collected - summary.withOil;
 
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Yağ verileri</h1>
-        <p className="text-sm text-muted-foreground">Trodo&apos;dan (TecRMI) toplanan araç tipi motor yağı verileri; yeni gelenler en üstte. Toplama <code>npm run vehicles:oil-trodo -- collect</code> ile çalışır, bitince <code>export</code> + <code>npm run db:vehicle-oils</code>.</p>
+        <p className="text-muted-foreground">Trodo&apos;dan (TecRMI) toplanan araç tipi motor yağı verileri; yeni gelenler en üstte.</p>
       </div>
       <LiveRefresh seconds={30}/>
     </div>
@@ -111,5 +112,13 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Droplets/></EmptyMedia><EmptyTitle>{data.q ? "Aramayla eşleşen araç yok." : "Henüz yağ verisi yok."}</EmptyTitle><EmptyDescription>Toplama çalıştıkça araçlar burada belirir.</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
     </Card>
+    <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="commands">
+      <AccordionTrigger>Toplama komutları</AccordionTrigger>
+      <AccordionContent className="flex flex-col gap-2">
+        <code>npm run vehicles:oil-trodo -- collect</code>
+        <code>npm run vehicles:oil-trodo -- export</code>
+        <code>npm run db:vehicle-oils</code>
+      </AccordionContent>
+    </AccordionItem></Accordion></CardContent></Card>
   </div>;
 }

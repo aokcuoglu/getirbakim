@@ -4,12 +4,10 @@ import { requireAdmin } from '@/modules/auth/session';
 import { formatNumber } from "@/modules/admin/format";
 import { saveService } from '@/modules/admin/commerce-actions';
 import { createService } from '@/modules/admin/actions';
-import Link from "next/link";
 import { Building2, CircleAlert, CircleCheck } from "lucide-react";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -22,14 +20,11 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
   await requireAdmin();const params=normalizeSearchParams(await searchParams);
   const accounts=await adminServiceAccounts();
   return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>B2B servisler</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
-      <p className="max-w-3xl text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
+        <p className="text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
+      </div>
     </div>
     {params.created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}

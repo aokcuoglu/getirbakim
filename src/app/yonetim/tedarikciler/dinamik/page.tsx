@@ -69,7 +69,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
       scopes.failing ? "warning" : scopes.synced === scopes.enabled && scopes.enabled ? "success" : "neutral"],
     ["Son 24 saat", `${formatNumber(runs.total)} çekim`, runs.failed ? `${formatNumber(runs.failed)} başarısız / inceleme · ${formatNumber(scopes.due)} sırada` : `Hatasız · ${formatNumber(scopes.due)} sırada`, runs.failed ? "warning" : "success"],
   ];
-  return <SupplierPage crumb="Dinamik" title="Dinamik API" tabsLabel="Dinamik yönetimi"
+  return <SupplierPage title="Dinamik API" tabsLabel="Dinamik yönetimi"
     description="Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir."
     badge={<SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka"><FeedStatusBadge status={feeds?.dinamik}/></SupplierActivityBadge>}
     attention={Boolean(params.error) || params.updated === "1"} hasData={items.present > 0} tabKey={[params.error, params.updated, params.brand].join("|")}

@@ -10,7 +10,6 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { formatDecimal } from "@/modules/admin/format";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -32,20 +31,13 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
   const updated = latest ? new Date(latest.completed_at) : null;
 
   return <div className="flex min-w-0 flex-col gap-6">
-    <header className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Fiyatlandırma</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Fiyatlandırma ve kargo</h1>
-          <p className="text-muted-foreground">Satış fiyatını ve siparişlerin kargo koşullarını belirleyin.</p>
-        </div>
-        <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Servis indirimleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Fiyatlandırma ve kargo</h1>
+        <p className="text-muted-foreground">Satış fiyatını ve siparişlerin kargo koşullarını belirleyin.</p>
       </div>
-    </header>
+      <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Servis indirimleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
+    </div>
 
     {params.saved && <Alert variant="success" role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
     {params.modeSaved === "1" && <Alert variant="success" role="status"><CheckCircle2 aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedildi</AlertTitle><AlertDescription>Sepet ve siparişler yeni ayarı kullanıyor.</AlertDescription></Alert>}

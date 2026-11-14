@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { AdminBreadcrumb } from "@/components/admin/admin-breadcrumb";
 import { AdminTheme } from "@/components/admin/admin-theme";
 import { AdminSidebar, type AdminNavStatus } from "@/components/admin/admin-nav";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -35,7 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
             <SidebarTrigger className="-ml-1" aria-label="Kenar çubuğunu aç/kapat"/>
             <Separator orientation="vertical" className="mr-2 data-vertical:h-4 data-vertical:self-auto"/>
-            <span className="text-sm font-medium">Yönetim paneli</span>
+            <AdminBreadcrumb/>
             <Kbd className="ml-auto hidden md:inline-flex">⌘B</Kbd>
           </header>
           <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col p-4 md:p-6"><TableControls>{children}</TableControls></div>

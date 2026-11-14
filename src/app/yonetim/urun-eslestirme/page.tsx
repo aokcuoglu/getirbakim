@@ -10,7 +10,6 @@ import { BrandDialog, ConfirmBrand, MergeSuggestion, SetaDialog, StockLabel, typ
 import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -249,16 +248,12 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   ] : [];
 
   return <div className="flex min-w-0 flex-col gap-4">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem>
-        <BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Ürün eşleştirme</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
-        <form action={refreshMatches}><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
+        <p className="text-muted-foreground">Başbuğ, Dinamik ve SETA kayıtlarını aynı ürün altında toplayan marka, ürün ve muadil kararları.</p>
       </div>
+      <form action={refreshMatches}><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}
