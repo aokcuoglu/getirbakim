@@ -66,17 +66,21 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
   };
 
   const parsed = productPriceValuesSchema.safeParse(form.values);
-  const allErrors: Partial<Record<keyof PriceFormValues, string[]>> = parsed.success ? {} : parsed.error.flatten().fieldErrors;
+  const allErrors: Partial<Record<keyof PriceFormValues, string[]>> = parsed.success ? {} : { ...parsed.error.flatten().fieldErrors };
+  // A new end at or before the page's time (both Istanbul wall clock, the same text the schema checks) would be
+  // refused by the save; an unchanged ended campaign is not (it no longer applies). The server decides with now().
+  const until = form.values.sale_until.trim();
+  if (!allErrors.sale_until && until && until !== (values?.sale_until ?? "") && until <= now) allErrors.sale_until = ["Kampanya bitişi geçmişte kalıyor; ileri bir tarih seçin."];
+  const valid = parsed.success && !allErrors.sale_until;
   const errors = Object.fromEntries(touched.filter(field => allErrors[field]).map(field => [field, allErrors[field]])) as typeof allErrors;
-  // The preview follows valid input; while something is invalid it shows the stored prices.
-  const shown: Parsed = parsed.success ? parsed.data : { price_kurus: values?.price_kurus ?? null, sale_price_kurus: values?.sale_price_kurus ?? null,
-    sale_from: values?.sale_from ?? null, sale_until: values?.sale_until ?? null };
-  const priced = sources.filter(source => source.auto !== null).map(source => ({ ...source, price: effective(source.auto, shown, now)! }));
+  // The preview follows valid input only: with an invalid field it shows no effective price instead of a stale one.
+  const shown: Parsed | null = valid && parsed.success ? parsed.data : null;
+  const priced = sources.filter(source => source.auto !== null).map(source => ({ ...source, price: shown ? effective(source.auto, shown, now)! : source.auto! }));
   // The source the store sells: available first, then cheapest, then the lower cost (compareOffers).
   const selling = [...priced].sort((a, b) => Number(b.available) - Number(a.available) || a.price - b.price || (a.cost ?? Infinity) - (b.cost ?? Infinity))[0];
   const costs = sources.map(source => costWithVat(source.cost, source.vat)).filter((cost): cost is number => cost !== null);
   const lowestCost = costs.length ? Math.min(...costs) : null;
-  const below = priced.filter(source => belowCost(source.price, source.cost, source.vat));
+  const below = shown ? priced.filter(source => belowCost(source.price, source.cost, source.vat)) : [];
   const fixed = values?.price_kurus != null, campaign = values?.sale_price_kurus != null;
   // A stored campaign whose end has passed no longer applies; saved prices beside it are still accepted.
   const ended = campaign && values?.sale_until != null && values.sale_until <= now ? values.sale_until : null;
@@ -101,7 +105,7 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
 
   return <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
-    if (parsed.success) submit(); else setTouched(["price", "sale_price", "sale_from", "sale_until"]);
+    if (valid) submit(); else setTouched(["price", "sale_price", "sale_from", "sale_until"]);
   }}>
     <fieldset disabled={pending}>
       <FieldGroup className="grid gap-6 md:grid-cols-2">
@@ -146,9 +150,9 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
           <div className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">En düşük KDV dahil maliyet</dt><dd className="tabular-nums">{lowestCost !== null ? priceText(lowestCost) : "—"}</dd></div>
           <Separator/>
           <div className="flex flex-wrap items-center justify-between gap-2"><dt><ItemTitle>Mağazada etkili fiyat</ItemTitle></dt>
-            <dd className="text-xl font-semibold tabular-nums"><output aria-live="polite">{selling ? priceText(selling.price) : "—"}</output></dd></div>
+            <dd className="text-xl font-semibold tabular-nums"><output aria-live="polite">{!shown ? <>—<span className="sr-only"> (geçersiz alanları düzeltin)</span></> : selling ? priceText(selling.price) : "—"}</output></dd></div>
         </dl>
-        <ItemDescription>KDV dahil, satılan kaynak için. Servis (B2B) indirimi bu fiyatın üzerine uygulanır.</ItemDescription>
+        <ItemDescription>{shown ? "KDV dahil, satılan kaynak için. Servis (B2B) indirimi bu fiyatın üzerine uygulanır." : "Geçersiz alanları düzeltin; etkili fiyat ona göre hesaplanır."}</ItemDescription>
       </ItemContent>
     </Item>
     {!priced.length && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Formül fiyatı yok</AlertTitle>
