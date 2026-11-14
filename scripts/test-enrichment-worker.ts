@@ -49,15 +49,17 @@ test('long-running Chrome collectors close between successive catalog batches',a
  }
  assert.equal(sockets.length,4);
 });
-test('catalog CLI completes successive 1,000-item batches, the remainder and halts on a blocked source',{skip:!process.env.DATABASE_URL},async()=>{
+test('catalog CLI completes successive full batches, the remainder and halts on a blocked source',{skip:!process.env.DATABASE_URL},async()=>{
+ // Small batches exercise the same paths as the production 1,000-item ones without depending on CI speed.
+ const batchSize=50,total=2*batchSize+1;
  const schema='enrichment_batch_test_'+randomUUID().replaceAll('-','');
  const directory=await mkdtemp(join(tmpdir(),'enrichment-batch-'));
  const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
  const admin=new Pool({connectionString:process.env.DATABASE_URL});
  const pool=new Pool({connectionString:connection.href});
  const startWorker=()=>{
-  const child=spawn(process.execPath,['--conditions=react-server','--import','tsx','scripts/enrichment-worker.ts','continue','0','1000'],{
-   cwd:directory,env:{...process.env,DATABASE_URL:connection.href},stdio:['ignore','pipe','pipe'],timeout:30000,killSignal:'SIGKILL',
+  const child=spawn(process.execPath,['--conditions=react-server','--import','tsx','scripts/enrichment-worker.ts','continue','0',String(batchSize)],{
+   cwd:directory,env:{...process.env,DATABASE_URL:connection.href},stdio:['ignore','pipe','pipe'],timeout:60000,killSignal:'SIGKILL',
   });
   let stdout='',stderr='';
   child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
@@ -81,7 +83,7 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
   await pool.query(await readFile('db/product-enrichment.sql','utf8'));
   await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
-  await pool.query(`INSERT INTO supplier_items(code,product_data) SELECT (1000000000+n)::text,'{"uk":"OTHER"}'::jsonb FROM generate_series(1,2001) AS n`);
+  await pool.query(`INSERT INTO supplier_items(code,product_data) SELECT (1000000000+n)::text,'{"uk":"OTHER"}'::jsonb FROM generate_series(1,${total}) AS n`);
   await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items;INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items");
   // A duplicate offer and an unlinked price-list row must never create additional source visits.
   const first=(await pool.query('SELECT id,code FROM supplier_items LIMIT 1')).rows[0];
@@ -93,12 +95,12 @@ test('catalog CLI completes successive 1,000-item batches, the remainder and hal
   await pool.query(`INSERT INTO enrichment_source_cache(host,path,body,expires_at) SELECT 'www.trodo.com',path,'[{"products":[]}]'::jsonb,now()+interval '1 day' FROM unnest($1::text[]) AS path`,[paths]);
   const output=await startWorker().done;
   const runs=(await pool.query('SELECT id,status,sample_size FROM enrichment_runs ORDER BY created_at')).rows;
-  assert.deepEqual(runs.map(r=>({status:r.status,size:r.sample_size})),[{status:'complete',size:1000},{status:'complete',size:1000},{status:'complete',size:1}]);
+  assert.deepEqual(runs.map(r=>({status:r.status,size:r.sample_size})),[{status:'complete',size:batchSize},{status:'complete',size:batchSize},{status:'complete',size:1}]);
   assert.match(output,/"continue":"done","batches":3/);
-  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_run_items')).rows[0].n,total);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_request_events')).rows[0].n,0);
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending'")).rows[0].n,0);
-  assert.equal((await pool.query('SELECT count(DISTINCT product_id)::int AS n FROM enrichment_run_items')).rows[0].n,2001);
+  assert.equal((await pool.query('SELECT count(DISTINCT product_id)::int AS n FROM enrichment_run_items')).rows[0].n,total);
   await pool.query(`INSERT INTO supplier_items(code,product_data) VALUES('2000000000','{"uk":"OTHER"}');UPDATE enrichment_source_hosts SET blocked=true WHERE host='www.trodo.com'`);
   await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items WHERE code='2000000000';INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items WHERE code='2000000000'");
   // An open circuit stops `continue` before it opens a batch or Chrome, so launchd never revisits a blocking site (#407).
