@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { EnrichmentDetails } from "@/components/admin/enrichment-details";
 import { LiveRefresh } from "@/components/admin/live-refresh";
-import { ChevronLeft, ChevronRight, ArrowUpRight, CircleAlert, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront, TriangleAlert, type LucideIcon } from "lucide-react";
+import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
+import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { ChevronLeft, ChevronRight, ArrowUpRight, CircleCheck, CircleHelp, Clock3, ImageIcon, Info, Layers3, Search, GitCompareArrows, CarFront } from "lucide-react";
 import { requireAdmin } from "@/modules/auth/session";
 import { enrichmentDashboard, type RecordTab } from "@/modules/admin/enrichment-data";
-import { dataSource, enrichmentStatuses, gapLabels, gapText, matchLabels, sourceLabels, sourceNames } from "@/modules/admin/enrichment-labels";
+import { dataSource, enrichmentStatuses, enrichmentStatusTones, gapLabels, gapText, matchLabels, sourceLabels, sourceNames } from "@/modules/admin/enrichment-labels";
 import { runProgress, type PartialGap } from "@/modules/admin/enrichment-pace";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -25,11 +27,10 @@ const sourceStates:Record<string,string>={running:"Çalışıyor",idle:"Beklemed
 const runStates:Record<string,[Tone,string]>={running:["success","Çalışıyor"],quiet:["warning","Son 15 dk sessiz"],complete:["success","Bitti"],blocked:["error","Kaynak engelledi"],stopped:["neutral","Durduruldu"],failed:["error","Hatayla durdu"]};
 const sourceOptions=[{value:"trodo",label:"Trodo"},{value:"otoparcasan",label:"otoparcasan"},{value:"spareto",label:"spareto"},{value:"parts2world",label:"parts2world"}];
 const matchOptions=[{value:"oem_reference",label:"OEM referansıyla"},{value:"exact_part",label:"Doğrudan marka / parça"},{value:"cross_reference",label:"Muadil referansıyla"}];
-const number=(value:number)=>new Intl.NumberFormat("tr-TR").format(value);
-type Tone="success"|"info"|"warning"|"error"|"neutral";
-const tones:Record<Tone,{variant:"success"|"info"|"warning"|"destructive"|"outline";icon?:LucideIcon}>={success:{variant:"success",icon:CircleCheck},info:{variant:"info",icon:Info},warning:{variant:"warning",icon:TriangleAlert},error:{variant:"destructive",icon:CircleAlert},neutral:{variant:"outline"}};
-const statusBadge=(tone:Tone,label:React.ReactNode)=>{const {variant,icon:Icon}=tones[tone];return <Badge variant={variant}>{Icon&&<Icon data-icon="inline-start"/>}{label}</Badge>;};
-const date=(value:Date)=>new Intl.DateTimeFormat("tr-TR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"}).format(value);
+const number=formatNumber;
+type Tone=StatusTone;
+const statusBadge=(tone:Tone,label:React.ReactNode)=><StatusBadge tone={tone}>{label}</StatusBadge>;
+const date=(value:Date)=>formatDateTime(value);
 
 export default async function ProductDataAdmin({searchParams}:{searchParams:Promise<SearchParams>}) {
   await requireAdmin();
@@ -53,7 +54,6 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
     {label:"Araç / motor kaydı",value:data.metrics.vehicles,icon:CarFront,note:`${number(data.metrics.oem_numbers)} OEM referansı toplandı`},
     {label:"Görseli bulunan ürün",value:data.metrics.images,icon:ImageIcon,note:`${(Number(data.metrics.bytes)/1024/1024).toLocaleString("tr-TR",{maximumFractionDigits:1})} MB görsel depolanıyor`},
   ];
-  const statusTones:Record<string,Tone>={complete:"success",partial:"warning",review:"warning",failed:"error",blocked:"error",not_found:"error",pending:"neutral"};
   // Every product is in exactly one tab (#388); the status column repeats it per row.
   const errors=(counts.blocked||0)+(counts.failed||0);
   const tabs:[RecordTab,string,number][]=[["complete","Tamamlanan",counts.complete||0],["partial","Kısmi veri",counts.partial||0],["review","İnceleme",counts.review||0],["not_found","Eşleşmeyen",counts.not_found||0],["error","Hatalı",errors],["pending","Bekleyen",counts.pending||0]];
@@ -90,8 +90,8 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground tabular-nums">
           <span>{number(counts.review||0)} inceleme · {number(errors)} erişim / işlem hatası</span>
           {attention?<div className="flex flex-wrap gap-2">
-            {counts.review?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"review",match:"all",q:"",page:"1"})} scroll={false}/>}>İncelemeyi aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
-            {errors?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"error",match:"all",q:"",page:"1"})} scroll={false}/>}>Hataları aç<ArrowUpRight data-icon="inline-end"/></Button>:null}
+            {counts.review?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"review",match:"all",q:"",page:"1"})} scroll={false}/>}>İncelemeyi aç<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>:null}
+            {errors?<Button variant="outline" size="sm" nativeButton={false} render={<Link href={href({status:"error",match:"all",q:"",page:"1"})} scroll={false}/>}>Hataları aç<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>:null}
           </div>:null}
         </CardContent>
       </Card>
@@ -161,7 +161,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
           <TableCell className="max-w-56" value={row.name||row.code}><Link className="block truncate font-medium hover:underline" href={`/yonetim/urunler/${row.product_id}`} title={row.name||row.code}>{row.name||row.code}</Link></TableCell>
           <TableCell className="max-w-32"><span className="block truncate" title={row.brand}>{row.brand}</span></TableCell>
           <TableCell className="max-w-36 font-mono text-sm"><span className="block truncate" title={row.code}>{row.code}</span></TableCell>
-          <TableCell value={enrichmentStatuses[row.status]||row.status}><span title={gaps||undefined}>{statusBadge(statusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}</span></TableCell>
+          <TableCell value={enrichmentStatuses[row.status]||row.status}><span title={gaps||undefined}>{statusBadge(enrichmentStatusTones[row.status]??"neutral",enrichmentStatuses[row.status]||row.status)}</span></TableCell>
           <TableCell value={source?sourceLabels[source].name:""}>{source?<span title={others.length?`Ayrıca arandı: ${sourceNames(others)}`:undefined}>{sourceLabels[source].name}</span>
             :<span className="text-muted-foreground" title={others.length?`Arandı: ${sourceNames(others)}`:undefined}>{others.length?`Arandı: ${sourceNames(others)}`:"Henüz aranmadı"}</span>}</TableCell>
           <TableCell value={row.match_type?matchLabels[row.match_type]:""}>{row.match_type?<span title={row.match_type==="cross_reference"||!row.reference?`${row.manufacturer} ${row.manufacturer_part_number}`:row.reference}>{matchLabels[row.match_type]}</span>:<span className="text-muted-foreground">—</span>}</TableCell>
@@ -173,7 +173,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
         </TableRow>;})}</TableBody></Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Search/></EmptyMedia><EmptyTitle>Bu filtrelerle kayıt bulunamadı</EmptyTitle><EmptyDescription>Arama kodunu veya eşleşme yöntemini değiştirerek tekrar dene.</EmptyDescription></EmptyHeader><EmptyContent><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urun-verileri"/>}>Tüm zenginleştirilen ürünler</Button></EmptyContent></Empty>}
       </CardContent>
       <CardFooter className="flex-col gap-2 text-sm text-muted-foreground tabular-nums sm:flex-row"><span className="shrink-0">{data.total?`${number((data.page-1)*data.pageSize+1)}–${number(Math.min(data.page*data.pageSize,data.total))}`:"0"} / {number(data.total)} kayıt · Sayfa {number(data.page)} / {number(data.pages)}</span>
-        {(prev||next)&&<Pagination aria-label="Sayfalama" className="sm:justify-end"><PaginationContent>{prev&&<PaginationItem><Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start"/>Önceki</Button></PaginationItem>}{next&&<PaginationItem><Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end"/></Button></PaginationItem>}</PaginationContent></Pagination>}
+        {(prev||next)&&<Pagination aria-label="Sayfalama" className="sm:justify-end"><PaginationContent>{prev&&<PaginationItem><Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={prev} scroll={false}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Önceki</Button></PaginationItem>}{next&&<PaginationItem><Button variant="ghost" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={next} scroll={false}/>}>Sonraki<ChevronRight data-icon="inline-end" aria-hidden="true"/></Button></PaginationItem>}</PaginationContent></Pagination>}
       </CardFooter>
     </Card>
 

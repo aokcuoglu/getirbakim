@@ -3,7 +3,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { releaseReservedStock } from "@/modules/store/stock-reservation";
 
-export type OrderTransition = "confirmed" | "shipped" | "cancelled";
+type OrderTransition = "confirmed" | "shipped" | "cancelled";
 const allowed: Record<string, OrderTransition[]> = { pending: ["confirmed", "cancelled"], confirmed: ["shipped", "cancelled"] };
 
 /** Operations' order steps. Returns false when the order is missing or the step is not allowed from its state. */

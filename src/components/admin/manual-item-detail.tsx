@@ -3,8 +3,10 @@ import { CircleAlert, CircleCheck } from "lucide-react";
 import { adminManualItem } from "@/modules/admin/manual";
 import { categoryLabel } from "@/modules/suppliers/manual-template";
 import { manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
-import { ManualSubmitButton } from "@/components/admin/manual-submit-button";
-import { Fields, SupplierProductDetail, Timestamp, supplierNumber } from "@/components/admin/supplier-product-detail";
+import { SubmitButton } from "@/components/admin/submit-button";
+import { Fields, SupplierProductDetail, Timestamp } from "@/components/admin/supplier-product-detail";
+import { formatExact } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +55,7 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
       noSaleMessage={!item.price_data ? "Fiyat girilmediği için satışa kapalı; mağazada “Fiyat bilgisi güncelleniyor” görünür." : undefined}
       productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Ürün kodu, ad, marka ve kategori yüklenen dosyadan gelir. Dosyada boş kalan alanları buradan tamamlayabilirsiniz; dosyada dolu olan alanlar dosyadaki değeri korur.</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Fields values={{ Marka: p.uk, Kategori: category ? categoryLabel(category) : p.category_name, Liste: p.list_name, Resim: item.image_id ? <Badge variant="success">Kayıtlı</Badge> : <Badge variant="outline">Yok</Badge> }}/>
+          <Fields values={{ Marka: p.uk, Kategori: category ? categoryLabel(category) : p.category_name, Liste: p.list_name, Resim: item.image_id ? <StatusBadge tone="success">Kayıtlı</StatusBadge> : <StatusBadge tone="neutral">Yok</StatusBadge> }}/>
           <form action={saveManualItem} className="flex flex-col gap-4">
             <input type="hidden" name="id" value={item.id}/>
             <FieldGroup className="grid gap-4 md:grid-cols-2">
@@ -65,11 +67,11 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
                 <FieldDescription>{fromFile(field) ? "Dosyadan geliyor; değiştirmek için dosyayı güncelleyip yeniden yükleyin." : labels[field].hint}</FieldDescription>
               </Field>)}
             </FieldGroup>
-            <div><ManualSubmitButton icon="check" label="Kaydet" pendingLabel="Kaydediliyor…"/></div>
+            <div><SubmitButton icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Kaydediliyor…">Kaydet</SubmitButton></div>
           </form>
         </CardContent></Card>}
       stockInfo={<Card><CardHeader><CardTitle><h2>Stok</h2></CardTitle><CardDescription>Manuel listede stok, girilen adettir; tedarikçi teyidi değildir.</CardDescription></CardHeader><CardContent>
-        <Fields values={{ "Stok adedi": item.stock_data ? supplierNumber(item.stock_data.stok) : "Girilmemiş", "Mağaza durumu": sale?.stock_label ?? "—" }}/>
+        <Fields values={{ "Stok adedi": item.stock_data ? formatExact(item.stock_data.stok) : "Girilmemiş", "Mağaza durumu": sale?.stock_label ?? "—" }}/>
       </CardContent></Card>}
       dataInfo={<Fields values={{ "İlk yükleme": <Timestamp value={item.first_seen_at}/>, "Son değişim": <Timestamp value={item.changed_at}/>, "Son yükleme": <Timestamp value={item.last_seen_at}/>, "Resim kaynağı": p.image_url }}/>}/>;
 }

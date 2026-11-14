@@ -1,20 +1,22 @@
 import Link from "next/link";
-import { CircleAlert, CircleCheck, Droplets, Info, TriangleAlert } from "lucide-react";
+import { CircleAlert, Droplets } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { LiveRefresh } from "@/components/admin/live-refresh";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/modules/auth/session";
+import { formatDateTime, formatExact, formatNumber } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { vehicleOilsData, VEHICLE_OILS_ROWS } from "@/modules/admin/vehicle-oils";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
-const time = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const number = formatNumber;
+const time = (value: Date) => formatDateTime(value, { seconds: true });
 const duration = (minutes: number) => minutes >= 1440 ? `${Math.floor(minutes / 1440)} gün ${Math.floor(minutes % 1440 / 60)} sa`
   : minutes >= 60 ? `${Math.floor(minutes / 60)} sa ${minutes % 60} dk` : `${minutes} dk`;
 const share = (part: number, whole: number) => whole ? Math.round(part / whole * 100) : 0;
@@ -44,7 +46,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
       </div>
       <LiveRefresh seconds={30}/>
     </div>
-    {host?.blocked && <Alert variant="destructive">
+    {host?.blocked && <Alert variant="destructive" role="alert">
       <CircleAlert aria-hidden="true"/>
       <AlertTitle>Trodo erişimi engellendi</AlertTitle>
       <AlertDescription>{host.last_error ?? "Kaynak engel bildirdi."}{host.challenge_since ? ` · ${time(host.challenge_since)} itibarıyla` : ""}</AlertDescription>
@@ -57,13 +59,13 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
       <Card>
         <CardHeader><CardDescription>Durum</CardDescription><CardTitle className="text-2xl tabular-nums">{number(summary.lastHour)} / saat</CardTitle></CardHeader>
         <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
-          {run?.status === "complete" && !remaining ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Tamamlandı</Badge>
-            : run?.status === "blocked" ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Engellendi</Badge>
-            : running ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Çalışıyor</Badge>
-            : run?.status === "running" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Son 10 dk sessiz</Badge>
-            : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>{run ? "Durduruldu" : "Henüz koşu yok"}</Badge>}
+          {run?.status === "complete" && !remaining ? <StatusBadge tone="success">Tamamlandı</StatusBadge>
+            : run?.status === "blocked" ? <StatusBadge tone="error">Engellendi</StatusBadge>
+            : running ? <StatusBadge tone="success">Çalışıyor</StatusBadge>
+            : run?.status === "running" ? <StatusBadge tone="warning">Son 10 dk sessiz</StatusBadge>
+            : <StatusBadge tone="warning">{run ? "Durduruldu" : "Henüz koşu yok"}</StatusBadge>}
           <span className="tabular-nums">{running && remaining && summary.lastHour ? `Tahmini bitiş: ${finishAt(left)} (${duration(left)})` : summary.lastFetch ? `Son çekim: ${time(summary.lastFetch)}` : "Henüz çekim yok"}</span>
-          {host && <span className="tabular-nums">İstek aralığı {number(host.interval_ms / 1000)} sn + 0–{number(host.jitter_ms / 1000)} sn</span>}
+          {host && <span className="tabular-nums">İstek aralığı {formatExact(host.interval_ms / 1000)} sn + 0–{formatExact(host.jitter_ms / 1000)} sn</span>}
         </CardContent>
       </Card>
       <Card>
@@ -73,8 +75,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
       <Card>
         <CardHeader><CardDescription>Verisiz / başarısız</CardDescription><CardTitle className="text-2xl tabular-nums">{number(withoutOil)} / {number(run?.failed ?? 0)}</CardTitle></CardHeader>
         <CardContent className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
-          {run?.failed ? <Badge variant="destructive"><CircleAlert data-icon="inline-start" aria-hidden="true"/>Yeniden denenecek</Badge>
-            : <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>Başarısız istek yok</Badge>}
+          {run?.failed ? <StatusBadge tone="error">Yeniden denenecek</StatusBadge> : <StatusBadge tone="info">Başarısız istek yok</StatusBadge>}
           <span>Verisiz: Trodo&apos;da araç için yağ bilgisi yok. Başarısız istekler sonraki koşuda yeniden denenir.</span>
         </CardContent>
       </Card>
@@ -86,10 +87,11 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form className="flex flex-wrap items-end gap-3" action="/yonetim/yag-verileri">
-          <label className="flex flex-col gap-1 text-sm"><span className="text-muted-foreground">Marka, model, motor veya tip no</span><Input name="q" defaultValue={data.q} placeholder="corsa d 1.4, 125157…" className="w-64"/></label>
+          <Field className="w-64"><FieldLabel htmlFor="oil-search">Marka, model, motor veya tip no</FieldLabel><Input id="oil-search" name="q" defaultValue={data.q} placeholder="corsa d 1.4, 125157…"/></Field>
           <Button type="submit" variant="outline">Ara</Button>
           {data.q && <Button variant="ghost" nativeButton={false} render={<Link href="/yonetim/yag-verileri"/>}>Temizle</Button>}
         </form>
+        {data.rows.length >= VEHICLE_OILS_ROWS && <p className="text-sm text-muted-foreground">{data.q ? `Aramayla eşleşen ilk ${number(VEHICLE_OILS_ROWS)} kayıt gösteriliyor; aramayı daraltın.` : `İlk ${number(VEHICLE_OILS_ROWS)} kayıt (en yeniler) gösteriliyor; daha eskileri için arayın.`}</p>}
         {data.rows.length ? <Table>
           <TableHeader><TableRow>
             <TableHead>Araç</TableHead><TableHead>Hacim (L)</TableHead><TableHead>Viskozite</TableHead><TableHead>Şartname / onay</TableHead><TableHead>Çekim</TableHead>
@@ -98,7 +100,7 @@ export default async function VehicleOils({ searchParams }: { searchParams: Prom
             <TableCell className="max-w-72"><div className="flex min-w-0 flex-col"><span className="truncate font-medium" title={row.full_name}>{row.full_name}</span><span className="text-xs text-muted-foreground tabular-nums">TA-{row.vehicle_type_id}</span></div></TableCell>
             <TableCell className="tabular-nums">{row.volumes.join(" · ") || <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell className="min-w-40 whitespace-normal">{row.viscosities.length ? row.viscosities.map(value => value.replace(/^SAE\s*/i, "")).join(", ")
-              : <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Veri yok</Badge>}</TableCell>
+              : <StatusBadge tone="warning">Veri yok</StatusBadge>}</TableCell>
             <TableCell className="min-w-48 whitespace-normal" value={row.specifications.join(", ")}><span className="text-sm" title={row.specifications.join(", ")}>
               {row.specifications.slice(0, SHOWN_SPECIFICATIONS).join(", ") || <span className="text-muted-foreground">—</span>}
               {row.specifications.length > SHOWN_SPECIFICATIONS && <span className="text-muted-foreground"> +{row.specifications.length - SHOWN_SPECIFICATIONS}</span>}

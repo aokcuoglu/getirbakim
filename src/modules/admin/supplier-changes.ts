@@ -1,4 +1,4 @@
-export type SupplierFieldChange = { path: string[]; before: unknown; after: unknown };
+type SupplierFieldChange = { path: string[]; before: unknown; after: unknown };
 export type SupplierChange = { id: string; changed_at: Date; kind: string; before_data: Record<string, unknown> | null; after_data: Record<string, unknown> };
 
 function record(value: unknown): value is Record<string, unknown> {

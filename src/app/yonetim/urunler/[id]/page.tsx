@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, TriangleAlert, Unlink } from "lucide-react";
+import { CircleAlert, CircleCheck, ExternalLink, GitFork, Info, Link2, Merge, Search, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,11 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
 import { money } from "@/modules/store/catalog";
+import { formatDateTime } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
 
-const date = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı", manual: "Elle muadil" } as const;
 
 export default async function MasterProduct({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
@@ -42,14 +44,14 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
       </div>
     </div>
-    {query.split && <Alert variant="success"><CircleCheck/><AlertDescription>Kayıt ayrıldı ve <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.split}`}>ayrı bir ürün</Link> oldu; mağazada ayrı listeleniyor.</AlertDescription></Alert>}
-    {query.joined && <Alert variant="success"><CircleCheck/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}
-    {query.merged && <Alert variant="success"><CircleCheck/><AlertDescription>Ürünler birleştirildi; tüm kaynaklar bu üründe ve mağazada tek ürün olarak satılıyor. Yanlışsa ilgili kaynağı “Geri al” ile ayırın.</AlertDescription></Alert>}
-    {query.reset && <Alert variant="success"><CircleCheck/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
-    {query.linked && <Alert variant="success"><CircleCheck/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
-    {query.unlinked && <Alert variant="success"><CircleCheck/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
-    {query.error && <Alert variant="destructive" role="alert"><CircleAlert/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
-    {merged && <Alert variant="info"><Info/><AlertTitle>Bu ürün birleştirildi</AlertTitle>
+    {query.split && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt ayrıldı ve <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.split}`}>ayrı bir ürün</Link> oldu; mağazada ayrı listeleniyor.</AlertDescription></Alert>}
+    {query.joined && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}
+    {query.merged && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ürünler birleştirildi; tüm kaynaklar bu üründe ve mağazada tek ürün olarak satılıyor. Yanlışsa ilgili kaynağı “Geri al” ile ayırın.</AlertDescription></Alert>}
+    {query.reset && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
+    {query.linked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
+    {query.unlinked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
+    {query.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
+    {merged && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Bu ürün birleştirildi</AlertTitle>
       <AlertDescription>Kayıtları <Link className="underline underline-offset-4" href={`/yonetim/urunler/${merged.id}`}>{merged.brand_label} {merged.code}</Link> ürününe taşındı (marka eşleştirme kararı).</AlertDescription></Alert>}
 
     <Card>
@@ -59,7 +61,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Marka anahtarı</dt><dd className="font-mono">{product.brand}</dd></div>
         <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Parça numarası</dt><dd className="font-mono">{product.part_number}</dd></div>
         <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Tür</dt><dd>{product.variant > 0 ? <Badge variant="outline">Elle ayrılmış ürün</Badge> : "Otomatik eşleşme"}</dd></div>
-        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Oluşturulma</dt><dd className="tabular-nums">{date(product.created_at)}</dd></div>
+        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Oluşturulma</dt><dd className="tabular-nums">{formatDateTime(product.created_at, { year: true })}</dd></div>
       </dl></CardContent>
     </Card>
 
@@ -74,13 +76,13 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <TableCell className="max-w-72 truncate" title={source.name ?? ""}>{source.name ?? <span className="text-muted-foreground">—</span>}
             {source.brand_label && <span className="text-muted-foreground"> · {source.brand_label}</span>}</TableCell>
           <TableCell className="text-right tabular-nums">{source.price_kurus ? money(source.price_kurus) : "—"}</TableCell>
-          <TableCell>{!source.saleable ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Satışta değil</Badge>
-            : source.best ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Satılan</Badge>
+          <TableCell>{!source.saleable ? <StatusBadge tone="warning">Satışta değil</StatusBadge>
+            : source.best ? <StatusBadge tone="success">Satılan</StatusBadge>
             : <span className="text-muted-foreground">{source.stock_label ?? "—"}</span>}</TableCell>
           <TableCell>{source.method === "manual" ? <Badge variant="outline">Elle</Badge> : <span className="text-muted-foreground">Otomatik</span>}</TableCell>
           <TableCell>{source.method === "manual"
-            ? <form action={undoSplitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" variant="outline">Geri al</Button></form>
-            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><Button type="submit" variant="outline"><GitFork data-icon="inline-start" aria-hidden="true"/>Ayır</Button></form>}</TableCell>
+            ? <form action={undoSplitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><SubmitButton variant="outline">Geri al</SubmitButton></form>
+            : multiple && <form action={splitSource}><input type="hidden" name="item_id" value={source.id}/><input type="hidden" name="product_id" value={product.id}/><SubmitButton variant="outline" icon={<GitFork data-icon="inline-start" aria-hidden="true"/>}>Ayır</SubmitButton></form>}</TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyTitle>Bağlı kaynak yok.</EmptyTitle><EmptyDescription>Bu ürünün tedarikçi kaydı kalmadı.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
     </Card>
@@ -97,16 +99,16 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         {query.merge_q !== undefined && (merge.targets.length ? <Table><caption className="sr-only">Birleştirilebilecek ürünler</caption>
           <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{merge.targets.map(target => <TableRow key={target.id}>
-            <TableCell className="max-w-32 truncate font-medium">{target.brand_label}{!target.same_brand && <Badge variant="warning" className="ml-2"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Farklı marka</Badge>}</TableCell>
+            <TableCell className="max-w-32 truncate font-medium">{target.brand_label}{!target.same_brand && <StatusBadge tone="warning" className="ml-2">Farklı marka</StatusBadge>}</TableCell>
             <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${target.id}`}>{target.code}</Link></TableCell>
             <TableCell className="max-w-72 truncate" title={target.name ?? ""}>{target.name ?? "—"}</TableCell>
             <TableCell><div className="flex flex-wrap gap-1">{target.suppliers.length ? target.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
             <TableCell><div className="flex flex-wrap justify-end gap-2">
-              {target.equivalent ? <Badge variant="info"><Link2 data-icon="inline-start" aria-hidden="true"/>Muadil</Badge>
+              {target.equivalent ? <StatusBadge tone="info" icon={Link2}>Muadil</StatusBadge>
                 : <form action={linkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/>
-                  <Button type="submit" variant={target.same_brand ? "outline" : "default"}><Link2 data-icon="inline-start" aria-hidden="true"/>Muadil</Button></form>}
+                  <SubmitButton variant={target.same_brand ? "outline" : "default"} icon={<Link2 data-icon="inline-start" aria-hidden="true"/>}>Muadil</SubmitButton></form>}
               <form action={mergeProducts}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/>
-                <Button type="submit" variant="outline"><Merge data-icon="inline-start" aria-hidden="true"/>Birleştir</Button></form>
+                <SubmitButton variant="outline" icon={<Merge data-icon="inline-start" aria-hidden="true"/>}>Birleştir</SubmitButton></form>
             </div></TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyTitle>{merge.q.length < 3 ? "En az 3 karakter girin." : "Ürün bulunamadı."}</EmptyTitle></EmptyHeader></Empty>)}
@@ -125,7 +127,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <TableCell><div className="flex flex-wrap gap-1">{item.suppliers.length ? item.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
           <TableCell className="text-muted-foreground">{kinds[item.kind]}{item.kind !== "manual" && <> · <span className="font-mono">{item.via_brand} {item.via_part}</span></>}</TableCell>
           <TableCell><form action={unlinkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={item.id}/>
-            <Button type="submit" variant="outline"><Unlink data-icon="inline-start" aria-hidden="true"/>Kaldır</Button></form></TableCell>
+            <SubmitButton variant="outline" icon={<Unlink data-icon="inline-start" aria-hidden="true"/>}>Kaldır</SubmitButton></form></TableCell>
         </TableRow>)}</TableBody></Table>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><Link2/></EmptyMedia><EmptyTitle>Muadil bulunamadı.</EmptyTitle></EmptyHeader></Empty>}</CardContent>
     </Card>

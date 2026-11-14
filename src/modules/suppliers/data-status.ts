@@ -1,4 +1,5 @@
 import { supplierRunError } from "./run-error";
+import type { StatusTone } from "./run-status";
 
 // Supplier data status for the admin: is the data on the shelf fresh, and which problems are open right now?
 // Deliberately independent of the scheduler: a manual refresh makes data just as current as a scheduled pass, and a
@@ -86,11 +87,11 @@ export const feedStateLabels: Record<FeedState, string> = {
   unconfigured: "Bağlantı eksik",
 };
 
-export const feedStateTones: Record<FeedState, "success" | "warning" | "destructive" | "outline"> = {
+export const feedStateTones: Record<FeedState, StatusTone> = {
   fresh: "success",
   partial: "warning",
-  stale: "destructive",
-  never: "outline",
+  stale: "error",
+  never: "warning",
   unconfigured: "warning",
 };
 

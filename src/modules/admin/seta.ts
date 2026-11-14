@@ -16,7 +16,7 @@ import { supplierItemPage } from "./supplier-items";
 export type SetaParams = { q?: string; category?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
 const itemSorts = { code: "code", name: "product_data->>'ac'", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
-export type SetaImportSummary = {
+type SetaImportSummary = {
   id: string; list_group: string; warehouse: string; run_kind: "full" | "commerce"; status: string; error_reason: string | null; review_note: string | null;
   stats: Record<string, number>; started_at: Date; completed_at: Date | null; observations: Record<string, string>;
   quality: { productRows: number; uniqueProducts: number; missingPrices: number; outOfStock: number; duplicateCodes: number; conflictingCodes: number };

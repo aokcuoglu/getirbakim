@@ -1,24 +1,26 @@
 import type { supplierHealth } from "@/modules/suppliers/health";
 import { feedStateLabels } from "@/modules/suppliers/data-status";
-import { Info, TriangleAlert } from "lucide-react";
-import { SupplierRefreshButton } from "./supplier-refresh-button";
+import { Info, RefreshCw, TriangleAlert } from "lucide-react";
+import { SubmitButton } from "@/components/admin/submit-button";
+import { formatNumber, formatTimestamp } from "@/modules/admin/format";
 import { ScopeCombobox } from "./scope-combobox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Health = Awaited<ReturnType<typeof supplierHealth>>;
 type Scope = Health["scopes"][number];
-const date = (value: Date | null) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }) : "Henüz başarılı çekim yok";
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
+const date = (value: Date | null) => value ? formatTimestamp(value) : "Henüz başarılı çekim yok";
+const number = formatNumber;
 // Unit of one sync scope: a Başbuğ list group, a Dinamik brand, SETA's single list.
 const units = {
   grup: { title: "Grup", locative: "grupta", accusative: "grubu" },
   marka: { title: "Marka", locative: "markada", accusative: "markayı" },
   liste: { title: "Liste", locative: "listede", accusative: "listeyi" },
 } as const;
-export type SupplierScopeUnit = keyof typeof units;
+type SupplierScopeUnit = keyof typeof units;
 const scopeName = (scope: Scope) => scope.list_group === "ALL" ? "Tüm liste" : scope.list_group;
 const failures = (scope: Scope) => scope.consecutive_failures + scope.commerce_failures;
 
@@ -84,7 +86,7 @@ export function SupplierHealthStatus({ health, supplier, name, unit, warehouse, 
         {(commerceStale > 0 || catalogStale > 0) && <p>{commerceStale > 0 && `${commerceLabel}: ${number(commerceStale)} ${words.locative} güncellik süresi aşıldı. `}{catalogStale > 0 && `Ürün listesi: ${number(catalogStale)} ${words.locative} güncellik süresi aşıldı.`}</p>}
         <p>Zamanlayıcı: {health.manual ? "Kapalı (elle yenileme)" : schedulerAlive ? "Çalışma sinyali güncel" : "Çalışma sinyali yok"} · {health.manual ? "Otomatik deneme yok" : nextRetry ? `${schedulerAlive ? "Sonraki deneme" : "Planlanan deneme"}: ${date(nextRetry)}${nextRetry.getTime() <= health.checked_at.getTime() ? " (çalıştırılması bekleniyor)" : ""}` : "Güncel zamanlama kaydı yok"} · İstanbul saati</p>
       </div>
-      {listed.length > 0 && <Accordion className="rounded-lg border"><AccordionItem value="details" className="px-4">
+      {listed.length > 0 && <Card size="sm" className="py-0"><CardContent><Accordion><AccordionItem value="details">
         <AccordionTrigger>Ayrıntıları gör{affected.length > 0 && ` · ${names}`}</AccordionTrigger>
         <AccordionContent className="flex flex-col gap-2">
           <Table><caption className="sr-only">{name} güncelleme durumu · İstanbul saati</caption>
@@ -98,11 +100,11 @@ export function SupplierHealthStatus({ health, supplier, name, unit, warehouse, 
           </Table>
           {listed.length > shown.length && <p className="text-muted-foreground">+{number(listed.length - shown.length)} {unit} daha; en çok başarısız olan {number(shown.length)} {unit} gösteriliyor.</p>}
         </AccordionContent>
-      </AccordionItem></Accordion>}
+      </AccordionItem></Accordion></CardContent></Card>}
       {listed.length > 0 && <form action={refresh} className="flex flex-wrap items-end gap-2">
         {refreshField && <Field className="w-52"><FieldLabel htmlFor={`${supplier}-health-retry`}>Yeniden denenecek {unit}</FieldLabel>
           <ScopeCombobox id={`${supplier}-health-retry`} name={refreshField} label={`Yeniden denenecek ${unit}`} placeholder={`${words.title} ara…`} values={[...new Set(listed.map(scope => scope.list_group))]} defaultValue={listed.some(scope => scope.list_group === group) ? group : listed[0]?.list_group} empty={`Eşleşen ${unit} yok.`}/></Field>}
-        <SupplierRefreshButton label={refreshField ? `Seçili ${words.accusative} yeniden dene` : `${words.accusative[0].toLocaleUpperCase("tr-TR")}${words.accusative.slice(1)} yeniden dene`} pendingLabel={`${name} verileri çekiliyor…`}/>
+        <SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel={`${name} verileri çekiliyor…`}>{refreshField ? `Seçili ${words.accusative} yeniden dene` : `${words.accusative[0].toLocaleUpperCase("tr-TR")}${words.accusative.slice(1)} yeniden dene`}</SubmitButton>
         <FieldDescription className="basis-full">{refreshDescription}</FieldDescription>
       </form>}
     </AlertDescription>

@@ -20,7 +20,7 @@ export type EnrichmentRow = {
   searched: SourceKey[];
 };
 /** The record tabs: every product is in exactly one (#388). "error" groups the access and processing failures. */
-export const recordTabs = ["complete", "partial", "review", "not_found", "error", "pending"] as const;
+const recordTabs = ["complete", "partial", "review", "not_found", "error", "pending"] as const;
 export type RecordTab = typeof recordTabs[number];
 const errorStatuses = ["blocked", "failed"];
 // Links from before #388: "enriched" (complete + partial) and "attention" (review + errors) overlapped the other tabs.
@@ -59,7 +59,7 @@ function passPace() {
 const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
 // SQL twins of partialGaps() over the import note, for the partial tab's header filter and its counts.
 const coveredBelow = (label: string) => `(SELECT m[1]::int < m[2]::int FROM regexp_match(g.source_method,'${label} (\\d+)/(\\d+)') m)`;
-export const gapConditions: Record<PartialGap, string> = {
+const gapConditions: Record<PartialGap, string> = {
   image: "j.image_id IS NULL",
   vehicles_not_collected: "g.source_method ~ 'vehicles not collected'",
   no_vehicles: "g.source_method ~ 'no vehicles listed' AND g.source_method !~ 'vehicles not collected'",

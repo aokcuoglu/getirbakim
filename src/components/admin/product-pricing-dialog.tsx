@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { formatNumber } from "@/modules/admin/format";
 
-const percent = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+const percent = formatNumber;
 const money = (value: number) => (value / 100).toLocaleString("tr-TR", { style: "currency", currency: "TRY" });
 
 export function ProductPricingDialog({ id, code, cost, pricing }: { id: string; code: string; cost: number | null; pricing: ProductPricing }) {
@@ -80,7 +81,7 @@ function PricingForm({ id, cost, pricing, initialFocus }: { id: string; cost: nu
     </Alert>}
     <DialogFooter className="sm:justify-between">
       <Button type="submit" name="intent" value="reset" formNoValidate variant="outline" disabled={pending || !hasCustom}><RotateCcw data-icon="inline-start" aria-hidden="true"/>Genel oranlara dön</Button>
-      <Button type="submit" name="intent" value="save" disabled={pending || !parsed.success}>{pending ? <Spinner data-icon="inline-start"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Oranları kaydet"}</Button>
+      <Button type="submit" name="intent" value="save" disabled={pending || !parsed.success}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Oranları kaydet"}</Button>
     </DialogFooter>
   </form>;
 }

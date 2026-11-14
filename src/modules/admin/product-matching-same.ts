@@ -4,8 +4,8 @@
 
 /** A grouped Başbuğ product without its offers; `codes` are the offers' codes as the search compares them. */
 export type SameEntry = { primary_id: string; selling: string | null; selling_price: number | null; primary_price: number | null; codes: string; position: number };
-export type SameScope = "all" | "dinamik" | "basbug" | "none" | "split";
-export const sameSortColumns = { primary: "primary_price", selling: "selling_price" } as const;
+type SameScope = "all" | "dinamik" | "basbug" | "none" | "split";
+const sameSortColumns = { primary: "primary_price", selling: "selling_price" } as const;
 
 /** `split` lists the manual decisions instead of groups; anything unknown is every group. */
 export function sameScope(raw: string | undefined): SameScope {

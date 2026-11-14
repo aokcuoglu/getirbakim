@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierHealth } from "@/modules/suppliers/health";
@@ -31,7 +31,7 @@ import { db } from "@/lib/db";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
 import { ScopeCombobox } from "@/components/admin/scope-combobox";
 import { refreshDinamik } from "./actions";
@@ -71,7 +71,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   ];
   return <SupplierPage crumb="Dinamik" title="Dinamik API" tabsLabel="Dinamik yönetimi"
     description="Marka bazlı stok ve fiyat listeleri; her marka ayrı kapsam olarak Başbuğ ile aynı zamanlayıcıda çekilir."
-    badge={<SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{feeds ? <FeedStatusBadge status={feeds.dinamik}/> : <StatusBadge tone="error">Okunamadı</StatusBadge>}</SupplierActivityBadge>}
+    badge={<SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka"><FeedStatusBadge status={feeds?.dinamik}/></SupplierActivityBadge>}
     attention={Boolean(params.error) || params.updated === "1"} hasData={items.present > 0} tabKey={[params.error, params.updated, params.brand].join("|")}
     alerts={<>
       {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
@@ -95,7 +95,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
           description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/>}>
         <form action={refreshDinamik}><Field>
           <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
-          <div className="flex flex-wrap gap-2"><ScopeCombobox id="refresh-brand" name="brand" label="Tek marka" placeholder="Marka ara…" className="w-64" values={plan.dinamikBrands} empty="Eşleşen marka yok." defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}/><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
+          <div className="flex flex-wrap gap-2"><ScopeCombobox id="refresh-brand" name="brand" label="Tek marka" placeholder="Marka ara…" className="w-64" values={plan.dinamikBrands} empty="Eşleşen marka yok." defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}/><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dinamik verileri çekiliyor…">Seçili markayı API’den güncelle</SubmitButton></div>
           <FieldDescription>{formatNumber(plan.dinamikBrands.length)} etkin marka · {formatNumber(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
         </Field></form>
       </SupplierSourceCard>
@@ -117,7 +117,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
       <Card>
         <CardHeader><CardTitle><h2>Hata veren markalar</h2></CardTitle><CardDescription>En eski güncel marka: {formatDate(scopes.oldest_success, { fallback: "Henüz yok" })} · en son: {formatDate(scopes.last_success, { fallback: "Henüz yok" })}</CardDescription></CardHeader>
         <CardContent>
-          {data.failing.length ? <Table><TableBody>{data.failing.map(scope => <TableRow key={scope.list_group}>
+          {data.failing.length ? <Table controls={false}><TableBody>{data.failing.map(scope => <TableRow key={scope.list_group}>
             <TableCell className="whitespace-normal"><div className="font-medium">{scope.list_group}</div><div className="text-muted-foreground">{scope.error_reason ? runError(scope.error_reason) : "Bilinmeyen hata"}</div></TableCell>
             <TableCell className="text-right text-muted-foreground tabular-nums">{scope.consecutive_failures}× · sonraki {formatDate(scope.next_run_at)}</TableCell>
           </TableRow>)}</TableBody></Table> : <p className="text-muted-foreground">Hata veren marka yok.</p>}

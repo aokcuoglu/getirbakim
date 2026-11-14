@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, CheckCircle2, ChevronRight, CircleAlert, CircleCheck, Clock, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, TriangleAlert, Truck, Wallet, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Building2, CheckCircle2, ChevronRight, CircleAlert, CircleCheck, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
 import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -7,6 +7,9 @@ import { requireAdmin } from "@/modules/auth/session";
 import { approveService } from "@/modules/admin/actions";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
+import { formatAgo, formatDateTime, formatNumber } from "@/modules/admin/format";
+import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { LiveRefresh } from "@/components/admin/live-refresh";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { OrdersChart } from "@/components/admin/orders-chart";
@@ -21,27 +24,11 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, 
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const number = (value: number | string) => new Intl.NumberFormat("tr-TR").format(Number(value));
-const time = (value: Date | string) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const number = formatNumber;
 const today = () => new Date().toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", weekday: "long", day: "numeric", month: "long" });
-type Tone = "success" | "warning" | "danger" | "neutral";
-const looks: Record<Tone, { variant: "success" | "warning" | "destructive" | "outline"; icon: LucideIcon }> = {
-  success: { variant: "success", icon: CircleCheck }, warning: { variant: "warning", icon: TriangleAlert },
-  danger: { variant: "destructive", icon: CircleAlert }, neutral: { variant: "outline", icon: Clock },
-};
-function ToneBadge({ tone, children }: { tone: Tone; children: React.ReactNode }) {
-  const look = looks[tone];
-  return <Badge variant={look.variant}><look.icon data-icon="inline-start" aria-hidden="true"/>{children}</Badge>;
-}
-
-function ago(value: Date | null | undefined) {
-  if (!value) return "Henüz yok";
-  const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
-  if (minutes < 1) return "az önce";
-  if (minutes < 60) return `${minutes} dk önce`;
-  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} sa önce`;
-  return `${Math.round(minutes / 1440)} gün önce`;
-}
+// The sidebar's feed tones (feedNavTone) in the badge vocabulary.
+const navTones = { success: "success", warning: "warning", danger: "error", neutral: "neutral" } as const satisfies Record<ReturnType<typeof feedNavTone>, StatusTone>;
+type Tone = keyof typeof navTones;
 
 export default async function Admin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
@@ -84,15 +71,15 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       </div>
       <LiveRefresh seconds={30} defaultOn={false}/>
     </div>
-    {approved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
-    {error && <Alert variant="destructive"><CircleAlert/><AlertDescription>Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</AlertDescription></Alert>}
+    {approved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
+    {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</AlertDescription></Alert>}
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Özet">
       <Card>
         <CardHeader>
           <CardDescription>Ciro · son 30 gün</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums">{money(revenue)}</CardTitle>
-          {delta !== null && <CardAction><Badge variant={delta >= 0 ? "success" : "destructive"}>{delta >= 0 ? <TrendingUp data-icon="inline-start"/> : <TrendingDown data-icon="inline-start"/>}%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</Badge></CardAction>}
+          {delta !== null && <CardAction><StatusBadge tone={delta >= 0 ? "success" : "error"} icon={delta >= 0 ? TrendingUp : TrendingDown}>%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</StatusBadge></CardAction>}
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
           <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş sipariş</div>
@@ -103,7 +90,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <CardHeader>
           <CardDescription>İşlem bekleyen sipariş</CardDescription>
           <CardTitle className="text-2xl font-semibold tabular-nums">{number(orders.action + orders.refund)}</CardTitle>
-          <CardAction><ToneBadge tone={orders.action + orders.refund ? "warning" : "success"}>{orders.action + orders.refund ? "Bekliyor" : "Güncel"}</ToneBadge></CardAction>
+          <CardAction><StatusBadge tone={orders.action + orders.refund ? "warning" : "success"}>{orders.action + orders.refund ? "Bekliyor" : "Güncel"}</StatusBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
           <div className="flex items-center gap-2 font-medium"><ReceiptText className="size-4" aria-hidden="true"/>{number(orders.action)} teyit · {number(orders.refund)} iade · {number(orders.awaiting_payment)} ödeme bekliyor</div>
@@ -124,10 +111,10 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
         <CardHeader>
           <CardDescription>Başbuğ verileri</CardDescription>
           <CardTitle className="text-2xl font-semibold">{feedLabel("basbug")}</CardTitle>
-          <CardAction><ToneBadge tone={basbugTone}>{!feeds ? "Okunamadı" : feeds.basbug.automated ? "Otomatik çekim" : "Elle güncelleniyor"}</ToneBadge></CardAction>
+          <CardAction><StatusBadge tone={navTones[basbugTone]}>{!feeds ? "Okunamadı" : feeds.basbug.automated ? "Otomatik çekim" : "Elle güncelleniyor"}</StatusBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
-          <div className="flex items-center gap-2 font-medium"><Truck className="size-4" aria-hidden="true"/>Son başarılı çekim {ago(lastSuccess)}</div>
+          <div className="flex items-center gap-2 font-medium"><Truck className="size-4" aria-hidden="true"/>Son başarılı çekim {formatAgo(lastSuccess)}</div>
           <Link className="text-muted-foreground underline-offset-4 hover:underline" href="/yonetim/tedarikciler/basbug">Durumu gör</Link>
         </CardFooter>
       </Card>
@@ -173,9 +160,9 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler"/>}>Tümü</Button></CardAction>
         </CardHeader>
         <CardContent>
-          {recent.length ? <Table><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
+          {recent.length ? <Table controls={false}><TableHeader><TableRow><TableHead>Sipariş</TableHead><TableHead>Müşteri</TableHead><TableHead>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead className="text-right">Tutar</TableHead></TableRow></TableHeader><TableBody>
             {recent.map(order => <TableRow key={order.id}>
-              <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${order.id}`}>#{order.number}</Link><div className="text-muted-foreground">{time(order.created_at)}</div></TableCell>
+              <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${order.id}`}>#{order.number}</Link><div className="text-muted-foreground">{formatDateTime(order.created_at)}</div></TableCell>
               <TableCell>{order.customer_name}</TableCell>
               <TableCell><OrderStatusBadge status={order.status}/></TableCell>
               <TableCell><PaymentStatusBadge status={order.payment_status}/></TableCell>
@@ -197,10 +184,10 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
               <ProgressValue/>
             </Progress>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="success" className="tabular-nums">{number(enrichment.complete || 0)} tamam</Badge>
-              <Badge variant="warning" className="tabular-nums">{number(enrichment.partial || 0)} kısmi</Badge>
-              <Badge variant={enrichmentAttention ? "warning" : "outline"} className="tabular-nums">{number(enrichmentAttention)} kontrol</Badge>
-              <Badge variant={enrichment.not_found ? "destructive" : "outline"} className="tabular-nums">{number(enrichment.not_found || 0)} eşleşmeyen</Badge>
+              <StatusBadge tone="success" className="tabular-nums">{number(enrichment.complete || 0)} tamam</StatusBadge>
+              <StatusBadge tone="warning" className="tabular-nums">{number(enrichment.partial || 0)} kısmi</StatusBadge>
+              <StatusBadge tone={enrichmentAttention ? "warning" : "neutral"} className="tabular-nums">{number(enrichmentAttention)} kontrol</StatusBadge>
+              <StatusBadge tone={enrichment.not_found ? "error" : "neutral"} className="tabular-nums">{number(enrichment.not_found || 0)} eşleşmeyen</StatusBadge>
             </div>
           </CardContent>
         </Card>
@@ -216,8 +203,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
               return <div key={s.name}>
                 {index > 0 && <ItemSeparator/>}
                 <Item size="sm" render={<Link href={s.href}/>}>
-                  <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${ago(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : !s.configured ? "Bağlantı değişkenleri eksik" : isDinamik ? `Son çekim ${ago(feeds?.dinamik.lastSuccess)} · ${feeds?.dinamik.tracked ?? 0} marka` : s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı"}</ItemDescription></ItemContent>
-                  <ItemActions><ToneBadge tone={tone}>{isBasbug ? feedLabel("basbug") : isDinamik ? feedLabel("dinamik") : isSeta ? feedLabel("seta") : s.verified ? "Bağlı" : "Doğrulanmadı"}</ToneBadge></ItemActions>
+                  <ItemContent><ItemTitle>{s.name}</ItemTitle><ItemDescription>{isBasbug ? `Son çekim ${formatAgo(data.lastImport?.started_at)}${data.lastImport ? ` · ${data.lastImport.list_group}` : ""}` : !s.configured ? "Bağlantı değişkenleri eksik" : isDinamik ? `Son çekim ${formatAgo(feeds?.dinamik.lastSuccess)} · ${feeds?.dinamik.tracked ?? 0} marka` : s.verified ? "Bağlantı doğrulandı" : "Değişkenler tanımlı · bağlantı doğrulanmadı"}</ItemDescription></ItemContent>
+                  <ItemActions><StatusBadge tone={navTones[tone]}>{isBasbug ? feedLabel("basbug") : isDinamik ? feedLabel("dinamik") : isSeta ? feedLabel("seta") : s.verified ? "Bağlı" : "Doğrulanmadı"}</StatusBadge></ItemActions>
                 </Item>
               </div>;
             })}</ItemGroup>
@@ -239,7 +226,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
             <ItemContent><ItemTitle>{a.name}</ItemTitle><ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}</ItemDescription></ItemContent>
             <ItemActions><form action={approveService} className="flex items-end gap-2"><input type="hidden" name="id" value={a.id}/>
               <Field className="w-36"><FieldLabel htmlFor={`discount-${a.id}`}>Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
-              <Button type="submit">Başvuruyu onayla</Button>
+              <SubmitButton>Başvuruyu onayla</SubmitButton>
             </form></ItemActions>
           </Item>
         </div>)}</ItemGroup>

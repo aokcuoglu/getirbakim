@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { durationSeconds, formatClock, formatDate, formatDuration, formatInterval, formatNumber } from "../src/modules/admin/format";
+import { durationSeconds, formatAgo, formatClock, formatDate, formatDateTime, formatDecimal, formatDuration, formatExact, formatInterval, formatNumber, formatTimestamp } from "../src/modules/admin/format";
 import { runKindLabel, runScopeLabel, runStatusLabel, runStatusTone, scheduleLines } from "../src/modules/suppliers/run-status";
 import { supplierInitialTab } from "../src/components/admin/supplier-page";
 import { SupplierPagination, pageHref, pageWindow } from "../src/components/admin/supplier-pagination";
-import { RunStatusBadge } from "../src/components/admin/status-badge";
+import { RunStatusBadge, StatusBadge } from "../src/components/admin/status-badge";
+import { FeedStatusBadge } from "../src/components/admin/feed-status-badge";
+import { SubmitButton } from "../src/components/admin/submit-button";
 
 test("numbers use Turkish grouping, at most two decimals, missing reads 0", () => {
   assert.equal(formatNumber(1234567), "1.234.567");
@@ -21,6 +23,36 @@ test("dates read in Istanbul time in the overview's short style; another year ad
   assert.equal(formatDate(new Date("2025-06-01T09:00:00Z"), { now }), "01 Haz 2025 12:00");
   assert.equal(formatDate(null), "—");
   assert.equal(formatDate(undefined, { fallback: "Henüz yok" }), "Henüz yok");
+});
+
+test("date-times keep the list styles: short, with year, with seconds, numeric timestamp", () => {
+  const at = new Date("2025-06-01T09:00:05Z");
+  assert.equal(formatDateTime(at), "01 Haz 12:00");
+  assert.equal(formatDateTime(at.toISOString()), "01 Haz 12:00");
+  assert.equal(formatDateTime(at, { year: true }), "01 Haz 2025 12:00");
+  assert.equal(formatDateTime(at, { seconds: true }), "01 Haz 12:00:05");
+  assert.equal(formatTimestamp(at), "01.06.2025 12:00:05");
+});
+
+test("time since a date reads in minutes, hours, then days; a missing date has a fallback", () => {
+  const now = new Date("2026-11-14T12:00:00Z");
+  const before = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+  assert.equal(formatAgo(before(0), { now }), "az önce");
+  assert.equal(formatAgo(before(0), { now, justNow: "Az önce" }), "Az önce");
+  assert.equal(formatAgo(new Date(now.getTime() + 120_000), { now }), "az önce");
+  assert.equal(formatAgo(before(5), { now }), "5 dk önce");
+  assert.equal(formatAgo(before(150), { now }), "3 sa önce");
+  assert.equal(formatAgo(before(2 * 1440), { now }), "2 gün önce");
+  assert.equal(formatAgo(before(5).toISOString(), { now }), "5 dk önce");
+  assert.equal(formatAgo(null), "Henüz yok");
+  assert.equal(formatAgo(undefined, { fallback: "Hiç çekilmedi" }), "Hiç çekilmedi");
+});
+
+test("fixed and exact decimals", () => {
+  assert.equal(formatDecimal(1234.5), "1.234,50");
+  assert.equal(formatDecimal(38.12345, 4), "38,1235");
+  assert.equal(formatExact(0.1234567), "0,123457");
+  assert.equal(formatExact(12), "12");
 });
 
 test("durations are compact and an unfinished run is still running", () => {
@@ -95,4 +127,23 @@ test("capped pagination says only the first pages are listed and limits the page
   assert.match(capped, /max="200"/);
   const open = renderToStaticMarkup(<SupplierPagination base="/yonetim/tedarikciler/seta" params={{}} keys={[]} page={1} pages={3}/>);
   assert.doesNotMatch(open, /daraltın|sınırlı/);
+});
+
+test("every status badge carries a variant, an icon hidden from screen readers and its words", () => {
+  const html = (node: React.ReactElement) => renderToStaticMarkup(node);
+  assert.match(html(<StatusBadge tone="error">Hata</StatusBadge>), /destructive/);
+  for (const tone of ["success", "warning", "error", "info", "neutral"] as const) {
+    const badge = html(<StatusBadge tone={tone}>Metin</StatusBadge>);
+    assert.match(badge, /<svg[^>]*data-icon="inline-start"[^>]*aria-hidden="true"|<svg[^>]*aria-hidden="true"[^>]*data-icon="inline-start"/);
+    assert.match(badge, /Metin/);
+  }
+  assert.match(html(<FeedStatusBadge status={null}/>), /Okunamadı/);
+});
+
+test("the submit button is a submit button with its icon until the form submits", () => {
+  const html = renderToStaticMarkup(<SubmitButton icon={<svg data-testid="icon"/>} pendingLabel="Kaydediliyor…">Kaydet</SubmitButton>);
+  assert.match(html, /type="submit"/);
+  assert.match(html, /data-testid="icon"/);
+  assert.match(html, />Kaydet</);
+  assert.doesNotMatch(html, / disabled=""|aria-busy/);
 });

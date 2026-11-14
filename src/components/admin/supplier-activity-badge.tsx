@@ -4,9 +4,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { formatNumber } from "@/modules/admin/format";
 import type { SupplierActivity, SupplierName } from "@/modules/suppliers/activity";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
+const number = formatNumber;
 
 /**
  * The page's status badge, replaced by a live "fetching" badge while an import of this supplier runs.

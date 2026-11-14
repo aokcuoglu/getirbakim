@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, History, Info, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ExternalLink, History, TriangleAlert } from "lucide-react";
 import { money, type CatalogProduct } from "@/modules/store/catalog";
 import type { ProductPricing } from "@/modules/admin/product-pricing-schema";
 import { AdminAddToCart } from "@/components/admin/admin-add-to-cart";
@@ -8,7 +8,6 @@ import { ProductPricingDialog } from "@/components/admin/product-pricing-dialog"
 import { supplierFieldChanges, type SupplierChange } from "@/modules/admin/supplier-changes";
 import { dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -19,9 +18,9 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { formatExact, formatTimestamp } from "@/modules/admin/format";
+import { StatusBadge } from "@/components/admin/status-badge";
 
-export const supplierDate = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-export const supplierNumber = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 }).format(value);
 const changeKinds: Record<string, string> = { added: "Yeni ürün", changed: "Veri değişti", missing: "Listede bulunamadı", inactive: "Pasife alındı", restored: "Geri geldi" };
 const fieldNames: Record<string, string> = {
   product: "Ürün", price: "Fiyat", stock: "Stok", presence: "Liste durumu", conflicting: "Çelişki", variants: "Kaynak varyantları", stockListPrice: "Stok listesi fiyatı",
@@ -36,11 +35,11 @@ const fieldNames: Record<string, string> = {
 };
 
 export function Timestamp({ value }: { value: Date }) {
-  return <time dateTime={value.toISOString()} className="tabular-nums">{supplierDate(value)}</time>;
+  return <time dateTime={value.toISOString()} className="tabular-nums">{formatTimestamp(value)}</time>;
 }
 
 export function Fields({ values, numeric = [] }: { values: Record<string, ReactNode>; numeric?: string[] }) {
-  return <Table><TableBody>{Object.entries(values).map(([key, value]) => <TableRow key={key}>
+  return <Table controls={false}><TableBody>{Object.entries(values).map(([key, value]) => <TableRow key={key}>
     <TableHead scope="row" className="w-2/5 whitespace-normal wrap-anywhere text-muted-foreground">{key}</TableHead>
     <TableCell className={cn("whitespace-normal wrap-anywhere tabular-nums", numeric.includes(key) && "text-right")}>{value === null || value === undefined || value === "" ? "—" : value}</TableCell>
   </TableRow>)}</TableBody></Table>;
@@ -51,43 +50,38 @@ function ChangeValue({ value, path, currency }: { value: unknown; path: string[]
   if (value === null) return <span className="text-muted-foreground">Boş</span>;
   if (value === "") return <span className="text-muted-foreground">Boş metin</span>;
   if (path.at(-1) === "presence" && typeof value === "string") return ({ present: "Güncel listede var", pending_missing: "Son listede bulunamadı", inactive: "Pasif" } as Record<string, string>)[value] ?? value;
-  if (typeof value === "number") return <span className="block text-right tabular-nums">{["fiyat", "nf", "stockListPrice"].includes(path.at(-1) ?? "") ? sourceMoney(value, currency) : supplierNumber(value)}</span>;
+  if (typeof value === "number") return <span className="block text-right tabular-nums">{["fiyat", "nf", "stockListPrice"].includes(path.at(-1) ?? "") ? sourceMoney(value, currency) : formatExact(value)}</span>;
   if (typeof value === "boolean") return value ? "Evet" : "Hayır";
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function statusBadge(tone: "success" | "warning" | "destructive" | "info" | "neutral", text: string) {
-  return <Badge variant={tone === "neutral" ? "outline" : tone}>
-    {tone === "success" ? <CircleCheck data-icon="inline-start" aria-hidden="true"/> : tone === "warning" ? <TriangleAlert data-icon="inline-start" aria-hidden="true"/> : tone === "info" ? <Info data-icon="inline-start" aria-hidden="true"/> : tone === "destructive" ? <CircleAlert data-icon="inline-start" aria-hidden="true"/> : null}{text}
-  </Badge>;
-}
-export function SourceJson({ label, value }: { label: string; value: unknown }) {
-  return <Accordion className="rounded-lg border">
-    <AccordionItem value="source" className="px-4">
+function SourceJson({ label, value }: { label: string; value: unknown }) {
+  return <Card size="sm" className="py-0"><CardContent><Accordion>
+    <AccordionItem value="source">
       <AccordionTrigger>{label}</AccordionTrigger>
       <AccordionContent><Textarea readOnly aria-label={label} className="max-h-80 font-mono" value={JSON.stringify(value, null, 2)}/></AccordionContent>
     </AccordionItem>
-  </Accordion>;
+  </Accordion></CardContent></Card>;
 }
 export function sourceMoney(value: number, currency = "TRY") {
-  return currency === "TRY" || currency === "TL" ? money(Math.round(value * 100)) : `${supplierNumber(value)} ${currency || "Para birimi belirtilmemiş"}`;
+  return currency === "TRY" || currency === "TL" ? money(Math.round(value * 100)) : `${formatExact(value)} ${currency || "Para birimi belirtilmemiş"}`;
 }
 function historyCurrency(data: Record<string, unknown> | null, fallback: string) {
   const product = data?.product as Record<string, unknown> | undefined;
   return typeof product?.dc === "string" ? product.dc : fallback;
 }
-export function SupplierHistory({ changes, currency = "TRY" }: { changes: SupplierChange[]; currency?: string }) {
+function SupplierHistory({ changes, currency = "TRY" }: { changes: SupplierChange[]; currency?: string }) {
   return <Card>
     <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle><CardDescription>Son 90 gün içindeki en son 20 kayıt. Önce yalnız değişen alanlar gösterilir; ham kayıtlar ayrıntılarda korunur.</CardDescription></CardHeader>
     <CardContent>
-      {changes.length ? <Accordion multiple className="rounded-lg border">{changes.map(change => {
+      {changes.length ? <Card size="sm" className="py-0"><CardContent><Accordion multiple>{changes.map(change => {
         const fields = supplierFieldChanges(change.before_data, change.after_data);
-        return <AccordionItem key={change.id} value={change.id} className="border-b px-4 last:border-b-0">
+        return <AccordionItem key={change.id} value={change.id}>
           <AccordionTrigger className="items-center">
-            <span className="flex flex-wrap items-center gap-2"><Timestamp value={change.changed_at}/>{statusBadge(change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning", changeKinds[change.kind] ?? change.kind)}</span>
+            <span className="flex flex-wrap items-center gap-2"><Timestamp value={change.changed_at}/><StatusBadge tone={change.kind === "added" || change.kind === "restored" ? "success" : change.kind === "changed" ? "info" : "warning"}>{changeKinds[change.kind] ?? change.kind}</StatusBadge></span>
           </AccordionTrigger>
           <AccordionContent className="flex min-w-0 flex-col gap-4">
-            {fields.length ? <Table aria-label={`${supplierDate(change.changed_at)} değişen alanlar`}>
+            {fields.length ? <Table controls={false} aria-label={`${formatTimestamp(change.changed_at)} değişen alanlar`}>
                 <TableHeader><TableRow><TableHead className="w-2/5">Alan</TableHead><TableHead>Önce</TableHead><TableHead>Sonra</TableHead></TableRow></TableHeader>
                 <TableBody>{fields.map(field => <TableRow key={JSON.stringify(field.path)}>
                   <TableHead scope="row" className="whitespace-normal wrap-anywhere">{field.path.map(key => fieldNames[key] ?? key).join(" · ") || "Kayıt"}</TableHead>
@@ -98,17 +92,17 @@ export function SupplierHistory({ changes, currency = "TRY" }: { changes: Suppli
             <SourceJson label="Ham geçmiş kaydı" value={{ önce: change.before_data, sonra: change.after_data }}/>
           </AccordionContent>
         </AccordionItem>;
-      })}</Accordion> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
+      })}</Accordion></CardContent></Card> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Kayıtlı değişiklik yok</EmptyTitle></EmptyHeader></Empty>}
     </CardContent>
   </Card>;
 }
 export function SupplierStocks({ stocks }: { stocks: { label: string; available: boolean | null; note?: string }[] }) {
   const notes = stocks.some(stock => stock.note);
-  return <Table>
+  return <Table controls={false}>
     <TableHeader><TableRow><TableHead className="w-2/5">Depo</TableHead><TableHead>Stok</TableHead>{notes && <TableHead>Yolda</TableHead>}</TableRow></TableHeader>
     <TableBody>{stocks.map(stock => <TableRow key={stock.label}>
       <TableHead scope="row" className="whitespace-normal wrap-anywhere text-muted-foreground">{stock.label}</TableHead>
-      <TableCell><Badge variant={stock.available === null ? "warning" : stock.available ? "success" : "outline"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</Badge></TableCell>
+      <TableCell><StatusBadge tone={stock.available === null ? "warning" : stock.available ? "success" : "neutral"}>{stock.available === null ? "Veri yok" : stock.available ? "Var" : "Yok"}</StatusBadge></TableCell>
       {notes && <TableCell className="whitespace-normal text-muted-foreground">{stock.note ?? "—"}</TableCell>}
     </TableRow>)}</TableBody>
   </Table>;
@@ -121,7 +115,7 @@ const variantValue = (value: unknown) => typeof value === "number" ? new Intl.Nu
   : typeof value === "string" ? (value !== value.trim() || !value ? JSON.stringify(value) : value)
   : value === null || value === undefined ? "—" : JSON.stringify(value);
 /** The rows a supplier sent for one code that disagree, with only the fields that differ between them. */
-export function SupplierVariantRows({ variants }: { variants: unknown }) {
+function SupplierVariantRows({ variants }: { variants: unknown }) {
   if (!variants || typeof variants !== "object") return null;
   const source = variants as Record<string, unknown>;
   const groups = Object.entries(source).filter((entry): entry is [string, Record<string, unknown>[]] =>
@@ -145,7 +139,7 @@ export function SupplierVariantRows({ variants }: { variants: unknown }) {
           <TableBody>{rows.map((row, index) => <TableRow key={index}>
             <TableCell className="tabular-nums">{index + 1}</TableCell>
             {keys.map(key => <TableCell key={key} className="whitespace-pre font-mono tabular-nums">{variantValue(row[key])}</TableCell>)}
-            {usedExact && <TableCell>{isUsed(row) ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Kullanılan</Badge> : <Badge variant="outline">Yok sayıldı</Badge>}</TableCell>}
+            {usedExact && <TableCell>{isUsed(row) ? <StatusBadge tone="success">Kullanılan</StatusBadge> : <StatusBadge tone="neutral">Yok sayıldı</StatusBadge>}</TableCell>}
           </TableRow>)}</TableBody>
         </Table>
       </div>;
@@ -175,7 +169,7 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
   const presence = item.presence === "present" ? "Güncel listede var" : item.presence === "inactive" ? "Pasif" : "Son listede bulunamadı";
   const saleState = sale?.available && sale.price_kurus ? snapshot ? "Teyit bekliyor" : "Satışa açık" : item.conflicting ? "İnceleme gerekli" : item.presence !== "present" || noSaleMessage ? "Satışa kapalı" : !sale?.price_kurus ? "Hazırlıkta" : "Satışa kapalı";
   const body = <SupplierProductBody item={item} sale={sale} pricing={pricing} cost={cost} sourcePriceLabel={sourcePriceLabel} noSaleMessage={noSaleMessage}
-    productInfo={productInfo} stockInfo={stockInfo} dataInfo={dataInfo} cart={cart} snapshot={snapshot} presence={presence} saleState={saleState}/>;
+    productInfo={productInfo} stockInfo={stockInfo} dataInfo={dataInfo} cart={cart} presence={presence} saleState={saleState}/>;
   // In the dialog the header stays put (with the close button) and only the body scrolls.
   if (modal) return <>
     <DialogHeader>
@@ -202,9 +196,9 @@ export function SupplierProductDetail({ item, supplier, listHref, description, s
   </div>;
 }
 
-function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSaleMessage, productInfo, stockInfo, dataInfo, cart, snapshot, presence, saleState }: {
+function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSaleMessage, productInfo, stockInfo, dataInfo, cart, presence, saleState }: {
   item: DetailItem; sale: CatalogProduct | undefined; pricing: ProductPricing; cost: number | null; sourcePriceLabel: string; noSaleMessage?: string;
-  productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode; cart?: string; snapshot: boolean; presence: string; saleState: string;
+  productInfo: ReactNode; stockInfo: ReactNode; dataInfo: ReactNode; cart?: string; presence: string; saleState: string;
 }) {
   return <>
     <Card role="region" aria-label="Fiyat ve satış durumu">
@@ -219,13 +213,13 @@ function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSa
         <div className="grid min-w-0 gap-4 sm:grid-cols-3">
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Getirbakim satış fiyatı</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{sale?.price_kurus ? money(sale.price_kurus) : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV dahil</CardContent></Card>
           <Card size="sm" className="min-w-0"><CardHeader><CardDescription>{sourcePriceLabel}</CardDescription><CardTitle className="wrap-anywhere"><span className="text-2xl font-semibold tabular-nums">{cost !== null ? sourceMoney(cost, pricing.currency ?? "") : "—"}</span></CardTitle></CardHeader><CardContent className="text-muted-foreground">KDV hariç maliyet</CardContent></Card>
-          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{statusBadge(saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "destructive", saleState)}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
+          <Card size="sm" className="min-w-0"><CardHeader><CardDescription>Satış durumu</CardDescription><CardTitle>{<StatusBadge tone={saleState === "Satışa açık" ? "success" : saleState === "Teyit bekliyor" || saleState === "Hazırlıkta" ? "warning" : "error"}>{saleState}</StatusBadge>}</CardTitle></CardHeader><CardContent className="text-muted-foreground">{sale?.stock_label ?? noSaleMessage ?? (item.stock_data ? "Bu kayıt için mağazada satış bilgisi bulunamadı." : "Stok listesinde ürün bilgisi yok; mağazada gösterilmiyor.")}</CardContent></Card>
         </div>
         {cart !== undefined && <AdminAddToCart productId={item.id} name={cart} available={Boolean(sale?.available && sale.price_kurus)}/>}
-        <p className="text-muted-foreground tabular-nums">Kâr %{supplierNumber(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{supplierNumber(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
+        <p className="text-muted-foreground tabular-nums">Kâr %{formatExact(pricing.markup ?? pricing.generalMarkup)} ({pricing.markup === null ? "genel" : "ürüne özel"}) · KDV %{formatExact(pricing.vat ?? pricing.generalVat)} ({pricing.vat === null ? "genel" : "ürüne özel"})</p>
         <Separator/>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground">
-          {statusBadge(item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning", presence)}<span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
+          <StatusBadge tone={item.presence === "present" ? "success" : item.presence === "inactive" ? "neutral" : "warning"}>{presence}</StatusBadge><span>Son görülme: <Timestamp value={item.last_seen_at}/> · İstanbul saati</span>
         </div>
       </CardContent>
     </Card>
@@ -235,7 +229,7 @@ function SupplierProductBody({ item, sale, pricing, cost, sourcePriceLabel, noSa
     <Card>
       <CardHeader><CardTitle><h2>Veri kontrolü</h2></CardTitle><CardDescription>Kaynak tarihler, fiyat karşılaştırması ve ham API alanları.</CardDescription></CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
-        <div>{statusBadge(item.conflicting ? "warning" : "neutral", item.conflicting ? "İnceleme gerekli" : "Çelişki bulunmadı")}</div>
+        <div><StatusBadge tone={item.conflicting ? "warning" : "neutral"}>{item.conflicting ? "İnceleme gerekli" : "Çelişki bulunmadı"}</StatusBadge></div>
         <SupplierVariantRows variants={item.source_variants}/>
         {dataInfo}
         <SourceJson label="Kaynak alanlarını göster" value={{ product: item.product_data, price: item.price_data, stock: item.stock_data, conflictingVariants: item.source_variants }}/>

@@ -4,7 +4,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
 
-export type SupplierTab = "products" | "transfer";
+type SupplierTab = "products" | "transfer";
 
 /**
  * The one rule for the tab a supplier page opens on: the sync tab ("Senkronizasyon ve kalite" / "Yükleme ve kontrol")

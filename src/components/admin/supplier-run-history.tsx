@@ -8,7 +8,7 @@ import { supplierRunError, type SupplierRunErrorSource } from "@/modules/supplie
 import { runKindLabel, runScopeLabel } from "@/modules/suppliers/run-status";
 
 /** One supplier_imports row as the history shows it. */
-export type SupplierRun = {
+type SupplierRun = {
   id: string; list_group: string; warehouse?: string | null; run_kind?: string | null; status: string;
   started_at: Date; completed_at: Date | null; error_reason: string | null; review_note?: string | null; stats: Record<string, number>;
 };

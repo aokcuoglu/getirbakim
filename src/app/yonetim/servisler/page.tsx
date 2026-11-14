@@ -1,14 +1,15 @@
 import { adminServiceAccounts } from "@/modules/admin/data";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from '@/modules/auth/session';
+import { formatNumber } from "@/modules/admin/format";
 import { saveService } from '@/modules/admin/commerce-actions';
 import { createService } from '@/modules/admin/actions';
 import Link from "next/link";
-import { Building2, CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
+import { Building2, CircleAlert, CircleCheck } from "lucide-react";
+import { StatusBadge } from "@/components/admin/status-badge";
+import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -30,26 +31,26 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
       <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
       <p className="max-w-3xl text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
     </div>
-    {params.created && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
-    {params.saved && <Alert variant="success" role="status"><CircleCheck/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
-    {params.error && <Alert variant="destructive"><CircleAlert/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
+    {params.created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
+    {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
     <Card>
       <CardHeader>
         <CardTitle>Mevcut servisler</CardTitle>
-        <CardDescription>{accounts.length} hesap · {accounts.filter(a => !a.approved).length} onay bekliyor</CardDescription>
+        <CardDescription>{formatNumber(accounts.length)} hesap · {formatNumber(accounts.filter(a => !a.approved).length)} onay bekliyor</CardDescription>
       </CardHeader>
       <CardContent>
         {accounts.length ? <Table><TableHeader><TableRow><TableHead>Servis</TableHead><TableHead>İletişim</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">Özel indirim</TableHead><TableHead>Hesap durumu</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader><TableBody>
           {accounts.map(a=>{const form=`service-${a.id}`;return <TableRow key={a.id}>
             <TableCell><div className="font-medium">{a.name}</div><div className="text-muted-foreground">{a.email}</div></TableCell>
             <TableCell>{a.contact_name ? <><div>{a.contact_name}</div><div className="text-muted-foreground">{a.phone} · {a.city}</div></> : <span className="text-muted-foreground">—</span>}</TableCell>
-            <TableCell>{a.approved ? <Badge variant="success"><CircleCheck data-icon="inline-start"/>Onaylı</Badge> : <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Onay bekliyor</Badge>}</TableCell>
+            <TableCell>{a.approved ? <StatusBadge tone="success">Onaylı</StatusBadge> : <StatusBadge tone="warning">Onay bekliyor</StatusBadge>}</TableCell>
             <TableCell className="text-right"><InputGroup className="ml-auto w-28">
               <InputGroupInput className="text-right tabular-nums" form={form} aria-label={`${a.name} indirim oranı`} name="discount" type="number" min={0} max={50} defaultValue={a.discount_percent} required/>
               <InputGroupAddon align="inline-end"><InputGroupText>%</InputGroupText></InputGroupAddon>
             </InputGroup></TableCell>
             <TableCell><NativeSelect form={form} aria-label={`${a.name} hesap durumu`} name="approved" defaultValue={String(a.approved)}><NativeSelectOption value="true">Onaylı</NativeSelectOption><NativeSelectOption value="false">Pasif / Onay bekliyor</NativeSelectOption></NativeSelect></TableCell>
-            <TableCell className="text-right"><form id={form} action={saveService}><input type="hidden" name="id" value={a.id}/><Button type="submit" variant="outline">Kaydet</Button></form></TableCell>
+            <TableCell className="text-right"><form id={form} action={saveService}><input type="hidden" name="id" value={a.id}/><SubmitButton variant="outline">Kaydet</SubmitButton></form></TableCell>
           </TableRow>;})}
         </TableBody></Table> : <Empty>
           <EmptyHeader>
@@ -79,7 +80,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
         </CardContent>
         <CardFooter className="flex-wrap justify-between gap-3">
           <span className="text-muted-foreground">Şifre en az 12 karakter olmalı.</span>
-          <Button type="submit">Onaylı servis oluştur</Button>
+          <SubmitButton>Onaylı servis oluştur</SubmitButton>
         </CardFooter>
       </Card>
     </form>

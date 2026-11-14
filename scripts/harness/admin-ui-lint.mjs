@@ -60,8 +60,10 @@ export const RULES = [
     // Corner and elevation changes on components (AGENTS.md: no köşe/gölge değiştirme).
     pattern: /(?<![\w-])(?:[\w-]+:)*(?:rounded(?:-[trblse]{1,2})?(?:-(?:none|xs|sm|md|lg|xl|2xl|3xl|4xl))?|shadow(?:-(?:none|2xs|xs|sm|md|lg|xl|2xl|inner))?)(?![\w-])/,
     classOnly: true,
-    // Warning only: a bordered wrapper (`rounded-lg border`) around a stock part is an accepted
-    // pattern in existing screens; the ui-ux agent judges whether it re-skins a component.
+    // Warning only: the ui-ux agent judges whether it re-skins a component. A framed part goes in a
+    // Card (`<Card size="sm" className="py-0"><CardContent><Accordion…>`), not `rounded-lg border`.
+    // Stock shadcn blocks that ship a radius class (sidebar-07 logo tile, NavUser avatar in
+    // admin-nav.tsx) carry a per-line `admin-ui-lint-ignore` naming the block.
     severity: "warning",
     message: "corner/shadow change through className — keep the component's own radius and elevation",
   },

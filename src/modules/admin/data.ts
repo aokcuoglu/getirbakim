@@ -44,7 +44,7 @@ export async function adminPricing() {
   return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [] };
 }
 
-export type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
 
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
@@ -88,7 +88,7 @@ export async function adminNavCounts() {
   return { ...rows[0], restock };
 }
 
-export type DashboardDay = { day: string; orders: number };
+type DashboardDay = { day: string; orders: number };
 // Admin-wide figures that walk a large table and move slowly (no per-user content). Reused for up to a minute;
 // after that the next request waits for a fresh read, so a long-idle panel never shows day-old numbers.
 function ttlMemo<T>(ttlMs: number, load: () => Promise<T>) {
@@ -137,7 +137,7 @@ export async function adminDashboard() {
   return { orders: orders.rows[0], days: days.rows, recent: recent.rows, catalog, enrichment, lastImport: imports.rows[0] ?? null, lastSuccess: succeeded.rows[0] ?? null, brands: brands.rows[0] };
 }
 
-export type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
+type FitmentReturnRow = { level: string; lines: number; returned: number; not_fit: number };
 /** Compatibility level at checkout against returns, for orders that were not cancelled. */
 export async function fitmentReturnReport() {
   await requireAdmin();
@@ -151,14 +151,14 @@ export async function fitmentReturnReport() {
   )).rows;
 }
 
-export type OrderReturn = { id: string; product_id: string; quantity: number; reason: string; note: string; created_at: Date };
+type OrderReturn = { id: string; product_id: string; quantity: number; reason: string; note: string; created_at: Date };
 export async function orderReturns(orderId: string) {
   await requireAdmin();
   return (await db.query<OrderReturn>("SELECT id,product_id,quantity,reason,note,created_at FROM commerce_returns WHERE order_id=$1 ORDER BY created_at", [orderId])).rows;
 }
 
 /** Light-weight Başbuğ figures for the integrations overview; the full browser lives in modules/admin/basbug.ts. */
-export type DinamikRun = { id: string; run_kind: string; warehouse: string; review_note: string | null; list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number; missingPrices?: number; duplicateCodes?: number; conflictingCodes?: number; stockRows?: number; priceRows?: number } };
+type DinamikRun = { id: string; run_kind: string; warehouse: string; review_note: string | null; list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number; missingPrices?: number; duplicateCodes?: number; conflictingCodes?: number; stockRows?: number; priceRows?: number } };
 /** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
 export async function adminDinamikOverview() {
   await requireAdmin();
@@ -190,7 +190,7 @@ export async function adminDinamikOverview() {
   return { items: items.rows[0], scopes: scopes.rows[0], runs: runs.rows[0], recent: recent.rows, lastSucceeded: lastSucceeded.rows[0] ?? null, failing: failing.rows, discovery: discovery.rows[0] ?? null };
 }
 
-export const supplierFeedCompanies = (): Record<FeedSupplier, string> => ({ basbug: process.env.BASBUG_FIRMA_ADI || "BASBUG", dinamik: DINAMIK_COMPANY, seta: setaCompany });
+const supplierFeedCompanies = (): Record<FeedSupplier, string> => ({ basbug: process.env.BASBUG_FIRMA_ADI || "BASBUG", dinamik: DINAMIK_COMPANY, seta: setaCompany });
 
 /** Freshness of each API feed, evaluated without the scheduler (sidebar, dashboard and supplier pages share it). */
 export const adminSupplierFeedStatus = cache(async () => {
@@ -204,9 +204,9 @@ export const adminSupplierFeedStatus = cache(async () => {
   };
 });
 
-export type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; conflicting: number };
-export type SupplierCatalogMetrics = { available: number; saleable: number };
-export type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
+type SupplierFeedMetrics = { present: number; priced: number; unstocked: number; conflicting: number };
+type SupplierCatalogMetrics = { available: number; saleable: number };
+type SupplierFeedAttempts = { total: number; succeeded: number; failed: number; rejected: number; unresolved: number };
 
 const apiFeedKeys = ["basbug", "dinamik", "seta"] as const;
 const pickBySupplier = <K extends string, T>(keys: readonly K[], rows: (T & { supplier: string })[], fallback: T) =>

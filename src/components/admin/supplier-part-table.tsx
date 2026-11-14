@@ -1,19 +1,18 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { CircleAlert, CircleCheck, FilterX, Info, PackageSearch, SearchX, TriangleAlert } from "lucide-react";
+import { FilterX, PackageSearch, SearchX } from "lucide-react";
 import { SupplierPartHead, type SupplierPartFilter } from "@/components/admin/supplier-part-head";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type PartBadgeVariant = "success" | "warning" | "destructive" | "info" | "outline";
-
 export type SupplierPartCell = {
   value: string | number | null | undefined;
   title?: string;
-  variant?: PartBadgeVariant;
+  /** Shown as a StatusBadge in this tone. */
+  tone?: StatusTone;
 };
 
 export type SupplierPartColumn = {
@@ -30,7 +29,7 @@ export type SupplierPartColumn = {
   filter?: SupplierPartFilter;
 };
 
-export type SupplierPartRow = {
+type SupplierPartRow = {
   id: string;
   code: string;
   detailHref: string;
@@ -47,7 +46,7 @@ export type SupplierPartTableProps = {
   /** Set by the page: whether a filter is active, and the list without filters (header sort kept). */
   empty?: SupplierPartEmpty;
 };
-export type SupplierPartEmpty = { filtered: boolean; clearHref: string };
+type SupplierPartEmpty = { filtered: boolean; clearHref: string };
 
 /** The page's filter state for the empty table: `keep` are params that choose the list rather than filter it. */
 export function supplierPartEmpty(base: string, params: Record<string, string | undefined>, filterKeys: readonly string[], keep: readonly string[] = []): SupplierPartEmpty {
@@ -56,19 +55,10 @@ export function supplierPartEmpty(base: string, params: Record<string, string | 
   return { filtered: filterKeys.some(key => !keep.includes(key) && params[key]), clearHref: query.size ? `${base}?${query}` : base };
 }
 
-const badgeIcons = {
-  success: CircleCheck,
-  warning: TriangleAlert,
-  destructive: CircleAlert,
-  info: Info,
-  outline: null,
-} satisfies Record<PartBadgeVariant, typeof CircleCheck | null>;
-
 function PartCell({ column, cell }: { column: SupplierPartColumn; cell: SupplierPartCell | undefined }) {
   const missing = cell?.value === null || cell?.value === undefined || cell?.value === "";
-  const variant = cell?.variant ?? (missing && column.missingLabel ? "warning" : undefined);
+  const tone = cell?.tone ?? (missing && column.missingLabel ? "warning" : undefined);
   const value = missing ? column.missingLabel ?? "—" : cell.value;
-  const Icon = variant ? badgeIcons[variant] : null;
 
   return <TableCell
     title={cell?.title}
@@ -78,10 +68,10 @@ function PartCell({ column, cell }: { column: SupplierPartColumn; cell: Supplier
       column.width === "medium" && "max-w-48",
       column.width === "wide" && "max-w-64",
       column.numeric && "tabular-nums",
-      column.emphasized ? "font-medium" : !column.numeric && !variant && "text-muted-foreground",
+      column.emphasized ? "font-medium" : !column.numeric && !tone && "text-muted-foreground",
     )}
   >
-    {variant ? <Badge variant={variant}>{Icon && <Icon data-icon="inline-start" aria-hidden="true"/>}{value}</Badge> : value}
+    {tone ? <StatusBadge tone={tone}>{value}</StatusBadge> : value}
   </TableCell>;
 }
 
