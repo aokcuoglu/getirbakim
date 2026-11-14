@@ -40,10 +40,15 @@ Rota/bileşen değiştiyse `getirbakim-qa`'yı `WT`, plandaki rotalar/roller ve 
 `WT`'de:
 - `git status` temiz; commit'ler conventional; `git fetch origin && git rebase origin/dev` (çakışmayı geliştirici çözer); `git push -u origin <dal>`.
 - `gh pr create --base dev --title "<tür>(<alan>): <özet>" --body-file -` — gövde: Özet (problem, ortaya çıkan davranış), Doğrulama (inceleme/QA kararları, koşulan testler), Operasyon (prod'da gereken komut ya da "yok"), `Closes #<N>`; sonunda sistem hatırlatmasındaki attribution satırı. Etiketler Issue ile aynı: tür etiketi + `area:*` + davranış değişiyorsa `release:minor|patch` (`--label`).
-- CI'ı bekle: `gh pr checks <PR> --watch --fail-fast`. Kırmızıysa log'u (`gh run view --log-failed`) geliştiriciye ver, düzelt, push, tekrar bekle.
+- CI'ı bekle. CI kapısı (atlanamaz): `gh pr checks <PR> --watch --fail-fast` komutunu **pipe'sız** koş (`| tail` gibi bir zincir çıkış kodunu yutar, #528). Merge'den hemen önce her kontrolü ayrıca doğrula:
+  ```
+  gh pr view <PR> --json statusCheckRollup -q '[.statusCheckRollup[] | .conclusion] | all(. == "SUCCESS")'
+  ```
+  Çıktı `true` değilse merge YOK. Hata bu PR'ın koduyla ilgisiz ve dalgalı görünüyorsa: `gh run rerun <run> --failed`, yeniden bekle, yine doğrula; ilgisiz dalgalı test için Issue aç (`Found in #<PR>`) ve PR'a not düş.
+- Kırmızıysa ve hata bu PR'dan geliyorsa log'u (`gh run view --log-failed`) geliştiriciye ver, düzelt, push, tekrar bekle.
 
 ## 7. Merge ve temizlik (izin sormadan — politika bunu kapsar)
-1. CI yeşil + `gh pr view <PR> --json mergeable,baseRefName` (base `dev` olmalı) → `gh pr merge <PR> --merge --delete-branch` (guard base=dev'i serbest bırakır; başka base onaya düşer — o zaman DUR).
+1. Yukarıdaki CI kapısı `true` + `gh pr view <PR> --json mergeable,baseRefName` (base `dev` olmalı) → `gh pr merge <PR> --merge --delete-branch` (guard base=dev'i serbest bırakır; başka base onaya düşer — o zaman DUR).
 2. Ana checkout'u güncelle: `cd /Users/void/www/getirbakim && git merge --ff-only origin/dev` (önce `git fetch`). Başka oturumun commit edilmemiş dosyası ff'yi durdurursa dosya origin/dev ile birebir aynıysa (`cmp`) stash → ff → stash drop; farklıysa dokunma, kullanıcıya söyle. 3000'deki dev sunucusunu öldürme; yeni bağımlılık geldiyse `npm install` + `touch next.config.ts`.
 3. Yalnız bu işin worktree'sini kaldır: `git worktree remove ../getirbakim-<N>` (temizse; symlink'ler engel değil) + `git worktree prune`; yerel dal `git branch -D <dal>`; `git fetch --prune`.
 4. Rapor: Issue ve PR bağlantıları, tek paragraf özet, inceleme/QA kararları, CI sonucu, merge commit'i, operasyon adımı, kapsam dışı kalanlar (açılan takip Issue'larıyla). dev'de biriken iş çoksa `/release-check` öner — ama main'e yalnız kullanıcı onayıyla.
