@@ -7,6 +7,7 @@ import { adminManualLists } from "@/modules/admin/manual";
 import { supplierSchedulerManual } from "@/modules/suppliers/health";
 import { feedIssueCount, feedStateLabels, feedStateTones, importErrorLabel, type FeedStatus } from "@/modules/suppliers/data-status";
 import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
+import { formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -16,10 +17,10 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-const number = (value: number) => new Intl.NumberFormat("tr-TR").format(value);
+const number = formatNumber;
 const percent = (part: number, whole: number) => whole
   ? `%${new Intl.NumberFormat("tr-TR", { maximumFractionDigits: part === whole || part === 0 ? 0 : 1 }).format(Math.floor(part / whole * 1000) / 10)}` : "—";
-const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+const time = (value: Date | null | undefined) => formatDate(value);
 const ago = (value: Date | null | undefined, now: Date) => {
   if (!value) return "Hiç çekilmedi";
   const minutes = Math.max(0, Math.round((now.getTime() - value.getTime()) / 60_000));
@@ -72,7 +73,7 @@ export default async function Suppliers() {
   ];
 
   const method = (feed: FeedStatus) => feed.automated === 0 ? "Elle güncellenir"
-    : feed.automated === feed.tracked ? `Otomatik, ${duration(feed.intervalMinutes)}te bir`
+    : feed.automated === feed.tracked ? `Otomatik, ${formatInterval(feed.intervalMinutes)}`
     : `${number(feed.automated)} / ${number(feed.tracked)} kapsam otomatik`;
   const rows: Row[] = feeds.map(({ key, name, source, unit, href, feed }) => {
     const m = metrics[key];

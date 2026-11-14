@@ -7,6 +7,7 @@ import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
 import { restockDueCount } from "./restock";
+import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -139,7 +140,7 @@ export async function orderReturns(orderId: string) {
 }
 
 /** Light-weight Başbuğ figures for the integrations overview; the full browser lives in modules/admin/basbug.ts. */
-export type DinamikRun = { list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number } };
+export type DinamikRun = { id: string; run_kind: string; warehouse: string; review_note: string | null; list_group: string; status: string; error_reason: string | null; started_at: Date; completed_at: Date | null; stats: Record<string, number>; quality: { uniqueProducts?: number; missingPrices?: number; duplicateCodes?: number; conflictingCodes?: number; stockRows?: number; priceRows?: number } };
 /** Dinamik figures: one scope per brand, stock + price lists fetched by the shared supplier scheduler. */
 export async function adminDinamikOverview() {
   await requireAdmin();
@@ -154,9 +155,9 @@ export async function adminDinamikOverview() {
       FROM supplier_sync_scopes WHERE supplier='dinamik'`),
     db.query<{ total: number; failed: number }>(`SELECT count(*)::int AS total,count(*) FILTER (WHERE status IN ('failed','rejected'))::int AS failed
       FROM supplier_imports WHERE supplier='dinamik' AND started_at>now()-interval '24 hours'`),
-    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
-      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT 12`),
-    db.query<DinamikRun>(`SELECT list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+    db.query<DinamikRun>(`SELECT id,run_kind,warehouse,review_note,list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
+      WHERE supplier='dinamik' ORDER BY started_at DESC,id DESC LIMIT $1`, [supplierRunHistoryLimit]),
+    db.query<DinamikRun>(`SELECT id,run_kind,warehouse,review_note,list_group,status,error_reason,started_at,completed_at,stats,quality FROM supplier_imports
       WHERE supplier='dinamik' AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1`),
     db.query<{ list_group: string; consecutive_failures: number; next_run_at: Date; error_reason: string | null }>(`SELECT s.list_group,s.consecutive_failures,s.next_run_at,r.error_reason
       FROM supplier_sync_scopes s LEFT JOIN LATERAL (SELECT error_reason FROM supplier_imports i WHERE i.supplier=s.supplier AND i.company=s.company

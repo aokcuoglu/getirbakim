@@ -7,6 +7,8 @@ export type SupplierHealthScope = {
   consecutive_failures: number; commerce_interval_minutes: number; commerce_stale_minutes: number;
   commerce_last_success_at: Date | null; commerce_next_run_at: Date; commerce_failures: number;
   catalog_stale: boolean; commerce_stale: boolean;
+  /** Istanbul time of a daily (1440 min) catalog fetch, "HH:MM". */
+  daily_at?: string;
 };
 
 /**
@@ -26,7 +28,7 @@ export async function supplierHealth(pool: Pick<Pool, "query">, company?: string
     SELECT *,CASE WHEN finished_at IS NULL THEN started_at>now()-interval '90 minutes'
       ELSE finished_at>now()-interval '35 minutes' END AS alive FROM supplier_scheduler_health WHERE id=true`)).rows[0];
   const scopes = (await pool.query<SupplierHealthScope>(`SELECT supplier,company,list_group,warehouse,enabled,commerce_enabled,
-    interval_minutes,stale_minutes,last_success_at,next_run_at,consecutive_failures,
+    interval_minutes,to_char(daily_at,'HH24:MI') AS daily_at,stale_minutes,last_success_at,next_run_at,consecutive_failures,
     commerce_interval_minutes,commerce_stale_minutes,commerce_last_success_at,commerce_next_run_at,commerce_failures,
     enabled AND (last_success_at IS NULL OR last_success_at<now()-stale_minutes*interval '1 minute') AS catalog_stale,
     commerce_enabled AND (commerce_last_success_at IS NULL OR commerce_last_success_at<now()-commerce_stale_minutes*interval '1 minute') AS commerce_stale

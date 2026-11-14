@@ -1,33 +1,33 @@
-import { Fragment } from "react";
 import Link from "next/link";
 import { CircleAlert, CircleCheck, Download, FileSpreadsheet, History, Info, PackageSearch, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { SupplierTabs } from "@/components/admin/supplier-tabs";
+import { SupplierPage } from "@/components/admin/supplier-page";
+import { SupplierPagination } from "@/components/admin/supplier-pagination";
+import { StatusBadge } from "@/components/admin/status-badge";
 import { SupplierPartTable } from "@/components/admin/supplier-part-table";
-import { manualPartTableProps } from "@/components/admin/supplier-part-table-data";
+import { costNotes, manualPartTableProps } from "@/components/admin/supplier-part-table-data";
+import { formatDate, formatNumber } from "@/modules/admin/format";
 import { SupplierBrowser } from "@/components/admin/supplier-browser";
 import { ManualProductFilters } from "@/components/admin/manual-product-filters";
 import { ManualSubmitButton } from "@/components/admin/manual-submit-button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminManualData, type ManualUpload } from "@/modules/admin/manual";
 import { manualColumns, type ManualIssue } from "@/modules/suppliers/manual-template";
 import { confirmManualDraft, discardManualDraft, uploadManualList } from "./actions";
 
 const base = "/yonetim/tedarikciler/manuel";
-const number = (value: number) => new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(value);
-const date = (value: Date) => value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
+const number = formatNumber;
+const date = (value: Date) => formatDate(value);
+const filterKeys = ["liste", "q", "category", "stock", "quality", "presence"] as const;
 const errors: Record<string, string> = {
   file: "Bir .xlsx dosyası seçin (en fazla 8 MB).",
   unreadable: "Dosya okunamadı. Numbers veya Excel'den .xlsx olarak dışa aktarıp yeniden deneyin.",
@@ -38,8 +38,8 @@ const errors: Record<string, string> = {
   busy: "Başka bir manuel liste işlemi sürüyor. Biraz sonra yeniden deneyin.",
   input: "İstek eksik veya hatalı.",
 };
-const uploadStatus = (status: ManualUpload["status"]) => status === "imported" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>İçe aktarıldı</Badge>
-  : status === "draft" ? <Badge variant="info"><Info data-icon="inline-start" aria-hidden="true"/>Onay bekliyor</Badge> : <Badge variant="outline">Vazgeçildi</Badge>;
+const uploadStatus = (status: ManualUpload["status"]) => status === "imported" ? <StatusBadge tone="success">İçe aktarıldı</StatusBadge>
+  : status === "draft" ? <StatusBadge tone="info">Onay bekliyor</StatusBadge> : <StatusBadge tone="neutral">Vazgeçildi</StatusBadge>;
 const fieldLabel = (field: ManualIssue["field"]) => manualColumns.find(column => column.key === field)?.header ?? "—";
 // Many rows share one warning ("Fiyat yok…"); the summary groups them by field and message, without the row's own value.
 const issueKind = (issue: ManualIssue) => `${issue.level}|${issue.field ?? ""}|${issue.message.replace(/:.*$/, "")}`;
@@ -47,13 +47,7 @@ const issueKind = (issue: ManualIssue) => `${issue.level}|${issue.field ?? ""}|$
 export default async function ManualAdmin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const { lists, list, uploads, draft, listCategories, products, categoryNames } = await adminManualData(params);
-  const pageUrl = (target: number) => {
-    const query = new URLSearchParams({ page: String(target) });
-    for (const key of ["liste", "q", "category", "stock", "quality", "presence", "sort", "dir"] as const) if (params[key]) query.set(key, params[key]!);
-    return `${base}?${query}`;
-  };
   const pages = products?.pages ?? 1, page = products?.page ?? 1;
-  const pageNumbers = Array.from(new Set([1, ...Array.from({ length: 5 }, (_, i) => Math.max(1, Math.min(page - 2, pages - 4)) + i), pages])).filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const facts: [string, string, string][] = list ? [
     ["Listedeki ürün", number(list.present), list.list_name],
     ["Fiyatı eksik", number(list.missing_prices), "Satışa kapalı listelenir"],
@@ -68,33 +62,23 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     return groups.set(key, group);
   }, new Map<string, { issue: ManualIssue; count: number; codes: string[] }>()).values()].sort((a, b) => Number(a.issue.level === "warning") - Number(b.issue.level === "warning") || b.count - a.count) : [];
   const detailed = draft ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, 500) : [];
-  return <div className="flex flex-col gap-6">
-    <div className="flex flex-col gap-2">
-      <Breadcrumb><BreadcrumbList>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim"/>}>Yönetim</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbLink render={<Link href="/yonetim/tedarikciler"/>}>Tedarikçiler</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator/>
-        <BreadcrumbItem><BreadcrumbPage>Manuel yükleme</BreadcrumbPage></BreadcrumbItem>
-      </BreadcrumbList></Breadcrumb>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Manuel yükleme</h1>
-          <p className="text-muted-foreground">Şablondaki .xlsx listeleri bir tedarikçi listesi gibi içe aktarılır: önce kontrol edilir, onaydan sonra mağazaya yansır.</p>
-        </div>
-        <Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>
-      </div>
-    </div>
+  return <SupplierPage crumb="Manuel yükleme" title="Manuel yükleme" tabsLabel="Manuel yükleme" syncLabel="Yükleme ve kontrol"
+    description="Şablondaki .xlsx listeleri bir tedarikçi listesi gibi içe aktarılır: önce kontrol edilir, onaydan sonra mağazaya yansır."
+    badge={<Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>}
+    attention={Boolean(draft || params.error)} hasData={Boolean(list)} tabKey={[params.taslak, params.error, params.imported].join("|")}
+    alerts={<>
     {params.uploaded === "1" && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Dosya okundu. Önizlemeyi kontrol edip içe aktarın; onaylanana kadar hiçbir ürün değişmez.</AlertDescription></Alert>}
     {params.imported === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Liste içe aktarıldı</AlertTitle><AlertDescription>Ürünler mağazada listelenir; kategori sayfaları 10 dakika içinde güncellenir. Mevcut ürünlerle eşleşmeleri için <Link className="underline" href="/yonetim/urun-eslestirme">Ürün eşleştirme</Link> sayfasında eşleştirmeyi yenileyin.</AlertDescription></Alert>}
     {params.discarded === "1" && <Alert role="status"><Info aria-hidden="true"/><AlertDescription>Taslaktan vazgeçildi; hiçbir ürün değişmedi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || "İşlem tamamlanamadı."}{params.detail && ` (${params.detail})`}</AlertDescription></Alert>}
-    {list && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Liste özeti">
+    </>}
+    facts={list && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Liste özeti">
       {facts.map(([label, value, note]) => <Card key={label} size="sm">
         <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
         <CardContent className="text-muted-foreground">{note}</CardContent>
       </Card>)}
     </div>}
-    <SupplierTabs label="Manuel yükleme" transferLabel="Yükleme ve kontrol" key={[params.taslak, params.error, params.imported].join("|")}
-      initialTab={draft || params.error || !list ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
+    sync={<div className="flex flex-col gap-4">
       {draft && <Card>
         <CardHeader>
           <CardTitle><h2>Önizleme · {draft.file_name}</h2></CardTitle>
@@ -196,28 +180,18 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
           </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz yükleme yok</EmptyTitle></EmptyHeader></Empty>}
         </CardContent>
       </Card>
-    </div>} products={
-    <SupplierBrowser><Card>
+    </div>}
+    products={<SupplierBrowser><Card>
       {list && <CardHeader className="border-b">
         <ManualProductFilters key={[params.liste, params.q, params.category, params.stock, params.presence, params.quality].join("|")} params={params} list={list.list_group}
           lists={lists.map(entry => ({ value: entry.list_group, label: entry.list_name }))} categories={listCategories}/>
       </CardHeader>}
       {!list || !products ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Henüz manuel liste yok.</EmptyTitle><EmptyDescription>Yükleme sekmesinden şablondaki bir dosyayı yükleyin.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
-        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span>NF: KDV hariç alış · Satış: KDV dahil</span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span>{costNotes.manual}</span></div>
         <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })}/>
       </CardContent>
-      <CardFooter className="flex-wrap justify-between gap-3">
-        <span className="text-muted-foreground tabular-nums">Sayfa {number(page)} / {number(pages)}</span>
-        <Pagination className="mx-0 w-auto" aria-label="Ürün sayfaları"><PaginationContent>
-          <PaginationItem><PaginationPrevious text="Önceki" aria-label="Önceki sayfa" href={page > 1 ? pageUrl(page - 1) : undefined} aria-disabled={page <= 1 || undefined}/></PaginationItem>
-          {pageNumbers.map((n, i, ns) => <Fragment key={n}>{i > 0 && n - ns[i - 1] > 1 && <PaginationItem><PaginationEllipsis/></PaginationItem>}<PaginationItem><PaginationLink href={pageUrl(n)} isActive={n === page}>{n}</PaginationLink></PaginationItem></Fragment>)}
-          <PaginationItem><PaginationNext text="Sonraki" aria-label="Sonraki sayfa" href={page < pages ? pageUrl(page + 1) : undefined} aria-disabled={page >= pages || undefined}/></PaginationItem>
-        </PaginationContent></Pagination>
-        <form action={base} className="flex items-center gap-2">{Object.entries(params).filter(([key]) => ["liste", "q", "category", "stock", "quality", "presence", "sort", "dir"].includes(key)).map(([key, value]) => <input key={key} type="hidden" name={key} value={value || ""}/>)}<Label htmlFor="page-jump">Sayfaya git</Label><Input id="page-jump" className="w-20" type="number" name="page" min={1} max={pages} defaultValue={page}/><Button type="submit" variant="outline">Git</Button></form>
-      </CardFooter>
+      <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages}/></CardFooter>
       </>}
-    </Card></SupplierBrowser>
-    }/>
-  </div>;
+    </Card></SupplierBrowser>}/>;
 }
