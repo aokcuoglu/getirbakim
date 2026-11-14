@@ -3,7 +3,8 @@ import { ArrowRight, CircleAlert, CircleCheck, TriangleAlert } from "lucide-reac
 import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
-import { adminDinamikOverview, adminSetaOverview, adminSupplierOverview } from "@/modules/admin/data";
+import { adminDinamikOverview, adminSetaOverview, adminSupplierOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
+import { SupplierRefreshRunner, type SupplierRefreshTask } from "@/components/admin/supplier-refresh-runner";
 import { adminManualLists } from "@/modules/admin/manual";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
 import { db } from "@/lib/db";
@@ -25,14 +26,20 @@ const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded:
 export default async function Suppliers() {
   await requireAdmin();
   const company = process.env.BASBUG_FIRMA_ADI || "BASBUG";
-  const [overview, health, dinamikData, dinamikHealth, seta, setaHealth, manualLists] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
-    adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null), adminManualLists()]);
+  const [overview, health, dinamikData, dinamikHealth, seta, setaHealth, manualLists, plan] = await Promise.all([adminSupplierOverview(), supplierHealth(db, company).catch(() => null),
+    adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminSetaOverview(), supplierHealth(db, setaCompany).catch(() => null), adminManualLists(), adminSupplierRefreshPlan()]);
   const manualLast = manualLists.reduce<Date | null>((latest, list) => list.last_import && (!latest || list.last_import > latest) ? list.last_import : latest, null);
   const statuses = supplierStatuses();
   const basbug = statuses.find(s => s.name === "Başbuğ");
   const dinamik = statuses.find(s => s.name === "Dinamik");
   const setaStatus = statuses.find(s => s.name === "SETA");
   const healthy = Boolean(health?.healthy);
+  // SETA is one quick list, Başbuğ 15 groups, Dinamik only the brands not refreshed in the last day.
+  const refreshTasks: SupplierRefreshTask[] = [
+    ...(plan.seta ? [{ supplier: "seta" as const, group: "ALL" }] : []),
+    ...(basbug?.configured ? plan.basbug.map(group => ({ supplier: "basbug" as const, group })) : []),
+    ...(dinamik?.configured ? plan.dinamikStale.map(group => ({ supplier: "dinamik" as const, group })) : []),
+  ];
   const last = overview.last;
   const card = (props: { id: string; letter: string; title: string; subtitle: string; badge: ReactNode; facts: [string, ReactNode, ReactNode][]; note?: string; footer: string; href: string; action: string }) =>
     <Card role="region" aria-labelledby={props.id}>
@@ -60,6 +67,12 @@ export default async function Suppliers() {
       <h1 className="text-2xl font-semibold tracking-tight">Tedarikçi entegrasyonları</h1>
       <p className="text-muted-foreground">Tedarikçi API bağlantılarının durumu, senkronizasyon sağlığı ve çekilen veri hacmi.</p>
     </div>
+    <Card role="region" aria-labelledby="supplier-refresh">
+      <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>
+        <CardDescription>Zamanlayıcıyı beklemeden tedarikçi verilerini API’lerden çeker. Sıra: SETA, Başbuğ’un {number(plan.basbug.length)} grubu, son 24 saatte güncellenmemiş {number(plan.dinamikStale.length)} Dinamik markası.</CardDescription></CardHeader>
+      <CardContent><SupplierRefreshRunner tasks={refreshTasks} label="Tüm tedarikçileri güncelle" ariaLabel="Tüm tedarikçileri güncelle"
+        description={`${number(refreshTasks.length)} kapsam sırayla yenilenir; Dinamik markaları birkaç saniye, Başbuğ grupları yarım dakikaya kadar sürer. Sayfayı açık tutun.`}/></CardContent>
+    </Card>
     <div className="grid gap-4 lg:grid-cols-2">
       {card({ id: "supplier-basbug", letter: "B", title: "Başbuğ API", subtitle: "Ürün, NF maliyet, MRK stok ve döviz kuru",
         badge: statusBadge(!health ? "error" : healthy ? "success" : "warning", !health ? "Okunamadı" : healthy ? "Sağlıklı" : "Dikkat gerekiyor"),

@@ -181,3 +181,22 @@ export async function adminSetaOverview() {
   ]);
   return { ...items.rows[0], last: last.rows[0] ?? null };
 }
+
+// Scopes the manual "refresh" buttons run, in order. Dinamik has ~800 brands, so only the ones without a successful run
+// in the last day are offered (the oldest first); Başbuğ's 15 groups and SETA's single list always run in full.
+export async function adminSupplierRefreshPlan() {
+  await requireAdmin();
+  const basbugCompany = process.env.BASBUG_FIRMA_ADI || "BASBUG";
+  const [basbug, dinamik] = await Promise.all([
+    db.query<{ list_group: string }>("SELECT list_group FROM supplier_sync_scopes WHERE supplier='basbug' AND company=$1 AND warehouse='MRK' ORDER BY list_group", [basbugCompany]),
+    db.query<{ list_group: string; enabled: boolean; stale: boolean }>(`SELECT list_group,enabled,(last_success_at IS NULL OR last_success_at<now()-interval '24 hours') AS stale
+      FROM supplier_sync_scopes WHERE supplier='dinamik' ORDER BY last_success_at NULLS FIRST,list_group`),
+  ]);
+  const enabled = dinamik.rows.filter(row => row.enabled);
+  return {
+    basbug: basbug.rows.map(row => row.list_group),
+    seta: Boolean(process.env.SETA_API_KEY),
+    dinamikBrands: enabled.map(row => row.list_group).sort((a, b) => a.localeCompare(b, "tr")),
+    dinamikStale: enabled.filter(row => row.stale).map(row => row.list_group),
+  };
+}

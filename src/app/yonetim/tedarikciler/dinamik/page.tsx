@@ -6,7 +6,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { supplierHealth } from "@/modules/suppliers/health";
 import { DINAMIK_COMPANY } from "@/modules/suppliers/dinamik-import";
-import { adminDinamikOverview } from "@/modules/admin/data";
+import { adminDinamikOverview, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminDinamikItems } from "@/modules/admin/dinamik";
 import { dinamikRegion, dinamikRegions } from "@/modules/suppliers/dinamik-stock";
 import { SupplierTabs } from "@/components/admin/supplier-tabs";
@@ -27,12 +27,25 @@ import { supplierActivity } from "@/modules/suppliers/activity";
 import { SupplierActivityBadge } from "@/components/admin/supplier-activity-badge";
 import { db } from "@/lib/db";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { SupplierRefreshButton } from "@/components/admin/supplier-refresh-button";
+import { SupplierRefreshRunner } from "@/components/admin/supplier-refresh-runner";
+import { refreshDinamik } from "./actions";
 
 const number = (value: number | null | undefined) => new Intl.NumberFormat("tr-TR").format(value ?? 0);
 const time = (value: Date | null | undefined) => value ? value.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Henüz yok";
 const runLabels: Record<string, string> = { running: "Çalışıyor", succeeded: "Başarılı", failed: "Başarısız", rejected: "İnceleme gerekli" };
 const runTones: Record<string, Tone> = { succeeded: "success", failed: "error", rejected: "warning", running: "info" };
 const variables = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
+const errors: Record<string, string> = {
+  busy: "Bir Dinamik aktarımı zaten sürüyor. Biraz sonra yeniden deneyin.",
+  config: "Dinamik bağlantı değişkenleri eksik.",
+  contract: "Marka adı veya yanıt beklenen yapıya uymadı. Önceki veriler korunuyor.",
+  rejected: "Veri kalite kontrolünden geçemedi; önceki veriler korunuyor.",
+  upstream: "Dinamik verileri alınamadı. Önceki veriler korunuyor; yeniden deneyebilirsiniz.",
+};
 const filterKeys = ["q", "brand", "group", "region", "stock", "quality", "presence", "sort", "dir"] as const;
 type Tone = "success" | "warning" | "error" | "info" | "neutral";
 const statusBadge = (tone: Tone, text: string) => tone === "success" ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>{text}</Badge>
@@ -44,8 +57,8 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const status = supplierStatuses().find(s => s.name === "Dinamik");
-  const [data, health, list, activity, checkoutMode] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
-    supplierActivity(db, "dinamik"), supplierCheckoutMode()]);
+  const [data, health, list, activity, checkoutMode, plan] = await Promise.all([adminDinamikOverview(), supplierHealth(db, DINAMIK_COMPANY).catch(() => null), adminDinamikItems(params),
+    supplierActivity(db, "dinamik"), supplierCheckoutMode(), adminSupplierRefreshPlan()]);
   const { items: rows, total, page, pages } = list;
   const region = dinamikRegion(params.region);
   function pageUrl(target: number) {
@@ -85,13 +98,27 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
         <SupplierActivityBadge supplier="dinamik" initial={activity} unit="marka">{statusBadge(tone, !health ? "Okunamadı" : health.healthy ? "Sağlıklı" : scopes.synced ? "Dikkat gerekiyor" : "İlk çekim bekleniyor")}</SupplierActivityBadge>
       </div>
     </div>
+    {params.updated === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.brand ? `${params.brand} markası` : "Marka"} API’den çekildi ve güncel kayıtlar yenilendi.</AlertDescription></Alert>}
+    {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || errors.upstream}</AlertDescription></Alert>}
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Dinamik özet">
       {facts.map(([label, value, note]) => <Card key={label} size="sm">
         <CardHeader><CardDescription>{label}</CardDescription><CardTitle className="tabular-nums">{value}</CardTitle></CardHeader>
         <CardContent className="text-muted-foreground">{note}</CardContent>
       </Card>)}
     </div>
-    <SupplierTabs label="Dinamik yönetimi" transfer={<div className="flex flex-col gap-4">
+    <SupplierTabs label="Dinamik yönetimi" key={params.error ? `error-${params.error}` : params.updated ? "updated" : "workspace"} initialTab={params.error || params.updated ? "transfer" : "products"} transfer={<div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader><CardTitle><h2>Kaynağı güncelle</h2></CardTitle><CardDescription>Her marka tek istekle çekilir (stok ve fiyat listesi birlikte). Zamanlayıcı kapalıyken veriler buradan tazelenir.</CardDescription><CardAction><Badge variant="outline">API · marka bazlı</Badge></CardAction></CardHeader>
+        <CardContent>
+          <form action={refreshDinamik}><Field>
+            <FieldLabel htmlFor="refresh-brand">Tek marka</FieldLabel>
+            <div className="flex flex-wrap gap-2"><NativeSelect id="refresh-brand" name="brand" defaultValue={params.brand && plan.dinamikBrands.includes(params.brand) ? params.brand : plan.dinamikStale[0] ?? plan.dinamikBrands[0]}>{plan.dinamikBrands.map(brand => <NativeSelectOption key={brand} value={brand}>{brand}</NativeSelectOption>)}</NativeSelect><SupplierRefreshButton label="Seçili markayı API’den güncelle" pendingLabel="Dinamik verileri çekiliyor…"/></div>
+            <FieldDescription>{number(plan.dinamikBrands.length)} etkin marka · {number(plan.dinamikStale.length)} marka son 24 saatte güncellenmedi.</FieldDescription>
+          </Field></form>
+        </CardContent>
+        <CardFooter><SupplierRefreshRunner tasks={plan.dinamikStale.map(brand => ({ supplier: "dinamik" as const, group: brand }))} label={`Güncel olmayan ${number(plan.dinamikStale.length)} markayı yenile`}
+          description="En eskiden başlayarak sırayla yenilenir (marka başına birkaç saniye); sayfayı açık tutun. Tek markanın hatası turu durdurmaz." ariaLabel="Güncel olmayan Dinamik markalarını güncelle"/></CardFooter>
+      </Card>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="region" aria-label="Dinamik özeti">
         {stats.map(([label, value, note, statTone]) => <Card key={label}>
           <CardHeader>
