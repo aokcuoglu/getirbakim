@@ -1,13 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, Maximize2, Merge, Pencil, TriangleAlert } from "lucide-react";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { confirmBrand, mergeBrand, moveBrandLabel, renameBrand } from "@/app/yonetim/urun-eslestirme/actions";
 
@@ -43,9 +45,10 @@ export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
 }
 
 
-export type BrandLabelRow = { supplier: string; supplierName: string; label: string; items: string; method: "auto" | "manual" };
+export type BrandLabelRow = { supplier: string; label: string; items: number; method: "auto" | "manual" };
+const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
 export type BrandSuggestionRow = { id: string; name: string; evidence: string };
-export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; fresh: boolean; suggestion: BrandSuggestionRow | null; labels: BrandLabelRow[] };
+export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; fresh: boolean; suggestion: BrandSuggestionRow | null };
 
 /** "Onayla": the automatically placed labels stay where they are. */
 export function ConfirmBrand({ id, back }: { id: string; back: string }) {
@@ -62,11 +65,26 @@ export function MergeSuggestion({ id, suggestion, back }: { id: string; suggesti
 
 /**
  * Rename a master brand, move one of its supplier labels to another master brand (or make it a brand of its own),
- * or merge the whole brand into another. Target names come from the page's single `brand-names` datalist.
+ * or merge the whole brand into another. Its labels and the target-name suggestions load when it opens, so closed dialogs add nothing to the page.
  */
 export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{ labels: BrandLabelRow[]; names: string[] } | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    fetch(`/api/admin/brand-dialog/${brand.id}`, { cache: "no-store", signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error(response.status === 403 ? "Oturumun sona ermiş olabilir. Yönetici hesabınla yeniden giriş yap." : "Marka etiketleri yüklenemedi.");
+        return response.json() as Promise<{ labels: BrandLabelRow[]; names: string[] }>;
+      }).then(setData).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Marka etiketleri yüklenemedi."); });
+    return () => controller.abort();
+  }, [open, brand.id, attempt]);
   const hidden = <input type="hidden" name="back" value={back}/>;
-  return <Dialog>
+  const labels = data?.labels ?? [];
+  return <Dialog open={open} onOpenChange={setOpen}>
     <DialogTrigger render={<Button variant="ghost" size="icon" aria-label={`${brand.name} markasını düzenle`} title="Düzenle"/>}><Pencil aria-hidden="true"/></DialogTrigger>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-3xl">
       <DialogHeader>
@@ -81,12 +99,15 @@ export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) 
           <Button type="submit" variant="outline">Adı kaydet</Button>
         </form>
         <Separator/>
+        {error ? <Alert variant="destructive" role="alert"><CircleAlert/><AlertTitle>Etiketler alınamadı</AlertTitle><AlertDescription>{error}</AlertDescription><AlertAction><Button variant="outline" onClick={() => { setError(""); setAttempt(value => value + 1); }}>Tekrar dene</Button></AlertAction></Alert>
+        : !data ? <div className="flex flex-col gap-2" role="status"><span className="sr-only">Etiketler yükleniyor…</span><Skeleton className="h-8 w-full"/><Skeleton className="h-24 w-full"/></div>
+        : <><datalist id="brand-names">{data.names.map(name => <option key={name} value={name}/>)}</datalist>
         <Table><caption className="sr-only">Tedarikçi etiketleri</caption>
           <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead>Etiket</TableHead><TableHead className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead>Başka ana markaya taşı</TableHead></TableRow></TableHeader>
-          <TableBody>{brand.labels.map(label => <TableRow key={`${label.supplier}|${label.label}`}>
-            <TableCell>{label.supplierName}</TableCell>
+          <TableBody>{labels.map(label => <TableRow key={`${label.supplier}|${label.label}`}>
+            <TableCell>{supplierNames[label.supplier] ?? label.supplier}</TableCell>
             <TableCell className="max-w-40 truncate font-medium" title={label.label}>{label.label}</TableCell>
-            <TableCell className="text-right tabular-nums">{label.items}</TableCell>
+            <TableCell className="text-right tabular-nums">{new Intl.NumberFormat("tr-TR").format(label.items)}</TableCell>
             <TableCell>{label.method === "auto" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start" aria-hidden="true"/>Otomatik</Badge>
               : <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Onaylı</Badge>}</TableCell>
             <TableCell><form action={moveBrandLabel} className="flex items-center gap-2">
@@ -95,7 +116,7 @@ export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) 
               <Button type="submit" name="mode" value="move" variant="outline">Taşı</Button>
               <Button type="submit" name="mode" value="new" variant="ghost" title="Bu etiket ayrı bir ana marka olsun">Ayrı marka</Button>
             </form></TableCell>
-          </TableRow>)}</TableBody></Table>
+          </TableRow>)}</TableBody></Table></>}
         <Separator/>
         <form action={mergeBrand} className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="id" value={brand.id}/>{hidden}

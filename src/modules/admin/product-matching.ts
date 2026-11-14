@@ -82,6 +82,16 @@ export async function productMatchingData(params: MatchingParams) {
   return { ...base, ...await masterBrands(scope, params) };
 }
 
+/** What one brand's dialog needs, loaded when it opens: its labels and every master brand name (the move/merge inputs' suggestions). */
+export async function brandDialogData(id: string) {
+  const [labels, names] = await Promise.all([
+    db.query<{ supplier: string; label: string; items: number; method: "auto" | "manual" }>(
+      "SELECT supplier,label,items,method FROM supplier_brands WHERE brand_id=$1 ORDER BY supplier,items DESC,label", [id]),
+    db.query<{ name: string }>("SELECT DISTINCT name FROM brands ORDER BY name"),
+  ]);
+  return { labels: labels.rows, names: names.rows.map(row => row.name) };
+}
+
 /** Master brands with their Başbuğ / Dinamik / SETA labels, largest first; `q` matches the name or any label. */
 async function masterBrands(scope: BrandScope, params: MatchingParams) {
   const q = compact(params.q);
@@ -97,9 +107,7 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
     FROM (SELECT *,row_number() OVER (ORDER BY ${order}) AS position FROM (${brandRows}) b WHERE ${where}
      ORDER BY ${order} LIMIT ${pageSize} OFFSET $2) b
     LEFT JOIN brand_merge_suggestions s ON s.brand_id=b.id::bigint LEFT JOIN brands t ON t.id=s.target_id ORDER BY b.position`, [q, (page - 1) * pageSize])).rows;
-  // Names for the move/merge inputs' suggestions.
-  const names = (await db.query<{ name: string }>("SELECT DISTINCT name FROM brands ORDER BY name")).rows.map(row => row.name);
-  return { scope, brands, names, total, page, pages };
+  return { scope, brands, total, page, pages };
 }
 
 // A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the Başbuğ row
