@@ -203,3 +203,23 @@ CREATE TABLE IF NOT EXISTS commerce_returns (
  FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
 );
 CREATE INDEX IF NOT EXISTS commerce_returns_line_idx ON commerce_returns(order_id,product_id);
+-- Store stock actually taken for a line (#516). Cancelling or expiring an order returns exactly this and sets it to 0,
+-- so a line that a late payment could not reserve, or a second cancel, never inflates stock.
+-- NULL marks lines written by code without the column (orders before this change, or written by the previous release
+-- while a deployment runs): the release falls back to the old rule (full quantity of a store product).
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS reserved_quantity integer;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_order_items'::regclass AND conname='commerce_order_items_reserved_check') THEN
+  ALTER TABLE commerce_order_items ADD CONSTRAINT commerce_order_items_reserved_check
+   CHECK(reserved_quantity IS NULL OR reserved_quantity BETWEEN 0 AND quantity);
+ END IF;
+END $$;
+-- Backfill from what the old code did: checkout took the full quantity of every store product line; expiry and
+-- cancellation gave it back. A late payment that found stock short says so in the payment note without naming
+-- the line, so none of that order's lines count as reserved (stock is never inflated; operations decide by hand).
+UPDATE commerce_order_items i SET reserved_quantity=CASE
+  WHEN o.status<>'cancelled' AND position('mağaza stoku yetersiz' in o.payment_note)=0
+   AND EXISTS(SELECT 1 FROM store_products p WHERE p.id=i.product_id) THEN i.quantity ELSE 0 END
+FROM commerce_orders o WHERE o.id=i.order_id AND i.reserved_quantity IS NULL;
+-- Admin list order and the dashboard's 14-day chart (a created_at range per Istanbul day).
+CREATE INDEX IF NOT EXISTS commerce_orders_created_idx ON commerce_orders(created_at DESC,id DESC);
