@@ -18,7 +18,7 @@ Kullanıcıya göster: mevcut sürüm → önerilen `vX.Y.Z`, PR listesi (tür v
 1. `/issue` kurallarıyla `chore(release): prepare vX.Y.Z` Issue'su; worktree `../getirbakim-<N>` dal `chore/<N>-release-vX.Y.Z` (origin/dev'den).
 2. `npm version X.Y.Z --no-git-tag-version` (package.json + lock birlikte); `CHANGELOG.md`'ye sürüm bölümü: özellikler, düzeltmeler, Issue/PR bağlantıları, migration/operasyon adımları.
 3. PR → `dev`, CI yeşil, merge (normal `/ship` 6–7. adımları).
-4. `gh pr create --base main --head dev --title "chore(release): vX.Y.Z" --label release:<…>` — gövdede kapsam ve doğrulama. CI yeşil olunca `gh pr merge <PR> --merge` (guard onay sorar — kullanıcı onayı zaten alındı, sürüm ve kapsamı tekrar göster).
+4. `gh pr create --base main --head dev --title "chore(release): vX.Y.Z" --label release:<…>` — gövdede kapsam ve doğrulama. CI'ı `/ship` 6. adımdaki kapıyla bekle ve doğrula (pipe'sız `gh pr checks --watch`, ardından `statusCheckRollup` hepsi `SUCCESS`); ancak o zaman `gh pr merge <PR> --merge` (guard onay sorar — kullanıcı onayı zaten alındı, sürüm ve kapsamı tekrar göster).
 5. Main merge commit'ine annotated tag: `git tag -a vX.Y.Z <merge-sha> -m "vX.Y.Z — <başlık>"` + `git push origin vX.Y.Z`; `gh release create vX.Y.Z --title "vX.Y.Z — <başlık>" --notes-file <CHANGELOG bölümü>`. Var olan tag'i taşıma/silme.
 6. dev'i main'e hizala: `git push origin origin/main:refs/heads/dev` (fast-forward; force değil) ve ana checkout'ta `git merge --ff-only origin/dev`.
 7. Rapor: merge, sürüm, tag, Release bağlantısı.

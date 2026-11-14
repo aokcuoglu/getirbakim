@@ -13,7 +13,8 @@
    ├─ 4 getirbakim-reviewer  ┐ paralel, salt okur → bulgular → geliştiriciye (≤2 döngü)
    │    getirbakim-ui-ux     ┘ (yalnız .tsx/.css değiştiyse)
    ├─ 5 getirbakim-qa          kontroller + kısa ömürlü worktree sunucusunda (31NN) Chrome turu, masaüstü + mobil
-   ├─ 6 PR → dev               rebase, push, gh pr create (Closes #N + etiketler), CI'ı bekle
+   ├─ 6 PR → dev               rebase, push, gh pr create (Closes #N + etiketler), CI'ı bekle;
+   │                           merge öncesi statusCheckRollup hepsi SUCCESS (pipe'sız, #532)
    └─ 7 merge → dev            izin sormadan (politika); ana checkout ff, kendi worktree/dalını temizle
                                main'e yalnız /release-check ile, kullanıcının açık onayıyla
 ```
