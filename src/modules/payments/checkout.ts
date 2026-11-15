@@ -112,10 +112,11 @@ async function claimAttempt(client: PoolClient, orderId: string): Promise<{ orde
 }
 
 type Outcome = { kind: "paid"; query: TamiQueryResponse } | { kind: "missing" } | { kind: "unpaid"; query: TamiQueryResponse };
+type Answer = { outcome: Outcome } | { error: unknown };
 
-async function queryAttempt(attempt: Attempt): Promise<Outcome> {
+async function queryAttempt(attempt: Attempt, timeoutMs?: number): Promise<Outcome> {
   try {
-    const query = await queryPaymentByOrderId({ orderId: attempt.provider_order_id, locale: "tr" });
+    const query = await queryPaymentByOrderId({ orderId: attempt.provider_order_id, locale: "tr", timeoutMs });
     if (verifiedPaymentSuccess(query, attempt.provider_order_id, Number(attempt.amount_kurus))) return { kind: "paid", query };
     return { kind: "unpaid", query };
   } catch (error) {
@@ -127,34 +128,56 @@ async function queryAttempt(attempt: Attempt): Promise<Outcome> {
   }
 }
 
+const answer = (attempt: Attempt, timeoutMs?: number): Promise<Answer> =>
+  queryAttempt(attempt, timeoutMs).then(outcome => ({ outcome }), (error: unknown) => ({ error }));
+
 function providerResult(query: TamiQueryResponse) {
   const { securityHash: _hash, ...raw } = query.raw;
   void _hash;
   return { ...raw, securityHashValid: query.securityHashValid };
 }
 
+/** Budget for paths a customer waits on (order page after TAMI, polling); a slower TAMI answer counts as uncertain (#711). */
+export const INTERACTIVE_RECONCILE_MS = 4500;
+
 /**
  * Asks TAMI about every open attempt of an order, records verified payments and expires unpaid orders.
  * Callback parameters are never trusted; the signed provider query is the only evidence of payment.
- * `uncertain` is true when an attempt got no definite answer (network error, unsigned reply): it may hide a payment.
+ * `uncertain` is true when an attempt got no definite answer (network error, unsigned reply, budget hit): it may hide a payment.
+ * `minIntervalSeconds` throttles page views and polling; 0 (callback, sweep, startPayment, cancel) always asks TAMI.
+ * `deadlineMs` asks about all attempts at once with that timeout instead of one by one with TAMI's 15 s default.
  */
-export async function reconcileOrderPayments(orderId: string, { minIntervalSeconds = 0 } = {}): Promise<{ uncertain: boolean }> {
-  // Page views pass an interval so refreshes do not flood the provider.
+export async function reconcileOrderPayments(orderId: string, { minIntervalSeconds = 0, deadlineMs }: { minIntervalSeconds?: number; deadlineMs?: number } = {}): Promise<{ uncertain: boolean }> {
+  // Claiming marks the attempts checked before TAMI is asked, so concurrent throttled callers ask once per attempt.
   const attempts = (await db.query<Attempt>(
-    `SELECT id,provider_order_id,amount_kurus,status,hosted_url,created_at,provider_result FROM commerce_payments WHERE order_id=$1 AND status IN ('initiated','pending')
-     AND (checked_at IS NULL OR checked_at<now()-make_interval(secs=>$2)) ORDER BY created_at`,
+    `WITH claimed AS (
+       UPDATE commerce_payments SET checked_at=now() WHERE order_id=$1 AND status IN ('initiated','pending')
+         AND ($2::float8=0 OR checked_at IS NULL OR checked_at<now()-make_interval(secs=>$2::float8))
+       RETURNING id,provider_order_id,amount_kurus,status,hosted_url,created_at,provider_result)
+     SELECT * FROM claimed ORDER BY created_at`,
     [orderId, minIntervalSeconds],
   )).rows;
+  // An open attempt left to another caller (or checked moments ago) has no answer here; it may have been uncertain.
+  let skipped = false;
+  if (minIntervalSeconds > 0) {
+    const open = Number((await db.query<{ count: string }>(
+      "SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND status IN ('initiated','pending')", [orderId],
+    )).rows[0].count);
+    skipped = open > attempts.length;
+  }
+  // With a budget the queries run together; results are still applied one by one in attempt order.
+  const answers = deadlineMs === undefined ? null : await Promise.all(attempts.map(attempt => answer(attempt, deadlineMs)));
   let uncertain = false;
-  for (const attempt of attempts) {
-    let outcome: Outcome;
-    try { outcome = await queryAttempt(attempt); }
-    catch (error) {
+  for (const [index, attempt] of attempts.entries()) {
+    const result = answers ? answers[index] : await answer(attempt);
+    if ("error" in result) {
       uncertain = true;
+      const { error } = result;
       console.error("TAMI payment query failed", { orderId, attempt: attempt.provider_order_id, error: error instanceof Error ? error.message : error });
       await db.query("UPDATE commerce_payments SET checked_at=now() WHERE id=$1", [attempt.id]);
       continue;
     }
+    const { outcome } = result;
     if (outcome.kind === "paid") { await recordPaid(orderId, attempt, outcome.query); continue; }
     const old = Date.now() - attempt.created_at.getTime() > ATTEMPT_WATCH_HOURS * 3_600_000;
     await db.query(
@@ -163,8 +186,8 @@ export async function reconcileOrderPayments(orderId: string, { minIntervalSecon
       [attempt.id, outcome.kind === "unpaid" ? JSON.stringify(providerResult(outcome.query)) : null, old],
     );
   }
-  // An unanswered query may hide a payment; expiry waits for a definite answer.
-  if (!uncertain) await expireIfDue(orderId);
+  // An unanswered or skipped query may hide a payment; expiry waits for a definite answer on every open attempt.
+  if (!uncertain && !skipped) await expireIfDue(orderId);
   return { uncertain };
 }
 

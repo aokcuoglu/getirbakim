@@ -159,6 +159,7 @@ async function postTamiJson(
   correlationId?: string,
   options?: {
     includeSecurityHash?: boolean
+    timeoutMs?: number
   }
 ): Promise<Record<string, unknown>> {
   const { paymentApiBaseUrl } = getTamiConfig()
@@ -170,7 +171,7 @@ async function postTamiJson(
     headers: buildHeaders(locale, correlationId),
     body: JSON.stringify(body),
     cache: 'no-store',
-    signal: AbortSignal.timeout(15000)
+    signal: AbortSignal.timeout(options?.timeoutMs ?? 15000)
   })
 
   const json = await parseJsonResponse(response)
@@ -269,13 +270,15 @@ export async function queryPaymentByOrderId(input: {
   orderId: string
   locale: TamiLocale
   isTransactionDetail?: boolean
+  /** Interactive callers (order page, polling) pass a short budget; the default stays 15 s. */
+  timeoutMs?: number
 }): Promise<TamiQueryResponse> {
   const payload = {
     orderId: input.orderId,
     isTransactionDetail: input.isTransactionDetail ?? true
   }
 
-  const raw = await postTamiJson('/payment/query', payload, input.locale)
+  const raw = await postTamiJson('/payment/query', payload, input.locale, undefined, { timeoutMs: input.timeoutMs })
   const securityHash = typeof raw.securityHash === 'string' ? raw.securityHash : ''
   const securityHashValid = securityHash ? verifySecurityHash(raw, securityHash) : false
   const transactions = Array.isArray(raw.transactions)
