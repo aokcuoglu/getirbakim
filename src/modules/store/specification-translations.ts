@@ -3,8 +3,8 @@ import { specificationLabel, specificationValue } from "./catalog-filters";
 /**
  * Turkish names for the enrichment's English specification keys (#622), keyed by the lower-cased name without its
  * trailing unit ("[mm]") and index ("1"), so "Outer Diameter", "Outer Diameter [mm]" and "Outer Diameter 1 [mm]" share one
- * entry. Covers the keys that make up ~95% of the untranslated labels in the enrichment data. Only the product page
- * imports this (server side): the catalog cards ship catalog-filters to the browser and must stay small.
+ * entry. Covers the keys that make up ~95% of the untranslated labels in the enrichment data. The product page and
+ * catalog.ts import this (both server side): the catalog cards ship catalog-filters to the browser and must stay small.
  */
 const labels: Record<string, string> = {
   "supplementary article/supplementary info": "İlave ürün/bilgi",
@@ -296,7 +296,51 @@ const values: Record<string, string> = {
   "epdm (ethylene propylene diene monomer (m-class) rubber)": "EPDM (etilen propilen dien monomer kauçuk)",
   "yes": "Evet", "no": "Hayır", "rubber": "Kauçuk", "cast iron": "Dökme demir", "copper": "Bakır", "brass": "Pirinç", "silicone": "Silikon",
   "ceramic": "Seramik", "textile": "Tekstil", "paper": "Kâğıt", "front": "Ön", "rear": "Arka", "left": "Sol", "right": "Sağ",
+  "intake side": "Emme tarafı", "exhaust side": "Egzoz tarafı", "transmission sided": "Şanzıman tarafı", "transmission side": "Şanzıman tarafı",
+  "wheel side": "Tekerlek tarafı", "frontal sided": "Ön taraf", "engine sided": "Motor tarafı", "driver side": "Sürücü tarafı",
+  "passenger side": "Yolcu tarafı", "eng.compart. passeng. side": "Motor bölmesi yolcu tarafı",
+  "before catalytic converter": "Katalitik konvertör öncesi", "after catalytic converter": "Katalitik konvertör sonrası",
+  "before soot particulate filter": "Partikül filtresi öncesi", "after soot particulate filter": "Partikül filtresi sonrası",
+  "charge air cooler": "Intercooler", "in fuel tank": "Yakıt deposunda", "in the fuel tank": "Yakıt deposunda",
+  "behind the glove compartment": "Torpido arkası", "below the glove compartment": "Torpido altı", "cylinder head": "Silindir kapağı",
+  "engine": "Motor", "lateral installation": "Yandan montaj", "bumper": "Tampon", "below the middle console": "Orta konsol altı",
+  "exhaust manifold": "Egzoz manifoldu", "throttle housing": "Gaz kelebeği gövdesi", "inlet": "Giriş", "outlet": "Çıkış",
+  "petrol": "Benzin", "diesel": "Dizel", "cng": "CNG", "cng/lpg": "CNG/LPG", "petrol/gas (bifuel)": "Benzin/Gaz (çift yakıt)",
+  "oil pressure": "Yağ basınçlı", "monotube": "Tek borulu", "electronically adjustable shock strength": "Elektronik ayarlı sertlik",
+  "pollen filter": "Polen filtresi", "screen filter": "Elek filtre", "with antibacterial action": "Antibakteriyel etkili",
+  "with fungicidal effect": "Mantar önleyici etkili", "with anti-allergic effect": "Antialerjik etkili", "with antiviral effect": "Antiviral etkili",
+  "centrifuge": "Santrifüj", "pre-filter": "Ön filtre", "fresh air filter": "Temiz hava filtresi",
+  "bolted": "Cıvatalı", "mounting": "Montaj", "rubber mount": "Kauçuk takoz", "screw connection": "Vidalı bağlantı", "plugged": "Geçmeli",
+  "plug-in connection": "Geçme bağlantı", "pre-assembled": "Ön montajlı", "not pre-assembled": "Ön montajsız", "not pre-mounted": "Ön montajsız",
+  "pressed": "Presli", "glued": "Yapıştırmalı",
+  "manual transmission": "Manuel şanzıman", "automatic transmission": "Otomatik şanzıman", "dual-clutch transmission": "Çift kavramalı şanzıman",
+  "cvt automatic transmission (stepless)": "CVT (kademesiz) otomatik şanzıman",
+  "bracket wiper blade": "Klasik (kollu) silecek", "hybrid wiper blade": "Hibrit silecek",
 };
+
+const gearboxKinds: Record<string, string> = { manual: "manuel şanzıman", automatic: "otomatik şanzıman", "dual-clutch": "çift kavramalı şanzıman" };
+
+/** Position words of "Right Front", "Lower Front Axle"..., longest phrase first so "front axle" wins over "front". */
+const positionWords: [string, string][] = [
+  ["front axle", "ön aks"], ["rear axle", "arka aks"], ["both sides", "her iki taraf"], ["front", "ön"], ["rear", "arka"],
+  ["left", "sol"], ["right", "sağ"], ["upper", "üst"], ["top", "üst"], ["lower", "alt"], ["bottom", "alt"], ["inner", "iç"],
+  ["outer", "dış"], ["centre", "orta"], ["center", "orta"], ["middle", "orta"], ["and", "ve"],
+];
+
+/** Turkish for a position written word by word ("Lower Front Axle" is "Alt ön aks"); null unless every word is known. */
+function composePosition(part: string) {
+  let rest = part.trim().toLowerCase().replace(/\s+/g, " ");
+  const out: string[] = [];
+  while (rest) {
+    const hit = positionWords.find(([word]) => rest === word || rest.startsWith(`${word} `));
+    if (!hit) return null;
+    out.push(hit[1]);
+    rest = rest.slice(hit[0].length).trim();
+  }
+  if (!out.length) return null;
+  const text = out.join(" ");
+  return text.charAt(0).toLocaleUpperCase("tr") + text.slice(1);
+}
 
 const unitAndIndex = /^(.*?)(?:\s+(\d+))?(\s*\[[^\]]*\])?$/;
 
@@ -315,10 +359,47 @@ export function translateSpecificationValue(value: string) {
   if (exact !== value) return exact;
   const lower = value.trim().toLowerCase();
   if (Object.hasOwn(values, lower)) return values[lower];
+  const gearbox = lower.match(/^(\d+)-speed (manual|automatic|dual-clutch) transmission$/);
+  if (gearbox) return `${gearbox[1]} ileri ${gearboxKinds[gearbox[2]]}`;
+  const discharge = value.trim().match(/^(\S+) \(gas discharge (?:lamp|tube)\)$/i);
+  if (discharge) return `${discharge[1]} (xenon)`;
   const phrase = lower.match(/^(with|without) (.+)$/);
   if (!phrase) return value;
   const names = phrase[2].split(/,\s*(?:without |with )?/);
   if (!names.every(name => Object.hasOwn(nouns, name))) return value;
   const items = names.map(name => nouns[name]);
   return `${items.join(", ")} ${phrase[1] === "with" ? "dahil" : "hariç"}`;
+}
+
+/** Each comma separated part translated on its own; a part stays as written unless the dictionary or the position words know all of it. */
+export function translateSpecificationParts(value: string) {
+  const parts = value.split(",").map(part => part.trim()).filter(Boolean).map(part => {
+    const translated = translateSpecificationValue(part);
+    return translated !== part ? translated : composePosition(part) ?? part;
+  });
+  return [...new Set(parts)];
+}
+
+/** Turkish text of a (possibly comma separated) specification value: the whole text first, otherwise part by part. */
+export function translateSpecificationList(value: string) {
+  const whole = translateSpecificationValue(value);
+  return whole !== value ? whole : translateSpecificationParts(value).join(", ");
+}
+
+const keyOf = (text: string) => /^[\x00-\x7f]*$/.test(text) ? text.toLowerCase() : text.toLocaleLowerCase("tr");
+
+/**
+ * The sidebar options of one facet: raw values that translate to the same set of parts (order, case and repeats
+ * ignored) become one option that lists every raw value, so the URL keeps the raw spellings the filter matches.
+ */
+export function facetOptions(rawValues: string[]) {
+  const groups = new Map<string, { label: string; values: string[] }>();
+  for (const raw of rawValues) {
+    const parts = translateSpecificationParts(raw);
+    const key = [...new Set(parts.map(keyOf))].sort().join("|");
+    const group = groups.get(key);
+    if (group) group.values.push(raw);
+    else groups.set(key, { label: [...new Map(parts.map(part => [keyOf(part), part])).values()].join(", "), values: [raw] });
+  }
+  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "tr"));
 }

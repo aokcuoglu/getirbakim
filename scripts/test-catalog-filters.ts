@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {translateSpecificationLabel,translateSpecificationValue} from "../src/modules/store/specification-translations";
+import {facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
 import {applySpecOverrides} from "../src/modules/store/product-spec-display";
 import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
@@ -83,4 +83,37 @@ test("free-text values translate whole and by with/without phrase (#622)", () =>
   assert.equal(translateSpecificationValue("with something unknown"), "with something unknown");
   assert.equal(translateSpecificationValue("DEPO"), "DEPO");
   assert.equal(translateSpecificationValue("toString"), "toString");
+});
+
+test("comma separated and position values translate part by part (#703)", () => {
+  assert.deepEqual(translateSpecificationParts("Right, Left, Rear Axle"), ["Sağ","Sol","Arka aks"]);
+  assert.deepEqual(translateSpecificationParts("Lower Front Axle"), ["Alt ön aks"]);
+  assert.deepEqual(translateSpecificationParts("Right Front"), ["Sağ ön"]);
+  assert.deepEqual(translateSpecificationParts("Front Axle both sides"), ["Ön aks her iki taraf"]);
+  assert.deepEqual(translateSpecificationParts("Left and right"), ["Sol ve sağ"]);
+  assert.deepEqual(translateSpecificationParts("Left Exterior Mirror"), ["Left Exterior Mirror"]);
+  assert.equal(translateSpecificationList("without bulb holder, without bulb"), "ampul yuvası, ampul hariç");
+  assert.equal(translateSpecificationList("Front Axle, Rear Axle"), "Ön aks, Arka aks");
+  assert.equal(translateSpecificationList("toString"), "toString");
+  assert.equal(translateSpecificationValue("6-Speed manual transmission"), "6 ileri manuel şanzıman");
+  assert.equal(translateSpecificationValue("D2S (gas discharge lamp)"), "D2S (xenon)");
+});
+test("facet options merge equivalent raw values and keep each exactly once (#703)", () => {
+  const raw=["Front Axle","Front Axle, Rear Axle","Ön aks","Rear Axle, Front Axle","Rear Axle, Rear Axle Left","outer","Outer","INLET","Inlet","toString","constructor"];
+  const options=facetOptions(raw);
+  const byLabel=(label:string)=>options.find(o=>o.label===label)?.values.sort();
+  assert.deepEqual(byLabel("Ön aks"),["Front Axle","Ön aks"]);
+  assert.deepEqual(byLabel("Ön aks, Arka aks"),["Front Axle, Rear Axle","Rear Axle, Front Axle"]);
+  assert.deepEqual(byLabel("Arka aks, Arka aks sol"),["Rear Axle, Rear Axle Left"]);
+  assert.deepEqual(byLabel("Dış"),["Outer","outer"]);
+  assert.deepEqual(byLabel("Giriş"),["INLET","Inlet"]);
+  assert.deepEqual(byLabel("toString"),["toString"]);
+  assert.deepEqual(options.flatMap(o=>o.values).sort(),[...raw].sort());
+  const labels=options.map(o=>o.label);
+  assert.deepEqual(labels,[...labels].sort((a,b)=>a.localeCompare(b,"tr")));
+});
+test("an attribute group holds up to 40 values (#703)", () => {
+  const group=(n:number)=>JSON.stringify({"Fitting Position":Array.from({length:n},(_,i)=>"v"+i)});
+  assert.equal(selectedAttributes({attributes:group(40)})["Fitting Position"].length,40);
+  assert.deepEqual(selectedAttributes({attributes:group(41)}),{});
 });

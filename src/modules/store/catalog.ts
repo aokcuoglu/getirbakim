@@ -15,6 +15,7 @@ import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
@@ -652,5 +653,5 @@ async function attributeFacets(brands:string[],values:unknown[],scopedSql:string
   SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
  SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
  GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`,[...values,facetSpecificationKeys])).rows;
- return {brands,attributes:rows.map(row=>({...row,label:specificationLabel(row.key)})) as CatalogFacet[]};
+ return {brands,attributes:rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}))};
 }
