@@ -67,9 +67,12 @@ export async function recordOrderReturn({ orderId, productId, quantity, reason, 
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const line = (await client.query<{ quantity: number; returned: number }>(`SELECT i.quantity,COALESCE((SELECT sum(r.quantity) FROM commerce_returns r WHERE r.order_id=i.order_id AND r.product_id=i.product_id),0)::integer AS returned
-     FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id WHERE i.order_id=$1 AND i.product_id=$2 AND o.status IN ('shipped','delivered') FOR UPDATE OF i`, [orderId, productId])).rows[0];
-    const ok = Boolean(line && line.returned + quantity <= line.quantity);
+    const line = (await client.query<{ quantity: number }>(`SELECT i.quantity FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id
+     WHERE i.order_id=$1 AND i.product_id=$2 AND o.status IN ('shipped','delivered') FOR UPDATE OF i`, [orderId, productId])).rows[0];
+    // Summed in its own statement, after the lock: a snapshot taken before waiting would miss a return committed meanwhile.
+    const returned = line ? (await client.query<{ returned: number }>("SELECT COALESCE(sum(quantity),0)::integer AS returned FROM commerce_returns WHERE order_id=$1 AND product_id=$2",
+      [orderId, productId])).rows[0].returned : 0;
+    const ok = Boolean(line && returned + quantity <= line.quantity);
     if (ok) await client.query("INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,$3,$4,$5,$6)", [orderId, productId, quantity, reason, note, adminId]);
     await client.query("COMMIT");
     return ok;
