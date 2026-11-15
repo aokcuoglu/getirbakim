@@ -42,7 +42,7 @@ export async function removeGarageVehicle(key: string) {
 export async function saveVehicle(form:FormData) {
  const parsed=vehicleSchema.pick({make:true,model:true,year:true}).safeParse(Object.fromEntries(form));
  if(!parsed.success) redirect("/garaj?error=1");
- const change=garageFormChange(parsed.data,await currentVehicle());
+ const before=await currentVehicle(),change=garageFormChange(parsed.data,before);
  if(change.kind==="catalog-year") {
   if((await selectCatalogVehicle(change.vehicleId,change.year)).error) redirect("/garaj?error=1");
  } else {
@@ -50,6 +50,9 @@ export async function saveVehicle(form:FormData) {
   if(!checked.success) redirect("/garaj?error=1");
   await chooseVehicle(checked.data);
  }
+ // The form edits the current vehicle: an edited one replaces its old garage entry instead of staying beside it.
+ const after=await currentVehicle();
+ if(before&&after&&vehicleKey(before)!==vehicleKey(after)) await forgetVehicle(vehicleKey(before));
  redirect("/garaj?saved=1");
 }
 export async function removeVehicle() { await clearCatalogVehicle();redirect("/garaj"); }

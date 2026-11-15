@@ -32,11 +32,12 @@ export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
   const models = [...new Set(vehicles.map(vehicle => vehicle.modelLabel))];
   const makeLabels = new Map(vehicles.map(vehicle => [vehicle.makeKey, vehicle.makeLabel]));
   const makes = [...makeLabels.keys()];
-  const normalized = query.trim().toLocaleLowerCase("tr");
+  // Turkish lower case turns the roman "VII" into "vıı"; folding ı to i on both sides keeps "golf vii" a match.
+  const fold = (text: string) => text.toLocaleLowerCase("tr").replaceAll("ı", "i");
+  const normalized = fold(query.trim());
   const matches = vehicles.filter(vehicle =>
     (!make || vehicle.makeKey === make) && (!selectedModel || vehicle.modelLabel === selectedModel) &&
-    `${vehicle.modelLabel} ${vehicle.engineAndCodes} ${vehicle.from} ${vehicle.to || ""} ${vehicle.ps} ${vehicle.kw}`
-      .toLocaleLowerCase("tr").includes(normalized));
+    fold(`${vehicle.modelLabel} ${vehicle.engineAndCodes} ${vehicle.from} ${vehicle.to || ""} ${vehicle.ps} ${vehicle.kw}`).includes(normalized));
 
   const select="w-[200px] max-[1000px]:w-40 max-[750px]:w-full [&>select]:h-10 [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:px-3 [&>select]:text-sm [&>svg]:text-foreground";
   return <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar" aria-labelledby="fitment-title">
