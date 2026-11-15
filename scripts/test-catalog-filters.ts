@@ -126,3 +126,11 @@ test("decimal commas are not list commas (#703)", () => {
   assert.equal(facetOptions(["1,5","5,1"]).length, 2);
   assert.deepEqual(facetOptions([","]), [{label:",",values:[","]}]);
 });
+test("frequent English facet values are Turkish (#703)", () => {
+  assert.equal(translateSpecificationList("Long-life Filter"), "Uzun ömürlü filtre");
+  assert.equal(translateSpecificationList("Air Filter Housing, Intake Manifold"), "Hava filtresi gövdesi, Emme manifoldu");
+  assert.equal(translateSpecificationList("Mass Air Flow Sensor to throttle body"), "Hava akış sensöründen gaz kelebeğine");
+  assert.equal(translateSpecificationList("with sealing cap"), "Sızdırmazlık kapaklı");
+  assert.equal(translateSpecificationList("Bracket wiper blade without spoiler"), "Klasik (kollu) silecek, spoilersiz");
+  assert.equal(translateSpecificationList("hard version"), "Sert tip");
+});

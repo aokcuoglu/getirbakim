@@ -316,6 +316,23 @@ const values: Record<string, string> = {
   "manual transmission": "Manuel şanzıman", "automatic transmission": "Otomatik şanzıman", "dual-clutch transmission": "Çift kavramalı şanzıman",
   "cvt automatic transmission (stepless)": "CVT (kademesiz) otomatik şanzıman",
   "bracket wiper blade": "Klasik (kollu) silecek", "hybrid wiper blade": "Hibrit silecek",
+  "bracket wiper blade without spoiler": "Klasik (kollu) silecek, spoilersiz", "bracket wiper blade with spoiler": "Klasik (kollu) silecek, spoilerli",
+  "rear wiper blade in plastic design": "Plastik gövdeli arka silecek", "wiper blade with optical wear warning": "Optik aşınma uyarılı silecek",
+  "long-life filter": "Uzun ömürlü filtre", "side stream filtration": "Yan akış filtrasyonu", "suction filter": "Emiş filtresi",
+  "air recirculation filter": "Hava sirkülasyon filtresi", "flame-retardant filter medium": "Alev geciktirici filtre malzemesi",
+  "particulate filter (pm 2.5)": "Partikül filtresi (PM 2.5)", "activated carbon filter with polyphenol": "Polifenollü aktif karbon filtre",
+  "particle separation rate >98% for 2.5µm (fine matter)": "2,5 µm için %98 üzeri partikül tutma oranı (ince toz)",
+  "with oil separation function": "Yağ ayırma işlevli", "with water separator": "Su ayırıcılı", "without water separator": "Su ayırıcısız",
+  "with connection for water sensor": "Su sensörü bağlantılı", "without connection for water sensor": "Su sensörü bağlantısız",
+  "with sealing cap": "Sızdırmazlık kapaklı", "with quick coupling": "Hızlı bağlantılı", "with filter heating": "Filtre ısıtmalı",
+  "without filter heating": "Filtre ısıtmasız", "with water drain screw": "Su boşaltma vidalı",
+  "hard version": "Sert tip", "soft version": "Yumuşak tip",
+  "air filter housing": "Hava filtresi gövdesi", "intake manifold": "Emme manifoldu", "air filter to the intake manifold": "Hava filtresinden emme manifolduna",
+  "mass air flow sensor to throttle body": "Hava akış sensöründen gaz kelebeğine", "below plenum chamber cover": "Emme haznesi kapağı altı",
+  "high pressure pump (low pressure side)": "Yüksek basınç pompası (alçak basınç tarafı)", "behind exhaust turbocharger": "Egzoz turbosu arkası",
+  "before exhaust turbocharger": "Egzoz turbosu öncesi", "fuel line": "Yakıt hattı", "ignition coil": "Ateşleme bobini",
+  "electrically adjustable hydro mount": "Elektrikle ayarlı hidrolik takoz", "pipe-neck": "Boru boyunlu", "hydro bearing": "Hidrolik yatak",
+  "rubber-metal bearing": "Kauçuk-metal yatak", "fitting": "Takma", "clipped": "Klipsli", "clamped": "Kelepçeli", "bayonet": "Bayonet",
 };
 
 const gearboxKinds: Record<string, string> = { manual: "manuel şanzıman", automatic: "otomatik şanzıman", "dual-clutch": "çift kavramalı şanzıman" };
