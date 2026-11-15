@@ -197,7 +197,10 @@ export async function getMasterProduct(id: string) {
   // The store still lists supplier rows in this phase: the row it shows for this product.
   const listed = rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
     ?? rows.find(row => row.saleable) ?? null;
-  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override: await loadProductOverride(db, id) };
+  const [override, references] = await Promise.all([loadProductOverride(db, id),
+    db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_references WHERE product_id=$1) AS exists", [id])]);
+  // Hand-entered reference numbers (#582) count as an edit for the "Elle düzenlendi" badge.
+  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists };
 }
 
 type MergeTarget = {

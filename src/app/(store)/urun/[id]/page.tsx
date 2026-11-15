@@ -12,6 +12,8 @@ import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
 import { getItemOverride } from "@/modules/store/product-overrides";
+import { getItemReferences } from "@/modules/store/product-references";
+import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
 import { productDescription, productMeta, productTitle } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
@@ -67,8 +69,11 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
-  const [enrichment, override, uploads] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
-    getItemImages(product.id)]);
+  const [enrichment, override, uploads, referenceOverrides] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
+    getItemImages(product.id), getItemReferences(product.id)]);
+  // The enrichment's OEM / cross-reference numbers with the admin's hidden ones left out and added ones in (#582).
+  const refs = applyReferenceOverrides({ oemNumbers: enrichment?.oemNumbers ?? {}, crossReferences: enrichment?.crossReferences ?? {} }, referenceOverrides);
+  const gtin = refs.eans[0] && gtinProperty(refs.eans[0]);
   // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
@@ -90,7 +95,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const description = productDescription(override, enrichment?.description, product.description);
   const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: title,
     sku: product.code, brand: { "@type": "Brand", name: product.brand },
-    description: description || undefined, image: images.length ? images.map(image => `${siteUrl}${image.src}`) : undefined, url: `${siteUrl}/urun/${product.id}` };
+    description: description || undefined, image: images.length ? images.map(image => `${siteUrl}${image.src}`) : undefined, url: `${siteUrl}/urun/${product.id}`,
+    ...gtin ? { [gtin]: refs.eans[0] } : {} };
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
@@ -103,16 +109,17 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const displayPartNumber = enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber;
   const specifications: [string, string][] = [...(enrichment?.specifications || []), ["Üretici", product.brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
+  if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
   const hasFitment = Boolean(enrichment && (enrichment.vehicles.length || enrichment.vehicleModels.length)) || descriptionModels.length > 0;
   const fitmentSummary = enrichment?.vehicleModels.length ? enrichment.vehicleModels : descriptionModels.map(row => `${row.brand} ${row.model}`);
   const referenceNumbers: Record<string, string[]> = {};
-  for (const [brand, codes] of [...Object.entries(enrichment?.crossReferences || {}), ...Object.entries(enrichment?.oemNumbers || {})]) {
+  for (const [brand, codes] of [...Object.entries(refs.crossReferences), ...Object.entries(refs.oemNumbers)]) {
     referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];
   }
   const references = Object.entries(referenceNumbers).sort(([a], [b]) => a.localeCompare(b));
   const referenceHref = await getReferenceLinks(product.id, [
-    ...Object.entries(enrichment?.crossReferences || {}).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
-    ...Object.entries(enrichment?.oemNumbers || {}).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
+    ...Object.entries(refs.crossReferences).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
+    ...Object.entries(refs.oemNumbers).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
   ]);
   const [seta, decided] = await Promise.all([product.supplier === "seta" ? [] : getSetaEquivalents(product.id), getDecidedEquivalents(product.id)]);
   const referenceRows: [string, { code: string; href?: string | null }[]][] = references.map(([brand, codes]) => [brand, codes.map(code => ({ code, href: referenceHref(brand, code) }))]);

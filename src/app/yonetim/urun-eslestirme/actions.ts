@@ -65,9 +65,10 @@ export async function decideCandidate(form: FormData) {
     await client.query("BEGIN");
     // No merge (the Dinamik product already sits elsewhere) leaves nothing to record.
     // product_overrides_carry: the Başbuğ product takes the merged product's store edits where it has none, and its
-    // hidden state (#575); the notice says when hidden was carried.
+    // hidden state (#575); the notice says when hidden was carried. Images (#581) and reference numbers (#582) follow.
     const merge = status === "same" ? (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-      SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
+      SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
+       product_override_references_carry($2, id, $3) AS carried_refs FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
     carriedHidden = Boolean(merge?.carried?.hidden);
     carriedImages = merge?.carried_images?.images ?? 0;
     keptImages = Boolean(merge?.carried_images?.kept);
@@ -108,7 +109,8 @@ export async function acceptCandidates(form: FormData) {
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
       const merge = (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-        SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
+        SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
+         product_override_references_carry($2, id, $3) AS carried_refs FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
       if (!merge.id) continue;
       // A hidden product merged into a sellable one hides it too (#575); the summary counts them.
       if (merge.carried?.hidden) carriedHidden++;
