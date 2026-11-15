@@ -112,7 +112,7 @@ async function settleOrderAfterRefund(client: PoolClient, order: Order, provider
   // Attempts captured before an earlier refund of the order (e.g. one recorded by hand) were part of that refund.
   const open = (await client.query<{ open: number }>(
     `SELECT count(*)::int AS open FROM commerce_payments p WHERE p.order_id=$1 AND p.status='succeeded'
-     AND NOT ($2::timestamptz IS NOT NULL AND p.paid_at<=$2::timestamptz)
+     AND NOT ($2::timestamptz IS NOT NULL AND p.paid_at IS NOT NULL AND p.paid_at<=$2::timestamptz)
      AND NOT EXISTS(SELECT 1 FROM commerce_payment_refunds r WHERE r.payment_id=p.id AND r.status='succeeded')`, [order.id, order.refunded_at],
   )).rows[0].open;
   if (open) return;
@@ -253,7 +253,9 @@ export async function checkRefund({ refundId, orderId }: { refundId: string; ord
         status: "succeeded", bankReference: text(success.bankReferenceNumber), bankAuthCode: text(success.bankAuthCode),
         transactionAt: text(success.transactionDate), providerResult: { query: raw },
       };
-    } else if (trusted && matching.length && matching.every(t => statusOf(t) === "FAIL")) {
+    } else if (trusted && matching.length && matching.every(t => statusOf(t) === "FAIL")
+      // Any other reversal not marked FAIL (even one the filter left out) may be this call; then it is not a proven failure.
+      && query.transactions.every(t => String(t.transactionType ?? "").toUpperCase() === "AUTH" || statusOf(t) === "FAIL")) {
       const failed = matching.at(-1)!;
       settlement = {
         status: "failed", bankReference: text(failed.bankReferenceNumber), transactionAt: text(failed.transactionDate),

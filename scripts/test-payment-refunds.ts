@@ -284,7 +284,7 @@ test("double clicks and parallel requests reach TAMI once", async () => {
 /** TAMI's transactionDate: Istanbul wall time without an offset. */
 const istanbulAt = (offsetMs = 0) => new Date(Date.now() + offsetMs + 3 * 3_600_000).toISOString().replace("Z", "").replace(/\.(\d{3})$/, ".$1123");
 // The shapes observed in the sandbox (GB2-36-1, 15 Nov 2026).
-const reversalTx = (type: "REVERSE" | "REFUND", status: "SUCCESS" | "FAIL", { amount = 200 as number | null, at = istanbulAt(), ref = "631909196255" } = {}) => ({
+const reversalTx = (type: "REVERSE" | "REFUND", status: "SUCCESS" | "FAIL" | "PENDING", { amount = 200 as number | null, at = istanbulAt(), ref = "631909196255" } = {}) => ({
   ...(amount === null ? {} : { amount }), transactionType: type, fraudStatus: false, transactionStatus: status, transactionDate: at, bankReferenceNumber: ref,
 });
 
@@ -345,6 +345,9 @@ test("TAMI'de kontrol et settles an unknown call from the signed order query", a
     zonedDate: query([authOk, reversalTx("REFUND", "SUCCESS", { at: new Date().toISOString() })]),
     forged: query([authOk, reversalTx("REFUND", "SUCCESS")], { forge: true }),
     down: () => { throw new TypeError("fetch failed"); },
+    failWithFilteredSuccess: query([authOk, reversalTx("REFUND", "FAIL"), reversalTx("REFUND", "SUCCESS", { amount: 199.5 })]),
+    failWithOlderSuccess: query([authOk, reversalTx("REFUND", "SUCCESS", { at: istanbulAt(-6 * 60_000) }), reversalTx("REFUND", "FAIL")]),
+    failWithPendingReverse: query([authOk, reversalTx("REFUND", "FAIL"), reversalTx("REVERSE", "PENDING")]),
   })) {
     handler = reply;
     assert.equal((await check(open.order, open.refundId)).outcome, "unknown", name);
