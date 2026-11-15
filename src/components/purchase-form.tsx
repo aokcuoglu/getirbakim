@@ -9,6 +9,8 @@ import type { PurchaseState } from "@/modules/store/purchase-types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { addToCart as addToCartEvent, catalogItem } from "@/modules/analytics/events";
+import { track } from "@/modules/analytics/track";
 
 const initial: PurchaseState = { error:null, added:null, suggestions:[] };
 const money=(value:number)=>new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(value/100);
@@ -27,6 +29,10 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if(state.added) setOpen(true);
   },[state.added]);
+  useEffect(()=>{
+    // `added.price` is what the visitor pays (service discount applied); `addedQuantity` is this click's units.
+    if(state.added) track("add_to_cart",addToCartEvent(catalogItem({id:state.added.id,name:state.added.itemName,brand:state.added.brand},state.added.price),state.addedQuantity??1));
+  },[state.added,state.addedQuantity]);
   const product=variant==="product";
   return <>
     <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>

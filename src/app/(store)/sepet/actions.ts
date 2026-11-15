@@ -25,7 +25,7 @@ export async function addToCart(_state: PurchaseState, form: FormData): Promise<
  const quantity=items.find(p=>p.id===input.data.productId)?.quantity ?? input.data.quantity;
  const preview=await purchasePreview(input.data.productId,quantity,account?.approved && account.role==="service" ? account.discount_percent : 0);
  if(!preview) return {...failure,error:"Ürün sepete eklendi; güncel durumunu sepetten kontrol et."};
- return {...preview,error:null};
+ return {...preview,error:null,addedQuantity:input.data.quantity};
 }
 
 export async function changeCartQuantity(productId: string, quantity: number) {

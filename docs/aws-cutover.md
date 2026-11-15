@@ -54,6 +54,7 @@ DNS'ten önce kontrol edilir (14 Kasım 2026 durumu parantez içinde):
 - [x] `PAYMENT_RECONCILIATION_SECRET` ≥32 karakter, uygulama ve mutabakat görevi aynı değeri okur (64 karakter).
 - [x] App görev tanımında `SITE_URL=https://getirbakim.com`; TAMI callback adresi bundan üretilir (tanımlı).
 - [ ] App görev tanımında `BING_SITE_VERIFICATION` ve `YANDEX_SITE_VERIFICATION` (hesaplar açılınca; boşken doğrulama etiketi basılmaz).
+- [ ] App görev tanımında `GA4_MEASUREMENT_ID` (GA4 mülkü açılınca; boşken etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der).
 - [ ] `/yonetim/fiyatlandirma` → Kargo: gerçek ücret ve ücretsiz kargo eşiği. AWS DB `setup.ts` varsayılanlarıyla kuruldu (150 TL / 1.500 TL); bunlar yer tutucudur.
 - [ ] DNS'ten hemen sonra mutabakat zamanlayıcısını aç:
 

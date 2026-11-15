@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck } from "lucide-react";
-import { browseProducts,catalogFacets,vehicleFitCount,productsFittingVehicle } from "@/modules/store/catalog";
+import { browseProducts,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
@@ -29,6 +29,8 @@ import {breadcrumbJsonLd,catalogTrail,collectionJsonLd} from "@/modules/seo/stru
 import {listingPath,listingUrl,makePath} from "@/modules/seo/paths";
 import {catalogCardTitle} from "@/modules/store/product-override-display";
 import {siteUrl} from "@/lib/site";
+import {TrackItemList} from "@/components/privacy/track-events";
+import {catalogItem} from "@/modules/analytics/events";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
@@ -117,7 +119,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
      {finder(false)}
     </div>
    </section>
-   <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/>
+   <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/><TrackItemList listId={category?.slug??params.make??"katalog"} listName={title} searchTerm={params.q} items={products.flatMap((product,index)=>product.price_kurus===null||product.unavailable?[]:[catalogItem({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber),brand:product.display_brand,category:category?.name},servicePrice(product.price_kurus,account?.approved&&account.role==="service"?account.discount_percent:0),{index})])}/>
    <CatalogStickyFinder brakes={Boolean(isBrakeCategory)}>{finder(true)}</CatalogStickyFinder>
    <section className="mx-auto w-[calc(100%-30px)] max-w-[1320px] pb-[50px]">
     <Breadcrumb aria-label="Sayfa yolu" className="min-h-[45px] pt-2 pb-4">

@@ -107,3 +107,13 @@ Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kur
 - `npm run verify:catalog`: katalog arama/filtre/paginasyon ve ürün detayları.
 
 Doğrulamalar geçici sentetik hesap/ürün/sipariş kayıtlarını sonunda siler. HTTP doğrulaması varsayılan `http://localhost:3000` kullanır; `VERIFY_URL` ile değiştirilebilir.
+
+## Ölçüm
+
+Google Analytics 4 yalnızca mağaza rotalarında (`src/app/(store)/layout.tsx` içindeki `StoreTags`), `GA4_MEASUREMENT_ID` doluysa ve ziyaretçi çerez bandında analize izin verdiyse yüklenir (#644). Kimlik çalışma anında okunur (`NEXT_PUBLIC_` değil); boşken veya biçimi bozukken hiçbir etiket yüklenmez.
+
+- **Rıza:** birinci taraf `gb_consent` çerezi (`2.<analiz>.<pazarlama>.<saniye>`, 180 gün); `POST /api/consent` aynı çerezi sunucudan da yazar (Safari 7 gün sınırı). Sürüm 2'den eski kayıtlar geçersizdir ve yeniden sorulur. Rıza yokken Google'a hiç istek gitmez (Consent Mode v2, "basic"); rıza geri alınınca `_ga*` çerezleri silinir.
+- **Hariç tutulanlar:** `/yonetim` ve yönetici hesabı. Mağazadan `/yonetim`'e istemci gezinmesinde `ga-disable-<kimlik>` açılır.
+- **Fiyat kuralı:** olaylara ziyaretçinin gördüğü ve ödediği fiyat gider (KDV dahil, B2B indirimi uygulanmış, kargo hariç). `customer_type` (`b2b`/`b2c`) kullanıcı özelliğidir; ad, e-posta, telefon, adres gönderilmez.
+- **Olaylar:** `page_view` (gezinmede, `send_page_view: false`), `view_item_list` (+ aramada `search`), `select_item`, `view_item`, `add_to_cart`. Hepsi `src/modules/analytics/track.ts` üzerinden geçer.
+- **GA4 mülkü:** "Enhanced Measurement → page changes based on browser history events" kapatılmalı; aksi halde `page_view` çift sayılır.
