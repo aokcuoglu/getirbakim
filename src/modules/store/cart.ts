@@ -56,9 +56,19 @@ export async function cartFor(owner: CartOwner | null, connection: Pick<PoolClie
  p.category,p.supplier,p.description,p.price_kurus,p.stock,p.source,p.oem,p.pricing_snapshot,
  COALESCE(p.available,false) available,COALESCE(p.max_quantity,0) max_quantity,
  COALESCE(p.stock_label,'Ürün artık satışta değil') stock_label,c.quantity,c.vehicle
- FROM commerce_cart_items c LEFT JOIN (${catalogSql}) p ON p.id=c.product_id
+ FROM commerce_cart_items c
+ -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
+ LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=c.product_id OFFSET 0) p ON true
  WHERE c.owner_kind=$2 AND c.owner_id=$3 ORDER BY p.code,c.product_id`,
  [storefrontCompanies(),owner.kind,owner.id])).rows;
+}
+/** The quantity of one cart line, 0 when the product is not in the cart. */
+export async function cartLineQuantity(owner: CartOwner, productId: string): Promise<number> {
+ const {rows} = await db.query<{quantity: number}>(
+  "SELECT quantity FROM commerce_cart_items WHERE owner_kind=$1 AND owner_id=$2 AND product_id=$3",
+  [owner.kind,owner.id,productId],
+ );
+ return rows[0]?.quantity ?? 0;
 }
 /** `vehicle` is the garage vehicle at the time of adding; omit it to keep the line's earlier one. */
 export async function setCartQuantity(owner: CartOwner, productId: string, quantity: number, add = false, vehicle?: GarageVehicle | null) {
