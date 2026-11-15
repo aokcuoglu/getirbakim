@@ -77,7 +77,7 @@ Proxy kapalı olmalı: sertifika, önbellek ve WAF CloudFront'ta. Apex'te A kayd
 
 ## Doğrulama
 
-- `https://getirbakim.com/api/health` → `ok` ve AWS sürümü.
+- `https://getirbakim.com/api/health` → `status: "ok"`, `release` yayınlanan sürüm (`vX.Y.Z`), `commit` yayınlanan commit'in kısa SHA'sı (#656; `null` ise imaj `BUILD_VERSION` build-arg'ı olmadan kurulmuş). Aynı değer site alt bilgisinde ve /yonetim kenar çubuğunda görünür (#628).
 - Katalogda Başbuğ fiyatları görünüyor ("Fiyat bilgisi güncelleniyor" yok); ürün sayfası, kodla arama, araç seçimi, üye girişi, yönetim paneli.
 - Dinamik ürünü sepete: sipariş adımındaki canlı stok kontrolü proxy'den geçer (squid loguna `18.194.217.212 … CONNECT dinamikapp-api… 200`).
 - Ödeme akışı LO ile birlikte, küçük tutarlı gerçek bir siparişle; ardından iade.
