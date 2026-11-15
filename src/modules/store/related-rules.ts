@@ -1,3 +1,6 @@
+import { oilPackQuantity } from "./maintenance-kit";
+import { oilMatches, vehicleOilFilters, type OilFilter, type ProductOilSpec, type VehicleOilSpec } from "./vehicle-oil";
+
 /**
  * What else a shopper usually needs after putting a part in the cart (#704): per Trodo category, the categories of the parts
  * fitted together with it, most useful first. Another brand of the same part is an equivalent, not a related item, so a
@@ -76,6 +79,16 @@ export const complementaryCategories: Readonly<Record<number, readonly number[]>
  */
 export const universalCategories: ReadonlySet<number> = new Set([957, 958, 960, 961, 962, 1075]);
 
+/**
+ * Fluids never used to fill the dialog of a product in the key category. Transmission oil after engine oil (#715): a
+ * gearbox oil change is another job with another specification, and a second "oil" next to the one just added reads like
+ * a duplicate or a wrong pick; brake fluid, coolant and oil additives remain.
+ */
+export const unrelatedFluids: Readonly<Record<number, readonly number[]>> = {
+  // motor-yaglari → sanziman-yaglari
+  957: [958],
+};
+
 /** The categories suggested for a product in `path` (root first): the deepest category with an entry. */
 export function complementsFor(path: readonly number[]): readonly number[] {
   for (let i = path.length - 1; i >= 0; i--) {
@@ -98,22 +111,32 @@ export type RelatedInput = {
   exclude: ReadonlySet<string>;
   /** At most this many candidates per category. */
   perCategory: number;
+  /** Categories whose ids come ranked already (engine oil, rankOils): kept in the given order, not sorted. */
+  ordered?: ReadonlySet<number>;
+  /**
+   * The added product: ties among fluids (outside `ordered`) break by stableHash(seed:id), so different products get
+   * different fluids and the same product the same ones. Without it ties break by id.
+   */
+  seed?: string;
 };
 
 /**
- * Ranks the candidates: within a category the best fitting first (vehicle-specific parts not known to fit are dropped) (ties by id, so the result is stable), then the
- * categories take turns, so three suggestions are a pad, a sensor and a fluid rather than three pads.
+ * Ranks the candidates: within a category the best fitting first (vehicle-specific parts not known to fit are dropped),
+ * ties stable (by id, or for fluids by the seed's hash), then the categories take turns, so three suggestions are a pad, a
+ * sensor and a fluid rather than three pads.
  */
 export function pickRelated(input: RelatedInput): { id: string; categoryId: number }[] {
   const seen = new Set<string>();
   const lists = input.complements.map(({ categoryId, ids }) => {
     const universal = universalCategories.has(categoryId);
     const score = (id: string) => input.fitScore?.get(id) ?? 0;
-    const ranked = [...new Set(ids)]
-      .filter(id => !input.exclude.has(id))
-      .filter(id => universal || score(id) > 0)
-      .sort((a, b) => score(b) - score(a) || (a < b ? -1 : a > b ? 1 : 0));
-    return { categoryId, ranked };
+    const kept = [...new Set(ids)].filter(id => !input.exclude.has(id)).filter(id => universal || score(id) > 0);
+    if (input.ordered?.has(categoryId)) return { categoryId, ranked: kept };
+    const { seed } = input;
+    const tie = universal && seed !== undefined
+      ? (a: string, b: string) => stableHash(`${seed}:${a}`) - stableHash(`${seed}:${b}`) || (a < b ? -1 : a > b ? 1 : 0)
+      : (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    return { categoryId, ranked: kept.sort((a, b) => score(b) - score(a) || tie(a, b)) };
   });
   const picked: { id: string; categoryId: number }[] = [];
   const taken = new Map<number, number>();
@@ -140,3 +163,48 @@ export function pickRelated(input: RelatedInput): { id: string; categoryId: numb
  * a brake disc's dialog.
  */
 export const fillerSection = (path: readonly number[]) => path[Math.max(0, Math.min(path.length - 2, 2))];
+
+/** FNV-1a (32 bit): a stable, well-spread number for a text; the same in every process. */
+export function stableHash(text: string) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193); }
+  return hash >>> 0;
+}
+
+/** A sellable engine oil in a pack a shopper carries home: its stated specs and litres per pack. */
+export type OilCandidate = { id: string; spec: ProductOilSpec; litres: number };
+/** A recommended engine oil (a vehicle type's, or a group of the added product's fitted types) and how many types share it. */
+export type OilTarget = { spec: VehicleOilSpec; weight: number };
+export type OilRankOptions = {
+  /** The added product: ties break by stableHash(seed:oil), the same oil for the same product, different ones across products. */
+  seed: string;
+  /** The garage vehicle's recommendation: an oil matching none of it is not suggested (no guessing, as in Bakım Robotu). */
+  strict: boolean;
+  /** The litres to fill; unknown counts as 4, so a 1 L top-up bottle ranks behind a 4–5 L can. */
+  capacityLitres?: number | null;
+};
+
+const viscosityOnly: ReadonlySet<OilFilter> = new Set(["viscosity"]);
+
+/**
+ * Engine oils best first for the targets (#715): the most target weight whose viscosity grade the oil has, then the most
+ * whose every stated filter (grade and ACEA class or approval) it meets, then the fewest packs for the capacity, then the
+ * seed's hash. A target the oil data cannot filter by is ignored; with no usable target only packs and hash decide. Strict
+ * drops the oils matching no target (only when a usable target exists).
+ */
+export function rankOils(oils: readonly OilCandidate[], targets: readonly OilTarget[], options: OilRankOptions): string[] {
+  const usable = targets.map(target => ({ ...target, filters: new Set(vehicleOilFilters(target.spec)) })).filter(target => target.filters.size > 0);
+  const capacity = options.capacityLitres && options.capacityLitres > 0 ? options.capacityLitres : 4;
+  const scored = oils.map(oil => {
+    let grade = 0, full = 0;
+    for (const target of usable) {
+      if (target.filters.has("viscosity") && oilMatches(oil.spec, target.spec, viscosityOnly)) grade += target.weight;
+      if (oilMatches(oil.spec, target.spec, target.filters)) full += target.weight;
+    }
+    return { id: oil.id, grade, full, packs: oilPackQuantity(capacity, oil.litres), hash: stableHash(`${options.seed}:${oil.id}`) };
+  });
+  return scored
+    .filter(oil => !(options.strict && usable.length) || oil.grade > 0 || oil.full > 0)
+    .sort((a, b) => b.grade - a.grade || b.full - a.full || a.packs - b.packs || a.hash - b.hash || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map(oil => oil.id);
+}
