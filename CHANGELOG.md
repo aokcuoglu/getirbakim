@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.27.0 — 2026-11-15
+
+Release of `dev` since v0.26.0 (21 pull requests): admin product page tabs, cart suggestions, and a faster storefront, cart and checkout. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Admin product page in tabs** with equivalent search by part number, supplier code or OEM number ([#710](https://github.com/aokcuoglu/getirbakim/pull/710)).
+- **Add a product image from a URL** on the admin product page ([#728](https://github.com/aokcuoglu/getirbakim/pull/728)).
+- **Related suggestions in the add-to-cart dialog** and **engine oil suggestions ranked by the vehicle's oil specification** ([#727](https://github.com/aokcuoglu/getirbakim/pull/727), [#732](https://github.com/aokcuoglu/getirbakim/pull/732)).
+- Catalog card specifications translated on the server with the product page dictionary ([#726](https://github.com/aokcuoglu/getirbakim/pull/726)).
+
+### Changed
+- Performance: cart lines looked up per product with cart/checkout skeletons, order line fitment levels resolved in bulk before the order transaction, order page and checkout no longer wait on TAMI and serial supplier refreshes, cart badge updated on the client, session cookie slid at most every 5 minutes, loading skeletons for orders and garage, category tree loaded on demand with lighter storefront markup ([#720](https://github.com/aokcuoglu/getirbakim/pull/720), [#718](https://github.com/aokcuoglu/getirbakim/pull/718), [#721](https://github.com/aokcuoglu/getirbakim/pull/721), [#731](https://github.com/aokcuoglu/getirbakim/pull/731), [#724](https://github.com/aokcuoglu/getirbakim/pull/724), [#714](https://github.com/aokcuoglu/getirbakim/pull/714), [#734](https://github.com/aokcuoglu/getirbakim/pull/734)).
+- Valkey TTL follows `unstable_cache` revalidate ([#695](https://github.com/aokcuoglu/getirbakim/pull/695)).
+- One shared enrichment validity gate ([#723](https://github.com/aokcuoglu/getirbakim/pull/723)).
+- `release-aws.yml` reads the AWS release configuration from the `production` environment variables ([#730](https://github.com/aokcuoglu/getirbakim/pull/730)).
+
+### Fixed
+- Product page: brand and product code shown separately and dropped from the title; specification labels and values translated; one row per label ([#713](https://github.com/aokcuoglu/getirbakim/pull/713), [#701](https://github.com/aokcuoglu/getirbakim/pull/701), [#722](https://github.com/aokcuoglu/getirbakim/pull/722)).
+- Catalog sidebar facet values translated and merged ([#717](https://github.com/aokcuoglu/getirbakim/pull/717)).
+- Home category rails and card labels follow the admin's category ([#696](https://github.com/aokcuoglu/getirbakim/pull/696)).
+- Picking a vehicle keeps the previous one in the garage ([#706](https://github.com/aokcuoglu/getirbakim/pull/706)).
+
+### Deploy and operations
+- No `db/*.sql` change since v0.26.0; `db:setup` runs as part of the AWS release as usual. Vehicle oil specs are unchanged.
+- Adding an image from a URL (#725) needs HTTP(S) egress from the app task to the internet; without it the admin sees "Adrese ulaşılamadı".
+- New required cookie `gb_session_at` (#716, cookie policy updated). During a rolling deploy a user idle for 25–30 minutes may be signed out about 5 minutes early.
+- New public `GET /api/categories` (`Cache-Control: public, s-maxage=3600`); `/api/categories` and `/api/*-media` no longer set the session cookie. If CloudFront caches app responses, responses with `Set-Cookie` must never be cached.
+- No new secrets or environment variables for the app; the release workflow's configuration lives in the GitHub `production` environment (#730).
+
 ## v0.26.0 — 2026-11-15
 
 Release of `dev` since v0.25.0 (52 pull requests): storefront SEO and GEO, per-product editing in the admin, and payments and order handling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
