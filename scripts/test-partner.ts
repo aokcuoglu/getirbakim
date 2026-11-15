@@ -132,6 +132,14 @@ test("partner product shows the store brand and part number; partNo stays the su
   assert.equal(product.partNo, "LUK 510 0207 10");
 });
 
+test("a hidden supplier OEM field (empty oem) gives no OEM numbers or references; the code still matches (#615)", () => {
+  const hidden = row({ oem: "" });
+  const product = toPartnerProduct(hidden, { offers: [hidden], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  assert.deepEqual([product.oemNumbers, product.references], [[], []]);
+  assert.ok(!matchesOem(hidden, "55248403"));
+  assert.ok(matchesOem(hidden, "510020710"));
+});
+
 test("exact part and OEM numbers ignore separators and a supplier brand prefix", () => {
   assert.ok(matchesPartNo("LUK 510 0207 10", "510020710"));
   assert.ok(matchesPartNo("LUK 510 0207 10", "luk-510-0207-10"));
