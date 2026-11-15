@@ -11,3 +11,5 @@ export function categoryPath(slug: string) {
 export function absoluteUrl(site: string, path: string) {
   return `${site}${path}`;
 }
+export const productPath = (id: string) => `/urun/${id}`;
+export const makePath = (slug: string) => `/car-parts/${slug}`;
