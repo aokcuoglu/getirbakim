@@ -7,7 +7,7 @@ import { productIdFromHref } from "@/modules/seo/product-id";
 import { TAG_READY_EVENT, track } from "@/modules/analytics/track";
 
 /** Runs `send` until it reports the event queued: on mount, when the tag becomes ready, or when consent changes. */
-function useSendOnce(send: () => boolean) {
+export function useSendOnce(send: () => boolean) {
   const sent = useRef(false);
   const latest = useRef(send);
   useEffect(() => { latest.current = send; });

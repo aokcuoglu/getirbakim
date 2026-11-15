@@ -6,12 +6,14 @@ import { checkout, placeOrder } from "@/app/(store)/sepet/actions";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PaymentDialog, loadPaymentWindow, openPaymentWindow } from "./payment-dialog";
+import { addPaymentInfo, type AnalyticsItem } from "@/modules/analytics/events";
+import { track } from "@/modules/analytics/track";
 
 /**
  * Creates the order and opens TAMI over this page. The popup is opened before the order request,
  * while the click still counts as a user gesture; without JS the form falls back to the order page.
  */
-export function CheckoutForm({children,disabled,total,errors}:{children:ReactNode;disabled:boolean;total:string;errors:Record<string,string>}) {
+export function CheckoutForm({children,disabled,total,errors,analyticsItems}:{children:ReactNode;disabled:boolean;total:string;errors:Record<string,string>;analyticsItems?:AnalyticsItem[]}) {
   const router=useRouter();
   const [pending,setPending]=useState(false);
   const [error,setError]=useState<string|null>(null);
@@ -29,6 +31,8 @@ export function CheckoutForm({children,disabled,total,errors}:{children:ReactNod
         if(result.error==="session") { router.push("/sepet?error=session"); return; }
         setError(errors[result.error]??errors.stock);router.refresh();return;
       }
+      // The order exists and card payment starts now (#675); nothing about the customer goes along.
+      if(analyticsItems?.length) track("add_payment_info",addPaymentInfo(analyticsItems));
       if(popup) loadPaymentWindow(result.id);
       setPayment({orderId:result.id,popup});
     } catch {
