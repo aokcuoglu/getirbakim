@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import sharp from "sharp";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
-import { galleryImages } from "../src/modules/store/product-image-display";
+import { galleryImages, socialImage } from "../src/modules/store/product-image-display";
 import { prepareProductImage, ProductImageError } from "../src/modules/admin/product-image-upload";
 
 // Admin-uploaded product images (#581) in an isolated copy of the schema: db/product-override-images.sql, the store's
@@ -133,6 +133,16 @@ test("the gallery lists uploads, then the automatic image unless hidden, each so
   assert.deepEqual(galleryImages([], auto, false), [auto]);
   assert.deepEqual(galleryImages([], null, false), []);
   assert.deepEqual(galleryImages([a, a], { ...a }, false), [a]);
+});
+
+test("the share image is the gallery's first image, sized when known, else the site image (#595)", () => {
+  const fallback = { url: "/brand/social.png", width: 1080, height: 1080, alt: "Getirbakim" };
+  const upload = { src: "/api/product-media/up", width: 800, height: 600 }, auto = { src: "/api/product-media/auto", width: 600, height: 400 };
+  assert.deepEqual(socialImage(galleryImages([upload], auto, false), "FEBI 10010", fallback), { url: upload.src, alt: "FEBI 10010", width: 800, height: 600 });
+  assert.deepEqual(socialImage(galleryImages([], auto, false), "FEBI 10010", fallback), { url: auto.src, alt: "FEBI 10010", width: 600, height: 400 });
+  // Enrichment rows can lack sizes; Open Graph then gets the URL alone.
+  assert.deepEqual(socialImage([{ src: auto.src, width: 0, height: 0 }], "FEBI 10010", fallback), { url: auto.src, alt: "FEBI 10010" });
+  assert.deepEqual(socialImage(galleryImages([], auto, true), "FEBI 10010", fallback), fallback);
 });
 
 test("without uploads the store shows the automatic image; hidden, it shows none", async () => {

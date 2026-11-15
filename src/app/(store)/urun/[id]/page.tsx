@@ -1,6 +1,6 @@
 import { Fragment, cache, type CSSProperties } from "react";
 import type { Metadata } from "next";
-import { siteUrl } from "@/lib/site";
+import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
@@ -21,7 +21,7 @@ import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
 import { ProductGallery } from "@/components/product-gallery";
 import { getItemImages } from "@/modules/store/product-images";
-import { galleryImages } from "@/modules/store/product-image-display";
+import { galleryImages, socialImage } from "@/modules/store/product-image-display";
 import { GarageButton } from "@/components/garage/garage-button";
 import { currentVehicle } from "@/modules/store/garage";
 import { fitmentLevel } from "@/modules/store/fitment-level";
@@ -49,16 +49,20 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const product = await getStorefrontProduct(id);
   if (!product) return { title: "Ürün bulunamadı | Getirbakim", robots: { index: false } };
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
-  const [override, enrichment] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand)]);
+  const [override, enrichment, uploads] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand), getItemImages(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
   const meta = productMeta(override, {
     title: `${product.display_brand} ${productTitle(override, enrichment?.displayName, product.name)} — ${product.display_code}`,
     description: `${product.display_brand} ${product.display_code}. ${description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`,
   });
+  const images = galleryImages(uploads.images,
+    enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
   return {
     title: `${meta.title} | Getirbakim`,
     description: meta.description.slice(0, 180),
     alternates: { canonical: `/urun/${id}` },
+    openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description.slice(0, 180), url: `/urun/${id}`,
+      images: [socialImage(images, meta.title, defaultSocialImage)] },
     robots: product.supplier === "demo" || product.source === "supplier" ? { index: false, follow: true } : undefined,
   };
 }
