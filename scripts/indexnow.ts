@@ -2,8 +2,8 @@ import { db } from "../src/lib/db";
 import { runIndexNow } from "../src/modules/seo/indexnow.server";
 
 // npm run seo:indexnow [--dry-run] [--seed] [--limit=N] (#645, docs/indexnow.md). Reports the product pages whose
-// indexable content changed since the last run. Outside production or without INDEXNOW_KEY it only prints "disabled";
-// --dry-run works everywhere and neither sends nor writes.
+// indexable content changed since the last run. Outside production, without INDEXNOW_KEY or without an explicit
+// SITE_URL it only prints "disabled"; --dry-run works everywhere and neither sends nor writes.
 const args = process.argv.slice(2);
 const unknown = args.filter(arg => arg !== "--dry-run" && arg !== "--seed" && !/^--limit=\d+$/.test(arg));
 if (unknown.length > 0) throw new Error(`Unknown arguments: ${unknown.join(" ")} (expected --dry-run, --seed, --limit=N)`);

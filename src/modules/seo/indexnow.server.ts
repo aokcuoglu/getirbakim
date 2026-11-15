@@ -1,13 +1,15 @@
 import "server-only";
 import { boundedQuery, db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
-import { batches, diffChunk, indexNowConfig, indexNowSendable, removalAnomaly, submitUrls, type IndexNowRow } from "./indexnow";
+import { batches, diffChunk, indexNowConfig, indexNowDisabledReason, removalAnomaly, submitUrls, type IndexNowRow } from "./indexnow";
+import { contentSignals } from "./indexing";
 import { productPath } from "./paths";
 import { productChunkRange, productChunks } from "./sitemap";
 import { indexableProductsSql } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
-// enrichment import (images, specifications, vehicles). Price and stock are left out on purpose: they change with every
+// enrichment import (images, specifications, vehicles; only while the page shows that enrichment, the same condition as
+// the minimum-content signal, so a stale link's import does not count). Price and stock are left out on purpose: they change with every
 // sync and the sitemap's lastmod carries them.
 const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
@@ -15,7 +17,7 @@ const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.part_number,i.code),
   COALESCE(h.description,i.product_data->>'ac2',''),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
-  COALESCE(l.imported_at::text,'')))::uuid::text`;
+  CASE WHEN ${contentSignals.enrichment.sql} THEN l.imported_at::text ELSE '' END))::uuid::text`;
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 
 /** The indexable product pages of sitemap chunk `index` with their content fingerprint, ordered by id. */
@@ -79,12 +81,13 @@ export async function runIndexNow(options: IndexNowRunOptions): Promise<IndexNow
   const result: IndexNowRunResult = { status: "completed", mode, dryRun, chunks: 0, checked: 0, added: 0, changed: 0, removed: 0, urls: 0,
     submitted: 0, requests: 0, lastHttpStatus: null, ms: 0 };
   const finish = () => ({ ...result, ms: Date.now() - started });
-  if (!dryRun && !indexNowSendable(env)) {
-    return { ...finish(), status: "disabled", reason: env.APP_ENV === "production" ? "INDEXNOW_KEY is empty" : "APP_ENV is not production" };
-  }
+  const disabled = dryRun ? null : indexNowDisabledReason(env);
+  if (disabled) return { ...finish(), status: "disabled", reason: disabled };
   const config = mode === "send" && !dryRun ? indexNowConfig(env) : null;
 
   const lock = await db.connect();
+  // A failed unlock must not hide the run's result: the connection is then destroyed, which releases the lock too.
+  let lockBroken = false;
   try {
     if (!(await lock.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1,$2) AS ok", lockKey)).rows[0].ok) {
       return { ...finish(), status: "skipped", reason: "another IndexNow run holds the lock" };
@@ -151,9 +154,9 @@ export async function runIndexNow(options: IndexNowRunOptions): Promise<IndexNow
       await record(result.status, true);
       return finish();
     } finally {
-      await lock.query("SELECT pg_advisory_unlock($1,$2)", lockKey);
+      await lock.query("SELECT pg_advisory_unlock($1,$2)", lockKey).catch(() => { lockBroken = true; });
     }
-  } finally { lock.release(); }
+  } finally { lock.release(lockBroken); }
 }
 
 /** The reported state of one chunk, in one transaction: new and changed pages upserted, removed pages deleted. */

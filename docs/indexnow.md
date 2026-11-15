@@ -24,7 +24,8 @@ Salt fiyat ya da stok değişimi. Her senkronizasyonda kataloğun büyük kısm�
 - Tek seferde tek koşu (`pg_try_advisory_lock(20261115,1)`); ikinci koşu `skipped` yazıp çıkar.
 - Günlük adres bütçesi (`INDEXNOW_MAX_URLS`, varsayılan 50.000): bütçe dolunca koşu `partial` biter, sonraki koşu kaldığı parçadan sürer (`indexnow_runs.next_chunk`). Koşunun ilk parçası her zaman işlenir.
 - Bir parçada bilinen (>100) sayfaların yarısından fazlası aynı anda dizinden çıkıyorsa koşu `failed` olur: yanlış ortam ya da yarım yüklenmiş katalog toplu "silindi" bildirimi üretmesin. Bilinçli toplu çıkış `--seed` ile kabul edilir.
-- İstek başına en çok 10.000 adres, istekler arası 1 sn. 429/5xx/ağ hatası yeniden denenir (`Retry-After`, yoksa 5/30 sn); 400/403/422 kesin hatadır. Başarısız parçanın durumu yazılmaz, sonraki koşu yeniden gönderir.
+- İstek başına en çok 10.000 adres, istekler arası 1 sn, istek başına 30 sn zaman aşımı. 429/5xx/ağ hatası ve zaman aşımı en çok 3 denemeye kadar yeniden denenir (`Retry-After`, en çok 10 dk; yoksa 5 ve 30 sn); 400/403/422 kesin hatadır. Başarısız parçanın durumu yazılmaz, sonraki koşu yeniden gönderir.
+- Gönderim yalnız `APP_ENV=production`, `INDEXNOW_KEY` ve **açıkça verilmiş** `SITE_URL` ile yapılır. `SITE_URL` boşsa site varsayılan alan adına (`getirbakim.com`) düşer; yerelden bu alan adıyla bildirim gitmesin diye koşu `disabled` olur.
 
 ## Komutlar
 
@@ -37,11 +38,13 @@ npm run seo:indexnow -- --limit=0           # bütçesiz tek koşu
 npm run test:indexnow
 ```
 
-Çıktı tek satır JSON'dur (`indexnow`: `completed | partial | failed | skipped | disabled`, sayaçlar, süre). Anahtar boşsa ya da `APP_ENV` production değilse `{"indexnow":"disabled",…}` yazar ve 0 ile çıkar. Çıkış kodu yalnız `failed`'da 1'dir. Koşu geçmişi `indexnow_runs` tablosundadır.
+Çıktı tek satır JSON'dur (`indexnow`: `completed | partial | failed | skipped | disabled`, sayaçlar, süre). Anahtar boşsa, `APP_ENV` production değilse ya da `SITE_URL` verilmemişse `{"indexnow":"disabled",…}` yazar ve 0 ile çıkar. Çıkış kodu yalnız `failed`'da 1'dir. Koşu geçmişi `indexnow_runs` tablosundadır.
 
 ## Anahtar dosyası
 
 `INDEXNOW_KEY` (8–128 karakter, `a-z A-Z 0-9 -`; üretmek için `openssl rand -hex 16`) `https://<site>/<anahtar>.txt` adresinde düz metin olarak sunulur: `next.config.ts` içindeki rewrite isteği `src/app/api/indexnow/[key]/route.ts`'e yönlendirir. Başka bir ad ya da boş anahtar 404 döner. Anahtar herkese açık bir değerdir; gizli tutulması gerekmez.
+
+**Anahtarı yerelde tanımlamayın** (`.env.local`'e `INDEXNOW_KEY` yazmayın). Yerel adresler genel siteye ait değildir; anahtar dosyasını denemek gerekirse yalnız o komut için ortam değişkeni olarak verin (`INDEXNOW_KEY=… npm start`).
 
 ## İlk yayın
 
@@ -53,7 +56,7 @@ Tablolar `db:setup` ile boş kurulur. Üç seçenek:
 
 ## AWS gereksinimleri
 
-- `INDEXNOW_KEY` secret'ı hem `app` (anahtar dosyası) hem `operations` (komut) görevine verilir. `operations` görevinde `APP_ENV=production` ve `SITE_URL` de bulunmalı.
+- `INDEXNOW_KEY` secret'ı hem `app` (anahtar dosyası) hem `operations` (komut) görevine verilir. `operations` görevinde `APP_ENV=production` ve `SITE_URL` de bulunmalı; `SITE_URL` yoksa komut `disabled` yazar.
 - İsteğe bağlı `INDEXNOW_MAX_URLS`.
 - Zamanlama: EventBridge `getirbakim-production-indexnow`, günde bir 06:30 Europe/Istanbul (gece tedarikçi taramalarından sonra). `operations` görev tanımı, komut `node --conditions=react-server --import tsx scripts/indexnow.ts`. Çıkış 1 = alarm.
 - Dışarı çıkış `api.indexnow.org:443`'e doğrudan; tedarikçi egress proxy'si kullanılmaz.

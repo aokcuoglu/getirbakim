@@ -19,9 +19,19 @@ export function indexNowConfig(env: Env = process.env): IndexNowConfig | null {
   return { key, host: new URL(siteUrl).host, keyLocation: absoluteUrl(siteUrl, `/${key}.txt`), endpoint: "https://api.indexnow.org/indexnow" };
 }
 
-/** Only production with a key reports; elsewhere the pages are not the public site's. */
+/**
+ * Why this environment must not report, or null when it may: only production with a key and an explicit SITE_URL.
+ * Without SITE_URL the site falls back to the public domain, and a local run would report its pages under that host.
+ */
+export function indexNowDisabledReason(env: Env = process.env): string | null {
+  if (env.APP_ENV !== "production") return "APP_ENV is not production";
+  if (!env.INDEXNOW_KEY?.trim()) return "INDEXNOW_KEY is empty";
+  if (!env.SITE_URL?.trim()) return "SITE_URL is not set";
+  return null;
+}
+
 export function indexNowSendable(env: Env = process.env): boolean {
-  return env.APP_ENV === "production" && Boolean(env.INDEXNOW_KEY?.trim());
+  return indexNowDisabledReason(env) === null;
 }
 
 /** The protocol's limit of URLs per request. */
@@ -68,9 +78,10 @@ export function removalAnomaly(knownCount: number, removedCount: number): boolea
 }
 
 export type SubmitResult = { ok: boolean; status: number | null; requests: number; error?: string };
-type SubmitOptions = { fetch: typeof fetch; sleep: (ms: number) => Promise<void>; attempts?: number };
+type SubmitOptions = { fetch: typeof fetch; sleep: (ms: number) => Promise<void>; attempts?: number; timeoutMs?: number };
 
-const retryDelaysMs = [5_000, 30_000, 120_000];
+/** Waits before the 2nd and 3rd attempt when the answer names no Retry-After. */
+const retryDelaysMs = [5_000, 30_000];
 const maxRetryAfterMs = 600_000;
 
 function retryAfterMs(header: string | null, attempt: number): number {
@@ -83,21 +94,24 @@ function retryAfterMs(header: string | null, attempt: number): number {
 
 /**
  * One request of up to 10,000 URLs. 200 and 202 succeed (202: the key is not verified yet). 429, 5xx and network
- * errors are retried (Retry-After when given, else 5 / 30 / 120 s); 400, 403, 422 and other answers are final. Never
- * throws.
+ * errors (a request times out after 30 s) are retried: after Retry-After when given (at most 10 min), else 5 / 30 s.
+ * 400, 403, 422 and other answers are final. Never throws.
  */
-export async function submitUrls(config: IndexNowConfig, urls: readonly string[], { fetch, sleep, attempts = 3 }: SubmitOptions): Promise<SubmitResult> {
+export async function submitUrls(config: IndexNowConfig, urls: readonly string[], { fetch, sleep, attempts = 3, timeoutMs = 30_000 }: SubmitOptions): Promise<SubmitResult> {
   const body = JSON.stringify({ host: config.host, key: config.key, keyLocation: config.keyLocation, urlList: urls });
   let status: number | null = null, error: string | undefined;
   for (let attempt = 0; attempt < attempts; attempt++) {
     let retryAfter: string | null = null;
     try {
-      const response = await fetch(config.endpoint, { method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body });
+      const response = await fetch(config.endpoint, { method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body,
+        signal: AbortSignal.timeout(timeoutMs) });
       status = response.status;
+      retryAfter = response.headers.get("retry-after");
+      // The answer's body carries nothing the run needs; dropping it frees the connection.
+      await response.body?.cancel().catch(() => {});
       if (status === 200 || status === 202) return { ok: true, status, requests: attempt + 1 };
       error = `HTTP ${status}`;
       if (status !== 429 && status < 500) return { ok: false, status, requests: attempt + 1, error };
-      retryAfter = response.headers.get("retry-after");
     } catch (failure) {
       status = null;
       error = failure instanceof Error ? failure.message : String(failure);
