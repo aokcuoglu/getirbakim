@@ -102,10 +102,16 @@ async function enrich(payload: unknown) {
   await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
   await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
 }
-const skfOems = { specifications: [], vehicles: [], oemNumbers: { VW: ["7H0 407 621 A"], BMW: ["31 22 6 765 601"], SHORT: ["A12B"] } };
+// Back to the plain enriched state, so one failing assertion cannot cascade into the next test.
+async function reset() {
+  await schema.pool.query("UPDATE supplier_items SET code='SKF 40040' WHERE id=$1", [ids.skf]);
+  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [await productOf("skf")]);
+  await enrich(skfOems);
+}
+const skfOems = { specifications: [], vehicles: [], oemNumbers: { VW: ["7H0 407 621 A"], BMW: ["31 22 6 765 601"], SHORT: ["A12B"], WORDS: ["ABCDE"] } };
 
 test("an enrichment OEM number finds its product by the enrichment arm, exactly", async () => {
-  await enrich(skfOems);
+  await reset();
   const found = await find("febi", "7h0-407 621 a");
   assert.equal(found.length, 1);
   assert.equal(found[0].brand_label, "SKF");
@@ -115,18 +121,18 @@ test("an enrichment OEM number finds its product by the enrichment arm, exactly"
 });
 
 test("a number that is also hand-entered shows both paths", async () => {
+  await reset();
   const skf = await productOf("skf");
   await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','add','VW','7H0 407 621 A',$2)`, [skf, admin]);
   assert.deepEqual((await find("febi", "7H0407621A"))[0].via, ["enrichment", "reference"]);
-  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [skf]);
 });
 
 test("a hidden enrichment OEM number is not a match, the others stay", async () => {
+  await reset();
   const skf = await productOf("skf");
   await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','hide','VW','7H0 407 621 A',$2)`, [skf, admin]);
   assert.equal((await find("febi", "7H0407621A")).length, 0);
   assert.deepEqual((await find("febi", "31226765601"))[0].via, ["enrichment"]);
-  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [skf]);
 });
 
 test("the enrichment arm needs five characters", async () => {
@@ -138,4 +144,22 @@ test("malformed oemNumbers do not break the search", async () => {
     await enrich({ specifications: [], vehicles: [], oemNumbers });
     assert.equal((await find("febi", "7H0407621A")).length, 0);
   }
+});
+
+test("the enrichment arm needs a digit in the query", async () => {
+  await reset();
+  assert.equal((await find("febi", "ABCDE")).length, 0);
+});
+
+test("an enrichment that does not describe the row, or only loosely matches it, is not a match", async () => {
+  await reset();
+  assert.equal((await find("febi", "7H0407621A")).length, 1);
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"oem_reference","supplierOem":"X1"}' WHERE supplier_item_id=$1`, [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "a reference match to another OEM number is not the product's own enrichment");
+  await reset();
+  await schema.pool.query("UPDATE supplier_items SET code='SKF 99999' WHERE id=$1", [ids.skf]);
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "the enrichment of another code does not describe the row");
+  await reset();
 });

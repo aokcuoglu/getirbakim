@@ -43,9 +43,9 @@ export async function searchEquivalentTargets(database: Pick<Pool, "query">, id:
         JOIN product_sources s ON s.supplier_item_id=e.supplier_item_id
         CROSS JOIN LATERAL jsonb_each(CASE jsonb_typeof(e.payload->'oemNumbers') WHEN 'object' THEN e.payload->'oemNumbers' ELSE '{}' END) refs
         CROSS JOIN LATERAL jsonb_array_elements_text(CASE jsonb_typeof(refs.value) WHEN 'array' THEN refs.value ELSE '[]' END) reference(number)
-        WHERE enrichment_oem_search(e.payload) LIKE '%'||lower($2)||'%' AND search_compact(reference.number)=lower($2)
+        WHERE enrichment_oem_search(e.payload) ~ ('(^| )'||lower($2)||'( |$)') AND search_compact(reference.number)=lower($2)
           AND NOT EXISTS (SELECT 1 FROM product_override_references h WHERE h.product_id=s.product_id AND h.action='hide' AND h.kind='oem'
-            AND h.brand_key=part_number_key(refs.key) AND h.number_key=$2)` : "";
+            AND h.brand_key=part_number_key(refs.key) AND h.number_key=part_number_key(reference.number))` : "";
   const targets = (await database.query<EquivalentTarget>(`WITH found AS (
       SELECT p.id, 'code' AS via FROM products p WHERE p.part_number LIKE '%'||$2||'%' OR ${codeMatch(q, "$2")}
       UNION ALL
