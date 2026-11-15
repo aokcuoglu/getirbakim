@@ -136,6 +136,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     row = await order(second);
     assert.equal(row.status, "cancelled"); assert.equal(row.payment_status, "expired"); assert.equal(await stock(), 3);
     assert.equal(await reserved(second), 0);
+    assert.equal(row.cancelled_by, "expiry"); assert.ok(row.cancelled_at instanceof Date);
 
     // Late payment revives the order and takes the stock back.
     const late = (await db.query("SELECT provider_order_id FROM commerce_payments WHERE order_id=$1", [second])).rows[0].provider_order_id;
@@ -144,6 +145,8 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     row = await order(second);
     assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid"); assert.match(row.payment_note, /süre dolduktan sonra/);
     assert.equal(await stock(), 2);
+    // A revived order is no longer cancelled by anyone (#607).
+    assert.equal(row.cancelled_by, null); assert.equal(row.cancelled_at, null);
     assert.equal(await reserved(second), 1);
 
     // A declined 3D attempt reads as AUTH/NOT_COMPLETED: never paid, and its spent token is not reused on retry.

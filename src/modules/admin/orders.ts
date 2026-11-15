@@ -2,7 +2,7 @@ import "server-only";
 // Callers check the admin session (commerce-actions.ts); kept free of it so tests can run the transitions.
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
-import { releaseReservedStock } from "@/modules/store/stock-reservation";
+import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
 import type { ProcurementStatus } from "./order-procurement";
 
@@ -28,10 +28,9 @@ async function withHandledOrder(id: string, step: (client: PoolClient, old: { st
 export async function transitionOrder(id: string, status: OrderTransition) {
   return withHandledOrder(id, async (client, old) => {
     if (!allowed[old.status]?.includes(status)) return false;
-    if (status === "cancelled") await releaseReservedStock(client, id);
-    // The order waits for a TAMI refund (Siparişler → TAMI'den iade et, or a manually recorded reference).
-    await client.query(`UPDATE commerce_orders SET status=$2,payment_status=CASE WHEN $2='cancelled' AND payment_status='paid' THEN 'refund_required' ELSE payment_status END,
-      delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END WHERE id=$1`, [id, status]);
+    // A paid order then waits for a TAMI refund (Siparişler → TAMI'den iade et, or a manually recorded reference).
+    if (status === "cancelled") { await cancelLockedOrder(client, id, "admin"); return true; }
+    await client.query("UPDATE commerce_orders SET status=$2,delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END WHERE id=$1", [id, status]);
     return true;
   });
 }
