@@ -5,7 +5,7 @@ import { z } from "zod";
 export const procurementStatuses = ["pending", "ordered", "procured"] as const;
 export type ProcurementStatus = typeof procurementStatuses[number];
 export const procurementLabel: Record<ProcurementStatus, string> = {
-  pending: "Bekliyor", ordered: "Tedarikçiye sipariş verildi", procured: "Tedarik edildi",
+  pending: "Bekliyor", ordered: "Sipariş verildi", procured: "Tedarik edildi",
 };
 
 export const procurementInput = z.object({
@@ -61,9 +61,30 @@ export function supplierItemHref(supplier: string, id: string) {
   return path ? `/yonetim/tedarikciler/${path}/urun/${id}` : null;
 }
 
+/** What the lines dialog shows of a line, computed on the server: the raw pricing snapshot stays there. */
+export type OrderLineView = {
+  product_id: string; code: string; name: string; supplier_label: string; quantity: number; unitPriceKurus: number;
+  company: string | null; listGroup: string | null; warehouse: string | null; observedAt: string | null; checkoutMode: string | null;
+  costKurus: number | null; netSaleKurus: number | null; marginKurus: number | null;
+  procurement_status: ProcurementStatus; procurement_ref: string | null; procurement_ordered_at: string | null; procured_at: string | null;
+  supplierHref: string | null; productHref: string | null; needsProcurement: boolean;
+};
+export function orderLineView(line: AdminOrderLine, supplierLabel: string): OrderLineView {
+  const unitPriceKurus = Number(line.unit_price_kurus);
+  return {
+    product_id: line.product_id, code: line.code, name: line.name, supplier_label: supplierLabel, quantity: line.quantity, unitPriceKurus,
+    ...lineScope(line.pricing_snapshot), ...lineFigures(line.pricing_snapshot, unitPriceKurus),
+    procurement_status: line.procurement_status, procurement_ref: line.procurement_ref,
+    procurement_ordered_at: line.procurement_ordered_at, procured_at: line.procured_at,
+    supplierHref: line.supplier_item ? supplierItemHref(line.supplier, line.product_id) : null,
+    productHref: line.master_id ? `/yonetim/urunler/${line.master_id}` : null,
+    needsProcurement: needsProcurement(line),
+  };
+}
+
 /** Line counts of an order: needed = lines that need procurement, split by their status. */
-export function procurementSummary(lines: Pick<AdminOrderLine, "pricing_snapshot" | "procurement_status">[]) {
-  const needed = lines.filter(needsProcurement);
+export function procurementSummary(lines: Pick<OrderLineView, "needsProcurement" | "procurement_status">[]) {
+  const needed = lines.filter(line => line.needsProcurement);
   const count = (status: ProcurementStatus) => needed.filter(line => line.procurement_status === status).length;
   return { needed: needed.length, pending: count("pending"), ordered: count("ordered"), procured: count("procured") };
 }

@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
-import { lineFigures, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
+import { lineFigures, needsProcurement, orderLineView, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
 import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier, yurticiTrackingRule } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
@@ -336,16 +336,29 @@ test("procurement moves freely while the order is pending or confirmed", async (
   assert.equal(ordered.procurement_ref, "BSB-123");
   assert.equal(ordered.procurement_ordered_at?.getTime(), line.procurement_ordered_at?.getTime());
   await orders.transitionOrder(id, "confirmed");
-  // A blank reference keeps the recorded one; the order time stays.
-  assert.equal(await set("procured"), true);
+  // The form sends the reference it shows: the same one keeps it; the order time stays.
+  assert.equal(await set("procured", "BSB-123"), true);
   [line] = await lines(id);
   assert.equal(line.procurement_status, "procured"); assert.equal(line.procurement_ref, "BSB-123"); assert.ok(line.procured_at);
   assert.equal(line.procurement_ordered_at?.getTime(), ordered.procurement_ordered_at?.getTime());
+  // A blank reference clears it.
+  assert.equal(await set("procured", " "), true);
+  assert.equal((await lines(id))[0].procurement_ref, null);
+  // Back to ordered: no procured time, the order time stays.
   assert.equal(await set("ordered"), true);
-  assert.equal((await lines(id))[0].procured_at, null);
+  [line] = await lines(id);
+  assert.equal(line.procured_at, null); assert.equal(line.procurement_ordered_at?.getTime(), ordered.procurement_ordered_at?.getTime());
   assert.equal(await set("pending"), true);
   [line] = await lines(id);
   assert.equal(line.procurement_status, "pending"); assert.equal(line.procurement_ref, null); assert.equal(line.procurement_ordered_at, null); assert.equal(line.procured_at, null);
+  // Procured straight from pending: never ordered, so no order time.
+  assert.equal(await set("procured", "Elden"), true);
+  [line] = await lines(id);
+  assert.equal(line.procurement_status, "procured"); assert.equal(line.procurement_ordered_at, null); assert.ok(line.procured_at); assert.equal(line.procurement_ref, "Elden");
+  // Then ordered after all: the order time is set, the procured time cleared.
+  assert.equal(await set("ordered", "Elden"), true);
+  [line] = await lines(id);
+  assert.ok(line.procurement_ordered_at); assert.equal(line.procured_at, null);
 });
 
 test("procurement is refused for store lines, unpaid, shipped, delivered and cancelled orders, and unknown lines", async () => {
@@ -400,10 +413,17 @@ test("line figures, supplier links and the procurement summary", () => {
   assert.equal(supplierItemHref("manual", "abc"), "/yonetim/tedarikciler/manuel/urun/abc");
   assert.equal(supplierItemHref("basbug", "abc"), "/yonetim/tedarikciler/basbug/urun/abc");
   assert.equal(supplierItemHref("demo", "abc"), null);
-  const line = (source: string, procurement_status: "pending" | "ordered" | "procured") => ({ pricing_snapshot: { source }, procurement_status });
+  const line = (source: string, procurement_status: "pending" | "ordered" | "procured") => ({ needsProcurement: needsProcurement({ pricing_snapshot: { source } }), procurement_status });
   assert.deepEqual(procurementSummary([line("store", "pending"), line("supplier", "pending"), line("override", "ordered"), line("supplier", "procured")]),
     { needed: 3, pending: 1, ordered: 1, procured: 1 });
   assert.deepEqual(procurementSummary([line("store", "pending")]), { needed: 0, pending: 0, ordered: 0, procured: 0 });
+  // The dialog's view model carries figures and links, never the raw snapshot.
+  const view = orderLineView({ product_id: "p1", code: "C", name: "N", supplier: "seta", quantity: 2, unit_price_kurus: 1200,
+    pricing_snapshot: { source: "supplier", cost_kurus: 500, vat_percent: 20, company: "SETA", warehouse: "D1", nf: 4 },
+    procurement_status: "pending", procurement_ref: null, procurement_ordered_at: null, procured_at: null, supplier_item: true, master_id: "m1" }, "SETA");
+  assert.equal(view.supplierHref, "/yonetim/tedarikciler/seta/urun/p1"); assert.equal(view.productHref, "/yonetim/urunler/m1");
+  assert.equal(view.costKurus, 500); assert.equal(view.marginKurus, 500); assert.equal(view.company, "SETA"); assert.equal(view.needsProcurement, true);
+  assert.equal("pricing_snapshot" in view, false);
 });
 
 test("the customer's order page never reads supplier, cost or procurement data", async () => {
