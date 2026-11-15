@@ -56,7 +56,7 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
       noSaleMessage={!item.price_data ? "Fiyat girilmediği için satışa kapalı; mağazada “Fiyat bilgisi güncelleniyor” görünür." : undefined}
       productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Ürün kodu, ad, marka ve kategori yüklenen dosyadan gelir. Dosyada boş kalan alanları buradan tamamlayabilirsiniz; dosyada dolu olan alanlar dosyadaki değeri korur.</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Fields values={{ Marka: p.uk, Kategori: category ? categoryLabel(category) : p.category_name, Liste: p.list_name, Resim: item.image_id ? <StatusBadge tone="success">Kayıtlı</StatusBadge> : <StatusBadge tone="neutral">Yok</StatusBadge> }}/>
+          <Fields values={{ Marka: p.uk, Kategori: category ? categoryLabel(category) : p.category_name, Liste: p.list_name, Resim: item.has_image ? <StatusBadge tone="success">Var</StatusBadge> : <StatusBadge tone="neutral">Yok</StatusBadge> }}/>
           <form action={saveManualItem} className="flex flex-col gap-4">
             <input type="hidden" name="id" value={item.id}/>
             <FieldGroup className="grid gap-4 md:grid-cols-2">

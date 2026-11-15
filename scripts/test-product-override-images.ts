@@ -60,6 +60,12 @@ const merge = (source: string, target: string) => schema.pool.query<{ id: string
 const history = async (productId: string) => (await schema.pool.query<{ field: string; old_value: string | null; new_value: string | null; reason: string | null }>(
   "SELECT field,old_value,new_value,reason FROM product_override_changes WHERE product_id=$1 ORDER BY id", [productId])).rows;
 let automaticMedia: string;
+/**
+ * The storefront enrichment links, rebuilt for this schema. product_enrichment_shared_sync() skips when another session
+ * holds its database-wide advisory lock (a local dev server syncs every few seconds), so the test drains the queue and
+ * calls the refresh, which takes no lock.
+ */
+const syncSharedLinks = () => schema.pool.query("DELETE FROM product_enrichment_shared_queue; SELECT product_enrichment_shared_refresh(NULL,NULL)");
 
 before(async () => {
   schema = await isolatedSchema("product_override_images_test");
@@ -83,7 +89,7 @@ before(async () => {
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
     VALUES($1,'FEBI 10010','FEBI','https://www.trodo.com/febi','test','FEBI BILSTEIN','10010',$2,$3)`,
   [ids.febiDinamik, automaticMedia, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 })]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks();
   const [{ db }, storeModule, enrichmentModule, imagesModule, overridesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/admin/product-image-store"),
     import("../src/modules/store/product-enrichment"), import("../src/modules/store/product-images"), import("../src/modules/admin/product-override-store")]);
   store = storeModule;
@@ -205,7 +211,7 @@ test("enrichment imports, supplier syncs and matching refreshes leave the upload
     ON CONFLICT (supplier_item_id) DO UPDATE SET payload=excluded.payload||'{"imageWidth":600,"imageHeight":400}',imported_at=now()`, [ids.febiDinamik, automaticMedia]);
   await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FEBI YENI AD"}',changed_at=now() WHERE id=ANY($1::uuid[])`, [[ids.febiBasbug, ids.febiDinamik]]);
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks();
   assert.equal(await productOf("febiBasbug"), febi);
   assert.deepEqual(await fileNames(febi), before);
   const shown = await enrichment.getCatalogProductImages([card("febiDinamik", "FEBI 10010", "FEBI")]);
@@ -368,7 +374,7 @@ test("home rails count uploads and skip a hidden automatic image (#596)", async 
   await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'ATE 50050','ATE','complete')`, [ids.railAuto]);
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
     VALUES($1,'ATE 50050','ATE','https://www.trodo.com/ate','test','ATE','50050',$2,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.railAuto, media]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks();
   const railAuto = await productOf("railAuto"), railPlain = await productOf("railPlain"), railHidden = await productOf("railHidden");
   const rail = async () => { await epoch.invalidateListings(); return (await home.getHomeProducts()).map(product => product.id); };
 
