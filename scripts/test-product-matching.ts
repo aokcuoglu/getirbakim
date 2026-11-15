@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Pool, type PoolClient } from "pg";
-import { bulkAcceptableSql, manualDeciderSql, manualKindFilterSql, manualKindSql, multiNumberCandidateSql, offerManualSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, manualDeciderSql, manualKindFilterSql, manualKindSql, multiNumberCandidateSql, manualGroupsSql, offerManualSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -189,7 +189,16 @@ test("matched group offers flag the rows linked by hand", async t => {
     const merged = await flags();
     assert.ok(moved.every(id => merged.get(id) === true));
     assert.ok([...merged].filter(([id]) => !moved.includes(id)).every(([, manual]) => manual === false));
+    const groupOf = async (id: string) => (await client.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1", [id])).rows[0]?.primary_id;
+    const manualGroups = async () => new Set((await client.query<{ primary_id: string }>(manualGroupsSql)).rows.map(row => row.primary_id));
+    const movedGroups = new Map<string, string>();
+    for (const id of moved) { const group = await groupOf(id); if (group) movedGroups.set(id, group); }
+    if (movedGroups.size) {
+      const listed = await manualGroups();
+      assert.ok([...movedGroups.values()].every(group => listed.has(group)));
+    } else t.diagnostic("fixture pair has no product_offers rows; manualGroupsSql assertion skipped");
     await client.query("SELECT product_reset_item($1)", [moved[0]]);
+    if (movedGroups.has(moved[0])) assert.equal(await groupOf(moved[0]), undefined);
     assert.equal((await flags()).get(moved[0]), undefined);
     assert.equal((await client.query<{ manual: boolean }>(`WITH offers AS (SELECT $1::uuid AS id) SELECT ${offerManualSql} AS manual FROM offers`, [moved[0]])).rows[0].manual, false);
   } finally {
