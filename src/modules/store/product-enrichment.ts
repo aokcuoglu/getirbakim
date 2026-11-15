@@ -6,6 +6,7 @@ import {catalogSpecifications} from "./catalog-filters";
 import { getOverrideImages } from "./product-images";
 import { applySpecOverrides } from "./product-spec-display";
 import { getOverrideSpecs } from "./product-specs";
+import type { FitmentRow } from "./fitment-level";
 
 export type CatalogProductImage = { src: string; width: number; height: number };
 
@@ -95,6 +96,68 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     partNumber: row.manufacturer_part_number,
     imagePath: row.image_id ? `/api/product-media/${row.image_id}` : null,
   };
+}
+
+type EnrichmentGateRow = {
+  supplier_code: string; supplier_brand: string; match_basis: unknown; current_oem: string; donor_code: string; donor_brand: string;
+  donor_master_brand: string | null; manufacturer: string; manufacturer_part_number: string; payload: unknown;
+};
+type LinkedFitment = { vehicleTypeId: number; modelId: number | null };
+/** The enrichment rows and linked fitments of several store rows (loadEnrichmentFitments), checked per product later. */
+export type LoadedEnrichmentFitments = { rows: Map<string, EnrichmentGateRow>; linked: Map<string, Map<number, LinkedFitment>> };
+
+/** The enrichment data the store shows for this product, under the same checks as getProductEnrichment. */
+function validEnrichment(row: EnrichmentGateRow | undefined, product: { code: string; brand: string }) {
+  if (!row || row.supplier_code !== product.code || row.supplier_brand !== product.brand) return null;
+  const parsed = enrichmentDataSchema.safeParse(row.payload);
+  const basis = matchBasisSchema.safeParse(row.match_basis);
+  if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
+    manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
+  })) return null;
+  return parsed.data;
+}
+
+/**
+ * The enrichment rows and catalog-linked fitments of several store rows in two queries (#708), from the same source as
+ * getProductEnrichment. The code/brand and payload checks are left to enrichmentFitmentRows.
+ */
+export async function loadEnrichmentFitments(productIds: string[]): Promise<LoadedEnrichmentFitments> {
+  const loaded: LoadedEnrichmentFitments = { rows: new Map(), linked: new Map() };
+  if (!productIds.length) return loaded;
+  const [enrichments, fitments] = await Promise.all([
+    db.query<EnrichmentGateRow & { supplier_item_id: string }>(`SELECT e.supplier_item_id::text,e.supplier_code,e.supplier_brand,e.match_basis,
+      e.donor_code,e.donor_brand,e.donor_master_brand,e.manufacturer,e.manufacturer_part_number,e.payload,e.donor_oem AS current_oem
+      FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[])`, [productIds]),
+    // OFFSET 0 keeps the subquery apart so payload->'vehicles' is read once per product. Inlined, the planner detoasts
+    // the whole payload for every fitment row (12 heavy products: 27 s instead of 30 ms).
+    db.query<{ supplier_item_id: string; source_index: number; vehicle_type_id: number; model_id: number | null }>(
+      `SELECT d.supplier_item_id::text,f.source_index,f.vehicle_type_id,v.model_id
+       FROM (SELECT l.supplier_item_id,l.donor_item_id,e.payload->'vehicles' AS vehicles
+             FROM product_enrichment_shared_links l JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
+             WHERE l.supplier_item_id=ANY($1::uuid[]) OFFSET 0) d
+       JOIN product_vehicle_fitments f ON f.supplier_item_id=d.donor_item_id AND f.vehicle_type_id IS NOT NULL
+        AND f.source_vehicle=d.vehicles->f.source_index
+       LEFT JOIN vehicle_types v ON v.id=f.vehicle_type_id`, [productIds]),
+  ]);
+  for (const { supplier_item_id: id, ...row } of enrichments.rows) loaded.rows.set(id, row);
+  for (const row of fitments.rows) {
+    const byIndex = loaded.linked.get(row.supplier_item_id) ?? new Map<number, LinkedFitment>();
+    byIndex.set(row.source_index, { vehicleTypeId: row.vehicle_type_id, modelId: row.model_id });
+    loaded.linked.set(row.supplier_item_id, byIndex);
+  }
+  return loaded;
+}
+
+/**
+ * The fitment rows getProductEnrichment gives one product (`vehicles` keeps every source vehicle, unlinked ones with
+ * null ids) and its model-level list; null when the store shows no enrichment for it.
+ */
+export function enrichmentFitmentRows(loaded: LoadedEnrichmentFitments, product: { id: string; code: string; brand: string }) {
+  const data = validEnrichment(loaded.rows.get(product.id), product);
+  if (!data) return null;
+  const linked = loaded.linked.get(product.id);
+  const vehicles: FitmentRow[] = data.vehicles.map((_, index) => linked?.get(index) ?? { vehicleTypeId: null, modelId: null });
+  return { vehicles, vehicleModels: data.vehicleModels };
 }
 
 export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){

@@ -6,7 +6,8 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyFitmentOverrides, modelFallbacks, type StoreVehicle } from "../src/modules/store/product-fitment-display";
 import { fitmentHistoryValue, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
-import { fitmentLevel } from "../src/modules/store/fitment-level";
+import { fitmentLevel, type FitmentLevel } from "../src/modules/store/fitment-level";
+import type { GarageVehicle } from "../src/modules/store/garage";
 
 // Admin-added and removed vehicle fitments (#583) in an isolated copy of the schema: db/product-override-fitments.sql,
 // the store's vehicle filter and searches (typeFittedIds), make pages (storefront_make_fits), the product page's
@@ -18,6 +19,8 @@ let catalog: typeof import("../src/modules/store/catalog");
 let level: typeof import("../src/modules/store/fitment-level.server");
 let epoch: typeof import("../src/modules/store/listing-epoch");
 let sync: typeof import("../src/modules/store/fitment-sync");
+let enrichment: typeof import("../src/modules/store/product-enrichment");
+let description: typeof import("../src/modules/store/description-fitment.server");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const codes: Record<string, { code: string; brand: string }> = {};
@@ -72,6 +75,26 @@ async function makes(key: string) {
   return (await schema.pool.query<{ brand_id: number }>("SELECT brand_id FROM storefront_make_fits WHERE supplier_item_id=$1 ORDER BY 1", [ids[key]])).rows.map(row => row.brand_id);
 }
 const garage = (typeId: number) => ({ make: "X", model: "Y", year: 2020, vehicleId: String(typeId) });
+type Product = { id: string; code: string; brand: string };
+/** The order path before #708, one product at a time. */
+async function referenceLevel(product: Product, vehicle: GarageVehicle | null) {
+  if (!vehicle) return fitmentLevel(null, []);
+  const [resolved, enriched, overrides] = await Promise.all([level.fitmentVehicle(vehicle), enrichment.getProductEnrichment(product),
+    fitments.getOverrideFitments([product.id]).then(all => all.get(product.id) ?? { added: [], removed: [] })]);
+  const vehicles = applyFitmentOverrides(enriched?.vehicles ?? [], overrides);
+  const fallbacks = modelFallbacks(overrides, vehicles, enriched?.vehicleModels ?? []);
+  if (!fallbacks.description) return fitmentLevel(resolved, vehicles, overrides.removed);
+  return fitmentLevel(resolved, (await description.getDescriptionFitments(product.id)).map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
+}
+/** Every product with every kind of vehicle in one bulk call, against the reference. */
+async function matchesReference(products: Product[]) {
+  const vehicles: (GarageVehicle | null)[] = [...[340, 344, 346, 802015, 802016, 900, 999999].map(garage), { make: "Fiat", model: "Doblo", year: 2015 }, null];
+  const lines = products.flatMap(product => vehicles.map(vehicle => ({ product, vehicle })));
+  const expected: FitmentLevel[] = [];
+  for (const line of lines) expected.push(await referenceLevel(line.product, line.vehicle));
+  assert.deepEqual(await level.productFitmentLevels(lines), expected);
+  return { lines, expected };
+}
 const fitLevel = (key: string, typeId: number) => level.productFitmentLevel({ id: ids[key], ...codes[key] }, garage(typeId));
 
 before(async () => {
@@ -94,15 +117,18 @@ before(async () => {
   await schema.pool.query("SELECT refresh_product_matches()");
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
-  const [{ db }, storeModule, fitmentsModule, catalogModule, levelModule, epochModule, syncModule] = await Promise.all([import("../src/lib/db"),
-    import("../src/modules/admin/product-fitment-store"), import("../src/modules/store/product-fitments"), import("../src/modules/store/catalog"),
-    import("../src/modules/store/fitment-level.server"), import("../src/modules/store/listing-epoch"), import("../src/modules/store/fitment-sync")]);
+  const [{ db }, storeModule, fitmentsModule, catalogModule, levelModule, epochModule, syncModule, enrichmentModule, descriptionModule] = await Promise.all([
+    import("../src/lib/db"), import("../src/modules/admin/product-fitment-store"), import("../src/modules/store/product-fitments"),
+    import("../src/modules/store/catalog"), import("../src/modules/store/fitment-level.server"), import("../src/modules/store/listing-epoch"),
+    import("../src/modules/store/fitment-sync"), import("../src/modules/store/product-enrichment"), import("../src/modules/store/description-fitment.server")]);
   store = storeModule;
   fitments = fitmentsModule;
   catalog = catalogModule;
   level = levelModule;
   epoch = epochModule;
   sync = syncModule;
+  enrichment = enrichmentModule;
+  description = descriptionModule;
   await enrich("febi", [340, 344]);
   await enrich("stale", [900], "TRW 50049");
   await rebuildFitments("febi");
@@ -286,6 +312,41 @@ test("a merge carries the decisions (the kept product's own row wins); undoing i
   // Taking the product's last decision back takes it off the make page (the trigger queues the product).
   await schema.pool.query("DELETE FROM product_override_fitments WHERE product_id=$1", [lemB]);
   assert.deepEqual(await makes("lemB"), []);
+});
+
+test("description models stand in only without enrichment and admin decisions; unlinked source rows keep the level unknown", async () => {
+  await item("bosch", { supplier: "basbug", code: "BOS 80080", brand: "BOSCH", name: "BOSCH FILTRE" });
+  await item("valeo", { supplier: "dinamik", code: "VALEO 81081", brand: "VALEO", name: "VALEO DEBRIYAJ" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await schema.pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'MERCEDES 190')", [ids.bosch]);
+  // 555 is no catalog type: its source row stays unlinked.
+  await enrich("valeo", [802015, 555]);
+  await rebuildFitments("valeo");
+  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  assert.deepEqual((await description.getDescriptionModelIds([ids.bosch, ids.valeo])), new Map([[ids.bosch, [10]]]));
+  assert.deepEqual(await level.productFitmentLevels([340, 900, 802015, 802016, 900].map((typeId, index) =>
+    ({ product: { id: ids[index < 2 ? "bosch" : "valeo"], ...codes[index < 2 ? "bosch" : "valeo"] }, vehicle: garage(typeId) }))),
+  ["likely", "unknown", "guaranteed", "likely", "unknown"]);
+  assert.deepEqual(await level.productFitmentLevels([{ product: { id: ids.bosch, ...codes.bosch }, vehicle: null }]), ["no_vehicle"]);
+  await matchesReference([{ id: ids.bosch, ...codes.bosch }, { id: ids.valeo, ...codes.valeo }]);
+  // Once the admin decided the product's vehicles, the description's models no longer count.
+  assert.deepEqual(await add(await productOf("bosch"), [900]), { ok: true });
+  assert.equal(await fitLevel("bosch", 340), "mismatch");
+  assert.equal(await fitLevel("bosch", 900), "guaranteed");
+});
+
+test("bulk levels equal the per-product reference", async () => {
+  const products = Object.keys(ids).map(key => ({ id: ids[key], ...codes[key] }));
+  // The stale payload's own code: the store row does not show it, the level must not either.
+  products.push({ id: ids.stale, code: "TRW 50049", brand: "TRW" });
+  const { lines, expected } = await matchesReference(products);
+  assert.equal(new Set(expected).size, 5, expected.join());
+  // One line at a time gives the same, and a product the resolver did not preload is refused.
+  for (const [index, line] of lines.entries()) assert.equal(await level.productFitmentLevel(line.product, line.vehicle), expected[index]);
+  const resolver = await level.fitmentLevelResolver([ids.febi], [garage(340)]);
+  assert.equal(resolver.level({ id: ids.bare, ...codes.bare }, garage(340)), null);
+  assert.equal(resolver.level({ id: ids.febi, ...codes.febi }, garage(344)), null);
+  assert.equal(resolver.level({ id: ids.febi, ...codes.febi }, garage(340)), expected[lines.findIndex(line => line.product.id === ids.febi && line.vehicle?.vehicleId === "340")]);
 });
 
 test("setup can run the files again and moves an old make-list key to supplier_items", async () => {

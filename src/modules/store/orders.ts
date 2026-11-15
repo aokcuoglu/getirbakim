@@ -8,7 +8,7 @@ import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
 import { parseGarageVehicle,type GarageVehicle } from './garage';
-import { productFitmentLevel } from './fitment-level.server';
+import { fitmentLevelResolver,productFitmentLevels } from './fitment-level.server';
 import type { FitmentLevel } from './fitment-level';
 import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order-agreement';
 import { checkoutConsentText } from './checkout-schema';
@@ -59,6 +59,9 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
  let refreshed:Awaited<ReturnType<typeof refreshCheckoutSources>>;
  try { refreshed=await refreshCheckoutSources(owner); }
  catch { return {error:'supplier'}; }
+ // Fitment levels are read before the transaction (#708): its locks are not held while the catalog is queried.
+ const cartLines=(await db.query<{product_id:string;vehicle:unknown}>('SELECT product_id::text,vehicle FROM commerce_cart_items WHERE owner_kind=$1 AND owner_id=$2',[owner.kind,owner.id])).rows;
+ const preloaded=await fitmentLevelResolver(cartLines.map(line=>line.product_id),cartLines.map(line=>parseGarageVehicle(line.vehicle) ?? garage));
  const client=await db.connect();
  try {
   await client.query('BEGIN');
@@ -82,24 +85,27 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const shipping=await shippingRule(client);
   if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
   const totals=orderTotals(items,discount,shipping);
+  const vehicles=items.map(p=>parseGarageVehicle(p.vehicle) ?? garage);
+  let levels=items.map((p,i)=>preloaded.level(p,vehicles[i]));
+  // The cart changed after the preload: resolve again, once, for all lines.
+  if(levels.includes(null)) levels=await productFitmentLevels(items.map((p,i)=>({product:p,vehicle:vehicles[i]})));
   const order=(await client.query<{id:string;number:string;created_at:Date}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
    subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at)
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id,number,created_at`,
    [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
   const lines:AgreementLine[]=[];
-  for(const p of items) {
+  for(const [i,p] of items.entries()) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
    // The contract names the part as the store showed it (#602); the order line keeps the supplier's code for operations.
    lines.push({name:p.name,brand:p.display_brand,code:p.display_code,quantity:p.quantity,unitPriceKurus:unitPrice});
-   const vehicle=parseGarageVehicle(p.vehicle) ?? garage;
-   const fitment=await productFitmentLevel(p,vehicle);
+   const vehicle=vehicles[i];
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
    const reserved=p.source==='store' ? p.quantity : 0;
    if(reserved && !(await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2',[p.id,reserved])).rowCount) {
     await client.query('ROLLBACK'); return {error:'stock'};
    }
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment,reserved]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
    discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);

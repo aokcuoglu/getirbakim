@@ -12,5 +12,18 @@ export async function getDescriptionFitments(productId: string): Promise<Descrip
     ORDER BY f.model_id`, [productId])).rows.sort((a, b) => `${a.brand} ${a.model}`.localeCompare(`${b.brand} ${b.model}`, "tr"));
 }
 
+/** The model ids getDescriptionFitments lists, for several store rows in one query (#708); rows without any are left out. */
+export async function getDescriptionModelIds(productIds: string[]): Promise<Map<string, number[]>> {
+  const result = new Map<string, number[]>();
+  if (!productIds.length) return result;
+  const rows = (await db.query<{ id: string; model_id: number }>(`SELECT DISTINCT g.id::text,f.model_id FROM (
+      SELECT id,id AS item_id FROM unnest($1::uuid[]) id
+      UNION SELECT primary_id,item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])) g
+    JOIN product_model_fitments f ON f.supplier_item_id=g.item_id
+    JOIN vehicle_models m ON m.id=f.model_id JOIN vehicle_brands b ON b.id=m.brand_id`, [productIds])).rows;
+  for (const row of rows) result.set(row.id, [...result.get(row.id) ?? [], row.model_id]);
+  return result;
+}
+
 export const describeYears = (fitment: Pick<DescriptionModelFitment, "yearFrom" | "yearTo">) =>
   fitment.yearFrom ? `${fitment.yearFrom}–${fitment.yearTo ?? ""}` : "";
