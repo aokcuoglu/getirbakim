@@ -38,8 +38,9 @@ BEGIN
  -- Serializes with the admin's changes (product-spec-store.ts locks the same row).
  PERFORM 1 FROM products p WHERE p.id=product_override_specs_carry.target FOR UPDATE;
  WITH copied AS (
-  INSERT INTO product_override_specs(product_id,action,key,value,carried_from,created_by)
-  SELECT product_override_specs_carry.target,o.action,o.key,o.value,product_override_specs_carry.source,product_override_specs_carry.actor
+  -- The source's created_at keeps the admin's order (one statement would give every copy the same now()).
+  INSERT INTO product_override_specs(product_id,action,key,value,carried_from,created_by,created_at)
+  SELECT product_override_specs_carry.target,o.action,o.key,o.value,product_override_specs_carry.source,product_override_specs_carry.actor,o.created_at
   FROM product_override_specs o WHERE o.product_id=product_override_specs_carry.source
   ORDER BY o.created_at,o.id
   ON CONFLICT (product_id,key) DO NOTHING

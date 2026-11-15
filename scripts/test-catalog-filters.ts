@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {selectedBrands, selectedAttributes,catalogSpecifications,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
+import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 
 test("manufacturer selection supports multiple brands and legacy links", () => {
@@ -36,6 +36,9 @@ test("typed specification keys and values map back to the source spelling (#603)
   assert.equal(specificationKey("Montaj konumu"), "Fitting Position");
   assert.equal(specificationKey(" MONTAJ KONUMU "), "Fitting Position");
   assert.equal(specificationKey("fitting position"), "Fitting Position");
+  assert.equal(specificationKey("FITTING POSITION"), "Fitting Position");
+  assert.equal(specificationKey("BRAND CLASS"), "Brand class");
+  assert.equal(specificationKey("İŞLEME"), "Processing");
   assert.equal(specificationKey("Üretici"), "Manufacturer");
   assert.equal(specificationKey("Renk "), "Renk");
   assert.equal(specificationKey("constructor"), "constructor");
@@ -46,5 +49,6 @@ test("typed specification keys and values map back to the source spelling (#603)
   assert.equal(specificationRawValue("Renk", "Ön"), "Ön");
   assert.equal(specificationRawValue("Fitting Position", " Üst sol "), "Üst sol");
   assert.equal(specificationLabel("constructor"), "constructor");
+  assert.ok(sameSpecificationText(" FILTER TYPE", "Filter type") && !sameSpecificationText("Filter", "Filter type"));
   assert.equal(specificationValue("toString"), "toString");
 });

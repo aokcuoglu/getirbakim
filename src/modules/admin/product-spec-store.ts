@@ -1,6 +1,6 @@
 import "server-only";
 import type { Pool, PoolClient } from "pg";
-import { reservedSpecificationKeys, specificationKey, specificationRawValue } from "@/modules/store/catalog-filters";
+import { reservedSpecificationKeys, sameSpecificationText, specificationKey, specificationRawValue } from "@/modules/store/catalog-filters";
 import { productSpecLimit } from "./product-spec-fields";
 
 type SpecRow = { id: string; action: "set" | "hide"; key: string; value: string | null; carried: boolean };
@@ -64,8 +64,7 @@ const record = (client: PoolClient, productId: string, field: string, oldValue: 
 /** History text: "key|value", or the key alone for a hidden key (specHistoryValue reads it back). */
 const historyText = (key: string, value: string | null) => value === null ? key : `${key}|${value}`;
 
-const fold = (text: string) => text.trim().toLocaleLowerCase("tr");
-const reserved = new Set<string>(reservedSpecificationKeys.map(fold));
+const isReserved = (key: string) => reservedSpecificationKeys.some(name => sameSpecificationText(name, key));
 
 /**
  * Sets the value the store shows for a key: an automatic key's value is replaced, a new key is added. The key is
@@ -75,12 +74,13 @@ const reserved = new Set<string>(reservedSpecificationKeys.map(fold));
  */
 export async function setProductSpec(database: Pick<Pool, "connect">, productId: string, input: ProductSpecInput, adminId: string) {
   return change(database, productId, async client => {
-    const [automatic, existing] = await Promise.all([loadAutomatic(client, productId),
-      client.query<{ key: string; action: string; value: string | null }>("SELECT key,action,value FROM product_override_specs WHERE product_id=$1", [productId])]);
+    // One client runs one query at a time: awaited in turn, not in parallel.
+    const automatic = await loadAutomatic(client, productId);
+    const existing = await client.query<{ key: string; action: string; value: string | null }>("SELECT key,action,value FROM product_override_specs WHERE product_id=$1", [productId]);
     const typed = specificationKey(input.key);
-    if (reserved.has(fold(input.key)) || reserved.has(fold(typed))) return { ok: false, reason: "reserved" };
-    const key = [...existing.rows.map(row => row.key), ...automatic.map(row => row.key)].find(known => fold(known) === fold(typed)) ?? typed;
-    if (reserved.has(fold(key))) return { ok: false, reason: "reserved" };
+    if (isReserved(input.key) || isReserved(typed)) return { ok: false, reason: "reserved" };
+    const key = [...existing.rows.map(row => row.key), ...automatic.map(row => row.key)].find(known => sameSpecificationText(known, typed)) ?? typed;
+    if (isReserved(key)) return { ok: false, reason: "reserved" };
     const value = specificationRawValue(key, input.value);
     const previous = existing.rows.find(row => row.key === key);
     if (previous?.action === "set" && previous.value === value) return { ok: false, reason: "unchanged" };

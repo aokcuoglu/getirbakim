@@ -367,7 +367,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
    AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
    -- The admin's value or hiding of the key (#603) replaces the automatic one: those products match by the set value only.
-   AND e.supplier_item_id<>ALL(ARRAY(SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey}))
+   -- NOT IN (product_sources.supplier_item_id is NOT NULL) plans as a hashed SubPlan; <>ALL(ARRAY(...)) scans the array per row.
+   AND e.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
    UNION ALL SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }

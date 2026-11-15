@@ -20,8 +20,15 @@ export const facetSpecificationKeys=["Fitting Position","Brand class","Filter ty
  * OEM and barcode rows (#602, #582), so an admin cannot set them as a specification (hiding the automatic one is fine).
  */
 export const reservedSpecificationKeys=["Manufacturer","Manufacturer Part Number","EAN","Trade numbers","OEM numarası","Barkod (EAN)"] as const;
-const fold=(text:string)=>text.trim().toLocaleLowerCase("tr");
-const lookup=(entries:[string,string][],input:string)=>{const folded=fold(input);return entries.find(([raw])=>raw===input.trim())?.[0]??entries.find(([raw])=>fold(raw)===folded)?.[0]??entries.find(([,label])=>fold(label)===folded)?.[0];};
+/**
+ * Whether two typed texts name the same key or value, ignoring case and surrounding space. Both the plain and the
+ * Turkish lowercasing are tried: "FITTING POSITION" is "Fitting Position" (Turkish turns I into ı) and "İŞLEME" is "İşleme".
+ */
+export function sameSpecificationText(a:string,b:string){
+ const x=a.trim(),y=b.trim();
+ return x===y||x.toLowerCase()===y.toLowerCase()||x.toLocaleLowerCase("tr")===y.toLocaleLowerCase("tr");
+}
+const lookup=(entries:[string,string][],input:string)=>entries.find(([raw])=>raw===input.trim())?.[0]??entries.find(([raw])=>sameSpecificationText(raw,input))?.[0]??entries.find(([,label])=>sameSpecificationText(label,input))?.[0];
 /** The raw (enrichment) key a typed key stands for: "Montaj konumu" and "fitting position" are "Fitting Position"; unknown keys stay as typed. */
 export function specificationKey(input:string){return lookup(Object.entries(specificationLabels),input)??input.trim();}
 /** The raw value a typed value of a known key stands for ("Ön aks" is "Front Axle"), so filters see one spelling; other values stay as typed. */

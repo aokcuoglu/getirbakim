@@ -216,11 +216,12 @@ test("a merge carries the specifications (the kept product's own row wins); undo
   await schema.pool.query("INSERT INTO product_override_specs(product_id,action,key) VALUES($1,'hide','Brand class')", [lemA]);
   assert.deepEqual(await set(lemB, "Malzeme", "Alüminyum"), { ok: true });
   assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { set: 1, hidden: 1 } });
-  assert.deepEqual(await listed(lemB), [["set", "Malzeme", "Alüminyum", false], ["set", "Renk", "Siyah", true], ["hide", "Brand class", null, true]]);
+  // Carried rows keep their time in A, so the list stays in the order the admins made the decisions.
+  assert.deepEqual(await listed(lemB), [["set", "Renk", "Siyah", true], ["hide", "Brand class", null, true], ["set", "Malzeme", "Alüminyum", false]]);
   assert.deepEqual((await history(lemB)).slice(1).map(change => [change.field, change.new_value, change.reason]), [
     ["spec_set", "Renk|Siyah", "carry"], ["spec_hidden", "Brand class", "carry"]]);
   // Both rows sell as B now and read the carried specifications.
-  assert.deepEqual((await specs.getOverrideSpecs([ids.lemA])).get(ids.lemA)?.map(row => row.key), ["Malzeme", "Renk", "Brand class"]);
+  assert.deepEqual((await specs.getOverrideSpecs([ids.lemA])).get(ids.lemA)?.map(row => row.key), ["Renk", "Brand class", "Malzeme"]);
   // "Geri al": A is revived and B gives the carried rows back; its own row stays, A keeps its own.
   await schema.pool.query("SELECT product_reset_item($1)", [ids.lemA]);
   assert.deepEqual(await listed(lemB), [["set", "Malzeme", "Alüminyum", false]]);

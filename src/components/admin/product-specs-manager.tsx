@@ -6,7 +6,7 @@ import { CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, ListChecks, Pencil, Pl
 import { hideProductSpec, removeProductSpec, setProductSpec, type ProductSpecActionResult } from "@/app/yonetim/urunler/spec-actions";
 import { productSpecLimit } from "@/modules/admin/product-spec-fields";
 import type { ProductSpecs } from "@/modules/admin/product-spec-store";
-import { specificationLabel } from "@/modules/store/catalog-filters";
+import { facetSpecificationKeys, specificationLabel } from "@/modules/store/catalog-filters";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ export function ProductSpecsManager({ productId, specs }: { productId: string; s
   const [pending, startTransition] = useTransition();
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
-  const [editing, setEditing] = useState<{ key: string; value: string } | null>(null);
+  const [editing, setEditing] = useState<{ key: string; value: string; several: boolean } | null>(null);
   const [result, setResult] = useState<ProductSpecActionResult | null>(null);
   const full = specs.rows.length >= productSpecLimit;
 
@@ -76,10 +76,10 @@ export function ProductSpecsManager({ productId, specs }: { productId: string; s
           onChange={event => setValue(event.target.value)}/>
       </Field>
       <Button type="submit" disabled={pending || full}>
-        {pending ? <><Spinner data-icon="inline-start"/>Kaydediliyor…</> : <><Plus data-icon="inline-start" aria-hidden="true"/>Kaydet</>}</Button>
+        {pending ? <><Spinner data-icon="inline-start"/>Kaydediliyor…</> : <><Plus data-icon="inline-start" aria-hidden="true"/>Ekle</>}</Button>
       <FieldDescription className="sm:col-span-2 lg:col-span-3">
         Özellik adını Türkçe (“Montaj konumu”) ya da kaynaktaki İngilizce adıyla (“Fitting Position”) yazabilirsiniz; aynı özellik tek ada çevrilir ve otomatik değerin yerine geçer.
-        Montaj konumu, marka sınıfı, filtre, lamba, ampul, yakıt, amortisör, silecek, yağ viskozitesi, şanzıman ve montaj tipi katalog süzgeçlerinde kullanılır.
+        Şu özellik adları katalog süzgeçlerinde de kullanılır: {facetSpecificationKeys.map(specificationLabel).join(", ")}.
         {full && ` Bu ürün ${productSpecLimit} kayıt sınırına ulaştı; yeni özellik için önce birini kaldırın.`}
       </FieldDescription>
     </form>
@@ -87,7 +87,8 @@ export function ProductSpecsManager({ productId, specs }: { productId: string; s
     <div aria-live="polite" className="empty:hidden">
       {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     </div>
-    {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
+    {/* While the edit dialog is open, its own alert shows the error. */}
+    {result?.status === "error" && !editing && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
     {rows.length ? <Table controls={false}><caption className="sr-only">Teknik özellikler</caption>
       <TableHeader><TableRow><TableHead>Özellik</TableHead><TableHead>Değer</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
@@ -113,13 +114,13 @@ export function ProductSpecsManager({ productId, specs }: { productId: string; s
           </div></TableCell>
           <TableCell><div className="flex flex-wrap justify-end gap-2">
             {row.status !== "hidden" && <Button type="button" variant="outline" disabled={pending || (row.status === "automatic" && full)}
-              aria-label={`${label} özelliğini düzenle`} onClick={() => { setResult(null); setEditing({ key: row.key, value: row.value ?? row.automatic[0] ?? "" }); }}>
+              aria-label={`${label} özelliğini düzenle`} onClick={() => { setResult(null); setEditing({ key: row.key, value: row.value ?? automaticText, several: row.value === null && row.automatic.length > 1 }); }}>
               <Pencil data-icon="inline-start" aria-hidden="true"/>Düzenle</Button>}
             {row.status === "automatic" && <Button type="button" variant="outline" disabled={pending || full}
               aria-label={`${label} özelliğini mağazada gizle`} onClick={() => mutate(() => hideProductSpec({ productId, key: row.key }))}>
               <EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</Button>}
             {row.status === "edited" && row.id && <Button type="button" variant="outline" disabled={pending}
-              aria-label={`${label} özelliğini otomatik değere döndür`} onClick={() => mutate(() => removeProductSpec({ productId, specId: row.id! }))}>
+              aria-label={`${label} özelliğini otomatiğe dön`} onClick={() => mutate(() => removeProductSpec({ productId, specId: row.id! }))}>
               <RotateCcw data-icon="inline-start" aria-hidden="true"/>Otomatiğe dön</Button>}
             {row.status === "added" && row.id && <Button type="button" variant="outline" disabled={pending}
               aria-label={`${label} özelliğini kaldır`} onClick={() => mutate(() => removeProductSpec({ productId, specId: row.id! }))}>
@@ -133,11 +134,11 @@ export function ProductSpecsManager({ productId, specs }: { productId: string; s
       : <Empty><EmptyHeader><EmptyMedia variant="icon"><ListChecks/></EmptyMedia><EmptyTitle>Teknik özellik yok</EmptyTitle>
         <EmptyDescription>Bu ürünün otomatik teknik özelliği yok; yukarıdaki formla elle ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
 
-    <Dialog open={editing !== null} onOpenChange={open => { if (!open) setEditing(null); }}>
+    <Dialog open={editing !== null} onOpenChange={open => { if (!open) { setEditing(null); setResult(null); } }}>
       <DialogContent>
         <form className="flex flex-col gap-4" onSubmit={save}>
           <DialogHeader><DialogTitle>{editing ? `${specificationLabel(editing.key)} özelliğini düzenle` : "Özelliği düzenle"}</DialogTitle>
-            <DialogDescription>Kaydedilen değer otomatik değerin yerine geçer; tedarikçi güncellemeleri onu değiştirmez.</DialogDescription></DialogHeader>
+            <DialogDescription>Kaydedilen değer otomatik değerin yerine geçer; tedarikçi güncellemeleri onu değiştirmez.{editing?.several && " Birden çok otomatik değer tek değerle değişir."}</DialogDescription></DialogHeader>
           <Field>
             <FieldLabel htmlFor={ids.edit}>Değer</FieldLabel>
             <Input id={ids.edit} value={editing?.value ?? ""} maxLength={500} required disabled={pending} autoComplete="off"

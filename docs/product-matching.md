@@ -155,7 +155,7 @@ Okuma: ürün sayfası, kartlar, karşılaştırma ve ana sayfa (`getCatalogProd
 
 Süzgeçler (`src/modules/store/catalog.ts`): öznitelik süzgeci elle kararı olan ürünleri otomatik daldan çıkarır ve onları yalnız `set` değeriyle eşler; süzgeç seçenekleri (`attributeFacets`) aynı kuralla otomatik değerin yerine elle değeri sayar (`facetSpecificationKeys` tek kaynak). Süzgeç seçenekleri 10 dakikalık süreç önbelleğinde tutulduğundan değişiklik ürün sayfasında hemen, süzgeçlerde birkaç dakika içinde görünür.
 
-Birleştirme ve geri alma referanslarla aynıdır: `product_override_specs_carry(source, target, actor)` (`{"set":n,"hidden":n}`; hedefte aynı anahtarın satırı varsa hedefinki kalır, `reason='carry'`), geri almada `product_override_specs_products_restored` → `product_override_specs_uncarry` (`spec_removed` / `spec_shown`, `reason='uncarry'`). Yöneticinin değiştirdiği taşınmış satır `carried_from`'u temizler ve geri almada kalır.
+Birleştirme ve geri alma referanslarla aynıdır: `product_override_specs_carry(source, target, actor)` (`{"set":n,"hidden":n}`; hedefte aynı anahtarın satırı varsa hedefinki kalır, kopyalar kaynaktaki `created_at`'i ve böylece sırayı korur, `reason='carry'`), geri almada `product_override_specs_products_restored` → `product_override_specs_uncarry` (`spec_removed` / `spec_shown`, `reason='uncarry'`). Yöneticinin değiştirdiği taşınmış satır `carried_from`'u temizler ve geri almada kalır. Taşıma 100 satır sınırına bakmaz; sınırı aşan üründe yeni anahtar eklenemez, yalnız mevcut anahtarlar değiştirilebilir veya kaldırılabilir.
 
 Bilinen sınırlar:
 
