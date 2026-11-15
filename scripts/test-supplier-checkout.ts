@@ -6,6 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 
+test("cart lines look up the catalog per line, never one catalog-wide scan per line (#705)", async()=> {
+  const source=await readFile("src/modules/store/cart.ts","utf8");
+  const cartFor=source.slice(source.indexOf("export async function cartFor"),source.indexOf("export async function cartLineQuantity"));
+  assert.match(cartFor,/LEFT JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\) priced WHERE priced\.id=c\.product_id OFFSET 0\) p ON true/);
+  assert.doesNotMatch(cartFor,/LEFT JOIN \(\$\{catalogSql\}\)/);
+});
+
 test("checkout refresh rejects supplier failure and changed prices, preserves completed orders and snapshots", async()=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
@@ -25,7 +32,7 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
   const {importBasbug}=await import("../src/modules/suppliers/basbug-import");
   const {submitOrder,cartQuote:quote,shippingRule}=await import("../src/modules/store/orders");
   const cartQuote=async(items:Parameters<typeof quote>[0],discount:number)=>quote(items,discount,await shippingRule());
-  const {cartFor,setCartQuantity}=await import("../src/modules/store/cart");
+  const {cartFor,cartLineQuantity,setCartQuantity}=await import("../src/modules/store/cart");
   const originalFetch=globalThis.fetch;
   const keys=["TAMI_CHECKOUT_ENABLED","BASBUG_BASE_URL","BASBUG_USERNAME","BASBUG_PASSWORD","BASBUG_CLIENT_ID","BASBUG_CLIENT_SECRET","BASBUG_FIRMA_ADI"];
   const originalEnv=keys.map(key=>process.env[key]);
@@ -63,6 +70,9 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     const vehicle={make:"Fiat",model:"Egea",year:2020,vehicleId:"999999"};
     assert.equal(await setCartQuantity(owner,id,1,true,vehicle),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
+    // The add-to-cart dialog reads only its own line's quantity (#705).
+    assert.equal(await cartLineQuantity(owner,id),1);
+    assert.equal(await cartLineQuantity(owner,randomUUID()),0);
     // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
