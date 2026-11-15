@@ -17,6 +17,7 @@ import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
 import { getItemSpecs } from "@/modules/store/product-specs";
+import { specificationLabel, specificationValue } from "@/modules/store/catalog-filters";
 import { applySpecOverrides } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
@@ -180,8 +181,8 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const descriptionModels = fallbacks.description ? await descriptionFitments(product.id) : [];
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
-  // The enrichment's specifications with the admin's edited, hidden and added keys (#603).
-  const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
+  // The enrichment's specifications with the admin's edited, hidden and added keys (#603), labelled in Turkish like the catalog cards (#622).
+  const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides).map(([key, value]): [string, string] => [specificationLabel(key), specificationValue(value)]), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
   const hasFitment = vehicles.length > 0 || fallbacks.vehicleModels.length > 0 || descriptionModels.length > 0;

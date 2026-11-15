@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {applySpecOverrides} from "../src/modules/store/product-spec-display";
 import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 
@@ -51,4 +52,10 @@ test("typed specification keys and values map back to the source spelling (#603)
   assert.equal(specificationLabel("constructor"), "constructor");
   assert.ok(sameSpecificationText(" FILTER TYPE", "Filter type") && !sameSpecificationText("Filter", "Filter type"));
   assert.equal(specificationValue("toString"), "toString");
+});
+
+test("product page rows are translated after overrides, admin text stays as written (#622)", () => {
+  const enrichment:[string,string][]=[["Brake Disc Type","Vented"],["Fitting Position","Front Axle"],["Outer Diameter [mm]","280"],["Thickness [mm]","25"],["Number of mounting bores","5"],["Surface","Coated"]];
+  const shown=applySpecOverrides(enrichment,[{action:"set",key:"Surface",value:"Özel kaplama"},{action:"set",key:"Renk",value:"Siyah"}]).map(([k,v])=>[specificationLabel(k),specificationValue(v)]);
+  assert.deepEqual(shown,[["Fren diski tipi","Havalandırmalı"],["Montaj konumu","Ön aks"],["Dış çap [mm]","280"],["Kalınlık [mm]","25"],["Montaj deliği sayısı","5"],["Yüzey","Özel kaplama"],["Renk","Siyah"]]);
 });
