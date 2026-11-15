@@ -41,8 +41,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const storeCategories = await getStoreCategories();
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
-  // A saved store brand stays choosable after its master brand was merged away (the edit keeps the name).
-  const brandOptions = (edit?.brand && !brands.includes(edit.brand) ? [edit.brand, ...brands] : brands).map(name => ({ value: name, label: name }));
+  // A saved store brand stays choosable after its master brand was merged away or renamed (the edit keeps the name).
+  const brandOptions = [...edit?.brand && !brands.includes(edit.brand) ? [{ value: edit.brand, label: `${edit.brand} (ana marka listesinde yok)` }] : [],
+    ...brands.map(name => ({ value: name, label: name }))];
   // A history value as the admin knows it: category names, published/hidden, lira, Istanbul times, NULL as the automatic value.
   const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? referenceHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
@@ -93,7 +94,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           version={edit?.version ?? automaticVersion} categories={categoryOptions} brands={brandOptions}
           automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,
             category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null,
-            brand: override.automatic.brand ?? (product.brand_label || product.brand), partNumber: override.automatic.code ?? product.code }}/>
+            brand: override.automatic.brand ?? "", partNumber: override.automatic.code ?? product.code }}/>
       </CardContent>
     </Card>}
 

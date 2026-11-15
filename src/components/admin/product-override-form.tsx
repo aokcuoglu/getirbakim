@@ -100,12 +100,13 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
           {label("brand", id("brand"))}
           <OptionCombobox id={id("brand")} name="brand" placeholder="Marka ara" emptyText="Eşleşen marka yok." options={brands}
             value={form.values.brand} onValueChange={value => edit({ brand: value })} describedBy={`${id("brand")}-hint`}/>
-          <FieldDescription id={`${id("brand")}-hint`}>Boş bırakılırsa: {automatic.brand}</FieldDescription>
+          <FieldDescription id={`${id("brand")}-hint`}>{automatic.brand ? `Boş bırakılırsa: ${automatic.brand}` : "Otomatik marka yok."}</FieldDescription>
         </Field>
         <Field>
           {label("part_number", id("part_number"))}
           <Input {...textInput("part_number")} maxLength={60} placeholder={automatic.partNumber}/>
-          <FieldDescription id={`${id("part_number")}-hint`}>Boş bırakılırsa: {automatic.partNumber}. Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
+          <FieldDescription id={`${id("part_number")}-hint`}>Boş bırakılırsa: {automatic.partNumber}</FieldDescription>
+          <FieldDescription>Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
         </Field>
         <Field className="md:col-span-2">
           {label("description", id("description"))}

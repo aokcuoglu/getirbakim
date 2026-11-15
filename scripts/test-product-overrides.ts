@@ -491,7 +491,11 @@ test("returning the brand and part number to automatic shows the supplier's agai
   assert.deepEqual(await persist(schema.pool, luk, { brand: "ESKI MARKA" }, admin), { ok: true, changed: ["brand"] });
   await schema.pool.query("DELETE FROM brands WHERE key='ESKIMARKA602'");
   assert.equal((await shown602("lukBasbug"))?.[2], "ESKI MARKA");
-  assert.deepEqual(await persist(schema.pool, luk, { brand: null }, admin), { ok: true, changed: ["brand"] });
+  // The form submits every field: other fields still save with the unchanged brand; a different unknown brand does not.
+  assert.deepEqual(await persist(schema.pool, luk, { name: "Luk rulman", brand: "ESKI MARKA" }, admin), { ok: true, changed: ["name"] });
+  assert.deepEqual(await persist(schema.pool, luk, { name: "Luk rulman 2", brand: "YENI YOK MARKA" }, admin), { ok: false, reason: "brand" });
+  assert.equal((await store.loadProductOverride(schema.pool, luk)).override?.name, "Luk rulman");
+  assert.deepEqual(await persist(schema.pool, luk, { name: null, brand: null }, admin), { ok: true, changed: ["name", "brand"] });
 });
 
 test("a merge carries the store brand and part number into empty fields; undoing it takes back only those (#602)", async () => {

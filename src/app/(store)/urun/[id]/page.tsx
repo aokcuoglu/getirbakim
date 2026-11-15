@@ -138,7 +138,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
       referenceRows[existing] = [name, [...linked, ...codes.filter(({ code }) => !linked.some(item => item.code === code))]];
     } else referenceRows.push([brand, linked]);
   };
-  if (seta.length > 0) linkEquivalents("SETA", seta);
+  // SETA equivalents under the part number the store shows for them (#602).
+  if (seta.length > 0) linkEquivalents("SETA", seta.map(item => ({ id: item.id, code: item.display_code })));
   const decidedBrands = new Map<string, typeof decided>();
   for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
   for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);
@@ -167,10 +168,10 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
       <div>
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {brand} {displayPartNumber}</h1>
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
-        <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.code}</p>
+        <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.display_code}</p>
         {product.unavailable ? <>
           <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>
-          <PurchaseForm productId={product.id} name={product.code} available={false} maxQuantity={1} variant="product"/>
+          <PurchaseForm productId={product.id} name={product.display_code} available={false} maxQuantity={1} variant="product"/>
           <RestockRequestForm productId={product.id} email={account?.email}/>
         </> : product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
@@ -178,7 +179,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           {previousPrice && <p className="mb-1 text-[15px] text-muted-foreground"><span className="sr-only">Önceki fiyat: </span><s>{previousPrice}</s>
             {campaignEnd && <span className="block text-[13px]">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</p>}
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
-          <PurchaseForm productId={product.offer_id ?? product.id} name={product.code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
+          <PurchaseForm productId={product.offer_id ?? product.id} name={product.display_code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
         </>}
         <div className="flex min-h-[54px] items-center gap-4 rounded-[5px] border border-[#ffb380] bg-[#fffaee] px-4 py-3"><CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/><GarageButton vehicle={vehicle} variant="product"/></div>
         {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}

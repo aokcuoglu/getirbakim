@@ -65,17 +65,18 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       && !(await client.query("SELECT 1 FROM source_categories WHERE source='trodo' AND category_id=$1", [patch.category_id])).rowCount) {
       await client.query("ROLLBACK"); return { ok: false, reason: "category" };
     }
-    // A master brand's name, as picked from the list; no FK (a brand merge deletes the merged brand, the edit keeps its text).
-    if (patch.brand !== undefined && patch.brand !== null
-      && !(await client.query("SELECT 1 FROM brands WHERE name=$1", [patch.brand])).rowCount) {
-      await client.query("ROLLBACK"); return { ok: false, reason: "brand" };
-    }
     const row = (await client.query<ProductOverrideValues & { version: string }>(`SELECT ${valuesSql()},
       ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0];
     if (expectedVersion !== undefined && expectedVersion !== (row?.version ?? automaticVersion)) {
       await client.query("ROLLBACK"); return { ok: false, reason: "stale" };
     }
     const current: ProductOverrideValues = row ? Object.fromEntries(productOverrideFields.map(field => [field, row[field]])) as ProductOverrideValues : empty;
+    // A new store brand must be a master brand's name, as picked from the list. No FK: a brand merge deletes the merged
+    // brand and the saved edit keeps its text, so an unchanged brand is not checked again (the other fields still save).
+    if (patch.brand !== undefined && patch.brand !== null && patch.brand !== current.brand
+      && !(await client.query("SELECT 1 FROM brands WHERE name=$1", [patch.brand])).rowCount) {
+      await client.query("ROLLBACK"); return { ok: false, reason: "brand" };
+    }
     // A new end in the past would never sell; refused instead of stored silently. An ended campaign left as it is does
     // not block other changes (it no longer applies).
     if (patch.sale_until && patch.sale_until !== current.sale_until && (await client.query<{ ended: boolean }>(
