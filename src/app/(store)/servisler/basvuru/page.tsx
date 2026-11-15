@@ -8,7 +8,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { applyForService } from "@/modules/auth/service-application";
-export const metadata: Metadata = { title: "Servis hesabı başvurusu | Getirbakim", robots: privatePageRobots };
+export const metadata: Metadata = { title: "Servis hesabı başvurusu", robots: privatePageRobots };
 const field="gap-2";
 const label="text-sm leading-5 font-normal";
 const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 md:text-base placeholder:text-sm";

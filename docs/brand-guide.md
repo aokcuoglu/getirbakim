@@ -20,9 +20,12 @@ Getirbakim, günlük dildeki “getir bir bakayım”dan geliyor. Bir parçayı 
 | logo-dark.svg / .png | Koyu zemin, beyaz yazı; PNG 920×208, şeffaf |
 | profile.svg / .png | Arama merceğinde noktalı i; profil PNG 512×512 |
 | favicon-32.png | 32×32 tarayıcı simgesi; uygulamanın icon.svg dosyası aynı sembol |
+| icon-192.png / icon-512.png | Web uygulaması bildirimi (`src/app/manifest.ts`) simgeleri, profile.svg’den |
 | social-getirbakim.svg / .png | “Getirbakim nedir?” sabit gönderisi |
 | social-bir-bakalim.svg / .png | “Doğru parçayı nasıl buluruz?” sabit gönderisi |
 | social-servisler.svg / .png | “Servisler için Getirbakim” sabit gönderisi |
+
+Sekme ve cihaz simgeleri aynı komutla profile.svg’den üretilir: `src/app/favicon.ico` (16/32/48 px), `src/app/icon1.png` (96 px), `src/app/apple-icon.png` (180 px, #0077c7 zeminli) ve yukarıdaki manifest PNG’leri; `src/app/icon.svg` elle kalır.
 
 SVG metinleri Inter harflerinden çizgilere dönüştürülmüştür; alıcının bilgisayarında font gerekmez. Sosyal şablonlar 1080×1080. Logonun çevresinde en az bir i harfi yüksekliğinde boşluk bırakın; sıkıştırmayın, döndürmeyin. Beyaz sürümü #222831 gibi koyu zeminde kullanın. Sembol yazı logosunun profil boyutundaki alternatifidir. PNG çıktıları `node scripts/render-brand.mjs` ile üretilir (Next.js bağımlılığı sharp). SVG çıktıları `scripts/generate-brand.py` ile, `fonttools[woff]` kurulu ayrı bir Python ortamında yeniden üretilebilir.
 

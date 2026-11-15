@@ -21,7 +21,7 @@ import {MaintenanceRobotBanner} from "@/components/maintenance-robot-banner";
 import {Input} from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
-import {organizationJsonLd} from "@/lib/site";
+import {pageMetadata,siteDescription} from "@/lib/site";
 
 const manufacturerOrder=["BOSCH","FEBI","LUK","SKF","GATES","SACHS","FAG","MANN","TRW","LEMFORDER","DENSO","CONTITECH","ELRING","MOOG","PIERBURG","CTR","VALEO","INA","BLUE PRINT","LESJOFORS","DELPHI","HELLA","MAHLE","NGK","DAYCO","NRF","DEPO","PURFLUX","HENGST","ATE","BERU","CHAMPION","FERODO","JURID","TEXTAR","CORTECO","BORGWARNER","GARRETT","NTN-SNR","AISIN","GKN","STABILUS","VERNET","UFI","SHELL","TOTAL","OSRAM","VDO"];
 const promotions=[
@@ -51,6 +51,8 @@ const centeredTitle="mb-8 text-center [&_h2]:mb-2";
 const titleLink="inline-flex items-center gap-2 text-sm leading-5 font-medium text-brand max-md:text-[13px] max-md:whitespace-nowrap";
 const h2="text-[28px] leading-[34px] font-semibold tracking-[-.5px] max-md:text-[22px] max-md:leading-7";
 
+export const metadata=pageMetadata({title:"Getirbakim | Aracın için doğru parça",absoluteTitle:true,description:siteDescription,path:"/"});
+
 export default async function Home({searchParams}:{searchParams:Promise<SearchParams>}) {
   const {q}=normalizeSearchParams(await searchParams);
   if(q)redirect("/katalog?q="+encodeURIComponent(q));
@@ -65,7 +67,6 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   const visibleProducts=products.filter(product=>images.has(product.id)&&details.has(product.id));
   const productCard=(product:typeof products[number])=><HomeProductCard key={product.id} product={product} image={images.get(product.id)} partNumber={details.get(product.id)?.partNumber} category={productCategories.get(product.id)} account={account}/>;
   return <div className="bg-white text-foreground">
-    <script type="application/ld+json" dangerouslySetInnerHTML={{__html:JSON.stringify(organizationJsonLd).replace(/</g,"\\u003c")}}/>
     <HomeScrollHeader/>
     <section className="relative h-[280px] bg-[linear-gradient(#212b36cc,#212b36cc),url('/media/site/images/Hero_image.webp')] bg-cover bg-center bg-no-repeat pb-10 text-white max-[37.5rem]:h-[288px] max-[37.5rem]:min-h-[288px] max-[37.5rem]:pb-6">
       <div className="flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/86 max-[37.5rem]:h-10 max-[37.5rem]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
@@ -84,7 +85,7 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
     </section>
     {visibleProducts.length>0&&<section className={cn(shell,"mb-[30px] pb-[45px] max-md:mb-10")}><div className={sectionTitle}><h2 className={h2}>Ürünleri keşfet</h2><Link href="/katalog" className={titleLink}>Tüm ürünler <ChevronRight size={14}/></Link></div><HomeCarousel kind="products" label="Ürünleri keşfet">{visibleProducts.slice(0,12).map(productCard)}</HomeCarousel></section>}
     {visibleProducts.length>12&&<section className={cn(shell,"mb-[30px] pb-[45px] max-md:mb-10")}><div className={sectionTitle}><h2 className={h2}>Diğer ürünler</h2><Link href="/katalog" className={titleLink}>Kataloğa git <ChevronRight size={14}/></Link></div><HomeCarousel kind="products" label="Diğer ürünler">{visibleProducts.slice(12).map(productCard)}</HomeCarousel></section>}
-    <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={centeredTitle}><h2 className={h2}>Popüler araç markaları</h2><Link href="/automakers" className={titleLink}>Tüm araç markaları <ChevronRight size={14}/></Link></div><HomeGridPager kind="makes" label="Araç markaları">{makes.map(make=>{const logo=getVehicleLogo(make.name);return <Link key={make.id} prefetch={false} href={"/car-parts/"+vehicleBrandSlug(make.name)} aria-label={make.name} className="flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary">{logo&&<Image src={logo.src} width={logo.width} height={logo.height} alt="" unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>}<span className="max-w-full wrap-anywhere">{make.name==="VOLKSWAGEN"?"VW":make.name}</span></Link>;})}</HomeGridPager></section>
+    <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={centeredTitle}><h2 className={h2}>Popüler araç markaları</h2><Link href="/automakers" className={titleLink}>Tüm araç markaları <ChevronRight size={14}/></Link></div><HomeGridPager kind="makes" label="Araç markaları">{makes.map(make=>{const logo=getVehicleLogo(make.name);return <Link key={make.id} prefetch={false} href={"/car-parts/"+vehicleBrandSlug(make.name)} aria-label={make.name} className="flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary">{logo&&<Image src={logo.src} width={logo.width} height={logo.height} alt={`${make.name} logosu`} unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>}<span className="max-w-full wrap-anywhere">{make.name==="VOLKSWAGEN"?"VW":make.name}</span></Link>;})}</HomeGridPager></section>
     <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={cn(centeredTitle,"mb-10 max-md:mb-6")}><h2 className={h2}>Popüler üreticiler</h2></div><HomeGridPager kind="manufacturers" label="Üreticiler">{manufacturers.map(brand=>{const logo=logos.get(brand);return <Link key={brand} prefetch={false} href={"/katalog?brand="+encodeURIComponent(brand)} aria-label={brand} className="flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]">{logo?<Image src={logo.src} width={logo.width} height={logo.height} alt={brand} unoptimized className="h-[50px] w-[120px] max-w-full object-contain"/>:<span>{brand}</span>}</Link>;})}</HomeGridPager></section>
     <div className="mt-[60px] max-md:mt-10">{collections.map(collection=>{
       const category=allCategories.find(category=>category.id===collection.categoryId);

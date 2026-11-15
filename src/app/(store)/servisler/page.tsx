@@ -1,15 +1,16 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { contactEmail } from "@/lib/site";
+import { contactEmail, pageMetadata, servicesSocialImage } from "@/lib/site";
 import { cn } from "@/lib/utils";
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
   title: "Servisler için Getirbakim | Güvenilir parça tedariki",
+  absoluteTitle: true,
   description: "Oto servisin için Getirbakim’e başvur. Onaylı hesabında servisine özel fiyatları gör, ürün ve OEM koduyla parça ara.",
-  alternates: { canonical: "/servisler" },
-};
+  path: "/servisler",
+  image: servicesSocialImage,
+});
 const panel="gap-0 rounded-2xl border border-border bg-white p-[25px] ring-0 max-[600px]:p-5";
 const panelTitle="text-[23px] leading-[34px] font-semibold";
 const panelText="text-[13px] leading-[1.8]";

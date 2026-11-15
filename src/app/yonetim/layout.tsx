@@ -11,7 +11,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { adminNavCounts, adminSupplierFeedStatus } from "@/modules/admin/data";
 import { feedNavTone } from "@/modules/suppliers/data-status";
 
-export const metadata = { title: "Yönetim | Getirbakim", robots: { index: false, follow: false } };
+export const metadata = { title: "Yönetim", robots: { index: false, follow: false } };
 
 // The workspace has its own shell: storefront header and footer live in (store)/layout.tsx only. .admin-app also
 // scopes the stock shadcn neutral theme in globals.css. Every page and data loader still checks the session itself:
