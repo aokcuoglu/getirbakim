@@ -1,4 +1,5 @@
-import { absoluteUrl, categoryPagePath, makePagePath, productPagePath } from "@/modules/seo/sitemap-urls";
+import { siteUrl } from "@/lib/site";
+import { absoluteUrl, categoryPath, makePath, productPath } from "@/modules/seo/paths";
 import { parseSitemapFile, renderUrlset, sitemapEnabled, staticPaths, xmlHeaders, type SitemapEntry, type SitemapFile } from "@/modules/seo/sitemap";
 import { cachedCategorySlugs, cachedMakeSlugs, cachedProductChunk } from "@/modules/seo/sitemap-cache";
 
@@ -7,10 +8,10 @@ export const dynamic = "force-dynamic";
 
 async function entries(file: SitemapFile): Promise<SitemapEntry[]> {
   switch (file.kind) {
-    case "pages": return staticPaths.map(page => ({ url: absoluteUrl(page.path), lastModified: page.lastModified }));
-    case "categories": return (await cachedCategorySlugs()).map(slug => ({ url: absoluteUrl(categoryPagePath(slug)) }));
-    case "makes": return (await cachedMakeSlugs()).map(slug => ({ url: absoluteUrl(makePagePath(slug)) }));
-    case "products": return (await cachedProductChunk(file.index)).map(row => ({ url: absoluteUrl(productPagePath(row.id)), lastModified: row.lastmod }));
+    case "pages": return staticPaths.map(page => ({ url: absoluteUrl(siteUrl, page.path), lastModified: page.lastModified }));
+    case "categories": return (await cachedCategorySlugs()).map(slug => ({ url: absoluteUrl(siteUrl, categoryPath(slug)) }));
+    case "makes": return (await cachedMakeSlugs()).map(slug => ({ url: absoluteUrl(siteUrl, makePath(slug)) }));
+    case "products": return (await cachedProductChunk(file.index)).map(row => ({ url: absoluteUrl(siteUrl, productPath(row.id)), lastModified: row.lastmod }));
   }
 }
 

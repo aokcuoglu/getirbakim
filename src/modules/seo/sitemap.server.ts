@@ -23,6 +23,7 @@ const storeBranch = `SELECT p.id::text,${isoUtc("p.updated_at")} FROM store_prod
 
 export type ProductSitemapRow = { id: string; lastmod: string };
 
+// A secondary offer is left out even when its primary is hidden or not saleable (its page then shows itself): deliberate.
 /** Product ids of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
@@ -45,15 +46,16 @@ FROM source_categories c
 JOIN source_category_labels l ON l.source=c.source AND l.category_id=c.category_id AND l.locale='tr'
 WHERE c.source='trodo'
 ORDER BY COALESCE((c.raw->>'l')::int,0),c.category_id`;
-// Old storefront categories (supplier_items_legacy_category_idx) that still hold a product.
+// Old storefront categories (supplier_items_legacy_category_idx) that still hold a product the store lists.
 const legacySql = `SELECT slug FROM unnest($1::text[]) slug
-WHERE EXISTS (SELECT 1 FROM supplier_items s WHERE s.product_data->>'category'<>'' AND s.product_data->>'category'=slug)`;
+WHERE EXISTS (SELECT 1 FROM commerce_supplier_items s WHERE s.company=ANY($2::text[])
+ AND s.product_data->>'category'<>'' AND s.product_data->>'category'=slug)`;
 
 /** Slugs of the categories holding products and of their ancestors. */
 export async function loadCategorySlugs(): Promise<string[]> {
   const [nodes, legacy] = await Promise.all([
     boundedQuery<{ id: number; path: number[]; slug: string; direct: boolean }>(categorySql, []),
-    boundedQuery<{ slug: string }>(legacySql, [Object.keys(legacyCategoryIds)]),
+    boundedQuery<{ slug: string }>(legacySql, [Object.keys(legacyCategoryIds), storefrontCompanies()]),
   ]);
   const direct = [...nodes.rows.filter(node => node.direct).map(node => node.id), ...legacy.rows.map(row => legacyCategoryIds[row.slug])];
   return withAncestors(nodes.rows, direct).map(node => node.slug);

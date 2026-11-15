@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { productIndexable, productIndexPolicy } from "../src/modules/seo/indexing";
-import { absoluteUrl, categoryPagePath, makePagePath, productPagePath } from "../src/modules/seo/sitemap-urls";
+import { absoluteUrl, categoryPath, makePath, productPath } from "../src/modules/seo/paths";
 import { parseSitemapFile, productChunkRange, productChunks, renderSitemapIndex, renderUrlset, sitemapEnabled, sitemapFiles,
   sitemapUrlLimit, staticPaths, withAncestors } from "../src/modules/seo/sitemap";
 import { siteUrl } from "../src/lib/site";
@@ -84,10 +84,10 @@ describe("sitemap helpers", () => {
   });
 
   test("page paths match the pages' canonicals; legal pages carry their date", () => {
-    assert.equal(productPagePath("abc"), "/urun/abc");
-    assert.equal(categoryPagePath("fren-252"), "/katalog?category=fren-252");
-    assert.equal(makePagePath("alfa-romeo"), "/car-parts/alfa-romeo");
-    assert.equal(absoluteUrl("/katalog"), `${siteUrl}/katalog`);
+    assert.equal(productPath("abc"), "/urun/abc");
+    assert.equal(categoryPath("fren-252"), "/katalog?category=fren-252");
+    assert.equal(makePath("alfa-romeo"), "/car-parts/alfa-romeo");
+    assert.equal(absoluteUrl(siteUrl, "/katalog"), `${siteUrl}/katalog`);
     assert.equal(staticPaths[0].path, "");
     assert.equal(staticPaths.length, 8 + legalLinks.length);
     for (const link of legalLinks) assert.match(staticPaths.find(page => page.path === `/${link.slug}`)?.lastModified ?? "", /^\d{4}-\d{2}-\d{2}/);
@@ -132,7 +132,8 @@ describe("sitemap queries", () => {
     schema = await isolatedSchema("sitemap_test");
     await item("listed", { code: "MAH 20020", brand: "MAHLE" });
     await item("dinamik", { supplier: "dinamik", code: "SACHS 1000", brand: "SACHS", category: "fren" });
-    await item("depot", { code: "MAH 30030", brand: "MAHLE", warehouse: "IST" });
+    // Not sold from this warehouse: its legacy category "filtre" holds no listed product.
+    await item("depot", { code: "MAH 30030", brand: "MAHLE", warehouse: "IST", category: "filtre" });
     await item("conflicting", { code: "SAC 2222", brand: "SACHS", conflicting: true });
     await item("inactive", { code: "LMI 4444", brand: "LEMFORDER", presence: "inactive" });
     await item("primary", { code: "BOS 0986A11", brand: "BOSCH" });
@@ -142,14 +143,14 @@ describe("sitemap queries", () => {
     await storeProduct("demo", "demo", "DEMO 1");
     await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.primary, ids.secondary]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hidden]);
-    // Category tree: 100 > 101 (enriched product) and 100 > 102 (empty); 200 empty root; 252 = legacy "fren".
+    // Category tree: 100 > 101 (enriched product) and 100 > 102 (empty); 200 empty root; 252 = legacy "fren", 241 = legacy "filtre".
     await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
       ('trodo',100,NULL,'Fren Sistemi','fren-sistemi','{100}','','{}'),('trodo',101,100,'Balata','balata','{100,101}','','{}'),
       ('trodo',102,100,'Disk','disk','{100,102}','','{}'),('trodo',200,NULL,'Aydınlatma','aydinlatma','{200}','','{}'),
-      ('trodo',252,NULL,'Fren','fren','{252}','','{}')`);
+      ('trodo',252,NULL,'Fren','fren','{252}','','{}'),('trodo',241,NULL,'Filtre','filtre','{241}','','{}')`);
     await schema.pool.query(`INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
       ('trodo',100,'tr','Fren Sistemi','fren-sistemi-100'),('trodo',101,'tr','Balata','balata-101'),('trodo',102,'tr','Disk','disk-102'),
-      ('trodo',200,'tr','Aydınlatma','aydinlatma-200'),('trodo',252,'tr','Fren','fren')`);
+      ('trodo',200,'tr','Aydınlatma','aydinlatma-200'),('trodo',252,'tr','Fren','fren'),('trodo',241,'tr','Filtre','filtre')`);
     await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
       VALUES($1,'MAH 20020','MAHLE','https://example.test/p','test','MAHLE','20020','{}')`, [ids.listed]);
     // The enrichment was imported after the row last changed: the sitemap's lastmod follows the newer time.
@@ -190,7 +191,7 @@ describe("sitemap queries", () => {
     for (const value of rows.values()) assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   });
 
-  test("categories: those with products and their ancestors, legacy categories included", async () => {
+  test("categories: those with listed products and their ancestors, legacy categories included", async () => {
     assert.deepEqual((await queries.loadCategorySlugs()).sort(), ["balata-101", "fren", "fren-sistemi-100"]);
   });
 
