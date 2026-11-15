@@ -14,8 +14,10 @@
 //                 into its own checkpoint (artifacts/spareto/partial.jsonl); a result replaces the stored data only
 //                 when it is complete or has more vehicles.
 //   report        summarises the checkpoint
-import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {appendFile,mkdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
+import {createInterface} from 'node:readline';
 import {Pool} from 'pg';
 import {SPARETO,buildData,findProduct as find,identify,improvesPartial,sparetoComplete,parseFitment,resolveVehicles,type FitmentRow,type ProductPage,type Supplier} from '../src/modules/enrichment/spareto-adapter';
 import {SparetoClient,SourceBlocked} from '../src/modules/enrichment/spareto-client';
@@ -41,11 +43,17 @@ const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'
  // The admin page reads searches from the database; a dry run leaves no trace there.
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
   await recordAttempt(pool,'spareto',status,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
+/**
+ * The latest entry per supplier item. The checkpoint is read line by line (it grew past V8's 512 MB string limit, #757)
+ * and only packages still waiting to be written ('collected') stay in memory.
+ */
 async function entries(){
  const latest=new Map<string,Entry>();
- try{for(const line of (await readFile(checkpoint,'utf8')).split('\n'))if(line.trim()){const e=JSON.parse(line) as Entry;
-  latest.set(e.supplierItemId,e.outcome==='imported'||e.outcome==='skipped'?{...latest.get(e.supplierItemId),...e}:e);}}
- catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+ try{await stat(checkpoint);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return latest;throw error;}
+ for await(const line of createInterface({input:createReadStream(checkpoint),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
+  const merged=e.outcome==='imported'||e.outcome==='skipped'?{...latest.get(e.supplierItemId),...e}:e;
+  if(merged.outcome!=='collected')delete merged.package;
+  latest.set(e.supplierItemId,merged);}
  return latest;
 }
 // One supplier row per master product (present rows first); a product already enriched through another row is skipped.
