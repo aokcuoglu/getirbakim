@@ -1,12 +1,12 @@
 // The storefront's one source of product addresses (#640): /urun/<slug>-<id>. The slug is brand, name and part number
 // as ASCII words; the id (a uuid) alone finds the product (product-id.ts). Server and store components import it; client
 // components get a finished href (it pulls in the name dictionary of readableProductName).
-import { readableProductName } from "@/modules/store/product-name";
+import { shownProductName } from "@/modules/store/product-name";
 import { numberWithoutBrand } from "./product-meta";
 import { productIdPath } from "./product-id";
 
-/** What a product's address is built from: the catalog row's id and shown name, brand and part number. */
-export type ProductAddress = { id: string; name: string; display_brand: string; display_code: string };
+/** What a product's address is built from: the catalog row's id, name (and whether an admin wrote it), brand and part number. */
+export type ProductAddress = { id: string; name: string; name_overridden: boolean; display_brand: string; display_code: string };
 
 export const productSlugNameLimit = 50;
 export const productSlugLimit = 100;
@@ -34,8 +34,8 @@ function fitSlugWords(words: string[], limit: number, keepOne: boolean): string[
 }
 
 /**
- * "bosch-fren-balatasi-arka-0986494803": brand, name and part number as ASCII words. The name is the shown one (the
- * dictionary and casing of readableProductName fold away, only its dropped "GENEL" and repeats remain), cut to 50
+ * "bosch-fren-balatasi-arka-0986494803": brand, name and part number as ASCII words. The name is the shown one
+ * (shownProductName: an admin's as written, a supplier's readable; the casing folds away, only the dropped "GENEL" and repeats remain), cut to 50
  * characters; brand and part number (without the brand's own prefix) are never cut, and the whole stays within 100
  * characters by shortening the name. "Belirtilmemiş" is no brand, a name equal to the part number is written once.
  * Empty when no word is left.
@@ -43,7 +43,7 @@ function fitSlugWords(words: string[], limit: number, keepOne: boolean): string[
 export function productSlug(product: Omit<ProductAddress, "id">): string {
   const brand = product.display_brand === unspecifiedBrand ? [] : slugWords(product.display_brand);
   const number = slugWords(numberWithoutBrand(product.display_code, product.display_brand));
-  const name = slugWords(readableProductName(product.name));
+  const name = slugWords(shownProductName(product));
   const sameAsNumber = name.join("-") === number.join("-") || name.join("-") === slugWords(product.display_code).join("-");
   const fixed = [...brand, ...number].join("-").length;
   const room = Math.min(productSlugNameLimit, productSlugLimit - fixed - 2);

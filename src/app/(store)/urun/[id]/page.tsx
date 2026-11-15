@@ -11,7 +11,7 @@ import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
-import { readableProductName } from "@/modules/store/product-name";
+import { shownProductName } from "@/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
@@ -94,7 +94,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
     productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
-  const name = productTitle(override, enrichment?.displayName, readableProductName(product.name));
+  const name = productTitle(override, enrichment?.displayName, shownProductName(product));
   const vehicles = await vehicleModels(enrichment, product.id, fitmentOverrides);
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
@@ -161,7 +161,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // An admin's part number (#602) wins as entered.
   const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
   const brand = product.display_brand;
-  const title = productTitle(override, enrichment?.displayName, readableProductName(product.name));
+  const title = productTitle(override, enrichment?.displayName, shownProductName(product));
   const description = productDescription(override, enrichment?.description, product.description);
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
   const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, path: productPath(product) });

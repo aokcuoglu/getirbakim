@@ -5,6 +5,7 @@ import { contentSignals, hasMinimumContent, minimumContentSql, productContent, p
   from "../src/modules/seo/indexing";
 import { absoluteUrl, categoryPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
+import { shownProductName } from "../src/modules/store/product-name";
 import { parseSitemapFile, productChunkRange, productChunks, renderSitemapIndex, renderUrlset, sitemapEnabled, sitemapFiles,
   sitemapUrlLimit, staticPaths, withAncestors } from "../src/modules/seo/sitemap";
 import { siteUrl } from "../src/lib/site";
@@ -102,7 +103,7 @@ describe("sitemap helpers", () => {
   });
 
   test("page paths match the pages' canonicals; legal pages carry their date", () => {
-    assert.equal(productPath({ id: "abc", name: "Fren", display_brand: "BOSCH", display_code: "1" }), "/urun/bosch-fren-1-abc");
+    assert.equal(productPath({ id: "abc", name: "Fren", name_overridden: false, display_brand: "BOSCH", display_code: "1" }), "/urun/bosch-fren-1-abc");
     assert.equal(categoryPath("fren-252"), "/kategori/fren-252");
     assert.equal(makePath("alfa-romeo"), "/yedek-parca/alfa-romeo");
     assert.equal(absoluteUrl(siteUrl, "/katalog"), `${siteUrl}/katalog`);
@@ -174,7 +175,7 @@ describe("sitemap queries", () => {
       [ids.primary, ids.secondary, ids.offerPrimary, ids.offerSecondary]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hidden]);
     // An admin's name, brand and part number (#602, #575) move the address with the page's shown values.
-    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,brand,part_number) VALUES($1,$1,'Özel Ürün Adı','ÖZEL MARKA','ÖZ 1')", [ids.listed]);
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,brand,part_number) VALUES($1,$1,'YAG FILTRESI GENEL','ÖZEL MARKA','ÖZ 1')", [ids.listed]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hide_oem) VALUES($1,$1,true)", [ids.oemHidden]);
     // Category tree: 100 > 101 (enriched product) and 100 > 102 (empty); 200 empty root; 252 = legacy "fren", 241 = legacy "filtre".
     await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
@@ -220,7 +221,12 @@ describe("sitemap queries", () => {
       assert.ok(product, row.id);
       assert.equal(row.path, productPath(product), row.id);
     }
-    assert.equal(rows.find(row => row.id === ids.listed)?.path, `/urun/ozel-marka-ozel-urun-adi-oz-1-${ids.listed}`);
+    assert.equal(rows.find(row => row.id === ids.listed)?.path, `/urun/ozel-marka-yag-filtresi-genel-oz-1-${ids.listed}`);
+    // An all-caps admin name is shown as written, so the sitemap, the card and the page agree; supplier rows keep the readable name.
+    const listed = await catalog.getStorefrontProduct(ids.listed);
+    assert.equal(listed?.name_overridden, true);
+    assert.equal(shownProductName(listed!), "YAG FILTRESI GENEL");
+    assert.equal((await catalog.getStorefrontProduct(ids.dinamik))?.name_overridden, false);
     assert.equal(rows.find(row => row.id === ids.store)?.path, `/urun/bosch-magaza-parca-store-1-${ids.store}`);
   });
 

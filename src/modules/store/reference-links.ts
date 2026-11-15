@@ -9,7 +9,7 @@ export const compactPartNumber = (value: string) => value.toUpperCase().replace(
 const referenceKey = (brand: string, code: string) => `${compactPartNumber(brand)}|${compactPartNumber(code)}`;
 const searchHref = (code: string) => searchPath({ q: compactPartNumber(code), searchBy: "code" });
 const company = storefrontCompanies;
-const entriesSql = "SELECT id,brand,code,oem,name,display_brand,display_code FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+const entriesSql = "SELECT id,brand,code,oem,name,name_overridden,display_brand,display_code FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 
 // Items whose part number (the code after the supplier prefix) is one of `codes`, read through
 // supplier_items_part_key_idx; filtering the catalog view directly normalised every item (~2 s per page).
@@ -31,7 +31,7 @@ export async function getReferenceLinks(productId: string, groups: ReferenceGrou
     // name must equal the reference brand before the (costly) normalisation runs.
     const candidates = await partNumberCandidates(crossCodes);
     const rows = candidates.length ? (await db.query<ProductAddress & {brand_key: string; prefix_key: string; part: string}>(
-      `SELECT id, name, display_brand, display_code, part_number_key(brand) brand_key, part_number_key(split_part(code,' ',1)) prefix_key,
+      `SELECT id, name, name_overridden, display_brand, display_code, part_number_key(brand) brand_key, part_number_key(split_part(code,' ',1)) prefix_key,
         part_number_key(substring(code from position(' ' in code)+1)) part
       FROM (${entriesSql}) catalog
       WHERE catalog.id=ANY($4::uuid[])

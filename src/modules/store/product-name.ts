@@ -152,6 +152,15 @@ export function readableProductName(raw: string): string {
   return words.map((word, index) => isTooth(words, index) ? word.replace("DIS", "Diş") : isLiteralWord(words, index) ?? readableWord(word)).join(" ");
 }
 
+/**
+ * The name a store surface prints for a catalog row (#686): an admin's override as written (`name_overridden`, set by the
+ * catalog views), a supplier's name in its readable form. Cards, suggestions, analytics, the page and the product address
+ * all read it, so they never disagree.
+ */
+export function shownProductName(product: { name: string; name_overridden: boolean }): string {
+  return product.name_overridden ? product.name : readableProductName(product.name);
+}
+
 const twoWordMakes = new Set(["ALFA ROMEO", "ASIA MOTORS", "ASTON MARTIN", "AUTO UNION", "DE LOREAN", "DE TOMASO", "EON MOTORS", "FORD AUSTRALIA", "FORD OTOSAN",
   "FORD USA", "GREAT WALL", "KG MOBILITY", "LAND ROVER", "LIVAN AUTO", "MIA ELECTRIC", "MPM MOTORS", "RAYTON FISSORE", "SWM MOTORS"]);
 

@@ -1,4 +1,4 @@
-import { readableProductName } from "./product-name";
+import { shownProductName } from "./product-name";
 
 /** Store-facing edits of a product (product_overrides, #575); NULL follows the automatic sources. */
 export type StoreOverride = {
@@ -40,7 +40,7 @@ export function cardPartNumber(product: { code: string; display_code: string; br
   return number;
 }
 
-/** The title a listing card prints: the supplier's name in its readable form (#659), the store brand and the part number. */
-export function catalogCardTitle(product: { name: string; code: string; display_code: string; brand: string; display_brand: string }, partNumber?: string) {
-  return `${readableProductName(product.name)} ${product.display_brand} ${cardPartNumber(product, partNumber ?? product.code)}`;
+/** The title a listing card prints: the shown name (an admin's as written, the supplier's readable, #659/#686), the store brand and the part number. */
+export function catalogCardTitle(product: { name: string; name_overridden: boolean; code: string; display_code: string; brand: string; display_brand: string }, partNumber?: string) {
+  return `${shownProductName(product)} ${product.display_brand} ${cardPartNumber(product, partNumber ?? product.code)}`;
 }

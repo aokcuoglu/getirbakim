@@ -1,4 +1,5 @@
 import "server-only";
+import { shownProductName } from "./product-name";
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { catalogSql, categoryProductIds, notSecondaryOffer, typeFittedIds, withBestOffers, type CatalogProduct } from "./catalog";
@@ -88,7 +89,7 @@ export async function maintenanceKitOptions(vehicleTypeId: string): Promise<Main
 function toCandidate(product: CatalogProduct, oilSpec: VehicleOilSpec | null): KitCandidate {
   const packLitres = oilSpec ? oilPackLitres(product.name) : null;
   return {
-    id: product.id, offerId: product.offer_id ?? product.id, href: productPath(product), name: product.name, brand: product.display_brand, code: product.display_code,
+    id: product.id, offerId: product.offer_id ?? product.id, href: productPath(product), name: shownProductName(product), brand: product.display_brand, code: product.display_code,
     priceKurus: product.price_kurus!, maxQuantity: Math.min(99, product.max_quantity), stockLabel: product.stock_label,
     image: null, logo: null, packLitres,
     suggestedQuantity: oilSpec?.capacityMax ? Math.min(Math.max(1, product.max_quantity), oilPackQuantity(oilSpec.capacityMax, packLitres)) : 1,

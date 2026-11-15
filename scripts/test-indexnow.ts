@@ -195,8 +195,8 @@ describe("IndexNow runs", () => {
   const rename = (name: string, value: string) =>
     schema.pool.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{ac}',to_jsonb($2::text)) WHERE id=$1`, [ids[name], value]);
   // The page's address from the catalog view (the page's own source), apart from the sitemap's columns.
-  const addressOf = async (id: string) => productPath((await schema.pool.query<{ id: string; name: string; display_brand: string; display_code: string }>(
-    "SELECT id::text,name,display_brand,display_code FROM commerce_catalog_entries WHERE id=$1", [id])).rows[0]);
+  const addressOf = async (id: string) => productPath((await schema.pool.query<{ id: string; name: string; name_overridden: boolean; display_brand: string; display_code: string }>(
+    "SELECT id::text,name,name_overridden,display_brand,display_code FROM commerce_catalog_entries WHERE id=$1", [id])).rows[0]);
   const pathNow = (key: string) => addressOf(ids[key]);
   const both = (...paths: string[]) => [...new Set(paths)].map(url).sort();
   const known = async () => new Map((await schema.pool.query<{ id: string; fingerprint: string }>(

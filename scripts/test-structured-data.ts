@@ -108,7 +108,7 @@ test("breadcrumb trails and BreadcrumbList", () => {
 });
 
 test("collection page lists the products with their addresses", () => {
-  const items = [{ path: productPath({ id: "a", name: "A", display_brand: "BOSCH", display_code: "1" }), name: "A" }, { path: productPath({ id: "b", name: "B", display_brand: "BOSCH", display_code: "2" }), name: "B" }];
+  const items = [{ path: productPath({ id: "a", name: "A", name_overridden: false, display_brand: "BOSCH", display_code: "1" }), name: "A" }, { path: productPath({ id: "b", name: "B", name_overridden: false, display_brand: "BOSCH", display_code: "2" }), name: "B" }];
   const node = collectionJsonLd({ name: "Fren diski", path: "/kategori/x", items }, base) as { url: string; mainEntity: { numberOfItems: number; itemListElement: Record<string, unknown>[] } };
   assert.equal(node.url, `${base}/kategori/x`);
   assert.equal(node.mainEntity.numberOfItems, 2);

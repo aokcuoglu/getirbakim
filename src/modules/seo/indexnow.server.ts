@@ -27,7 +27,7 @@ export async function loadIndexNowChunk(index: number): Promise<IndexNowRow[]> {
     supplier: `${productAddressColumns.supplier},${supplierFingerprint} AS fingerprint`,
     store: `${productAddressColumns.store},${storeFingerprint} AS fingerprint`,
   });
-  const { rows } = await boundedQuery<ProductAddress & { fingerprint: string }>(`SELECT id,name,display_brand,display_code,fingerprint FROM (${sql}) u ORDER BY id`,
+  const { rows } = await boundedQuery<ProductAddress & { fingerprint: string }>(`SELECT id,name,name_overridden,display_brand,display_code,fingerprint FROM (${sql}) u ORDER BY id`,
     [storefrontCompanies(), from, to]);
   return rows.map(row => ({ id: row.id, path: productPath(row), fingerprint: row.fingerprint }));
 }

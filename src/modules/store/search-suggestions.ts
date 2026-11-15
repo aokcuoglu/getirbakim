@@ -5,7 +5,7 @@ import { getStoreCategories } from "./categories";
 import { suggestProducts, type VehicleSearchScope } from "./catalog";
 import { categoryPath, searchPath } from "@/modules/seo/paths";
 import { productPath } from "@/modules/seo/product-path";
-import { readableProductName } from "./product-name";
+import { readableProductName, shownProductName } from "./product-name";
 
 export type SearchSuggestions = {
   categories: { name: string; href: string }[];
@@ -29,7 +29,7 @@ export async function searchSuggestions(raw: string, mode: SearchMode): Promise<
   return {
     categories: matching.map(category => ({ name: category.name, href: categoryPath(category.slug) })),
     products: found.products.map(product => product.kind === "product"
-      ? { name: readableProductName(product.name), detail: `${product.brand} · ${product.code}`, href: productPath({ id: product.id, name: product.name, display_brand: product.brand, display_code: product.code }) }
+      ? { name: shownProductName(product), detail: `${product.brand} · ${product.code}`, href: productPath({ id: product.id, name: product.name, name_overridden: product.name_overridden, display_brand: product.brand, display_code: product.code }) }
       : { name: readableProductName(product.name), detail: `${product.products.toLocaleString("tr-TR")} ürün`, href: searchPath({ q: product.name.toLocaleLowerCase("tr") }) }),
     correctedQuery: found.correctedQuery,
     vehicleScope: found.vehicleScope,
