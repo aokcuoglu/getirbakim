@@ -10,6 +10,7 @@ import { cartQuote, orderTotals, shippingRule } from "@/modules/store/orders";
 import { paymentsEnabled } from "@/modules/payments/checkout";
 import { OrderSummary } from "@/components/order-summary";
 import { CheckoutForm } from "@/components/checkout-form";
+import { CartFreshness } from "@/components/navigation/cart-badge";
 import { money } from "@/modules/store/catalog";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,7 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
   const discount=account?.approved && account.role==="service" ? account.discount_percent : 0;
   const enabled=paymentsEnabled();
   const valid=enabled && items.length>0 && items.every(p=>p.available && p.price_kurus && p.quantity<=p.max_quantity);
-  return <div className="bg-[#f8f9f9] text-foreground"><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3">
+  return <div className="bg-[#f8f9f9] text-foreground"><CartFreshness count={items.reduce((n,p)=>n+p.quantity,0)}/><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3">
     <div className="flex items-center justify-between gap-6 py-9 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-5 max-[760px]:py-7"><h1 className="m-0 text-[28px] leading-9 font-semibold tracking-[-0.7px]">Siparişi tamamla</h1>
       <ol className="m-0 flex list-none items-center gap-6 p-0 text-[13px] leading-5 max-[760px]:gap-3 max-[760px]:text-xs">
         <li className={step}><Link href="/sepet" className="flex items-center gap-2 hover:text-primary"><span className={cn(stepMark,"border-[#73a985] bg-[#f1f8f3] text-[#168657]")}><Check className="size-4" aria-hidden/></span>Sepet</Link></li>

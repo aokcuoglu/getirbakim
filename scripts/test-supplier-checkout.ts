@@ -32,7 +32,7 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
   const {importBasbug}=await import("../src/modules/suppliers/basbug-import");
   const {submitOrder,cartQuote:quote,shippingRule}=await import("../src/modules/store/orders");
   const cartQuote=async(items:Parameters<typeof quote>[0],discount:number)=>quote(items,discount,await shippingRule());
-  const {cartFor,cartLineQuantity,setCartQuantity}=await import("../src/modules/store/cart");
+  const {cartFor,cartLineQuantity,cartQuantity,setCartQuantity}=await import("../src/modules/store/cart");
   const originalFetch=globalThis.fetch;
   const keys=["TAMI_CHECKOUT_ENABLED","BASBUG_BASE_URL","BASBUG_USERNAME","BASBUG_PASSWORD","BASBUG_CLIENT_ID","BASBUG_CLIENT_SECRET","BASBUG_FIRMA_ADI"];
   const originalEnv=keys.map(key=>process.env[key]);
@@ -73,6 +73,8 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     // The add-to-cart dialog reads only its own line's quantity (#705).
     assert.equal(await cartLineQuantity(owner,id),1);
     assert.equal(await cartLineQuantity(owner,randomUUID()),0);
+    // Add-to-cart actions return the cart total for the header badge instead of revalidating the layout (#707).
+    assert.equal(await cartQuantity(owner),1);
     // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
