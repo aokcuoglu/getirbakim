@@ -10,7 +10,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
-import {getVehicleModelGroup} from './vehicle-model-groups.server';
+import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
@@ -194,6 +194,26 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  `SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])
   UNION SELECT COALESCE(o.primary_id,f.supplier_item_id)::text FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
   WHERE f.model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
+/**
+ * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
+ * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing
+ * (listedOnly); a fit pointing at a hidden or no longer supplied item does not. One query per make over the make's
+ * series, cached like the fits (per process, reloaded when a listing edit moves the epoch).
+ */
+const cachedListedModels=staleCache<string[]>(10*60*1000,300,listings);
+export async function getListedModelGroups(brandId:string) {
+ const groups=await getVehicleModelGroups(brandId);
+ const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
+ const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(
+  `WITH fits AS MATERIALIZED (SELECT model_id,supplier_item_id AS id FROM storefront_model_fits WHERE model_id=ANY($2::int[])
+    UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
+    WHERE f.model_id=ANY($2::int[])),
+   ids AS MATERIALIZED (SELECT DISTINCT id FROM fits),
+   listed AS MATERIALIZED (SELECT catalog.id FROM (SELECT e.* FROM storefront_catalog_entries e JOIN ids ON ids.id=e.id
+     WHERE e.source='store' OR e.company=ANY($1::text[])) catalog WHERE ${listedOnly})
+   SELECT DISTINCT fits.model_id::text AS id FROM fits JOIN listed ON listed.id=fits.id`,[company(),modelIds])).rows.map(row=>row.id)));
+ return groups.filter(group=>group.models.some(member=>listedIds.has(member.id)));
+}
 /** Ids of the products linked to one vehicle type (cached per process). */
 export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**

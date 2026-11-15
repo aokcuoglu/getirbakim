@@ -1,32 +1,17 @@
 import type { Metadata } from "next";
+import { vehicleModelGroupYears } from "@/modules/store/vehicle-model-groups";
 import { notFound } from "next/navigation";
 import type { SearchParams } from "@/lib/search-params";
-import { getStoreCategories } from "@/modules/store/categories";
-import { getVehicleBrandBySlug } from "@/modules/store/vehicle-catalog.server";
-import { getVehicleModelGroup } from "@/modules/store/vehicle-model-groups.server";
-import { vehicleModelGroupYears } from "@/modules/store/vehicle-model-groups";
-import { listingTotal } from "@/modules/store/catalog";
-import { resolveListing, type Listing } from "@/modules/store/listing-resolve";
+import { findListing, type LoadedListing } from "@/modules/store/listing-load";
 import { listingIndexable } from "@/modules/seo/indexing";
 import { listingPath } from "@/modules/seo/paths";
 import { pageMetadata } from "@/lib/site";
 import { catalogDescription } from "./catalog-view";
 
-export type LoadedListing = Listing & {
-  /** A model page's product count without its filters (#639); undefined on other listings. */
-  modelTotal?: number;
-};
+export type { LoadedListing };
 
-/**
- * The listing behind /katalog, /kategori/<category>[/<make>] and /yedek-parca/<make>[/<model>]; see resolveListing
- * for the rules. A model without any product is a 404 (#639), with or without filters.
- */
 export async function loadListing(input: { category?: string; make?: string; model?: string; search: SearchParams }): Promise<LoadedListing> {
-  const listing = await resolveListing(input, { categories: getStoreCategories, findMake: getVehicleBrandBySlug, findModel: getVehicleModelGroup }) ?? notFound();
-  if (!listing.model) return listing;
-  const modelTotal = await listingTotal({ make: listing.query.make, model: listing.query.model });
-  if (!modelTotal) notFound();
-  return { ...listing, modelTotal };
+  return await findListing(input) ?? notFound();
 }
 
 const makeLabel = (name: string) => name === "VOLKSWAGEN" ? "VW" : name;

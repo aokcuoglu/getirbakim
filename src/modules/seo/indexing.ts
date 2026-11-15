@@ -73,6 +73,8 @@ export function productIndexable(product: { supplier: string; source: "store" | 
  * | 20       | 2,884       | 2,955            | 669             |
  * | 50       | 2,326       | 1,055            | 243             |
  *
+ * (Numbered code-less series later became units of their own: 4,442 units; the table keeps its measured counts.)
+ *
  * At 10, 74% of the model pages stay indexable (283 have no product: 404) while the one- and two-product
  * model × category pages (next slice) stay out.
  */

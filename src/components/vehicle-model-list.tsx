@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { getListedModelGroups } from "@/modules/store/vehicle-model-groups.server";
+import { getListedModelGroups } from "@/modules/store/catalog";
 import { vehicleModelGroupFamilies, vehicleModelGroupYears } from "@/modules/store/vehicle-model-groups";
 import { modelPath } from "@/modules/seo/paths";
 
 // A make page's models (#639): each family with its generations, newest first, linking to the model pages. Only
-// units with a fitted product are listed.
+// units that list a product are linked (the others' pages are 404).
 export async function VehicleModelList({ brandId, makeName, makeSlug }: { brandId: string; makeName: string; makeSlug: string }) {
   const families = vehicleModelGroupFamilies(await getListedModelGroups(brandId));
   if (!families.length) return null;

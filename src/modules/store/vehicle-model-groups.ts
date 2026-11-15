@@ -7,9 +7,18 @@
 //  2. A code word after the family: `<family>-<code>` (passat-b8, a4-b8, transporter-t5).
 //  3. Else the series sharing a chassis code in brackets: `<family>-<code>`, the earliest series' first code
 //     (tipo-356 = Saloon + Hatchback + Estate, 3-e90, c-class-w205).
-//  4. Else (no code at all) the family's series whose production years overlap: `<family>-<start year>` (clio-2025).
-//  5. A slug still taken goes to the earliest unit (production start, then id); a later one adds `-<lowest model id>`,
-//     so an existing address never changes when the catalog gains a series.
+//  4. Else a number right after the family names the model (tiggo-7, atto-3, seal-6, mg-5, r-1200): the number is the
+//     model, not a generation, and `describe()` in description-fitment.ts reads it the same way.
+//  5. Else (no code at all) the family's series whose production years overlap: `<family>-<start year>` (clio-2025).
+//     A series without an end year ends where the family's next generation (4+ years later) starts, so
+//     ford-usa/mustang-2004 stops at the 2014 Mustang.
+//  6. A slug still taken goes to the earliest unit (production start, then id); a later one adds `-<lowest model id>`.
+//
+// Stability: a newer series (a later generation) keeps every existing address; at most it splits an open-ended unit,
+// and the earlier part keeps the address. An address moves when the catalog gains a series that starts earlier than
+// the unit it joins (the unit is named by its earliest series) or one that bridges two year ranges or chassis codes
+// (it merges them). 141 such single-series additions were measured on the local catalog (2026-11-15): known limit.
+// `npm run vehicles:slugs` (docs/vehicle-catalog.md) compares the addresses before and after a catalog import.
 import { BODY, ROMAN, normalizeText } from "./description-fitment";
 import type { VehicleModel } from "./vehicle-catalog";
 
@@ -27,7 +36,8 @@ const codeWord = /^(?=.*[A-Z])(?=.*\d)[A-Z0-9][A-Z0-9./]+$/;
 
 const slugify = (value: string) => normalizeText(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-type Parsed = { model: VehicleModel; familyKey: string; family: string; generation: number | null; wordCode: string | null; codes: string[] };
+type Parsed = { model: VehicleModel; familyKey: string; family: string; generation: number | null; wordCode: string | null; number: string | null;
+  codes: string[] };
 
 function parse(model: VehicleModel): Parsed {
   const original = model.name.split("(")[0].trim().split(/\s+/);
@@ -44,12 +54,17 @@ function parse(model: VehicleModel): Parsed {
   const codes = [...model.name.matchAll(/\(([^)]*)\)/g)].flatMap(([, inner]) => normalizeText(inner).split(/[,\s]+/)
     .map(code => code.split("/")[0].replace(/[^A-Z0-9]/g, "")).filter(Boolean));
   return { model, familyKey: words.slice(0, length).join(" "), family: original.slice(0, length).join(" "),
-    generation: rest.map(word => ROMAN[word]).find(Boolean) ?? null, wordCode: rest.find(word => codeWord.test(word)) ?? null, codes };
+    generation: rest.map(word => ROMAN[word]).find(Boolean) ?? null, wordCode: rest.find(word => codeWord.test(word)) ?? null,
+    number: /^\d+$/.test(rest[0] ?? "") ? rest[0] : null, codes };
 }
 
 const start = (model: VehicleModel) => model.dateFrom ?? "9999-99";
 const byAge = (a: VehicleModel, b: VehicleModel) => start(a).localeCompare(start(b)) || Number(a.id) - Number(b.id);
-const overlaps = (a: { from: string; to: string }, b: VehicleModel) => (b.dateFrom ?? "0000") <= a.to && a.from <= (b.dateTo ?? "9999");
+const monthBefore = (date: string) => {
+  const [year, month] = date.split("-").map(Number);
+  return month > 1 ? `${year}-${String(month - 1).padStart(2, "0")}` : `${year - 1}-12`;
+};
+const overlaps = (a: { from: string; to: string }, from: string, to: string) => from <= a.to && a.from <= to;
 
 type Draft = { slug: string; name: string; family: string; generation: number | null; models: VehicleModel[] };
 
@@ -65,10 +80,19 @@ export function vehicleModelGroups(models: VehicleModel[]): VehicleModelGroup[] 
   for (const parsed of [...models].sort(byAge).map(parse)) families.set(parsed.familyKey, [...families.get(parsed.familyKey) ?? [], parsed]);
   for (const [familyKey, members] of families) {
     const family = members[0].family, familySlug = slugify(familyKey);
+    // An open end closes where the family's next generation starts, four years or more later: the same rule as the
+    // description matcher's (description-fitment.ts), so a series still listed "to today" does not swallow the later ones.
+    const starts = members.flatMap(({ model }) => model.dateFrom ? [model.dateFrom] : []);
+    const endOf = (model: VehicleModel) => {
+      if (model.dateTo || !model.dateFrom) return model.dateTo ?? "9999";
+      const next = starts.filter(date => Number(date.slice(0, 4)) >= Number(model.dateFrom!.slice(0, 4)) + 4).sort()[0];
+      return next ? monthBefore(next) : "9999";
+    };
     const coded: { codes: Set<string>; members: Parsed[] }[] = [], plain: { from: string; to: string; members: Parsed[] }[] = [];
     for (const parsed of members) {
       if (parsed.generation) add(`${familyKey}|g${parsed.generation}`, `${familySlug}-${parsed.generation}`, `${family} ${parsed.generation}`, parsed);
       else if (parsed.wordCode) add(`${familyKey}|w${parsed.wordCode}`, `${familySlug}-${slugify(parsed.wordCode)}`, `${family} ${parsed.wordCode}`, parsed);
+      else if (parsed.number && !parsed.codes.length) add(`${familyKey}|n${parsed.number}`, `${familySlug}-${parsed.number}`, `${family} ${parsed.number}`, parsed);
       else if (parsed.codes.length) {
         // Series sharing any code are one unit; a series bridging two units joins them.
         const hits = coded.filter(cluster => parsed.codes.some(code => cluster.codes.has(code)));
@@ -82,12 +106,13 @@ export function vehicleModelGroups(models: VehicleModel[]): VehicleModelGroup[] 
         cluster.members.push(parsed);
         for (const code of parsed.codes) cluster.codes.add(code);
       } else {
-        const range = plain.find(cluster => overlaps(cluster, parsed.model));
+        const from = parsed.model.dateFrom ?? "0000", to = endOf(parsed.model);
+        const range = plain.find(cluster => overlaps(cluster, from, to));
         const cluster = range ?? { from: "9999", to: "0000", members: [] };
         if (!range) plain.push(cluster);
         cluster.members.push(parsed);
-        cluster.from = [cluster.from, parsed.model.dateFrom ?? "0000"].sort()[0];
-        cluster.to = [cluster.to, parsed.model.dateTo ?? "9999"].sort()[1];
+        cluster.from = [cluster.from, from].sort()[0];
+        cluster.to = [cluster.to, to].sort()[1];
       }
     }
     for (const cluster of coded) {

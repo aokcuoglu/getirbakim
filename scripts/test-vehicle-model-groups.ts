@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { slugPattern } from "../src/modules/seo/paths";
 import type { VehicleModel } from "../src/modules/store/vehicle-catalog";
+import { compareSlugSnapshots, slugSnapshot } from "../src/modules/store/vehicle-model-slug-snapshot";
 import { vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups } from "../src/modules/store/vehicle-model-groups";
 
 // Model page units and their addresses (#639). The catalog rows below are copied from the local vehicle_models
@@ -301,11 +302,75 @@ const catalog: Record<string, Row[]> = {
     [90132,"TRANSPORTER T7 Van (TV_, TW_)","2024-07",null],
     [90137,"TRANSPORTER T7 Platform/Chassis (TX_, TY_)","2024-07",null],
   ],
+  "CHERY": [
+    [38252,"TIGGO 5x","2017-09",null],
+    [44517,"TIGGO 9","2023-05",null],
+    [46437,"TIGGO 7","2024-11",null],
+    [46440,"TIGGO 8 PLUS","2024-09",null],
+  ],
+  "BYD": [
+    [42702,"ATTO 3","2022-02",null],
+    [43107,"SEAL","2022-07",null],
+    [45173,"SEAL U","2024-02",null],
+    [45331,"ATTO 2","2024-03",null],
+    [45520,"SEALION 7","2024-05",null],
+    [45615,"SEAL 06 Saloon","2024-05",null],
+    [46803,"SEAL 6 DM-i Estate","2025-07",null],
+    [46852,"SEAL 5","2025-06",null],
+  ],
+  "MG": [
+    [5385,"MG X-POWER","2003-01","2008-04"],
+    [9740,"MG 6 Saloon","2010-11",null],
+    [42217,"MG 5 Estate","2020-10",null],
+    [43566,"MG 4 (EH32)","2022-07",null],
+    [45344,"MG 3 (ZP2_)","2024-02",null],
+  ],
+  "FORD USA": [
+    [1916,"MUSTANG Coupe (C)","1993-09","2004-12"],
+    [1917,"MUSTANG Convertible (C)","1993-09","2004-12"],
+    [5633,"MUSTANG Coupe","2004-12",null],
+    [5634,"MUSTANG Convertible","2005-09",null],
+    [10945,"MUSTANG Convertible","1978-11","1993-12"],
+    [11356,"MUSTANG Coupe","1978-11","1993-12"],
+    [13370,"MUSTANG Coupe","2014-02","2023-04"],
+    [13371,"MUSTANG Convertible","2014-02",null],
+    [36913,"MUSTANG Convertible","1963-09","1973-12"],
+    [36914,"MUSTANG Coupe","1963-09","1973-12"],
+    [45077,"MUSTANG Coupe","2023-06",null],
+    [45078,"MUSTANG Convertible","2023-06",null],
+  ],
+  "BMW MOTORRAD": [
+    [12733,"R 65",null,null],
+    [12734,"R 850",null,null],
+    [12735,"R 100",null,null],
+    [12736,"R 90",null,null],
+    [12737,"R 75",null,null],
+    [12738,"R 80",null,null],
+    [12739,"R 50",null,null],
+    [12740,"R 60",null,null],
+    [12741,"R 1100",null,null],
+    [12742,"R 1150",null,null],
+    [12743,"R 1200",null,null],
+    [13082,"R 900",null,null],
+    [13552,"R 25",null,null],
+    [14014,"R",null,null],
+    [14480,"R 69",null,null],
+    [14697,"R 45",null,null],
+    [39516,"R 1250",null,null],
+    [40728,"R 18",null,null],
+    [45242,"R 1300",null,null],
+    [46919,"R 12",null,null],
+  ],
 };
 const pinned: Record<string, string[]> = {
   "AUDI": ["a4-b5", "a4-b6", "a4-b7", "a4-b8", "a4-allroad-b8", "a4-b9", "a4-allroad-b9"],
   "BEDFORD": ["midi-1984"],
   "BMW": ["3-e21", "3-e30", "3-e36", "3-compact-e36", "3-e46", "3-compact-e46", "3-e90", "3-e91", "3-e92", "3-e93", "3-f30", "3-f31", "3-f34", "3-g20", "3-g21"],
+  "CHERY": ["tiggo-5x", "tiggo-9", "tiggo-8", "tiggo-7"],
+  "BYD": ["atto-3", "seal-2022", "seal-u-2024", "atto-2", "sealion-7", "seal-06", "seal-5", "seal-6"],
+  "MG": ["mg-x-power-2003", "mg-6", "mg-5", "mg-eh32", "mg-zp2"],
+  "FORD USA": ["mustang-1963", "mustang-1978", "mustang-c", "mustang-2004", "mustang-2014", "mustang-2023"],
+  "BMW MOTORRAD": ["r-65", "r-850", "r-100", "r-90", "r-75", "r-80", "r-50", "r-60", "r-1100", "r-1150", "r-1200", "r-900", "r-25", "r-14014", "r-69", "r-45", "r-1250", "r-18", "r-1300", "r-12"],
   "FIAT": ["tipo-160", "doblo-223", "linea-323", "doblo-263", "tipo-356", "doblo-510"],
   "FORD": ["focus-1", "focus-c-max-dm2", "focus-2", "focus-3", "focus-4"],
   "MERCEDES-BENZ": ["c-class-w202", "c-class-s202", "c-class-w203", "c-class-cl203", "c-class-s203", "c-class-w204", "c-class-s204", "c-class-c204", "c-class-w205", "c-class-s205", "c-class-c205", "c-class-a205", "c-class-w206", "c-class-s206"],
@@ -365,6 +430,49 @@ test("code-less series with overlapping years are one unit named by the start ye
   assert.deepEqual(split.map(group => group.slug), ["kb-1972", "kb-1985"]);
 });
 
+test("a number right after the family names a code-less model: tiggo-7, atto-3, seal-6, mg-5, r-1200", () => {
+  assert.deepEqual(members("CHERY", "tiggo-7"), ["TIGGO 7"]);
+  assert.deepEqual(members("CHERY", "tiggo-8"), ["TIGGO 8 PLUS"]);
+  assert.deepEqual(members("BYD", "atto-2"), ["ATTO 2"]);
+  assert.deepEqual(members("BYD", "seal-6"), ["SEAL 6 DM-i Estate"]);
+  // "SEAL" alone and "SEAL U" are other models; "MG 4 (EH32)" is named by its code like any coded series.
+  assert.deepEqual(members("BYD", "seal-2022"), ["SEAL"]);
+  assert.deepEqual(members("MG", "mg-6"), ["MG 6 Saloon"]);
+  assert.deepEqual(members("MG", "mg-5"), ["MG 5 Estate"]);
+  assert.deepEqual(members("BMW MOTORRAD", "r-1200"), ["R 1200"]);
+  assert.equal(groups("BMW MOTORRAD").length, 20);
+  // A roman generation or a code still wins over the number ("LT 28-35 I", "RODEO 6 (ACL_)").
+  const rows: Row[] = [[1, "LT 28-35 I Van (281-363)", "1975-01", "1996-12"], [2, "RODEO 6 (ACL_)", "1990-01", "1998-12"], [3, "RODEO 4 (ACL_)", "1990-01", "1998-12"]];
+  assert.deepEqual(vehicleModelGroups(models(rows)).map(group => group.slug), ["lt-1", "rodeo-acl"]);
+});
+
+test("an open end closes where the family's next generation starts: mustang-2004 stops at the 2014 Mustang", () => {
+  assert.deepEqual(members("FORD USA", "mustang-2004"), ["MUSTANG Coupe", "MUSTANG Convertible"]);
+  assert.deepEqual(members("FORD USA", "mustang-2014")?.length, 2);
+  assert.deepEqual(members("FORD USA", "mustang-2023")?.length, 2);
+  // Less than four years later is the same generation (a facelift), as in the description matcher.
+  const rows: Row[] = [[1, "KB", "2010-01", null], [2, "KB Van", "2012-06", null]];
+  assert.deepEqual(vehicleModelGroups(models(rows)).map(group => group.slug), ["kb-2010"]);
+});
+
+test("slug snapshots list the addresses a catalog change loses or changes", () => {
+  const make = (rows: Row[]) => [{ id: "1", name: "FORD USA", models: models(rows) }];
+  const before = slugSnapshot(make(catalog["FORD USA"].filter(row => row[0] < 13000)));
+  const after = slugSnapshot(make(catalog["FORD USA"]));
+  const same = compareSlugSnapshots(before, before);
+  assert.deepEqual([same.kept, same.added, same.changed.length, same.lost.length], [Object.keys(before.makes["1"].slugs).length, 0, 0, 0]);
+  const grown = compareSlugSnapshots(before, after);
+  assert.equal(grown.lost.length, 0);
+  assert.equal(grown.added, 3);
+  assert.deepEqual(grown.changed, []);
+  const dropped = compareSlugSnapshots(after, slugSnapshot(make(catalog["FORD USA"].filter(row => row[0] !== 5633))));
+  // The unit is named by its earliest series: without the 2004 coupe it moves to the 2005 convertible's year.
+  assert.deepEqual(dropped.lost.map(entry => [entry.slug, entry.movedTo]), [["mustang-2004", ["mustang-2005"]]]);
+  const lost = compareSlugSnapshots(after, slugSnapshot(make(catalog["FORD USA"].filter(row => row[1] !== "MUSTANG Coupe (C)" && row[1] !== "MUSTANG Convertible (C)"))));
+  assert.deepEqual(lost.lost.map(entry => entry.slug), ["mustang-c"]);
+  assert.deepEqual(lost.lost[0].movedTo, []);
+});
+
 test("a taken slug goes to the earliest unit; a later one adds its lowest model id", () => {
   const rows: Row[] = [[30, "X-TRAIL (T30)", "2001-06", "2013-12"], [12, "X TRAIL Van (T30)", "2003-01", "2007-12"]];
   assert.deepEqual(vehicleModelGroups(models(rows)).map(group => [group.slug, group.models.map(model => model.id)]),
@@ -388,7 +496,7 @@ test("a unit spans its members' production years; an open end or unknown start s
   const passatB8 = groups("VOLKSWAGEN").find(group => group.slug === "passat-b8")!;
   assert.deepEqual([passatB8.dateFrom, passatB8.dateTo], ["2014-08", null]);
   const unknown = vehicleModelGroups(models([[5, "R 65", null, null]]))[0];
-  assert.deepEqual([unknown.slug, unknown.dateFrom, unknown.dateTo], ["r-5", null, null]);
+  assert.deepEqual([unknown.slug, unknown.dateFrom, unknown.dateTo], ["r-65", null, null]);
   assert.deepEqual([golf7, passatB8, unknown].map(vehicleModelGroupYears), ["2012–2022", "2014–günümüz", null]);
 });
 
