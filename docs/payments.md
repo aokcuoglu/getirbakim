@@ -31,7 +31,9 @@
 
 - `/yonetim/fiyatlandirma` → Kargo: ücret (varsayılan 150 TL) ve ücretsiz kargo eşiği (varsayılan 1.500 TL, 0 = eşik yok). Eşik servis indirimi sonrası ürün toplamına uygulanır. **Varsayılanlar yer tutucudur; canlıya almadan önce gerçek değerleri girin.**
 - Ortam: `TAMI_MERCHANT_NUMBER`, `TAMI_TERMINAL_NUMBER`, `TAMI_SECRET_KEY`, `TAMI_JWK_KID`, `TAMI_JWK_K`, `TAMI_PAYMENT_API_BASE_URL`, `TAMI_PORTAL_BASE_URL` (sandbox veya canlı çift; karışık çift reddedilir), `TAMI_CHECKOUT_ENABLED=true` (yeni ödemeleri açar; kapalıyken checkout devre dışı, callback/mutabakat çalışmaya devam eder), `PAYMENT_RECONCILIATION_SECRET` (≥32 karakter), `SITE_URL` (callback adresi bundan üretilir).
-- Zamanlanmış mutabakat: `deploy/getirbakim-production-payments.{service,timer}` 5 dakikada bir `POST /api/payments/tami/reconcile` çağırır (geç ödemeleri yakalar, süresi dolan siparişleri kapatır). VPS'e kurulması ayrı adımdır.
+- Zamanlanmış mutabakat: 5 dakikada bir `POST /api/payments/tami/reconcile` çağrılır (geç ödemeleri yakalar, süresi dolan siparişleri kapatıp stoku iade eder). Çağrılmazsa geç ödeme yakalanmaz ve süresi dolan sipariş stoku tutmaya devam eder.
+  - **AWS (canlı):** EventBridge Scheduler `getirbakim-production/getirbakim-production-payment-reconciliation`, `rate(5 minutes)`, yeniden deneme yok. ECS görev tanımı `getirbakim-production-payment-reconciliation` (operations imajı, 256 CPU / 512 MB) `node -e fetch(...)` ile iç ALB'deki `RECONCILE_URL`'e `Authorization: Bearer $PAYMENT_RECONCILIATION_SECRET` gönderir; 240 sn zaman aşımı, 2xx dışı yanıtta çıkış kodu 1. Secret uygulamayla aynı değerdir (Secrets Manager). Altyapı Lokum Ops CDK'sında tanımlı, bu repoda değil. Zamanlayıcı DNS geçişine kadar **kapalıdır**; geçişte açılır ([AWS geçişi](aws-cutover.md)).
+  - **VPS (eski):** `deploy/getirbakim-production-payments.{service,timer}` aynı ucu çağırır. VPS geçişe kadar bakım modunda; AWS'e geçildikten sonra kullanılmaz.
 
 ## Test
 
