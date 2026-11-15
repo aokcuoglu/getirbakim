@@ -92,3 +92,79 @@ test("a query shorter than three characters finds nothing", async () => {
   const result = await search.searchEquivalentTargets(schema.pool, await productOf("febi"), "FE");
   assert.deepEqual(result, { q: "FE", targets: [] });
 });
+
+async function enrich(payload: unknown) {
+  await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_jobs WHERE supplier_item_id=$1", [ids.skf]);
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'SKF 40040','SKF','complete')`, [ids.skf]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+    VALUES($1,'SKF 40040','SKF','https://www.trodo.com/skf','test','SKF','40040',$2)`, [ids.skf, JSON.stringify(payload)]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+}
+// Back to the plain enriched state, so one failing assertion cannot cascade into the next test.
+async function reset() {
+  await schema.pool.query("UPDATE supplier_items SET code='SKF 40040' WHERE id=$1", [ids.skf]);
+  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [await productOf("skf")]);
+  await enrich(skfOems);
+}
+const skfOems = { specifications: [], vehicles: [], oemNumbers: { VW: ["7H0 407 621 A"], BMW: ["31 22 6 765 601"], SHORT: ["A12B"], WORDS: ["ABCDE"] } };
+
+test("an enrichment OEM number finds its product by the enrichment arm, exactly", async () => {
+  await reset();
+  const found = await find("febi", "7h0-407 621 a");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].brand_label, "SKF");
+  assert.deepEqual(found[0].via, ["enrichment"]);
+  assert.equal((await find("skf", "7h0-407 621 a")).length, 0, "never itself");
+  assert.equal((await find("febi", "7H0407621")).length, 0, "a partial number is not a match");
+});
+
+test("a number that is also hand-entered shows both paths", async () => {
+  await reset();
+  const skf = await productOf("skf");
+  await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','add','VW','7H0 407 621 A',$2)`, [skf, admin]);
+  assert.deepEqual((await find("febi", "7H0407621A"))[0].via, ["enrichment", "reference"]);
+});
+
+test("a hidden enrichment OEM number is not a match, the others stay", async () => {
+  await reset();
+  const skf = await productOf("skf");
+  await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','hide','VW','7H0 407 621 A',$2)`, [skf, admin]);
+  assert.equal((await find("febi", "7H0407621A")).length, 0);
+  assert.deepEqual((await find("febi", "31226765601"))[0].via, ["enrichment"]);
+});
+
+test("the enrichment arm needs five characters", async () => {
+  assert.equal((await find("febi", "A12B")).length, 0);
+});
+
+test("malformed oemNumbers do not break the search", async () => {
+  for (const oemNumbers of [["7H0407621A"], "7H0407621A", { VW: "7H0407621A" }]) {
+    await enrich({ specifications: [], vehicles: [], oemNumbers });
+    assert.equal((await find("febi", "7H0407621A")).length, 0);
+  }
+});
+
+test("the enrichment arm needs a digit in the query", async () => {
+  await reset();
+  assert.equal((await find("febi", "ABCDE")).length, 0);
+});
+
+test("an enrichment that does not describe the row, or only loosely matches it, is not a match", async () => {
+  await reset();
+  assert.equal((await find("febi", "7H0407621A")).length, 1);
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"oem_reference","supplierOem":"X1"}' WHERE supplier_item_id=$1`, [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "a reference match to another OEM number is not the product's own enrichment");
+  await reset();
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"cross_reference"}' WHERE supplier_item_id=$1`, [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "a cross-reference enrichment is valid for the view but not exact: the arm excludes it");
+  await reset();
+  await schema.pool.query("UPDATE supplier_items SET code='SKF 99999' WHERE id=$1", [ids.skf]);
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "the enrichment of another code does not describe the row");
+  await reset();
+});
