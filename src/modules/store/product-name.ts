@@ -161,6 +161,29 @@ export function shownProductName(product: { name: string; name_overridden: boole
   return product.name_overridden ? product.name : readableProductName(product.name);
 }
 
+/** Letters and digits only, folded: "DF 7458-S" and "df7458s" compare equal. */
+function compact(text: string): string {
+  return foldText(text).replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * The title without the brand and part number a supplier name ends with ("… 4X4 TRW DF7458S" → "… 4X4"); the page prints both
+ * in their own block (#702). Case, spacing and dashes of the code do not matter. A title that would end up empty is returned as is.
+ */
+export function titleWithoutIdentity(title: string, brand: string, partNumber: string): string {
+  const words = title.trim().split(/\s+/);
+  const targets = [partNumber, brand].map(compact).filter(Boolean);
+  const stripTail = (): boolean => {
+    for (let take = Math.min(4, words.length - 1); take >= 1; take--) {
+      const tail = compact(words.slice(-take).join(""));
+      if (tail && targets.includes(tail)) { words.length -= take; return true; }
+    }
+    return false;
+  };
+  while (stripTail());
+  return words.join(" ") || title;
+}
+
 const twoWordMakes = new Set(["ALFA ROMEO", "ASIA MOTORS", "ASTON MARTIN", "AUTO UNION", "DE LOREAN", "DE TOMASO", "EON MOTORS", "FORD AUSTRALIA", "FORD OTOSAN",
   "FORD USA", "GREAT WALL", "KG MOBILITY", "LAND ROVER", "LIVAN AUTO", "MIA ELECTRIC", "MPM MOTORS", "RAYTON FISSORE", "SWM MOTORS"]);
 

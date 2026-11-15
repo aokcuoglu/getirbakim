@@ -254,3 +254,11 @@ test("apostrophes: the ending is lower case, after a count it follows the number
   ];
   for (const [raw, expected] of cases) assert.equal(readableProductName(raw), expected, raw);
 });
+
+test("titleWithoutIdentity drops the brand and code a title ends with", async () => {
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(titleWithoutIdentity("Ön Fren Disk Aynası Nissan Navara 4X4 TRW DF7458S", "TRW", "DF7458S"), "Ön Fren Disk Aynası Nissan Navara 4X4");
+  assert.equal(titleWithoutIdentity("Fren Balata 4x4 df 7458-s", "TRW", "DF7458S"), "Fren Balata 4x4");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi", "MANN", "W 712"), "Yağ Filtresi");
+  assert.equal(titleWithoutIdentity("DF7458S", "TRW", "DF7458S"), "DF7458S");
+});
