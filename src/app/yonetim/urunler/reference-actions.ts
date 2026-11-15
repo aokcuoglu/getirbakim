@@ -101,7 +101,8 @@ export async function setSupplierOemHidden(input: { productId: string; hidden: b
   let result: Awaited<ReturnType<typeof persistProductOverride>>;
   try {
     result = await persistProductOverride(db, data.data.productId, { hide_supplier_oem: data.data.hidden }, admin.id);
-  } catch {
+  } catch (error) {
+    console.error("Supplier OEM visibility change failed", error);
     return { status: "error", message: "Değişiklik kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: result.reason === "merged" ? failures.merged : failures["not-found"] };
@@ -111,6 +112,6 @@ export async function setSupplierOemHidden(input: { productId: string; hidden: b
     revalidateStore();
   }
   return { status: "success", message: data.data.hidden
-    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar."
+    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmiş olarak da varsa görünmeye ve aranmaya devam eder)."
     : "Tedarikçi OEM alanı yeniden gösteriliyor." };
 }

@@ -43,7 +43,8 @@ export function ProductReferencesManager({ productId, references }: { productId:
   const [result, setResult] = useState<ProductReferenceActionResult | null>(null);
   const stored = references.added.length + references.hidden.length;
   const supplierHidden = references.supplierOemHidden;
-  const supplierRows = references.automatic.filter(row => row.supplierOem).length;
+  // Product-level: shown while there is a supplier OEM, and while the flag is set (it can be reverted after the rows left).
+  const supplierControl = supplierHidden || references.automatic.some(row => row.supplierOem);
 
   const mutate = (action: () => Promise<ProductReferenceActionResult>, onSuccess?: () => void) => {
     setResult(null);
@@ -102,7 +103,14 @@ export function ProductReferencesManager({ productId, references }: { productId:
     </div>
     {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
-    {rows.length ? <div className="flex flex-col gap-2"><Table controls={false}><caption className="sr-only">Referans numaraları</caption>
+    {supplierControl && <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürün genelinde gizlenir veya gösterilir; ürünün tüm tedarikçi kayıtları etkilenir.</p>
+      <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => setSupplierOemHidden({ productId, hidden: !supplierHidden }))}>
+        {supplierHidden ? <><Eye data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını yeniden göster</>
+          : <><EyeOff data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını mağazada gizle</>}</Button>
+    </div>}
+
+    {rows.length ? <Table controls={false}><caption className="sr-only">Referans numaraları</caption>
       <TableHeader><TableRow><TableHead>Tür</TableHead><TableHead>Marka</TableHead><TableHead>Numara</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map(row => <TableRow key={row.key}>
         <TableCell>{referenceKindLabels[row.kind]}</TableCell>
@@ -125,13 +133,8 @@ export function ProductReferencesManager({ productId, references }: { productId:
             disabled={pending || stored >= productReferenceLimit} aria-label={`${row.number} numarasını mağazada gizle`} onClick={() => mutate(() => hideProductReference({ productId, kind: row.kind, brand: row.brand, number: row.number }))}><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</Button>}
           {row.status === "hidden" && row.id && <Button type="button" variant="outline" disabled={pending}
             aria-label={`${row.number} numarasını yeniden göster`} onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id!, shown: true }))}><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</Button>}
-          {row.status === "supplier" && <Button type="button" variant="outline" disabled={pending}
-            aria-label={supplierHidden ? `${row.number} tedarikçi OEM numarasını yeniden göster` : `${row.number} tedarikçi OEM numarasını mağazada gizle`}
-            onClick={() => mutate(() => setSupplierOemHidden({ productId, hidden: !supplierHidden }))}>
-            {supplierHidden ? <><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</> : <><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</>}</Button>}
         </div></TableCell>
       </TableRow>)}</TableBody></Table>
-      {supplierRows > 1 && <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürünün tüm tedarikçi kayıtlarında birlikte gizlenir.</p>}</div>
       : <Empty><EmptyHeader><EmptyMedia variant="icon"><Hash/></EmptyMedia><EmptyTitle>Referans numarası yok</EmptyTitle>
         <EmptyDescription>Bu ürünün otomatik OEM veya muadil numarası yok; yukarıdaki formla elle ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
   </div>;

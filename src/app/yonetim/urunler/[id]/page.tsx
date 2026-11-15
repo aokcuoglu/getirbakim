@@ -74,6 +74,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {query.joined && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ayırma kaldırıldı; kayıt bu ürüne döndü. Mağazada bir sonraki eşleştirme yenilemesinde birleşir.</AlertDescription></Alert>}
     {query.merged && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Ürünler birleştirildi; tüm kaynaklar bu üründe ve mağazada tek ürün olarak satılıyor. Yanlışsa ilgili kaynağı “Geri al” ile ayırın.</AlertDescription></Alert>}
     {query.merged === "hidden" && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>Birleşen ürün mağazada gizliydi; gizlilik bu ürüne taşındı ve ürün artık mağazada görünmüyor. Satışa açmak için “Mağazada yayında”yı açıp kaydedin.</AlertDescription></Alert>}
+    {query.merged && query.oem === "hidden" && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Birleşen üründen tedarikçi OEM alanı gizliliği taşındı; tedarikçi OEM numaraları mağazada görünmüyor. “Referans numaraları”ndan yeniden gösterebilirsiniz.</AlertDescription></Alert>}
     {query.merged && query.images && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{query.images === "kept"
       ? "Birleşen ürünün görselleri, bu üründe görsel olduğu için taşınmadı."
       : `${Number(query.images) || 0} görsel birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.`}</AlertDescription></Alert>}
