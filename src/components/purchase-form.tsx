@@ -14,6 +14,8 @@ import { addToCart as addToCartEvent, catalogItem } from "@/modules/analytics/ev
 import { track } from "@/modules/analytics/track";
 
 const initial: PurchaseState = { error:null, added:null, suggestions:[] };
+// The dialog's follow-up request for related parts gives up after this.
+const suggestionTimeoutMs=5000;
 const money=(value:number)=>new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(value/100);
 const outline="h-auto min-h-12 rounded-[5px] border-input bg-white px-4 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted";
 
@@ -40,14 +42,20 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     if(!state.suggestionsPending||!state.added) return;
     let current=true;
     const productId=state.added.id;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    // A slow or failed request ends as no suggestions (one column) rather than a skeleton left on screen.
+    const timeout=new Promise<PurchasePreview[]>(resolve=>{timer=setTimeout(()=>resolve([]),suggestionTimeoutMs);});
     startTransition(async()=>{
-      const suggestions=await loadCartSuggestions(productId).catch(():PurchasePreview[]=>[]);
+      const suggestions=await Promise.race([loadCartSuggestions(productId),timeout]).catch(():PurchasePreview[]=>[]);
+      clearTimeout(timer);
       if(current) setLoaded({for:state,suggestions});
     });
-    return ()=>{current=false;};
+    return ()=>{current=false;clearTimeout(timer);};
   },[state]);
   // null: still loading; the column keeps its place (skeleton) so the dialog does not change size when they arrive.
   const suggestions=state.suggestionsPending ? (loaded?.for===state ? loaded.suggestions : null) : state.suggestions;
+  // Announced only when the suggestions load after the dialog opened; immediate ones are read with the dialog.
+  const status=suggestions===null ? "Öneriler yükleniyor" : state.suggestionsPending&&suggestions.length ? `${suggestions.length} öneri yüklendi` : "";
   const product=variant==="product";
   return <>
     <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
@@ -66,11 +74,14 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     <Dialog open={open} onOpenChange={setOpen}>
       {state.added && <DialogContent aria-labelledby={titleId} showCloseButton={false} overlayClassName="bg-[#212b3673] supports-backdrop-filter:backdrop-blur-none"
         className={cn("top-[10dvh] grid max-h-[calc(90dvh-24px)] w-[calc(100%-40px)] max-w-[1020px] translate-y-0 grid-cols-2 gap-0 overflow-auto rounded-[10px] bg-white p-0 text-foreground shadow-[0_12px_50px_#212b3626] ring-0 sm:max-w-[1020px] max-[760px]:top-3 max-[760px]:max-h-[calc(100dvh-24px)] max-[760px]:w-[calc(100%-24px)] max-[760px]:grid-cols-1",
-          suggestions===null||suggestions.length ? "min-h-[490px]" : "min-h-[300px] grid-cols-1")}>
+          // Pending suggestions that end empty keep the two-column height: only the width reflows, the dialog does not shrink.
+          suggestions===null||suggestions.length ? "min-h-[490px]" : state.suggestionsPending ? "min-h-[490px] grid-cols-1" : "min-h-[300px] grid-cols-1")}>
+        {/* Outside the suggestions column, so it stays when the column (or its skeleton) goes; sr-only takes no grid cell. */}
+        <p role="status" aria-live="polite" className="sr-only">{status}</p>
         <DialogClose render={<Button variant="secondary" size="icon" className="min-h-0 p-0 absolute top-2.5 right-2.5 z-1 rounded-[5px] bg-[#e6e9ec] text-foreground hover:bg-[#d9dfe4]"/>} aria-label="Pencereyi kapat"><X className="size-5"/></DialogClose>
         {(suggestions===null||suggestions.length>0) && <section aria-busy={suggestions===null} className="border-r border-[#e0e4e8] p-8 max-[760px]:border-t max-[760px]:border-r-0 max-[760px]:px-5 max-[760px]:py-6">
           <h2 className="mb-9 text-center text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-left max-[760px]:text-xl">Bunları da inceleyebilirsin</h2>
-          {suggestions===null && <><span className="sr-only">Öneriler yükleniyor</span>{[0,1,2].map(i=><div key={i} aria-hidden className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
+          {suggestions===null && <>{[0,1,2].map(i=><div key={i} aria-hidden className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
             <Skeleton className="h-20 w-[60px]"/><div><Skeleton className="h-4 w-full"/><Skeleton className="mt-2 h-4 w-2/3"/><Skeleton className="mt-3 h-4 w-20"/></div><Skeleton className="h-[42px] w-[86px]"/>
           </div>)}</>}
           {suggestions?.map(p=><article key={p.id} className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">

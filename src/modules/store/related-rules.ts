@@ -133,8 +133,10 @@ export function pickRelated(input: RelatedInput): { id: string; categoryId: numb
 }
 
 /**
- * The section a filler may come from: the main group under "Yedek parça" (Fren sistemi for a disc, path 3 → 252 → 269),
- * or the top category of a shallow tree (Yağlar ve sıvılar for engine oil, 956 → 957). The whole "Yedek parça" tree
- * would let a water pump fill a brake disc's dialog.
+ * The section a filler may come from, one level above the product's category: the main group under "Yedek parça" for a
+ * 3-level path (Fren sistemi for a disc, 3 → 252 → 269), the sub-group for a 4-level one (Gergi, kasnak ve damperler
+ * for an idler pulley, 3 → 4 → 10036 → 187: all of Motor would bring oil caps and valve seals), the top category of a
+ * shallow tree (Yağlar ve sıvılar for engine oil, 956 → 957). The whole "Yedek parça" tree would let a water pump fill
+ * a brake disc's dialog.
  */
-export const fillerSection = (path: readonly number[]) => path.length >= 3 ? path[1] : path[0];
+export const fillerSection = (path: readonly number[]) => path[Math.max(0, Math.min(path.length - 2, 2))];

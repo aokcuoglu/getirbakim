@@ -62,9 +62,11 @@ test("ties break by id so the result is stable", () => {
   assert.deepEqual(run(), run());
 });
 
-test("the filler's section is the main group under car parts, or a shallow tree's top", () => {
+test("the filler's section is one level above the category, never the whole car parts tree", () => {
   assert.equal(fillerSection([3, 252, 269]), 252);
-  assert.equal(fillerSection([3, 4, 168, 175]), 4);
+  assert.equal(fillerSection([3, 4, 168, 175]), 168);
+  assert.equal(fillerSection([3, 4, 10036, 187]), 10036);
   assert.equal(fillerSection([956, 957]), 956);
   assert.equal(fillerSection([252, 274]), 252);
+  assert.equal(fillerSection([956]), 956);
 });
