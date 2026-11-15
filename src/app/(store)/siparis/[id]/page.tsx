@@ -141,7 +141,6 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           <dl className="m-0 grid gap-2.5 text-sm leading-5">
             <div className={row}><dt>Ödeme durumu</dt><dd className="m-0 flex items-center gap-1.5 text-right"><PaymentIcon className="size-4 shrink-0" aria-hidden/>{paymentStatus[order.payment_status]}</dd></div>
             {order.paid_at && <div className={row}><dt>Ödeme zamanı</dt><dd className={value}>{time(order.paid_at)}</dd></div>}
-            {!order.paid_at && awaiting && order.payment_due_at && <div className={row}><dt>Son ödeme zamanı</dt><dd className={value}>{time(order.payment_due_at)}</dd></div>}
             {order.payment_status==="refunded" && order.refunded_at && <div className={row}><dt>İade</dt><dd className={value}>İade edilen: {money(refundedKurus)}, {new Date(order.refunded_at).toLocaleDateString("tr-TR",{timeZone:"Europe/Istanbul"})}</dd></div>}
           </dl>
           {order.payment_status==="paid" && <p className={cn(panelMuted,"m-0")}>Ödeme TAMI güvenli ödeme sayfasında kartla alındı.</p>}
@@ -156,6 +155,6 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {agreement && <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-5")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></Card>}
       </div>
     </div>
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch"><Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link><Button variant="outline" nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-input bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch">{mine && <Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link>}<Button variant="outline" nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-input bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
   </section>;
 }

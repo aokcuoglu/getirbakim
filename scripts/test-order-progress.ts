@@ -15,7 +15,7 @@ test("unpaid order skips the payment step", () => {
 });
 test("confirmed, shipped, delivered", () => {
   assert.deepEqual(states("confirmed", "paid"), ["placed:done", "payment:done", "confirmation:done", "shipping:current"]);
-  assert.deepEqual(states("shipped", "paid"), ["placed:done", "payment:done", "confirmation:done", "shipping:done"]);
+  assert.deepEqual(states("shipped", "paid"), ["placed:done", "payment:done", "confirmation:done", "shipping:current"]);
   assert.deepEqual(states("delivered", "none"), ["placed:done", "confirmation:done", "shipping:done"]);
 });
 test("ended orders show no steps", () => {

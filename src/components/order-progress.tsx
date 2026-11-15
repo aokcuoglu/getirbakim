@@ -10,11 +10,12 @@ export function orderSteps(order: { status: string; payment_status: string }): O
   if (order.status === "cancelled" || ended.includes(order.payment_status)) return [];
   const shipped = order.status === "shipped" || order.status === "delivered";
   const confirmed = shipped || order.status === "confirmed";
+  // A shipped order is still on its way: Kargo stays current until delivery.
   const all: { key: OrderStep["key"]; label: string; done: boolean; skip?: boolean }[] = [
     { key: "placed", label: "Sipariş verildi", done: true },
     { key: "payment", label: "Ödeme", done: order.payment_status === "paid", skip: order.payment_status === "none" },
     { key: "confirmation", label: "Teyit", done: confirmed },
-    { key: "shipping", label: "Kargo", done: shipped },
+    { key: "shipping", label: "Kargo", done: order.status === "delivered" },
   ];
   const visible = all.filter(step => !step.skip);
   const current = visible.findIndex(step => !step.done);
