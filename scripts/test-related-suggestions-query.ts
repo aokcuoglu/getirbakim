@@ -65,7 +65,12 @@ before(async () => {
   purchase = preview;
   closeDb = () => db.end();
 });
-after(async () => { await closeDb?.(); await schema?.drop(); });
+// Lookups a preview left running in the background: awaited before the pool closes.
+const lookups: Promise<unknown>[] = [];
+const options = (budgetMs: number) => ({ budgetMs, onLookup: (lookup: Promise<unknown>) => { lookups.push(lookup); } });
+// Content assertions must not depend on the runner's speed (the 250 ms budget is for the live dialog).
+const unhurried = options(60_000);
+after(async () => { await Promise.allSettled(lookups); await closeDb?.(); await schema?.drop(); });
 
 test("an unknown product or one without complements gets no related parts", async () => {
   assert.deepEqual(await related.relatedSuggestions(randomUUID(), {}), []);
@@ -114,14 +119,14 @@ test("engine oil comes in a can with an oil filter; without a vehicle oil gets f
 });
 
 test("the dialog's suggestion adds the best offer it shows, and nothing unrelated fills the dialog", async () => {
-  const preview = await purchase.purchasePreview(ids.disc, 1, 0);
+  const preview = await purchase.purchasePreview(ids.disc, 1, 0, {}, unhurried);
   assert.ok(preview, "disc preview");
   assert.equal(preview.suggestionsPending, false);
   const shown = preview.suggestions.map(suggestion => name(suggestion.id));
   assert.ok(shown.includes("padOffer"), shown.join());
   assert.ok(!shown.includes("pad"), shown.join());
   // A product without a category gets no suggestions: no newest-products filler (the dialog shows one column).
-  const lone = await purchase.purchasePreview(ids.lone, 1, 0);
+  const lone = await purchase.purchasePreview(ids.lone, 1, 0, {}, unhurried);
   assert.ok(lone);
   assert.deepEqual(lone.suggestions, []);
   // The dialog's follow-up request (no time budget) answers alike.
@@ -131,6 +136,12 @@ test("the dialog's suggestion adds the best offer it shows, and nothing unrelate
 
 test("a slow lookup gives way to the budget and is reported as pending", async () => {
   assert.equal(await purchase.withinBudget(new Promise<string[]>(() => undefined), 20), null);
+  // A lookup over the budget: the dialog opens with the added product and loads the suggestions itself.
+  const pending = await purchase.purchasePreview(ids.disc, 1, 0, {}, options(0));
+  assert.ok(pending);
+  assert.equal(pending.suggestionsPending, true);
+  assert.deepEqual(pending.suggestions, []);
+  assert.equal(name(pending.added.id), "disc");
   assert.deepEqual(await purchase.withinBudget(Promise.resolve([] as string[]), 1000), []);
   assert.deepEqual(await purchase.withinBudget(Promise.resolve(["a"]), 1000), ["a"]);
 });

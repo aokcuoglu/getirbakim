@@ -44,8 +44,17 @@ export async function suggestionPreviews(productId: string, discount: number, co
  * The add-to-cart dialog: the added product and its related parts (#704). When the related parts miss the time budget,
  * `suggestionsPending` asks the dialog to load them itself; there is no unrelated filler.
  */
-export async function purchasePreview(productId: string, quantity: number, discount: number, context: RelatedContext = {}) {
-  const [product, related] = await Promise.all([getProduct(productId), withinBudget(relatedSuggestions(productId, context, suggestionCount), relatedBudgetMs)]);
+export type PreviewOptions = {
+  /** How long the answer waits for the related parts; tests set it (a slow runner must not turn them pending). */
+  budgetMs?: number;
+  /** Receives the related-parts lookup, which may outlive the answer; tests await it before closing the pool. */
+  onLookup?: (lookup: Promise<unknown>) => void;
+};
+
+export async function purchasePreview(productId: string, quantity: number, discount: number, context: RelatedContext = {}, options: PreviewOptions = {}) {
+  const lookup = relatedSuggestions(productId, context, suggestionCount);
+  options.onLookup?.(lookup);
+  const [product, related] = await Promise.all([getProduct(productId), withinBudget(lookup, options.budgetMs ?? relatedBudgetMs)]);
   if (!product?.price_kurus) return null;
   const [added, ...suggestions] = await previews([{ product, quantity, offer: false }, ...(related ?? []).map(p => ({ product: p, quantity: 1, offer: true }))], discount);
   return { added, suggestions, suggestionsPending: related === null };
