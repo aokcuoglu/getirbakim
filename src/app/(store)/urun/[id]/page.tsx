@@ -11,12 +11,14 @@ import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
+import { readableProductName } from "@/modules/store/product-name";
+import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
 import { getItemSpecs } from "@/modules/store/product-specs";
 import { applySpecOverrides } from "@/modules/store/product-spec-display";
-import { catalogCardTitle, productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
@@ -52,7 +54,14 @@ const benefits = [
 const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
 // The vehicle models of the supplier's description: an index signal of the metadata (#641) and a section of the page.
 const descriptionFitments = cache(getDescriptionFitments);
-// The description is read only when the other signals fall short; the page then reads the same models (cached).
+// The vehicle models of the search metadata: the enrichment's (`confirmed`, they may name the title's "uyumlu" vehicle) and,
+// without them, the models read from the supplier's description, which name no engine and only feed the description text.
+async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { model: string }[] } | null, productId: string) {
+  const models = enrichment?.vehicleModels.length ? enrichment.vehicleModels : enrichment?.vehicles.map(vehicle => vehicle.model) ?? [];
+  if (models.length) return { confirmed: [...new Set(models)], all: [...new Set(models)] };
+  return { confirmed: [], all: (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`) };
+}
+// The description models are read here only when the enrichment's signals fall short; the metadata and the page share the cached read.
 async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown) {
   const content = productContent({ enrichment, descriptionModels: [], oem: product.oem });
   if (product.source === "store" || hasMinimumContent(content)) return productIndexable(product, content);
@@ -66,17 +75,20 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
   const [override, enrichment, uploads] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand), getItemImages(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
+  const name = productTitle(override, enrichment?.displayName, readableProductName(product.name));
+  const vehicles = await vehicleModels(enrichment, product.id);
+  const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
-    title: `${product.display_brand} ${productTitle(override, enrichment?.displayName, product.name)} — ${product.display_code}`,
-    description: `${product.display_brand} ${product.display_code}. ${description || "Ürün özelliklerini incele; uyumluluğu OEM kodu ve araç bilgileriyle kontrol et."}`,
+    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
+    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: description, hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
   return {
     title: meta.title,
-    description: meta.description.slice(0, 180),
+    description: meta.description,
     alternates: { canonical: `/urun/${id}` },
-    openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description.slice(0, 180), url: `/urun/${id}`,
+    openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: `/urun/${id}`,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
     robots: await indexable(product, enrichment) ? undefined : { index: false, follow: true },
   };
@@ -116,7 +128,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // An admin's part number (#602) wins as entered.
   const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
   const brand = product.display_brand;
-  const title = productTitle(override, enrichment?.displayName, product.name);
+  const title = productTitle(override, enrichment?.displayName, readableProductName(product.name));
   const description = productDescription(override, enrichment?.description, product.description);
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
   const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, productId: product.id });
@@ -173,7 +185,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
   const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
   return <div className="text-sm leading-5 text-foreground"><section className={shell}>
-    <JsonLd data={structuredProduct}/>{product.price_kurus !== null && !product.unavailable && <TrackViewItem item={catalogItem({ id: product.id, name: catalogCardTitle(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber : undefined), brand, category: productCategoryPath.map(node => node.name).join(" > ") || category?.name }, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0))}/>}{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
+    <JsonLd data={structuredProduct}/>{product.price_kurus !== null && !product.unavailable && <TrackViewItem item={catalogItem({ id: product.id, name: `${title} ${brand} ${displayPartNumber}`, brand, category: productCategoryPath.map(node => node.name).join(" > ") || category?.name }, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0))}/>}{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
     <Breadcrumb aria-label="Sayfa yolu" className="py-3">
       <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:text-[11px]">
         {trail.map((crumb, index) => index === trail.length - 1
