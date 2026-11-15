@@ -6,11 +6,11 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // /yonetim: lets requireService() send an expired session back to the page it was on after login.
 // Signed in: the session cookie slides with each request (server actions are POSTs to the page and pass here too),
 // matching the database expiry that currentAccount() extends. A dead token kept alive here stays rejected by the database.
-// Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). The Location
-// stays relative so a CDN or load balancer in front never turns it into the origin's host.
+// Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). Next needs an
+// absolute URL here and sends it on relative (same host), so a CDN or load balancer in front keeps its own host.
 export function proxy(request: NextRequest) {
  const target = legacyRedirect(request.nextUrl.pathname, request.nextUrl.searchParams);
- if (target) return new NextResponse(null, { status: 301, headers: { Location: target } });
+ if (target) return NextResponse.redirect(new URL(target, request.url), 301);
  let response: NextResponse;
  if (request.nextUrl.pathname === "/yonetim" || request.nextUrl.pathname.startsWith("/yonetim/")) {
   const url = request.nextUrl.clone();

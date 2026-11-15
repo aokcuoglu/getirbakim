@@ -86,11 +86,14 @@ test("the proxy matcher covers every old listing address", () => {
   assert.deepEqual(catalog && typeof catalog !== "string" ? catalog.has : undefined, [{ type: "query", key: "category" }]);
 });
 
-test("the proxy answers an old address with a relative 301", () => {
+// Next's proxy adapter turns a same-host Location into a relative one (checked with curl in the PR).
+test("the proxy answers an old address with a 301 on the request's own host", () => {
   for (const [from, to] of [["/car-parts/bmw?category=fren&page=2", "/kategori/fren/bmw?page=2"], ["/automakers", "/arac-markalari"], ["/katalog?category=yag", "/kategori/yag"]]) {
     const response = proxy(new NextRequest(new URL(from, "https://shop.example.invalid")));
     assert.equal(response.status, 301, from);
-    assert.equal(response.headers.get("location"), to, from);
+    const location = new URL(response.headers.get("location") ?? "");
+    assert.equal(location.origin, "https://shop.example.invalid", from);
+    assert.equal(location.pathname + location.search, to, from);
   }
   assert.equal(proxy(new NextRequest(new URL("/katalog?q=x", "https://shop.example.invalid"))).status, 200);
 });
