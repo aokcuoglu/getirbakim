@@ -70,6 +70,14 @@ export async function cartLineQuantity(owner: CartOwner, productId: string): Pro
  );
  return rows[0]?.quantity ?? 0;
 }
+/** The product ids in the cart (the line keys, read by the primary key's owner prefix). */
+export async function cartProductIds(owner: CartOwner): Promise<string[]> {
+ const {rows} = await db.query<{product_id: string}>(
+  "SELECT product_id::text FROM commerce_cart_items WHERE owner_kind=$1 AND owner_id=$2",
+  [owner.kind,owner.id],
+ );
+ return rows.map(row=>row.product_id);
+}
 /** `vehicle` is the garage vehicle at the time of adding; omit it to keep the line's earlier one. */
 export async function setCartQuantity(owner: CartOwner, productId: string, quantity: number, add = false, vehicle?: GarageVehicle | null) {
  if (!Number.isInteger(quantity) || quantity < 0 || quantity > 99) throw new Error("Geçersiz adet.");

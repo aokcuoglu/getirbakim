@@ -6,11 +6,26 @@ import { getCatalogProductDetails, getCatalogProductImages } from "./product-enr
 import { catalogCardTitle } from "./product-override-display";
 import { productPath } from "@/modules/seo/product-path";
 import type { PurchasePreview } from "./purchase-types";
+import { relatedSuggestions, type RelatedContext } from "./related-suggestions";
 
-export async function purchasePreview(productId: string, quantity: number, discount: number) {
-  const product = await getProduct(productId);
+const suggestionCount = 3;
+// The dialog does not wait longer than this for related parts; a cold cache keeps loading in the background.
+const relatedBudgetMs = 250;
+
+function withinBudget<T>(work: Promise<T[]>, ms: number): Promise<T[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T[]>(resolve => { timer = setTimeout(() => resolve([]), ms); });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+export async function purchasePreview(productId: string, quantity: number, discount: number, context: RelatedContext = {}) {
+  const [product, related] = await Promise.all([getProduct(productId), withinBudget(relatedSuggestions(productId, context, suggestionCount), relatedBudgetMs)]);
   if (!product?.price_kurus) return null;
-  const suggestions = (await getHomeProducts()).filter(p => p.id !== productId && p.available && p.price_kurus).slice(0, 3);
+  // Parts fitted with the added one first (#704); the newest store products fill the remaining places.
+  const taken = new Set([productId, ...(context.cartIds ?? []), ...related.map(p => p.id)]);
+  const suggestions = related.length < suggestionCount
+    ? [...related, ...(await getHomeProducts()).filter(p => !taken.has(p.id) && p.available && p.price_kurus).slice(0, suggestionCount - related.length)]
+    : related;
   const shown = [product, ...suggestions];
   const [images, details] = await Promise.all([getCatalogProductImages(shown), getCatalogProductDetails(shown)]);
   const preview = (p: CatalogProduct, count: number): PurchasePreview => ({

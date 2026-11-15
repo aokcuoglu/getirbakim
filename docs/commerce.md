@@ -51,6 +51,10 @@ Sepet misafir ve hesap oturumlarıyla çalışır; girişte misafir sepeti birle
 
 Katalog, ürün detayı ve Başbuğ yönetim tablosundaki **Sepete ekle** işlemi sayfadan ayrılmadan, Trodo referansındaki iki sütunlu ekleme penceresini açar. Pencerede mevcut ürünlerden öneriler, adet değiştirme, alışverişe devam, sepet ve sipariş bağlantıları bulunur. `/sepet` ürün tablosu ve ayrı sipariş özetini; `/siparis-olustur` iletişim/teslimat formu ve özeti gösterir. Adet değişince sepet ve toplamlar güncellenir.
 
+### Sepete ekleme önerileri (#704)
+
+Penceredeki üç öneri eklenen ürünle birlikte takılan parçalardır: ürünün kategorisi (yöneticinin kategorisi, yoksa güvenilir zenginleştirmenin en derin kategorisi) `src/modules/store/related-rules.ts` içindeki tamamlayıcı kategori haritasında aranır (örn. fren diski → balata, aşınma sensörü, fren hidroliği; yağ filtresi → motor yağı, hava, polen filtresi). Her tamamlayıcı kategoriden en fazla bir satılabilir ürün gelir; aynı kategorinin başka markası muadildir, öneri değildir. Sıralama: garajdaki araç eklenen ürüne uyuyorsa o araca uyanlar, yoksa eklenen ürünle ortak model sayısı fazla olanlar önce; başka araca bağlı olduğu bilinen parça elenir, uyumluluk verisi olmayanlar ve sıvılar kalır. Eklenen ürünün teklifleri, muadilleri ve sepetteki ürünler önerilmez; motor yağında yalnız 5 L ve altı ambalajlar gelir. Öneriler 250 ms içinde hazır değilse veya üçten azsa boş yerler önceki gibi ana sayfanın yeni ürünleriyle dolar; öneri hatası sepete eklemeyi etkilemez.
+
 Sipariş oluştururken iletişim ve adres alınır, fiyat/indirim/adet tekrar kontrol edilir. Fiyat değişmişse güncel toplam tekrar onaylanır. Aynı gönderimin tekrarı ikinci sipariş oluşturmaz. Mağaza stoku transaction içinde ayrılır; tedarikçi sinyali azaltılmaz. Satış fiyatı, NF/kur/kâr/KDV/indirim ve gözlem bilgileri sipariş kaleminde saklanır.
 
 ### Tedarik takibi (#606)

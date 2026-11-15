@@ -1,5 +1,5 @@
 "use server";
-import { cartLineQuantity, currentCartOwner, setCartQuantity } from "@/modules/store/cart";
+import { cartLineQuantity, cartProductIds, currentCartOwner, setCartQuantity } from "@/modules/store/cart";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -20,9 +20,9 @@ export async function addToCart(_state: PurchaseState, form: FormData): Promise<
  const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,true,vehicle);
  if(!ok) return {...failure,error:"Ürün fiyatı veya stok durumu uygun değil; sepetindeki adedi kontrol et."};
  revalidatePath("/", "layout");
- const [account,lineQuantity]=await Promise.all([currentAccount(),cartLineQuantity(owner,input.data.productId)]);
+ const [account,lineQuantity,cartIds]=await Promise.all([currentAccount(),cartLineQuantity(owner,input.data.productId),cartProductIds(owner)]);
  const quantity=lineQuantity || input.data.quantity;
- const preview=await purchasePreview(input.data.productId,quantity,account?.approved && account.role==="service" ? account.discount_percent : 0);
+ const preview=await purchasePreview(input.data.productId,quantity,account?.approved && account.role==="service" ? account.discount_percent : 0,{vehicle,cartIds});
  if(!preview) return {...failure,error:"Ürün sepete eklendi; güncel durumunu sepetten kontrol et."};
  return {...preview,error:null,addedQuantity:input.data.quantity};
 }
