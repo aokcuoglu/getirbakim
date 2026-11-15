@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
 import { getProduct } from "@/modules/store/catalog";
+import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
@@ -66,6 +67,10 @@ export async function adminManualData(params: ManualParams) {
     categoryNames: new Map(categories.map(category => [category.id, category.name])) };
 }
 
+// The image the store shows (#596): an admin upload, or the enrichment image unless the admin hid it.
+const shownImage = shownImageSql(itemProductSql("supplier_items.id"),
+  "EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=supplier_items.id AND e.image_id IS NOT NULL)");
+
 async function manualItems(listGroup: string, params: ManualParams) {
   const values: unknown[] = [manualCompany, listGroup];
   const conditions = [scope, "list_group=$2"];
@@ -79,11 +84,11 @@ async function manualItems(listGroup: string, params: ManualParams) {
   if (params.stock === "none") conditions.push("stock_data IS NULL");
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
   if (params.quality === "missing-package") conditions.push("COALESCE(product_data->>'package','')=''");
-  if (params.quality === "missing-image") conditions.push("NOT EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=supplier_items.id AND e.image_id IS NOT NULL)");
+  if (params.quality === "missing-image") conditions.push(`NOT ${shownImage}`);
   return supplierItemPage<Omit<ManualItem, keyof SaleFields>>({
     where: conditions.join(" AND "), values, order: sortOrder(params, itemSorts, "code,id"), page: params.page,
     select: `supplier_items.*,
-      EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=supplier_items.id AND e.image_id IS NOT NULL) AS has_image,
+      ${shownImage} AS has_image,
       EXISTS (SELECT 1 FROM manual_item_overrides o WHERE o.list_group=supplier_items.list_group AND o.code=supplier_items.code AND o.fields<>'{}') AS overridden`,
   });
 }

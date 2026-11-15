@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { partialGaps, passForecast, runProgress, summarizeSources, type PassPace, type SourceRun } from "../src/modules/admin/enrichment-pace";
-import { dashboardTab } from "../src/modules/admin/enrichment-labels";
+import { dashboardTab, gapText } from "../src/modules/admin/enrichment-labels";
 import { completeWithImage, imageNote, keepsRicherPartial } from "../src/modules/enrichment/partial-gaps";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
@@ -58,6 +58,14 @@ test("partial gaps name what each adapter could not collect", () => {
   assert.deepEqual(partialGaps("otoparcasan.com public HTTP adapter v1; x; commercial vehicles dropped 0; invalid rows 2; failed makes 1", true), ["invalid_rows", "failed_makes"]);
   assert.deepEqual(partialGaps("spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no image; no vehicles listed", false), ["image", "no_vehicles"]);
   assert.deepEqual(partialGaps(null, true), []);
+});
+
+test("the partial gap list counts the image the store shows (#596)", () => {
+  const note = "spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no vehicles listed";
+  // An admin upload closes the image gap; a hidden automatic image without an upload leaves it open.
+  assert.equal(gapText({ status: "partial", source_method: note, image_shown: true }), "Araç listesi yok");
+  assert.equal(gapText({ status: "partial", source_method: note, image_shown: false }), "Görsel yok · Araç listesi yok");
+  assert.equal(gapText({ status: "complete", source_method: note, image_shown: false }), "");
 });
 
 test("an image completes a partial product only when it was the last gap", () => {

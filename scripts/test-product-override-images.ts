@@ -7,6 +7,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { galleryImages, socialImage } from "../src/modules/store/product-image-display";
 import { prepareProductImage, ProductImageError } from "../src/modules/admin/product-image-upload";
+import { automaticImageHiddenSql, hiddenAutomaticItemsSql, itemProductSql, shownImageSql, uploadedImageSql } from "../src/modules/store/product-image-sql";
 
 // Admin-uploaded product images (#581) in an isolated copy of the schema: db/product-override-images.sql, the store's
 // read path, the admin store and merge carry/undo. Uploaded bytes go to an in-memory object store.
@@ -353,6 +354,71 @@ test("a merged product's uploads are served only through a product that is not m
   // A revived: its own upload is served again.
   await schema.pool.query("SELECT product_reset_item($1)", [ids.swagA]);
   assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
+});
+
+test("home rails count uploads and skip a hidden automatic image (#596)", async () => {
+  const [home, epoch] = await Promise.all([import("../src/modules/store/home"), import("../src/modules/store/listing-epoch")]);
+  await item("railAuto", { supplier: "basbug", code: "ATE 50050", brand: "ATE", name: "ATE FREN DISKI" });
+  await item("railPlain", { supplier: "basbug", code: "VAL 60060", brand: "VALEO", name: "VALEO DEBRIYAJ" });
+  await item("railHidden", { supplier: "basbug", code: "DEL 61061", brand: "DELPHI", name: "DELPHI POMPA" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const media = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media','products/bb/rail.webp',$1,'image/webp',1000,'https://www.trodo.com/rail.webp') RETURNING id::text`,
+  [createHash("sha256").update("rail-automatic").digest("hex")])).rows[0].id;
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'ATE 50050','ATE','complete')`, [ids.railAuto]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+    VALUES($1,'ATE 50050','ATE','https://www.trodo.com/ate','test','ATE','50050',$2,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.railAuto, media]);
+  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  const railAuto = await productOf("railAuto"), railPlain = await productOf("railPlain"), railHidden = await productOf("railHidden");
+  const rail = async () => { await epoch.invalidateListings(); return (await home.getHomeProducts()).map(product => product.id); };
+
+  // (a) A trusted automatic image puts the row on the rail; rows without any image stay off.
+  let picked = await rail();
+  assert.ok(picked.includes(ids.railAuto), "(a) automatic image");
+  assert.ok(!picked.includes(ids.railPlain) && !picked.includes(ids.railHidden), "(a) no image");
+  // (b) Hiding the automatic image takes it off; without a bump the cached pick is still served.
+  assert.deepEqual(await store.setAutomaticImageHidden(schema.pool, railAuto, true, admin), { ok: true });
+  assert.ok((await home.getHomeProducts()).some(product => product.id === ids.railAuto), "no bump: the cached pick is served");
+  assert.ok(!(await rail()).includes(ids.railAuto), "(b) automatic image hidden");
+  // (c) An upload brings it back while the automatic image stays hidden.
+  assert.deepEqual(await upload(railAuto, await solid(150), "ate.jpg"), { ok: true });
+  assert.ok((await rail()).includes(ids.railAuto), "(c) upload over a hidden automatic image");
+  // (d) An upload on a product without any enrichment puts it on the rail, first (the newest image).
+  assert.deepEqual(await upload(railPlain, await solid(151), "valeo.jpg"), { ok: true });
+  picked = await rail();
+  assert.equal(picked[0], ids.railPlain, "(d) the newest upload comes first");
+  assert.equal(new Set(picked).size, picked.length, "a row in both arms is listed once");
+  // (e) Deleting the upload takes it off again.
+  const [plainImage] = (await store.loadProductImages(schema.pool, railPlain)).images;
+  assert.deepEqual(await store.removeProductImage(schema.pool, railPlain, plainImage.id, admin), { ok: true });
+  assert.ok(!(await rail()).includes(ids.railPlain), "(e) upload deleted");
+  // (f) An admin-hidden product stays off even with an upload.
+  assert.deepEqual(await upload(railHidden, await solid(152), "delphi.jpg"), { ok: true });
+  assert.ok((await rail()).includes(ids.railHidden), "(f) upload");
+  assert.ok((await overrides.persistProductOverride(schema.pool, railHidden, { hidden: true }, admin)).ok);
+  assert.ok(!(await rail()).includes(ids.railHidden), "(f) product hidden");
+});
+
+test("the store shows an image: an upload, or the automatic image unless hidden (#596)", async () => {
+  await item("shownA", { supplier: "basbug", code: "SHW 70001", brand: "SHOWN", name: "SHOWN A" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const product = await productOf("shownA");
+  const shown = async (automatic: boolean) => (await schema.pool.query<{ shown: boolean; hidden: boolean; uploaded: boolean }>(
+    `SELECT ${shownImageSql(itemProductSql("$1::uuid"), automatic ? "true" : "false")} AS shown,
+      ${automaticImageHiddenSql("$2::uuid")} AS hidden,${uploadedImageSql("$2::uuid")} AS uploaded`, [ids.shownA, product])).rows[0];
+  assert.deepEqual(await shown(false), { shown: false, hidden: false, uploaded: false }, "no image at all");
+  assert.deepEqual(await shown(true), { shown: true, hidden: false, uploaded: false }, "automatic image");
+  await store.setAutomaticImageHidden(schema.pool, product, true, admin);
+  assert.deepEqual(await shown(true), { shown: false, hidden: true, uploaded: false }, "automatic image hidden");
+  assert.deepEqual(await upload(product, await solid(160), "shown.jpg"), { ok: true });
+  assert.deepEqual(await shown(true), { shown: true, hidden: true, uploaded: true }, "hidden automatic image and an upload");
+  assert.deepEqual(await shown(false), { shown: true, hidden: true, uploaded: true }, "an upload alone");
+  assert.deepEqual((await schema.pool.query<{ id: string }>(`${hiddenAutomaticItemsSql} AND ps.supplier_item_id=$1`, [ids.shownA])).rows.length, 1);
+});
+
+test("the admin image filters read the image the store shows (#596)", async () => {
+  for (const file of ["src/modules/admin/manual.ts", "src/modules/admin/enrichment-data.ts"])
+    assert.match(await readFile(file, "utf8"), /shownImageSql\(/, file);
 });
 
 test("setup can run the file again", async () => {
