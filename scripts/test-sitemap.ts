@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
-import { productIndexable, productIndexPolicy } from "../src/modules/seo/indexing";
+import { contentSignals, hasMinimumContent, minimumContentSql, productContent, productIndexable, productIndexPolicy, type ProductContent }
+  from "../src/modules/seo/indexing";
 import { absoluteUrl, categoryPath, makePath, productPath } from "../src/modules/seo/paths";
 import { parseSitemapFile, productChunkRange, productChunks, renderSitemapIndex, renderUrlset, sitemapEnabled, sitemapFiles,
   sitemapUrlLimit, staticPaths, withAncestors } from "../src/modules/seo/sitemap";
@@ -13,13 +14,29 @@ import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources
 // to the shared database's tables.
 
 describe("sitemap helpers", () => {
-  test("productIndexable: demo and unavailable cards are noindex, store rows and the supplier catalog follow the policy", () => {
-    assert.equal(productIndexable({ supplier: "demo", source: "store" }), false);
-    assert.equal(productIndexable({ supplier: "basbug", source: "store" }), true);
-    assert.equal(productIndexable({ supplier: "basbug", source: "supplier" }), productIndexPolicy.supplierCatalog);
-    assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: false }), productIndexPolicy.supplierCatalog);
-    assert.equal(productIndexable({ supplier: "basbug", source: "supplier", unavailable: true }), false);
+  test("productIndexable: demo and unavailable cards are noindex, store rows are indexed, supplier rows need minimum content", () => {
+    const bare: ProductContent = { enrichment: false, descriptionFitment: false, supplierOem: false };
+    const full: ProductContent = { enrichment: true, descriptionFitment: true, supplierOem: true };
+    assert.equal(productIndexable({ supplier: "demo", source: "store" }, full), false);
+    assert.equal(productIndexable({ supplier: "basbug", source: "store" }, bare), true);
+    assert.equal(productIndexable({ supplier: "basbug", source: "supplier", unavailable: true }, full), false);
+    assert.equal(productIndexable({ supplier: "basbug", source: "supplier" }, bare), false);
+    assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: false }, full), true);
+    for (const signal of ["enrichment", "descriptionFitment", "supplierOem"] as const) {
+      assert.equal(productIndexable({ supplier: "basbug", source: "supplier" }, { ...bare, [signal]: true }), true, signal);
+    }
+    assert.deepEqual(productIndexPolicy.minimumContent, ["enrichment", "descriptionFitment", "supplierOem"]);
     assert.equal(productIndexPolicy.supplierCatalog, true);
+    assert.equal(productIndexPolicy.unavailable, false);
+  });
+
+  test("productContent reads the page's loaders; the SQL condition holds every minimum-content signal", () => {
+    assert.deepEqual(productContent({ enrichment: null, descriptionModels: [], oem: "" }), { enrichment: false, descriptionFitment: false, supplierOem: false });
+    assert.deepEqual(productContent({ enrichment: {}, descriptionModels: [{}], oem: "1K0 129 620" }), { enrichment: true, descriptionFitment: true, supplierOem: true });
+    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: true }), true);
+    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: false }), false);
+    const sql = minimumContentSql();
+    for (const signal of productIndexPolicy.minimumContent) assert.ok(sql.includes(contentSignals[signal].sql), signal);
   });
 
   test("product files cover the uuid space in order, without gaps or overlaps", () => {
@@ -98,14 +115,16 @@ describe("sitemap queries", () => {
   let schema: Awaited<ReturnType<typeof isolatedSchema>>;
   let queries: typeof import("../src/modules/seo/sitemap.server");
   let catalog: typeof import("../src/modules/store/catalog");
+  let enrichments: typeof import("../src/modules/store/product-enrichment");
+  let fitments: typeof import("../src/modules/store/description-fitment.server");
   let closeDb: () => Promise<void>;
   const ids: Record<string, string> = {};
   const [basbug, , dinamik] = storefrontCompanies();
 
   type Item = { supplier?: "basbug" | "dinamik"; code: string; brand: string; warehouse?: string; presence?: "present" | "inactive";
-    conflicting?: boolean; category?: string };
-  async function item(key: string, { supplier = "basbug", code, brand, warehouse, presence = "present", conflicting = false, category }: Item) {
-    const product = { uk: brand, ac: `${key} PARCA`, ac2: "", dc: "TL", ...(category ? { category } : {}),
+    conflicting?: boolean; category?: string; oe?: string };
+  async function item(key: string, { supplier = "basbug", code, brand, warehouse, presence = "present", conflicting = false, category, oe }: Item) {
+    const product = { uk: brand, ac: `${key} PARCA`, ac2: "", dc: "TL", ...(category ? { category } : {}), ...(oe ? { oe } : {}),
       ...(supplier === "dinamik" ? { marka: brand, stokAdi: `${key} PARCA` } : {}) };
     const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
       product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
@@ -130,19 +149,30 @@ describe("sitemap queries", () => {
 
   before(async () => {
     schema = await isolatedSchema("sitemap_test");
+    // Minimum content (#641): an enrichment, a supplier OEM, or vehicle models read from the description.
     await item("listed", { code: "MAH 20020", brand: "MAHLE" });
-    await item("dinamik", { supplier: "dinamik", code: "SACHS 1000", brand: "SACHS", category: "fren" });
+    await item("dinamik", { supplier: "dinamik", code: "SACHS 1000", brand: "SACHS", category: "fren", oe: "1K0 129 620" });
     // Not sold from this warehouse: its legacy category "filtre" holds no listed product.
     await item("depot", { code: "MAH 30030", brand: "MAHLE", warehouse: "IST", category: "filtre" });
     await item("conflicting", { code: "SAC 2222", brand: "SACHS", conflicting: true });
     await item("inactive", { code: "LMI 4444", brand: "LEMFORDER", presence: "inactive" });
-    await item("primary", { code: "BOS 0986A11", brand: "BOSCH" });
+    await item("primary", { code: "BOS 0986A11", brand: "BOSCH", oe: "0986A11" });
     await item("secondary", { supplier: "dinamik", code: "BOSCH 0986A11", brand: "BOSCH" });
-    await item("hidden", { code: "NGK 5555", brand: "NGK" });
+    await item("hidden", { code: "NGK 5555", brand: "NGK", oe: "5555" });
+    await item("bare", { code: "SOY 1930", brand: "SOYLU" });
+    await item("fitOnly", { supplier: "dinamik", code: "ORJINAL 1520900Q0H", brand: "ORIJINAL" });
+    // The description fitment sits on the grouped secondary offer: its primary shows it (getDescriptionFitments).
+    await item("offerPrimary", { code: "FEB 175566", brand: "FEBI" });
+    await item("offerSecondary", { supplier: "dinamik", code: "FEBI 175566", brand: "FEBI" });
+    await item("oemHidden", { code: "LMI 6666", brand: "LEMFORDER", oe: "6Q0 407 151" });
+    // Its enrichment link names another brand than the row: the page shows no enrichment.
+    await item("staleLink", { code: "MAH 7777", brand: "MAHLE" });
     await storeProduct("store", "basbug", "STORE 1");
     await storeProduct("demo", "demo", "DEMO 1");
-    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.primary, ids.secondary]);
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1),($3,$3),($4,$3)",
+      [ids.primary, ids.secondary, ids.offerPrimary, ids.offerSecondary]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hidden]);
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hide_oem) VALUES($1,$1,true)", [ids.oemHidden]);
     // Category tree: 100 > 101 (enriched product) and 100 > 102 (empty); 200 empty root; 252 = legacy "fren", 241 = legacy "filtre".
     await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
       ('trodo',100,NULL,'Fren Sistemi','fren-sistemi','{100}','','{}'),('trodo',101,100,'Balata','balata','{100,101}','','{}'),
@@ -152,17 +182,23 @@ describe("sitemap queries", () => {
       ('trodo',100,'tr','Fren Sistemi','fren-sistemi-100'),('trodo',101,'tr','Balata','balata-101'),('trodo',102,'tr','Disk','disk-102'),
       ('trodo',200,'tr','Aydınlatma','aydinlatma-200'),('trodo',252,'tr','Fren','fren'),('trodo',241,'tr','Filtre','filtre')`);
     await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
-      VALUES($1,'MAH 20020','MAHLE','https://example.test/p','test','MAHLE','20020','{}')`, [ids.listed]);
+      VALUES($1,'MAH 20020','MAHLE','https://example.test/p','test','MAHLE','MAH 20020','{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.listed]);
     // The enrichment was imported after the row last changed: the sitemap's lastmod follows the newer time.
     await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
-      VALUES($1,'MAH 20020','MAHLE',$1,'','complete',now())`, [ids.listed]);
+      VALUES($1,'MAH 20020','MAHLE',$1,'','complete',now()),($2,'MAH 7777','MAHLE FILTRE',$1,'','complete',now())`, [ids.listed, ids.staleLink]);
     await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',101)", [ids.listed]);
     await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN'),(2,'ALFA','ALFA ROMEO')");
+    await schema.pool.query("INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF IV')");
+    await schema.pool.query(`INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF IV'),($2,10,'GOLF IV')`,
+      [ids.fitOnly, ids.offerSecondary]);
     await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) VALUES(2,$1)", [ids.listed]);
-    const [{ db }, queriesModule, catalogModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/seo/sitemap.server"),
-      import("../src/modules/store/catalog")]);
+    const [{ db }, queriesModule, catalogModule, enrichmentModule, fitmentModule] = await Promise.all([import("../src/lib/db"),
+      import("../src/modules/seo/sitemap.server"), import("../src/modules/store/catalog"), import("../src/modules/store/product-enrichment"),
+      import("../src/modules/store/description-fitment.server")]);
     queries = queriesModule;
     catalog = catalogModule;
+    enrichments = enrichmentModule;
+    fitments = fitmentModule;
     closeDb = () => db.end();
   });
   after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -170,14 +206,18 @@ describe("sitemap queries", () => {
   test("the product files list each listed product exactly once", async () => {
     const listed = (await allChunks()).map(row => row.id);
     assert.equal(new Set(listed).size, listed.length);
-    assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store].sort());
+    assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store, ids.fitOnly, ids.offerPrimary].sort());
   });
 
   test("a product is in the sitemap exactly when its page is indexable", async () => {
     const listed = new Set((await allChunks()).map(row => row.id));
     for (const [key, id] of Object.entries(ids)) {
       const { product } = await catalog.getStoreProduct(id);
-      assert.equal(Boolean(product && productIndexable(product)), listed.has(id), `${key}: page indexable ⇔ in the sitemap`);
+      // The page's loaders: its enrichment, the description's models and the OEM it shows.
+      const indexable = product ? productIndexable(product, productContent({
+        enrichment: await enrichments.getProductEnrichment({ id: product.id, code: product.code, brand: product.brand }),
+        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem })) : false;
+      assert.equal(indexable, listed.has(id), `${key}: page indexable ⇔ in the sitemap`);
     }
   });
 
