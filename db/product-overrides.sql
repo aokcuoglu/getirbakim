@@ -52,6 +52,10 @@ $$;
 -- edit keeps its text. Supplier codes, order lines and matching keep the supplier's values.
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS brand text CHECK (char_length(brand) BETWEEN 1 AND 80);
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS part_number text CHECK (char_length(part_number) BETWEEN 1 AND 60);
+-- Supplier OEM field hidden on the store (#615), for every source row of the product: the catalog views show an
+-- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
+-- Matching, enrichment and the admin's supplier searches keep reading supplier_items.
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS hide_supplier_oem boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
 -- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
 ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS reason text;
@@ -73,16 +77,17 @@ CREATE OR REPLACE FUNCTION product_overrides_project(ids uuid[]) RETURNS void LA
  DELETE FROM commerce_item_overrides c WHERE c.product_id=ANY(ids)
   OR c.supplier_item_id IN (SELECT s.supplier_item_id FROM product_sources s WHERE s.product_id=ANY(ids));
  INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,description,hidden,price_kurus,sale_price_kurus,sale_from,sale_until,
-  brand,part_number)
+  brand,part_number,hide_oem)
  SELECT s.supplier_item_id,o.product_id,o.name,o.description,o.hidden,o.price_kurus,o.sale_price_kurus,o.sale_from,o.sale_until,
-  o.brand,o.part_number
+  o.brand,o.part_number,o.hide_supplier_oem
  FROM product_overrides o JOIN product_sources s ON s.product_id=o.product_id
  WHERE o.product_id=ANY(ids) AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.hidden
-  OR o.price_kurus IS NOT NULL OR o.sale_price_kurus IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL)
+  OR o.price_kurus IS NOT NULL OR o.sale_price_kurus IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL
+  OR o.hide_supplier_oem)
  ON CONFLICT (supplier_item_id) DO UPDATE SET product_id=excluded.product_id,name=excluded.name,
   description=excluded.description,hidden=excluded.hidden,price_kurus=excluded.price_kurus,
   sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
-  brand=excluded.brand,part_number=excluded.part_number;
+  brand=excluded.brand,part_number=excluded.part_number,hide_oem=excluded.hide_oem;
 $$;
 
 -- A supplier row moving between products (matcher refresh, merge, split, undo) takes the new product's edits.
@@ -138,7 +143,7 @@ BEGIN
  SELECT * INTO s FROM product_overrides WHERE product_id=source;
  IF NOT FOUND THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
  SELECT * INTO t FROM product_overrides WHERE product_id=target FOR UPDATE;
- IF NOT FOUND THEN t.product_id := target; t.hidden := false; END IF;
+ IF NOT FOUND THEN t.product_id := target; t.hidden := false; t.hide_supplier_oem := false; END IF;
  IF t.name IS NULL AND s.name IS NOT NULL THEN t.name := s.name; carried := array_append(carried,'name'); END IF;
  IF t.description IS NULL AND s.description IS NOT NULL THEN t.description := s.description; carried := array_append(carried,'description'); END IF;
  IF t.seo_title IS NULL AND s.seo_title IS NOT NULL THEN t.seo_title := s.seo_title; carried := array_append(carried,'seo_title'); END IF;
@@ -147,6 +152,10 @@ BEGIN
  IF t.brand IS NULL AND s.brand IS NOT NULL THEN t.brand := s.brand; carried := array_append(carried,'brand'); END IF;
  IF t.part_number IS NULL AND s.part_number IS NOT NULL THEN t.part_number := s.part_number; carried := array_append(carried,'part_number'); END IF;
  IF s.hidden AND NOT t.hidden THEN t.hidden := true; carried := array_append(carried,'hidden'); END IF;
+ -- Like hidden (#615): the same physical product, so the supplier OEM the admin hid stays hidden on the target.
+ IF s.hide_supplier_oem AND NOT t.hide_supplier_oem THEN
+  t.hide_supplier_oem := true; carried := array_append(carried,'hide_supplier_oem');
+ END IF;
  -- Prices (#580) by the same rule while the pair stays valid (a campaign below the fixed price). The campaign moves as
  -- one (price and its window); an ended one is not carried. A target without a campaign price has no dates (CHECK).
  IF t.price_kurus IS NULL AND s.price_kurus IS NOT NULL AND (t.sale_price_kurus IS NULL OR t.sale_price_kurus<s.price_kurus) THEN
@@ -161,13 +170,13 @@ BEGIN
  END IF;
  IF cardinality(carried)=0 THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
  INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,
-  price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,updated_by)
+  price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,hide_supplier_oem,updated_by)
  VALUES (target,t.name,t.description,t.seo_title,t.seo_description,t.category_id,t.hidden,
-  t.price_kurus,t.sale_price_kurus,t.sale_from,t.sale_until,t.brand,t.part_number,actor)
+  t.price_kurus,t.sale_price_kurus,t.sale_from,t.sale_until,t.brand,t.part_number,t.hide_supplier_oem,actor)
  ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,seo_title=excluded.seo_title,
   seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,
   price_kurus=excluded.price_kurus,sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
-  brand=excluded.brand,part_number=excluded.part_number,
+  brand=excluded.brand,part_number=excluded.part_number,hide_supplier_oem=excluded.hide_supplier_oem,
   updated_by=excluded.updated_by,updated_at=now();
  -- Every carried field was automatic (NULL; hidden false) on the target before.
  INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
@@ -175,7 +184,7 @@ BEGIN
  FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
   ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
   ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
-  ('brand',t.brand),('part_number',t.part_number)) f(field,value)
+  ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
  WHERE f.field=ANY(carried);
  -- Qualified: the parameters share the table's column names.
  INSERT INTO product_override_carries(target,source,fields)
@@ -183,7 +192,7 @@ BEGIN
  FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
   ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
   ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
-  ('brand',t.brand),('part_number',t.part_number)) f(field,value)
+  ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
  WHERE f.field=ANY(carried)
  ON CONFLICT ON CONSTRAINT product_override_carries_pkey DO UPDATE SET fields=product_override_carries.fields||excluded.fields,carried_at=now();
  PERFORM product_overrides_project(ARRAY[target]);
@@ -205,7 +214,8 @@ BEGIN
      WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END
      WHEN 'price_kurus' THEN t.price_kurus::text WHEN 'sale_price_kurus' THEN t.sale_price_kurus::text
      WHEN 'sale_from' THEN product_override_time_text(t.sale_from) WHEN 'sale_until' THEN product_override_time_text(t.sale_until)
-     WHEN 'brand' THEN t.brand WHEN 'part_number' THEN t.part_number END);
+     WHEN 'brand' THEN t.brand WHEN 'part_number' THEN t.part_number
+     WHEN 'hide_supplier_oem' THEN CASE WHEN t.hide_supplier_oem THEN 'true' END END);
    -- The campaign is one unit: its window goes back only with its price (a window alone would leave the admin's
    -- price running without an end), and a price taken back takes its window with it (dates without a price break
    -- the CHECK). The admin's save drops the whole campaign from the record when any part of it changes.
@@ -221,7 +231,7 @@ BEGIN
     FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
      ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
      ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
-     ('brand',t.brand),('part_number',t.part_number)) f(field,value)
+     ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
     WHERE f.field=ANY(reverted);
     UPDATE product_overrides SET name=CASE WHEN 'name'=ANY(reverted) THEN NULL ELSE name END,
      description=CASE WHEN 'description'=ANY(reverted) THEN NULL ELSE description END,
@@ -235,11 +245,12 @@ BEGIN
      sale_until=CASE WHEN 'sale_until'=ANY(reverted) THEN NULL ELSE sale_until END,
      brand=CASE WHEN 'brand'=ANY(reverted) THEN NULL ELSE brand END,
      part_number=CASE WHEN 'part_number'=ANY(reverted) THEN NULL ELSE part_number END,
+     hide_supplier_oem=CASE WHEN 'hide_supplier_oem'=ANY(reverted) THEN false ELSE hide_supplier_oem END,
      updated_by=NULL,updated_at=now()
     WHERE product_id=c.target;
     DELETE FROM product_overrides WHERE product_id=c.target AND name IS NULL AND description IS NULL AND seo_title IS NULL
      AND seo_description IS NULL AND category_id IS NULL AND NOT hidden AND price_kurus IS NULL AND sale_price_kurus IS NULL
-     AND brand IS NULL AND part_number IS NULL;
+     AND brand IS NULL AND part_number IS NULL AND NOT hide_supplier_oem;
     PERFORM product_overrides_project(ARRAY[c.target]);
    END IF;
   END IF;
@@ -265,7 +276,7 @@ SELECT product_overrides_project(ARRAY(SELECT product_id FROM product_overrides)
 
 -- Storefront listing cache epoch (#585): the app keeps listing counts, page ids, facets and plain searches in a
 -- per-process stale-while-revalidate cache. An admin edit that changes what a listing shows (name, category, hidden,
--- brand, part number, references, merge/split) bumps this one-row counter; every app process reads it at most once a
+-- brand, part number, references, supplier OEM hiding, merge/split) bumps this one-row counter; every app process reads it at most once a
 -- second and drops cached entries loaded under an older epoch (src/modules/store/listing-epoch.ts).
 CREATE TABLE IF NOT EXISTS storefront_listing_epoch (
  id boolean PRIMARY KEY DEFAULT true CHECK (id),

@@ -53,7 +53,7 @@ FROM commerce_catalog_entries e
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,true,
+ COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,true,
  COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code)
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id;
 CREATE OR REPLACE VIEW storefront_catalog AS
@@ -63,7 +63,7 @@ FROM commerce_catalog c
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,COALESCE(u.product_data->>'oe',''),'supplier'::text,u.company,
+ COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,
  false,0,'Şu an tedarik edilemiyor'::text,
  jsonb_build_object('source','unavailable','presence',u.presence,'observed_at',u.last_seen_at),true,
  COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code)

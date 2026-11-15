@@ -3,7 +3,7 @@
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Hash, Pencil, Plus, Trash2 } from "lucide-react";
-import { addProductReference, hideProductReference, removeProductReference, type ProductReferenceActionResult } from "@/app/yonetim/urunler/reference-actions";
+import { addProductReference, hideProductReference, removeProductReference, setSupplierOemHidden, type ProductReferenceActionResult } from "@/app/yonetim/urunler/reference-actions";
 import { productReferenceLimit, referenceKindLabels, referenceKinds, type ReferenceKind } from "@/modules/admin/product-reference-fields";
 import type { ProductReferences } from "@/modules/admin/product-reference-store";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -30,7 +30,8 @@ const numberPlaceholders: Record<ReferenceKind, string> = { oem: "Örn. 1K061530
 
 /**
  * Adds OEM numbers, cross-reference codes and barcodes, and hides automatic (enrichment) numbers from the store (#582).
- * Every change goes through a server action; the page refreshes with the stored list.
+ * The supplier rows' OEM field is hidden or shown as a whole for the product (#615). Every change goes through a server
+ * action; the page refreshes with the stored list.
  */
 export function ProductReferencesManager({ productId, references }: { productId: string; references: ProductReferences }) {
   const router = useRouter();
@@ -41,6 +42,8 @@ export function ProductReferencesManager({ productId, references }: { productId:
   const [number, setNumber] = useState("");
   const [result, setResult] = useState<ProductReferenceActionResult | null>(null);
   const stored = references.added.length + references.hidden.length;
+  const supplierHidden = references.supplierOemHidden;
+  const supplierRows = references.automatic.filter(row => row.supplierOem).length;
 
   const mutate = (action: () => Promise<ProductReferenceActionResult>, onSuccess?: () => void) => {
     setResult(null);
@@ -99,7 +102,7 @@ export function ProductReferencesManager({ productId, references }: { productId:
     </div>
     {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
-    {rows.length ? <Table controls={false}><caption className="sr-only">Referans numaraları</caption>
+    {rows.length ? <div className="flex flex-col gap-2"><Table controls={false}><caption className="sr-only">Referans numaraları</caption>
       <TableHeader><TableRow><TableHead>Tür</TableHead><TableHead>Marka</TableHead><TableHead>Numara</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map(row => <TableRow key={row.key}>
         <TableCell>{referenceKindLabels[row.kind]}</TableCell>
@@ -111,6 +114,7 @@ export function ProductReferencesManager({ productId, references }: { productId:
           {row.status === "automatic" && <StatusBadge tone="neutral">Otomatik</StatusBadge>}
           {row.status === "hidden" && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
           {row.status === "supplier" && <StatusBadge tone="neutral">Tedarikçi verisi</StatusBadge>}
+          {row.status === "supplier" && supplierHidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
         </div></TableCell>
         <TableCell><div className="flex flex-wrap justify-end gap-2">
           {(row.status === "manual" || row.status === "carried") && row.id && <Button type="button" variant="outline" disabled={pending}
@@ -121,8 +125,13 @@ export function ProductReferencesManager({ productId, references }: { productId:
             disabled={pending || stored >= productReferenceLimit} aria-label={`${row.number} numarasını mağazada gizle`} onClick={() => mutate(() => hideProductReference({ productId, kind: row.kind, brand: row.brand, number: row.number }))}><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</Button>}
           {row.status === "hidden" && row.id && <Button type="button" variant="outline" disabled={pending}
             aria-label={`${row.number} numarasını yeniden göster`} onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id!, shown: true }))}><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</Button>}
+          {row.status === "supplier" && <Button type="button" variant="outline" disabled={pending}
+            aria-label={supplierHidden ? `${row.number} tedarikçi OEM numarasını yeniden göster` : `${row.number} tedarikçi OEM numarasını mağazada gizle`}
+            onClick={() => mutate(() => setSupplierOemHidden({ productId, hidden: !supplierHidden }))}>
+            {supplierHidden ? <><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</> : <><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</>}</Button>}
         </div></TableCell>
       </TableRow>)}</TableBody></Table>
+      {supplierRows > 1 && <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürünün tüm tedarikçi kayıtlarında birlikte gizlenir.</p>}</div>
       : <Empty><EmptyHeader><EmptyMedia variant="icon"><Hash/></EmptyMedia><EmptyTitle>Referans numarası yok</EmptyTitle>
         <EmptyDescription>Bu ürünün otomatik OEM veya muadil numarası yok; yukarıdaki formla elle ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
   </div>;

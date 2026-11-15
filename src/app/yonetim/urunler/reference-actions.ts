@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
+import { persistProductOverride } from "@/modules/admin/product-override-store";
 import * as store from "@/modules/admin/product-reference-store";
 import { productReferenceLimit, referenceKinds } from "@/modules/admin/product-reference-fields";
 
@@ -86,4 +87,30 @@ export async function removeProductReference(input: { productId: string; referen
   if (!data.success) return { status: "error", message: "Referans tanınmadı. Sayfayı yenileyin." };
   return run(() => store.removeProductReference(db, data.data.productId, data.data.referenceId, admin.id),
     data.data.shown ? "Otomatik referans yeniden gösteriliyor." : "Referans kaldırıldı.");
+}
+
+/**
+ * Hides the supplier rows' OEM field on the store (#615), or shows it again, for every source row of the product: the
+ * product page, cards, cart, partner API and storefront code search. Stored as a product edit (history, merge carry and
+ * undo); supplier data, matching and enrichment keep the number.
+ */
+export async function setSupplierOemHidden(input: { productId: string; hidden: boolean }): Promise<ProductReferenceActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, hidden: z.boolean() }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Ürün tanınmadı. Sayfayı yenileyin." };
+  let result: Awaited<ReturnType<typeof persistProductOverride>>;
+  try {
+    result = await persistProductOverride(db, data.data.productId, { hide_supplier_oem: data.data.hidden }, admin.id);
+  } catch {
+    return { status: "error", message: "Değişiklik kaydedilemedi. Yeniden deneyin." };
+  }
+  if (!result.ok) return { status: "error", message: result.reason === "merged" ? failures.merged : failures["not-found"] };
+  if (result.changed.length) {
+    // Code search lists products by their supplier OEM: cached searches reload (#585).
+    await invalidateListings();
+    revalidateStore();
+  }
+  return { status: "success", message: data.data.hidden
+    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar."
+    : "Tedarikçi OEM alanı yeniden gösteriliyor." };
 }

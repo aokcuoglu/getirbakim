@@ -127,8 +127,8 @@ test("the admin actions that change listings bump the epoch", async () => {
   const calls = async (file: string) => ((await readFile(file, "utf8")).match(/invalidateListings\(/g) ?? []).length;
   // splitSource, undoSplitSource, mergeProducts and saveProductOverride.
   assert.equal(await calls("src/app/yonetim/urunler/actions.ts"), 4);
-  // run(), shared by add, hide and remove.
-  assert.equal(await calls("src/app/yonetim/urunler/reference-actions.ts"), 1);
+  // run(), shared by add, hide and remove; setSupplierOemHidden (#615).
+  assert.equal(await calls("src/app/yonetim/urunler/reference-actions.ts"), 2);
   // splitOffer, undoSplit, decideCandidate ("Aynı ürün") and acceptCandidates.
   assert.equal(await calls("src/app/yonetim/urun-eslestirme/actions.ts"), 4);
 });

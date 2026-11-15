@@ -11,9 +11,14 @@ export type ProductReferences = {
   hidden: (Omit<Reference, "kind"> & { kind: "oem" | "cross" })[];
   /**
    * Numbers the automatic sources give: the enrichment's OEM and cross-reference lists (hideable, `hiddenId` set
-   * while hidden) and the supplier rows' own OEM field (`supplierOem`, read-only in this slice).
+   * while hidden) and the supplier rows' own OEM field (`supplierOem`, hidden as a whole through supplierOemHidden).
    */
   automatic: { kind: "oem" | "cross"; brand: string; number: string; hiddenId: string | null; supplierOem: boolean }[];
+  /**
+   * The supplier OEM field is off the store for every source row of the product (#615, product_overrides.hide_supplier_oem):
+   * page, cards, cart, partner API and storefront search.
+   */
+  supplierOemHidden: boolean;
 };
 export type ProductReferenceInput = { kind: ReferenceKind; brand: string; number: string };
 export type ProductReferenceResult = { ok: true } | { ok: false; reason: "not-found" | "merged" | "limit" | "duplicate" | "hidden" | "ean" | "stale" };
@@ -21,7 +26,7 @@ export type ProductReferenceResult = { ok: true } | { ok: false; reason: "not-fo
 const key = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export async function loadProductReferences(database: Pick<Pool, "query">, productId: string): Promise<ProductReferences> {
-  const [rows, automatic] = await Promise.all([
+  const [rows, automatic, flags] = await Promise.all([
     database.query<Reference & { action: "add" | "hide"; brand_key: string; number_key: string }>(
       `SELECT id::text,kind,action,brand,number,brand_key,number_key,carried_from IS NOT NULL AS carried
        FROM product_override_references WHERE product_id=$1 ORDER BY created_at,id`, [productId]),
@@ -41,6 +46,7 @@ export async function loadProductReferences(database: Pick<Pool, "query">, produ
         SELECT 'oem','',i.product_data->>'oe',true FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
         WHERE s.product_id=$1 AND i.product_data->>'oe'<>''
        ) x ORDER BY x.supplier_oem,x.kind DESC,x.brand,x.number`, [productId]),
+    database.query<{ hide_supplier_oem: boolean }>("SELECT hide_supplier_oem FROM product_overrides WHERE product_id=$1", [productId]),
   ]);
   const hidden = new Map(rows.rows.filter(row => row.action === "hide").map(row => [`${row.kind}|${row.brand_key}|${row.number_key}`, row.id]));
   const seen = new Set<string>();
@@ -56,6 +62,7 @@ export async function loadProductReferences(database: Pick<Pool, "query">, produ
     added: rows.rows.filter(row => row.action === "add").map(plain),
     hidden: rows.rows.filter(row => row.action === "hide").map(row => ({ ...plain(row), kind: row.kind === "cross" ? "cross" as const : "oem" as const })),
     automatic: listed,
+    supplierOemHidden: flags.rows[0]?.hide_supplier_oem ?? false,
   };
 }
 
