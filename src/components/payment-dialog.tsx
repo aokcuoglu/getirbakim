@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { storeDialogAction, storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
 import { paymentState } from "@/app/(store)/siparis/[id]/actions";
 import { PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
 
@@ -95,9 +96,9 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
       : "Ödeme penceresi kapandı. Ödemeyi tamamlamadıysan yeniden deneyebilirsin; siparişin ve sepetin korunuyor.");
   const canRetry = !paid && (!error || error === paymentErrors.provider);
 
-  const action = "h-auto min-h-12 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
+  const action = storeDialogAction;
   return <Dialog open={open} disablePointerDismissal onOpenChange={next => { if (!next && !paid) dismiss(); }}>
-    <DialogContent showCloseButton={false} overlayClassName="bg-[#212b3673] supports-backdrop-filter:backdrop-blur-none" aria-labelledby="payment-dialog-title" className="inset-x-0 top-[12dvh] mx-auto block translate-x-0 translate-y-0 gap-0 ring-0 sm:max-w-[440px] max-[760px]:sm:max-w-none max-h-[calc(88dvh-24px)] w-[calc(100%-32px)] max-w-[440px] overflow-auto rounded-[10px] bg-white px-8 pt-9 pb-7 text-center text-foreground shadow-[0_12px_50px_#212b3626] max-[760px]:top-auto max-[760px]:bottom-0 max-[760px]:w-full max-[760px]:max-w-none max-[760px]:rounded-t-[14px] max-[760px]:rounded-b-none max-[760px]:px-5 max-[760px]:pt-8 max-[760px]:pb-[calc(20px+env(safe-area-inset-bottom))]">
+    <DialogContent showCloseButton={false} overlayClassName={storeDialogOverlay} aria-labelledby="payment-dialog-title" className={storeDialogContent}>
         {!paid && <Button variant="secondary" className="absolute top-2.5 right-2.5 size-8 min-h-8 rounded-[5px] border-0 bg-[#e6e9ec] p-0 text-foreground hover:bg-[#d9dfe4]" onClick={dismiss} aria-label="Ödeme penceresini kapat"><X className="size-5" aria-hidden/></Button>}
         <div className={cn("mx-auto grid size-14 place-items-center rounded-full", paid ? "bg-[#ebf5ed] text-[#2e7d32]" : "bg-[#e5f2fa] text-primary")}>{paid ? <CheckCircle2 className="size-8" aria-hidden/> : <LockKeyhole className="size-7" aria-hidden/>}</div>
         <DialogTitle id="payment-dialog-title" className="mt-4 mb-1 text-[22px] leading-7 font-semibold tracking-[-0.4px]">{title}</DialogTitle>

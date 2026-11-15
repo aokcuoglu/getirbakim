@@ -348,3 +348,19 @@ ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ref text;
 ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ordered_at timestamptz;
 ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procured_at timestamptz;
 ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_by uuid REFERENCES accounts(id);
+-- Customer cancellation (#607). Who cancelled and when; orders cancelled before this change keep NULL.
+-- payment_status 'cancelled': the customer cancelled before paying (not 'expired', which a late payment may revive).
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_by text CHECK(cancelled_by IN ('customer','admin','expiry'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+-- Widens the payment_status list above once. The inline CHECK's generated name is not relied on: it is found by definition.
+DO $$ DECLARE c text; BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+  AND pg_get_constraintdef(oid) LIKE '%payment_status%' AND pg_get_constraintdef(oid) LIKE '%''cancelled''%') THEN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+   AND pg_get_constraintdef(oid) LIKE '%payment_status%' LOOP
+   EXECUTE format('ALTER TABLE commerce_orders DROP CONSTRAINT %I', c);
+  END LOOP;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_payment_status_check
+   CHECK(payment_status IN ('none','awaiting','paid','expired','cancelled','refund_required','refunded'));
+ END IF;
+END $$;
