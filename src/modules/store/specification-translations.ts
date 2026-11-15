@@ -380,7 +380,7 @@ export function translateSpecificationParts(value: string) {
     const translated = translateSpecificationValue(part);
     return translated !== part ? translated : composePosition(part) ?? part;
   });
-  return [...new Set(parts)];
+  return parts;
 }
 
 /** Turkish text of a (possibly comma separated) specification value: the whole text first, otherwise part by part. */
