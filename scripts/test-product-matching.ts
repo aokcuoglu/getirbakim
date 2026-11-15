@@ -176,13 +176,14 @@ test("matched group offers flag the rows linked by hand", async t => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const pair = (await client.query<{ a: string; b: string }>(`SELECT product_a AS a, product_b AS b FROM product_match_candidates LIMIT 1`)).rows[0]
-      ?? (await client.query<{ a: string; b: string }>(`SELECT a.product_id AS a, b.product_id AS b FROM product_sources a JOIN product_sources b ON b.product_id>a.product_id
-        JOIN products pa ON pa.id=a.product_id AND pa.variant=0 AND pa.merged_into IS NULL JOIN products pb ON pb.id=b.product_id AND pb.variant=0 AND pb.merged_into IS NULL
-        WHERE a.method='auto' AND b.method='auto' LIMIT 1`)).rows[0];
+    const pair = (await client.query<{ a: string; b: string }>(`SELECT a.id AS a, b.id AS b FROM products a JOIN products b ON b.id>a.id AND b.variant=0 AND b.merged_into IS NULL
+      WHERE a.variant=0 AND a.merged_into IS NULL
+        AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=a.id) AND EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id=b.id)
+        AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.product_id IN (a.id,b.id) AND s.method<>'auto') LIMIT 1`)).rows[0];
     if (!pair) return t.skip("no two products to merge");
     const moved = (await client.query<{ id: string }>("SELECT supplier_item_id AS id FROM product_sources WHERE product_id=$1", [pair.b])).rows.map(row => row.id);
-    await client.query("SELECT product_merge($2,$1,NULL)", [pair.a, pair.b]);
+    assert.ok(moved.length);
+    assert.ok((await client.query("SELECT product_merge($2,$1,NULL) AS id", [pair.a, pair.b])).rows[0].id);
     const flags = async () => new Map((await client.query<{ id: string; manual: boolean }>(`WITH offers AS (SELECT s.supplier_item_id AS id FROM product_sources s WHERE s.product_id=$1)
       SELECT id, ${offerManualSql} AS manual FROM offers`, [pair.a])).rows.map(row => [row.id, row.manual]));
     const merged = await flags();

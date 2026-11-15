@@ -37,7 +37,7 @@ const splitMessages: Record<string, string> = {
   "1": "Ayrıldı: kayıt artık kendi ürünü olarak listeleniyor; bu çift tekrar önerilmez. Elle kararlar görünümünden geri alabilirsiniz.", undone: "Karar geri alındı; kayıt kendi ürününe döndü.",
 };
 
-const manualBadge = <StatusBadge tone="info" icon={Merge} title="Bu kayıt gruba elle bağlandı; yenileme yerini değiştirmez">Elle</StatusBadge>;
+const manualBadge = <StatusBadge tone="info" icon={Merge} title="Elle karar verilmiş kayıt; eşleşmeleri yenilemek yerini değiştirmez">Elle</StatusBadge>;
 
 function OfferCell({ offer }: { offer: Offer | undefined }) {
   if (!offer) return <span className="text-muted-foreground">—</span>;
@@ -190,7 +190,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title={params.q && kind ? "Arama ve filtreyle eşleşen elle karar yok." : kind ? "Bu filtreyle eşleşen elle karar yok." : params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır; Elle: anahtarla değil yönetici kararıyla bağlandı">Bağlı teklifler</TableHead>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır. Elle: marka ve parça numarası eşleşmesiyle değil, yönetici kararıyla bağlandı.">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0];
