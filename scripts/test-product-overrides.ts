@@ -406,3 +406,133 @@ test("an edit wins over the enrichment, which wins over the supplier", () => {
   assert.deepEqual(productMeta(edited, { title: "T", description: "D" }), { title: "SEO", description: "SEO açıklama" });
   assert.deepEqual(productMeta(none, { title: "T", description: "D" }), { title: "T", description: "D" });
 });
+
+// Store brand and manufacturer part number (#602): shown as display_brand / display_code; brand and code stay the supplier's.
+const merge602 = (source: string, target: string) => schema.pool.query<{ carried: { fields: string[]; hidden: boolean } }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
+  SELECT product_overrides_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
+const shown602 = async (key: string) => {
+  const row = await catalog.getStorefrontProduct(ids[key]);
+  return row && [row.brand, row.code, row.display_brand, row.display_code];
+};
+
+test("a store brand and part number show on every source of the product; brand and code stay the supplier's (#602)", async () => {
+  await item("lukBasbug", { supplier: "basbug", code: "LUK 61061", brand: "LUK", name: "LUK DEBRIYAJ RULMANI" });
+  await item("lukDinamik", { supplier: "dinamik", code: "LUK 61061", brand: "LUK", name: "LUK DEBRIYAJ RULMANI ON" });
+  await item("ina", { supplier: "basbug", code: "INA 5100061109", brand: "INA", name: "INA GERGI RULMANI" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await schema.pool.query("INSERT INTO brands(key,name) VALUES('SCHAEFFLER','SCHAEFFLER') ON CONFLICT (key) DO NOTHING");
+  const luk = await productOf("lukBasbug");
+  assert.equal(await productOf("lukDinamik"), luk);
+  assert.deepEqual(await persist(schema.pool, luk, { brand: "SCHAEFFLER", part_number: "510 0061 10" }, admin), { ok: true, changed: ["brand", "part_number"] });
+  assert.deepEqual(await shown602("lukBasbug"), ["LUK", "LUK 61061", "SCHAEFFLER", "510 0061 10"]);
+  assert.deepEqual(await shown602("lukDinamik"), ["LUK", "LUK 61061", "SCHAEFFLER", "510 0061 10"]);
+  const sold = await catalog.getProduct(ids.lukBasbug);
+  assert.deepEqual([sold?.code, sold?.display_brand, sold?.display_code], ["LUK 61061", "SCHAEFFLER", "510 0061 10"]);
+  // The cart shows the display values; the order line would keep the supplier code.
+  const owner = { kind: "guest" as const, id: randomUUID().replace(/-/g, "") };
+  await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
+  await schema.pool.query("INSERT INTO commerce_cart_items(owner_kind,owner_id,product_id,quantity) VALUES('guest',$1,$2,1)", [owner.id, ids.lukBasbug]);
+  const [line] = await cart.cartFor(owner, schema.pool);
+  assert.deepEqual([line.code, line.brand, line.display_code, line.display_brand], ["LUK 61061", "LUK", "510 0061 10", "SCHAEFFLER"]);
+  // An untouched product shows its supplier's values.
+  assert.deepEqual(await shown602("ina"), ["INA", "INA 5100061109", "INA", "INA 5100061109"]);
+  const details = await store.loadProductOverride(schema.pool, luk);
+  assert.deepEqual([details.override?.brand, details.override?.part_number, details.automatic.brand], ["SCHAEFFLER", "510 0061 10", "LUK"]);
+  assert.equal(details.automatic.code, "LUK 61061");
+  assert.deepEqual(details.changes.map(change => [change.field, change.old_value, change.new_value]).sort(),
+    [["brand", null, "SCHAEFFLER"], ["part_number", null, "510 0061 10"]]);
+});
+
+test("the brand filter and facets use the store brand; a label no other product carries drops out (#602)", async () => {
+  const filtered = await catalog.browseProducts({ brand: "SCHAEFFLER", sort: "newest" });
+  assert.equal(filtered.items.length, 1);
+  assert.equal(filtered.items[0].display_brand, "SCHAEFFLER");
+  assert.ok(!(await catalog.browseProducts({ brand: "LUK", sort: "newest" })).items.some(row => [ids.lukBasbug, ids.lukDinamik].includes(row.id)));
+  // The supplier code still finds it; the facet names the store brand only.
+  assert.deepEqual((await catalog.catalogFacets({ q: "LUK 61061", searchBy: "code" })).brands, ["SCHAEFFLER"]);
+  const everything = (await catalog.catalogFacets({})).brands;
+  assert.deepEqual([everything.includes("SCHAEFFLER"), everything.includes("LUK")], [true, false]);
+  // A search with a brand filter goes through the generic listing path.
+  assert.equal((await catalog.browseProducts({ q: "LUK 61061", searchBy: "code", brand: "SCHAEFFLER" })).items.length, 1);
+  assert.equal((await catalog.browseProducts({ q: "LUK 61061", searchBy: "code", brand: "LUK" })).items.length, 0);
+  assert.ok((await catalog.catalogBrands()).includes("SCHAEFFLER"));
+});
+
+test("search finds the store part number and brand, ranks an exact part number first and still finds the supplier's (#602)", async () => {
+  const listed = (rows: { id: string }[]) => rows.map(row => [ids.lukBasbug, ids.lukDinamik].includes(row.id) ? "luk" : row.id === ids.ina ? "ina" : row.id);
+  // "510006110" is the whole edited number and only part of INA's code.
+  assert.deepEqual(listed((await catalog.browseProducts({ q: "510 0061 10", searchBy: "code" })).items), ["luk", "ina"]);
+  assert.deepEqual(listed((await catalog.browseProducts({ q: "5100061-10" })).items), ["luk", "ina"]);
+  assert.deepEqual(listed((await catalog.browseProducts({ q: "510 0061 10", searchBy: "code", sort: "newest", availability: "supplied" })).items).sort(), ["ina", "luk"]);
+  assert.deepEqual(listed(await catalog.searchCatalogItems("5100061 10", "code")), ["luk", "ina"]);
+  assert.deepEqual(listed((await catalog.browseProducts({ q: "schaeffler rulman" })).items), ["luk"]);
+  assert.deepEqual(listed((await catalog.browseProducts({ q: "LUK 61061", searchBy: "code" })).items), ["luk"]);
+  const suggested = await catalog.suggestProducts("schaeffler", "all");
+  assert.deepEqual(suggested.products.map(row => row.kind === "product" ? [row.brand, row.code] : row.name), [["SCHAEFFLER", "510 0061 10"]]);
+});
+
+test("a supplier sync and a matching refresh keep the store brand and part number (#602)", async () => {
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"uk":"LUK","ac":"LUK RULMAN YENI"}',changed_at=now() WHERE id=$1`, [ids.lukBasbug]);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  assert.deepEqual(await shown602("lukBasbug"), ["LUK", "LUK 61061", "SCHAEFFLER", "510 0061 10"]);
+  assert.deepEqual(await shown602("lukDinamik"), ["LUK", "LUK 61061", "SCHAEFFLER", "510 0061 10"]);
+});
+
+test("returning the brand and part number to automatic shows the supplier's again; an unknown brand is refused (#602)", async () => {
+  const luk = await productOf("lukBasbug");
+  assert.deepEqual(await persist(schema.pool, luk, { brand: "YOK BOYLE MARKA" }, admin), { ok: false, reason: "brand" });
+  assert.deepEqual(await persist(schema.pool, luk, { part_number: null }, admin), { ok: true, changed: ["part_number"] });
+  assert.deepEqual(await shown602("lukBasbug"), ["LUK", "LUK 61061", "SCHAEFFLER", "LUK 61061"]);
+  assert.deepEqual(await persist(schema.pool, luk, { brand: null }, admin), { ok: true, changed: ["brand"] });
+  assert.deepEqual(await shown602("lukBasbug"), ["LUK", "LUK 61061", "LUK", "LUK 61061"]);
+  assert.equal((await store.loadProductOverride(schema.pool, luk)).override, null);
+  // A brand later merged away (no master brand by that name now) stays on the product as text.
+  await schema.pool.query("INSERT INTO brands(key,name) VALUES('ESKIMARKA602','ESKI MARKA') ON CONFLICT (key) DO NOTHING");
+  assert.deepEqual(await persist(schema.pool, luk, { brand: "ESKI MARKA" }, admin), { ok: true, changed: ["brand"] });
+  await schema.pool.query("DELETE FROM brands WHERE key='ESKIMARKA602'");
+  assert.equal((await shown602("lukBasbug"))?.[2], "ESKI MARKA");
+  assert.deepEqual(await persist(schema.pool, luk, { brand: null }, admin), { ok: true, changed: ["brand"] });
+});
+
+test("a merge carries the store brand and part number into empty fields; undoing it takes back only those (#602)", async () => {
+  for (const [key, code, brand] of [["carryE", "CRE 62062", "CARRYE"], ["carryF", "CRF 63063", "CARRYF"], ["carryA", "CRA 64064", "CARRYA"],
+    ["carryB", "CRB 65065", "CARRYB"], ["carryC", "CRC 66066", "CARRYC"], ["carryD", "CRD 67067", "CARRYD"]] as const)
+    await item(key, { supplier: "basbug", code, brand, name: `${brand} PARCA` });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const [e, f, a, b, c, d] = await Promise.all(["carryE", "carryF", "carryA", "carryB", "carryC", "carryD"].map(productOf));
+  // Target empty: both carried, and the merged product's rows sell under them too.
+  await persist(schema.pool, e, { brand: "SCHAEFFLER", part_number: "E-5" }, admin);
+  assert.deepEqual((await merge602(e, f)).rows[0].carried, { fields: ["brand", "part_number"], hidden: false });
+  for (const key of ["carryE", "carryF"]) assert.deepEqual((await shown602(key))?.slice(2), ["SCHAEFFLER", "E-5"], key);
+  // Target set: it keeps its own.
+  await persist(schema.pool, c, { part_number: "C-1" }, admin);
+  await persist(schema.pool, d, { part_number: "D-1" }, admin);
+  assert.deepEqual((await merge602(c, d)).rows[0].carried, { fields: [], hidden: false });
+  assert.equal((await store.loadProductOverride(schema.pool, d)).override?.part_number, "D-1");
+  // Undo: the carried part number goes back; the target's own brand keeps its row (not deleted as empty).
+  await persist(schema.pool, a, { part_number: "A-77" }, admin);
+  await persist(schema.pool, b, { brand: "SCHAEFFLER" }, admin);
+  assert.deepEqual((await merge602(a, b)).rows[0].carried, { fields: ["part_number"], hidden: false });
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.carryA]);
+  const { override, changes } = await store.loadProductOverride(schema.pool, b);
+  assert.deepEqual([override?.brand, override?.part_number], ["SCHAEFFLER", null]);
+  assert.deepEqual(changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value, change.new_value]), [["part_number", "A-77", null]]);
+  assert.deepEqual(await shown602("carryB"), ["CARRYB", "CRB 65065", "SCHAEFFLER", "CRB 65065"]);
+});
+
+test("the form schema and reducer handle the store brand and part number (#602)", () => {
+  const base = { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: "on" };
+  assert.deepEqual(Object.entries(productOverrideValuesSchema.parse({ ...base, brand: " SCHAEFFLER ", part_number: " 510 0061 10 " })).filter(([key]) => key === "brand" || key === "part_number"),
+    [["brand", "SCHAEFFLER"], ["part_number", "510 0061 10"]]);
+  const refused = productOverrideValuesSchema.safeParse({ ...base, brand: "", part_number: "--/" });
+  assert.equal(refused.success ? null : refused.error.issues[0].message, "Parça numarası harf veya rakam içermeli.");
+  assert.equal(productOverrideValuesSchema.safeParse({ ...base, brand: "", part_number: "x".repeat(61) }).success, false);
+  assert.equal(productOverrideValuesSchema.safeParse({ ...base, brand: "x".repeat(81), part_number: "" }).success, false);
+  const stored = { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: "SCHAEFFLER", part_number: "A1" };
+  let state = initialOverrideForm(stored, "1");
+  assert.deepEqual([state.values.brand, state.values.part_number], ["SCHAEFFLER", "A1"]);
+  state = overrideFormReducer(state, { type: "edit", values: { part_number: "B2" } });
+  // Reverting the brand keeps the typed part number.
+  state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "brand", version: "2", values: { ...stored, brand: null } } });
+  assert.deepEqual([state.values.brand, state.values.part_number, state.dirty], ["", "B2", ["part_number"]]);
+});
