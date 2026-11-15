@@ -62,6 +62,7 @@
     "test:listing-paths": "node --import tsx --test scripts/test-listing-paths.ts",
     "test:analytics": "node --import tsx --test scripts/test-analytics.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
+    "test:vehicle-model-groups": "node --import tsx --test scripts/test-vehicle-model-groups.ts",
     "verify:catalog": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog.ts",
     "db:brand:migrate": "node --env-file=.env.local --import tsx scripts/migrate-brand-launch.ts",
     "db:commerce:migrate": "node --env-file=.env.local --import tsx scripts/migrate-commerce.ts",
