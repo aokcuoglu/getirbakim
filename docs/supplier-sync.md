@@ -183,7 +183,7 @@ sudo systemctl unmask getirbakim-production-sync.service
 sudo systemctl enable --now getirbakim-production-sync.timer
 ```
 
-`--group=ALL` aynı planı tedarikçinin bilinen tüm kapsamlarına uygular. Production planı: ürün listesi her gece İstanbul 03:00, fiyat/stok/kur **30 dakikada bir**, ticari bayatlık 90 dakika. Sipariş anındaki canlı doğrulama bunun üzerine ayrıca çalışır.
+`--group=ALL` aynı planı tedarikçinin bilinen tüm kapsamlarına uygular. Production planı: ürün listesi her gece İstanbul 03:00, fiyat/stok/kur **30 dakikada bir**, ticari bayatlık 90 dakika. Sipariş anındaki canlı doğrulama bunun üzerine ayrıca çalışır: SETA, Başbuğ ve Dinamik yan yana yenilenir, Başbuğ kapsamları tek kilidi paylaştığından sırayla (#711). Zamanlayıcı aynı anda aynı tedarikçinin kilidini tutuyorsa sipariş bugünkü gibi reddedilir (import `busy`, sipariş `supplier` hatası).
 
 Acil durdurma: `supplier-configure --group=ALL --enabled=false --commerce-enabled=false` (veriler korunur, satış bayatlık kuralına göre kapanır). Servisi maskelemek yerine bunu tercih edin; maskelenmiş servis sağlık ucunda `stopped` görünür.
 

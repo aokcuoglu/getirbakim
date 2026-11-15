@@ -254,3 +254,43 @@ test("apostrophes: the ending is lower case, after a count it follows the number
   ];
   for (const [raw, expected] of cases) assert.equal(readableProductName(raw), expected, raw);
 });
+
+test("titleWithoutIdentity drops the brand and code a title ends with", async () => {
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(titleWithoutIdentity("Ön Fren Disk Aynası Nissan Navara 4X4 TRW DF7458S", "TRW", "DF7458S"), "Ön Fren Disk Aynası Nissan Navara 4X4");
+  assert.equal(titleWithoutIdentity("Fren Balata 4x4 DF7458-S", "TRW", "DF7458S"), "Fren Balata 4x4");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi", "MANN", "W 712"), "Yağ Filtresi");
+  assert.equal(titleWithoutIdentity("DF7458S", "TRW", "DF7458S"), "DF7458S");
+});
+
+test("titleWithoutIdentity keeps years, specs, a lone brand and a bare title", async () => {
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(titleWithoutIdentity("Ön Fren Balata Ford Focus 2002 2006", "TRW", "20022006"), "Ön Fren Balata Ford Focus 2002 2006");
+  assert.equal(titleWithoutIdentity("Disk Aynası Nissan Navara 2015→", "TRW", "2015"), "Disk Aynası Nissan Navara 2015→");
+  assert.equal(titleWithoutIdentity("Motor Yağı 5W-30 4 L", "ELF", "5W304L"), "Motor Yağı 5W-30 4 L");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi Fiat", "FIAT", "55253"), "Yağ Filtresi Fiat");
+  assert.equal(titleWithoutIdentity("TRW DF7458S", "TRW", "DF7458S"), "TRW DF7458S");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi Fiat 55253", "FIAT", "55253"), "Yağ Filtresi");
+  assert.equal(titleWithoutIdentity("Balata TRW DF 7458 -", "TRW", "DF 7458"), "Balata");
+  assert.equal(titleWithoutIdentity("Balata DF7458S TRW", "TRW", "DF7458S"), "Balata");
+  assert.equal(titleWithoutIdentity("Balata TRW 2015", "TRW", "2015"), "Balata");
+});
+
+test("withoutBrandPrefix strips the brand label, the raw brand or its first word", async () => {
+  const { withoutBrandPrefix } = await import("../src/modules/store/product-override-display");
+  assert.equal(withoutBrandPrefix("SNR 3TM-6312AX12LLUA/55C3/L588QDF", ["SNR-AV", "SNR"]), "3TM-6312AX12LLUA/55C3/L588QDF");
+  assert.equal(withoutBrandPrefix("KRAFTVOLL FYAST17-013B /FYAST20-014", ["KRAFTVOLL FAR", "KRAFTVOLL"]), "FYAST17-013B /FYAST20-014");
+  assert.equal(withoutBrandPrefix("WENDERPARTS MA2028202510", ["WENDERPARTS", "WENDERPARTS"]), "MA2028202510");
+  assert.equal(withoutBrandPrefix("TRW", ["TRW"]), "TRW");
+  assert.equal(withoutBrandPrefix("TRWX 123", ["TRW"]), "TRWX 123");
+});
+
+test("brand prefix needs whitespace; hyphenated codes and brand-first titles", async () => {
+  const { withoutBrandPrefix } = await import("../src/modules/store/product-override-display");
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(withoutBrandPrefix("PSA-E 1617292380", ["PSA ORIJINAL", "PSA"]), "PSA-E 1617292380");
+  assert.equal(withoutBrandPrefix("CDF-142V", ["CDF"]), "CDF-142V");
+  assert.equal(withoutBrandPrefix("TRW - DF1", ["TRW"]), "DF1");
+  assert.equal(titleWithoutIdentity("Rulman SNR 3TM-6312", "SNR-AV", "3TM-6312"), "Rulman");
+  assert.equal(titleWithoutIdentity("Rulman SNR", "SNR-AV", "3TM-6312"), "Rulman SNR");
+});

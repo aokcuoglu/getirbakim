@@ -11,8 +11,9 @@ name: Release to AWS
 # Environment `production`:
 #   variables  AWS_RELEASE_ROLE_ARN  Cicd stack output DeployRoleArn
 #              INFRA_REPOSITORY      owner/name of the infrastructure repository
+#              every key of the infrastructure repository's .env.example (its configuration;
+#              there is no .env in CI), e.g. gh variable set --env production -f .env
 #   secrets    INFRA_DEPLOY_KEY      private half of a read-only deploy key of that repository
-# The infrastructure repository's committed .env (main) is the configuration, as on a laptop.
 on:
   workflow_dispatch:
 permissions:
@@ -55,10 +56,21 @@ jobs:
           role-session-name: release-${{ github.run_id }}
           role-duration-seconds: 7200
           aws-region: eu-central-1
-      - name: Store the credentials under the .env profile
-        # The scripts drop AWS_* variables and pass --profile explicitly (.env is the source of truth).
+      - name: Load the infrastructure configuration
+        # The environment's variables, exported for the scripts and the CDK app (they read them
+        # when CI=true and there is no .env). Values are single-line; anything else is refused.
+        env:
+          VARS_JSON: ${{ toJSON(vars) }}
         run: |
-          profile="$(grep -E '^PRODUCTION_AWS_PROFILE=' infra/.env | cut -d= -f2-)"
+          test ! -e infra/.env
+          jq -r 'to_entries[]
+            | select(.key != "AWS_RELEASE_ROLE_ARN" and .key != "INFRA_REPOSITORY")
+            | if (.value | test("[\\r\\n]")) then error("multi-line value: \(.key)") else "\(.key)=\(.value)" end' \
+            <<<"$VARS_JSON" >> "$GITHUB_ENV"
+      - name: Store the credentials under the configured profile
+        # The scripts drop the AWS credential variables and pass --profile explicitly.
+        run: |
+          profile="$PRODUCTION_AWS_PROFILE"
           test -n "$profile"
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" --profile "$profile"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" --profile "$profile"

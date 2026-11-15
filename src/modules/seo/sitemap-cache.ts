@@ -4,8 +4,8 @@ import { loadCategorySlugs, loadMakeSlugs, loadProductChunk } from "./sitemap.se
 
 // The product key carries a version: the entries hold the address (path), which older cached rows lack.
 // Sitemap data goes through Next's data cache, which cache-handler.mjs keeps in Valkey: one copy shared by every app
-// task. unstable_cache does not pass `revalidate` to the handler, so the Valkey entry lives for the handler's default
-// TTL (7 days); after 6 hours the first request still gets the old data and Next refreshes it in the background
+// task. unstable_cache stores `revalidate` on the entry value and the handler turns it into the Valkey TTL
+// (twice the revalidate, 12 hours); after 6 hours the first request still gets the old data and Next refreshes it in the background
 // (stale-while-revalidate). The project does not use Cache Components, where unstable_cache is the documented way to
 // cache data. Kept apart from sitemap.server.ts so tests load the queries without the Next runtime.
 const options = { revalidate: 21_600, tags: ["sitemap"] };

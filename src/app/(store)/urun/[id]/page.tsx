@@ -11,20 +11,22 @@ import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
-import { shownProductName } from "@/modules/store/product-name";
+import { shownProductName, titleWithoutIdentity } from "@/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
 import { getItemSpecs } from "@/modules/store/product-specs";
-import { applySpecOverrides } from "@/modules/store/product-spec-display";
+import { translateSpecificationLabel, translateSpecificationList } from "@/modules/store/specification-translations";
+import { applySpecOverrides, mergeSpecificationRows, pageSpecifications } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
-import { productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
+import { CopyCodeButton } from "@/components/copy-code-button";
 import { ProductGallery } from "@/components/product-gallery";
 import { getItemImages } from "@/modules/store/product-images";
 import { galleryImages, socialImage } from "@/modules/store/product-image-display";
@@ -160,13 +162,15 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
   // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
-  // An admin's part number (#602) wins as entered.
-  const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
+  // An admin's part number (#602) wins over the automatic one; either way a leading brand (label, raw brand or its first word,
+  // followed by a space) is dropped, since the brand has its own row (#702).
+  const displayPartNumber = withoutBrandPrefix(shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber), [product.display_brand, product.brand]);
   const brand = product.display_brand;
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));
+  const heading = titleWithoutIdentity(title, brand, displayPartNumber);
   const description = productDescription(override, enrichment?.description, product.description);
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
-  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, path: productPath(product) });
+  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: heading, path: productPath(product) });
   const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
     images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
@@ -180,10 +184,11 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const descriptionModels = fallbacks.description ? await descriptionFitments(product.id) : [];
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
-  // The enrichment's specifications with the admin's edited, hidden and added keys (#603).
-  const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
+  // The enrichment's specifications with the admin's edited, hidden and added keys (#603), labelled in Turkish like the catalog cards (#622).
+  const specifications: [string, string][] = [...applySpecOverrides(pageSpecifications(enrichment?.specifications || [], enrichment?.matchBasis.type === "exact_part", refs.eans.length > 0), specOverrides).map(([key, value]): [string, string] => [translateSpecificationLabel(key), translateSpecificationList(value)]), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
+  const specificationRows = mergeSpecificationRows(specifications);
   const hasFitment = vehicles.length > 0 || fallbacks.vehicleModels.length > 0 || descriptionModels.length > 0;
   // With an admin's decisions the enrichment's model list is not used (modelFallbacks): the shown vehicles' models instead.
   const fitmentSummary = fallbacks.vehicleModels.length ? fallbacks.vehicleModels
@@ -237,9 +242,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {images.length ? <ProductGallery key={product.id} images={images} alt={`${brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>
-        <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {brand} {displayPartNumber}</h1>
+        <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{heading}</h1>
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).map(vehicleSeriesLabel).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
-        <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.display_code}</p>
+        <dl className="my-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
+          {brand && <div className="flex items-center gap-2"><dt className="text-[#53677d]">Marka</dt><dd className="m-0 font-semibold">{brand}</dd></div>}
+          <div className="flex min-w-0 items-center gap-2"><dt className="text-[#53677d]">Ürün kodu</dt><dd className="m-0 flex min-w-0 items-center gap-1"><span className="min-w-0 rounded-lg border border-border bg-[#f7f8fa] px-2.5 py-1 font-mono text-sm font-semibold wrap-anywhere">{displayPartNumber}</span><CopyCodeButton code={displayPartNumber}/></dd></div>
+        </dl>
         {product.unavailable ? <>
           <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>
           <PurchaseForm productId={product.id} name={product.display_code} available={false} maxQuantity={1} variant="product"/>
@@ -261,7 +269,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
-        <dl className="mt-[18px] mb-1.5">{specifications.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
+        <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
         {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1 text-[#0065c3]"><LoginButton className="min-h-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[#53677d] hover:text-[#0065c3]">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
       </div>
@@ -274,12 +282,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
     <div className="min-w-0 max-[750px]:w-full">
       <section className="scroll-mt-[110px]" id="product-specifications" aria-labelledby="specifications-title">
         <h2 id="specifications-title" className={sectionTitle}>{title} {brand} {displayPartNumber} teknik bilgileri</h2>
-        <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
+        <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specificationRows.length / 2) } as CSSProperties}>{specificationRows.map(([label, value]) => <div key={label} className="spec-row"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
         {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
       {vehicles.length > 0 ? <ProductFitment vehicles={vehicles.map(row => ({ ...row, ...fitmentLabels(row, makeNames) }))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
       {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(`${row.brand} ${row.model}`)}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</span>)}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
-      {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]"><dt className="text-[#53677d]">{brand}</dt><dd className="m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
+      {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="reference-row"><dt className="text-[#53677d]">{brand}</dt><dd className="reference-codes">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
     <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-wrap max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[

@@ -44,10 +44,15 @@ function entryTags(value, ctx) {
   if (value?.kind === "FETCH") tags.push(...(ctx?.tags || []), ...(ctx?.softTags || []));
   return [...new Set(tags.filter(Boolean))];
 }
-function ttlSeconds(ctx) {
+// unstable_cache writes FETCH entries with the revalidate on the value (value.revalidate, one year for `false`), not on
+// ctx. The entry must outlive that window so Next can still serve it stale while it refreshes in the background:
+// the TTL is twice the revalidate, capped. Entries without any revalidate get the default TTL.
+function ttlSeconds(ctx, value) {
+  const fetchRevalidate = value?.kind === "FETCH" ? value.revalidate : undefined;
   const seconds = ctx?.cacheControl?.expire ?? ctx?.cacheControl?.revalidate ?? ctx?.revalidate;
   if (seconds === false) return MAX_TTL_SECONDS;
   if (typeof seconds === "number" && seconds > 0) return Math.min(Math.ceil(seconds), MAX_TTL_SECONDS);
+  if (typeof fetchRevalidate === "number" && fetchRevalidate > 0) return Math.min(Math.ceil(fetchRevalidate * 2), MAX_TTL_SECONDS);
   return DEFAULT_TTL_SECONDS;
 }
 
@@ -154,7 +159,7 @@ export default class CacheHandler {
 
   async set(key, value, ctx) {
     if (value === null) return;
-    await store.set(key, { lastModified: Date.now(), tags: entryTags(value, ctx), value }, ttlSeconds(ctx));
+    await store.set(key, { lastModified: Date.now(), tags: entryTags(value, ctx), value }, ttlSeconds(ctx, value));
   }
 
   async revalidateTag(tags) {

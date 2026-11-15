@@ -15,6 +15,7 @@ import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
@@ -224,6 +225,13 @@ export async function getListedModelGroups(brandId:string) {
 /** Ids of the products linked to one vehicle type (cached per process). */
 export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
+ * The admin's category (#575) replaces the automatic ones: true for an item whose product the admin put in a category
+ * outside `ids` (an int[] parameter such as "$2"), so it leaves the automatic category's list. The home rails (#667) use
+ * the same rule as the category page.
+ */
+export const categoryMovedAwaySql=(itemId:string,ids:string)=>`NOT EXISTS (SELECT 1 FROM product_sources ps JOIN product_overrides o ON o.product_id=ps.product_id
+   WHERE ps.supplier_item_id=${itemId} AND o.category_id IS NOT NULL AND o.category_id<>ALL(${ids}::int[]))`;
+/**
  * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
@@ -236,8 +244,7 @@ export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCa
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])) automatic
   -- An admin's category (#575) replaces the automatic ones: the product leaves other categories and joins its own.
-  WHERE NOT EXISTS (SELECT 1 FROM product_sources ps JOIN product_overrides o ON o.product_id=ps.product_id
-   WHERE ps.supplier_item_id=automatic.id AND o.category_id IS NOT NULL AND o.category_id<>ALL($2::int[]))
+  WHERE ${categoryMovedAwaySql("automatic.id","$2")}
   UNION SELECT ps.supplier_item_id::text FROM product_overrides o JOIN product_sources ps ON ps.product_id=o.product_id
    WHERE o.category_id=ANY($2::int[])`,[legacy,categoryIds])).rows.map(row=>row.id));
 /**
@@ -646,5 +653,5 @@ async function attributeFacets(brands:string[],values:unknown[],scopedSql:string
   SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
  SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
  GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`,[...values,facetSpecificationKeys])).rows;
- return {brands,attributes:rows.map(row=>({...row,label:specificationLabel(row.key)})) as CatalogFacet[]};
+ return {brands,attributes:rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}))};
 }

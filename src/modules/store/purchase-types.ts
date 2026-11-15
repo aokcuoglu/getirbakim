@@ -4,4 +4,8 @@ export type PurchasePreview = {
 };
 export type PurchaseState = { error: string | null; added: PurchasePreview | null; suggestions: PurchasePreview[];
   /** Units added by this action; `added.quantity` is the cart's running total. */
-  addedQuantity?: number };
+  addedQuantity?: number;
+  /** The related parts missed the action's time budget: the dialog loads them (loadCartSuggestions). */
+  suggestionsPending?: boolean;
+  /** The cart's total quantity after a successful add; feeds the header badge without a page re-render. */
+  cartCount?: number };

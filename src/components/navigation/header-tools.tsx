@@ -9,6 +9,7 @@ import { GarageButton } from "@/components/garage/garage-button";
 import { SiteIcon } from "@/components/site/site-icon";
 import { cn } from "@/lib/utils";
 import { headerToolClass } from "./header-tool";
+import { CartBadge } from "./cart-badge";
 
 const cartClass = "relative flex h-10 w-8 items-center justify-center group-data-[route=home]/route:max-[600px]:size-6 group-data-[route=home]/route:max-[600px]:[&>img]:size-6!";
 
@@ -21,12 +22,15 @@ async function HeaderGarage() {
   return <GarageButton vehicle={shownVehicle(await currentVehicle())} />;
 }
 
-async function HeaderCart() {
+/** The count with its render time; a plain helper so the timestamp is not read during component render. */
+async function cartSeed() {
   const count = await cartQuantity(await currentCartOwner());
-  return <Link href="/sepet" className={cartClass} aria-label={`Sepetim, ${count} ürün`}>
-    <SiteIcon name="cart" size={32} />
-    {count > 0 && <b className="absolute -top-0.5 -right-1 h-4 min-w-4 rounded-full bg-[#d7452f] px-[3px] text-center text-[10px] leading-4 font-bold text-white">{count}</b>}
-  </Link>;
+  return { count, renderedAt: Date.now() };
+}
+
+async function HeaderCart() {
+  const { count, renderedAt } = await cartSeed();
+  return <CartBadge className={cartClass} count={count} renderedAt={renderedAt} />;
 }
 
 function LoadingTool({ name, label }: { name: "profile" | "garage"; label: string }) {

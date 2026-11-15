@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {displaySpecifications,facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
+import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../src/modules/store/product-spec-display";
 import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 
@@ -51,4 +53,108 @@ test("typed specification keys and values map back to the source spelling (#603)
   assert.equal(specificationLabel("constructor"), "constructor");
   assert.ok(sameSpecificationText(" FILTER TYPE", "Filter type") && !sameSpecificationText("Filter", "Filter type"));
   assert.equal(specificationValue("toString"), "toString");
+});
+
+test("product page rows are translated after overrides, admin text stays as written (#622)", () => {
+  const enrichment:[string,string][]=[["Brake Disc Type","Vented"],["Fitting Position","Front Axle"],["Outer Diameter [mm]","280"],["Thickness [mm]","25"],["Number of mounting bores","5"],["Surface","Coated"]];
+  const shown=applySpecOverrides(enrichment,[{action:"set",key:"Surface",value:"Özel kaplama"},{action:"set",key:"Renk",value:"Siyah"}]).map(([k,v])=>[translateSpecificationLabel(k),translateSpecificationValue(v)]);
+  assert.deepEqual(shown,[["Fren diski tipi","Havalandırmalı"],["Montaj konumu","Ön aks"],["Dış çap [mm]","280"],["Kalınlık [mm]","25"],["Montaj deliği sayısı","5"],["Yüzey","Özel kaplama"],["Renk","Siyah"]]);
+});
+
+test("one entry covers a key with and without unit and index suffix (#622)", () => {
+  assert.equal(translateSpecificationLabel("Outer Diameter"), "Dış çap");
+  assert.equal(translateSpecificationLabel("Outer Diameter [mm]"), "Dış çap [mm]");
+  assert.equal(translateSpecificationLabel("Inner Diameter 2 [mm]"), "İç çap 2 [mm]");
+  assert.equal(translateSpecificationLabel("Packaging height [cm]"), "Ambalaj yüksekliği [cm]");
+  assert.equal(translateSpecificationLabel("Thickness [mm]"), "Kalınlık [mm]");
+  assert.equal(translateSpecificationLabel("Minimum thickness"), "Minimum kalınlık");
+  assert.equal(translateSpecificationLabel("Montaj tarafı"), "Montaj tarafı");
+  assert.equal(translateSpecificationLabel("Unknown Thing [mm]"), "Unknown Thing [mm]");
+  assert.equal(translateSpecificationLabel("constructor"), "constructor");
+  assert.equal(translateSpecificationLabel("EAN"), "EAN");
+});
+
+test("free-text values translate whole and by with/without phrase (#622)", () => {
+  assert.equal(translateSpecificationValue("painted"), "Boyalı");
+  assert.equal(translateSpecificationValue("Coated"), "Kaplamalı");
+  assert.equal(translateSpecificationValue("vented"), "Havalandırmalı");
+  assert.equal(translateSpecificationValue("with gaskets/seals"), "conta/keçe dahil");
+  assert.equal(translateSpecificationValue("without bulb holder, without bulb"), "ampul yuvası, ampul hariç");
+  assert.equal(translateSpecificationValue("with something unknown"), "with something unknown");
+  assert.equal(translateSpecificationValue("DEPO"), "DEPO");
+  assert.equal(translateSpecificationValue("toString"), "toString");
+});
+
+test("comma separated and position values translate part by part (#703)", () => {
+  assert.deepEqual(translateSpecificationParts("Right, Left, Rear Axle"), ["Sağ","Sol","Arka aks"]);
+  assert.deepEqual(translateSpecificationParts("Lower Front Axle"), ["Alt ön aks"]);
+  assert.deepEqual(translateSpecificationParts("Right Front"), ["Sağ ön"]);
+  assert.deepEqual(translateSpecificationParts("Front Axle both sides"), ["Ön aks her iki taraf"]);
+  assert.deepEqual(translateSpecificationParts("Left and right"), ["Sol ve sağ"]);
+  assert.deepEqual(translateSpecificationParts("Left Exterior Mirror"), ["Left Exterior Mirror"]);
+  assert.equal(translateSpecificationList("without bulb holder, without bulb"), "ampul yuvası, ampul hariç");
+  assert.equal(translateSpecificationList("Front Axle, Rear Axle"), "Ön aks, Arka aks");
+  assert.equal(translateSpecificationList("toString"), "toString");
+  assert.equal(translateSpecificationValue("6-Speed manual transmission"), "6 ileri manuel şanzıman");
+  assert.equal(translateSpecificationValue("D2S (gas discharge lamp)"), "D2S (xenon)");
+});
+test("facet options merge equivalent raw values and keep each exactly once (#703)", () => {
+  const raw=["Front Axle","Front Axle, Rear Axle","Ön aks","Rear Axle, Front Axle","Rear Axle, Rear Axle Left","outer","Outer","INLET","Inlet","toString","constructor"];
+  const options=facetOptions(raw);
+  const byLabel=(label:string)=>options.find(o=>o.label===label)?.values.sort();
+  assert.deepEqual(byLabel("Ön aks"),["Front Axle","Ön aks"]);
+  assert.deepEqual(byLabel("Ön aks, Arka aks"),["Front Axle, Rear Axle","Rear Axle, Front Axle"]);
+  assert.deepEqual(byLabel("Arka aks, Arka aks sol"),["Rear Axle, Rear Axle Left"]);
+  assert.deepEqual(byLabel("Dış"),["Outer","outer"]);
+  assert.deepEqual(byLabel("Giriş"),["INLET","Inlet"]);
+  assert.deepEqual(byLabel("toString"),["toString"]);
+  assert.deepEqual(options.flatMap(o=>o.values).sort(),[...raw].sort());
+  const labels=options.map(o=>o.label);
+  assert.deepEqual(labels,[...labels].sort((a,b)=>a.localeCompare(b,"tr")));
+});
+test("an attribute group holds up to 40 values (#703)", () => {
+  const group=(n:number)=>JSON.stringify({"Fitting Position":Array.from({length:n},(_,i)=>"v"+i)});
+  assert.equal(selectedAttributes({attributes:group(40)})["Fitting Position"].length,40);
+  assert.deepEqual(selectedAttributes({attributes:group(41)}),{});
+});
+test("decimal commas are not list commas (#703)", () => {
+  for (const value of ["1,1","5,5","M14 x 1,5","114,3","M10x1,25","12,5 mm"]) assert.equal(translateSpecificationList(value), value);
+  assert.equal(translateSpecificationList("Front Axle, Rear Axle, 5,5"), "Ön aks, Arka aks, 5,5");
+  for (const value of ["1, 1","H7, H7"]) assert.equal(translateSpecificationList(value), value);
+  assert.equal(translateSpecificationList("Left and Right"), "Sol ve sağ");
+  assert.deepEqual(translateSpecificationParts("and"), ["and"]);
+  assert.equal(facetOptions(["1,5","5,1"]).length, 2);
+  assert.deepEqual(facetOptions([","]), [{label:",",values:[","]}]);
+});
+test("frequent English facet values are Turkish (#703)", () => {
+  assert.equal(translateSpecificationList("Long-life Filter"), "Uzun ömürlü filtre");
+  assert.equal(translateSpecificationList("Air Filter Housing, Intake Manifold"), "Hava filtresi gövdesi, Emme manifoldu");
+  assert.equal(translateSpecificationList("Mass Air Flow Sensor to throttle body"), "Hava akış sensöründen gaz kelebeğine");
+  assert.equal(translateSpecificationList("with sealing cap"), "Sızdırmazlık kapaklı");
+  assert.equal(translateSpecificationList("Bracket wiper blade without spoiler"), "Klasik (kollu) silecek, spoilersiz");
+  assert.equal(translateSpecificationList("hard version"), "Sert tip");
+});
+
+test("the page's own maker, part number and barcode win over the enrichment's rows (#712)", () => {
+  const rows:[string,string][]=[["Manufacturer","MAHLE"],["Manufacturer Part Number","X1"],["EAN","123"],["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]];
+  assert.deepEqual(pageSpecifications(rows,true,true),[["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]]);
+  assert.deepEqual(pageSpecifications(rows,true,false),[["EAN","123"],["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]]);
+  assert.deepEqual(pageSpecifications(rows,false,false),[["Height [mm]","10"]]);
+});
+
+test("mergeSpecificationRows merges equal labels, keeps every distinct value and drops empty rows (#712)", () => {
+  assert.deepEqual(mergeSpecificationRows([["A","Febi"],["B","1 kg"],["A","FEBI"],["A","Febi Bilstein"],["C",""],["D"," "],["D","x"]]),
+    [["A","Febi, Febi Bilstein"],["B","1 kg"],["D","x"]]);
+  assert.deepEqual(mergeSpecificationRows([["E",""]]),[]);
+});
+
+test("card display pairs are translated in the raw order, raw keys stay (#700)", () => {
+  const raw:[string,string][]=[["Fitting Position","Front Axle, Rear Axle"],["Outer Diameter [mm]","280,5"],["Thread Size","M14 x 1,5"],["Renk","Siyah"]];
+  const display=displaySpecifications(raw);
+  assert.deepEqual(display.map(row=>row.key),raw.map(([key])=>key));
+  assert.deepEqual(display[0],{key:"Fitting Position",label:"Montaj konumu",value:"Ön aks, Arka aks"});
+  assert.deepEqual(display[1],{key:"Outer Diameter [mm]",label:"Dış çap [mm]",value:"280,5"});
+  assert.equal(display[2].value,"M14 x 1,5");
+  assert.deepEqual(display[3],{key:"Renk",label:"Renk",value:"Siyah"});
+  assert.deepEqual(raw[0],["Fitting Position","Front Axle, Rear Axle"]);
 });

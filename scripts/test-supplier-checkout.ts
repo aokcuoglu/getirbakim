@@ -6,7 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-test("checkout refresh rejects supplier failure and changed prices, preserves completed orders and snapshots", async()=> {
+test("cart lines look up the catalog per line, never one catalog-wide scan per line (#705)", async()=> {
+  const source=await readFile("src/modules/store/cart.ts","utf8");
+  const cartFor=source.slice(source.indexOf("export async function cartFor"),source.indexOf("export async function cartLineQuantity"));
+  assert.match(cartFor,/LEFT JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\) priced WHERE priced\.id=c\.product_id OFFSET 0\) p ON true/);
+  assert.doesNotMatch(cartFor,/LEFT JOIN \(\$\{catalogSql\}\)/);
+});
+
+test("checkout refresh rejects supplier failure and changed prices, preserves completed orders and snapshots", async t=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
   const schemaSql=await readFile("db/schema.sql","utf8");
@@ -25,7 +32,7 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
   const {importBasbug}=await import("../src/modules/suppliers/basbug-import");
   const {submitOrder,cartQuote:quote,shippingRule}=await import("../src/modules/store/orders");
   const cartQuote=async(items:Parameters<typeof quote>[0],discount:number)=>quote(items,discount,await shippingRule());
-  const {cartFor,setCartQuantity}=await import("../src/modules/store/cart");
+  const {cartFor,cartLineQuantity,cartQuantity,setCartQuantity}=await import("../src/modules/store/cart");
   const originalFetch=globalThis.fetch;
   const keys=["TAMI_CHECKOUT_ENABLED","BASBUG_BASE_URL","BASBUG_USERNAME","BASBUG_PASSWORD","BASBUG_CLIENT_ID","BASBUG_CLIENT_SECRET","BASBUG_FIRMA_ADI"];
   const originalEnv=keys.map(key=>process.env[key]);
@@ -63,6 +70,11 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     const vehicle={make:"Fiat",model:"Egea",year:2020,vehicleId:"999999"};
     assert.equal(await setCartQuantity(owner,id,1,true,vehicle),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
+    // The add-to-cart dialog reads only its own line's quantity (#705).
+    assert.equal(await cartLineQuantity(owner,id),1);
+    assert.equal(await cartLineQuantity(owner,randomUUID()),0);
+    // Add-to-cart actions return the cart total for the header badge instead of revalidating the layout (#707).
+    assert.equal(await cartQuantity(owner),1);
     // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
@@ -159,6 +171,46 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     await db.query("DELETE FROM commerce_product_pricing WHERE supplier_item_id=$1",[id]);
     assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[storedOrders[0].id])).rows[0].pricing_snapshot.markup_percent,50);
     assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0].pricing_snapshot.markup_percent,30);
+
+    // #711: a cart with SETA and Başbuğ lines refreshes both suppliers side by side (mocked, 150 ms per request).
+    {
+      const setaKeys=["SETA_API_KEY","SETA_BASE_URL","SUPPLIER_EGRESS_PROXY"],setaEnv=setaKeys.map(key=>process.env[key]);
+      const baseFetch=globalThis.fetch;
+      const requests:{supplier:string;start:number;end:number}[]=[];
+      try {
+        fail=false;process.env.SETA_API_KEY="TEST";delete process.env.SETA_BASE_URL;delete process.env.SUPPLIER_EGRESS_PROXY;
+        const {importSeta}=await import("../src/modules/suppliers/seta-import");
+        const setaRows=[{product_no:"STO-711",product_name:"TEST 1.6",price:"100.00",currency:"TRY",stock:true,image:"",oems:[],category:"Yağ Filtreleri",brand:null,cross:[]}];
+        globalThis.fetch=async(input,init)=>{
+          const url=String(input),supplier=url.includes("/seta/products") ? "seta" : "basbug",start=performance.now();
+          await new Promise(resolve=>setTimeout(resolve,150));
+          const response=supplier==="seta" ? Response.json(setaRows) : await baseFetch(input,init);
+          requests.push({supplier,start,end:performance.now()});
+          return response;
+        };
+        await importSeta(db);
+        await importBasbug(db,{group:"FIAT",warehouse:"MRK",company:"TEST",mode:"commerce"});
+        const setaId=(await db.query("SELECT id FROM supplier_items WHERE supplier='seta'")).rows[0].id;
+        const mixed={kind:"guest" as const,id:randomBytes(32).toString("hex")};
+        await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)",[mixed.id]);
+        assert.equal(await setCartQuantity(mixed,setaId,1),true);
+        assert.equal(await setCartQuantity(mixed,id,1),true);
+        requests.length=0;
+        const started=performance.now();
+        const mixedOrder=await submitOrder(mixed,{...input,requestKey:randomUUID(),quote:await cartQuote(await cartFor(mixed),0)});
+        const elapsed=performance.now()-started;
+        assert.ok(mixedOrder.id,String(mixedOrder.error));
+        const seta=requests.filter(r=>r.supplier==="seta"),basbug=requests.filter(r=>r.supplier==="basbug");
+        assert.equal(seta.length,1);assert.ok(basbug.length>1);
+        assert.ok(seta.some(a=>basbug.some(b=>a.start<b.end && b.start<a.end)),"SETA and Başbuğ requests should overlap");
+        const serialMs=requests.length*150;
+        t.diagnostic(`mixed cart checkout: ${Math.round(elapsed)} ms for ${requests.length} supplier requests (serial at least ~${serialMs} ms)`);
+        assert.equal((await db.query("SELECT count(*) FROM commerce_order_items WHERE order_id=$1",[mixedOrder.id])).rows[0].count,"2");
+      } finally {
+        globalThis.fetch=baseFetch;
+        setaKeys.forEach((key,index)=>{if(setaEnv[index]===undefined) delete process.env[key];else process.env[key]=setaEnv[index];});
+      }
+    }
   } finally {
     process.chdir(originalCwd);await rm(testCwd,{recursive:true,force:true});
     globalThis.fetch=originalFetch;process.env.DATABASE_URL=originalUrl;

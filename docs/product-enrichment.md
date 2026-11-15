@@ -293,12 +293,12 @@ mobilde iki sütun bulunur; tüm kategori verileri DB'den okunur.
 
 ### Katalog filtreleri ve ürün kartları
 
-Katalog sidebar'ı kategori ağacı, çoklu üretici seçimi, kategoriye ait teknik filtreler, marka sınıfı ve stok durumunu gösterir. Teknik filtreler doğrulanmış enrichment kayıtlarından çıkarılır; EAN ve ölçü gibi yüksek çeşitliliğe sahip alanlar sidebar'a taşınmaz. Seçimler URL'de tutulur (`brands` JSON dizisi, `attributes` JSON nesnesi, `availability=in_stock|out_of_stock`); aynı gruptaki değerler OR, farklı gruplar AND ile eşleşir. Seçili filtreler mevcut seçenek listesini ortadan kaldırmaz.
+Katalog sidebar'ı kategori ağacı, çoklu üretici seçimi, kategoriye ait teknik filtreler, marka sınıfı ve stok durumunu gösterir. Teknik filtreler doğrulanmış enrichment kayıtlarından çıkarılır; EAN ve ölçü gibi yüksek çeşitliliğe sahip alanlar sidebar'a taşınmaz. Seçimler URL'de tutulur (`brands` JSON dizisi, `attributes` JSON nesnesi, `availability=in_stock|out_of_stock`); aynı gruptaki değerler OR, farklı gruplar AND ile eşleşir. Seçili filtreler mevcut seçenek listesini ortadan kaldırmaz. Seçenek metinleri sunucuda virgülle ayrılmış parça parça Türkçeleştirilir (`facetOptions`, `specification-translations.ts`); çevirisi aynı parça kümesine inen ham değerler (`Front Axle, Rear Axle` / `Rear Axle, Front Axle`) tek seçenek olur, URL ise ham değerleri taşımaya devam eder (seçenek tüm ham değerlerini ekler/çıkarır).
 
 Kartlar grid/list görünümü, ilk dört teknik özellik ve genişletme, marka logosu, gerçek fiyat/stok, adet seçimi ve üç ürüne kadar karşılaştırma içerir. Fiyatı veya stoku güncel olmayan ürünler satın alınabilir gösterilmez. Bilinmeyen stok, “Stokta yok” filtresine dahil edilmez. OEM alternatifinden alınan teknik bilgiler kullanılabilir; alternatifin EAN, üretici, üretici parça numarası, ticari numaraları ve marka sınıfı kart kimliğine aktarılmaz. Marka sınıfı filtresi yalnızca birebir parça eşleşmelerini kullanır. Yöneticinin ürün sayfasında elle düzenlediği, eklediği veya gizlediği teknik özellikler (#603, `product_override_specs`) kartlarda, süzgeç seçeneklerinde ve öznitelik süzgecinde otomatik değerin önüne geçer.
 
 Kontroller:
-- `node --import tsx --test scripts/test-catalog-filters.ts`
+- `npm run test:catalog-filters`
 - `node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog-filters.ts`
 
 Trodo kartlarının görünür kalite/stok SVG simgeleri `/public/media/site/icons/` altında yerel olarak saklanır.

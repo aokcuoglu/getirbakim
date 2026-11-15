@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* Part of this stylesheet, not its own chunk: one more render-blocking request delayed the product image (#642). */
+@import "./storefront.css";
 
 @custom-variant dark (&:is(.dark *));
 

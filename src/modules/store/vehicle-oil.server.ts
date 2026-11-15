@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import { staleCache } from "@/lib/stale-cache";
+import { oilPackLitres } from "./maintenance-kit";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { engineOilNameSql, notEngineOilNameSql, oilMatches, oilSpecificationKeys, plainEngineOilNameSql, productOilSpec, vehicleOilFilters,
   type OilFilter, type ProductOilSpec, type VehicleOilSpec } from "./vehicle-oil";
@@ -18,9 +19,9 @@ export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | und
 });
 
 // Engine oils change only with supplier syncs and enrichment imports, like the catalog's other id lists.
-const cachedOils = staleCache<{ id: string; spec: ProductOilSpec }[]>(10 * 60 * 1000, 1);
+const cachedOils = staleCache<{ id: string; spec: ProductOilSpec; litres: number | null }[]>(10 * 60 * 1000, 1);
 /**
- * Every listed engine oil with the specs it states. Candidates come from one regex pass over product names
+ * Every listed engine oil with the specs it states and its pack size in litres (null when the name has none). Candidates come from one regex pass over product names
  * (a grade such as "5W-30", or "MOTOR YAĞI"); their trusted enrichment specifications are then read by id.
  * Expanding every enrichment's specifications to find oils instead scans the whole enrichment table.
  */
@@ -38,7 +39,7 @@ export const engineOils = () => cachedOils("all", async () => {
     CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
     WHERE e.supplier_item_id=ANY($1::uuid[]) AND spec->>0=ANY($2::text[]) GROUP BY e.supplier_item_id`,
   [candidates.map(row => row.id), oilSpecificationKeys])).rows.map(row => [row.id, row.specs]));
-  return candidates.flatMap(row => { const spec = productOilSpec(row.name, specs.get(row.id) ?? ""); return spec ? [{ id: row.id, spec }] : []; });
+  return candidates.flatMap(row => { const spec = productOilSpec(row.name, specs.get(row.id) ?? ""); return spec ? [{ id: row.id, spec, litres: oilPackLitres(row.name) }] : []; });
 });
 
 export async function engineOilIds() { return (await engineOils()).map(oil => oil.id); }

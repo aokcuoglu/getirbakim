@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { startSession, tokenHash } from "@/modules/auth/session";
-import { SESSION_COOKIE } from "@/modules/auth/session-cookie";
+import { SESSION_COOKIE, SESSION_SEEN_COOKIE } from "@/modules/auth/session-cookie";
 import { loginSchema } from "./schemas";
 import { loginPath, safeReturnTo } from "./return-to";
 import { mergeGuestCart } from "@/modules/store/cart";
@@ -28,5 +28,5 @@ export async function login(form: FormData) {
 export async function logout() {
  const jar=await cookies(); const token=jar.get(SESSION_COOKIE)?.value;
  if(token) await db.query("DELETE FROM sessions WHERE token_hash=$1",[tokenHash(token)]);
- jar.delete(SESSION_COOKIE);redirect("/");
+ jar.delete(SESSION_COOKIE);jar.delete(SESSION_SEEN_COOKIE);redirect("/");
 }

@@ -1,12 +1,11 @@
 "use server";
-import { currentCartOwner, setCartQuantity } from "@/modules/store/cart";
-import { revalidatePath } from "next/cache";
+import { cartLineQuantity, cartProductIds, cartQuantity, currentCartOwner, setCartQuantity } from "@/modules/store/cart";
+import { refresh, revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { currentAccount } from "@/modules/auth/session";
-import { cartFor } from "@/modules/store/cart";
-import { purchasePreview } from "@/modules/store/purchase-preview";
-import type { PurchaseState } from "@/modules/store/purchase-types";
+import { purchasePreview, suggestionPreviews } from "@/modules/store/purchase-preview";
+import type { PurchasePreview, PurchaseState } from "@/modules/store/purchase-types";
 import { currentVehicle } from "@/modules/store/garage";
 import { headers } from "next/headers";
 import { checkoutInput } from "@/modules/store/checkout-schema";
@@ -16,27 +15,37 @@ export async function addToCart(_state: PurchaseState, form: FormData): Promise<
  const input=z.object({productId:z.uuid(),quantity:z.coerce.number().int().min(1).max(99)}).safeParse(Object.fromEntries(form));
  const failure = {added:null,suggestions:[]};
  if(!input.success) return {...failure,error:"Ürün ve adedi kontrol et."};
- const owner=await currentCartOwner(true);
+ const [owner,vehicle]=await Promise.all([currentCartOwner(true),currentVehicle()]);
  if(!owner) return {...failure,error:"Sepet oturumu oluşturulamadı."};
- const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,true,await currentVehicle());
+ const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,true,vehicle);
  if(!ok) return {...failure,error:"Ürün fiyatı veya stok durumu uygun değil; sepetindeki adedi kontrol et."};
- revalidatePath("/", "layout");
- const [account,items]=await Promise.all([currentAccount(),cartFor(owner)]);
- const quantity=items.find(p=>p.id===input.data.productId)?.quantity ?? input.data.quantity;
- const preview=await purchasePreview(input.data.productId,quantity,account?.approved && account.role==="service" ? account.discount_percent : 0);
- if(!preview) return {...failure,error:"Ürün sepete eklendi; güncel durumunu sepetten kontrol et."};
- return {...preview,error:null,addedQuantity:input.data.quantity};
+ // No revalidatePath: it would re-render the whole page; the header badge takes `cartCount` instead (#707).
+ const [account,lineQuantity,cartIds,cartCount]=await Promise.all([currentAccount(),cartLineQuantity(owner,input.data.productId),cartProductIds(owner),cartQuantity(owner)]);
+ const quantity=lineQuantity || input.data.quantity;
+ const preview=await purchasePreview(input.data.productId,quantity,account?.approved && account.role==="service" ? account.discount_percent : 0,{vehicle,cartIds});
+ if(!preview) return {...failure,error:"Ürün sepete eklendi; güncel durumunu sepetten kontrol et.",cartCount};
+ return {...preview,error:null,addedQuantity:input.data.quantity,cartCount};
 }
 
-export async function changeCartQuantity(productId: string, quantity: number) {
+/** The add-to-cart dialog's related parts when they missed addToCart's time budget (#704); read-only, nothing is created. */
+export async function loadCartSuggestions(productId: string): Promise<PurchasePreview[]> {
+ const input=z.uuid().safeParse(productId);
+ if(!input.success) return [];
+ const [owner,vehicle,account]=await Promise.all([currentCartOwner(),currentVehicle(),currentAccount()]);
+ const cartIds=owner ? await cartProductIds(owner) : [];
+ return suggestionPreviews(input.data,account?.approved && account.role==="service" ? account.discount_percent : 0,{vehicle,cartIds});
+}
+
+/** `refreshPage` re-renders the cart page in the same response (totals + badge); the purchase popup only takes `cartCount`. */
+export async function changeCartQuantity(productId: string, quantity: number, refreshPage = false) {
  const input=z.object({productId:z.uuid(),quantity:z.number().int().min(1).max(99)}).safeParse({productId,quantity});
  if(!input.success) return {error:"Geçersiz adet."};
  const owner=await currentCartOwner();
  if(!owner) return {error:"Sepet oturumu sona erdi."};
  const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity);
  if(!ok) return {error:"Bu adet için stok veya fiyat uygun değil."};
- revalidatePath("/", "layout");
- return {quantity:input.data.quantity};
+ if(refreshPage===true) refresh();
+ return {quantity:input.data.quantity,cartCount:await cartQuantity(owner)};
 }
 export async function updateCart(form: FormData) {
  const input=z.object({productId:z.uuid(),quantity:z.coerce.number().int().min(0).max(99),mode:z.enum(["add","set"]).default("set")}).safeParse(Object.fromEntries(form));
@@ -45,7 +54,7 @@ export async function updateCart(form: FormData) {
  if(!owner) throw new Error("Sepet oluşturulamadı.");
  const add=input.data.mode==="add";
  const ok=await setCartQuantity(owner,input.data.productId,input.data.quantity,add,add ? await currentVehicle() : undefined);
- revalidatePath("/", "layout"); redirect(ok ? "/sepet" : "/sepet?error=stock");
+ refresh(); redirect(ok ? "/sepet" : "/sepet?error=stock");
 }
 
 /** Creates the awaiting-payment order; the cart is kept until TAMI confirms the payment. */

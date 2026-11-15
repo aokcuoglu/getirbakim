@@ -56,14 +56,28 @@ async function storeAccountVehicles(accountId: string, vehicles: GarageVehicle[]
 }
 
 // Writes below set cookies, so they run only in Server Actions.
-/** Makes the vehicle the active one and keeps it in the garage list. */
+/** The active vehicle as the cookie holds it, whether or not the garage list still has it. */
+async function activeCookieVehicle() {
+ try { return parseGarageVehicle(JSON.parse((await cookies()).get(ACTIVE)?.value ?? "null")); } catch { return null; }
+}
+/**
+ * Makes the vehicle the active one and keeps it in the garage list (#691). Picking only changes which vehicle is active: the
+ * previous active vehicle stays saved, even when the list never held it (an active cookie older than the list), and when
+ * the list is full the least recently selected vehicle drops.
+ */
 export async function chooseVehicle(vehicle: GarageVehicle) {
- const jar=await cookies();jar.set(ACTIVE,JSON.stringify(vehicle),cookieOptions);
+ const jar=await cookies(),key=vehicleKey(vehicle),previous=await activeCookieVehicle();
+ const kept=previous && vehicleKey(previous)!==key ? previous : null;
+ jar.set(ACTIVE,JSON.stringify(vehicle),cookieOptions);
  const account=await signedInAccount();
- if(account) await storeAccountVehicles(account.id,[vehicle]);
- else {
-  const rest=(await guestGarage()).filter(v=>vehicleKey(v)!==vehicleKey(vehicle));
-  jar.set(GUEST_GARAGE,JSON.stringify([vehicle,...rest].slice(0,GUEST_LIMIT)),cookieOptions);
+ if(account) {
+  // A previous vehicle already saved keeps its place; one the list lacks is added just before the new pick.
+  const saved=kept ? await accountGarage(account.id) : [];
+  await storeAccountVehicles(account.id,kept && !saved.some(v=>vehicleKey(v)===vehicleKey(kept)) ? [kept,vehicle] : [vehicle]);
+ } else {
+  const rest=(await guestGarage()).filter(v=>vehicleKey(v)!==key);
+  const missing=kept && !rest.some(v=>vehicleKey(v)===vehicleKey(kept)) ? [kept] : [];
+  jar.set(GUEST_GARAGE,JSON.stringify([vehicle,...missing,...rest].slice(0,GUEST_LIMIT)),cookieOptions);
  }
 }
 /** Removes a saved vehicle; removing the active one clears the selection. */
@@ -78,8 +92,7 @@ export async function clearActiveVehicle() { (await cookies()).set(ACTIVE,CLEARE
 /** On sign-in, the guest garage moves to the account; the active vehicle stays active. */
 export async function adoptGuestGarage(accountId: string) {
  const jar=await cookies(),guest=await guestGarage();
- let active:GarageVehicle|null=null;
- try { active=parseGarageVehicle(JSON.parse(jar.get(ACTIVE)?.value ?? "null")); } catch {}
+ const active=await activeCookieVehicle();
  // Oldest first, so the active vehicle ends up most recently selected.
  const vehicles=[...guest.reverse(),...(active ? [active] : [])];
  if(vehicles.length) await storeAccountVehicles(accountId,vehicles);

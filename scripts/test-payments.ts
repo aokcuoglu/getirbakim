@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 
 // Every TAMI response below is mocked and signed with a synthetic key; no provider request is made.
-test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and duplicate payments", async () => {
+test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and duplicate payments", async t => {
   const originalUrl = process.env.DATABASE_URL!;
   const root = new Pool({ connectionString: originalUrl });
   const control = await root.connect();
@@ -29,6 +29,14 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
   const paid = new Map<string, number>(); // provider orderId -> amount in TL
   const incomplete = new Set<string>(); // sandbox-observed shape of a declined/abandoned 3D attempt
   let tokens = 0, queryDown = false, forgeMissing = false;
+  // Slow-provider simulation (#711): every /payment/query waits delayMs and honours the caller's abort signal.
+  let delayMs = 0;
+  const queries = new Map<string, number>(); // provider orderId -> /payment/query calls
+  const slow = (signal: AbortSignal | null | undefined) => new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return; }
+    const timer = setTimeout(resolve, delayMs);
+    signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+  });
   globalThis.fetch = async (input, init) => {
     const url = String(input), body = JSON.parse(String(init?.body ?? "{}"));
     if (url.endsWith("/hosted/create-one-time-hosted-token")) {
@@ -37,6 +45,8 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
       assert.equal(body.successCallbackUrl, payments.callbackUrl(String(body.successCallbackUrl.match(/order=([^&]+)/)[1])));
       return Response.json({ oneTimeToken: `token-${tokens}`, tokenCreateTime: "2026-10-09T12:00:00" });
     }
+    if (url.endsWith("/payment/query")) queries.set(body.orderId, (queries.get(body.orderId) ?? 0) + 1);
+    if (delayMs) await slow(init?.signal);
     if (queryDown) throw new Error("network down");
     if (incomplete.has(body.orderId)) {
       const payload = { success: true, orderId: body.orderId, currency: "TRY", amount: 10, orderStatus: "AUTH", paymentStatus: "NOT_COMPLETED",
@@ -183,6 +193,83 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     const { transitionOrder } = await import("../src/modules/admin/orders");
     assert.equal(await transitionOrder(short, "cancelled"), true);
     assert.equal(await stock(), 0); assert.equal((await order(short)).payment_status, "refund_required");
+
+    // #711: throttled callers claim attempts atomically, skipped attempts block expiry, interactive paths are budgeted.
+    await db.query("UPDATE store_products SET stock=20 WHERE id=$1", [product]);
+    const addAttempt = async (orderId: string, n: number, checkedAt: string | null = null) => {
+      const providerId = `GB2-711-${orderId}-${n}`;
+      await db.query(`INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status,created_at,checked_at)
+        VALUES($1,$2,(SELECT total_kurus FROM commerce_orders WHERE id=$1),'pending',now()+make_interval(secs=>$3),$4)`, [orderId, providerId, n, checkedAt]);
+      return providerId;
+    };
+    const queried = (ids: string[]) => ids.map(id => queries.get(id) ?? 0);
+    const timed = async <T>(work: () => Promise<T>) => { const started = performance.now(); const value = await work(); return { value, ms: performance.now() - started }; };
+
+    // Two concurrent throttled checks ask TAMI once per attempt; unthrottled callers (interval 0) always ask.
+    const guarded = await place(1);
+    const guardIds = [await addAttempt(guarded, 1), await addAttempt(guarded, 2)];
+    delayMs = 100;
+    await Promise.all([payments.reconcileOrderPayments(guarded, { minIntervalSeconds: 5 }), payments.reconcileOrderPayments(guarded, { minIntervalSeconds: 5 })]);
+    assert.deepEqual(queried(guardIds), [1, 1]);
+    await Promise.all([payments.reconcileOrderPayments(guarded), payments.reconcileOrderPayments(guarded)]);
+    assert.deepEqual(queried(guardIds), [3, 3]);
+    delayMs = 0;
+    assert.equal((await order(guarded)).status, "awaiting_payment");
+
+    // A throttled call that skipped an open attempt never expires the order; an unthrottled one with a signed answer does.
+    const skippedOrder = await place(2);
+    await addAttempt(skippedOrder, 1, new Date().toISOString());
+    await db.query("UPDATE commerce_orders SET payment_due_at=now()-interval '1 minute' WHERE id=$1", [skippedOrder]);
+    const stockBefore = await stock();
+    assert.deepEqual(await payments.reconcileOrderPayments(skippedOrder, { minIntervalSeconds: 5 }), { uncertain: false });
+    assert.equal((await order(skippedOrder)).status, "awaiting_payment"); assert.equal(await stock(), stockBefore);
+    await payments.reconcileOrderPayments(skippedOrder);
+    row = await order(skippedOrder);
+    assert.equal(row.status, "cancelled"); assert.equal(row.payment_status, "expired"); assert.equal(await stock(), stockBefore + 2);
+
+    // A slow TAMI answer on an interactive path ends at the budget as uncertain; the order is left alone.
+    const budgeted = await place(1);
+    await addAttempt(budgeted, 1);
+    await db.query("UPDATE commerce_orders SET payment_due_at=now()-interval '1 minute' WHERE id=$1", [budgeted]);
+    delayMs = 2000;
+    const capped = await timed(() => payments.reconcileOrderPayments(budgeted, { minIntervalSeconds: 5, deadlineMs: 200 }));
+    delayMs = 0;
+    t.diagnostic(`TAMI answering after 2000 ms, budget 200 ms: returned in ${Math.round(capped.ms)} ms`);
+    assert.ok(capped.ms < 1000, `budgeted reconcile took ${Math.round(capped.ms)} ms`);
+    assert.deepEqual(capped.value, { uncertain: true });
+    row = await order(budgeted);
+    assert.equal(row.status, "awaiting_payment"); assert.equal(row.payment_status, "awaiting");
+    await db.query("UPDATE commerce_orders SET payment_due_at=now()+interval '45 minutes' WHERE id=$1", [budgeted]);
+
+    // Before/after: three open attempts, 150 ms per TAMI answer; serial (callback/sweep) vs. one budgeted round.
+    const many = await place(1);
+    const manyIds = [await addAttempt(many, 1), await addAttempt(many, 2), await addAttempt(many, 3)];
+    for (const id of manyIds) incomplete.add(id);
+    delayMs = 150;
+    const serial = await timed(() => payments.reconcileOrderPayments(many));
+    await db.query("UPDATE commerce_payments SET provider_result=NULL WHERE order_id=$1", [many]);
+    const parallel = await timed(() => payments.reconcileOrderPayments(many, { deadlineMs: 1000 }));
+    delayMs = 0;
+    t.diagnostic(`3 open attempts at 150 ms each: serial ${Math.round(serial.ms)} ms, budgeted ${Math.round(parallel.ms)} ms`);
+    assert.ok(serial.ms >= 450, `serial reconcile took ${Math.round(serial.ms)} ms`);
+    assert.ok(parallel.ms < 350, `budgeted reconcile took ${Math.round(parallel.ms)} ms`);
+    assert.deepEqual(parallel.value, { uncertain: false });
+    assert.deepEqual(queried(manyIds), [2, 2, 2]);
+    assert.equal((await db.query("SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND provider_result IS NOT NULL", [many])).rows[0].count, "3");
+
+    // Payments found on the budgeted path are applied in attempt order: paid first, then the duplicate note.
+    const doubled = await place(1);
+    const doubledTotal = Number((await order(doubled)).total_kurus) / 100;
+    const doubledIds = [await addAttempt(doubled, 1), await addAttempt(doubled, 2)];
+    for (const id of doubledIds) paid.set(id, doubledTotal);
+    delayMs = 50;
+    await payments.reconcileOrderPayments(doubled, { minIntervalSeconds: 5, deadlineMs: 1000 });
+    delayMs = 0;
+    row = await order(doubled);
+    assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid");
+    assert.match(row.payment_note, new RegExp(`Mükerrer ödeme alındı \\(${doubledIds[1]}\\)`));
+    assert.doesNotMatch(row.payment_note, new RegExp(doubledIds[0]));
+    assert.equal((await db.query("SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND status='succeeded'", [doubled])).rows[0].count, "2");
 
     assert.equal(payments.tamiPhone("+90 (555) 123 45 67"), "905551234567");
     assert.equal(payments.tamiPhone("05551234567"), "905551234567");

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { currentOrder, currentOrderOwners } from "@/modules/store/order-read";
-import { reconcileOrderPayments } from "@/modules/payments/checkout";
+import { INTERACTIVE_RECONCILE_MS, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { cancelOrderByCustomer, type CustomerCancelResult } from "@/modules/store/customer-cancel";
 
 /** Polled by the order page while the customer pays in TAMI's tab. */
@@ -12,7 +12,8 @@ export async function paymentState(orderId: string) {
   const result = await currentOrder(orderId);
   if (!result) return null;
   if (result.order.payment_status === "awaiting") {
-    try { await reconcileOrderPayments(orderId, { minIntervalSeconds: 4 }); }
+    // Budgeted: actions run one at a time on the client, so a slow TAMI would also hold back a cancel (#711).
+    try { await reconcileOrderPayments(orderId, { minIntervalSeconds: 4, deadlineMs: INTERACTIVE_RECONCILE_MS }); }
     catch (error) { console.error("Payment polling failed", { orderId, error: error instanceof Error ? error.message : error }); }
   }
   const order = (await currentOrder(orderId))?.order;
