@@ -339,3 +339,12 @@ BEGIN
  RAISE EXCEPTION 'commerce_order_agreements rows are immutable';
 END $$;
 CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
+-- Procurement of order lines (#606): operations mark each supplier line as ordered from the supplier (with an optional
+-- reference) and then procured. Store-stock lines (pricing_snapshot.source='store') need none and keep 'pending'.
+-- Existing lines start as 'pending'; the admin list shows no badge for shipped, delivered or cancelled orders.
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_status text NOT NULL DEFAULT 'pending'
+ CHECK(procurement_status IN ('pending','ordered','procured'));
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ref text;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ordered_at timestamptz;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procured_at timestamptz;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_by uuid REFERENCES accounts(id);

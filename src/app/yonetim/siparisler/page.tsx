@@ -11,6 +11,9 @@ import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
 import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
+import { OrderLinesDialog } from "@/components/admin/order-lines-dialog";
+import { supplierNames } from "@/modules/admin/products";
+import { orderLineView } from "@/modules/admin/order-procurement";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -41,11 +44,13 @@ const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaitin
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [{ orders, page, filter, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params), fitmentReturnReport()]);
-  const href = (changes: { status?: string; page?: number }) => {
+  const [{ orders, page, filter, procurement, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik), fitmentReturnReport()]);
+  const href = (changes: { status?: string; page?: number; procurement?: string }) => {
     const query = new URLSearchParams();
     const status = changes.status ?? filter;
     if (status !== "all") query.set("status", status);
+    const tedarik = changes.procurement ?? procurement;
+    if (tedarik !== "all") query.set("tedarik", tedarik);
     if (params.sort) query.set("sort", params.sort);
     if (params.dir) query.set("dir", params.dir);
     if (changes.page && changes.page > 1) query.set("page", String(changes.page));
@@ -58,7 +63,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
@@ -83,7 +88,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
       <CardContent>
         {shown.length ? <Table server>
           <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer">Müşteri</TableHead>
-            <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
+            <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead filter={{ param: "tedarik", options: [{ value: "open", label: "Tedarik bekleyen" }, { value: "done", label: "Tedarik edilen" }] }}>Tedarik</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
           <TableBody>{shown.map(o => {
             const refundable = refundablePayments(o, o.payments, o.refunds);
             const pendingRefunds = o.refunds.filter(r => r.status === "requested" || r.status === "unknown");
@@ -134,6 +139,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {o.payment_note && <p className="mt-1 text-destructive">{o.payment_note}</p>}
             </TableCell>
             <TableCell><OrderStatusBadge status={o.status}/></TableCell>
+            <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
+              editable={["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status)}
+              lines={o.lines.map(line => orderLineView(line, supplierNames[line.supplier] ?? line.supplier))}/></TableCell>
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
             <TableCell>
@@ -176,10 +184,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
         </Table> : <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon"><Inbox/></EmptyMedia>
-            <EmptyTitle>{filter === "all" ? "Henüz sipariş yok" : "Bu durumda sipariş yok"}</EmptyTitle>
-            {filter !== "all" && <EmptyDescription>Başka bir durum sekmesi seçebilir veya tüm siparişlere dönebilirsin.</EmptyDescription>}
+            <EmptyTitle>{filter === "all" && procurement === "all" ? "Henüz sipariş yok" : "Bu filtrede sipariş yok"}</EmptyTitle>
+            {(filter !== "all" || procurement !== "all") && <EmptyDescription>Başka bir durum sekmesi seçebilir, tedarik filtresini kaldırabilir veya tüm siparişlere dönebilirsin.</EmptyDescription>}
           </EmptyHeader>
-          {filter !== "all" && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={href({ status: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
+          {(filter !== "all" || procurement !== "all") && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={href({ status: "all", procurement: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
         </Empty>}
       </CardContent>
       {(page > 1 || orders.length > 50) && <CardFooter className="justify-between gap-4">

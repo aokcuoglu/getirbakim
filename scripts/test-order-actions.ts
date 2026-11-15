@@ -5,6 +5,7 @@ import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
+import { lineFigures, needsProcurement, orderLineView, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
 import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier, yurticiTrackingRule } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
@@ -15,7 +16,7 @@ let payments: typeof import("../src/modules/payments/checkout");
 let closeDb: () => Promise<void>;
 let product = "", spare = "";
 
-type Line = { quantity: number; reserved: number | null; product?: "spare" | "supplier" };
+type Line = { quantity: number; reserved: number | null; product?: "spare" | "supplier"; snapshot?: Record<string, unknown> };
 async function order(status: string, payment: string, lines: Line[], { note = "", due = null as string | null } = {}) {
   const id = (await schema.pool.query<{ id: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,
     total_kurus,subtotal_kurus,discount_percent,status,payment_status,payment_note,payment_due_at)
@@ -23,7 +24,8 @@ async function order(status: string, payment: string, lines: Line[], { note = ""
   [randomUUID(), randomUUID(), status, payment, note, due])).rows[0].id;
   for (const line of lines) {
     await schema.pool.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,reserved_quantity)
-      VALUES($1,$2,'X','Line','demo',$3,1000,'{}',$4)`, [id, line.product === "supplier" ? randomUUID() : line.product === "spare" ? spare : product, line.quantity, line.reserved]);
+      VALUES($1,$2,'X','Line','demo',$3,1000,$5,$4)`, [id, line.product === "supplier" ? randomUUID() : line.product === "spare" ? spare : product, line.quantity, line.reserved,
+      JSON.stringify(line.snapshot ?? {})]);
   }
   return id;
 }
@@ -59,6 +61,8 @@ test("actions return to the list they came from; anything else falls back to the
     "javascript:alert(1)", "/\\evil.example", "", null, undefined, ["/yonetim/siparisler"]]) {
     assert.equal(orderListReturn(value, "saved"), "/yonetim/siparisler?saved=1", String(value));
   }
+  // The procurement filter (#606) is kept too.
+  assert.equal(orderListReturn("/yonetim/siparisler?status=action&tedarik=open&page=2", "saved"), "/yonetim/siparisler?status=action&tedarik=open&page=2&saved=1");
   assert.equal(orderListBack.safeParse("//evil.example").success, false);
   assert.equal(orderListBack.safeParse("/yonetim/siparisler?page=2").success, true);
 });
@@ -307,4 +311,125 @@ test("approving a service account works once and only for waiting service accoun
   assert.equal((await schema.pool.query("SELECT discount_percent FROM accounts WHERE id=$1", [waiting])).rows[0].discount_percent, 12);
   assert.equal(await services.approveServiceAccount(await insert("admin", false), 5), false);
   assert.equal(await services.approveServiceAccount(randomUUID(), 5), false);
+});
+
+// Procurement of order lines (#606).
+const supplierLine = (quantity = 1): Line => ({ quantity, reserved: 0, product: "supplier", snapshot: { source: "supplier", cost_kurus: 500, vat_percent: 20 } });
+const storeLine: Line = { quantity: 1, reserved: 1, snapshot: { source: "store", base_price_kurus: 1000 } };
+const lines = async (id: string) => (await schema.pool.query<{ product_id: string; procurement_status: string; procurement_ref: string | null;
+  procurement_ordered_at: Date | null; procured_at: Date | null; procurement_by: string | null }>(
+  "SELECT product_id::text,procurement_status,procurement_ref,procurement_ordered_at,procured_at,procurement_by::text FROM commerce_order_items WHERE order_id=$1 ORDER BY product_id", [id])).rows;
+const adminAccount = async () => (await schema.pool.query<{ id: string }>(
+  "INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Yönetici',$1,'x','admin',true) RETURNING id::text", [`${randomUUID()}@example.invalid`])).rows[0].id;
+
+test("procurement moves freely while the order is pending or confirmed", async () => {
+  const admin = await adminAccount();
+  const id = await order("pending", "paid", [supplierLine()]);
+  const [{ product_id: productId }] = await lines(id);
+  const set = (status: "pending" | "ordered" | "procured", reference = "") => orders.setLineProcurement({ orderId: id, productId, status, reference, adminId: admin });
+  assert.equal(await set("ordered", "  "), true);
+  let [line] = await lines(id);
+  assert.equal(line.procurement_status, "ordered"); assert.equal(line.procurement_ref, null); assert.ok(line.procurement_ordered_at); assert.equal(line.procured_at, null);
+  assert.equal(line.procurement_by, admin);
+  assert.equal(await set("ordered", "BSB-123"), true);
+  const ordered = (await lines(id))[0];
+  assert.equal(ordered.procurement_ref, "BSB-123");
+  assert.equal(ordered.procurement_ordered_at?.getTime(), line.procurement_ordered_at?.getTime());
+  await orders.transitionOrder(id, "confirmed");
+  // The form sends the reference it shows: the same one keeps it; the order time stays.
+  assert.equal(await set("procured", "BSB-123"), true);
+  [line] = await lines(id);
+  assert.equal(line.procurement_status, "procured"); assert.equal(line.procurement_ref, "BSB-123"); assert.ok(line.procured_at);
+  assert.equal(line.procurement_ordered_at?.getTime(), ordered.procurement_ordered_at?.getTime());
+  // A blank reference clears it.
+  assert.equal(await set("procured", " "), true);
+  assert.equal((await lines(id))[0].procurement_ref, null);
+  // Back to ordered: no procured time, the order time stays.
+  assert.equal(await set("ordered"), true);
+  [line] = await lines(id);
+  assert.equal(line.procured_at, null); assert.equal(line.procurement_ordered_at?.getTime(), ordered.procurement_ordered_at?.getTime());
+  assert.equal(await set("pending"), true);
+  [line] = await lines(id);
+  assert.equal(line.procurement_status, "pending"); assert.equal(line.procurement_ref, null); assert.equal(line.procurement_ordered_at, null); assert.equal(line.procured_at, null);
+  // Procured straight from pending: never ordered, so no order time.
+  assert.equal(await set("procured", "Elden"), true);
+  [line] = await lines(id);
+  assert.equal(line.procurement_status, "procured"); assert.equal(line.procurement_ordered_at, null); assert.ok(line.procured_at); assert.equal(line.procurement_ref, "Elden");
+  // Then ordered after all: the order time is set, the procured time cleared.
+  assert.equal(await set("ordered", "Elden"), true);
+  [line] = await lines(id);
+  assert.ok(line.procurement_ordered_at); assert.equal(line.procured_at, null);
+});
+
+test("procurement is refused for store lines, unpaid, shipped, delivered and cancelled orders, and unknown lines", async () => {
+  const admin = await adminAccount();
+  const store = await order("pending", "paid", [storeLine]);
+  const [storeRow] = await lines(store);
+  assert.equal(await orders.setLineProcurement({ orderId: store, productId: storeRow.product_id, status: "ordered", reference: "x", adminId: admin }), false);
+  assert.equal((await lines(store))[0].procurement_status, "pending");
+  for (const [status, payment] of [["awaiting_payment", "awaiting"], ["pending", "expired"], ["shipped", "paid"], ["delivered", "paid"], ["cancelled", "refund_required"]]) {
+    const id = await order(status, payment, [supplierLine()]);
+    const [line] = await lines(id);
+    assert.equal(await orders.setLineProcurement({ orderId: id, productId: line.product_id, status: "procured", reference: "x", adminId: admin }), false, `${status}/${payment}`);
+    const after = (await lines(id))[0];
+    assert.equal(after.procurement_status, "pending"); assert.equal(after.procurement_ref, null); assert.equal(after.procurement_by, null);
+  }
+  const open = await order("pending", "paid", [supplierLine()]);
+  assert.equal(await orders.setLineProcurement({ orderId: open, productId: randomUUID(), status: "ordered", reference: "", adminId: admin }), false);
+  assert.equal(await orders.setLineProcurement({ orderId: randomUUID(), productId: randomUUID(), status: "ordered", reference: "", adminId: admin }), false);
+});
+
+test("the procurement status check rejects unknown values and survives a re-run of the schema", async () => {
+  const admin = await adminAccount();
+  const id = await order("pending", "none", [supplierLine()]);
+  const [line] = await lines(id);
+  assert.equal(await orders.setLineProcurement({ orderId: id, productId: line.product_id, status: "ordered", reference: "REF-1", adminId: admin }), true);
+  await assert.rejects(schema.pool.query("UPDATE commerce_order_items SET procurement_status='lost' WHERE order_id=$1", [id]));
+  await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
+  const after = (await lines(id))[0];
+  assert.equal(after.procurement_status, "ordered"); assert.equal(after.procurement_ref, "REF-1");
+  await assert.rejects(schema.pool.query("UPDATE commerce_order_items SET procurement_status='lost' WHERE order_id=$1", [id]));
+});
+
+test("open procurement counts orders still to be handled with a supplier line not yet procured", async () => {
+  const admin = await adminAccount();
+  const open = await order("pending", "paid", [supplierLine(), storeLine]);
+  const done = await order("confirmed", "paid", [supplierLine()]);
+  const [doneLine] = await lines(done);
+  await orders.setLineProcurement({ orderId: done, productId: doneLine.product_id, status: "procured", reference: "", adminId: admin });
+  const storeOnly = await order("pending", "paid", [storeLine]);
+  const shipped = await order("shipped", "paid", [supplierLine()]);
+  const counted = new Set((await schema.pool.query<{ id: string }>(`SELECT o.id::text FROM commerce_orders o WHERE o.id=ANY($1::uuid[]) AND ${procurementOpenSql}`,
+    [[open, done, storeOnly, shipped]])).rows.map(r => r.id));
+  assert.deepEqual([...counted], [open]);
+});
+
+test("line figures, supplier links and the procurement summary", () => {
+  assert.deepEqual(lineFigures({ cost_kurus: 500, vat_percent: 20 }, 1200), { costKurus: 500, netSaleKurus: 1000, marginKurus: 500 });
+  // Lines written before #580 only carry the list price and its exchange rate; numeric values may arrive as strings.
+  assert.deepEqual(lineFigures({ nf: "12.5", exchange_rate: 36.25, vat_percent: "20" }, 60000), { costKurus: 45313, netSaleKurus: 50000, marginKurus: 4687 });
+  assert.deepEqual(lineFigures({}, 1000), { costKurus: null, netSaleKurus: null, marginKurus: null });
+  assert.equal(lineFigures({ cost_kurus: 1100, vat_percent: 20 }, 1200).marginKurus, -100);
+  assert.equal(supplierItemHref("manual", "abc"), "/yonetim/tedarikciler/manuel/urun/abc");
+  assert.equal(supplierItemHref("basbug", "abc"), "/yonetim/tedarikciler/basbug/urun/abc");
+  assert.equal(supplierItemHref("demo", "abc"), null);
+  const line = (source: string, procurement_status: "pending" | "ordered" | "procured") => ({ needsProcurement: needsProcurement({ pricing_snapshot: { source } }), procurement_status });
+  assert.deepEqual(procurementSummary([line("store", "pending"), line("supplier", "pending"), line("override", "ordered"), line("supplier", "procured")]),
+    { needed: 3, pending: 1, ordered: 1, procured: 1 });
+  assert.deepEqual(procurementSummary([line("store", "pending")]), { needed: 0, pending: 0, ordered: 0, procured: 0 });
+  // The dialog's view model carries figures and links, never the raw snapshot.
+  const view = orderLineView({ product_id: "p1", code: "C", name: "N", supplier: "seta", quantity: 2, unit_price_kurus: 1200,
+    pricing_snapshot: { source: "supplier", cost_kurus: 500, vat_percent: 20, company: "SETA", warehouse: "D1", nf: 4 },
+    procurement_status: "pending", procurement_ref: null, procurement_ordered_at: null, procured_at: null, supplier_item: true, master_id: "m1" }, "SETA");
+  assert.equal(view.supplierHref, "/yonetim/tedarikciler/seta/urun/p1"); assert.equal(view.productHref, "/yonetim/urunler/m1");
+  assert.equal(view.costKurus, 500); assert.equal(view.marginKurus, 500); assert.equal(view.company, "SETA"); assert.equal(view.needsProcurement, true);
+  assert.equal("pricing_snapshot" in view, false);
+});
+
+test("the customer's order page never reads supplier, cost or procurement data", async () => {
+  const source = await readFile("src/modules/store/order-read.ts", "utf8");
+  assert.doesNotMatch(source, /procurement_|cost_kurus/);
+  const query = source.match(/SELECT product_id,name,code[\s\S]*?FROM commerce_order_items/)?.[0] ?? "";
+  assert.match(query, /jsonb_build_object\('checkout_mode',pricing_snapshot->'checkout_mode','observed_at',pricing_snapshot->'observed_at'\) AS pricing_snapshot/);
+  assert.doesNotMatch(query.replace(/jsonb_build_object\([^)]*\) AS pricing_snapshot/, ""), /pricing_snapshot/);
 });

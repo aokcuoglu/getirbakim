@@ -27,7 +27,10 @@ export async function currentOrder(id:string) {
  )).rows[0];
  if(!order) return null;
  const [items,agreement]=await Promise.all([
-  db.query<OrderItem>("SELECT product_id,name,code,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id",[id]),
+  // Only what the customer's page reads from the snapshot (#606): supplier, warehouse and cost stay in the admin panel.
+  db.query<OrderItem>(`SELECT product_id,name,code,quantity,unit_price_kurus,
+   jsonb_build_object('checkout_mode',pricing_snapshot->'checkout_mode','observed_at',pricing_snapshot->'observed_at') AS pricing_snapshot,
+   vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id`,[id]),
   db.query<{accepted_at:Date;legal_version:string}>("SELECT accepted_at,legal_version FROM commerce_order_agreements WHERE order_id=$1",[id]),
  ]);
  return {order,items:items.rows,agreement:agreement.rows[0] ?? null};
