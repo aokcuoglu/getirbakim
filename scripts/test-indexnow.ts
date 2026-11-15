@@ -124,7 +124,7 @@ describe("IndexNow helpers", () => {
     assert.equal(result.ok, false);
     assert.equal(result.status, null);
     assert.equal(result.requests, 3);
-    assert.match(result.error ?? "", /timeout|abort/i);
+    assert.match(result.error ?? "", /IndexNow request timed out after 20 ms/);
     assert.equal(dead.calls.length, 3);
   });
 

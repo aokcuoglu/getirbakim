@@ -102,9 +102,13 @@ export async function submitUrls(config: IndexNowConfig, urls: readonly string[]
   let status: number | null = null, error: string | undefined;
   for (let attempt = 0; attempt < attempts; attempt++) {
     let retryAfter: string | null = null;
+    // A referenced timer, unlike AbortSignal.timeout's: it keeps the process alive until the request ends or times out,
+    // so a hanging request is reported as a timeout instead of the command exiting with the run unfinished.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`IndexNow request timed out after ${timeoutMs} ms`)), timeoutMs);
     try {
       const response = await fetch(config.endpoint, { method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body,
-        signal: AbortSignal.timeout(timeoutMs) });
+        signal: controller.signal });
       status = response.status;
       retryAfter = response.headers.get("retry-after");
       // The answer's body carries nothing the run needs; dropping it frees the connection.
@@ -115,6 +119,8 @@ export async function submitUrls(config: IndexNowConfig, urls: readonly string[]
     } catch (failure) {
       status = null;
       error = failure instanceof Error ? failure.message : String(failure);
+    } finally {
+      clearTimeout(timer);
     }
     if (attempt + 1 < attempts) await sleep(retryAfterMs(retryAfter, attempt));
   }
