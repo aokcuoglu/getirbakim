@@ -35,23 +35,26 @@ BEGIN
  -- The whole catalog hashes ~1M fitment rows with their vehicle objects; 4 MB (the default) spills to disk.
  PERFORM set_config('work_mem','64MB',true);
  EXECUTE $sql$CREATE TEMP TABLE make_fits_computed ON COMMIT DROP AS
-  WITH vehicles AS MATERIALIZED (
-   SELECT l.supplier_item_id,l.donor_item_id,e.payload->'vehicles' AS vehicles
+  WITH removed AS MATERIALIZED (
+   SELECT ps.supplier_item_id,o.vehicle_type_id FROM product_override_fitments o JOIN product_sources ps ON ps.product_id=o.product_id
+   WHERE o.mode='remove' AND ($1::uuid[] IS NULL OR ps.supplier_item_id=ANY($1))),
+  -- has_removed is decided once per offer: the whole catalog joins ~9M fitments, and a lookup per fitment row cost
+  -- seconds; only the offers with a removed type look their fitments up.
+  vehicles AS MATERIALIZED (
+   SELECT l.supplier_item_id,l.donor_item_id,e.payload->'vehicles' AS vehicles,
+    l.supplier_item_id IN (SELECT supplier_item_id FROM removed) AS has_removed
    FROM product_enrichment_shared_links l
    JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
    JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
    WHERE ($1::uuid[] IS NULL OR l.supplier_item_id=ANY($1))
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)),
-  removed AS MATERIALIZED (
-   SELECT ps.supplier_item_id,o.vehicle_type_id FROM product_override_fitments o JOIN product_sources ps ON ps.product_id=o.product_id
-   WHERE o.mode='remove' AND ($1::uuid[] IS NULL OR ps.supplier_item_id=ANY($1)))
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem))
   SELECT DISTINCT m.brand_id,t.supplier_item_id
   FROM vehicles t
   JOIN product_vehicle_fitments f ON f.supplier_item_id=t.donor_item_id AND f.vehicle_type_id IS NOT NULL
   JOIN vehicle_types v ON v.id=f.vehicle_type_id
   JOIN vehicle_models m ON m.id=v.model_id
   WHERE f.source_vehicle=t.vehicles->f.source_index
-   AND (t.supplier_item_id,f.vehicle_type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM removed)
+   AND (NOT t.has_removed OR NOT EXISTS (SELECT 1 FROM removed r WHERE r.supplier_item_id=t.supplier_item_id AND r.vehicle_type_id=f.vehicle_type_id))
   -- UNION ALL keeps the automatic branch's plan (a UNION sorted its ~9M rows); a pair both give is inserted once
   -- (ON CONFLICT DO NOTHING) and the delete below only asks whether it exists.
   UNION ALL
