@@ -45,18 +45,21 @@ export async function changeOrderStatus(form:FormData) {
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }
-/** Ship dialog (#605): `ship` hands a confirmed order to the carrier, `edit` corrects the details of a shipped one. */
+/**
+ * Ship dialog (#605): `ship` hands a confirmed order to the carrier, `edit` corrects the details of a shipped one.
+ * The dialog closes itself on success and opens `next`; a malformed `back` only loses the list position (orderListReturn).
+ */
 export async function saveShipment(_previous:ShipmentResult,form:FormData):Promise<ShipmentResult> {
  await requireAdmin();
  const values=Object.fromEntries(form);
- const target=z.object({id:z.uuid(),mode:z.enum(['ship','edit']),back:orderListBack.optional()}).safeParse(values);
+ const target=z.object({id:z.uuid(),mode:z.enum(['ship','edit'])}).safeParse(values);
  const shipment=shipmentSchema.safeParse(values);
  if(!target.success) return {status:'error',message:'Sipariş bulunamadı. Listeyi yenileyin.'};
  if(!shipment.success) return {status:'error',errors:shipment.error.flatten().fieldErrors};
  const ok=target.data.mode==='ship' ? await shipOrder(target.data.id,shipment.data) : await updateShipment(target.data.id,shipment.data);
  if(!ok) return {status:'error',message:'Sipariş bu işlem için uygun değil. Listeyi yenileyin.'};
  revalidateOrder(target.data.id);
- redirect(orderListReturn(target.data.back,'saved'));
+ return {status:'success',next:orderListReturn(form.get('back'),'saved')};
 }
 export async function recordRefund(form:FormData) {
  await requireAdmin();

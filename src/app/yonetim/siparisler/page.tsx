@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox, PackageCheck, TriangleAlert } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox, TriangleAlert } from "lucide-react";
 import { adminOrders, fitmentReturnReport, orderFilters, type OrderFilter } from "@/modules/admin/data";
 import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-level";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -8,6 +8,7 @@ import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, recordRefund } from "@/modules/admin/commerce-actions";
 import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
+import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -83,9 +84,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                     {["shipped", "delivered"].includes(o.status) && <div className="sm:col-span-2"><dt className="text-muted-foreground">Kargo</dt>
                       {o.carrier ? <dd className="flex flex-col gap-1">
                         <span className="break-all">{carrierLabel(o.carrier, o.carrier_name)} · {o.tracking_no}</span>
-                        {o.tracking_url && <a className="break-all underline-offset-4 hover:underline" href={o.tracking_url} target="_blank" rel="noopener noreferrer">{o.tracking_url}</a>}
-                      </dd> : <dd><Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Kargo bilgisi girilmedi</Badge></dd>}
-                      {o.shipped_at && <dd className="text-muted-foreground">Sevk: {time(o.shipped_at)}</dd>}
+                        {o.tracking_url && <a className="w-fit underline-offset-4 hover:underline" href={o.tracking_url} target="_blank" rel="noopener noreferrer">Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></a>}
+                      </dd> : o.status === "delivered" ? <dd className="text-muted-foreground">Bu sipariş için kargo bilgisi kayıtlı değil.</dd>
+                        : <dd><Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Kargo bilgisi girilmedi</Badge></dd>}
+                      {o.shipped_at && <dd className="text-muted-foreground">Kargoya veriliş: {time(o.shipped_at)}</dd>}
                       {o.delivered_at && <dd className="text-muted-foreground">Teslim: {time(o.delivered_at)}</dd>}
                     </div>}
                     <div className="sm:col-span-2"><dt className="text-muted-foreground">Sözleşme onayı</dt>
@@ -115,12 +117,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 </form>
               </div>}
               {o.status === "shipped" && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
-                <form action={changeOrderStatus}>
-                  <input type="hidden" name="id" value={o.id}/>
-                  <input type="hidden" name="back" value={back}/>
-                  <input type="hidden" name="status" value="delivered"/>
-                  <SubmitButton icon={<PackageCheck data-icon="inline-start" aria-hidden="true"/>} aria-label={`#${o.number} teslim edildi olarak işaretle`}>Teslim edildi</SubmitButton>
-                </form>
+                <OrderDeliveredDialog orderId={o.id} number={o.number} back={back}/>
                 <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit"
                   initial={{ carrier: o.carrier, carrierName: o.carrier_name, trackingNo: o.tracking_no, trackingUrl: o.tracking_url }}/>
               </div>}
@@ -153,7 +150,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {fitment.length > 0 && <Card>
       <CardHeader>
         <CardTitle>Uyumluluk ve iadeler</CardTitle>
-        <CardDescription>İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler sevk veya teslim edilen siparişin sayfasından kaydedilir.</CardDescription>
+        <CardDescription>İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler kargoya verilen veya teslim edilen siparişin sayfasından kaydedilir.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table controls={false}><TableHeader><TableRow><TableHead>Uyumluluk</TableHead><TableHead className="text-right">Satır</TableHead><TableHead className="text-right">İade edilen</TableHead><TableHead className="text-right">“Aracıma uymadı”</TableHead></TableRow></TableHeader>

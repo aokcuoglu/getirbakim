@@ -86,10 +86,10 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       <p className={panelText}>Ürün toplamı: {money(Number(order.subtotal_kurus))}</p><p className={panelText}>Kargo: {Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</p>
       <h3 className="mt-[18px] mb-3 text-[21px] leading-[29px] font-semibold">Toplam: {money(Number(order.total_kurus))}</h3><p className={panelMuted}>KDV dahil.</p>
     </article><div className="min-w-0">{shipment && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Kargo takibi</h2>
-        {order.carrier ? <><p className={panelText}>{carrierLabel(order.carrier,order.carrier_name)}</p><p className={cn(panelText,"wrap-anywhere")}>Takip no: <strong className="font-semibold">{order.tracking_no}</strong></p>
+        {order.carrier ? <><p className={panelText}>{carrierLabel(order.carrier,order.carrier_name)}</p>{order.tracking_no && <p className={cn(panelText,"wrap-anywhere")}>Takip no: <strong className="font-semibold">{order.tracking_no}</strong></p>}
           {order.tracking_url ? <a href={order.tracking_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span><span aria-hidden>→</span></a>
             : <p className={panelMuted}>Takip numarasıyla kargo firmasının sitesinden sorgulayabilirsin.</p>}</>
-          : <p className={panelMuted}>Kargo bilgisi henüz eklenmedi.</p>}
+          : <p className={panelMuted}>{order.status==="delivered" ? "Bu sipariş için kargo bilgisi kayıtlı değil." : "Kargo bilgisi henüz eklenmedi."}</p>}
         {order.shipped_at && <p className={panelMuted}>Kargoya veriliş: {time(order.shipped_at)}</p>}
         {order.delivered_at && <p className={panelMuted}>Teslim: {time(order.delivered_at)}</p>}</article>}
       <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article>
