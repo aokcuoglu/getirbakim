@@ -6,22 +6,25 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyReferenceOverrides, gtinProperty, type ReferenceOverride } from "../src/modules/store/product-reference-display";
 import { referenceHistoryValue, productReferenceLimit } from "../src/modules/admin/product-reference-fields";
+import { matchesOem, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
 
 // Admin-entered reference numbers (#582) in an isolated copy of the schema: db/product-override-references.sql, the
-// store's read path, search and reference links, the admin store and merge carry/undo.
+// store's read path, search and reference links, the admin store and merge carry/undo. Also the supplier OEM field
+// hidden per product (#615).
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let store: typeof import("../src/modules/admin/product-reference-store");
 let references: typeof import("../src/modules/store/product-references");
 let catalog: typeof import("../src/modules/store/catalog");
 let links: typeof import("../src/modules/store/reference-links");
+let overrides: typeof import("../src/modules/admin/product-override-store");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
 let admin: string;
 
-type Item = { supplier: "basbug" | "dinamik"; code: string; brand: string; name: string };
-async function item(key: string, { supplier, code, brand, name }: Item) {
-  const product = { uk: brand, ac: name, ac2: "", dc: "TL", ...(supplier === "dinamik" ? { marka: brand, stokAdi: name } : {}) };
+type Item = { supplier: "basbug" | "dinamik"; code: string; brand: string; name: string; oe?: string };
+async function item(key: string, { supplier, code, brand, name, oe }: Item) {
+  const product = { uk: brand, ac: name, ac2: "", dc: "TL", ...(oe ? { oe } : {}), ...(supplier === "dinamik" ? { marka: brand, stokAdi: name } : {}) };
   const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
     product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
     VALUES($1,$2,'G',$3,$4,$5,'{"nf":100}','{"stok":2}',1,1,1,false,'present',now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour') RETURNING id::text`,
@@ -51,6 +54,11 @@ before(async () => {
   await item("skf", { supplier: "basbug", code: "SKF 40040", brand: "SKF", name: "SKF RULMAN" });
   await item("lemA", { supplier: "basbug", code: "LEM 90090", brand: "LEMFORDER", name: "LEMFORDER ROT" });
   await item("lemB", { supplier: "basbug", code: "TRW 91091", brand: "TRW", name: "TRW ROT" });
+  // #615: one product with two supplier OEM fields, another product sharing one of them, a single-row product.
+  await item("valeoBasbug", { supplier: "basbug", code: "VAL 585001", brand: "VALEO", name: "VALEO TERMOSTAT", oe: "9673689380" });
+  await item("valeoDinamik", { supplier: "dinamik", code: "VALEO 585001", brand: "VALEO", name: "VALEO TERMOSTAT KOMPLE", oe: "9816338580" });
+  await item("sachsTwin", { supplier: "basbug", code: "SAC 300100", brand: "SACHS", name: "SACHS DEBRIYAJ SETI", oe: "9673689380" });
+  await item("fag", { supplier: "basbug", code: "FAG 840072210", brand: "FAG", name: "FAG TEKER RULMANI", oe: "A2103380515" });
   await schema.pool.query("SELECT refresh_product_matches()");
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
@@ -61,9 +69,10 @@ before(async () => {
   [ids.febiDinamik, JSON.stringify({ specifications: [], vehicles: [], oemNumbers: { VW: ["1K0 615 301 AA", "1K0615301AB"], AUDI: ["8E0615301Q"] },
     crossReferences: { BOSCH: ["0 986 424 797"] } })]);
   await schema.pool.query("SELECT product_enrichment_shared_sync()");
-  const [{ db }, storeModule, referencesModule, catalogModule, linksModule] = await Promise.all([import("../src/lib/db"),
+  const [{ db }, storeModule, referencesModule, catalogModule, linksModule, overridesModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/admin/product-reference-store"), import("../src/modules/store/product-references"),
-    import("../src/modules/store/catalog"), import("../src/modules/store/reference-links")]);
+    import("../src/modules/store/catalog"), import("../src/modules/store/reference-links"), import("../src/modules/admin/product-override-store")]);
+  overrides = overridesModule;
   store = storeModule;
   references = referencesModule;
   catalog = catalogModule;
@@ -250,6 +259,143 @@ test("a merge carries the numbers (the kept product's own row wins); undoing it 
     ["reference_removed", "oem|BMW|31126774826", "uncarry"], ["reference_shown", "oem|MINI|6774826", "uncarry"]]);
   assert.equal((await listed(lemA)).length, 2);
   assert.deepEqual((await references.getItemReferences(ids.lemA)).map(r => r.number).sort(), ["31126774826", "6774826", "BM-ES-4812"]);
+});
+
+// The four catalog views (#615): the saleable ones and the storefront's, each with the oem column in place.
+const catalogViews = ["commerce_catalog_entries", "commerce_catalog", "storefront_catalog_entries", "storefront_catalog"];
+const viewRows = async (key: string) => Promise.all(catalogViews.map(async view => (await schema.pool.query<{ oem: string; brand: string; code: string }>(
+  `SELECT oem,brand,code FROM ${view} WHERE id=$1`, [ids[key]])).rows[0]));
+const viewOems = async (key: string) => (await viewRows(key)).map(row => row?.oem);
+const searchFields = async (key: string) => (await schema.pool.query(
+  "SELECT product_data->>'oe' AS oe,search_oem,search_doc::text AS search_doc FROM supplier_items WHERE id=$1", [ids[key]])).rows[0];
+const setOemHidden = (productId: string, hidden: boolean) => overrides.persistProductOverride(schema.pool, productId, { hide_supplier_oem: hidden }, admin);
+const valeoRows = (hits: string[]) => hits.some(id => id === ids.valeoBasbug || id === ids.valeoDinamik);
+/** Store row ids of a relevance-ranked code search (summarizeSearch; plain searches are cached per process: spell each once). */
+const ranked = async (q: string) => (await catalog.browseProducts({ q, searchBy: "code" })).items.map(row => row.id);
+const named = async (q: string) => (await catalog.browseProducts({ q, sort: "newest" })).items.map(row => row.id);
+
+test("hiding the supplier OEM field blanks it on every source row of the product in every catalog view (#615)", async () => {
+  const valeo = await productOf("valeoBasbug");
+  assert.equal(await productOf("valeoDinamik"), valeo);
+  assert.notEqual(await productOf("sachsTwin"), valeo);
+  assert.deepEqual(await viewOems("valeoBasbug"), Array(4).fill("9673689380"));
+  assert.deepEqual(await viewOems("valeoDinamik"), Array(4).fill("9816338580"));
+  // Visible: found by either OEM, and the number links from another product's page.
+  assert.ok(valeoRows(await found("9673689380")) && valeoRows(await found("9816338580")));
+  assert.equal((await links.getReferenceLinks(ids.febiBasbug, [{ brand: "CITROEN", kind: "oem", codes: ["9816338580"] }]))("CITROEN", "9816338580"),
+    "/katalog?q=9816338580&searchBy=code");
+  const before = { basbug: await viewRows("valeoBasbug"), dinamik: await viewRows("valeoDinamik"),
+    fields: [await searchFields("valeoBasbug"), await searchFields("valeoDinamik")] };
+  const saved = await setOemHidden(valeo, true);
+  assert.ok(saved.ok);
+  assert.deepEqual(saved.changed, ["hide_supplier_oem"]);
+  for (const key of ["valeoBasbug", "valeoDinamik"]) assert.deepEqual(await viewOems(key), Array(4).fill(""), key);
+  // Brand and code stay; the supplier data and its stored search fields are not rewritten.
+  assert.deepEqual((await viewRows("valeoBasbug")).map(row => [row.brand, row.code]), before.basbug.map(row => [row.brand, row.code]));
+  assert.deepEqual((await viewRows("valeoDinamik")).map(row => [row.brand, row.code]), before.dinamik.map(row => [row.brand, row.code]));
+  assert.deepEqual([await searchFields("valeoBasbug"), await searchFields("valeoDinamik")], before.fields);
+  assert.equal(before.fields[0].oe, "9673689380");
+  // Other products keep theirs.
+  assert.deepEqual(await viewOems("sachsTwin"), Array(4).fill("9673689380"));
+  assert.deepEqual(await viewOems("fag"), Array(4).fill("A2103380515"));
+  // The admin card still lists the supplier rows, marked hidden.
+  const loaded = await store.loadProductReferences(schema.pool, valeo);
+  assert.equal(loaded.supplierOemHidden, true);
+  assert.deepEqual(loaded.automatic.filter(r => r.supplierOem).map(r => r.number).sort(), ["9673689380", "9816338580"]);
+  assert.equal((await store.loadProductReferences(schema.pool, await productOf("fag"))).supplierOemHidden, false);
+});
+
+test("store search no longer finds the product by a hidden supplier OEM, only by its code and name (#615)", async () => {
+  const sachsRows = (hits: string[]) => hits.includes(ids.sachsTwin);
+  // Newest-first code search (catalogFilter).
+  const shared = await found("9673 689 380");
+  assert.ok(!valeoRows(shared), "hidden OEM of the Başbuğ row");
+  assert.ok(sachsRows(shared), "another product with the same OEM");
+  assert.ok(!valeoRows(await found("9816-338-580")), "hidden OEM of the Dinamik row");
+  assert.ok(valeoRows(await found("VAL 585001")), "supplier code");
+  assert.ok(valeoRows(await found("585001")), "part number");
+  assert.ok(valeoRows(await named("valeo termostat")), "supplier name");
+  assert.ok(!valeoRows(await named("9673689380")), "an all-fields search by the OEM");
+  // Relevance path (summarizeSearch) and the partner search (searchCatalogItems).
+  const relevance = await ranked("96736-89380");
+  assert.ok(!valeoRows(relevance) && sachsRows(relevance));
+  assert.ok(valeoRows(await ranked("VAL-585001")));
+  const partner = await catalog.searchCatalogItems("96.736.893.80", "code");
+  assert.ok(!partner.some(row => row.id === ids.valeoBasbug || row.id === ids.valeoDinamik));
+  assert.ok(partner.some(row => row.id === ids.sachsTwin));
+});
+
+test("the partner API and reference links drop a hidden supplier OEM (#615)", async () => {
+  const rows = await catalog.searchCatalogItems("VAL.585001", "code");
+  const listed = rows.find(row => row.id === ids.valeoBasbug || row.id === ids.valeoDinamik);
+  assert.ok(listed, "the product is still sold");
+  const product = toPartnerProduct(listed as unknown as PartnerCatalogRow, { offers: [listed as unknown as PartnerCatalogRow], discountBps: 0, imageUrl: null,
+    vehicleTypeId: null, fitted: false });
+  assert.deepEqual(product.oemNumbers, []);
+  assert.deepEqual(product.references, []);
+  assert.equal(matchesOem(listed as unknown as PartnerCatalogRow, "9673689380"), false);
+  assert.equal(matchesOem(listed as unknown as PartnerCatalogRow, "9816338580"), false);
+  // Only the hidden product carries 9816338580: no "katalogda var" link from another product's page.
+  assert.equal((await links.getReferenceLinks(ids.febiBasbug, [{ brand: "CITROEN", kind: "oem", codes: ["9816338580"] }]))("CITROEN", "9816338580"), undefined);
+  // 9673689380 is still SACHS's.
+  assert.equal((await links.getReferenceLinks(ids.febiBasbug, [{ brand: "PSA", kind: "oem", codes: ["9673689380"] }]))("PSA", "9673689380"),
+    "/katalog?q=9673689380&searchBy=code");
+});
+
+test("an enrichment OEM and an added reference with the same number still find the product (#615)", async () => {
+  const valeo = await productOf("valeoBasbug");
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'VALEO 585001','VALEO','complete')`, [ids.valeoDinamik]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+    VALUES($1,'VALEO 585001','VALEO','https://www.trodo.com/valeo','test','VALEO','585001',$2)`,
+  [ids.valeoDinamik, JSON.stringify({ specifications: [], vehicles: [], oemNumbers: { CITROEN: ["9816338580"] }, crossReferences: {} })]);
+  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  assert.ok(valeoRows(await found("98163 38580")), "enrichment OEM");
+  assert.deepEqual(await add(valeo, "oem", "PSA", "9673689380"), { ok: true });
+  assert.ok(valeoRows(await found("967368 9380")), "added OEM");
+  // The supplier field stays hidden in the views.
+  assert.deepEqual(await viewOems("valeoDinamik"), Array(4).fill(""));
+});
+
+test("supplier syncs, matching refreshes and new rows keep the field hidden; a split-off row shows its own (#615)", async () => {
+  const valeo = await productOf("valeoBasbug");
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"oe":"9673689381"}',changed_at=now() WHERE id=$1`, [ids.valeoBasbug]);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  assert.equal(await productOf("valeoBasbug"), valeo);
+  assert.deepEqual(await viewOems("valeoBasbug"), Array(4).fill(""));
+  assert.equal((await searchFields("valeoBasbug")).oe, "9673689381");
+  // A new source row joins the product at the next refresh and follows the product's flag.
+  await item("valeoNew", { supplier: "dinamik", code: "VALEO 585-001", brand: "VALEO", name: "VALEO TERMOSTAT YENI", oe: "1111122222" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  assert.equal(await productOf("valeoNew"), valeo);
+  assert.deepEqual(await viewOems("valeoNew"), Array(4).fill(""));
+  // Split off, it is its own product without the edit.
+  const split = (await schema.pool.query<{ id: string }>("SELECT product_split_item($1,$2)::text AS id", [ids.valeoNew, admin])).rows[0].id;
+  assert.notEqual(split, valeo);
+  assert.deepEqual(await viewOems("valeoNew"), Array(4).fill("1111122222"));
+  assert.deepEqual(await viewOems("valeoDinamik"), Array(4).fill(""));
+});
+
+test("the hide is recorded, shown again by reverting, and refused for a missing or merged product (#615)", async () => {
+  const valeo = await productOf("valeoBasbug");
+  const flagHistory = async () => (await history(valeo)).filter(change => change.field === "hide_supplier_oem").map(change => [change.old_value, change.new_value]);
+  assert.deepEqual(await flagHistory(), [[null, "true"]]);
+  const shown = await setOemHidden(valeo, false);
+  assert.ok(shown.ok);
+  assert.deepEqual(shown.changed, ["hide_supplier_oem"]);
+  assert.deepEqual(await flagHistory(), [[null, "true"], ["true", null]]);
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_overrides WHERE product_id=$1", [valeo])).rowCount, 0);
+  assert.equal((await schema.pool.query("SELECT 1 FROM commerce_item_overrides WHERE product_id=$1", [valeo])).rowCount, 0);
+  assert.deepEqual(await viewOems("valeoBasbug"), Array(4).fill("9673689381"));
+  assert.deepEqual(await viewOems("valeoDinamik"), Array(4).fill("9816338580"));
+  assert.equal((await store.loadProductReferences(schema.pool, valeo)).supplierOemHidden, false);
+  // Showing an already shown field changes nothing.
+  const again = await setOemHidden(valeo, false);
+  assert.ok(again.ok);
+  assert.deepEqual(again.changed, []);
+  assert.deepEqual(await setOemHidden(randomUUID(), true), { ok: false, reason: "not-found" });
+  // A product merged into another (skf into ngk above) is managed on the kept product.
+  const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
+  assert.deepEqual(await setOemHidden(merged, true), { ok: false, reason: "merged" });
 });
 
 test("setup can run the file again", async () => {

@@ -3,7 +3,7 @@
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Hash, Pencil, Plus, Trash2 } from "lucide-react";
-import { addProductReference, hideProductReference, removeProductReference, type ProductReferenceActionResult } from "@/app/yonetim/urunler/reference-actions";
+import { addProductReference, hideProductReference, removeProductReference, setSupplierOemHidden, type ProductReferenceActionResult } from "@/app/yonetim/urunler/reference-actions";
 import { productReferenceLimit, referenceKindLabels, referenceKinds, type ReferenceKind } from "@/modules/admin/product-reference-fields";
 import type { ProductReferences } from "@/modules/admin/product-reference-store";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -30,7 +30,8 @@ const numberPlaceholders: Record<ReferenceKind, string> = { oem: "Örn. 1K061530
 
 /**
  * Adds OEM numbers, cross-reference codes and barcodes, and hides automatic (enrichment) numbers from the store (#582).
- * Every change goes through a server action; the page refreshes with the stored list.
+ * The supplier rows' OEM field is hidden or shown as a whole for the product (#615). Every change goes through a server
+ * action; the page refreshes with the stored list.
  */
 export function ProductReferencesManager({ productId, references }: { productId: string; references: ProductReferences }) {
   const router = useRouter();
@@ -41,6 +42,9 @@ export function ProductReferencesManager({ productId, references }: { productId:
   const [number, setNumber] = useState("");
   const [result, setResult] = useState<ProductReferenceActionResult | null>(null);
   const stored = references.added.length + references.hidden.length;
+  const supplierHidden = references.supplierOemHidden;
+  // Product-level: shown while there is a supplier OEM, and while the flag is set (it can be reverted after the rows left).
+  const supplierControl = supplierHidden || references.automatic.some(row => row.supplierOem);
 
   const mutate = (action: () => Promise<ProductReferenceActionResult>, onSuccess?: () => void) => {
     setResult(null);
@@ -99,6 +103,13 @@ export function ProductReferencesManager({ productId, references }: { productId:
     </div>
     {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
+    {supplierControl && <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürün genelinde gizlenir veya gösterilir; ürünün tüm tedarikçi kayıtları etkilenir.</p>
+      <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => setSupplierOemHidden({ productId, hidden: !supplierHidden }))}>
+        {supplierHidden ? <><Eye data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını yeniden göster</>
+          : <><EyeOff data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını mağazada gizle</>}</Button>
+    </div>}
+
     {rows.length ? <Table controls={false}><caption className="sr-only">Referans numaraları</caption>
       <TableHeader><TableRow><TableHead>Tür</TableHead><TableHead>Marka</TableHead><TableHead>Numara</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map(row => <TableRow key={row.key}>
@@ -111,6 +122,7 @@ export function ProductReferencesManager({ productId, references }: { productId:
           {row.status === "automatic" && <StatusBadge tone="neutral">Otomatik</StatusBadge>}
           {row.status === "hidden" && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
           {row.status === "supplier" && <StatusBadge tone="neutral">Tedarikçi verisi</StatusBadge>}
+          {row.status === "supplier" && supplierHidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
         </div></TableCell>
         <TableCell><div className="flex flex-wrap justify-end gap-2">
           {(row.status === "manual" || row.status === "carried") && row.id && <Button type="button" variant="outline" disabled={pending}

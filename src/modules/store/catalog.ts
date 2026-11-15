@@ -205,10 +205,13 @@ type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string;vehi
 const maxSearchHits=50000;
 /** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
- const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)}`,
+ // The stored search fields hold the supplier OEM; a row whose OEM field an admin hid (#615) is matched by
+ // overrideItemMatch instead, on its text and code without the OEM. The anti-join reads the small overrides table.
+ const oemHidden=(alias:string)=>`NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=${alias}.id AND ho.hide_oem)`;
+ const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)} AND ${oemHidden("i")}`,
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`,
   // Products no supplier sells now are found too; the listing puts them last (#475).
-  `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)}`];
+  `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)} AND ${oemHidden("u")}`];
  // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/enrichment-search.sql, #609)
  // narrows the enrichments first; normalising every stored reference per query took ~3 s.
  if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact)){const key=bind(`%${parsed.compact}%`);hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
@@ -410,13 +413,14 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
    SELECT i.id,COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
     -- The stored ranking inputs are the supplier's; a row with an admin-edited name, description, store brand or part
     -- number ranks the edit (#575, #602), the part number as the better of it and the supplier code. A price-only edit
-    -- (#580) keeps the stored inputs. Same rule as catalogRank (src/modules/search/sql.ts).
-    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL
+    -- (#580) keeps the stored inputs. A hidden supplier OEM field (#615) ranks without the OEM. Same rule as catalogRank
+    -- (src/modules/search/sql.ts).
+    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL AND ov.hide_oem IS NOT TRUE
       THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
      GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
-      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
+      i.code,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
       CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),
-       COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),ov.part_number,COALESCE(i.product_data->>'oe',''),
+       COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),ov.part_number,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
        COALESCE(ov.description,i.product_data->>'ac2',''),${queries}) END)) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
     UNION ALL

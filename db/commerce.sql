@@ -35,6 +35,10 @@ ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestam
 -- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
+-- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
+-- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
+-- supplier_items keeps the value: matching, enrichment and the admin's supplier searches still read it.
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS hide_oem boolean NOT NULL DEFAULT false;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -93,7 +97,7 @@ SELECT id,category,supplier,code,name,brand,description,updated_at,
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company,
+ COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,'supplier',i.company,
  COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code)
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s
 LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
@@ -134,6 +138,7 @@ WITH latest AS (
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
  ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
+ ov.hide_oem AS override_hide_oem,
  -- The campaign price only inside its window; a NULL end is open.
  CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
@@ -179,7 +184,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(override_name,NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(override_description,product_data->>'ac2',''),
  final_price,
- NULL::integer,changed_at,COALESCE(product_data->>'oe',''),'supplier',company,
+ NULL::integer,changed_at,CASE WHEN override_hide_oem THEN '' ELSE COALESCE(product_data->>'oe','') END,'supplier',company,
  (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
  99,

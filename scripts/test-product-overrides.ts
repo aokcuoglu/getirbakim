@@ -6,6 +6,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { productDescription, productMeta, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
 import { productOverrideValuesSchema } from "../src/modules/admin/product-override-schema";
+import { overrideValueText, productOverrideLabels } from "../src/modules/admin/product-override-fields";
 import { initialOverrideForm, overrideFormReducer } from "../src/modules/admin/product-override-form-state";
 
 // Admin edits of the store card (#575) in an isolated copy of the schema: db/product-overrides.sql, the catalog views
@@ -146,6 +147,46 @@ test("undoing a merge takes back what it carried, except fields an admin changed
   // A keeps its own edits and hides its row again.
   assert.equal(await catalog.getStorefrontProduct(ids.lemA), undefined);
   assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_carries WHERE source=$1", [a])).rows[0].n, 0);
+});
+
+test("a merge carries a hidden supplier OEM field like hidden; undoing it takes it back, an admin's later choice stays (#615)", async () => {
+  await item("dayco", { supplier: "basbug", code: "DAY 11011", brand: "DAYCO", name: "DAYCO KAYIS" });
+  await item("gates", { supplier: "basbug", code: "GAT 12012", brand: "GATES", name: "GATES KAYIS" });
+  await item("ina", { supplier: "basbug", code: "INA 13013", brand: "INA", name: "INA GERGI" });
+  await item("ruville", { supplier: "basbug", code: "RUV 14014", brand: "RUVILLE", name: "RUVILLE GERGI" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const merge = (source: string, target: string) => schema.pool.query<{ carried: { fields: string[]; hidden: boolean } }>(`WITH merged AS (SELECT product_merge($1,$2,$3) AS id)
+    SELECT product_overrides_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
+  const flag = async (productId: string) => (await store.loadProductOverride(schema.pool, productId)).override?.hide_supplier_oem ?? null;
+  // The target has no row of its own: the carried row must still satisfy NOT NULL on every flag.
+  const dayco = await productOf("dayco"), gates = await productOf("gates");
+  assert.deepEqual(await persist(schema.pool, dayco, { hide_supplier_oem: true }, admin), { ok: true, changed: ["hide_supplier_oem"] });
+  assert.equal(await flag(gates), null);
+  assert.deepEqual((await merge(dayco, gates)).rows[0].carried, { fields: ["hide_supplier_oem"], hidden: false });
+  assert.equal(await flag(gates), true);
+  assert.deepEqual((await schema.pool.query("SELECT hide_oem FROM commerce_item_overrides WHERE supplier_item_id=ANY($1::uuid[]) ORDER BY 1",
+    [[ids.dayco, ids.gates]])).rows.map(row => row.hide_oem), [true, true]);
+  const carried = (await store.loadProductOverride(schema.pool, gates)).changes.filter(change => change.reason === "carry");
+  assert.deepEqual(carried.map(change => [change.field, change.old_value, change.new_value]), [["hide_supplier_oem", null, "true"]]);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.dayco]);
+  // Nothing else was set on the target: its row goes, and the history records the take-back.
+  const back = await store.loadProductOverride(schema.pool, gates);
+  assert.equal(back.override, null);
+  assert.deepEqual(back.changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value, change.new_value]),
+    [["hide_supplier_oem", "true", null]]);
+  assert.equal((await schema.pool.query("SELECT 1 FROM commerce_item_overrides WHERE supplier_item_id=$1", [ids.gates])).rowCount, 0);
+  assert.equal(await flag(dayco), true);
+  // An admin choice after the merge is the target's own.
+  const ina = await productOf("ina"), ruville = await productOf("ruville");
+  await persist(schema.pool, ina, { hide_supplier_oem: true }, admin);
+  await merge(ina, ruville);
+  await persist(schema.pool, ruville, { hide_supplier_oem: false }, admin);
+  await persist(schema.pool, ruville, { hide_supplier_oem: true }, admin);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.ina]);
+  assert.equal(await flag(ruville), true);
+  assert.equal(overrideValueText("true", "hide_supplier_oem"), "Mağazada gizli");
+  assert.equal(overrideValueText(null, "hide_supplier_oem"), null);
+  assert.equal(productOverrideLabels.hide_supplier_oem, "Tedarikçi OEM alanı");
 });
 
 test("a merge carries prices by the same rule while the pair stays valid; undoing it takes them back (#580)", async () => {
@@ -317,7 +358,7 @@ test("a save returns the stored values and their version", async () => {
   const sachs = await productOf("sachs");
   const saved = await store.persistProductOverride(schema.pool, sachs, { name: "Sachs ön amortisör", category_id: 200 }, admin);
   assert.ok(saved.ok);
-  const noPrice = { price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null };
+  const noPrice = { price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null, hide_supplier_oem: false };
   assert.deepEqual(saved.values, { name: "Sachs ön amortisör", description: null, seo_title: null, seo_description: null, category_id: 200, hidden: false, ...noPrice });
   assert.equal(saved.version, (await store.loadProductOverride(schema.pool, sachs)).override?.version);
   const cleared = await store.persistProductOverride(schema.pool, sachs, { name: null, category_id: null }, admin, saved.version);

@@ -5,7 +5,9 @@
 export const productCardFields = ["name", "description", "seo_title", "seo_description", "category_id", "hidden", "brand", "part_number"] as const;
 /** The "Fiyat" form: VAT-included kuruş; campaign times as Istanbul wall clock "YYYY-MM-DDTHH:MM". NULL is the formula. */
 export const productPriceFields = ["price_kurus", "sale_price_kurus", "sale_from", "sale_until"] as const;
-export const productOverrideFields = [...productCardFields, ...productPriceFields] as const;
+/** The references card (#615): the supplier rows' OEM field hidden on the store; false is the automatic state (shown). */
+export const productReferenceFlagFields = ["hide_supplier_oem"] as const;
+export const productOverrideFields = [...productCardFields, ...productPriceFields, ...productReferenceFlagFields] as const;
 export type ProductCardField = (typeof productCardFields)[number];
 export type ProductPriceField = (typeof productPriceFields)[number];
 export type ProductOverrideField = (typeof productOverrideFields)[number];
@@ -17,7 +19,7 @@ export type ProductCardValues = {
   part_number: string | null;
 };
 export type ProductPriceValues = { price_kurus: number | null; sale_price_kurus: number | null; sale_from: string | null; sale_until: string | null };
-export type ProductOverrideValues = ProductCardValues & ProductPriceValues;
+export type ProductOverrideValues = ProductCardValues & ProductPriceValues & { hide_supplier_oem: boolean };
 
 export const productOverrideLabels: Record<ProductOverrideField, string> = {
   name: "Mağaza ürün adı",
@@ -32,6 +34,7 @@ export const productOverrideLabels: Record<ProductOverrideField, string> = {
   sale_price_kurus: "Kampanya fiyatı",
   sale_from: "Kampanya başlangıcı",
   sale_until: "Kampanya bitişi",
+  hide_supplier_oem: "Tedarikçi OEM alanı",
 };
 
 /** A save's outcome; on success the stored edits and their version, which the form adopts (product-override-form-state.ts). */
@@ -56,11 +59,12 @@ export function campaignTimeText(value: string) {
 }
 
 /**
- * A value as the change history shows it: NULL is "automatic"; hidden as published/hidden; prices as lira; campaign
- * times in Istanbul time. History rows store text, so numbers arrive as strings.
+ * A value as the change history shows it: NULL is "automatic"; hidden as published/hidden; a hidden supplier OEM field
+ * as "Mağazada gizli"; prices as lira; campaign times in Istanbul time. History rows store text, so numbers arrive as strings.
  */
 export function overrideValueText(value: string | number | boolean | null, field?: ProductOverrideField): string | null {
   if (value === null) return null;
+  if (field === "hide_supplier_oem") return value === true || value === "true" ? "Mağazada gizli" : null;
   if (typeof value === "boolean") return value ? "Gizli" : "Yayında";
   if (field === "hidden") return value === "true" ? "Gizli" : "Yayında";
   if ((field === "price_kurus" || field === "sale_price_kurus") && /^\d+$/.test(String(value))) return priceText(Number(value));

@@ -82,16 +82,22 @@ export function vehicleTypeMatch(alias: string, parsed: ParsedSearch, bind: Bind
  * Supplier rows whose admin-edited name, description, store brand or part number (commerce_item_overrides, #575/#602)
  * matches: the stored search text of a row is the supplier's, so a renamed product is found by its new name here, and
  * an edited part number with any spacing (code searches too). The supplier's own name, brand and code keep finding the
- * row through the stored fields. The table holds only edited rows, so it is read whole. Null when neither applies.
+ * row through the stored fields. Rows whose supplier OEM field is hidden (#615) are left out of those stored fields by
+ * the storefront search (src/modules/store/catalog.ts), so they match here on their text and code without the OEM.
+ * The table holds only edited rows, so it is read whole. Null when neither applies.
  */
 export function overrideItemMatch(parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
   const clauses: string[] = [];
   const query = prefixTsQuery(parsed);
-  if (mode === "all" && query) clauses.push(`((o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL)
+  if (mode === "all" && query) clauses.push(`((o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem)
     AND to_tsvector('simple', search_normalize(concat_ws(' ', COALESCE(o.name, NULLIF(s.product_data->>'ac', ''), s.code),
-      s.product_data->>'uk', s.code, s.product_data->>'oe', o.description, o.brand, o.part_number))) @@ to_tsquery('simple', ${bind(query)}))`);
+      s.product_data->>'ac', s.product_data->>'uk', s.code, CASE WHEN o.hide_oem THEN NULL ELSE s.product_data->>'oe' END,
+      s.product_data->>'ac2', o.description, o.brand, o.part_number))) @@ to_tsquery('simple', ${bind(query)}))`);
   // compact is [a-z0-9] only, so it needs no LIKE escaping.
-  if (parsed.compact.length >= 3) clauses.push(`(o.part_number IS NOT NULL AND search_compact(o.part_number) LIKE ${bind(`%${parsed.compact}%`)})`);
+  if (parsed.compact.length >= 3) {
+    const key = bind(`%${parsed.compact}%`);
+    clauses.push(`(o.part_number IS NOT NULL AND search_compact(o.part_number) LIKE ${key})`, `(o.hide_oem AND search_compact(s.code) LIKE ${key})`);
+  }
   if (!clauses.length) return null;
   return `SELECT o.supplier_item_id FROM commerce_item_overrides o JOIN supplier_items s ON s.id = o.supplier_item_id
     WHERE ${clauses.join(" OR ")}`;
@@ -119,11 +125,12 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // any row the trigger has not filled yet, compute the same values on the fly. So do rows with an admin-edited name,
   // description, store brand or part number (#575, #602): the stored inputs are the supplier's, the view columns carry
   // the edit (a price edit, #580, does not). An edited part number ranks like the supplier code it stands beside: the
-  // better of the two, so an exact match of either ranks first.
+  // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
+  // on the computed path too: its view oem is empty, the stored search_oem is not.
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
     FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id
-        AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL))),
+        AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem))),
     CASE WHEN ${alias}.display_code <> ${alias}.code THEN GREATEST(${rank("code")}, ${rank("display_code")}) ELSE ${rank("code")} END)`;
 }
 

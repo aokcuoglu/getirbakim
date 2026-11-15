@@ -75,7 +75,7 @@ export async function mergeProducts(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const { product_id, other_id } = data.data;
   const client = await db.connect();
-  let target: string | null = null, carriedHidden = false, imagesFlag = "", refsFlag = "", specsFlag = "";
+  let target: string | null = null, carriedHidden = false, oemFlag = "", imagesFlag = "", refsFlag = "", specsFlag = "";
   try {
     await client.query("BEGIN");
     const rows = (await client.query<{ id: string; basbug: boolean }>("SELECT id,'basbug'=ANY(suppliers) AS basbug FROM products WHERE id=ANY($1::uuid[])",
@@ -84,9 +84,14 @@ export async function mergeProducts(form: FormData) {
     if (other && self) {
       const [keep, drop] = other.basbug && !self.basbug ? [other_id, product_id] : [product_id, other_id];
       target = (await client.query<{ id: string | null }>("SELECT product_merge($1,$2,$3) AS id", [drop, keep, admin.id])).rows[0].id;
-      // The kept product takes the merged product's store edits (hidden included) when it has none of its own (#575).
-      if (target) carriedHidden = Boolean((await client.query<{ carried: { hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
-        [drop, target, admin.id])).rows[0].carried.hidden);
+      // The kept product takes the merged product's store edits (hidden and a hidden supplier OEM field included, #615)
+      // when it has none of its own (#575).
+      if (target) {
+        const carried = (await client.query<{ carried: { fields: string[]; hidden: boolean } }>("SELECT product_overrides_carry($1,$2,$3) AS carried",
+          [drop, target, admin.id])).rows[0].carried;
+        carriedHidden = carried.hidden;
+        if (carried.fields.includes("hide_supplier_oem")) oemFlag = "&oem=hidden";
+      }
       // Uploaded images and a hidden automatic image as well (#581).
       if (target) imagesFlag = imageCarryFlag((await client.query<{ carried: { images: number; kept: boolean } }>("SELECT product_override_images_carry($1,$2,$3) AS carried",
         [drop, target, admin.id])).rows[0].carried);
@@ -113,7 +118,7 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${imagesFlag}${refsFlag}${specsFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${oemFlag}${imagesFlag}${refsFlag}${specsFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
 }
 
 const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);

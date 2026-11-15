@@ -33,14 +33,19 @@ const versionSql = "(extract(epoch FROM updated_at)*1000000)::bigint::text";
  */
 const valuesSql = (alias = "") => `${alias}name,${alias}description,${alias}seo_title,${alias}seo_description,${alias}category_id,${alias}hidden,
   ${alias}price_kurus,${alias}sale_price_kurus,to_char(${alias}sale_from AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_from,
-  to_char(${alias}sale_until AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_until,${alias}brand,${alias}part_number`;
+  to_char(${alias}sale_until AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_until,${alias}brand,${alias}part_number,
+  ${alias}hide_supplier_oem`;
 
 const empty: ProductOverrideValues = { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false,
-  price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null };
+  price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null,
+  hide_supplier_oem: false };
 
-/** History text of a value: hidden=false is the automatic state (published), so it is recorded as NULL like the rest. */
+/**
+ * History text of a value: hidden=false (published) and hide_supplier_oem=false (shown) are the automatic states, so
+ * they are recorded as NULL like the rest.
+ */
 function historyValue(field: ProductOverrideField, value: ProductOverrideValues[ProductOverrideField]): string | null {
-  if (field === "hidden") return value === true ? "true" : null;
+  if (field === "hidden" || field === "hide_supplier_oem") return value === true ? "true" : null;
   return value === null ? null : String(value);
 }
 
@@ -91,14 +96,15 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       VALUES($1,$2,$3,$4,$5)`, [productId, field, historyValue(field, current[field]), historyValue(field, next[field]), adminId]);
     const anySet = productOverrideFields.some(field => historyValue(field, next[field]) !== null);
     if (anySet) await client.query(`INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,
-      price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,updated_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$9,$10,$11::timestamp AT TIME ZONE 'Europe/Istanbul',$12::timestamp AT TIME ZONE 'Europe/Istanbul',$13,$14,$8)
+      price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,hide_supplier_oem,updated_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$9,$10,$11::timestamp AT TIME ZONE 'Europe/Istanbul',$12::timestamp AT TIME ZONE 'Europe/Istanbul',$13,$14,$15,$8)
       ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,
       seo_title=excluded.seo_title,seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,
       price_kurus=excluded.price_kurus,sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
-      brand=excluded.brand,part_number=excluded.part_number,updated_by=excluded.updated_by,updated_at=now()`,
+      brand=excluded.brand,part_number=excluded.part_number,hide_supplier_oem=excluded.hide_supplier_oem,
+      updated_by=excluded.updated_by,updated_at=now()`,
     [productId, next.name, next.description, next.seo_title, next.seo_description, next.category_id, next.hidden, adminId,
-      next.price_kurus, next.sale_price_kurus, next.sale_from, next.sale_until, next.brand, next.part_number]);
+      next.price_kurus, next.sale_price_kurus, next.sale_from, next.sale_until, next.brand, next.part_number, next.hide_supplier_oem]);
     else await client.query("DELETE FROM product_overrides WHERE product_id=$1", [productId]);
     const version = anySet ? (await client.query<{ version: string }>(`SELECT ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0].version
       : automaticVersion;
