@@ -193,7 +193,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | --- | --- | --- |
 | `product_enrichments`, `product_source_categories`, `product_media_objects`, kategori ağacı, logolar, `vehicle_type_specs` / `vehicle_type_images` | Pakette | Zenginleştirmeler `imported_at > since`; ağaç, logolar ve REPXPERT verisi her seferinde tam |
 | `product_enrichment_jobs` (yalnız `complete`/`partial` ve zenginleştirme satırı olan) | Pakette, her seferinde tam, part-00'da | `product_enrichments`'ta durum yok; `enrichment_valid_data` (`db/enrichment-products.sql`) iş durumuna JOIN yapar. İşler gitmezse yeni zenginleştirme `product_enrichment_shared_links` → `storefront_enrichments`'a ulaşmaz. Yalnız değişen satır yazılır (`IS DISTINCT FROM`), aksi halde tetikleyiciler ~69k satırı her seferinde kuyruğa alır |
-| `product_enrichment_shared_links`, `storefront_make_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır |
+| `product_enrichment_shared_links`, `storefront_make_fits`, `storefront_model_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır; model tablosu (#639) marka tablosuyla aynı yenilemede yazılır |
 | `enrichment_product_states` (+ kuyruk) | AWS'de türetilir | `scripts/enrichment-states.ts sync` |
 | `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts` |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |

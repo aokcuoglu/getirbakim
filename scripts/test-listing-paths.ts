@@ -8,7 +8,8 @@ import { legacyRedirect } from "../src/modules/seo/legacy-redirects";
 import { resolveListing } from "../src/modules/store/listing-resolve";
 import type { StoreCategory } from "../src/modules/store/category-tree";
 import type { VehicleBrand } from "../src/modules/store/vehicle-catalog";
-import { catalogPath, categoryPath, legacyListingPaths, listingPath, listingPaths, listingUrl, makePath, makesPath, searchPath } from "../src/modules/seo/paths";
+import type { VehicleModelGroup } from "../src/modules/store/vehicle-model-groups";
+import { catalogPath, categoryPath, legacyListingPaths, listingPath, listingPaths, listingUrl, makePath, makesPath, modelPath, searchPath } from "../src/modules/seo/paths";
 
 // The Turkish listing addresses and the one-step 301s from the old ones (#638).
 
@@ -25,6 +26,18 @@ test("listing paths put the category first and the make after it", () => {
   assert.equal(makesPath, "/arac-markalari");
   assert.equal(makePath("alfa-romeo"), "/yedek-parca/alfa-romeo");
   assert.equal(categoryPath("fren"), "/kategori/fren");
+});
+
+test("a model page sits under its make; a model without the make is ignored", () => {
+  assert.equal(modelPath("volkswagen", "golf-7"), "/yedek-parca/volkswagen/golf-7");
+  assert.equal(listingPath({ makeSlug: "volkswagen", modelSlug: "golf-7" }), "/yedek-parca/volkswagen/golf-7");
+  assert.equal(listingPath({ makeSlug: "volkswagen", modelSlug: "golf-7", categorySlug: "fren" }), "/kategori/fren/volkswagen/golf-7");
+  assert.equal(listingPath({ modelSlug: "golf-7" }), "/katalog");
+  assert.equal(listingPath({ modelSlug: "golf-7", categorySlug: "fren" }), "/kategori/fren");
+  const query = { make: "volkswagen", model: "golf-7", brands: '["BOSCH"]', page: "2" };
+  assert.equal(listingUrl(query), "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D");
+  assert.equal(listingUrl(query, { page: "3", sort: "price-asc" }), "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D&page=3&sort=price-asc");
+  assert.equal(listingUrl(query, { model: undefined, brands: undefined }), "/yedek-parca/volkswagen");
 });
 
 test("listingUrl keeps filters in the query, never the make or the category, and drops the page", () => {
@@ -76,12 +89,15 @@ const categories: StoreCategory[] = [
   { id: 252, parentId: 3, name: "Fren sistemi", slug: "fren", path: [3, 252], position: 0 },
   { id: 956, parentId: null, name: "Yağlar", slug: "yag", path: [956], position: 1 },
 ];
-const makes: VehicleBrand[] = [{ id: "16", name: "BMW", popular: true }, { id: "5", name: "AUDI", popular: true }];
+const makes: VehicleBrand[] = [{ id: "16", name: "BMW", popular: true }, { id: "5", name: "AUDI", popular: true }, { id: "121", name: "VOLKSWAGEN", popular: true }];
+const golf7: VehicleModelGroup = { slug: "golf-7", name: "GOLF 7", family: "GOLF", generation: 7, dateFrom: "2012-08", dateTo: "2022-01",
+  models: [{ id: "10585", brandId: "121", name: "GOLF VII (5G1, BQ1, BE1, BE2)", dateFrom: "2012-08", dateTo: "2021-10" }] };
 const lookups = {
   categories: async () => categories,
   findMake: async (slug: string) => makes.find(make => make.name.toLowerCase() === slug),
+  findModel: async (make: VehicleBrand, slug: string) => make.name === "VOLKSWAGEN" && slug === golf7.slug ? golf7 : undefined,
 };
-const resolve = (input: { category?: string; make?: string; search?: Record<string, string> }) =>
+const resolve = (input: { category?: string; make?: string; model?: string; search?: Record<string, string> }) =>
   resolveListing({ ...input, search: input.search ?? {} }, lookups);
 
 test("a listing's path segments win over the query and an unknown segment is a 404", async () => {
@@ -103,9 +119,21 @@ test("a listing's path segments win over the query and an unknown segment is a 4
     assert.equal(await resolve(input), null, JSON.stringify(input));
 });
 
+test("a model page needs its make and a known model of that make", async () => {
+  const model = await resolve({ make: "volkswagen", model: "golf-7", search: { model: "golf-6", make: "bmw", page: "2" } });
+  assert.deepEqual([model?.query.make, model?.query.model, model?.query.page, model?.make?.name, model?.model?.slug],
+    ["volkswagen", "golf-7", "2", "VOLKSWAGEN", "golf-7"]);
+  // A query model is ignored where the path has none.
+  assert.equal((await resolve({ make: "volkswagen", search: { model: "golf-7" } }))?.query.model, undefined);
+  assert.equal((await resolve({ search: { make: "volkswagen", model: "golf-7" } }))?.query.model, undefined);
+  for (const input of [{ model: "golf-7" }, { make: "volkswagen", model: "golf-6" }, { make: "volkswagen", model: "Golf-7" },
+    { make: "volkswagen", model: "golf 7" }, { make: "bmw", model: "golf-7" }, { make: "yok", model: "golf-7" }])
+    assert.equal(await resolve(input), null, JSON.stringify(input));
+});
+
 test("no redirect chain: a target and every new address is left alone", () => {
   const targets = ["/automakers", "/car-parts/bmw?category=fren&page=2", "/katalog?category=fren&q=x", "/car-parts/bmw?sort=newest"].map(redirect);
-  const current = ["/katalog", "/katalog?q=x", "/arac-markalari", "/yedek-parca/bmw", "/kategori/fren", "/kategori/fren/bmw?page=2", "/kategori/fren?category=yag"];
+  const current = ["/katalog", "/katalog?q=x", "/arac-markalari", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/kategori/fren", "/kategori/fren/bmw?page=2", "/kategori/fren?category=yag"];
   for (const path of [...targets, ...current]) {
     assert.ok(path);
     assert.equal(redirect(path), null, path);
@@ -137,7 +165,7 @@ test("the proxy answers an old address with a 301 on the request's own host", ()
 test("every listing path has its route and the old routes are gone", () => {
   const store = join(process.cwd(), "src/app/(store)");
   assert.deepEqual([...listingPaths], ["/katalog", "/yedek-parca/", "/kategori/"]);
-  for (const route of ["katalog/page.tsx", "arac-markalari/page.tsx", "yedek-parca/[make]/page.tsx", "kategori/[category]/page.tsx", "kategori/[category]/[make]/page.tsx"])
+  for (const route of ["katalog/page.tsx", "arac-markalari/page.tsx", "yedek-parca/[make]/page.tsx", "yedek-parca/[make]/[model]/page.tsx", "kategori/[category]/page.tsx", "kategori/[category]/[make]/page.tsx"])
     assert.ok(existsSync(join(store, route)), route);
   for (const route of ["automakers", "car-parts"]) assert.ok(!existsSync(join(store, route)), route);
 });

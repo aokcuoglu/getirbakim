@@ -1,24 +1,32 @@
 import type { Metadata } from "next";
+import { vehicleModelGroupYears } from "@/modules/store/vehicle-model-groups";
 import { notFound } from "next/navigation";
-import { isIndexableListing } from "@/modules/store/catalog-query";
 import type { SearchParams } from "@/lib/search-params";
-import { getStoreCategories } from "@/modules/store/categories";
-import { getVehicleBrandBySlug } from "@/modules/store/vehicle-catalog.server";
-import { resolveListing, type Listing } from "@/modules/store/listing-resolve";
+import { findListing, type LoadedListing } from "@/modules/store/listing-load";
+import { listingIndexable } from "@/modules/seo/indexing";
 import { listingPath } from "@/modules/seo/paths";
 import { pageMetadata } from "@/lib/site";
 import { catalogDescription } from "./catalog-view";
 
-/** The listing behind /katalog, /kategori/<category>[/<make>] and /yedek-parca/<make>; see resolveListing for the rules. */
-export async function loadListing(input: { category?: string; make?: string; search: SearchParams }): Promise<Listing> {
-  return await resolveListing(input, { categories: getStoreCategories, findMake: getVehicleBrandBySlug }) ?? notFound();
+export type { LoadedListing };
+
+export async function loadListing(input: { category?: string; make?: string; model?: string; search: SearchParams }): Promise<LoadedListing> {
+  return await findListing(input) ?? notFound();
 }
 
-export function listingMetadata({ query, category, make }: Listing): Metadata {
-  const path = listingPath({ makeSlug: make && query.make, categorySlug: category?.slug });
-  const robots = isIndexableListing(query) ? undefined : { index: false, follow: true };
+const makeLabel = (name: string) => name === "VOLKSWAGEN" ? "VW" : name;
+
+export function listingMetadata({ query, category, make, model, modelTotal }: LoadedListing): Metadata {
+  const path = listingPath({ makeSlug: make && query.make, modelSlug: make && model && query.model, categorySlug: category?.slug });
+  // A model page needs enough products to be indexed; the other listings keep the plain-listing rule (#638).
+  const robots = listingIndexable(query, modelTotal ?? 0) ? undefined : { index: false, follow: true };
+  if (make && model) {
+    const name = `${makeLabel(make.name)} ${model.name}`, years = vehicleModelGroupYears(model);
+    return pageMetadata({ title: `${name} yedek parçaları`, path, robots,
+      description: `${name}${years ? ` (${years})` : ""} için ${(modelTotal ?? 0).toLocaleString("tr-TR")} yedek parça: üreticiye ve OEM numarasına göre incele. Motor tipine göre doğrulamak için aracını seç.`.slice(0, 180) });
+  }
   if (make) {
-    const name = make.name === "VOLKSWAGEN" ? "VW" : make.name;
+    const name = makeLabel(make.name);
     const parts = category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları";
     return pageMetadata({ title: `${name} ${parts}`, path, robots,
       description: `${name} araçlara uygun ${parts} incele. Ürün kodu, OEM numarası ve araç bilgileriyle uyumluluğu kontrol et.`.slice(0, 180) });

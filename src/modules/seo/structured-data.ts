@@ -17,13 +17,17 @@ export function productTrail(input: { categories: Named[]; title: string; path: 
     { name: input.title, path: input.path }];
 }
 
-/** A listing's trail: without a make "Katalog" (only while no category is chosen), with one "Araç markaları" and the make. */
-export function catalogTrail(input: { make?: Named; categories: Named[] }): Crumb[] {
-  const makeSlug = input.make?.slug;
+/**
+ * A listing's trail: without a make "Katalog" (only while no category is chosen), with one "Araç markaları", the make
+ * and its model (#639).
+ */
+export function catalogTrail(input: { make?: Named; model?: Named; categories: Named[] }): Crumb[] {
+  const makeSlug = input.make?.slug, modelSlug = input.make && input.model?.slug;
   return [home,
-    ...input.make ? [{ name: "Araç markaları", path: makesPath }, { name: input.make.name, path: listingPath({ makeSlug }) }]
+    ...input.make ? [{ name: "Araç markaları", path: makesPath }, { name: input.make.name, path: listingPath({ makeSlug }) },
+      ...input.model ? [{ name: input.model.name, path: listingPath({ makeSlug, modelSlug }) }] : []]
       : input.categories.length ? [] : [{ name: "Katalog", path: catalogPath }],
-    ...input.categories.map(category => ({ name: category.name, path: listingPath({ makeSlug, categorySlug: category.slug }) }))];
+    ...input.categories.map(category => ({ name: category.name, path: listingPath({ makeSlug, modelSlug, categorySlug: category.slug }) }))];
 }
 
 export function pageTrail(title: string, path: string): Crumb[] {

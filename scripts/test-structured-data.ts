@@ -94,6 +94,13 @@ test("breadcrumb trails and BreadcrumbList", () => {
   assert.deepEqual(catalogTrail({ make: { name: "VW", slug: "volkswagen" }, categories: [brakes] }), [
     { name: "Ana sayfa", path: "/" }, { name: "Araç markaları", path: "/arac-markalari" }, { name: "VW", path: "/yedek-parca/volkswagen" },
     { name: "Fren diski", path: "/kategori/fren-diskleri-269/volkswagen" }]);
+  assert.deepEqual(catalogTrail({ make: { name: "VW", slug: "volkswagen" }, model: { name: "GOLF 7", slug: "golf-7" }, categories: [] }), [
+    { name: "Ana sayfa", path: "/" }, { name: "Araç markaları", path: "/arac-markalari" }, { name: "VW", path: "/yedek-parca/volkswagen" },
+    { name: "GOLF 7", path: "/yedek-parca/volkswagen/golf-7" }]);
+  assert.deepEqual(catalogTrail({ make: { name: "VW", slug: "volkswagen" }, model: { name: "GOLF 7", slug: "golf-7" }, categories: [brakes] }).at(-1),
+    { name: "Fren diski", path: "/kategori/fren-diskleri-269/volkswagen/golf-7" });
+  // A model without its make adds nothing.
+  assert.deepEqual(catalogTrail({ model: { name: "GOLF 7", slug: "golf-7" }, categories: [] }).map(crumb => crumb.name), ["Ana sayfa", "Katalog"]);
   assert.deepEqual(pageTrail("Hakkımızda", "/bilgi/hakkimizda"), [{ name: "Ana sayfa", path: "/" }, { name: "Hakkımızda", path: "/bilgi/hakkimizda" }]);
   const list = breadcrumbJsonLd(pageTrail("Araç markaları", "/arac-markalari"), base) as { itemListElement: Record<string, unknown>[] };
   assert.deepEqual(list.itemListElement.map(item => [item.position, item.item]), [[1, `${base}/`], [2, `${base}/arac-markalari`]]);

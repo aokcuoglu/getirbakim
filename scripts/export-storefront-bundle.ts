@@ -24,7 +24,7 @@ import { parseRetryItems } from "./storefront-sync-state";
 //   `JOIN product_enrichment_jobs ... status IN ('complete','partial')`, so without the jobs a new enrichment never
 //   reaches product_enrichment_shared_links → storefront_enrichments there.
 // - derived on AWS after import (import-storefront-inbound.ts): product_vehicle_fitments
-//   (rebuild-product-fitments.ts), product_enrichment_shared_links + storefront_make_fits (shared-link queue drained),
+//   (rebuild-product-fitments.ts), product_enrichment_shared_links + storefront_make_fits / storefront_model_fits (shared-link queue drained),
 //   enrichment_product_states (enrichment-states.ts sync). product_model_fitments is derived from the target's own
 //   Dinamik supplier items (description-fitments.ts derive), not per sync.
 // - shipped separately: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils); not shipped:

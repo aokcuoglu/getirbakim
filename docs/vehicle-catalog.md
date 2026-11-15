@@ -33,4 +33,30 @@ Aktarım `data/vehicle_brands.csv`, `vehicle_models.csv`, `vehicle_types.csv` do
 
 Seçili araç `gb_vehicle` HttpOnly çerezinde 30 gün saklanır; seçim kaydedilirken tip kimliği ve yıl DB kataloğundan doğrulanır. Garaj birden fazla araç tutar. Ziyaretçide liste `gb_garage` çerezindedir (en çok 5 araç). Giriş yapmış B2B ve yönetim hesaplarında liste `account_vehicles` tablosundadır (`db/garage.sql`, en çok 20 araç) ve cihazlar arası görünür. Hesapta seçili araç çerezi yoksa en son seçilen kayıtlı araç kullanılır. Kaldırılan seçim `none` olarak işaretlenir, böylece eski bir araç kendiliğinden geri gelmez. Girişte ziyaretçi garajı hesaba taşınır. Aynı araç, tip + model yılı (serbest metinde marka/model/yıl) anahtarıyla tek kayıttır. Kural `src/modules/store/garage.ts` içindedir.
 
+## Model sayfaları
+
+`/yedek-parca/<marka>/<model>` (#639) bir model ailesinin bir neslini gösterir; TecDoc'un kasa başına serileri birleşir. `vehicle_models`'te aile/nesil alanı yoktur, birim addan çıkarılır (`src/modules/store/vehicle-model-groups.ts`, açıklama eşleştiricisinin `ROMAN`/`BODY` sözlükleriyle). Slug marka içinde tekildir:
+
+1. Roma rakamı nesil → `<aile>-<sayı>`: `golf-7`, `megane-3`, `clio-4`, `focus-3`. `GOLF SPORTSVAN VII`, `GOLF PLUS V` ayrı ailedir.
+2. Addaki kod sözcüğü → `<aile>-<kod>`: `passat-b8`, `a4-b8`, `transporter-t5`, `passat-b3-b4`, `passat-b5-5`.
+3. Yoksa parantezdeki şasi kodunu paylaşan seriler birleşir, ek en erken serinin ilk kodu: `tipo-356` (Saloon + Hatchback + Estate), `doblo-223`, `3-e90`, `c-class-w205`. BMW/Mercedes kasaları ayrı koda sahip olduğu için ayrı kalır (`3-e91`).
+4. Koddan ve romen rakamından sonra aileyi izleyen ilk sözcük salt sayıysa sayı modeli adlandırır: `tiggo-7`, `atto-3`, `seal-6`, `mg-5`, `r-1200`, `ram-1500`. Sayı nesil değil modeldir; açıklama eşleştiricisi (`describe()`) aynı sözcüğü aynı şekilde okur. Kodlu seri (`MG 4 (EH32)` → `mg-eh32`) kodunu kullanır.
+5. Kod da sayı da yoksa ailenin üretim yılları örtüşen kodsuz serileri birleşir, ek başlangıç yılı (`clio-2025`, `midi-1984`); yılı bilinmeyen seride model kimliği. Bitiş yılı boş (hâlâ üretimde) seri, ailenin 4+ yıl sonra başlayan sonraki neslinin başlangıcında biter (eşleştiricideki kuralın aynısı): `ford-usa/mustang-2004` 2014 Mustang'e kadar gider, `mustang-2014` ve `mustang-2023` ayrı birimdir. Sınır: aynı nesle 4+ yıl sonra eklenen yeni gövde (ör. `DACIA Spring Cargo`) ayrı birim olur.
+6. Hâlâ çakışan slug en erken birimde kalır, sonraki `-<en küçük model id>` alır.
+
+Yerel katalogda 5.767 seri 4.442 birimdir. 15 marka/ailenin serileri ve onlardan çıkan adresler `scripts/test-vehicle-model-groups.ts` içinde sabitlenmiştir (kodsuz sayılı seriler için Chery Tiggo, BYD Atto/Seal, MG, BMW motosiklet; açık uçlu Mustang dahil): kural değişikliği var olan adresi taşıyamaz. Marka sayfası yalnızca listelenebilir ürünü olan birimleri bağlar (`getListedModelGroups`, `catalog.ts`); ürünü olmayan model sayfası 404 verir.
+
+### Adres kararlılığı ve içe aktarım kontrolü
+
+Adres, birimin en erken serisinin adından ve yıllarından türer; TecDoc adı, kodu veya tarihi değişirse ya da katalog yeni seri kazanırsa adres taşınabilir. Daha yeni bir seri (sonraki nesil) var olan adresleri değiştirmez, en çok açık uçlu birimi böler ve önceki parça adresini korur. Bir birimin en erken serisinden önce başlayan veya iki yıl aralığını/şasi kodunu köprüleyen tek seri eklemesi adresi taşır; yerel katalogda 141 böyle tek seri ekleme ölçüldü (2026-11-15). Bu bilinen sınırdır; kalıcı yönlendirme tablosu ancak canlıda böyle bir taşınma görülürse eklenir.
+
+Her araç kataloğu içe aktarımından önce ve sonra (yalnız okur, yazma yapmaz):
+
+```
+npm run vehicles:slugs -- snapshot data/model-slugs-before.json   # içe aktarımdan önce
+npm run vehicles:slugs -- compare data/model-slugs-before.json    # içe aktarımdan sonra
+```
+
+`compare` var olan adreslerden kaybolanları (`LOST`, sayfa 404 olur; serilerin gittiği yeni slug `->` sonrasında yazılır) ve aynı adreste başka serilerle kalanları (`CHANGED`) listeler, özet satırı `kept/new/changed/lost` verir; kaybolan varsa çıkış kodu 1'dir. `LOST` adresler yayına çıkmadan önce yönlendirme veya aktarım düzeltmesiyle ele alınmalıdır.
+
 Araç kataloğu parça uyumluluk ilişkisi değildir. Ürünlerin TecDoc tiplerine bağlanması ve katalogda araca göre filtrelenmesi ayrı bir çalışmadır. Plaka sorgulama servisi bağlı değildir.
