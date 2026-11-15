@@ -5,13 +5,32 @@
 -- own); fitment and vehicle catalog changes reach it through product_enrichment_shared_queue (triggers below).
 CREATE TABLE IF NOT EXISTS storefront_make_fits (
  brand_id integer NOT NULL REFERENCES vehicle_brands(id) ON DELETE CASCADE,
- supplier_item_id uuid NOT NULL REFERENCES product_enrichment_shared_links(supplier_item_id) ON DELETE CASCADE,
+ -- Any supplier row: a vehicle an admin added (db/product-override-fitments.sql, #583) lists a product without an
+ -- enrichment link too. The refresh removes the rows of the offers in its scope, so a dropped link leaves none behind.
+ supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
  PRIMARY KEY (brand_id, supplier_item_id)
 );
 CREATE INDEX IF NOT EXISTS storefront_make_fits_item_idx ON storefront_make_fits(supplier_item_id);
+-- Tables created before #583 point the key at product_enrichment_shared_links: moved once, found by its columns and
+-- target rather than its name. Setup runs in one transaction, so the brief ACCESS EXCLUSIVE lock on the table (and the
+-- check of its ~200k rows against supplier_items) lasts until setup commits.
+DO $$
+DECLARE old_key name;
+BEGIN
+ SELECT c.conname INTO old_key FROM pg_constraint c
+  WHERE c.contype='f' AND c.conrelid='storefront_make_fits'::regclass AND c.confrelid='product_enrichment_shared_links'::regclass;
+ IF old_key IS NOT NULL THEN
+  EXECUTE format('ALTER TABLE storefront_make_fits DROP CONSTRAINT %I',old_key);
+  ALTER TABLE storefront_make_fits ADD CONSTRAINT storefront_make_fits_supplier_item_id_fkey
+   FOREIGN KEY (supplier_item_id) REFERENCES supplier_items(id) ON DELETE CASCADE;
+ END IF;
+END $$;
 
 -- NULL recomputes every offer. The payload's vehicles are read once per offer (MATERIALIZED), not per fitment.
 -- EXECUTE plans each call afresh: a scoped plan is never reused for the whole catalog.
+-- An admin's decisions (product_override_fitments, #583) apply per offer and type: a removed type leaves out that
+-- automatic fitment only (another type of the same make still lists the offer), an added type lists every offer of
+-- the product, enriched or not.
 CREATE OR REPLACE FUNCTION storefront_make_fits_refresh(item_ids uuid[] DEFAULT NULL) RETURNS integer
 LANGUAGE plpgsql AS $$
 DECLARE changed integer;
@@ -19,8 +38,14 @@ BEGIN
  -- The whole catalog hashes ~1M fitment rows with their vehicle objects; 4 MB (the default) spills to disk.
  PERFORM set_config('work_mem','64MB',true);
  EXECUTE $sql$CREATE TEMP TABLE make_fits_computed ON COMMIT DROP AS
-  WITH vehicles AS MATERIALIZED (
-   SELECT l.supplier_item_id,l.donor_item_id,e.payload->'vehicles' AS vehicles
+  WITH removed AS MATERIALIZED (
+   SELECT ps.supplier_item_id,o.vehicle_type_id FROM product_override_fitments o JOIN product_sources ps ON ps.product_id=o.product_id
+   WHERE o.mode='remove' AND ($1::uuid[] IS NULL OR ps.supplier_item_id=ANY($1))),
+  -- has_removed is decided once per offer: the whole catalog joins ~9M fitments, and a lookup per fitment row cost
+  -- seconds; only the offers with a removed type look their fitments up.
+  vehicles AS MATERIALIZED (
+   SELECT l.supplier_item_id,l.donor_item_id,e.payload->'vehicles' AS vehicles,
+    l.supplier_item_id IN (SELECT supplier_item_id FROM removed) AS has_removed
    FROM product_enrichment_shared_links l
    JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
    JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
@@ -31,7 +56,17 @@ BEGIN
   JOIN product_vehicle_fitments f ON f.supplier_item_id=t.donor_item_id AND f.vehicle_type_id IS NOT NULL
   JOIN vehicle_types v ON v.id=f.vehicle_type_id
   JOIN vehicle_models m ON m.id=v.model_id
-  WHERE f.source_vehicle=t.vehicles->f.source_index$sql$ USING item_ids;
+  WHERE f.source_vehicle=t.vehicles->f.source_index
+   AND (NOT t.has_removed OR NOT EXISTS (SELECT 1 FROM removed r WHERE r.supplier_item_id=t.supplier_item_id AND r.vehicle_type_id=f.vehicle_type_id))
+  -- UNION ALL keeps the automatic branch's plan (a UNION sorted its ~9M rows); a pair both give is inserted once
+  -- (ON CONFLICT DO NOTHING) and the delete below only asks whether it exists.
+  UNION ALL
+  SELECT DISTINCT m.brand_id,ps.supplier_item_id
+  FROM product_override_fitments o
+  JOIN product_sources ps ON ps.product_id=o.product_id
+  JOIN vehicle_types v ON v.id=o.vehicle_type_id
+  JOIN vehicle_models m ON m.id=v.model_id
+  WHERE o.mode='add' AND ($1::uuid[] IS NULL OR ps.supplier_item_id=ANY($1))$sql$ USING item_ids;
  WITH inserted AS (
   INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT brand_id,supplier_item_id FROM make_fits_computed
   ON CONFLICT DO NOTHING RETURNING 1
@@ -56,6 +91,28 @@ CREATE TRIGGER enrichment_shared_fitments_update AFTER UPDATE ON product_vehicle
 DROP TRIGGER IF EXISTS enrichment_shared_fitments_delete ON product_vehicle_fitments;
 CREATE TRIGGER enrichment_shared_fitments_delete AFTER DELETE ON product_vehicle_fitments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+
+-- An admin's fitment decision (#583) belongs to a product: the refresh recomputes every offer of it. A small table;
+-- merges carry rows through the same triggers.
+CREATE OR REPLACE FUNCTION product_override_fitments_queue() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP IN ('INSERT','UPDATE') THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'p',product_id FROM new_rows ON CONFLICT DO NOTHING;
+ END IF;
+ IF TG_OP IN ('UPDATE','DELETE') THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'p',product_id FROM old_rows ON CONFLICT DO NOTHING;
+ END IF;
+ RETURN NULL;
+END $$;
+DROP TRIGGER IF EXISTS product_override_fitments_insert ON product_override_fitments;
+CREATE TRIGGER product_override_fitments_insert AFTER INSERT ON product_override_fitments
+ REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+DROP TRIGGER IF EXISTS product_override_fitments_update ON product_override_fitments;
+CREATE TRIGGER product_override_fitments_update AFTER UPDATE ON product_override_fitments
+ REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+DROP TRIGGER IF EXISTS product_override_fitments_delete ON product_override_fitments;
+CREATE TRIGGER product_override_fitments_delete AFTER DELETE ON product_override_fitments
+ REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
 
 -- A type or model moving to another make touches every offer fitted to it: rebuild (rare, catalog imports).
 DROP TRIGGER IF EXISTS enrichment_shared_vehicle_types_update ON vehicle_types;

@@ -164,6 +164,29 @@ Bilinen sınırlar:
 - **Çok kaynaklı ürün:** kartın otomatik listesi tüm kaynakların birleşimidir; mağaza yalnız gösterilen satırın zenginleştirmesini kullanır.
 - **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu ve uyum yeniden kurulumu bu tabloya yazmaz (`test:product-override-specs` yapısal olarak denetler).
 
+### Araç uyumu (#583)
+
+`/yonetim/urunler/[id]` "Araç uyumu" kartı ürüne motor tipi ekler ve yanlış otomatik uyumu mağazadan çıkarır. Tablo `db/product-override-fitments.sql`'dedir (kurulumda `product-override-specs`'ten hemen sonra):
+
+- `product_override_fitments`: ana ürün (`products.id`) başına, araç tipi başına bir satır (`UNIQUE (product_id,vehicle_type_id)`); `vehicle_type_id` TecDoc tip numarasıdır (`vehicle_types.id`, ortamlar arasında aynı; araç importu tipleri silmez, `ON DELETE RESTRICT`), `mode` (`add` | `remove`), `carried_from`, `created_by`, `created_at`. Ürün başına en çok 500 satır, "Araç ekle" bir seferde en çok 50 tip ekler.
+- `add` tipi ürünün her tedarikçi satırına bağlar; zenginleştirmesi olmayan ürün de olur. Otomatik kaynakta zaten bulunan tip de eklenebilir: satır "sabitler", kaynak tipi düşürse de uyum kalır. Mağazadan çıkarılmış tip eklenemez ("Yeniden göster" kullanılır), aynı tip iki kez eklenmez, katalogda olmayan tip reddedilir; bir toplu eklemede biri reddedilirse hiçbiri yazılmaz.
+- `remove` yalnız otomatik kaynakta (mağazanın koruduğu bağlantı: ham kod/marka ve güvenilir eşleşme, payload'daki araçla aynı satır) bulunan tip için kabul edilir; elle eklenmiş ve otomatikte de olan tip yerinde `remove`'a döner. Satırı silmek kararı geri alır (`add` → tip otomatik kaynak bağlamıyorsa mağazadan düşer; `remove` → otomatik uyum döner).
+- Geçmiş `product_override_changes`'a tip numarasıyla yazılır: `fitment_added`, `fitment_removed`, `fitment_unadded`, `fitment_restored`; ürün sayfası geçmişte tip adlarını tek sorguyla okur (`fitmentVehicleNames`).
+
+Okuma (`src/modules/store/product-fitments.ts` → `getItemFitments` / `getOverrideFitments`; `applyFitmentOverrides`, `src/modules/store/product-fitment-display.ts`):
+
+- **Ürün sayfası ve sipariş:** "Uyumlu araçlar" otomatik listeden çıkarılan tipleri düşer, eklenenleri sona ekler (zenginleştirmesiz üründe de görünür); kararı olan üründe model düzeyi listeler (zenginleştirmenin `vehicleModels`'ı, açıklamadan çıkarılan modeller; JSON-LD dahil) kullanılmaz, özet satırı gösterilen araçların modellerinden kurulur; tüm araçları çıkarılan ürün uyum bölümü göstermez (`modelFallbacks`). Garaj notu ve siparişteki `fitment_level` (`fitmentLevel(vehicle, rows, removed)`) eklenen tipi "Araç tipine bağlı", çıkarılan tipi "listede yok" sayar.
+- **Araç süzgeci, uyum sayısı, kart rozeti, araç araması, bakım setleri, bayi API'si:** `fittedProductIds` (`src/modules/store/catalog.ts`) seçilen tiplerin kararlarını tip indeksiyle bir kez okur; çıkarma satır+tip başınadır (çok tipli aramada başka bir tipten uyan satır kalır), ekleme ürünün tüm satırlarını listeler. Tip listeleri 10 dakikalık süreç önbelleğindedir ve artık liste sayacına bağlıdır: karar düzenlemeyi yapan görevde anında, diğerlerinde ~1 sn içinde görünür.
+- **Marka sayfası (`/car-parts/<marka>`) ve site haritası:** `storefront_make_fits_refresh` aynı kuralı uygular (çıkarılan tipi olan teklif `has_removed` ile teklif başına bir kez belirlenir, yalnız onların uyumlarına bakılır; `add` dalı `UNION ALL`, tam yeniden kurulum süresi değişmez). Karar tablosundaki deyim tetikleyicileri ürünü `product_enrichment_shared_queue`'ya yazar; arka plan senkronu (`startEnrichmentLinkSync`, 5 sn) kuyruğu birkaç saniye içinde boşaltır; eylem beklemez (kuyruktaki tam yeniden kurulum istek içinde koşmasın). `storefront_make_fits.supplier_item_id` artık `supplier_items`'a bağlanır (zenginleştirme bağlantısı olmayan satır da yazılabilsin); eski kurulumlarda kısıt (adına değil, hedef tablosuna bakılarak) bir kez taşınır; kurulum tek transaction'da çalıştığından tablo kilidi kurulum bitene kadar sürer.
+
+Birleştirme ve geri alma özelliklerle aynıdır: `product_override_fitments_carry(source, target, actor)` (`{"added":n,"removed":n}`; hedefte aynı tipin satırı varsa hedefinki kalır, kopyalar kaynaktaki `created_at`'i korur, `reason='carry'`), geri almada `product_override_fitments_products_restored` → `product_override_fitments_uncarry` (`fitment_unadded` / `fitment_restored`, `reason='uncarry'`). Ürün sayfası ve eşleştirme bildirimi taşınan karar sayısını yazar (`&fitments=`). Taşıma 500 satır sınırına bakmaz; sınırı aşan üründe yeni karar eklenemez, yalnız mevcut kararlar geri alınabilir.
+
+Bilinen sınırlar:
+
+- **Bağlanmamış kaynak satırı çıkarılamaz:** katalog tipine eşlenmemiş (`vehicle_type_id` boş) otomatik satırlar listede yoktur; model düzeyi listeler (`payload.vehicleModels`, açıklamadan çıkarılan `product_model_fitments`, #392/#393) bu kapsamın dışındadır.
+- **Yönetim listesi 2000 otomatik tipte durur:** daha fazlası sayılır ve bildirilir; listede olmayan tip "Araç ekle" ile seçilebilir.
+- **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu, uyum yeniden kurulumu ve araç importu bu tabloya yazmaz (`test:product-override-fitments` yapısal olarak denetler).
+
 ## Tablolar ve çalıştırma
 
 `refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.

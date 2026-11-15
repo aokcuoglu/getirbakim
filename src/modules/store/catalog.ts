@@ -154,20 +154,28 @@ export const categories = [
  * once. Joined row by row instead, the multi-kB payload was re-read per fitment: 20 s for "passat",
  * 1-2 min for a make page. Read from the materialized links (#446): the live view, expected as one row,
  * was nested against a make's 600k fitments and never finished (BMW: minutes, 504 at the CDN).
+ * An admin's decisions (db/product-override-fitments.sql, #583) apply per row and type: a removed type drops that
+ * automatic fitment only (a search over several types still lists the row through another), an added type lists every
+ * row of the product, enriched or not. The decisions of the selected types are read once, through their index.
  */
 async function fittedProductIds(typesSql:string,values:unknown[]){
  return (await boundedQuery<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
-  fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
+  fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
   trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
-  SELECT DISTINCT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`,values)).rows.map(row=>row.id);
+   WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits)),
+  decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM types
+   JOIN product_override_fitments o ON o.vehicle_type_id=types.id JOIN product_sources ps ON ps.product_id=o.product_id)
+  SELECT id::text FROM (SELECT t.supplier_item_id AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index
+   WHERE (t.supplier_item_id,f.vehicle_type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM decided WHERE mode='remove')
+  UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,values)).rows.map(row=>row.id);
 }
-// Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
-const cachedFitted=staleCache<string[]>(10*60*1000);
-// Admin edits move products between categories (#575): an edit bumps the listing epoch and these reload (#585).
+// Admin edits move products between categories (#575) and change vehicle fitments (#583): an edit bumps the listing
+// epoch and these reload (#585).
 const listings={epoch:listingEpoch};
+// Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
+const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
 const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make, precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455). Matching a
