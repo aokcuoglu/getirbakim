@@ -87,22 +87,22 @@ test("breadcrumb trails and BreadcrumbList", () => {
   const brakes = { name: "Fren diski", slug: "fren-diskleri-269" };
   assert.deepEqual(productTrail({ categories: [brakes], title: "Fren Diski BOSCH 1", productId: "p1" }), [
     { name: "Ana sayfa", path: "/" }, { name: "Katalog", path: "/katalog" },
-    { name: "Fren diski", path: "/katalog?category=fren-diskleri-269" }, { name: "Fren Diski BOSCH 1", path: "/urun/p1" }]);
+    { name: "Fren diski", path: "/kategori/fren-diskleri-269" }, { name: "Fren Diski BOSCH 1", path: "/urun/p1" }]);
   assert.deepEqual(catalogTrail({ categories: [] }).map(crumb => crumb.name), ["Ana sayfa", "Katalog"]);
-  assert.deepEqual(catalogTrail({ categories: [brakes] }).map(crumb => crumb.path), ["/", "/katalog?category=fren-diskleri-269"]);
+  assert.deepEqual(catalogTrail({ categories: [brakes] }).map(crumb => crumb.path), ["/", "/kategori/fren-diskleri-269"]);
   assert.deepEqual(catalogTrail({ make: { name: "VW", slug: "volkswagen" }, categories: [brakes] }), [
-    { name: "Ana sayfa", path: "/" }, { name: "Araç markaları", path: "/automakers" }, { name: "VW", path: "/car-parts/volkswagen" },
-    { name: "Fren diski", path: "/car-parts/volkswagen?category=fren-diskleri-269" }]);
+    { name: "Ana sayfa", path: "/" }, { name: "Araç markaları", path: "/arac-markalari" }, { name: "VW", path: "/yedek-parca/volkswagen" },
+    { name: "Fren diski", path: "/kategori/fren-diskleri-269/volkswagen" }]);
   assert.deepEqual(pageTrail("Hakkımızda", "/bilgi/hakkimizda"), [{ name: "Ana sayfa", path: "/" }, { name: "Hakkımızda", path: "/bilgi/hakkimizda" }]);
-  const list = breadcrumbJsonLd(pageTrail("Araç markaları", "/automakers"), base) as { itemListElement: Record<string, unknown>[] };
-  assert.deepEqual(list.itemListElement.map(item => [item.position, item.item]), [[1, `${base}/`], [2, `${base}/automakers`]]);
+  const list = breadcrumbJsonLd(pageTrail("Araç markaları", "/arac-markalari"), base) as { itemListElement: Record<string, unknown>[] };
+  assert.deepEqual(list.itemListElement.map(item => [item.position, item.item]), [[1, `${base}/`], [2, `${base}/arac-markalari`]]);
   assert.equal(breadcrumbJsonLd([{ name: "Ana sayfa", path: "/" }], base), null);
 });
 
 test("collection page lists the products with their addresses", () => {
   const items = [{ id: "a", name: "A" }, { id: "b", name: "B" }];
-  const node = collectionJsonLd({ name: "Fren diski", path: "/katalog?category=x", items }, base) as { url: string; mainEntity: { numberOfItems: number; itemListElement: Record<string, unknown>[] } };
-  assert.equal(node.url, `${base}/katalog?category=x`);
+  const node = collectionJsonLd({ name: "Fren diski", path: "/kategori/x", items }, base) as { url: string; mainEntity: { numberOfItems: number; itemListElement: Record<string, unknown>[] } };
+  assert.equal(node.url, `${base}/kategori/x`);
   assert.equal(node.mainEntity.numberOfItems, 2);
   assert.deepEqual(node.mainEntity.itemListElement.map(item => [item.position, item.url]), [[1, `${base}${productPath("a")}`], [2, `${base}${productPath("b")}`]]);
 });
@@ -171,8 +171,8 @@ test("the seller is the site's Organization", () => {
 
 test("listing and product addresses", () => {
   assert.equal(listingPath(), "/katalog");
-  assert.equal(listingPath({ categorySlug: "x" }), "/katalog?category=x");
+  assert.equal(listingPath({ categorySlug: "x" }), "/kategori/x");
   assert.equal(listingPath({ makeSlug: "vw" }), makePath("vw"));
-  assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/car-parts/vw?category=x");
+  assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/kategori/x/vw");
   assert.equal(productPath("p1"), "/urun/p1");
 });

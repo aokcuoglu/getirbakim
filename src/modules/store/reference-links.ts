@@ -1,11 +1,12 @@
 import "server-only";
 import {db} from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
+import { searchPath } from "@/modules/seo/paths";
 
 export type ReferenceGroup = {brand: string; kind: "oem" | "cross"; codes: string[]};
 export const compactPartNumber = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const referenceKey = (brand: string, code: string) => `${compactPartNumber(brand)}|${compactPartNumber(code)}`;
-const searchHref = (code: string) => `/katalog?q=${encodeURIComponent(compactPartNumber(code))}&searchBy=code`;
+const searchHref = (code: string) => searchPath({ q: compactPartNumber(code), searchBy: "code" });
 const company = storefrontCompanies;
 const entriesSql = "SELECT id,brand,code,oem FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 

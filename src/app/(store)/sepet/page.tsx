@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyMedia } from "@/components/ui/empty";
 import { updateCart } from "./actions";
+import { catalogPath } from "@/modules/seo/paths";
 
 const benefit = "flex-row gap-3.5 rounded-[5px] p-5 text-sm leading-[22px] ring-0 border border-border [&>svg]:size-[23px] [&>svg]:shrink-0";
 
@@ -52,6 +53,6 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
         <Card className={benefit}><ClipboardCheck aria-hidden/><span><strong className="block font-medium">Araç uyumluluğu</strong><small className="mt-1 block text-[13px] text-muted-foreground">OEM kodunu, motor ve model bilgilerini karşılaştır.</small></span></Card>
       </div></div>
       <OrderSummary className="max-[760px]:mt-2" items={items} discount={discount} shipping={shipping}/></div>
-    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><EmptyMedia className="mb-0"><ShoppingCart className="size-12" aria-hidden/></EmptyMedia><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href="/katalog"/>}>Alışverişe başla</Button></Empty>}
+    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><EmptyMedia className="mb-0"><ShoppingCart className="size-12" aria-hidden/></EmptyMedia><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

@@ -17,6 +17,7 @@ import { minSearchLength, searchTooShort } from "@/modules/search/query";
 import { vehicleDetails, vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
 import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
+import { catalogPath } from "@/modules/seo/paths";
 
 type Step = "brand" | "family" | "model" | "fuel" | "engine" | "confirm";
 type Tab = "search" | "garage";
@@ -253,7 +254,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-[#fff0ec] p-3 text-[13px] leading-5 text-[#a74130]" role="alert">{error}</p>}
     </div>
     <div className="shrink-0 border-t border-border bg-white p-5 max-[600px]:pb-[max(20px,env(safe-area-inset-bottom))]">
-      <Button nativeButton={false} render={<Link href="/katalog" onClick={onClose} />}
+      <Button nativeButton={false} render={<Link href={catalogPath} onClick={onClose} />}
         className="flex h-auto min-h-11 w-full items-center justify-center rounded-[5px] border border-input bg-white px-3 py-2.5 text-[13px] leading-5 font-medium text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground">Araç seçmeden alışveriş yap</Button>
     </div>
   </Tabs>;

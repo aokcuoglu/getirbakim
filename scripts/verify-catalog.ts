@@ -37,7 +37,7 @@ try {
  const html = await response.text();
  assert.ok(html.includes("Sepete ekle") || html.includes("Fiyat bilgisi güncelleniyor"));
  assert.ok(html.includes("Sonraki sayfa"));
- const filtered = await fetch(`${base}/katalog?category=yedek-parca&q=${encodeURIComponent(supplier.code)}&searchBy=code`);
+ const filtered = await fetch(`${base}/kategori/yedek-parca?q=${encodeURIComponent(supplier.code)}&searchBy=code`);
  assert.equal(filtered.status, 200);
  assert.ok(!(await filtered.text()).includes(`href="/urun/${supplier.id}"`));
  const detail = await fetch(`${base}/urun/${supplier.id}`);

@@ -10,6 +10,7 @@ import {DialogOverlay as SheetOverlay,DialogPortal as SheetPortal} from "@/compo
 import {DropdownMenu,DropdownMenuContent,DropdownMenuItem,DropdownMenuTrigger} from "@/components/ui/dropdown-menu";
 import {SiteIcon} from "@/components/site/site-icon";
 import {cn} from "@/lib/utils";
+import {catalogPath,categoryPath as categoryHref} from "@/modules/seo/paths";
 
 const headerCategoryIds=[3,607,956,967,1023,11058];
 const reset="min-h-0 rounded-none border-0 bg-transparent p-0 font-[inherit] text-inherit hover:bg-transparent";
@@ -79,7 +80,7 @@ export function CategoryMenu({categories}:{categories:StoreCategory[]}) {
   const hasChildren=categories.some(c=>c.parentId===category.id);
   const content=<>{thumb(category)}<span>{category.name}</span>{hasChildren&&<ChevronRight size={14}/>}</>;
   const cls=cn(reset,sheetRow,"min-h-[45px] bg-white px-4 py-[7px] text-sm leading-5 font-semibold",selected===null&&category.parentId===null&&"border-t border-[#e5e7eb]");
-  return hasChildren?<button className={cls} key={category.id} type="button" onClick={()=>drill(category.id)}>{content}</button>:<Link className={cls} href={"/katalog?category="+category.slug} key={category.id} onClick={close}>{content}</Link>;
+  return hasChildren?<button className={cls} key={category.id} type="button" onClick={()=>drill(category.id)}>{content}</button>:<Link className={cls} href={categoryHref(category.slug)} key={category.id} onClick={close}>{content}</Link>;
  }
  return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px] group-data-[route=home]/route:max-[600px]:absolute group-data-[route=home]/route:max-[600px]:top-4 group-data-[route=home]/route:max-[600px]:left-[15px] group-data-[route=home]/route:max-[600px]:w-6 group-data-[route=home]/route:max-[600px]:border-0">
   <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-controls={open?"category-sheet":"desktop-category-panel"} onClick={event=>show(3,event.currentTarget,true)}
@@ -97,19 +98,19 @@ export function CategoryMenu({categories}:{categories:StoreCategory[]}) {
       const hasChildren=categories.some(c=>c.parentId===category.id);
       const cls=cn(reset,"flex min-h-10 w-full items-center justify-start gap-2.5 bg-white py-[5px] pr-4 pl-2 text-left font-semibold text-foreground hover:bg-[#f8f9f9] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand aria-[current=true]:bg-[#f8f9f9] [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0");
       const content=<>{thumb(category)}<span>{category.name}</span>{hasChildren&&<ChevronRight size={14} aria-hidden="true"/>}</>;
-      return hasChildren?<button className={cls} key={category.id} type="button" aria-current={category.id===desktop.selectedId?"true":undefined} aria-controls="category-mega-items" onMouseEnter={()=>selectDesktop(category.id)} onFocus={()=>selectDesktop(category.id)} onClick={()=>selectDesktop(category.id)}>{content}</button>:<Link className={cls} key={category.id} href={"/katalog?category="+category.slug} prefetch={false} onClick={close}>{content}</Link>;
+      return hasChildren?<button className={cls} key={category.id} type="button" aria-current={category.id===desktop.selectedId?"true":undefined} aria-controls="category-mega-items" onMouseEnter={()=>selectDesktop(category.id)} onFocus={()=>selectDesktop(category.id)} onClick={()=>selectDesktop(category.id)}>{content}</button>:<Link className={cls} key={category.id} href={categoryHref(category.slug)} prefetch={false} onClick={close}>{content}</Link>;
      })}
-     <Link className={megaLink} href={"/katalog?category="+desktopRoot.slug} prefetch={false} onClick={close}>Tüm {desktopRoot.name.toLocaleLowerCase('tr')} <ChevronRight size={14}/></Link>
+     <Link className={megaLink} href={categoryHref(desktopRoot.slug)} prefetch={false} onClick={close}>Tüm {desktopRoot.name.toLocaleLowerCase('tr')} <ChevronRight size={14}/></Link>
     </nav>
     <div className="relative min-h-0 min-w-0 overflow-y-auto overscroll-contain px-4 py-6">
      <button type="button" aria-label="Kategorileri kapat" onClick={close} className={cn(reset,"absolute top-1 right-1 grid size-7 min-h-7 place-items-center rounded-[3px] bg-white text-muted-foreground hover:bg-[#f7f8fa] hover:text-foreground")}><X size={18}/></button>
      <nav className="grid grid-cols-6 items-start gap-x-2 gap-y-4 max-[1100px]:grid-cols-4 max-[850px]:grid-cols-3" id="category-mega-items" aria-label={desktopCurrent.name+" alt kategorileri"}>
-      {desktopChildren.map(category=><Link key={category.id} href={"/katalog?category="+category.slug} prefetch={false} onClick={close}
+      {desktopChildren.map(category=><Link key={category.id} href={categoryHref(category.slug)} prefetch={false} onClick={close}
        className="flex min-h-[116px] min-w-0 flex-col items-center gap-1.5 px-1 text-center font-semibold hover:text-brand hover:underline hover:underline-offset-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
        {category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" unoptimized className="h-[90px] w-[135px] max-w-full object-contain"/>:<span className="grid h-[90px] w-[135px] max-w-full place-items-center text-[#9ca3af]"><Package size={42} aria-hidden="true"/></span>}<span>{category.name}</span>
       </Link>)}
      </nav>
-     {desktopCurrent.id!==desktopRoot.id&&<Link className={megaLink} href={"/katalog?category="+desktopCurrent.slug} prefetch={false} onClick={close}>{desktopCurrent.name}: tüm ürünler <ChevronRight size={14}/></Link>}
+     {desktopCurrent.id!==desktopRoot.id&&<Link className={megaLink} href={categoryHref(desktopCurrent.slug)} prefetch={false} onClick={close}>{desktopCurrent.name}: tüm ürünler <ChevronRight size={14}/></Link>}
     </div>
    </div>
   </>}
@@ -126,9 +127,9 @@ export function CategoryMenu({categories}:{categories:StoreCategory[]}) {
      </div>
      <nav ref={list} className="min-h-0 flex-1 overflow-auto overscroll-contain" aria-label="Ürün kategorileri">
       {path.length>0&&<div className="flex flex-wrap gap-1 px-4 pt-3 pb-1">{path.map(node=><button key={node.id} type="button" onClick={()=>drill(node.id)} className={cn(reset,"min-h-6 cursor-pointer rounded-[2px] bg-[#f0f1f2] px-2 py-1 text-xs leading-4 font-medium text-foreground hover:bg-[#e6e8ea]")}>{node.name}</button>)}</div>}
-      {current&&<Link className={cn(sheetRow,"min-h-9 px-4 py-2 text-xs font-medium text-brand")} href={"/katalog?category="+current.slug} onClick={close}>{current.name}: tüm ürünler <ChevronRight size={14}/></Link>}
+      {current&&<Link className={cn(sheetRow,"min-h-9 px-4 py-2 text-xs font-medium text-brand")} href={categoryHref(current.slug)} onClick={close}>{current.name}: tüm ürünler <ChevronRight size={14}/></Link>}
       {children.map(row)}
-      {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href="/katalog" onClick={close}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
+      {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href={catalogPath} onClick={close}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
      </nav>
      <nav className="shrink-0 border-t border-border" aria-label="Hesap ve bilgi">
       {([["/giris",UserRound,"Giriş yap",false],["/bilgi/hakkimizda",Info,"Bilgi",true],["/iletisim",Mail,"İletişim",false]] as const).map(([href,Icon,label,more])=>
@@ -139,7 +140,7 @@ export function CategoryMenu({categories}:{categories:StoreCategory[]}) {
   </Sheet>
  </div>{headerCategories.map(category=>categories.some(c=>c.parentId===category.id)
   ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-expanded={desktop?.rootId===category.id||(open&&path.some(c=>c.id===category.id))} aria-controls={open?"category-sheet":"desktop-category-panel"} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
-  :<Link className={navItem} key={category.id} href={"/katalog?category="+category.slug}>{category.name}</Link>)}</>;
+  :<Link className={navItem} key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;
 }
 
 /** Phones on the home page: the utility bar's "Bilgi" menu with the shopping information links. */

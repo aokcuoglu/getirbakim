@@ -1,4 +1,4 @@
--- The vehicle makes each storefront offer fits (#455), for /car-parts/<make>. A fitment counts only while it agrees
+-- The vehicle makes each storefront offer fits (#455), for /yedek-parca/<make>. A fitment counts only while it agrees
 -- with the vehicle at the same index of the donor's current, trusted enrichment payload. Computed per make on each
 -- read, that comparison ran over every fitment of the make (VW: 788k) and took 20-57 s on RDS for the large makes.
 -- product_enrichment_shared_refresh() recomputes the offers in its scope right after their links (no queue of its

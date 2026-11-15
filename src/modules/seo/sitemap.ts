@@ -1,4 +1,5 @@
 import { legalDocument, legalLinks } from "@/content/legal";
+import { catalogPath, makesPath } from "./paths";
 
 // The sitemap is an index (/sitemap.xml) of fixed files (/sitemaps/<file>, #634). Products are split by the first
 // byte of their id: ids are random uuids (gen_random_uuid), so every file holds about the same share without a count.
@@ -62,7 +63,7 @@ export function renderSitemapIndex(urls: string[]) {
 
 /** Fixed store pages; legal pages carry the date their text last changed. */
 export const staticPaths: { path: string; lastModified?: string }[] = [
-  ...["", "/katalog", "/bakim-robotu", "/automakers", "/servisler", "/bilgi/hakkimizda", "/bilgi/uyumluluk", "/bilgi/yardim"].map(path => ({ path })),
+  ...["", catalogPath, "/bakim-robotu", makesPath, "/servisler", "/bilgi/hakkimizda", "/bilgi/uyumluluk", "/bilgi/yardim"].map(path => ({ path })),
   ...legalLinks.map(page => ({ path: `/${page.slug}`, lastModified: legalDocument(page.slug)?.updatedAt })),
 ];
 
