@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
 import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn } from './orders';
-import { orderListBack,orderListReturn } from './order-list-return';
+import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
+import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -68,6 +69,25 @@ export async function recordRefund(form:FormData) {
  const ok=await recordOrderRefund(input.data.id,input.data.reference);
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+const refundOutcome:Record<RefundOutcome['outcome'],OrderListOutcome>={succeeded:'refunded',failed:'refund_failed',unknown:'refund_unknown',busy:'refund_busy',not_allowed:'error'};
+/** Full void/refund of one captured payment attempt through the TAMI API (#619); the outcome is shown on the list. */
+export async function refundViaTami(form:FormData) {
+ const admin=await requireAdmin();
+ const input=z.object({order:z.uuid(),payment:z.uuid(),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const result=await refundPayment({orderId:input.data.order,paymentId:input.data.payment,adminId:admin.id});
+ revalidateOrder(input.data.order);
+ redirect(orderListReturn(input.data.back,refundOutcome[result.outcome]));
+}
+/** Settles a TAMI call whose reply was lost or unverifiable, from the signed order query. */
+export async function checkTamiRefund(form:FormData) {
+ await requireAdmin();
+ const input=z.object({refund:z.uuid(),order:z.uuid(),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const result=await checkRefund({refundId:input.data.refund,orderId:input.data.order});
+ revalidateOrder(input.data.order);
+ redirect(orderListReturn(input.data.back,refundOutcome[result.outcome]));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
 function revalidateOrder(id:string) {

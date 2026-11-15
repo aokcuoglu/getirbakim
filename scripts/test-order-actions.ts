@@ -48,6 +48,11 @@ test("actions return to the list they came from; anything else falls back to the
   assert.equal(orderListReturn("/yonetim/siparisler?status=action&sort=total&dir=desc&page=3", "saved"),
     "/yonetim/siparisler?status=action&sort=total&dir=desc&page=3&saved=1");
   assert.equal(orderListReturn("/yonetim/siparisler", "error"), "/yonetim/siparisler?error=1");
+  // TAMI refund outcomes (#619) replace any earlier outcome.
+  for (const outcome of ["refunded", "refund_failed", "refund_unknown", "refund_busy"] as const) {
+    assert.equal(orderListReturn("/yonetim/siparisler?status=refund&saved=1", outcome), `/yonetim/siparisler?status=refund&${outcome}=1`);
+  }
+  assert.equal(orderListReturn("/yonetim/siparisler?refund_unknown=1&page=2", "refunded"), "/yonetim/siparisler?page=2&refunded=1");
   // A stale outcome and unknown parameters are dropped.
   assert.equal(orderListReturn("/yonetim/siparisler?status=refund&error=1&x=y", "saved"), "/yonetim/siparisler?status=refund&saved=1");
   for (const value of ["//evil.example/yonetim/siparisler", "https://evil.example/yonetim/siparisler", "/yonetim/siparislerX", "/yonetim/urunler?status=action",
@@ -245,6 +250,7 @@ test("cancelling returns only the stock each line reserved, once; a refund is th
   assert.equal(await orders.recordOrderRefund(id, "TAMI-REF-1"), true);
   const refunded = await row(id);
   assert.equal(refunded.payment_status, "refunded"); assert.equal(refunded.refund_reference, "TAMI-REF-1");
+  assert.ok(refunded.refunded_at instanceof Date);
   assert.equal(await orders.recordOrderRefund(id, "TAMI-REF-2"), false);
   assert.equal((await row(id)).refund_reference, "TAMI-REF-1");
   // No refund pending on an order that was never cancelled.
