@@ -48,17 +48,17 @@ WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','man
 -- Columns are listed (not e.*): CREATE OR REPLACE VIEW cannot reorder or drop columns on a later run.
 CREATE OR REPLACE VIEW storefront_catalog_entries AS
 SELECT e.id,e.category,e.supplier,e.code,e.name,e.brand,e.description,e.updated_at,e.oem,e.source,e.company,false AS unavailable,
- e.display_brand,e.display_code
+ e.display_brand,e.display_code,e.name_overridden
 FROM commerce_catalog_entries e
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,true,
- COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code)
+ COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id;
 CREATE OR REPLACE VIEW storefront_catalog AS
 SELECT c.id,c.category,c.supplier,c.code,c.name,c.brand,c.description,c.price_kurus,c.stock,c.updated_at,c.oem,c.source,c.company,
- c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code
+ c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code,c.name_overridden
 FROM commerce_catalog c
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
@@ -66,5 +66,5 @@ SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,
  false,0,'Şu an tedarik edilemiyor'::text,
  jsonb_build_object('source','unavailable','presence',u.presence,'observed_at',u.last_seen_at),true,
- COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code)
+ COALESCE(ov.brand,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id;

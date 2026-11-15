@@ -28,6 +28,8 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
   * supplier's. `brand` and `code` stay the supplier's values: order lines, enrichment lookups and matching read those.
   */
  display_brand: string; display_code: string;
+ /** The name is an admin's (#575): shown as written, not converted like a supplier's (#686). */
+ name_overridden: boolean;
  /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
  offer_id?: string; offers?: number;
  /** No supplier sells the product now (db/storefront-catalog.sql, #475): listed last, without a price, not orderable. */
@@ -125,14 +127,14 @@ export async function getSetaEquivalents(id: string) {
 export async function getDecidedEquivalents(id: string) {
  if (!z.uuid().safeParse(id).success) return [];
  // An admin's store brand and part number of the equivalent (#602) win, as on its own page.
- return (await db.query<{ id: string | null; name: string | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
-   listed.name, listed.display_brand, listed.display_code,
+ return (await db.query<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+   listed.name, listed.name_overridden, listed.display_brand, listed.display_code,
    COALESCE(qo.brand,b.name,q.brand_label) AS brand, COALESCE(qo.part_number,listed.code,q.code) AS code, listed.available
   FROM product_sources s
   JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
   JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
   LEFT JOIN product_overrides qo ON qo.product_id=q.id
-  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available, priced.name, priced.display_brand, priced.display_code FROM product_sources o
+  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available, priced.name, priced.name_overridden, priced.display_brand, priced.display_code FROM product_sources o
    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
    WHERE o.product_id=q.id
     AND NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)
@@ -140,7 +142,7 @@ export async function getDecidedEquivalents(id: string) {
   WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48`, [company(), id])).rows
   .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code))
   // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
-  .map(({ id, name, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && display_brand !== null && display_code !== null ? productPath({ id, name, display_brand, display_code }) : id && productIdPath(id) }));
+  .map(({ id, name, name_overridden, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && name_overridden !== null && display_brand !== null && display_code !== null ? productPath({ id, name, name_overridden, display_brand, display_code }) : id && productIdPath(id) }));
 }
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
 export { money } from "./money";
@@ -568,7 +570,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */
-export type ProductSuggestion={kind:"product";id:string;name:string;brand:string;code:string}|{kind:"name";name:string;products:number};
+export type ProductSuggestion={kind:"product";id:string;name:string;name_overridden:boolean;brand:string;code:string}|{kind:"name";name:string;products:number};
 // Ranking every match per keystroke takes seconds on the VPS for broad prefixes ("fren": ~15k);
 // above this, the type-ahead suggests product names from search_product_names instead.
 const maxRankedSuggestions=500;
@@ -587,8 +589,8 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  }
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
- const products=(await db.query<{id:string;name:string;brand:string;code:string}>(`SELECT id,name,brand,code FROM (
-  SELECT DISTINCT ON (name,display_brand) id::text,name,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
+ const products=(await db.query<{id:string;name:string;name_overridden:boolean;brand:string;code:string}>(`SELECT id,name,name_overridden,brand,code FROM (
+  SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
   ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
  return {products:products.map(row=>({kind:"product" as const,...row})),...notes};

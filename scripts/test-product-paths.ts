@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { productIdFromHref, productIdFromSegment, productIdPath } from "../src/modules/seo/product-id";
 import { productPath, productSlug } from "../src/modules/seo/product-path";
+import { shownProductName } from "../src/modules/store/product-name";
+import { catalogCardTitle } from "../src/modules/store/product-override-display";
 
 const id = "0000df72-b78a-4fca-92ec-700be2e7baf2";
-const product = (name: string, display_brand: string, display_code: string) => ({ id, name, display_brand, display_code });
-const slug = (name: string, brand: string, code: string) => productSlug({ name, display_brand: brand, display_code: code });
+const product = (name: string, display_brand: string, display_code: string, name_overridden = false) => ({ id, name, name_overridden, display_brand, display_code });
+const slug = (name: string, brand: string, code: string) => productSlug({ name, name_overridden: false, display_brand: brand, display_code: code });
 
 test("brand, name and part number as ASCII words before the id", () => {
   assert.equal(productPath(product("FREN BALATASI ARKA", "BOSCH", "BCH 0986494803")), `/urun/bosch-fren-balatasi-arka-bch-0986494803-${id}`);
@@ -88,4 +90,19 @@ test("round trip: the id of any address is the product's", () => {
   for (const sample of [product("Fren", "BOSCH", "1"), product("", "", ""), product("0986", "BOSCH", "0986")]) {
     assert.equal(productIdFromSegment(productPath(sample).slice("/urun/".length)), sample.id);
   }
+});
+
+test("an admin's name is the slug as written; a supplier's name goes through readableProductName (#686)", () => {
+  // The supplier's repeated "GENEL" is dropped by the readable form; an admin wrote it, so it stays.
+  assert.equal(productPath(product("YAG FILTRESI GENEL", "BOSCH", "1", true)), `/urun/bosch-yag-filtresi-genel-1-${id}`);
+  assert.equal(productPath(product("YAG FILTRESI GENEL", "BOSCH", "1")), `/urun/bosch-yag-filtresi-1-${id}`);
+  assert.equal(shownProductName(product("YAG FILTRESI GENEL", "BOSCH", "1", true)), "YAG FILTRESI GENEL");
+  assert.equal(shownProductName(product("YAG FILTRESI GENEL", "BOSCH", "1")), "Yağ Filtresi");
+  assert.equal(productPath(product("ÖN FREN BALATASI", "BOSCH", "1", true)), `/urun/bosch-on-fren-balatasi-1-${id}`);
+});
+
+test("a card prints the admin's all-caps name as written, with the store brand and part number (#686)", () => {
+  const card = { code: "BCH 1", display_code: "BCH 1", brand: "BCH", display_brand: "BOSCH", name: "YAG FILTRESI GENEL" };
+  assert.equal(catalogCardTitle({ ...card, name_overridden: true }), "YAG FILTRESI GENEL BOSCH 1");
+  assert.equal(catalogCardTitle({ ...card, name_overridden: false }), "Yağ Filtresi BOSCH 1");
 });

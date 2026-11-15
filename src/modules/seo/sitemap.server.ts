@@ -39,9 +39,9 @@ export function indexableProductsSql(columns: { supplier: string; store: string 
  * those of commerce_catalog_entries (db/commerce.sql), so a page's canonical address and the one listed here are the same.
  */
 export const productAddressColumns = {
-  supplier: `i.id::text AS id,COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,
+  supplier: `i.id::text AS id,COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,h.name IS NOT NULL AS name_overridden,
    COALESCE(h.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
-  store: "p.id::text AS id,p.name AS name,p.brand AS display_brand,p.code AS display_code",
+  store: "p.id::text AS id,p.name AS name,false AS name_overridden,p.brand AS display_brand,p.code AS display_code",
 };
 
 export type ProductSitemapRow = { id: string; path: string; lastmod: string };
@@ -54,7 +54,7 @@ export async function loadProductChunk(index: number): Promise<ProductSitemapRow
     supplier: `${productAddressColumns.supplier},${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod`,
     store: `${productAddressColumns.store},${isoUtc("p.updated_at")} AS lastmod`,
   });
-  const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
+  const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,name_overridden,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
     [storefrontCompanies(), from, to]);
   return rows.map(row => ({ id: row.id, path: productPath(row), lastmod: row.lastmod }));
 }
