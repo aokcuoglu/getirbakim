@@ -132,3 +132,9 @@ test("the admin actions that change listings bump the epoch", async () => {
   // splitOffer, undoSplit, decideCandidate ("Aynı ürün") and acceptCandidates.
   assert.equal(await calls("src/app/yonetim/urun-eslestirme/actions.ts"), 4);
 });
+
+test("the home rails pick skips admin-hidden products and reloads on an epoch bump (#650)", async () => {
+  const home = await readFile("src/modules/store/home.ts", "utf8");
+  assert.match(home, /staleCache<string\[\]>\([^)]*\{epoch:listingEpoch\}\)/);
+  assert.match(home, /NOT EXISTS \(SELECT 1 FROM commerce_item_overrides h WHERE h\.supplier_item_id=s\.id AND h\.hidden\)/);
+});
