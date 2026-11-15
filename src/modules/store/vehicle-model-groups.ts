@@ -131,3 +131,9 @@ export function vehicleModelGroupFamilies(groups: VehicleModelGroup[]): VehicleM
     groups: list.sort((a, b) => (b.dateFrom ?? "").localeCompare(a.dateFrom ?? "") || a.slug.localeCompare(b.slug)) }))
     .sort((a, b) => a.family.localeCompare(b.family, "tr", { numeric: true }));
 }
+
+/** Production years for titles and copy: "2012–2022", "2019–günümüz"; null without a start. */
+export function vehicleModelGroupYears(group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">) {
+  if (!group.dateFrom) return null;
+  return `${group.dateFrom.slice(0, 4)}–${group.dateTo?.slice(0, 4) ?? "günümüz"}`;
+}

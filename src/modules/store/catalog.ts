@@ -10,6 +10,7 @@ import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
 import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
+import {getVehicleModelGroup} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
@@ -184,6 +185,15 @@ const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
  */
 const makeFittedIds=async(brandId:number)=>(await db.query<{id:string}>(
  "SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1",[brandId])).rows.map(row=>row.id);
+/**
+ * Products fitting a vehicle model page's series (#639): engine-level fits (storefront_model_fits, kept like the make
+ * table) and models read from supplier descriptions (product_model_fitments, model level only), a secondary offer
+ * counting as the product listing it. Both are index reads (Golf 7: ~25 ms for the description side); cached per process.
+ */
+const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(
+ `SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])
+  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id)::text FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
+  WHERE f.model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
 /** Ids of the products linked to one vehicle type (cached per process). */
 export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
 /**
@@ -349,7 +359,18 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
- if(query.make) {
+ // A model page lists its own fits, not their intersection with the make's: the make list is engine-level only and
+ // would drop every description-fitted product.
+ if(query.model) {
+  const make=query.make?await getVehicleBrandBySlug(query.make):undefined;
+  const model=make&&await getVehicleModelGroup(make,query.model);
+  if(!model)clauses.push('false');
+  else {
+   values.push(await modelFittedIds(model.models.map(member=>member.id)));
+   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+  }
+ }
+ else if(query.make) {
   const make=await getVehicleBrandBySlug(query.make);
   if(!make)clauses.push('false');
   else {
@@ -405,7 +426,7 @@ const cachedCounts=staleCache<number>(aggregateTtl,500,listings),cachedPageIds=s
 const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl,500,listings),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
- return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
+ return JSON.stringify([query.category,query.make,query.model,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
 }
 /**
  * Everything a plain search listing needs from its matches in one pass: ids in relevance order and the
@@ -456,7 +477,7 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
 function isPlainSearch(query:CatalogQuery){
- return Boolean(query.q?.trim())&&!query.category&&!query.make&&query.fits!=="vehicle"&&!query.oil&&!query.availability
+ return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
 /**
@@ -469,6 +490,16 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,limit)])).rows;
  return withBestOffers(items);
+}
+/**
+ * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
+ * pages' metadata and their 404 and index rules read it before the page renders.
+ */
+export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
+ return cachedCounts(filterKey(query,context),async()=>{
+  const {values,from}=await catalogFilter({...query,q:undefined},context);
+  return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
+ });
 }
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
@@ -541,7 +572,7 @@ export async function catalogBrands() {
 
 /** Products in the current search, category and make scope that are linked to the vehicle type. */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:'vehicle'};
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,fits:'vehicle'};
  const {values,from,search}=await catalogFilter(scope,{vehicleTypeId});
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  return search ? count() : cachedCounts(filterKey(scope,{vehicleTypeId}),count);
@@ -553,7 +584,7 @@ export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) 
  return new Set(ids.filter(id=>linked.has(id)));
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,fits:query.fits,oil:query.oil};
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,fits:query.fits,oil:query.oil};
  if(isPlainSearch(scope)){
   const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
   return {brands:plain.brands,attributes:plain.attributes};

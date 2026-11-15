@@ -1,3 +1,5 @@
+import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
+
 /**
  * Which product pages search engines may index (#634, #641). Demo rows and unavailable cards (no supplier sells the
  * product now, #475) stay `noindex,follow`; store rows are indexed. A supplier catalog page is indexed only with
@@ -55,4 +57,28 @@ export function productIndexable(product: { supplier: string; source: "store" | 
   if (product.unavailable) return productIndexPolicy.unavailable;
   if (product.source === "store") return true;
   return productIndexPolicy.supplierCatalog && hasMinimumContent(content);
+}
+
+/**
+ * The fewest products a vehicle model listing needs to be indexed (#639); below it the page is `noindex,follow`
+ * and stays out of the sitemap, and a model with no product at all is a 404. Measured on the local catalog
+ * (2026-11-15; listed products, engine-level ∪ description fitments). Model pages: the 4,372 units of
+ * vehicleModelGroups; model × category: the planning prototype's 4,744 units (before code-less series merged).
+ *
+ * | at least | model pages | model × category | make × category |
+ * | -------- | ----------- | ---------------- | --------------- |
+ * | 1        | 4,089       | 107,788          | 5,866           |
+ * | 5        | 3,597       | 17,539           | 2,252           |
+ * | 10       | 3,226       | 7,094            | 1,312           |
+ * | 20       | 2,884       | 2,955            | 669             |
+ * | 50       | 2,326       | 1,055            | 243             |
+ *
+ * At 10, 74% of the model pages stay indexable (283 have no product: 404) while the one- and two-product
+ * model × category pages (next slice) stay out.
+ */
+export const minIndexableListingProducts = 10;
+
+/** A plain listing (isIndexableListing) that, on a model page, lists at least `minIndexableListingProducts`. */
+export function listingIndexable(query: CatalogQuery, total: number): boolean {
+  return isIndexableListing(query) && (!query.model || total >= minIndexableListingProducts);
 }

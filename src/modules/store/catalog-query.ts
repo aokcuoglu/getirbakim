@@ -4,9 +4,11 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 const optionalText = (max: number) => z.string().trim().max(max).optional().catch(undefined);
 const schema = z.object({
   q: optionalText(120),
-  // Category and make slugs come from the path (/kategori/{category}[/{make}], /yedek-parca/{make}); /katalog has neither.
+  // Category, make and model slugs come from the path (/kategori/{category}[/{make}], /yedek-parca/{make}[/{model}]);
+  // /katalog has none.
   category: z.string().max(200).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional().catch(undefined),
   make: z.string().max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional().catch(undefined),
+  model: z.string().max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional().catch(undefined),
   brand: optionalText(200),
   brands: optionalText(6500),
   attributes: optionalText(18000),

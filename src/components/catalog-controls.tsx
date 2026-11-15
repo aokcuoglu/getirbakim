@@ -13,7 +13,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
-// Make and category live in the path (/kategori/{category}/{make}), every other filter in the query string.
+// Make, model and category live in the path (/kategori/{category}/{make}, /yedek-parca/{make}/{model}), every other
+// filter in the query string.
 import {listingPath,listingUrl} from "@/modules/seo/paths";
 import {ComparisonProvider} from "./catalog-card-controls";
 
@@ -54,7 +55,8 @@ function FilterGroup({label,options,selected,onToggle,searchable=true}:{label:st
  </CollapsibleContent>
  </Collapsible>;
 }
-export function CatalogSidebar({categories,brands,facets,params}:{categories:StoreCategory[];brands:string[];facets:CatalogFacet[];params:Query}) {
+// `categoryNav={false}`: no category links (vehicle model pages until their category routes exist, #639).
+export function CatalogSidebar({categories,brands,facets,params,categoryNav=true}:{categories:StoreCategory[];brands:string[];facets:CatalogFacet[];params:Query;categoryNav?:boolean}) {
  const router=useRouter();
  // Open on desktop, folded behind the "Filtreler" toggle on phones.
  const [open,setOpen]=useState(true);
@@ -66,7 +68,7 @@ export function CatalogSidebar({categories,brands,facets,params}:{categories:Sto
  return <aside className="min-w-0"><Collapsible open={open} onOpenChange={setOpen}>
  <CollapsibleTrigger className="group/filters hidden min-h-12 w-full cursor-pointer justify-start text-foreground items-center gap-2 rounded-md border border-input bg-white px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-panel-open:mb-4 max-[768px]:flex"><SlidersHorizontal size={17}/><span>Filtreler</span><ChevronDown size={16} className="ml-auto transition-transform group-data-panel-open/filters:rotate-180"/></CollapsibleTrigger>
  <CollapsibleContent>
- <section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree categories={categories} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>
+ {categoryNav&&<section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make,modelSlug:params.model})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree categories={categories} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>}
  <div className="overflow-hidden rounded-[4px] border border-border bg-white"><FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>{const next=toggle(selected,value);change({brand:undefined,brands:next.length?JSON.stringify(next):undefined});}}/>
  {facets.map(facet=><FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.values.map(value=>({value,label:specificationValue(value)}))} selected={attributes[facet.key]??[]} onToggle={value=>{const next={...attributes,[facet.key]:toggle(attributes[facet.key]??[],value)};if(!next[facet.key].length)delete next[facet.key];change({attributes:Object.keys(next).length?JSON.stringify(next):undefined});}}/>)}
  <FilterGroup label="Stok durumu" searchable={false} options={[{value:"in_stock",label:"Stokta mevcut"},{value:"out_of_stock",label:"Stokta yok"},{value:"supplied",label:"Tedarik edilebilir"}]} selected={params.availability?[params.availability]:[]} onToggle={value=>change({availability:params.availability===value?undefined:value as Query["availability"]})}/>

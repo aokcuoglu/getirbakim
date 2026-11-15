@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { slugPattern } from "../src/modules/seo/paths";
 import type { VehicleModel } from "../src/modules/store/vehicle-catalog";
-import { vehicleModelGroupFamilies, vehicleModelGroups } from "../src/modules/store/vehicle-model-groups";
+import { vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups } from "../src/modules/store/vehicle-model-groups";
 
 // Model page units and their addresses (#639). The catalog rows below are copied from the local vehicle_models
 // (2026-11-15): a renamed or regrouped series would change a public address, so the slugs are pinned here.
@@ -389,6 +389,7 @@ test("a unit spans its members' production years; an open end or unknown start s
   assert.deepEqual([passatB8.dateFrom, passatB8.dateTo], ["2014-08", null]);
   const unknown = vehicleModelGroups(models([[5, "R 65", null, null]]))[0];
   assert.deepEqual([unknown.slug, unknown.dateFrom, unknown.dateTo], ["r-5", null, null]);
+  assert.deepEqual([golf7, passatB8, unknown].map(vehicleModelGroupYears), ["2012–2022", "2014–günümüz", null]);
 });
 
 test("families list their generations newest first", () => {
