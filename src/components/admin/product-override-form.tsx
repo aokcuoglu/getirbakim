@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { initialOverrideForm, overrideFormReducer, type OverrideFormValues } from "@/modules/admin/product-override-form-state";
+import { UnsavedInputGuard } from "@/components/admin/unsaved-input-guard";
 import { OptionCombobox, type ComboboxOption } from "./option-combobox";
 
 const excerpt = (text: string, length = 160) => text.length > length ? `${text.slice(0, length).trimEnd()}…` : text;
@@ -21,7 +22,7 @@ const excerpt = (text: string, length = 160) => text.length > length ? `${text.s
  * The store card fields an admin sets by hand (#575). An empty field follows the automatic sources; "Otomatiğe dön"
  * clears one field and leaves the other fields' unsaved input alone. Every input is controlled by
  * overrideFormReducer: after a save or revert the form shows what the action stored, an error keeps the input as typed.
- * `version` is the stored edit the form was opened with: the action refuses a save made on top of a newer one.
+ * `version` is the stored edit the form was opened with: the action refuses a save made on top of a newer one. Leaving the tab with unsaved input asks first (#698).
  */
 export function ProductOverrideForm({ productId, values, version, automatic, categories, brands }: {
   productId: string;
@@ -82,63 +83,66 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => edit({ [field]: event.currentTarget.value }),
   });
 
-  return <form className="flex flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(); }}>
-    <fieldset disabled={pending}>
-      <FieldGroup className="grid gap-6 md:grid-cols-2">
-        <Field>
-          {label("name", id("name"))}
-          <Input {...textInput("name")} maxLength={300} placeholder={automatic.name}/>
-          <FieldDescription id={`${id("name")}-hint`}>Boş bırakılırsa: {automatic.name}</FieldDescription>
-        </Field>
-        <Field>
-          {label("category_id", id("category_id"))}
-          <OptionCombobox id={id("category_id")} name="category_id" placeholder="Kategori ara" emptyText="Eşleşen kategori yok." options={categories}
-            value={form.values.category_id} onValueChange={value => edit({ category_id: value })} describedBy={`${id("category_id")}-hint`}/>
-          <FieldDescription id={`${id("category_id")}-hint`}>{automatic.category ? `Boş bırakılırsa: ${automatic.category}` : "Otomatik kategori yok; boş bırakılırsa kategori atanmaz."}</FieldDescription>
-        </Field>
-        <Field>
-          {label("brand", id("brand"))}
-          <OptionCombobox id={id("brand")} name="brand" placeholder="Marka ara" emptyText="Eşleşen marka yok." options={brands}
-            value={form.values.brand} onValueChange={value => edit({ brand: value })} describedBy={`${id("brand")}-hint`}/>
-          <FieldDescription id={`${id("brand")}-hint`}>{automatic.brand ? `Boş bırakılırsa: ${automatic.brand}` : "Otomatik marka yok."}</FieldDescription>
-        </Field>
-        <Field>
-          {label("part_number", id("part_number"))}
-          <Input {...textInput("part_number")} maxLength={60} placeholder={automatic.partNumber}/>
-          <FieldDescription id={`${id("part_number")}-hint`}>Boş bırakılırsa: {automatic.partNumber}</FieldDescription>
-          <FieldDescription>Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
-        </Field>
-        <Field className="md:col-span-2">
-          {label("description", id("description"))}
-          <Textarea {...textArea("description")} rows={6} maxLength={5000}/>
-          <FieldDescription id={`${id("description")}-hint`}>Boş bırakılırsa: {automatic.description ? excerpt(automatic.description) : "Tedarikçi açıklaması yok."}</FieldDescription>
-        </Field>
-        <Field orientation="horizontal" className="md:col-span-2">
-          <Switch id={id("hidden")} name="published" checked={form.values.published} onCheckedChange={checked => edit({ published: checked })}
-            aria-describedby={`${id("hidden")}-hint`}/>
-          <FieldContent>
-            {label("hidden", id("hidden"), "Mağazada yayında")}
-            <FieldDescription id={`${id("hidden")}-hint`}>Otomatik: yayında. Kapalıyken ürün mağazada, sepette, bayi API&apos;sinde ve bakım setlerinde görünmez; satışa kapanır.</FieldDescription>
-          </FieldContent>
-        </Field>
-        <Field>
-          {label("seo_title", id("seo_title"))}
-          <Input {...textInput("seo_title")} maxLength={120}/>
-          <FieldDescription id={`${id("seo_title")}-hint`}>Boş bırakılırsa marka, ürün adı ve koddan oluşturulur.</FieldDescription>
-        </Field>
-        <Field>
-          {label("seo_description", id("seo_description"))}
-          <Textarea {...textArea("seo_description")} rows={3} maxLength={300}/>
-          <FieldDescription id={`${id("seo_description")}-hint`}>Boş bırakılırsa ürün açıklamasından oluşturulur.</FieldDescription>
-        </Field>
-      </FieldGroup>
-    </fieldset>
-    <p className="text-muted-foreground">Liste, kategori ve arama sonuçları birkaç saniye içinde güncellenir.</p>
-    {showResult && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
-      {result.status === "error" ? <CircleAlert aria-hidden="true"/> : <CircleCheck aria-hidden="true"/>}<AlertDescription>{result.message}</AlertDescription>
-    </Alert>}
-    <div className="flex justify-end">
-      <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Kaydet"}</Button>
-    </div>
-  </form>;
+  return <>
+    <form className="flex flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(); }}>
+      <fieldset disabled={pending}>
+        <FieldGroup className="grid gap-6 md:grid-cols-2">
+          <Field>
+            {label("name", id("name"))}
+            <Input {...textInput("name")} maxLength={300} placeholder={automatic.name}/>
+            <FieldDescription id={`${id("name")}-hint`}>Boş bırakılırsa: {automatic.name}</FieldDescription>
+          </Field>
+          <Field>
+            {label("category_id", id("category_id"))}
+            <OptionCombobox id={id("category_id")} name="category_id" placeholder="Kategori ara" emptyText="Eşleşen kategori yok." options={categories}
+              value={form.values.category_id} onValueChange={value => edit({ category_id: value })} describedBy={`${id("category_id")}-hint`}/>
+            <FieldDescription id={`${id("category_id")}-hint`}>{automatic.category ? `Boş bırakılırsa: ${automatic.category}` : "Otomatik kategori yok; boş bırakılırsa kategori atanmaz."}</FieldDescription>
+          </Field>
+          <Field>
+            {label("brand", id("brand"))}
+            <OptionCombobox id={id("brand")} name="brand" placeholder="Marka ara" emptyText="Eşleşen marka yok." options={brands}
+              value={form.values.brand} onValueChange={value => edit({ brand: value })} describedBy={`${id("brand")}-hint`}/>
+            <FieldDescription id={`${id("brand")}-hint`}>{automatic.brand ? `Boş bırakılırsa: ${automatic.brand}` : "Otomatik marka yok."}</FieldDescription>
+          </Field>
+          <Field>
+            {label("part_number", id("part_number"))}
+            <Input {...textInput("part_number")} maxLength={60} placeholder={automatic.partNumber}/>
+            <FieldDescription id={`${id("part_number")}-hint`}>Boş bırakılırsa: {automatic.partNumber}</FieldDescription>
+            <FieldDescription>Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
+          </Field>
+          <Field className="md:col-span-2">
+            {label("description", id("description"))}
+            <Textarea {...textArea("description")} rows={6} maxLength={5000}/>
+            <FieldDescription id={`${id("description")}-hint`}>Boş bırakılırsa: {automatic.description ? excerpt(automatic.description) : "Tedarikçi açıklaması yok."}</FieldDescription>
+          </Field>
+          <Field orientation="horizontal" className="md:col-span-2">
+            <Switch id={id("hidden")} name="published" checked={form.values.published} onCheckedChange={checked => edit({ published: checked })}
+              aria-describedby={`${id("hidden")}-hint`}/>
+            <FieldContent>
+              {label("hidden", id("hidden"), "Mağazada yayında")}
+              <FieldDescription id={`${id("hidden")}-hint`}>Otomatik: yayında. Kapalıyken ürün mağazada, sepette, bayi API&apos;sinde ve bakım setlerinde görünmez; satışa kapanır.</FieldDescription>
+            </FieldContent>
+          </Field>
+          <Field>
+            {label("seo_title", id("seo_title"))}
+            <Input {...textInput("seo_title")} maxLength={120}/>
+            <FieldDescription id={`${id("seo_title")}-hint`}>Boş bırakılırsa marka, ürün adı ve koddan oluşturulur.</FieldDescription>
+          </Field>
+          <Field>
+            {label("seo_description", id("seo_description"))}
+            <Textarea {...textArea("seo_description")} rows={3} maxLength={300}/>
+            <FieldDescription id={`${id("seo_description")}-hint`}>Boş bırakılırsa ürün açıklamasından oluşturulur.</FieldDescription>
+          </Field>
+        </FieldGroup>
+      </fieldset>
+      <p className="text-muted-foreground">Liste, kategori ve arama sonuçları birkaç saniye içinde güncellenir.</p>
+      {showResult && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
+        {result.status === "error" ? <CircleAlert aria-hidden="true"/> : <CircleCheck aria-hidden="true"/>}<AlertDescription>{result.message}</AlertDescription>
+      </Alert>}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Kaydet"}</Button>
+      </div>
+    </form>
+  <UnsavedInputGuard dirty={form.dirty.length > 0}/>
+  </>;
 }

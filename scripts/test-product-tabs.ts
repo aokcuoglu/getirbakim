@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { productTab, productTabHref, productTabs, tabOfAnchor, visibleProductTabs } from "../src/modules/admin/product-tabs";
+import { leavesPage } from "../src/modules/admin/unsaved-navigation";
 
 const id = "11111111-1111-4111-8111-111111111111";
 
@@ -36,4 +37,26 @@ test("tabOfAnchor maps every old card anchor to its tab", () => {
   }
   assert.equal(tabOfAnchor("#baska"), undefined);
   assert.equal(tabOfAnchor(""), undefined);
+});
+
+test("leavesPage returns the URL only for a plain same-tab navigation to another page (#698)", () => {
+  const current = `https://example.com/yonetim/urunler/${id}?tab=bilgiler#a`;
+  const click = { href: null as string | null, target: "", download: false, button: 0, modified: false, defaultPrevented: false };
+  const at = (href: string | null, extra: Partial<typeof click> = {}) => leavesPage({ ...click, href, ...extra }, current);
+  assert.equal(at(`/yonetim/urunler/${id}?tab=fiyat`), `https://example.com/yonetim/urunler/${id}?tab=fiyat`);
+  assert.equal(at("/yonetim/siparisler"), "https://example.com/yonetim/siparisler");
+  assert.equal(at("siparisler"), "https://example.com/yonetim/urunler/siparisler");
+  assert.equal(at(`/yonetim/urunler/${id}?tab=bilgiler#b`), null);
+  assert.equal(at("#b"), null);
+  assert.equal(at(null), null);
+  assert.equal(at(`/yonetim/urunler/${id}?tab=bilgiler&split=1&linked=2`), null);
+  assert.equal(at(`/yonetim/urunler/${id}?tab=gecmis&split=1`), `https://example.com/yonetim/urunler/${id}?tab=gecmis&split=1`);
+  assert.equal(at(`/yonetim/urunler/${id}`), `https://example.com/yonetim/urunler/${id}`);
+  assert.equal(at("/yonetim/siparisler", { target: "_blank" }), null);
+  assert.equal(at("/yonetim/siparisler", { target: "_self" }), "https://example.com/yonetim/siparisler");
+  assert.equal(at("/yonetim/siparisler", { modified: true }), null);
+  assert.equal(at("/yonetim/siparisler", { button: 1 }), null);
+  assert.equal(at("https://other.example/yonetim"), null);
+  assert.equal(at("/dosya.pdf", { download: true }), null);
+  assert.equal(at("/yonetim/siparisler", { defaultPrevented: true }), null);
 });
