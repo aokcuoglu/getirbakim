@@ -10,7 +10,7 @@ export async function ProductFitmentsCard({ productId }: { productId: string }) 
   const fitments = await loadProductFitments(db, productId);
   return <Card id="arac-uyumu">
     <CardHeader><CardTitle><h2>Araç uyumu</h2></CardTitle>
-      <CardDescription>Elle eklenen motor tipi ürün sayfasında, araç süzgecinde, araç aramasında ve marka sayfasında otomatik uyum gibi görünür. Yanlış otomatik uyumu “Çıkar” ile mağazadan kaldırın. Tedarikçi güncellemeleri, zenginleştirme ve uyum yenilemeleri bu kararları değiştirmez.</CardDescription></CardHeader>
+      <CardDescription>Elle eklenen motor tipi mağazada otomatik uyum gibi görünür, yanlış otomatik uyum “Çıkar” ile kaldırılır. Tedarikçi güncellemeleri ve zenginleştirme bu kararları değiştirmez.</CardDescription></CardHeader>
     <CardContent><ProductFitmentsManager productId={productId} fitments={fitments}/></CardContent>
   </Card>;
 }

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { fitmentLevel, type FitmentLevel, type FitmentVehicle } from "./fitment-level";
 import { getProductEnrichment } from "./product-enrichment";
 import { getDescriptionFitments } from "./description-fitment.server";
-import { applyFitmentOverrides } from "./product-fitment-display";
+import { applyFitmentOverrides, modelFallbacks } from "./product-fitment-display";
 import { getItemFitments } from "./product-fitments";
 import type { GarageVehicle } from "./garage";
 
@@ -21,8 +21,8 @@ export async function productFitmentLevel(product: { id: string; code: string; b
   const [resolved, enrichment, overrides] = await Promise.all([fitmentVehicle(vehicle), getProductEnrichment(product), getItemFitments(product.id)]);
   // The admin's added types count as linked rows, removed ones leave the list and are a mismatch (#583).
   const vehicles = applyFitmentOverrides(enrichment?.vehicles ?? [], overrides);
-  if (vehicles.length || enrichment?.vehicleModels.length) return fitmentLevel(resolved, vehicles, overrides.removed);
-  // Models read from the supplier's description (#392) name no engine type: at best "likely", never "mismatch" (unless
-  // an admin removed the selected type).
-  return fitmentLevel(resolved, (await getDescriptionFitments(product.id)).map(row => ({ vehicleTypeId: null, modelId: row.modelId })), overrides.removed);
+  const fallbacks = modelFallbacks(overrides, vehicles, enrichment?.vehicleModels ?? []);
+  if (!fallbacks.description) return fitmentLevel(resolved, vehicles, overrides.removed);
+  // Models read from the supplier's description (#392) name no engine type: at best "likely", never "mismatch".
+  return fitmentLevel(resolved, (await getDescriptionFitments(product.id)).map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
 }

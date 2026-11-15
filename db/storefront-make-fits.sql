@@ -11,15 +11,18 @@ CREATE TABLE IF NOT EXISTS storefront_make_fits (
  PRIMARY KEY (brand_id, supplier_item_id)
 );
 CREATE INDEX IF NOT EXISTS storefront_make_fits_item_idx ON storefront_make_fits(supplier_item_id);
--- Tables created before #583 point the key at product_enrichment_shared_links: moved once. NOT VALID takes the lock only
--- for the catalog change; VALIDATE then checks the rows without blocking writes to supplier_items.
-DO $$ BEGIN
- IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='storefront_make_fits'::regclass AND conname='storefront_make_fits_supplier_item_id_fkey'
-   AND confrelid='product_enrichment_shared_links'::regclass) THEN
-  ALTER TABLE storefront_make_fits DROP CONSTRAINT storefront_make_fits_supplier_item_id_fkey;
+-- Tables created before #583 point the key at product_enrichment_shared_links: moved once, found by its columns and
+-- target rather than its name. Setup runs in one transaction, so the brief ACCESS EXCLUSIVE lock on the table (and the
+-- check of its ~200k rows against supplier_items) lasts until setup commits.
+DO $$
+DECLARE old_key name;
+BEGIN
+ SELECT c.conname INTO old_key FROM pg_constraint c
+  WHERE c.contype='f' AND c.conrelid='storefront_make_fits'::regclass AND c.confrelid='product_enrichment_shared_links'::regclass;
+ IF old_key IS NOT NULL THEN
+  EXECUTE format('ALTER TABLE storefront_make_fits DROP CONSTRAINT %I',old_key);
   ALTER TABLE storefront_make_fits ADD CONSTRAINT storefront_make_fits_supplier_item_id_fkey
-   FOREIGN KEY (supplier_item_id) REFERENCES supplier_items(id) ON DELETE CASCADE NOT VALID;
-  ALTER TABLE storefront_make_fits VALIDATE CONSTRAINT storefront_make_fits_supplier_item_id_fkey;
+   FOREIGN KEY (supplier_item_id) REFERENCES supplier_items(id) ON DELETE CASCADE;
  END IF;
 END $$;
 

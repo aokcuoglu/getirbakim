@@ -107,5 +107,12 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   await pool.query('DELETE FROM product_override_fitments');
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
+  // The donor's enrichment is deleted: its links and fitments go, and the make rows (keyed to supplier_items since
+  // #583, no longer cascaded from the links) leave with the queued refresh.
+  await pool.query('DELETE FROM product_enrichments WHERE supplier_item_id=$1',[donor]);
+  lists=await consistent();
+  assert.deepEqual(lists[1],[]);
+  assert.deepEqual(lists[2],[]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_make_fits')).rows[0].n,0);
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });

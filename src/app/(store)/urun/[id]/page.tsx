@@ -17,7 +17,7 @@ import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-r
 import { getItemSpecs } from "@/modules/store/product-specs";
 import { applySpecOverrides } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
-import { applyFitmentOverrides } from "@/modules/store/product-fitment-display";
+import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
 import { catalogCardTitle, productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
@@ -95,6 +95,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     getItemImages(product.id), getItemReferences(product.id), getItemSpecs(product.id), getItemFitments(product.id)]);
   // The enrichment's vehicles without the types the admin removed, with the ones the admin added (#583).
   const vehicles = applyFitmentOverrides(enrichment?.vehicles ?? [], fitmentOverrides);
+  const fallbacks = modelFallbacks(fitmentOverrides, vehicles, enrichment?.vehicleModels ?? []);
   // The enrichment's OEM / cross-reference numbers with the admin's hidden ones left out and added ones in (#582).
   const refs = applyReferenceOverrides({ oemNumbers: enrichment?.oemNumbers ?? {}, crossReferences: enrichment?.crossReferences ?? {} }, referenceOverrides);
   const gtin = refs.eans[0] && gtinProperty(refs.eans[0]);
@@ -129,22 +130,21 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
     priceKurus: product.price_kurus, available: product.available, stockLabel: product.stock_label, unavailable: product.unavailable,
     pricingSnapshot: product.pricing_snapshot,
-    vehicleModels: vehicles.length ? vehicles.map(vehicle => vehicle.model) : enrichment?.vehicleModels ?? [] }, siteUrl);
+    vehicleModels: vehicles.length ? vehicles.map(vehicle => vehicle.model) : fallbacks.vehicleModels }, siteUrl);
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
-  const descriptionModels = vehicles.length || enrichment?.vehicleModels.length ? [] : await descriptionFitments(product.id);
+  const descriptionModels = fallbacks.description ? await descriptionFitments(product.id) : [];
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
   // The enrichment's specifications with the admin's edited, hidden and added keys (#603).
   const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
-  const hasFitment = vehicles.length > 0 || Boolean(enrichment?.vehicleModels.length) || descriptionModels.length > 0;
-  // With an admin's decisions the enrichment's model list may name a removed vehicle: the shown vehicles' models instead.
-  const fitmentDecided = fitmentOverrides.added.length > 0 || fitmentOverrides.removed.length > 0;
-  const fitmentSummary = fitmentDecided && vehicles.length ? [...new Set(vehicles.map(row => row.model))]
-    : enrichment?.vehicleModels.length ? enrichment.vehicleModels : descriptionModels.map(row => `${row.brand} ${row.model}`);
+  const hasFitment = vehicles.length > 0 || fallbacks.vehicleModels.length > 0 || descriptionModels.length > 0;
+  // With an admin's decisions the enrichment's model list is not used (modelFallbacks): the shown vehicles' models instead.
+  const fitmentSummary = fallbacks.vehicleModels.length ? fallbacks.vehicleModels
+    : vehicles.length ? [...new Set(vehicles.map(row => row.model))] : descriptionModels.map(row => `${row.brand} ${row.model}`);
   const referenceNumbers: Record<string, string[]> = {};
   for (const [brand, codes] of [...Object.entries(refs.crossReferences), ...Object.entries(refs.oemNumbers)]) {
     referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];
@@ -233,7 +233,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
         <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
         {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
-      {vehicles.length > 0 ? <ProductFitment vehicles={vehicles}/> : enrichment && enrichment.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{enrichment.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{model}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
+      {vehicles.length > 0 ? <ProductFitment vehicles={vehicles}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{model}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
       {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{row.brand} {row.model}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</span>)}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
       {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]"><dt className="text-[#53677d]">{brand}</dt><dd className="m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>

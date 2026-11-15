@@ -24,3 +24,13 @@ export function applyFitmentOverrides<T extends { vehicleTypeId: number | null }
   }
   return shown;
 }
+
+/**
+ * The model-level lists that stand in for engine-level vehicles: the enrichment's vehicleModels and the models read from
+ * the supplier's description (#392). Once the admin decided the product's vehicles (#583) neither applies: they could
+ * name a vehicle the admin removed, and a product whose decisions leave no vehicle shows none.
+ */
+export function modelFallbacks(overrides: FitmentOverrides, vehicles: readonly unknown[], vehicleModels: string[]) {
+  const decided = overrides.added.length > 0 || overrides.removed.length > 0;
+  return { vehicleModels: decided ? [] : vehicleModels, description: !decided && !vehicles.length && !vehicleModels.length };
+}

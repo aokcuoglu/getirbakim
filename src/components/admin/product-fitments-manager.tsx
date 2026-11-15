@@ -7,6 +7,7 @@ import { addProductFitments, deleteProductFitment, removeProductFitment, type Pr
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
 import type { CatalogVehicle } from "@/modules/store/vehicle-catalog";
+import { formatNumber } from "@/modules/admin/format";
 import { useVehicleCatalog } from "@/components/garage/use-vehicle-catalog";
 import { OptionCombobox } from "@/components/admin/option-combobox";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -27,7 +28,8 @@ const PAGE = 50;
 
 const vehicleName = (vehicle: Pick<FitmentVehicle, "brand" | "model" | "engine">) => `${vehicle.brand} ${vehicle.model} ${vehicle.engine}`;
 const years = (vehicle: Pick<FitmentVehicle, "from" | "to">) => `${vehicle.from} – ${vehicle.to ?? "…"}`;
-const power = (vehicle: Pick<FitmentVehicle, "ps" | "kw" | "cc">) => `${vehicle.ps} PS / ${vehicle.kw} kW${vehicle.cc ? ` · ${vehicle.cc} cm³` : ""}`;
+const power = (vehicle: Pick<FitmentVehicle, "ps" | "kw" | "cc">) =>
+  `${formatNumber(vehicle.ps)} PS / ${formatNumber(vehicle.kw)} kW${vehicle.cc ? ` · ${formatNumber(vehicle.cc)} cm³` : ""}`;
 
 /**
  * Adds engine types to a product and removes automatic fitments from the store (#583). Every change goes through a
@@ -41,17 +43,22 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
   const [opened, setOpened] = useState(0);
   const [shown, setShown] = useState(PAGE);
   const [result, setResult] = useState<ProductFitmentActionResult | null>(null);
+  // The row whose button started the running change: it shows the spinner, the others are only disabled.
+  const [busy, setBusy] = useState<string | null>(null);
   const full = fitments.rows.length >= productFitmentLimit;
 
-  const mutate = (action: () => Promise<ProductFitmentActionResult>, onSuccess?: () => void) => {
+  const mutate = (action: () => Promise<ProductFitmentActionResult>, onSuccess?: () => void, rowKey: string | null = null) => {
     setResult(null);
+    setBusy(rowKey);
     startTransition(async () => {
       const next = await action().catch((): ProductFitmentActionResult => ({ status: "error", message: "Bağlantı kesildi; yeniden deneyin." }));
       setResult(next);
       if (next.status === "success") onSuccess?.();
       router.refresh();
+      setBusy(null);
     });
   };
+  const working = (rowKey: string) => pending && busy === rowKey;
 
   const automaticIds = new Set([...fitments.automatic.map(vehicle => vehicle.typeId), ...fitments.rows.filter(row => row.automatic).map(row => row.typeId)]);
   const decided = new Map(fitments.rows.map(row => [row.typeId, row.mode]));
@@ -68,14 +75,14 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
   return <div className="flex flex-col gap-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-muted-foreground">
-        {fitments.automaticTotal} otomatik uyum · {decisions.filter(row => row.status === "added").length} elle eklenen · {decisions.filter(row => row.status === "removed").length} mağazadan çıkarılan
+        {formatNumber(fitments.automaticTotal)} otomatik uyum · {formatNumber(decisions.filter(row => row.status === "added").length)} elle eklenen · {formatNumber(decisions.filter(row => row.status === "removed").length)} mağazadan çıkarılan
       </p>
       <Button type="button" disabled={pending || full} onClick={() => { setResult(null); setOpened(count => count + 1); setAdding(true); }}>
         <Plus data-icon="inline-start" aria-hidden="true"/>Araç ekle</Button>
     </div>
-    {full && <Alert variant="warning"><CircleAlert aria-hidden="true"/><AlertDescription>Bu ürün {productFitmentLimit} araç kararı sınırına ulaştı; yeni karar için önce birini geri alın.</AlertDescription></Alert>}
+    {full && <Alert variant="warning"><CircleAlert aria-hidden="true"/><AlertDescription>Bu ürün {formatNumber(productFitmentLimit)} araç kararı sınırına ulaştı; yeni karar için önce birini geri alın.</AlertDescription></Alert>}
     {fitments.automaticTotal > productFitmentAutomaticLimit && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>
-      Ürün {fitments.automaticTotal} otomatik araç tipine bağlı; burada marka ve model sırasıyla ilk {productFitmentAutomaticLimit} tanesi listeleniyor. Listede olmayan bir tipi “Araç ekle” ile seçip ekleyebilirsiniz.</AlertDescription></Alert>}
+      Ürün {formatNumber(fitments.automaticTotal)} otomatik araç tipine bağlı; burada marka ve model sırasıyla ilk {formatNumber(productFitmentAutomaticLimit)} tanesi listeleniyor. Listede olmayan bir tipi “Araç ekle” ile seçip ekleyebilirsiniz.</AlertDescription></Alert>}
 
     <div aria-live="polite" className="empty:hidden">
       {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
@@ -83,12 +90,13 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
     {/* While the add dialog is open, its own alert shows the error. */}
     {result?.status === "error" && !adding && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
-    {rows.length ? <Table><caption className="sr-only">Araç uyumu</caption>
+    {/* No table search or filter: they would only see the rows "Daha fazla göster" has revealed. */}
+    {rows.length ? <Table controls={false}><caption className="sr-only">Araç uyumu</caption>
       <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Model</TableHead><TableHead>Motor</TableHead><TableHead>Güç / hacim</TableHead>
         <TableHead>Üretim</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map(row => {
-        const name = vehicleName(row);
-        return <TableRow key={row.id ?? `a|${row.typeId}`}>
+        const name = vehicleName(row), rowKey = row.id ?? `a|${row.typeId}`;
+        return <TableRow key={rowKey}>
           <TableCell>{row.brand}</TableCell>
           <TableCell>{row.model}</TableCell>
           <TableCell><div className="flex flex-col gap-1"><span>{row.engine}</span><span className="text-muted-foreground">{row.fuel} · tip {row.typeId}</span></div></TableCell>
@@ -104,14 +112,14 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
           </div></TableCell>
           <TableCell><div className="flex flex-wrap justify-end gap-2">
             {row.status === "automatic" && <Button type="button" variant="outline" disabled={pending || full}
-              aria-label={`${name} uyumunu mağazadan çıkar`} onClick={() => mutate(() => removeProductFitment({ productId, vehicleTypeId: row.typeId }))}>
-              <EyeOff data-icon="inline-start" aria-hidden="true"/>Çıkar</Button>}
+              aria-label={`${name} uyumunu mağazadan çıkar`} onClick={() => mutate(() => removeProductFitment({ productId, vehicleTypeId: row.typeId }), undefined, rowKey)}>
+              {working(rowKey) ? <Spinner data-icon="inline-start"/> : <EyeOff data-icon="inline-start" aria-hidden="true"/>}Çıkar</Button>}
             {row.status === "removed" && row.id && <Button type="button" variant="outline" disabled={pending}
-              aria-label={`${name} uyumunu yeniden göster`} onClick={() => mutate(() => deleteProductFitment({ productId, rowId: row.id!, restored: true }))}>
-              <Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</Button>}
+              aria-label={`${name} uyumunu yeniden göster`} onClick={() => mutate(() => deleteProductFitment({ productId, rowId: row.id!, restored: true }), undefined, rowKey)}>
+              {working(rowKey) ? <Spinner data-icon="inline-start"/> : <Eye data-icon="inline-start" aria-hidden="true"/>}Yeniden göster</Button>}
             {row.status === "added" && row.id && <Button type="button" variant="outline" disabled={pending}
-              aria-label={`${name} aracını kaldır`} onClick={() => mutate(() => deleteProductFitment({ productId, rowId: row.id! }))}>
-              <Trash2 data-icon="inline-start" aria-hidden="true"/>Kaldır</Button>}
+              aria-label={`${name} aracını kaldır`} onClick={() => mutate(() => deleteProductFitment({ productId, rowId: row.id! }), undefined, rowKey)}>
+              {working(rowKey) ? <Spinner data-icon="inline-start"/> : <Trash2 data-icon="inline-start" aria-hidden="true"/>}Kaldır</Button>}
           </div></TableCell>
         </TableRow>;
       })}</TableBody></Table>
@@ -119,7 +127,7 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
         <EmptyDescription>Bu ürünün otomatik araç uyumu yok; “Araç ekle” ile motor tipi seçerek ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
     {hidden > 0 && <div className="flex justify-center">
       <Button type="button" variant="outline" onClick={() => setShown(count => count + PAGE)}>
-        <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({hidden} otomatik uyum daha)</Button>
+        <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({formatNumber(hidden)} otomatik uyum daha)</Button>
     </div>}
 
     <AddFitmentsDialog key={opened} open={adding} pending={pending} decided={decided} automaticIds={automaticIds} error={adding && result?.status === "error" ? result.message : null}
@@ -159,7 +167,7 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle>Araç ekle</DialogTitle>
-        <DialogDescription>Markayı ve modeli seçin, ürünün uyduğu motor tiplerini işaretleyin. Bir seferde en çok {productFitmentBatch} tip eklenir; farklı modellerden seçim yapabilirsiniz.</DialogDescription></DialogHeader>
+        <DialogDescription>Markayı ve modeli seçin, ürünün uyduğu motor tiplerini işaretleyin. Bir seferde en çok {formatNumber(productFitmentBatch)} tip eklenir; farklı modellerden seçim yapabilirsiniz.</DialogDescription></DialogHeader>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={ids.brand}>Marka</FieldLabel>
@@ -175,7 +183,9 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
         </Field>
       </div>
       {modelId && (vehicles.loading ? <div className="flex flex-col gap-2"><Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/></div>
-        : failure(vehicles) || <Table controls={false}><caption className="sr-only">Motor tipleri</caption>
+        : failure(vehicles) || (!vehicles.data?.vehicles?.length ? <Empty><EmptyHeader><EmptyMedia variant="icon"><Car/></EmptyMedia>
+          <EmptyTitle>Bu model için motor tipi bulunamadı</EmptyTitle><EmptyDescription>Başka bir model seçin.</EmptyDescription></EmptyHeader></Empty>
+        : <Table controls={false}><caption className="sr-only">Motor tipleri</caption>
           <TableHeader><TableRow><TableHead><span className="sr-only">Seç</span></TableHead><TableHead>Motor</TableHead><TableHead>Yakıt</TableHead>
             <TableHead>Güç</TableHead><TableHead>Üretim</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
           <TableBody>{(vehicles.data?.vehicles ?? []).map(vehicle => {
@@ -185,16 +195,16 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
                 aria-label={`${vehicle.make} ${vehicle.model} ${vehicle.engine} (${vehicle.dateFrom.slice(0, 4)}) seç`} onCheckedChange={value => toggle(vehicle, value)}/></TableCell>
               <TableCell>{vehicle.engine}</TableCell>
               <TableCell>{vehicle.fuel}</TableCell>
-              <TableCell className="tabular-nums">{vehicle.power}{vehicle.cc ? ` · ${vehicle.cc} cm³` : ""}</TableCell>
+              <TableCell className="tabular-nums">{vehicle.power}{vehicle.cc ? ` · ${formatNumber(vehicle.cc)} cm³` : ""}</TableCell>
               <TableCell className="tabular-nums">{vehicle.from} – {vehicle.dateTo ? vehicle.to : "…"}</TableCell>
               <TableCell>{decision === "add" ? <StatusBadge tone="success">Elle eklendi</StatusBadge>
                 : decision === "remove" ? <StatusBadge tone="warning" icon={EyeOff}>Mağazadan çıkarıldı</StatusBadge>
                 : automaticIds.has(id) ? <StatusBadge tone="neutral">Otomatik</StatusBadge> : null}</TableCell>
             </TableRow>;
-          })}</TableBody></Table>)}
+          })}</TableBody></Table>))}
       <p id={ids.selection} className="text-muted-foreground" aria-live="polite">
-        {selected.size ? `${selected.size} araç tipi seçildi: ${[...selected.values()].slice(0, 3).join(", ")}${selected.size > 3 ? ` ve ${selected.size - 3} tip daha` : ""}.` : "Henüz araç tipi seçilmedi."}
-        {full && ` En çok ${productFitmentBatch} tip seçilebilir.`}
+        {selected.size ? `${formatNumber(selected.size)} araç tipi seçildi: ${[...selected.values()].slice(0, 3).join(", ")}${selected.size > 3 ? ` ve ${formatNumber(selected.size - 3)} tip daha` : ""}.` : "Henüz araç tipi seçilmedi."}
+        {full && ` En çok ${formatNumber(productFitmentBatch)} tip seçilebilir.`}
       </p>
       {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
       <DialogFooter>

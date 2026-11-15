@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
-import { applyFitmentOverrides, type StoreVehicle } from "../src/modules/store/product-fitment-display";
+import { applyFitmentOverrides, modelFallbacks, type StoreVehicle } from "../src/modules/store/product-fitment-display";
 import { fitmentHistoryValue, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
 import { fitmentLevel } from "../src/modules/store/fitment-level";
 
@@ -122,6 +122,14 @@ test("removed types leave the shown vehicles, added ones follow once; the level 
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [{ vehicleTypeId: 344, modelId: 10 }], [340]), "mismatch");
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [], [340]), "mismatch");
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [{ vehicleTypeId: 340, modelId: 10 }], [340]), "guaranteed");
+  // Model-level lists stand in only while the admin has not decided the product's vehicles.
+  const none = { added: [], removed: [] };
+  assert.deepEqual(modelFallbacks(none, [], ["GOLF"]), { vehicleModels: ["GOLF"], description: false });
+  assert.deepEqual(modelFallbacks(none, [], []), { vehicleModels: [], description: true });
+  assert.deepEqual(modelFallbacks(none, automatic, []), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks({ added: [], removed: [340] }, [], ["GOLF"]), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks({ added: [], removed: [340] }, [], []), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks({ added: [added(802015)], removed: [] }, [added(802015)], ["GOLF"]), { vehicleModels: [], description: false });
   const names = new Map([["340", "MERCEDES-BENZ 190 (W201) 2.0"]]);
   assert.equal(fitmentHistoryValue("fitment_added", "340", names), "MERCEDES-BENZ 190 (W201) 2.0 · tip 340");
   assert.equal(fitmentHistoryValue("fitment_removed", "7", names), "Araç tipi 7");
@@ -281,17 +289,18 @@ test("a merge carries the decisions (the kept product's own row wins); undoing i
 });
 
 test("setup can run the files again and moves an old make-list key to supplier_items", async () => {
-  // A database set up before #583: the key points at the enrichment links.
+  // A database set up before #583: the key points at the enrichment links (under another name: found by its target).
   await schema.pool.query(`ALTER TABLE storefront_make_fits DROP CONSTRAINT storefront_make_fits_supplier_item_id_fkey;
-    ALTER TABLE storefront_make_fits ADD CONSTRAINT storefront_make_fits_supplier_item_id_fkey FOREIGN KEY (supplier_item_id)
+    ALTER TABLE storefront_make_fits ADD CONSTRAINT make_fits_renamed_key FOREIGN KEY (supplier_item_id)
      REFERENCES product_enrichment_shared_links(supplier_item_id) ON DELETE CASCADE NOT VALID`);
   await schema.pool.query(await readFile("db/product-override-fitments.sql", "utf8"));
   await schema.pool.query(await readFile("db/storefront-make-fits.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_fitments_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
-  const key = async () => (await schema.pool.query<{ target: string; validated: boolean }>(`SELECT confrelid::regclass::text AS target,convalidated AS validated
-    FROM pg_constraint WHERE conname='storefront_make_fits_supplier_item_id_fkey' AND conrelid=to_regclass($1)`, [`${schema.name}.storefront_make_fits`])).rows;
-  assert.deepEqual(await key(), [{ target: "supplier_items", validated: true }]);
+  const key = async () => (await schema.pool.query<{ name: string; target: string; validated: boolean }>(`SELECT conname AS name,confrelid::regclass::text AS target,
+    convalidated AS validated FROM pg_constraint WHERE contype='f' AND conrelid=to_regclass($1) AND confrelid<>to_regclass($2)`,
+  [`${schema.name}.storefront_make_fits`, `${schema.name}.vehicle_brands`])).rows;
+  assert.deepEqual(await key(), [{ name: "storefront_make_fits_supplier_item_id_fkey", target: "supplier_items", validated: true }]);
   await schema.pool.query(await readFile("db/storefront-make-fits.sql", "utf8"));
-  assert.deepEqual(await key(), [{ target: "supplier_items", validated: true }]);
+  assert.deepEqual(await key(), [{ name: "storefront_make_fits_supplier_item_id_fkey", target: "supplier_items", validated: true }]);
 });

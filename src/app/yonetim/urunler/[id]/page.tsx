@@ -28,7 +28,7 @@ import { fitmentVehicleNames } from "@/modules/admin/product-fitment-store";
 import { db } from "@/lib/db";
 import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
-import { formatDateTime } from "@/modules/admin/format";
+import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
@@ -86,7 +86,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       : `${Number(query.images) || 0} görsel birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.`}</AlertDescription></Alert>}
     {query.merged && Number(query.refs) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.refs)} referans numarası birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
     {query.merged && Number(query.specs) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.specs)} teknik özellik birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
-    {query.merged && Number(query.fitments) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.fitments)} araç uyumu kararı birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
+    {query.merged && Number(query.fitments) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{formatNumber(Number(query.fitments))} araç uyumu kararı birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
     {query.reset && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
     {query.linked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
     {query.unlinked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}

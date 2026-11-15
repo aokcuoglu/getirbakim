@@ -5,9 +5,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
-import { syncEnrichmentLinks } from "@/modules/store/enrichment-links.server";
 import * as store from "@/modules/admin/product-fitment-store";
 import { productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
+import { formatNumber } from "@/modules/admin/format";
 
 /** Result of a vehicle fitment change (#583); the manager shows the message and refreshes the page. */
 export type ProductFitmentActionResult = { status: "success" | "error"; message: string };
@@ -15,7 +15,7 @@ export type ProductFitmentActionResult = { status: "success" | "error"; message:
 const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason"], string> = {
   "not-found": "Ürün bulunamadı.",
   merged: "Bu ürün başka bir ürünle birleştirildi; araç uyumunu birleştiği üründe yönetin.",
-  limit: `Bir ürüne en çok ${productFitmentLimit} araç kararı eklenebilir.`,
+  limit: `Bir ürüne en çok ${formatNumber(productFitmentLimit)} araç kararı eklenebilir.`,
   "unknown-vehicle": "Seçilen araç tiplerinden biri katalogda bulunamadı. Listeyi yenileyip yeniden seçin.",
   duplicate: "Seçilen araçlardan biri bu ürüne zaten elle eklenmiş.",
   removed: "Seçilen araçlardan biri mağazadan çıkarılmış otomatik bir uyum; eklemek yerine listede “Yeniden göster”i kullanın.",
@@ -34,9 +34,9 @@ async function run(action: () => Promise<store.ProductFitmentResult>, success: s
     return { status: "error", message: "Araç uyumu kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: failures[result.reason] };
-  // The make pages read storefront_make_fits, which the queued refresh rebuilds; done here so the change shows at once.
-  // Best effort: the background sync drains the queue within seconds when another container holds the lock.
-  try { await syncEnrichmentLinks(); } catch (error) { console.error("Storefront make list refresh after a fitment change failed", error); }
+  // The make pages read storefront_make_fits: the triggers queued the product and the background link sync
+  // (startEnrichmentLinkSync, every few seconds) rebuilds it. Not drained here: a queued full rebuild would run inside
+  // this request.
   // The vehicle filter, the fit count and vehicle searches are cached per process: they reload (#585).
   await invalidateListings();
   // The product page, its garage note and the listings show the fitments.
@@ -50,7 +50,7 @@ export async function addProductFitments(input: { productId: string; vehicleType
   if (!data.success) return { status: "error", message: `1–${productFitmentBatch} araç tipi seçin.` };
   const count = new Set(data.data.vehicleTypeIds).size;
   return run(() => store.addProductFitments(db, data.data.productId, data.data.vehicleTypeIds, admin.id),
-    `${count} araç tipi eklendi; ürün sayfasında, araç süzgecinde ve marka sayfasında görünür.`);
+    `${formatNumber(count)} araç tipi eklendi; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
 export async function removeProductFitment(input: { productId: string; vehicleTypeId: number }): Promise<ProductFitmentActionResult> {
@@ -58,7 +58,7 @@ export async function removeProductFitment(input: { productId: string; vehicleTy
   const data = z.object({ productId, vehicleTypeId }).safeParse(input);
   if (!data.success) return { status: "error", message: "Araç tanınmadı. Sayfayı yenileyin." };
   return run(() => store.removeProductFitment(db, data.data.productId, data.data.vehicleTypeId, admin.id),
-    "Otomatik araç uyumu mağazadan çıkarıldı.");
+    "Otomatik araç uyumu mağazadan çıkarıldı; marka sayfası birkaç saniye içinde güncellenir.");
 }
 
 export async function deleteProductFitment(input: { productId: string; rowId: string; restored?: boolean }): Promise<ProductFitmentActionResult> {
@@ -66,5 +66,5 @@ export async function deleteProductFitment(input: { productId: string; rowId: st
   const data = z.object({ productId, rowId: z.uuid(), restored: z.boolean().optional() }).safeParse(input);
   if (!data.success) return { status: "error", message: "Araç tanınmadı. Sayfayı yenileyin." };
   return run(() => store.deleteProductFitment(db, data.data.productId, data.data.rowId, admin.id),
-    data.data.restored ? "Otomatik araç uyumu yeniden gösteriliyor." : "Elle eklenen araç kaldırıldı; otomatik kaynak bağlıyorsa listede kalır.");
+    data.data.restored ? "Otomatik araç uyumu yeniden gösteriliyor; marka sayfası birkaç saniye içinde güncellenir." : "Elle eklenen araç kaldırıldı; otomatik kaynak bağlıyorsa listede kalır. Marka sayfası birkaç saniye içinde güncellenir.");
 }
