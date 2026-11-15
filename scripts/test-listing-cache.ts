@@ -124,8 +124,11 @@ test("a bump from another app process is seen within about a second", async () =
 });
 
 test("the admin actions that change listings bump the epoch", async () => {
-  const actions = await readFile("src/app/yonetim/urunler/actions.ts", "utf8");
+  const calls = async (file: string) => ((await readFile(file, "utf8")).match(/invalidateListings\(/g) ?? []).length;
   // splitSource, undoSplitSource, mergeProducts and saveProductOverride.
-  assert.ok((actions.match(/invalidateListings\(/g) ?? []).length >= 4);
-  assert.match(await readFile("src/app/yonetim/urunler/reference-actions.ts", "utf8"), /await invalidateListings\(\)/);
+  assert.equal(await calls("src/app/yonetim/urunler/actions.ts"), 4);
+  // run(), shared by add, hide and remove.
+  assert.equal(await calls("src/app/yonetim/urunler/reference-actions.ts"), 1);
+  // splitOffer, undoSplit, decideCandidate ("Aynı ürün") and acceptCandidates.
+  assert.equal(await calls("src/app/yonetim/urun-eslestirme/actions.ts"), 4);
 });

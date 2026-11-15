@@ -7,6 +7,9 @@ import { db } from "@/lib/db";
  * shows bumps the shared counter, and every process drops entries loaded under an older value. Each process reads the
  * counter at most once per `pollMs`, so another app container sees an edit within about a second; the process that
  * made the edit sees it at once. Database errors keep the last known value: they never empty the caches.
+ * The known value only grows (Math.max), so a racing older read cannot undo a bump; if the counter is ever set back
+ * (restoring a backup, recreating the table), restart the app tasks or their caches keep serving until the counter
+ * passes the old value.
  */
 const pollMs = 1000;
 let known = 0, readAt = 0;
