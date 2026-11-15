@@ -21,7 +21,7 @@ import { translateSpecificationLabel, translateSpecificationValue } from "@/modu
 import { applySpecOverrides } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
-import { productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
@@ -163,7 +163,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
   // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
   // An admin's part number (#602) wins as entered.
-  const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
+  const displayPartNumber = withoutBrandPrefix(shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber), [product.display_brand, product.brand]);
   const brand = product.display_brand;
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));
   const heading = titleWithoutIdentity(title, brand, displayPartNumber);

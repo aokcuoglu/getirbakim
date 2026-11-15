@@ -275,3 +275,12 @@ test("titleWithoutIdentity keeps years, specs, a lone brand and a bare title", a
   assert.equal(titleWithoutIdentity("Balata DF7458S TRW", "TRW", "DF7458S"), "Balata");
   assert.equal(titleWithoutIdentity("Balata TRW 2015", "TRW", "2015"), "Balata");
 });
+
+test("withoutBrandPrefix strips the brand label, the raw brand or its first word", async () => {
+  const { withoutBrandPrefix } = await import("../src/modules/store/product-override-display");
+  assert.equal(withoutBrandPrefix("SNR 3TM-6312AX12LLUA/55C3/L588QDF", ["SNR-AV", "SNR"]), "3TM-6312AX12LLUA/55C3/L588QDF");
+  assert.equal(withoutBrandPrefix("KRAFTVOLL FYAST17-013B /FYAST20-014", ["KRAFTVOLL FAR", "KRAFTVOLL"]), "FYAST17-013B /FYAST20-014");
+  assert.equal(withoutBrandPrefix("WENDERPARTS MA2028202510", ["WENDERPARTS", "WENDERPARTS"]), "MA2028202510");
+  assert.equal(withoutBrandPrefix("TRW", ["TRW"]), "TRW");
+  assert.equal(withoutBrandPrefix("TRWX 123", ["TRW"]), "TRWX 123");
+});

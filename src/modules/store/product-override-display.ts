@@ -1,4 +1,4 @@
-import { shownProductName } from "./product-name";
+import { foldText, shownProductName } from "./product-name";
 
 /** Store-facing edits of a product (product_overrides, #575); NULL follows the automatic sources. */
 export type StoreOverride = {
@@ -28,16 +28,27 @@ export function shownPartNumber(product: { code: string; display_code: string },
   return product.display_code !== product.code ? product.display_code : automatic;
 }
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * A part number without the brand it is written with ("SNR 3TM-6312" → "3TM-6312"). The prefix may be the full brand label,
+ * the raw brand of the row or the first word of either ("SNR-AV" → "SNR"), compared folded and followed by a space or hyphen;
+ * the longest match wins and a number that would end up empty is returned as is (#702).
+ */
+export function withoutBrandPrefix(number: string, brands: string[]): string {
+  const candidates = brands.flatMap(brand => [brand.trim(), brand.trim().split(/[\s-]+/)[0]]).filter(Boolean).sort((a, b) => b.length - a.length);
+  const folded = foldText(number);
+  for (const brand of candidates) {
+    const key = foldText(brand);
+    if (folded.startsWith(key) && /^[\s-]/.test(folded.slice(key.length)) && number.length === folded.length) {
+      const rest = number.slice(key.length).replace(/^[\s-]+/, "");
+      if (rest) return rest;
+    }
+  }
+  return number;
+}
 
 /** shownPartNumber without a leading brand, which a card prints beside it ("BOSCH 0986…" → "0986…"); store brand first. */
 export function cardPartNumber(product: { code: string; display_code: string; brand: string; display_brand: string }, automatic: string) {
-  const number = shownPartNumber(product, automatic);
-  for (const brand of new Set([product.display_brand, product.brand])) {
-    const prefix = new RegExp(`^${escapeRegExp(brand)}\\s+`, "i");
-    if (prefix.test(number)) return number.replace(prefix, "");
-  }
-  return number;
+  return withoutBrandPrefix(shownPartNumber(product, automatic), [product.display_brand, product.brand]);
 }
 
 /** The title a listing card prints: the shown name (an admin's as written, the supplier's readable, #659/#686), the store brand and the part number. */
