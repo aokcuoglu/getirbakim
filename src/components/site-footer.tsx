@@ -8,6 +8,7 @@ import {FooterVariants,RouteFrame} from "@/components/layout/store-route";
 import {contactEmail} from "@/lib/site";
 import {cn} from "@/lib/utils";
 import {SocialLinks} from "@/components/social-links";
+import {currentAppVersion} from "@/lib/app-version";
 
 type FooterLink = { href: string; title: string };
 
@@ -67,6 +68,7 @@ export async function SiteFooter() {
  const catalogCategories=[...categories,...allCategories.filter(c=>["Fren balataları","Fren kaliperleri","Motor yağları","Amortisörler","Fren diskleri","Debriyaj setleri","Marş motorları","Triger setleri","Yağ filtreleri","Silecekler"].includes(c.name))];
  const information=[...new Map(groups.flatMap(group=>group.links).map(link=>[link.href,link])).values()];
  const year=new Date().getFullYear();
+ const legal=<span>© {year} ERGUL ENERJI SAN TIC LTD STI<span className="ml-2 whitespace-nowrap tabular-nums" title="Uygulama sürümü"><span className="sr-only">Uygulama sürümü: </span>{currentAppVersion.label}</span></span>;
  const links=<footer className="border-t border-border bg-white pt-12 text-sm leading-5 text-foreground group-data-[route=home]/route:max-[600px]:pt-4">
   <div className="mx-auto grid w-full max-w-[1350px] grid-cols-[2fr_1fr_1fr] gap-5 px-[15px] pb-10 group-data-[route=standard]/route:max-[768px]:grid-cols-2 group-data-[route=standard]/route:max-[768px]:[&>*:first-child]:col-span-full group-data-[route=home]/route:max-[600px]:grid-cols-1 group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:pb-4">
    <ResponsiveFooterGroup title="Yardıma mı ihtiyacın var?" accent><Link href="/iletisim">İletişime geç <span aria-hidden="true">›</span></Link><a href={`mailto:${contactEmail}`}>{contactEmail}</a></ResponsiveFooterGroup>
@@ -74,7 +76,7 @@ export async function SiteFooter() {
    <ResponsiveFooterGroup title="Kategoriler">{catalogCategories.map(category=><Link key={category.id} href={"/katalog?category="+category.slug}>{category.name}</Link>)}</ResponsiveFooterGroup>
   </div>
   <div className="mx-auto flex w-full max-w-[1350px] items-center justify-between gap-6 border-t border-border bg-[#f8f9f9] px-[15px] py-4 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]">
-   <span>© {year} ERGUL ENERJI SAN TIC LTD STI</span>
+   {legal}
    <CookieConsent/>
    <div className="flex items-center gap-4 max-[600px]:justify-between"><span>Aracın için doğru parça.</span><SocialLinks/></div>
   </div>
@@ -98,7 +100,7 @@ export async function SiteFooter() {
    {categories.map(category => <Link key={category.slug} href={`/katalog?category=${category.slug}`} className={cn(muted,"max-[600px]:py-2")}>{category.name}</Link>)}
   </nav>
   <div className={cn(shell,"flex items-center justify-between gap-6 border-t border-border pt-5 pb-6 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]")}>
-   <span>© {year} ERGUL ENERJI SAN TIC LTD STI</span>
+   {legal}
    <CookieConsent/>
    <div className="flex items-center gap-4 max-[600px]:justify-between"><span>Aracın için doğru parça.</span><SocialLinks/></div>
   </div>

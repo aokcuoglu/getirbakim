@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { NextConfig } from "next";
 
@@ -6,6 +7,12 @@ const nextConfig: NextConfig = {
   // Several app tasks run the same image (AWS). One build id per release lets a browser that loaded an older
   // release detect the skew and reload instead of calling server actions or chunks that no longer exist.
   deploymentId: process.env.BUILD_VERSION,
+  // Shown in the storefront footer and the /yonetim sidebar (#628, src/lib/app-version.ts). Inlined at build time:
+  // the runtime image does not carry BUILD_VERSION. Only the package version and the commit id reach the bundle.
+  env: {
+    APP_VERSION: (JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as { version: string }).version,
+    APP_BUILD: process.env.BUILD_VERSION ?? "",
+  },
   // The incremental cache lives in Valkey so a revalidation reaches every task (see cache-handler.mjs); the
   // per-process memory layer is off so no task keeps serving its own stale copy.
   cacheHandler: join(process.cwd(), "cache-handler.mjs"),

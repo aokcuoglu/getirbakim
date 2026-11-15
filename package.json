@@ -51,6 +51,7 @@
     "test:restock": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-restock.ts",
     "search:vocabulary": "node --env-file=.env.local --import tsx scripts/refresh-search-vocabulary.ts",
     "test:vehicles": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-catalog.ts",
+    "test:app-version": "node --import tsx --test scripts/test-app-version.ts",
     "test:vehicle-repxpert": "node --import tsx --test scripts/test-vehicle-repxpert.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "verify:catalog": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog.ts",
