@@ -131,11 +131,11 @@ export function verifySecurityHash(payload: Record<string, unknown>, securityHas
   return crypto.timingSafeEqual(received, expected) && receivedBody === expectedBody
 }
 
-function buildHeaders(locale: TamiLocale, correlationId?: string): HeadersInit {
+function buildHeaders(locale: TamiLocale, correlationId?: string, apiVersion: 'v3' | 'v4' = 'v3'): HeadersInit {
   return {
     'Content-Type': 'application/json',
     'Accept-Language': locale,
-    'PG-Api-Version': 'v3',
+    'PG-Api-Version': apiVersion,
     'PG-Auth-Token': buildPgAuthToken(),
     correlationId: correlationId || buildCorrelationId()
   }
@@ -261,6 +261,7 @@ export type TamiQueryResponse = {
   bankReferenceNumber: string | null
   bankAuthCode: string | null
   transactionStatus: string | null
+  transactions: Array<Record<string, unknown>>
   raw: Record<string, unknown>
 }
 
@@ -311,6 +312,7 @@ export async function queryPaymentByOrderId(input: {
       typeof authTransaction?.transactionStatus === 'string'
         ? authTransaction.transactionStatus
         : null,
+    transactions,
     raw
   }
 }
@@ -322,4 +324,172 @@ export function verifiedPaymentSuccess(query: TamiQueryResponse, orderId: string
     Number.isFinite(amountKurus) && Math.abs(amountKurus - Math.round(amountKurus)) < 0.000001 &&
     Math.round(amountKurus) === expectedKurus && query.orderId === orderId && query.currency === 'TRY' &&
     query.securityHashValid && query.success && query.orderStatus === 'AUTH' && query.transactionStatus === 'SUCCESS';
+}
+
+/** Throws when the TAMI credentials are missing, before anything is recorded or sent. */
+export function assertTamiConfigured(): void {
+  getTamiConfig()
+}
+
+function tamiAudience(): string {
+  const { merchantNumber, terminalNumber } = getTamiConfig()
+  return `${merchantNumber}:${terminalNumber}`
+}
+
+/**
+ * API v4 request body (TAMI Node sample, tamiToken.js): an HS512 JWS over the request claims, encrypted as a compact
+ * JWE with alg "dir" / enc "A256GCM". The signing key is the decoded JWK `k`; the encryption key is its SHA-256.
+ */
+export function buildSignedRequest(body: Record<string, unknown>): string {
+  const { jwkKid, jwkKey } = getTamiConfig()
+  const signingKey = fromBase64Url(jwkKey)
+  const encryptionKey = crypto.createHash('sha256').update(signingKey).digest()
+  const now = Math.floor(Date.now() / 1000)
+  const claims = {
+    iss: tamiAudience(),
+    aud: 'tami',
+    jti: crypto.randomUUID(),
+    iat: now,
+    nbf: now,
+    exp: now + 600,
+    'tami:body': body,
+    'tami:apiVersion': 'v4'
+  }
+  const header = toBase64Url(Buffer.from(JSON.stringify({ alg: 'HS512', kid: jwkKid, typ: 'JWT' }), 'utf8'))
+  const payload = toBase64Url(Buffer.from(JSON.stringify(claims), 'utf8'))
+  const signature = crypto.createHmac('sha512', signingKey).update(`${header}.${payload}`, 'utf8').digest()
+  const jws = `${header}.${payload}.${toBase64Url(signature)}`
+
+  const jweHeader = toBase64Url(Buffer.from(JSON.stringify({ alg: 'dir', enc: 'A256GCM', cty: 'JWT' }), 'utf8'))
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv)
+  cipher.setAAD(Buffer.from(jweHeader, 'ascii'))
+  const cipherText = Buffer.concat([cipher.update(jws, 'utf8'), cipher.final()])
+  return `${jweHeader}..${toBase64Url(iv)}.${toBase64Url(cipherText)}.${toBase64Url(cipher.getAuthTag())}`
+}
+
+/**
+ * API v4 `signedResponse`: a plain HS512 JWS. Signature, audience ("merchant:terminal") and expiry (60 s leeway) are
+ * checked; returns the `tami:body` claim. Throws on anything else.
+ */
+export function decodeSignedResponse(token: string): Record<string, unknown> {
+  const segments = token.split('.')
+  if (segments.length !== 3 || segments.some(segment => !/^[A-Za-z0-9_-]+$/.test(segment))) {
+    throw new Error('signedResponse is not a compact JWS.')
+  }
+  const [header, payload, signature] = segments
+  const { jwkKey } = getTamiConfig()
+  let alg: unknown
+  try { alg = JSON.parse(fromBase64Url(header).toString('utf8')).alg } catch { alg = null }
+  const expected = crypto.createHmac('sha512', fromBase64Url(jwkKey)).update(`${header}.${payload}`, 'utf8').digest()
+  const received = fromBase64Url(signature)
+  if (alg !== 'HS512' || received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+    throw new Error('signedResponse signature is invalid.')
+  }
+  const claims = JSON.parse(fromBase64Url(payload).toString('utf8')) as Record<string, unknown>
+  if (claims.aud !== tamiAudience()) throw new Error('signedResponse audience is wrong.')
+  if (typeof claims.exp !== 'number' || claims.exp + 60 < Math.floor(Date.now() / 1000)) {
+    throw new Error('signedResponse has expired.')
+  }
+  const body = claims['tami:body']
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('signedResponse has no body.')
+  return body as Record<string, unknown>
+}
+
+/**
+ * Outcome of a void/refund call. `rejected` is a definite "nothing happened" from TAMI (safe to retry); `unknown`
+ * means the reversal may or may not have happened and must be checked before anything else is sent.
+ */
+export type TamiReversalResult =
+  | { kind: 'ok'; body: Record<string, unknown>; raw: string }
+  | { kind: 'rejected'; errorCode: string; errorMessage: string; errorGroup: string | null; httpStatus: number; body: Record<string, unknown> }
+  | { kind: 'unknown'; reason: string; httpStatus: number | null }
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' ? value : typeof value === 'number' ? String(value) : null
+}
+
+// The documented paths carry /api/v0; the hosted/query calls above work without it. The unprefixed path is only tried
+// after a 404, which means the first one reached no endpoint. docs/payments.md records which one TAMI answers.
+const SIGNED_PATH_PREFIXES = ['/api/v0', '']
+
+async function postTamiSigned(path: string, body: Record<string, unknown>, correlationId: string): Promise<TamiReversalResult> {
+  const { paymentApiBaseUrl } = getTamiConfig()
+  const headers = buildHeaders('tr', correlationId, 'v4')
+  for (const [index, prefix] of SIGNED_PATH_PREFIXES.entries()) {
+    let response: Response
+    let raw: string
+    try {
+      response = await fetch(`${paymentApiBaseUrl}${prefix}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ signedRequest: buildSignedRequest(body) }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000)
+      })
+      raw = await response.text()
+    } catch {
+      return { kind: 'unknown', reason: 'TAMI yanıt vermedi (ağ hatası veya zaman aşımı).', httpStatus: null }
+    }
+    let json: Record<string, unknown> | null = null
+    try {
+      const parsed: unknown = raw ? JSON.parse(raw) : null
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) json = parsed as Record<string, unknown>
+    } catch { json = null }
+    if (response.status === 404 && json?.errorCode == null && index < SIGNED_PATH_PREFIXES.length - 1) continue
+    if (!json) return { kind: 'unknown', reason: `TAMI yanıtı JSON değil. HTTP ${response.status}.`, httpStatus: response.status }
+    if (typeof json.signedResponse === 'string') {
+      let decoded: Record<string, unknown>
+      try { decoded = decodeSignedResponse(json.signedResponse) } catch (error) {
+        return { kind: 'unknown', reason: `TAMI yanıtı doğrulanamadı: ${error instanceof Error ? error.message : 'imza hatası'}`, httpStatus: response.status }
+      }
+      if (decoded.success === true) return { kind: 'ok', body: decoded, raw: json.signedResponse }
+      if (decoded.success === false) {
+        return {
+          kind: 'rejected', errorCode: text(decoded.errorCode) ?? 'unknown', errorMessage: text(decoded.errorMessage) ?? 'TAMI işlemi reddetti.',
+          errorGroup: text(decoded.errorGroup), httpStatus: response.status, body: decoded
+        }
+      }
+      return { kind: 'unknown', reason: 'TAMI imzalı yanıtında success alanı yok.', httpStatus: response.status }
+    }
+    const errorCode = text(json.errorCode)
+    if (response.status >= 400 && response.status < 500 && json.success === false && errorCode) {
+      return {
+        kind: 'rejected', errorCode, errorMessage: text(json.errorMessage) ?? text(json.message) ?? 'TAMI işlemi reddetti.',
+        errorGroup: text(json.errorGroup), httpStatus: response.status, body: json
+      }
+    }
+    return { kind: 'unknown', reason: `TAMI yanıtı imzasız veya beklenmedik. HTTP ${response.status}.`, httpStatus: response.status }
+  }
+  return { kind: 'unknown', reason: 'TAMI iptal/iade adresi bulunamadı (HTTP 404).', httpStatus: 404 }
+}
+
+/** Same-day cancellation, before end-of-day settlement. Never throws on provider errors. */
+export function voidTamiPayment(input: { orderId: string; reason: string; correlationId: string }): Promise<TamiReversalResult> {
+  return postTamiSigned('/payment/void', { orderId: input.orderId, reason: input.reason.slice(0, 150) }, input.correlationId)
+}
+
+/** Refund of a settled payment; the full amount is always sent explicitly. Never throws on provider errors. */
+export function refundTamiPayment(input: { orderId: string; amountKurus: number; reason: string; correlationId: string }): Promise<TamiReversalResult> {
+  return postTamiSigned('/payment/refund', {
+    orderId: input.orderId, amount: (input.amountKurus / 100).toFixed(2), reason: input.reason.slice(0, 150)
+  }, input.correlationId)
+}
+
+function kurus(value: unknown): number | null {
+  const amount = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+  const scaled = amount * 100
+  return Number.isFinite(scaled) && Math.abs(scaled - Math.round(scaled)) < 0.000001 ? Math.round(scaled) : null
+}
+
+/**
+ * A signed success alone is not enough: the reply must belong to this call and reverse exactly the paid amount.
+ * Refund replies must carry the amount; void replies are checked when they do.
+ */
+export function verifiedReversal(body: Record<string, unknown>, expected: { kind: 'void' | 'refund'; amountKurus: number; correlationId: string }): boolean {
+  if (body.success !== true) return false
+  if (body.correlationId != null && body.correlationId !== expected.correlationId) return false
+  if (body.currency != null && body.currency !== 'TRY') return false
+  if (body.amount == null) return expected.kind === 'void'
+  return kurus(body.amount) === expected.amountKurus
 }

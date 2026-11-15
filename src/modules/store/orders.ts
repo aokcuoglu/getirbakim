@@ -20,7 +20,7 @@ export type CommerceOrder = {
  total_kurus:string; subtotal_kurus:string; shipping_kurus:string; discount_percent:number;
  status:'awaiting_payment'|'pending'|'confirmed'|'shipped'|'delivered'|'cancelled'; created_at:Date;
  payment_status:'none'|'awaiting'|'paid'|'expired'|'refund_required'|'refunded';
- payment_due_at:Date|null; paid_at:Date|null; payment_note:string; refund_reference:string|null;
+ payment_due_at:Date|null; paid_at:Date|null; payment_note:string; refund_reference:string|null; refunded_at:Date|null;
  // Shipment (#605); NULL on orders shipped before it was recorded. carrier is a code from ./shipment.
  carrier:string|null; carrier_name:string|null; tracking_no:string|null; tracking_url:string|null; shipped_at:Date|null; delivered_at:Date|null;
 };

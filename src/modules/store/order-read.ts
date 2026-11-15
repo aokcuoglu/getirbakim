@@ -6,7 +6,7 @@ import { currentCartOwner, currentGuestCartOwner } from "./cart";
 import type { CommerceOrder, OrderItem } from "./orders";
 import type { OrderAgreementDocument } from "./order-agreement";
 
-export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
+export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,refunded_at,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
 
 export async function currentOrders() {
  const [owner,guest]=await Promise.all([currentCartOwner(),currentGuestCartOwner()]);

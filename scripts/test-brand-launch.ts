@@ -23,7 +23,7 @@ test('TAMI verifies signed body and rejects tampering, malformed tokens and extr
  for(const bad of ['not-a-jwt',signature+'.extra',signature.slice(0,-4)]) assert.equal(verifySecurityHash(payload,bad),false);
 });
 test('payment acceptance requires exact order, TRY, signed settled result and exact kurus', () => {
- const query:TamiQueryResponse={currency:'TRY',success:true,orderId:'test-order',orderStatus:'AUTH',paymentStatus:null,amount:199.99,installmentCount:1,securityHashValid:true,bankReferenceNumber:null,bankAuthCode:null,transactionStatus:'SUCCESS',raw:{}};
+ const query:TamiQueryResponse={currency:'TRY',success:true,orderId:'test-order',orderStatus:'AUTH',paymentStatus:null,amount:199.99,installmentCount:1,securityHashValid:true,bankReferenceNumber:null,bankAuthCode:null,transactionStatus:'SUCCESS',transactions:[],raw:{}};
  assert.equal(verifiedPaymentSuccess(query,'test-order',19999),true);
  for(const change of [{currency:'USD'},{orderId:'other'},{amount:199.98},{amount:199.991},{amount:NaN},{securityHashValid:false},{transactionStatus:'PENDING'},{success:false}]) assert.equal(verifiedPaymentSuccess({...query,...change},'test-order',19999),false);
  assert.equal(verifiedPaymentSuccess(query,'test-order',19999.1),false);

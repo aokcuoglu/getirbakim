@@ -28,7 +28,7 @@ export async function transitionOrder(id: string, status: OrderTransition) {
   return withHandledOrder(id, async (client, old) => {
     if (!allowed[old.status]?.includes(status)) return false;
     if (status === "cancelled") await releaseReservedStock(client, id);
-    // Refunds are made in the TAMI portal; the order waits until its reference is recorded.
+    // The order waits for a TAMI refund (Siparişler → TAMI'den iade et, or a manually recorded reference).
     await client.query(`UPDATE commerce_orders SET status=$2,payment_status=CASE WHEN $2='cancelled' AND payment_status='paid' THEN 'refund_required' ELSE payment_status END,
       delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END WHERE id=$1`, [id, status]);
     return true;
@@ -55,9 +55,12 @@ export async function updateShipment(id: string, shipment: Shipment) {
   return Boolean(updated.rowCount);
 }
 
-/** Records the TAMI refund reference of a cancelled paid order; false unless a refund was pending. */
+/**
+ * Manual fallback to the TAMI API refund (#619): records a reference of a refund made elsewhere (TAMI portal, or a call
+ * whose reply was lost). False unless a refund was pending; refund call rows are left as they are.
+ */
 export async function recordOrderRefund(id: string, reference: string) {
-  const updated = await db.query("UPDATE commerce_orders SET payment_status='refunded',refund_reference=$2 WHERE id=$1 AND payment_status='refund_required'", [id, reference]);
+  const updated = await db.query("UPDATE commerce_orders SET payment_status='refunded',refund_reference=$2,refunded_at=now() WHERE id=$1 AND payment_status='refund_required'", [id, reference]);
   return Boolean(updated.rowCount);
 }
 
