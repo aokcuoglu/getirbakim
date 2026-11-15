@@ -24,12 +24,12 @@ export function GarageButton({ vehicle, variant = "header", className }: { vehic
   // In the home hero the phone layout already separates the button from the search field.
   const home = useStoreRoute() === "home";
   return <>
-    <button ref={trigger} type="button" className={cn("cursor-pointer", variantClass[variant], home && variant === "catalog" && "max-[600px]:mt-0", className)} aria-label={vehicle ? `Araç seçimi, ${vehicle.make} ${vehicle.model}` : "Marka ve modele göre araç seç"} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
-      {variant === "product" ? "Aracını seç, uyumluluk bilgilerini karşılaştır"
+    <button ref={trigger} type="button" className={cn("cursor-pointer", variantClass[variant], home && variant === "catalog" && "max-[600px]:mt-0", className)} aria-label={variant === "product" ? undefined : vehicle ? `Araç seçimi, ${vehicle.make} ${vehicle.model}` : "Marka ve modele göre araç seç"} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      {variant === "product" ? (vehicle ? <>Aracın: <strong>{vehicle.make} {vehicle.model}{vehicle.engine ? ` ${vehicle.engine}` : ""}</strong> · Değiştir</> : "Aracını seç, uyumluluk bilgilerini karşılaştır")
         : variant === "header" ? <><SiteIcon name="garage" size={32} /><span><strong>Garajım <SiteIcon name="chevron" size={13} /></strong><small>{vehicle ? `${vehicle.make} ${vehicle.model}` : "Aracını seç"}</small></span></>
         : variant === "catalog" ? <><span>{vehicle ? `${vehicle.make} ${vehicle.model}` : "Marka ve modele göre seç"}</span><SiteIcon name="chevron" size={16} className="-rotate-90" /></>
         : <><div className="flex size-[38px] flex-[0_0_38px] items-center justify-center rounded-full bg-white text-primary"><CarFront size={24} aria-hidden="true" /></div><span className="min-w-0 flex-1"><strong className="block text-sm leading-[22px] font-medium [overflow-wrap:anywhere]">{vehicle ? `${vehicle.make} ${vehicle.model}` : "Marka ve modele göre seç"}</strong><small className="block text-xs leading-[18px] text-muted-foreground">{vehicle ? `${vehicle.year}${vehicle.engine ? ` · ${vehicle.engine}` : " · Garajına kayıtlı"}` : "Aracına ait seçenekleri keşfet"}</small></span><SiteIcon name="chevron" size={18} className="text-muted-foreground" /></>}
     </button>
-    <VehicleSheet open={open} vehicle={vehicle} initialTab={vehicle && variant === "header" ? "garage" : "search"} onClose={() => setOpen(false)} finalFocus={trigger} />
+    <VehicleSheet open={open} vehicle={vehicle} initialTab={vehicle ? "garage" : "search"} onClose={() => setOpen(false)} finalFocus={trigger} />
   </>;
 }

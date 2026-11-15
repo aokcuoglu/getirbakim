@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
+import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
 import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { PurchaseForm } from "@/components/purchase-form";
@@ -214,11 +214,12 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
           <PurchaseForm productId={product.offer_id ?? product.id} name={product.display_code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
         </>}
-        <div className="flex min-h-[54px] items-center gap-4 rounded-[5px] border border-[#ffb380] bg-[#fffaee] px-4 py-3"><CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/><GarageButton vehicle={vehicle} variant="product"/></div>
+        <div className={cn("flex min-h-[54px] items-center gap-4 rounded-[5px] border px-4 py-3", vehicle ? "border-border bg-[#f8fafc]" : "border-[#ffb380] bg-[#fffaee]")}>{vehicle ? <CarFront size={20} className="shrink-0 text-primary"/> : <CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/>}<GarageButton vehicle={vehicle} variant="product"/></div>
         {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
         {fitment === "likely" && (descriptionModels.length
           ? <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
           : <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {vehicle!.make} {vehicle!.model} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
+        {vehicle && fitment === "unknown" && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {vehicle!.make} {vehicle!.model}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
