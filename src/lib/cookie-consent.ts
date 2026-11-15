@@ -1,64 +1,95 @@
-export const CONSENT_KEY = "gb_cookie_consent";
+export const CONSENT_COOKIE = "gb_consent";
+/** The pre-#644 localStorage record; removed on first read, never trusted. */
+export const LEGACY_CONSENT_KEY = "gb_cookie_consent";
 export const CONSENT_EVENT = "gb:cookie-consent";
 export const CONSENT_MAX_AGE = 180 * 24 * 60 * 60 * 1000;
+/** Bumped whenever a new cookie or integration needs a fresh choice (the cookie policy requires it). */
+export const CONSENT_VERSION = 2;
 
 export type CookieConsent = {
-  version: 1;
+  version: typeof CONSENT_VERSION;
   necessary: true;
   analytics: boolean;
   marketing: boolean;
   savedAt: number;
 };
 
-export function parseConsent(raw: string | null, now = Date.now()): CookieConsent | null {
-  if (!raw) return null;
-  try {
-    const value = JSON.parse(raw);
-    if (
-      value?.version !== 1 || value.necessary !== true ||
-      typeof value.analytics !== "boolean" || typeof value.marketing !== "boolean" ||
-      typeof value.savedAt !== "number" || !Number.isFinite(value.savedAt) ||
-      value.savedAt > now || now - value.savedAt >= CONSENT_MAX_AGE
-    ) return null;
-    return value;
-  } catch {
-    return null;
-  }
+export type ConsentSignal = "granted" | "denied";
+export type ConsentSignals = {
+  analytics_storage: ConsentSignal;
+  ad_storage: ConsentSignal;
+  ad_user_data: ConsentSignal;
+  ad_personalization: ConsentSignal;
+};
+
+/** Cookie value: `2.<analytics 0|1>.<marketing 0|1>.<savedAt in seconds>`. */
+export function serializeConsent(consent: Pick<CookieConsent, "analytics" | "marketing" | "savedAt">) {
+  return `${CONSENT_VERSION}.${consent.analytics ? 1 : 0}.${consent.marketing ? 1 : 0}.${Math.floor(consent.savedAt / 1000)}`;
 }
 
-// Optional integrations must check the current preference before loading.
-// No analytics or marketing integrations are currently installed.
+export function parseConsent(raw: string | null, now = Date.now()): CookieConsent | null {
+  const match = raw ? /^(\d+)\.([01])\.([01])\.(\d{1,12})$/.exec(raw) : null;
+  if (!match || Number(match[1]) !== CONSENT_VERSION) return null;
+  const savedAt = Number(match[4]) * 1000;
+  if (savedAt > now || now - savedAt >= CONSENT_MAX_AGE) return null;
+  return { version: CONSENT_VERSION, necessary: true, analytics: match[2] === "1", marketing: match[3] === "1", savedAt };
+}
+
+/** Consent Mode v2 signals: analytics_storage follows analytics; the three advertising signals follow marketing. */
+export function consentSignals(consent: Pick<CookieConsent, "analytics" | "marketing"> | null): ConsentSignals {
+  const analytics: ConsentSignal = consent?.analytics ? "granted" : "denied";
+  const marketing: ConsentSignal = consent?.marketing ? "granted" : "denied";
+  return { analytics_storage: analytics, ad_storage: marketing, ad_user_data: marketing, ad_personalization: marketing };
+}
+
+// Optional integrations must check the current preference before loading (see modules/analytics/track.ts).
 let sessionConsent: string | null = null;
 export function consentSnapshot(): string | null {
   try {
-    return window.localStorage.getItem(CONSENT_KEY) ?? sessionConsent;
+    window.localStorage.removeItem(LEGACY_CONSENT_KEY);
   } catch {
-    return sessionConsent;
+    // Storage may be blocked; the legacy record is ignored anyway.
   }
+  const found = document.cookie.split("; ").find(part => part.startsWith(`${CONSENT_COOKIE}=`));
+  return found ? found.slice(CONSENT_COOKIE.length + 1) : sessionConsent;
 }
 
 export function saveConsent(analytics: boolean, marketing: boolean) {
-  const consent: CookieConsent = { version: 1, necessary: true, analytics, marketing, savedAt: Date.now() };
-  sessionConsent = JSON.stringify(consent);
-  try {
-    window.localStorage.setItem(CONSENT_KEY, sessionConsent);
-  } catch {
-    // Keep the preference for this page when browser storage is unavailable.
-  }
+  const consent: CookieConsent = { version: CONSENT_VERSION, necessary: true, analytics, marketing, savedAt: Date.now() };
+  const value = serializeConsent(consent);
+  sessionConsent = value;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${CONSENT_COOKIE}=${value}; Path=/; Max-Age=${CONSENT_MAX_AGE / 1000}; SameSite=Lax${secure}`;
+  if (!analytics) clearTrackingCookies();
   window.dispatchEvent(new CustomEvent(CONSENT_EVENT, { detail: consent }));
+  // The server writes the same cookie, so Safari keeps it for the full 180 days instead of 7.
+  void fetch("/api/consent", {
+    method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ analytics, marketing }),
+  }).catch(() => undefined);
 }
 
 export function subscribeConsent(callback: () => void) {
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === CONSENT_KEY || event.key === null) {
-      sessionConsent = null;
-      callback();
-    }
-  };
-  window.addEventListener("storage", onStorage);
+  const onVisible = () => { if (document.visibilityState === "visible") callback(); };
   window.addEventListener(CONSENT_EVENT, callback);
+  document.addEventListener("visibilitychange", onVisible);
   return () => {
-    window.removeEventListener("storage", onStorage);
     window.removeEventListener(CONSENT_EVENT, callback);
+    document.removeEventListener("visibilitychange", onVisible);
   };
+}
+
+const trackingCookie = /^(_ga|_ga_.+|_gcl_.+|_gid|_gat.*|_fbp|_fbc)$/;
+
+/** Deletes the analytics and advertising cookies for the host and every parent domain. */
+export function clearTrackingCookies() {
+  const parts = window.location.hostname.split(".");
+  const domains = [null, ...parts.slice(0, -1).map((_, index) => `.${parts.slice(index).join(".")}`)];
+  for (const entry of document.cookie.split("; ")) {
+    const name = entry.split("=")[0];
+    if (!trackingCookie.test(name)) continue;
+    for (const domain of domains) {
+      document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${domain ? `; Domain=${domain}` : ""}`;
+    }
+  }
 }

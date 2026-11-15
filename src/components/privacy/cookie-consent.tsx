@@ -7,19 +7,34 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { consentSnapshot, parseConsent, saveConsent, subscribeConsent } from "@/lib/cookie-consent";
+import { useConsentServices } from "@/components/privacy/tag-manager";
 
 const serverSnapshot = () => undefined;
 const focusSettings = (node: HTMLFieldSetElement | null) => node?.focus({ preventScroll: true });
 
 const action = "h-auto min-h-[35px] rounded-[4px] border border-primary bg-primary px-3 py-2 text-xs leading-[18px] font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:min-h-11 max-[600px]:flex-auto";
 const secondary = cn(action, "border-[#bcc6d0] bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
-const options = [
-  { key: "necessary", title: "Gerekli çerezler", text: "Oturum, sepet ve garaj işlevleri için gereklidir. Her zaman aktiftir." },
-  { key: "analytics", title: "Analiz çerezleri", text: "Site kullanımını anlamaya yardımcı olur. Şu anda analiz hizmeti kullanılmıyor." },
-  { key: "marketing", title: "Reklam ve kişiselleştirme çerezleri", text: "İlgi alanlarına uygun reklam ve teklifler içindir. Şu anda reklam hizmeti kullanılmıyor." },
-] as const;
+const optionTexts = {
+  necessary: { title: "Gerekli çerezler", text: "Oturum, sepet ve garaj işlevleri için gereklidir. Her zaman aktiftir." },
+  analytics: {
+    title: "Analiz çerezleri",
+    text: "Ziyaret ve alışveriş adımlarını ölçmek için Google Analytics kullanılır. Yalnızca izin verirsen yüklenir.",
+    idle: "Site kullanımını anlamaya yardımcı olur. Şu anda analiz hizmeti kullanılmıyor.",
+  },
+  marketing: {
+    title: "Reklam ve kişiselleştirme çerezleri",
+    text: "Reklamların etkisini ölçmek için Google Ads ve Meta kullanılır. Yalnızca izin verirsen yüklenir.",
+    idle: "İlgi alanlarına uygun reklam ve teklifler içindir. Şu anda reklam hizmeti kullanılmıyor.",
+  },
+};
 
 export function CookieConsent() {
+  const services = useConsentServices();
+  const options = [
+    { key: "necessary", ...optionTexts.necessary },
+    { key: "analytics", title: optionTexts.analytics.title, text: services.analytics ? optionTexts.analytics.text : optionTexts.analytics.idle },
+    { key: "marketing", title: optionTexts.marketing.title, text: services.marketing ? optionTexts.marketing.text : optionTexts.marketing.idle },
+  ] as const;
   const raw = useSyncExternalStore(subscribeConsent, consentSnapshot, serverSnapshot);
   const consent = parseConsent(raw ?? null);
   const [settings, setSettings] = useState(false);
@@ -52,10 +67,8 @@ export function CookieConsent() {
         <div className="mx-auto max-w-[1404px] px-[38px] pt-[18px] pb-[calc(10px+env(safe-area-inset-bottom))] max-[600px]:p-4 max-[600px]:pb-[calc(16px+env(safe-area-inset-bottom))]">
           <h2 id="cookie-title" className="mt-0 mb-[7px] text-base leading-6 font-semibold tracking-normal">Bu web sitesi çerez kullanır</h2>
           <p className="mt-0 mb-3 text-xs leading-[21px] max-[600px]:leading-5">
-            Sitemizin çalışması, oturumunuzun korunması, sepetinizin ve araç tercihlerinizin hatırlanması için gerekli çerezleri kullanıyoruz.
-            İzninizle analiz ve kişiselleştirilmiş reklamlar için ek çerezlerin kullanımına da izin verebilirsiniz.
-            Tümünü kabul edebilir, ek çerezleri reddedebilir veya “Tercihleri ayarla” ile seçim yapabilirsiniz.
-            Tercihinizi dilediğiniz zaman sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
+            Sitemizin çalışması, sepetinizin ve araç tercihlerinizin hatırlanması için gerekli çerezleri kullanıyoruz.
+            Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
             Ayrıntılar için <Link href="/bilgi/cerez-politikasi" className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
           </p>
           {settings && <fieldset id="cookie-settings" tabIndex={-1} ref={focusSettings} className="m-0 mb-3.5 grid min-w-0 gap-3.5 rounded-[4px] border border-[#dfe4e9] px-4 py-3 outline-none max-[600px]:p-2.5">

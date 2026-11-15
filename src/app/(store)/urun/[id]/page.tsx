@@ -34,6 +34,8 @@ import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { JsonLd } from "@/components/json-ld";
+import { TrackViewItem } from "@/components/privacy/track-events";
+import { catalogItem } from "@/modules/analytics/events";
 import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
 import { hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
@@ -171,7 +173,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
   const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
   return <div className="text-sm leading-5 text-foreground"><section className={shell}>
-    <JsonLd data={structuredProduct}/>{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
+    <JsonLd data={structuredProduct}/>{product.price_kurus !== null && !product.unavailable && <TrackViewItem item={catalogItem({ id: product.id, name: title, brand, category: productCategoryPath.map(node => node.name).join(" > ") || category?.name }, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0))}/>}{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
     <Breadcrumb aria-label="Sayfa yolu" className="py-3">
       <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:text-[11px]">
         {trail.map((crumb, index) => index === trail.length - 1
