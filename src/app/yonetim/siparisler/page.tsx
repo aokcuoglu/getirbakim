@@ -82,7 +82,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                       {o.agreement_at ? <dd className="flex flex-col items-start gap-2">
                         <Badge variant="success"><CircleCheck data-icon="inline-start"/>Sözleşme onaylandı</Badge>
                         <span>{time(o.agreement_at)} · IP {o.agreement_ip ?? "kaydedilmedi"} · Sürüm {o.agreement_version}</span>
-                        <span className="max-w-md truncate text-muted-foreground" title={o.agreement_user_agent ?? undefined}>{o.agreement_user_agent ?? "Tarayıcı bilgisi yok"}</span>
+                        <span className="break-all text-muted-foreground">{o.agreement_user_agent ?? "Tarayıcı bilgisi yok"}</span>
                         <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/siparis/${o.id}/sozlesme`}/>}>Sözleşme kopyası</Button>
                       </dd> : <dd><Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Onay kaydı yok</Badge></dd>}
                     </div>
