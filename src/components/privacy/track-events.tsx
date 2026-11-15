@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { subscribeConsent } from "@/lib/cookie-consent";
 import { search, selectItem, viewItem, viewItemList, type AnalyticsItem } from "@/modules/analytics/events";
+import { productIdFromHref } from "@/modules/seo/product-id";
 import { TAG_READY_EVENT, track } from "@/modules/analytics/track";
 
 /** Runs `send` until it reports the event queued: on mount, when the tag becomes ready, or when consent changes. */
@@ -50,7 +51,7 @@ function ItemList({ listId, listName, items, searchTerm }: ListProps) {
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
       const link = (event.target as Element | null)?.closest<HTMLAnchorElement>("[data-catalog-page] a[href^='/urun/']");
-      const id = link?.getAttribute("href")?.split(/[/?#]/)[2];
+      const id = productIdFromHref(link?.getAttribute("href") ?? "");
       const item = items.find(entry => entry.item_id === id);
       if (item) track("select_item", selectItem({ listId, listName, items: [item] }));
     };

@@ -3,7 +3,8 @@ import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { batches, diffChunk, indexNowBatchLimit, indexNowConfig, indexNowDisabledReason, indexNowSendable, removalAnomaly, submitUrls, type IndexNowConfig,
   type IndexNowRow } from "../src/modules/seo/indexnow";
-import { absoluteUrl, productPath } from "../src/modules/seo/paths";
+import { absoluteUrl } from "../src/modules/seo/paths";
+import { productPath } from "../src/modules/seo/product-path";
 import { productChunks } from "../src/modules/seo/sitemap";
 import { siteUrl } from "../src/lib/site";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
@@ -70,7 +71,7 @@ describe("IndexNow helpers", () => {
   });
 
   test("diffChunk: new, changed, removed and moved pages", () => {
-    const row = (id: string, fingerprint: string, path = productPath(id)): IndexNowRow => ({ id, path, fingerprint });
+    const row = (id: string, fingerprint: string, path = `/urun/${id}`): IndexNowRow => ({ id, path, fingerprint });
     const known = [row("a", "1"), row("b", "1"), row("c", "1"), row("d", "1", "/urun/old-d")];
     const current = [row("a", "1"), row("b", "2"), row("d", "1"), row("e", "1")];
     const diff = diffChunk(current, known);
@@ -193,6 +194,11 @@ describe("IndexNow runs", () => {
   }
   const rename = (name: string, value: string) =>
     schema.pool.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{ac}',to_jsonb($2::text)) WHERE id=$1`, [ids[name], value]);
+  // The page's address from the catalog view (the page's own source), apart from the sitemap's columns.
+  const addressOf = async (id: string) => productPath((await schema.pool.query<{ id: string; name: string; display_brand: string; display_code: string }>(
+    "SELECT id::text,name,display_brand,display_code FROM commerce_catalog_entries WHERE id=$1", [id])).rows[0]);
+  const pathNow = (key: string) => addressOf(ids[key]);
+  const both = (...paths: string[]) => [...new Set(paths)].map(url).sort();
   const known = async () => new Map((await schema.pool.query<{ id: string; fingerprint: string }>(
     "SELECT product_id::text AS id,fingerprint::text AS fingerprint FROM indexnow_urls")).rows.map(row => [row.id, row.fingerprint]));
   const sent = (calls: Call[]) => calls.flatMap(call => call.body.urlList).sort();
@@ -232,7 +238,7 @@ describe("IndexNow runs", () => {
       const pages = await indexnow.loadIndexNowChunk(index);
       assert.deepEqual(pages.map(page => page.id), (await sitemap.loadProductChunk(index)).map(row => row.id), `chunk ${index}`);
       for (const page of pages) {
-        assert.equal(page.path, productPath(page.id));
+        assert.equal(page.path, await addressOf(page.id));
         assert.match(page.fingerprint, /^[0-9a-f-]{36}$/);
       }
     }
@@ -268,14 +274,17 @@ describe("IndexNow runs", () => {
     assert.deepEqual(runs, [{ mode: "seed", status: "completed", added: 12, finished: true }]);
   });
 
-  test("a renamed product sends only its URL", async () => {
+  test("a renamed product sends its old and new address", async () => {
     const before = await known();
+    const oldPath = await pathNow("alpha");
     await rename("alpha", "YENI ALPHA");
     const network = fakeFetch([202]);
     const result = await run({ network });
     assert.equal(result.status, "completed");
     assert.equal(network.calls.length, 1);
-    assert.deepEqual(network.calls[0].body, { host: new URL(siteUrl).host, key, keyLocation: `${siteUrl}/${key}.txt`, urlList: [url(productPath(ids.alpha))] });
+    assert.deepEqual({ ...network.calls[0].body, urlList: [...network.calls[0].body.urlList].sort() },
+      { host: new URL(siteUrl).host, key, keyLocation: `${siteUrl}/${key}.txt`, urlList: both(oldPath, await pathNow("alpha")) });
+    assert.notEqual(oldPath, await pathNow("alpha"));
     assert.equal(result.changed, 1);
     const after = await known();
     assert.notEqual(after.get(ids.alpha), before.get(ids.alpha));
@@ -302,13 +311,16 @@ describe("IndexNow runs", () => {
       ["enriched", "UPDATE product_enrichment_shared_links SET imported_at=now() WHERE supplier_item_id=$1", [ids.enriched]],
     ];
     for (const [name, sql, values] of steps) {
+      const oldPath = await pathNow(name);
       await schema.pool.query(sql, values);
       const network = fakeFetch([200]);
       const result = await run({ network });
       assert.equal(result.status, "completed", name);
       assert.equal(result.changed, 1, name);
       assert.equal(result.removed, 0, name);
-      assert.deepEqual(sent(network.calls), [url(productPath(ids[name]))], name);
+      // A new brand or part number moves the address (old one reported too); the rest changes the content only.
+      assert.deepEqual(sent(network.calls), both(oldPath, await pathNow(name)), name);
+      assert.equal(oldPath !== await pathNow(name), name === "omega" || name === "kappa", name);
     }
     await schema.pool.query("UPDATE product_enrichment_shared_links SET imported_at=now() WHERE supplier_item_id=$1", [ids.staleLink]);
     const network = fakeFetch([200]);
@@ -331,11 +343,12 @@ describe("IndexNow runs", () => {
   });
 
   test("an inactive product reports its old URL and leaves the state", async () => {
+    const betaPath = await pathNow("beta");
     await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE id=$1", [ids.beta]);
     const network = fakeFetch([200]);
     const result = await run({ network });
     assert.equal(result.removed, 1);
-    assert.deepEqual(sent(network.calls), [url(productPath(ids.beta))]);
+    assert.deepEqual(sent(network.calls), [url(betaPath)]);
     assert.equal((await known()).has(ids.beta), false);
   });
 
@@ -360,6 +373,7 @@ describe("IndexNow runs", () => {
 
   test("a failed request keeps the state; the next run sends again", async () => {
     const before = await known();
+    const gammaPath = await pathNow("gamma");
     await rename("gamma", "YENI GAMMA");
     const rejected = fakeFetch([403]);
     const failed = await run({ network: rejected });
@@ -371,21 +385,22 @@ describe("IndexNow runs", () => {
     const result = await run({ network: retry });
     assert.equal(result.status, "completed");
     assert.equal(result.startChunk, 40);
-    assert.deepEqual(sent(retry.calls), [url(productPath(ids.gamma))]);
+    assert.deepEqual(sent(retry.calls), both(gammaPath, await pathNow("gamma")));
     assert.notEqual((await known()).get(ids.gamma), before.get(ids.gamma));
   });
 
   test("the URL budget stops a run as partial; the next run continues there", async () => {
+    const [alphaPath, deltaPath, storePath] = [await pathNow("alpha"), await pathNow("delta"), await pathNow("store")];
     await rename("alpha", "UCUNCU ALPHA");
     await rename("delta", "YENI DELTA");
     await schema.pool.query("UPDATE store_products SET name='YENI MAGAZA PARCA'");
     const first = fakeFetch([200]);
-    // The last run completed from chunk 40: chunk 40 (delta) comes first, then 60 (store) would exceed the budget.
-    const partial = await run({ network: first, limit: 1 });
+    // The last run completed from chunk 40: chunk 40 (delta: old and new address) comes first, then 60 (store) would exceed the budget.
+    const partial = await run({ network: first, limit: 2 });
     assert.equal(partial.status, "partial");
     assert.equal(partial.startChunk, 40);
     assert.equal(partial.nextChunk, 60);
-    assert.deepEqual(sent(first.calls), [url(productPath(ids.delta))]);
+    assert.deepEqual(sent(first.calls), both(deltaPath, await pathNow("delta")));
     const recorded = (await schema.pool.query<{ status: string; next_chunk: number }>(
       "SELECT status,next_chunk FROM indexnow_runs ORDER BY id DESC LIMIT 1")).rows[0];
     assert.deepEqual(recorded, { status: "partial", next_chunk: 60 });
@@ -393,10 +408,32 @@ describe("IndexNow runs", () => {
     const rest = await run({ network: second, limit: 1 });
     assert.equal(rest.startChunk, 60);
     assert.equal(rest.status, "partial");
-    assert.deepEqual(sent(second.calls), [url(productPath(ids.store))]);
+    assert.deepEqual(sent(second.calls), both(storePath, await pathNow("store")));
     const third = fakeFetch([200]);
     const done = await run({ network: third });
     assert.equal(done.status, "completed");
-    assert.deepEqual(sent(third.calls), [url(productPath(ids.alpha))]);
+    assert.deepEqual(sent(third.calls), both(alphaPath, await pathNow("alpha")));
+  });
+
+  test("the slug release moves every address: old and new are reported, --seed records them silently", async () => {
+    // The state of the release before #640: every page known under its bare id address.
+    await schema.pool.query("UPDATE indexnow_urls SET path='/urun/'||product_id::text");
+    const total = (await known()).size;
+    const dry = await run({ network: fakeFetch([200]), dryRun: true });
+    assert.equal(dry.status, "completed");
+    assert.equal(dry.changed, total);
+    assert.equal(dry.removed, 0);
+    assert.equal(dry.urls, total * 2);
+    // Moved pages are no mass removal: only the daily budget slows the report (see docs/indexnow.md).
+    const network = fakeFetch([200]);
+    const seeded = await run({ network, mode: "seed" });
+    assert.equal(seeded.status, "completed");
+    assert.equal(seeded.changed, total);
+    assert.equal(network.calls.length, 0);
+    assert.equal((await schema.pool.query("SELECT 1 FROM indexnow_urls WHERE path NOT LIKE '/urun/%-%'")).rowCount, 0);
+    const after = fakeFetch([200]);
+    const quiet = await run({ network: after });
+    assert.equal(quiet.urls, 0);
+    assert.equal(after.calls.length, 0);
   });
 });

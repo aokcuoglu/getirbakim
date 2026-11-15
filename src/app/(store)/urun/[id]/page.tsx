@@ -2,7 +2,7 @@ import { Fragment, cache, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
 import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
@@ -43,6 +43,8 @@ import { catalogItem } from "@/modules/analytics/events";
 import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
 import { hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
+import { productPath } from "@/modules/seo/product-path";
+import { productIdFromSegment, productIdPath } from "@/modules/seo/product-id";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -53,6 +55,7 @@ const benefits = [
 
 // Metadata and the page read the same enrichment once per request. The enrichment is looked up by the supplier's code
 // and brand; display_code / display_brand (an admin's part number and store brand, #602) are only printed.
+const storeProduct = cache(getStoreProduct);
 const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
 // The vehicle models of the supplier's description: an index signal of the metadata (#641) and a section of the page.
 const descriptionFitments = cache(getDescriptionFitments);
@@ -76,10 +79,15 @@ async function indexable(product: Parameters<typeof productIndexable>[0] & { id:
   return productIndexable(product, productContent({ enrichment, descriptionModels: await descriptionFitments(product.id), oem: product.oem }));
 }
 
+// The route segment is "<slug>-<id>" (#640): only the id at its end finds the product, the slug is for people and engines.
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
-  const { id } = await params;
-  const product = await getStorefrontProduct(id);
+  const id = productIdFromSegment((await params).id);
+  if (!id) return { title: "Ürün bulunamadı", robots: { index: false } };
+  const { product, primaryId } = await storeProduct(id);
+  // A redirect (another address, another product) is thrown by the page; the metadata of the target is read there.
+  if (primaryId) return {};
   if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
+  const path = productPath(product);
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
   const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
     productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
@@ -96,20 +104,31 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return {
     title: meta.title,
     description: meta.description,
-    alternates: { canonical: `/urun/${id}` },
-    openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: `/urun/${id}`,
+    alternates: { canonical: path },
+    openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: path,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
     robots: await indexable(product, enrichment) ? undefined : { index: false, follow: true },
   };
 }
 
-export default async function Detail({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const { product, primaryId } = await getStoreProduct(id);
+export default async function Detail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const [{ id: segment }, query] = await Promise.all([params, searchParams]);
+  const id = productIdFromSegment(segment);
+  if (!id) notFound();
+  // This is the page's first await after the params: a redirect thrown once the response streams would become a meta tag.
+  const { product, primaryId } = await storeProduct(id);
+  const search = new URLSearchParams(Object.entries(query).flatMap(([key, value]) => (Array.isArray(value) ? value : value === undefined ? [] : [value]).map(item => [key, item] as [string, string]))).toString();
+  const withQuery = (path: string) => search ? `${path}?${search}` : path;
   // A supplier offer of a product several suppliers sell is shown on that product's page; a row the store does not
-  // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
-  if (primaryId) redirect(`/urun/${primaryId}`);
+  // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475). Temporary:
+  // the matching refresh rebuilds the offers, so a secondary row may show its own page tomorrow.
+  if (primaryId) {
+    const target = await getStorefrontProduct(primaryId);
+    redirect(withQuery(target ? productPath(target) : productIdPath(primaryId)));
+  }
   if (!product) notFound();
+  // The same product at another spelling (bare id, stale slug, upper case id) has one permanent address.
+  if (`/urun/${segment}` !== productPath(product)) permanentRedirect(withQuery(productPath(product)));
   const [enrichment, override, uploads, referenceOverrides, specOverrides, fitmentOverrides] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
     getItemImages(product.id), getItemReferences(product.id), getItemSpecs(product.id), getItemFitments(product.id)]);
   // The enrichment's vehicles without the types the admin removed, with the ones the admin added (#583).
@@ -143,8 +162,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const title = productTitle(override, enrichment?.displayName, readableProductName(product.name));
   const description = productDescription(override, enrichment?.description, product.description);
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
-  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, productId: product.id });
-  const structuredProduct = productJsonLd({ id: product.id, supplier: product.supplier, name: title, description: description || undefined, sku: product.code, mpn: displayPartNumber, brand,
+  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, path: productPath(product) });
+  const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
     images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
     priceKurus: product.price_kurus, available: product.available, stockLabel: product.stock_label, unavailable: product.unavailable,
@@ -177,10 +196,10 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const referenceRows: [string, { code: string; href?: string | null }[]][] = references.map(([brand, codes]) => [brand, codes.map(code => ({ code, href: referenceHref(brand, code) }))]);
   // Equivalents listed in the store link to their pages, first in their brand's row; a code printed by the
   // enrichment's references as well is shown once.
-  const linkEquivalents = (brand: string, items: { id: string | null; code: string }[]) => {
+  const linkEquivalents = (brand: string, items: { href: string | null; code: string }[]) => {
     // Dinamik codes carry the brand's first word ("WAGENBURG 15036003"), printed in the row's label already.
     const prefix = `${brand.split(" ")[0]} `;
-    const linked = items.map(item => ({ code: brand !== "SETA" && item.code.startsWith(prefix) ? item.code.slice(prefix.length) : item.code, href: item.id && `/urun/${item.id}` }));
+    const linked = items.map(item => ({ code: brand !== "SETA" && item.code.startsWith(prefix) ? item.code.slice(prefix.length) : item.code, href: item.href }));
     const existing = referenceRows.findIndex(([name]) => name.toLocaleUpperCase("tr-TR") === brand.toLocaleUpperCase("tr-TR"));
     if (existing >= 0) {
       const [name, codes] = referenceRows[existing];
@@ -188,7 +207,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
     } else referenceRows.push([brand, linked]);
   };
   // SETA equivalents under the part number the store shows for them (#602).
-  if (seta.length > 0) linkEquivalents("SETA", seta.map(item => ({ id: item.id, code: item.display_code })));
+  if (seta.length > 0) linkEquivalents("SETA", seta.map(item => ({ href: productPath(item), code: item.display_code })));
   const decidedBrands = new Map<string, typeof decided>();
   for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
   for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);

@@ -1,5 +1,5 @@
 import { siteUrl } from "@/lib/site";
-import { absoluteUrl, categoryPath, makePath, productPath } from "@/modules/seo/paths";
+import { absoluteUrl, categoryPath, makePath } from "@/modules/seo/paths";
 import { parseSitemapFile, renderUrlset, sitemapEnabled, staticPaths, xmlHeaders, type SitemapEntry, type SitemapFile } from "@/modules/seo/sitemap";
 import { cachedCategorySlugs, cachedMakeSlugs, cachedProductChunk } from "@/modules/seo/sitemap-cache";
 
@@ -11,7 +11,7 @@ async function entries(file: SitemapFile): Promise<SitemapEntry[]> {
     case "pages": return staticPaths.map(page => ({ url: absoluteUrl(siteUrl, page.path), lastModified: page.lastModified }));
     case "categories": return (await cachedCategorySlugs()).map(slug => ({ url: absoluteUrl(siteUrl, categoryPath(slug)) }));
     case "makes": return (await cachedMakeSlugs()).map(slug => ({ url: absoluteUrl(siteUrl, makePath(slug)) }));
-    case "products": return (await cachedProductChunk(file.index)).map(row => ({ url: absoluteUrl(siteUrl, productPath(row.id)), lastModified: row.lastmod }));
+    case "products": return (await cachedProductChunk(file.index)).map(row => ({ url: absoluteUrl(siteUrl, row.path), lastModified: row.lastmod }));
   }
 }
 

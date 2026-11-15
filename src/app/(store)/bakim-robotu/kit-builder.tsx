@@ -93,7 +93,7 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
                     <span className="text-xs font-normal text-muted-foreground">{money(cheapest.priceKurus)}{inBrand.length > 1 && active ? "+" : ""}</span></button>; })}
               </div>
               {selected && <div className="mt-4 grid grid-cols-[72px_minmax(0,1fr)] items-center gap-4 max-[600px]:grid-cols-[56px_minmax(0,1fr)]">
-                <Link href={`/urun/${selected.id}`} className="grid size-[72px] place-items-center rounded-lg border border-border bg-white max-[600px]:size-14" aria-label={`${selected.brand} ${selected.code} ürün sayfası`}>
+                <Link href={selected.href} className="grid size-[72px] place-items-center rounded-lg border border-border bg-white max-[600px]:size-14" aria-label={`${selected.brand} ${selected.code} ürün sayfası`}>
                   {selected.image ? <Image src={selected.image.src} width={selected.image.width} height={selected.image.height} alt="" className="size-16 object-contain max-[600px]:size-12" unoptimized/> : <PartArtImage kind={meta.art} className="size-12"/>}</Link>
                 <div className="min-w-0">
                   {inBrand.length > 1 ? <label className="block"><span className="mb-1 block text-xs leading-4 text-muted-foreground">{selected.brand} ürünü</span>

@@ -53,8 +53,11 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Araç markası | `/yedek-parca/<marka>` | |
 | Kategori | `/kategori/<kategori>` | |
 | Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
+| Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Kimlik yoksa `/urun/<id>` |
 | Model, model × kategori | `/yedek-parca/<marka>/<model>`, `/kategori/<kategori>/<marka>/<model>` | #639 için ayrıldı |
 | Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
+
+Ürün adresleri (#640): çıplak kimlik, bayat slug ya da büyük harfli kimlik sayfada tek adımda `308` ile güncel adrese gider; ikincil teklifin kimliği (`primaryId`) doğrudan birincil ürünün slug'lı adresine `307` ile gider (eşleştirme yenilenince değişebilir, kalıcılanmaz). Sorgu dizgesi (`utm_*`, `gclid`) her iki yönlendirmede korunur. `/yonetim` bağlantıları çıplak kimlik kullanır (`productIdPath`) ve bu yönlendirmelerden geçer.
 
 Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori veya marka `404` döner. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
 
