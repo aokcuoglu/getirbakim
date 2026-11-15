@@ -247,6 +247,8 @@ test("cancelling returns only the stock each line reserved, once; a refund is th
   assert.deepEqual(await reserved(id), [0, 0, 0]);
   const cancelled = await row(id);
   assert.equal(cancelled.status, "cancelled"); assert.equal(cancelled.payment_status, "refund_required");
+  // Who cancelled and when (#607).
+  assert.equal(cancelled.cancelled_by, "admin"); assert.ok(cancelled.cancelled_at instanceof Date);
   // A second cancel is refused and cannot restore again.
   assert.equal(await orders.transitionOrder(id, "cancelled"), false);
   assert.equal(await stock(), 12);
@@ -278,6 +280,7 @@ test("expiry returns only reserved stock and clears it", async () => {
   await payments.reconcileOrderPayments(id);
   const expired = await row(id);
   assert.equal(expired.status, "cancelled"); assert.equal(expired.payment_status, "expired");
+  assert.equal(expired.cancelled_by, "expiry");
   assert.equal(await stock(), 11);
   assert.deepEqual(await reserved(id), [0, 0]);
   await payments.reconcileOrderPayments(id);

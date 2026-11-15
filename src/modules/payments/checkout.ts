@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
-import { releaseReservedStock } from "@/modules/store/stock-reservation";
+import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import {
   createHostedToken, buildHostedPaymentUrl, queryPaymentByOrderId, verifiedPaymentSuccess, verifySecurityHash,
   TamiRequestError, type TamiQueryResponse,
@@ -136,8 +136,9 @@ function providerResult(query: TamiQueryResponse) {
 /**
  * Asks TAMI about every open attempt of an order, records verified payments and expires unpaid orders.
  * Callback parameters are never trusted; the signed provider query is the only evidence of payment.
+ * `uncertain` is true when an attempt got no definite answer (network error, unsigned reply): it may hide a payment.
  */
-export async function reconcileOrderPayments(orderId: string, { minIntervalSeconds = 0 } = {}) {
+export async function reconcileOrderPayments(orderId: string, { minIntervalSeconds = 0 } = {}): Promise<{ uncertain: boolean }> {
   // Page views pass an interval so refreshes do not flood the provider.
   const attempts = (await db.query<Attempt>(
     `SELECT id,provider_order_id,amount_kurus,status,hosted_url,created_at,provider_result FROM commerce_payments WHERE order_id=$1 AND status IN ('initiated','pending')
@@ -164,6 +165,7 @@ export async function reconcileOrderPayments(orderId: string, { minIntervalSecon
   }
   // An unanswered query may hide a payment; expiry waits for a definite answer.
   if (!uncertain) await expireIfDue(orderId);
+  return { uncertain };
 }
 
 async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryResponse) {
@@ -188,10 +190,14 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
     } else if (order.status === "awaiting_payment") {
       await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now() WHERE id=$1", [orderId]);
       await clearPurchasedCart(client, orderId);
+    } else if (order.status === "cancelled" && order.payment_status === "cancelled") {
+      // The customer cancelled before this capture landed (#607): the order stays cancelled and the money goes back.
+      await client.query("UPDATE commerce_orders SET payment_status='refund_required',paid_at=now() WHERE id=$1", [orderId]);
+      await appendNote(client, orderId, `Müşteri iptal ettikten sonra ödeme alındı (${attempt.provider_order_id}); Siparişler'den TAMI ile iade edin.`);
     } else if (order.status === "cancelled" && order.payment_status === "expired") {
       // Paid after the window closed: take the order back if in-house stock still allows it.
       const short = await reserveStoreStock(client, orderId);
-      await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now() WHERE id=$1", [orderId]);
+      await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now(),cancelled_by=NULL,cancelled_at=NULL WHERE id=$1", [orderId]);
       await appendNote(client, orderId, short
         ? "Ödeme süre dolduktan sonra alındı ve mağaza stoku yetersiz; stok/iade kararı verin."
         : "Ödeme süre dolduktan sonra alındı; fiyat ve stok teyidini yapın.");
@@ -236,10 +242,7 @@ async function expireIfDue(orderId: string) {
       `SELECT id FROM commerce_orders WHERE id=$1 AND status='awaiting_payment' AND payment_status='awaiting' AND payment_due_at<=now()
        AND NOT EXISTS(SELECT 1 FROM commerce_payments WHERE order_id=$1 AND status='succeeded') FOR UPDATE`, [orderId],
     )).rows[0];
-    if (order) {
-      await releaseReservedStock(client, orderId);
-      await client.query("UPDATE commerce_orders SET status='cancelled',payment_status='expired' WHERE id=$1", [orderId]);
-    }
+    if (order) await cancelLockedOrder(client, orderId, "expiry");
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
