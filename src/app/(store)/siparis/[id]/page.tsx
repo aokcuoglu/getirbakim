@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { money } from "@/modules/store/catalog";
 import { orderStatus, paymentStatus } from "@/modules/store/orders";
-import { paymentsEnabled, reconcileOrderPayments } from "@/modules/payments/checkout";
+import { INTERACTIVE_RECONCILE_MS, paymentsEnabled, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { PaymentWatcher } from "@/components/payment-watcher";
 import { PayButton } from "@/components/pay-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
@@ -52,9 +52,10 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const [{id},query]=await Promise.all([params,searchParams.then(normalizeSearchParams)]);
   let result=await currentOrder(id);
   if(!result) notFound();
-  if(result.order.payment_status==="awaiting") {
-    // The customer may land here before TAMI's callback; ask the provider directly.
-    try { await reconcileOrderPayments(id,{minIntervalSeconds:5}); result=await currentOrder(id) ?? result; }
+  if(result.order.payment_status==="awaiting" && query.odeme==="sonuc") {
+    // Back from TAMI: the callback has normally reconciled already; this bounded check covers a slow callback.
+    // Other views never wait on TAMI while rendering; PaymentWatcher checks once after the page is shown (#711).
+    try { await reconcileOrderPayments(id,{minIntervalSeconds:5,deadlineMs:INTERACTIVE_RECONCILE_MS}); result=await currentOrder(id) ?? result; }
     catch(error) { console.error("Order page payment reconciliation failed",{id,error:error instanceof Error ? error.message : error}); }
   }
   const {order,items,agreement,mine}=result;
@@ -101,8 +102,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {awaitingCancel && !paymentsEnabled() && <div className="mt-3">{cancelButton("awaiting_payment")}</div>}
     {awaiting && paymentsEnabled() && <Card className={cn(panel,"mt-3 gap-3 ring-0")}><PayButton orderId={order.id} total={total}>{order.payment_due_at && <small className="text-sm leading-[22px] text-muted-foreground">Son ödeme zamanı: {time(order.payment_due_at)}</small>}</PayButton>
       <p className={panelMuted}>Ödeme TAMI’nin güvenli penceresinde alınır; site arkada açık kalır. Ödeme tamamlanınca bu sayfa kendiliğinden güncellenir. Hata alırsan pencereyi kapatıp yeniden dene; sepetin ve siparişin korunur.</p>
-      {awaitingCancel && <div>{cancelButton("awaiting_payment")}</div>}
-      <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/></Card>}
+      {awaitingCancel && <div>{cancelButton("awaiting_payment")}</div>}</Card>}
+    {order.payment_status==="awaiting" && <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/>}
     {snapshotOrder && <p className={muted}>Bu sipariş Başbuğ’un kayıtlı fiyat ve stok verileriyle oluşturuldu. Sipariş anında canlı API doğrulaması yapılmadı.</p>}
     <p className={muted}>{time(order.created_at)} · %{order.discount_percent} servis indirimi · Ödeme: {paymentStatus[order.payment_status]}{order.paid_at ? ` (${time(order.paid_at)})` : ""}</p>
     <div className="mb-[45px] grid grid-cols-2 gap-[60px] max-[1000px]:gap-[30px] max-[600px]:grid-cols-1 max-[600px]:gap-5"><article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Sipariş ürünleri</h2>{items.map(p=><div key={p.product_id} className="flex items-start justify-between gap-6 border-b border-border py-4 wrap-anywhere max-[600px]:flex-col max-[600px]:gap-2"><div className="min-w-0"><strong className="font-semibold">{p.name}</strong><p className={panelMuted}>{p.code} · {p.quantity} adet × {money(Number(p.unit_price_kurus))}</p>{p.pricing_snapshot?.checkout_mode==="snapshot" && typeof p.pricing_snapshot.observed_at==="string" && <small className="text-sm leading-[22px] text-muted-foreground">Kaynak veri: {time(new Date(p.pricing_snapshot.observed_at))}</small>}

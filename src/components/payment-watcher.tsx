@@ -16,6 +16,8 @@ export function PaymentWatcher({orderId,state}:{orderId:string;state:string}) {
       finally { busy=false; }
     };
     const timer=setInterval(check,5000);
+    // The order page no longer waits for TAMI; this first check replaces it (#711).
+    void check();
     // Returning from TAMI's tab should update immediately.
     const onFocus=()=>{ void check(); };
     window.addEventListener("focus",onFocus);document.addEventListener("visibilitychange",onFocus);
