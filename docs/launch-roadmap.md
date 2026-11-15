@@ -53,7 +53,7 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Araç markası | `/yedek-parca/<marka>` | |
 | Kategori | `/kategori/<kategori>` | |
 | Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
-| Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Kimlik yoksa `/urun/<id>` |
+| Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Slug boş kalırsa adres `/urun/<id>` |
 | Model, model × kategori | `/yedek-parca/<marka>/<model>`, `/kategori/<kategori>/<marka>/<model>` | #639 için ayrıldı |
 | Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
 

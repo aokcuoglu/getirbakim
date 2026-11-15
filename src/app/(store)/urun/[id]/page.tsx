@@ -81,13 +81,15 @@ async function indexable(product: Parameters<typeof productIndexable>[0] & { id:
 
 // The route segment is "<slug>-<id>" (#640): only the id at its end finds the product, the slug is for people and engines.
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
-  const id = productIdFromSegment((await params).id);
+  const segment = (await params).id;
+  const id = productIdFromSegment(segment);
   if (!id) return { title: "Ürün bulunamadı", robots: { index: false } };
   const { product, primaryId } = await storeProduct(id);
   // A redirect (another address, another product) is thrown by the page; the metadata of the target is read there.
   if (primaryId) return {};
   if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
   const path = productPath(product);
+  if (`/urun/${segment}` !== path) return {};
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
   const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
     productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
