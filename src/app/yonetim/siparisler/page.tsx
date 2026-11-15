@@ -13,6 +13,7 @@ import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog"
 import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
 import { OrderLinesDialog } from "@/components/admin/order-lines-dialog";
 import { supplierNames } from "@/modules/admin/products";
+import { orderLineView } from "@/modules/admin/order-procurement";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -87,7 +88,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
       <CardContent>
         {shown.length ? <Table server>
           <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer">Müşteri</TableHead>
-            <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead filter={{ param: "tedarik", options: [{ value: "open", label: "Tedarik bekleyen" }, { value: "done", label: "Tedariki tamam" }] }}>Tedarik</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
+            <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead filter={{ param: "tedarik", options: [{ value: "open", label: "Tedarik bekleyen" }, { value: "done", label: "Tedarik edilen" }] }}>Tedarik</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
           <TableBody>{shown.map(o => {
             const refundable = refundablePayments(o, o.payments, o.refunds);
             const pendingRefunds = o.refunds.filter(r => r.status === "requested" || r.status === "unknown");
@@ -140,7 +141,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell><OrderStatusBadge status={o.status}/></TableCell>
             <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
               editable={["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status)}
-              lines={o.lines.map(line => ({ ...line, supplier_label: supplierNames[line.supplier] ?? line.supplier }))}/></TableCell>
+              lines={o.lines.map(line => orderLineView(line, supplierNames[line.supplier] ?? line.supplier))}/></TableCell>
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
             <TableCell>

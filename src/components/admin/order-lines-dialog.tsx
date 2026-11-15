@@ -2,12 +2,9 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import { CircleAlert, Clock, Save } from "lucide-react";
+import { CircleAlert, Clock, Package, Save } from "lucide-react";
 import { saveLineProcurement, type ProcurementResult } from "@/modules/admin/commerce-actions";
-import {
-  lineFigures, lineScope, needsProcurement, procurementLabel, procurementStatuses, procurementSummary, supplierItemHref,
-  type AdminOrderLine, type ProcurementStatus,
-} from "@/modules/admin/order-procurement";
+import { procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
 import { formatDateTime } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
@@ -19,8 +16,6 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export type OrderLineView = AdminOrderLine & { supplier_label: string };
-
 const time = (value: string) => formatDateTime(value, { year: true });
 const procurementTone: Record<ProcurementStatus, StatusTone> = { pending: "warning", ordered: "info", procured: "success" };
 
@@ -28,7 +23,7 @@ function ProcurementSummaryBadge({ lines, active }: { lines: OrderLineView[]; ac
   const summary = procurementSummary(lines);
   // Orders past procurement (shipped, delivered, cancelled, unpaid) had no tracking before #606: no pending badge.
   const recorded = summary.ordered + summary.procured > 0;
-  if (!active && !recorded) return <StatusBadge tone="neutral">Kalemler ({lines.length})</StatusBadge>;
+  if (!active && !recorded) return <StatusBadge tone="neutral" icon={Package}>Kalemler ({lines.length})</StatusBadge>;
   if (summary.needed === 0) return <StatusBadge tone="neutral">Mağaza stoku</StatusBadge>;
   if (summary.pending > 0) return <StatusBadge tone="warning" icon={Clock}>Tedarik bekliyor {summary.pending}/{summary.needed}</StatusBadge>;
   if (summary.ordered > 0) return <StatusBadge tone="info">Sipariş verildi {summary.ordered}/{summary.needed}</StatusBadge>;
@@ -36,7 +31,7 @@ function ProcurementSummaryBadge({ lines, active }: { lines: OrderLineView[]; ac
 }
 
 function LineProcurementBadge({ line }: { line: OrderLineView }) {
-  if (!needsProcurement(line)) return <StatusBadge tone="neutral">Mağaza stoku</StatusBadge>;
+  if (!line.needsProcurement) return <StatusBadge tone="neutral">Mağaza stoku</StatusBadge>;
   const status = line.procurement_status;
   return <StatusBadge tone={procurementTone[status]} icon={status === "pending" ? Clock : undefined}>{procurementLabel[status]}</StatusBadge>;
 }
@@ -47,7 +42,8 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
 }) {
   const active = ["pending", "confirmed"].includes(orderStatus);
   return <Dialog>
-    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`#${number} kalemleri ve tedarik`}/>}>
+    <DialogTrigger render={<Button variant="ghost" size="sm"/>}>
+      <span className="sr-only">#{number} kalemleri ve tedarik: </span>
       <ProcurementSummaryBadge lines={lines} active={active}/>
     </DialogTrigger>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-5xl">
@@ -62,42 +58,38 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
           {editable && <TableHead>İşlem</TableHead>}
         </TableRow></TableHeader>
         <TableBody>{lines.map(line => {
-          const unit = Number(line.unit_price_kurus);
-          const figures = lineFigures(line.pricing_snapshot, unit);
-          const scope = lineScope(line.pricing_snapshot);
-          const supplierHref = line.supplier_item ? supplierItemHref(line.supplier, line.product_id) : null;
-          const scopeText = [scope.company, scope.listGroup, scope.warehouse].filter(Boolean).join(" · ");
+          const scopeText = [line.company, line.listGroup, line.warehouse].filter(Boolean).join(" · ");
           const procurementTime = line.procured_at ?? line.procurement_ordered_at;
           return <TableRow key={line.product_id} className="align-top">
             <TableCell className="min-w-56 whitespace-normal">
               <div className="font-medium">{line.name}</div>
               <div className="font-mono text-muted-foreground">{line.code}</div>
               <div className="flex flex-wrap gap-2">
-                {supplierHref && <Button variant="link" size="sm" nativeButton={false} render={<Link href={supplierHref}/>}>Tedarikçi ürünü</Button>}
-                {line.master_id && <Button variant="link" size="sm" nativeButton={false} render={<Link href={`/yonetim/urunler/${line.master_id}`}/>}>Ürün kartı</Button>}
+                {line.supplierHref && <Button variant="link" size="sm" nativeButton={false} render={<Link href={line.supplierHref}/>}>Tedarikçi ürünü</Button>}
+                {line.productHref && <Button variant="link" size="sm" nativeButton={false} render={<Link href={line.productHref}/>}>Ürün kartı</Button>}
               </div>
             </TableCell>
             <TableCell className="whitespace-normal">
               <div>{line.supplier_label}</div>
               {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
-              {scope.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
-              {scope.observedAt && <div className="text-muted-foreground">Veri: {time(scope.observedAt)}</div>}
+              {line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
+              {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
             </TableCell>
             <TableCell className="text-right tabular-nums">{line.quantity}</TableCell>
-            <TableCell className="text-right tabular-nums">{figures.costKurus !== null ? money(figures.costKurus) : "—"}</TableCell>
+            <TableCell className="text-right tabular-nums">{line.costKurus !== null ? money(line.costKurus) : "—"}</TableCell>
             <TableCell className="text-right tabular-nums">
-              <div>{money(unit)}</div>
-              {figures.marginKurus !== null && (figures.marginKurus < 0
-                ? <div className="text-destructive">Zarar {money(-figures.marginKurus)}</div>
-                : <div className="text-muted-foreground">Kâr {money(figures.marginKurus)}</div>)}
+              <div>{money(line.unitPriceKurus)}</div>
+              {line.marginKurus !== null && (line.marginKurus < 0
+                ? <div className="text-destructive">Zarar {money(-line.marginKurus)}</div>
+                : <div className="text-muted-foreground">Kâr {money(line.marginKurus)}</div>)}
             </TableCell>
             <TableCell className="whitespace-normal">
               <LineProcurementBadge line={line}/>
               {line.procurement_ref && <div className="break-all">{line.procurement_ref}</div>}
               {procurementTime && <div className="text-muted-foreground">{time(procurementTime)}</div>}
             </TableCell>
-            {editable && <TableCell>
-              {needsProcurement(line)
+            {editable && <TableCell className="whitespace-normal">
+              {line.needsProcurement
                 ? <LineProcurementForm key={line.procurement_status + (line.procurement_ref ?? "")} orderId={orderId} line={line}/>
                 : <span className="text-muted-foreground">Gerekmiyor</span>}
             </TableCell>}
@@ -119,7 +111,7 @@ function LineProcurementForm({ orderId, line }: { orderId: string; line: OrderLi
       </NativeSelect>
       <Input name="reference" className="w-44" defaultValue={line.procurement_ref ?? ""} placeholder="Tedarikçi sipariş no / not" maxLength={200}
         aria-label={`${line.code} tedarik referansı`}/>
-      <SubmitButton variant="outline" pendingLabel="Kaydediliyor…" icon={<Save data-icon="inline-start" aria-hidden="true"/>}>Kaydet</SubmitButton>
+      <SubmitButton variant="outline" aria-label={`${line.code} tedarik durumunu kaydet`} pendingLabel="Kaydediliyor…" icon={<Save data-icon="inline-start" aria-hidden="true"/>}>Kaydet</SubmitButton>
     </div>
     {result.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
   </form>;
