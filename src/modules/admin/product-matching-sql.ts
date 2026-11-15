@@ -45,3 +45,5 @@ export const manualKindSql = "CASE WHEN p.variant>0 THEN 'split' ELSE 'merge' EN
 export const manualKindFilterSql = (parameter: string) => `(${parameter}::boolean IS NULL OR (p.variant>0)=${parameter}::boolean)`;
 /** Who decided: the account's name, else its e-mail; NULL for decisions recorded without an actor. */
 export const manualDeciderSql = "COALESCE(NULLIF(a.name,''),a.email)";
+/** Whether an offer row of the matched groups (`offers.id`, a supplier item) is linked to its product by hand. */
+export const offerManualSql = "EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=offers.id AND s.method='manual')";

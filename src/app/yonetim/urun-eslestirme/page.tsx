@@ -37,6 +37,8 @@ const splitMessages: Record<string, string> = {
   "1": "Ayrıldı: kayıt artık kendi ürünü olarak listeleniyor; bu çift tekrar önerilmez. Elle kararlar görünümünden geri alabilirsiniz.", undone: "Karar geri alındı; kayıt kendi ürününe döndü.",
 };
 
+const manualBadge = <StatusBadge tone="info" icon={Merge} title="Bu kayıt gruba elle bağlandı; yenileme yerini değiştirmez">Elle</StatusBadge>;
+
 function OfferCell({ offer }: { offer: Offer | undefined }) {
   if (!offer) return <span className="text-muted-foreground">—</span>;
   return <div className="flex min-w-0 flex-col gap-1"><span className="max-w-48 truncate font-mono" title={offer.code}>{offer.code}</span>
@@ -188,16 +190,16 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title={params.q && kind ? "Arama ve filtreyle eşleşen elle karar yok." : kind ? "Bu filtreyle eşleşen elle karar yok." : params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır">Bağlı teklifler</TableHead>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır; Elle: anahtarla değil yönetici kararıyla bağlandı">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0];
               const saving = group.selling === "dinamik" && group.primary_price && group.selling_price ? Math.round((1 - group.selling_price / group.primary_price) * 100) : 0;
               return <TableRow key={group.primary_id}>
                 <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
-                <TableCell><OfferCell offer={primary}/></TableCell>
+                <TableCell><div className="flex flex-col items-start gap-1">{primary.manual && manualBadge}<OfferCell offer={primary}/></div></TableCell>
                 <TableCell><div className="flex flex-col gap-3">{group.offers.slice(1).map(offer => <div key={offer.id} className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 flex-col items-start gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge><OfferCell offer={offer}/></div>
+                  <div className="flex min-w-0 flex-col items-start gap-1"><div className="flex flex-wrap items-center gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge>{offer.manual && manualBadge}</div><OfferCell offer={offer}/></div>
                   <form action={splitOffer}><input type="hidden" name="item_id" value={offer.id}/><input type="hidden" name="primary_id" value={group.primary_id}/><input type="hidden" name="back" value={back}/>
                     <SubmitButton variant="ghost" size="sm" title="Yanlış eşleşme: yalnız bu kayıt kendi ürününe dönsün" aria-label={`${offer.code} kaydını ayır`}>Ayır</SubmitButton></form>
                 </div>)}</div></TableCell>

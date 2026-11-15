@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { Pool, type PoolClient } from "pg";
-import { bulkAcceptableSql, manualDeciderSql, manualKindFilterSql, manualKindSql, multiNumberCandidateSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, manualDeciderSql, manualKindFilterSql, manualKindSql, multiNumberCandidateSql, offerManualSql, sharedCandidateSql } from "../src/modules/admin/product-matching-sql";
 
 // Pure SQL helpers from db/product-matching.sql (applied by db:setup); runs against the local database.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -166,6 +166,31 @@ test("merging a candidate locks the rows into the Başbuğ product; resetting a 
     assert.equal((await client.query("SELECT product_reset_item($1) AS id", [items[0]])).rows[0].id, pair.b);
     assert.equal((await client.query("SELECT merged_into FROM products WHERE id=$1", [pair.b])).rows[0].merged_into, null);
     assert.equal((await client.query("SELECT status FROM product_match_decisions WHERE product_a=$1 AND product_b=$2", [pair.a, pair.b])).rows[0].status, "different");
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
+});
+
+test("matched group offers flag the rows linked by hand", async t => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const pair = (await client.query<{ a: string; b: string }>(`SELECT product_a AS a, product_b AS b FROM product_match_candidates LIMIT 1`)).rows[0]
+      ?? (await client.query<{ a: string; b: string }>(`SELECT a.product_id AS a, b.product_id AS b FROM product_sources a JOIN product_sources b ON b.product_id>a.product_id
+        JOIN products pa ON pa.id=a.product_id AND pa.variant=0 AND pa.merged_into IS NULL JOIN products pb ON pb.id=b.product_id AND pb.variant=0 AND pb.merged_into IS NULL
+        WHERE a.method='auto' AND b.method='auto' LIMIT 1`)).rows[0];
+    if (!pair) return t.skip("no two products to merge");
+    const moved = (await client.query<{ id: string }>("SELECT supplier_item_id AS id FROM product_sources WHERE product_id=$1", [pair.b])).rows.map(row => row.id);
+    await client.query("SELECT product_merge($2,$1,NULL)", [pair.a, pair.b]);
+    const flags = async () => new Map((await client.query<{ id: string; manual: boolean }>(`WITH offers AS (SELECT s.supplier_item_id AS id FROM product_sources s WHERE s.product_id=$1)
+      SELECT id, ${offerManualSql} AS manual FROM offers`, [pair.a])).rows.map(row => [row.id, row.manual]));
+    const merged = await flags();
+    assert.ok(moved.every(id => merged.get(id) === true));
+    assert.ok([...merged].filter(([id]) => !moved.includes(id)).every(([, manual]) => manual === false));
+    await client.query("SELECT product_reset_item($1)", [moved[0]]);
+    assert.equal((await flags()).get(moved[0]), undefined);
+    assert.equal((await client.query<{ manual: boolean }>(`WITH offers AS (SELECT $1::uuid AS id) SELECT ${offerManualSql} AS manual FROM offers`, [moved[0]])).rows[0].manual, false);
   } finally {
     await client.query("ROLLBACK");
     client.release();

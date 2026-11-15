@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
@@ -19,7 +19,9 @@ const sorts = {
 // Keys arrived over time; runs recorded before a key lack it.
 type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
   seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
-export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string };
+export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string;
+  /** Linked by an admin (product_sources.method='manual'), not by brand key + part number. */
+  manual: boolean };
 /** A Başbuğ product with the Dinamik offers grouped under it; `selling` is the supplier whose offer the store sells now. */
 type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
 /**
@@ -190,7 +192,7 @@ async function sameProducts(params: MatchingParams) {
   const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
   const ids = listed.map(entry => entry.primary_id);
   const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
-   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
+   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label,'manual',${offerManualSql})
     ORDER BY (id=primary_id) DESC,supplier,code) AS offers`), [ids])).rows : [];
   const byId = new Map(rows.map(row => [row.primary_id, row]));
   const same = ids.flatMap(id => byId.get(id) ?? []);
