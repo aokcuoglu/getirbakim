@@ -1,6 +1,6 @@
 /* Storefront markup repeated dozens of times per page (#642): one class per element instead of the same long
-   utility list in the HTML and again in the RSC payload. Same utilities as before via @apply. */
-@reference "./globals.css";
+   utility list in the HTML and again in the RSC payload. Same utilities as before via @apply.
+   Imported by globals.css so it ships in the main stylesheet. */
 
 @layer components {
   /* Catalog filter options (CatalogSidebar FilterGroup): ui/checkbox with the store override, minus the
