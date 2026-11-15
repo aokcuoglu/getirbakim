@@ -74,6 +74,17 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     .format(new Date()).replace(" ", "T");
   const fixed = edit?.price_kurus ?? null;
 
+  const identity = <Card>
+    <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
+      <CardDescription>Aynı marka anahtarı ve parça numarasına sahip tedarikçi kayıtları otomatik olarak bu ürüne bağlanır.</CardDescription></CardHeader>
+    <CardContent><dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Marka anahtarı</dt><dd className="font-mono">{product.brand}</dd></div>
+      <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Parça numarası</dt><dd className="font-mono">{product.part_number}</dd></div>
+      <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Tür</dt><dd>{product.variant > 0 ? <Badge variant="outline">Elle ayrılmış ürün</Badge> : "Otomatik eşleşme"}</dd></div>
+      <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Oluşturulma</dt><dd className="tabular-nums">{formatDateTime(product.created_at, { year: true })}</dd></div>
+    </dl></CardContent>
+  </Card>;
+
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
@@ -129,6 +140,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             brand: override.automatic.brand ?? "", partNumber: override.automatic.code ?? product.code }}/>
       </CardContent>
     </Card>}
+
+    {identity}
     </>}
 
     {tab === "fiyat" && <>
@@ -175,16 +188,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         : <Empty><EmptyHeader><EmptyTitle>Bağlı kaynak yok.</EmptyTitle><EmptyDescription>Bu ürünün tedarikçi kaydı kalmadı.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
     </Card>
 
-    <Card>
-      <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
-        <CardDescription>Aynı marka anahtarı ve parça numarasına sahip tedarikçi kayıtları otomatik olarak bu ürüne bağlanır.</CardDescription></CardHeader>
-      <CardContent><dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Marka anahtarı</dt><dd className="font-mono">{product.brand}</dd></div>
-        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Parça numarası</dt><dd className="font-mono">{product.part_number}</dd></div>
-        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Tür</dt><dd>{product.variant > 0 ? <Badge variant="outline">Elle ayrılmış ürün</Badge> : "Otomatik eşleşme"}</dd></div>
-        <div className="flex flex-col gap-1"><dt className="text-muted-foreground">Oluşturulma</dt><dd className="tabular-nums">{formatDateTime(product.created_at, { year: true })}</dd></div>
-      </dl></CardContent>
-    </Card>
+    {merged && identity}
     </>}
 
     {tab === "gorseller" && <>
@@ -210,6 +214,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <AlertDescription>Bu ürünün elle düzenlenmiş mağaza bilgileri veya fiyatı{edit.hidden ? " (mağazada gizli)" : ""} var. Birleşince kimliğini koruyan üründe düzenleme yoksa bu düzenlemeler ona taşınır{edit.hidden ? " ve birleşen ürün gizli kalır" : ""}; varsa onunkiler geçerli olur.</AlertDescription></Alert>}
         <form className="flex flex-wrap items-center gap-2" action={`/yonetim/urunler/${product.id}#birlestir`}>
           <input type="hidden" name="tab" value="eslestirme"/>
+          {query.eq_q !== undefined && <input type="hidden" name="eq_q" value={equivalentSearch.q}/>}
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="merge_q" aria-label="Birleştirilecek ürünü ara" defaultValue={query.merge_q ?? product.part_number} placeholder="Parça no veya kod" maxLength={60}/></InputGroup>
           <Button type="submit">Ara</Button>
@@ -239,14 +244,19 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardContent className="flex flex-col gap-4">
         <form className="flex flex-wrap items-center gap-2" action={`/yonetim/urunler/${product.id}#muadil`}>
           <input type="hidden" name="tab" value="eslestirme"/>
+          {query.merge_q !== undefined && <input type="hidden" name="merge_q" value={merge.q}/>}
           <InputGroup className="w-full sm:w-72"><InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
             <InputGroupInput name="eq_q" aria-label="Muadil eklenecek ürünü ara" defaultValue={query.eq_q} placeholder="Parça no, tedarikçi kodu veya OEM" maxLength={60}/></InputGroup>
           <Button type="submit">Ara</Button>
         </form>
-        {query.eq_q !== undefined && (equivalentSearch.targets.length ? <Table><caption className="sr-only">Muadil olarak eklenebilecek ürünler</caption>
+        {query.eq_q !== undefined && (equivalentSearch.q.length < 3
+          ? <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>En az 3 harf veya rakam girin.</AlertDescription></Alert>
+          : equivalentSearch.targets.length ? <div className="flex flex-col gap-2">
+          <h3 className="font-medium">Arama sonuçları ({equivalentSearch.targets.length})</h3>
+          <Table controls={false}><caption className="sr-only">Muadil olarak eklenebilecek ürünler</caption>
           <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead>Eşleşme</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{equivalentSearch.targets.map(target => <TableRow key={target.id}>
-            <TableCell className="max-w-32 truncate font-medium">{target.brand_label}</TableCell>
+            <TableCell className="max-w-40 truncate font-medium">{target.brand_label}{target.same_brand && <Badge variant="secondary" className="ml-2">Aynı marka</Badge>}</TableCell>
             <TableCell><Link className="font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${target.id}`}>{target.code}</Link></TableCell>
             <TableCell className="max-w-72 truncate" title={target.name ?? ""}>{target.name ?? "—"}</TableCell>
             <TableCell><div className="flex flex-wrap gap-1">{target.suppliers.length ? target.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
@@ -254,12 +264,16 @@ export default async function MasterProduct({ params, searchParams }: { params: 
             <TableCell><div className="flex flex-wrap items-center justify-end gap-2">
               {target.rejected && <StatusBadge tone="warning">Daha önce kaldırıldı</StatusBadge>}
               {target.equivalent ? <StatusBadge tone="info" icon={Link2}>Muadil</StatusBadge>
-                : <form action={linkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/><input type="hidden" name="eq_q" value={query.eq_q}/>
-                  <SubmitButton variant="outline" icon={<Link2 data-icon="inline-start" aria-hidden="true"/>}>Muadil ekle</SubmitButton></form>}
+                : <form action={linkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={target.id}/><input type="hidden" name="eq_q" value={equivalentSearch.q}/>
+                  <SubmitButton variant="outline" icon={<Link2 data-icon="inline-start" aria-hidden="true"/>}>{target.rejected ? "Yeniden ekle" : "Muadil ekle"}</SubmitButton></form>}
             </div></TableCell>
           </TableRow>)}</TableBody></Table>
-          : <Empty><EmptyHeader><EmptyTitle>{equivalentSearch.q.length < 3 ? "En az 3 karakter girin." : "Ürün bulunamadı."}</EmptyTitle></EmptyHeader></Empty>)}
-        {equivalents.length ? <Table><caption className="sr-only">Muadil ürünler</caption>
+          {equivalentSearch.targets.length >= 30 && <p className="text-muted-foreground">İlk 30 sonuç gösteriliyor, aramayı daraltın.</p>}
+        </div>
+          : <Empty><EmptyHeader><EmptyTitle>Ürün bulunamadı.</EmptyTitle></EmptyHeader></Empty>)}
+        {equivalents.length ? <div className="flex flex-col gap-2">
+          <h3 className="font-medium">Bağlı muadiller ({equivalents.length})</h3>
+          <Table><caption className="sr-only">Muadil ürünler</caption>
         <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Kod</TableHead><TableHead>Ürün</TableHead><TableHead>Kaynaklar</TableHead><TableHead>Bağlantı nedeni</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
         <TableBody>{equivalents.map(item => <TableRow key={item.id}>
           <TableCell className="max-w-32 truncate font-medium">{item.brand_label}</TableCell>
@@ -267,9 +281,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           <TableCell className="max-w-72 truncate" title={item.name ?? ""}>{item.name ?? "—"}</TableCell>
           <TableCell><div className="flex flex-wrap gap-1">{item.suppliers.length ? item.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{supplierNames[supplier] ?? supplier}</Badge>) : <span className="text-muted-foreground">Satışta değil</span>}</div></TableCell>
           <TableCell className="text-muted-foreground">{kinds[item.kind]}{item.kind !== "manual" && <> · <span className="font-mono">{item.via_brand} {item.via_part}</span></>}</TableCell>
-          <TableCell><form action={unlinkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={item.id}/>
+          <TableCell><form action={unlinkEquivalent}><input type="hidden" name="product_id" value={product.id}/><input type="hidden" name="other_id" value={item.id}/>{query.eq_q !== undefined && <input type="hidden" name="eq_q" value={equivalentSearch.q}/>}
             <SubmitButton variant="outline" icon={<Unlink data-icon="inline-start" aria-hidden="true"/>}>Kaldır</SubmitButton></form></TableCell>
-        </TableRow>)}</TableBody></Table>
+        </TableRow>)}</TableBody></Table></div>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><Link2/></EmptyMedia><EmptyTitle>Muadil bulunamadı.</EmptyTitle></EmptyHeader></Empty>}</CardContent>
     </Card>
     </>}
