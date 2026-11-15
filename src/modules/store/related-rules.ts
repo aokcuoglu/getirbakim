@@ -89,12 +89,11 @@ export type RelatedInput = {
   /** Candidate ids per complementary category, in the order the categories are suggested. */
   complements: { categoryId: number; ids: readonly string[] }[];
   /**
-   * How well a candidate fits the added product's vehicle (shared models, or 1 for the garage vehicle's parts).
-   * null: no vehicle context; candidates are ranked by category only.
+   * How well a candidate fits the shopper's vehicle (shared models, or 1 for the garage vehicle's parts); null when no
+   * vehicle is known. A part of a vehicle-specific category is kept only with a positive score: a part whose fit is
+   * unknown may not fit. Fluids (universalCategories) are always kept.
    */
   fitScore: ReadonlyMap<string, number> | null;
-  /** Candidates with any vehicle fitment: with a vehicle context, one of these that does not fit it is dropped. */
-  hasFitData: ReadonlySet<string>;
   /** The added product, its offers and equivalents, and what is already in the cart. */
   exclude: ReadonlySet<string>;
   /** At most this many candidates per category. */
@@ -102,7 +101,7 @@ export type RelatedInput = {
 };
 
 /**
- * Ranks the candidates: within a category the best fitting first (ties by id, so the result is stable), then the
+ * Ranks the candidates: within a category the best fitting first (vehicle-specific parts not known to fit are dropped) (ties by id, so the result is stable), then the
  * categories take turns, so three suggestions are a pad, a sensor and a fluid rather than three pads.
  */
 export function pickRelated(input: RelatedInput): { id: string; categoryId: number }[] {
@@ -112,7 +111,7 @@ export function pickRelated(input: RelatedInput): { id: string; categoryId: numb
     const score = (id: string) => input.fitScore?.get(id) ?? 0;
     const ranked = [...new Set(ids)]
       .filter(id => !input.exclude.has(id))
-      .filter(id => universal || !input.fitScore || score(id) > 0 || !input.hasFitData.has(id))
+      .filter(id => universal || score(id) > 0)
       .sort((a, b) => score(b) - score(a) || (a < b ? -1 : a > b ? 1 : 0));
     return { categoryId, ranked };
   });
@@ -131,4 +130,16 @@ export function pickRelated(input: RelatedInput): { id: string; categoryId: numb
     }
     if (!added) return picked;
   }
+}
+
+type Suggestable = { id: string; offer_id?: string; available: boolean; price_kurus: number | null };
+/**
+ * The dialog's suggestions: the related parts, then (only when fewer than `count`) the newest store products the shopper
+ * has not got: never an id or offer in `taken` (the added product's and the cart's offer groups) or already listed.
+ */
+export function fillSuggestions<T extends Suggestable>(related: T[], home: readonly T[], taken: ReadonlySet<string>, count: number): T[] {
+  if (related.length >= count) return related.slice(0, count);
+  const listed = new Set([...taken, ...related.flatMap(p => [p.id, p.offer_id ?? p.id])]);
+  const fill = home.filter(p => !listed.has(p.id) && !listed.has(p.offer_id ?? p.id) && p.available && p.price_kurus);
+  return [...related, ...fill.slice(0, count - related.length)];
 }

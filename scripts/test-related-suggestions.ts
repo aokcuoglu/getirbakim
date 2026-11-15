@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { complementaryCategories, complementsFor, pickRelated, universalCategories, type RelatedInput } from "../src/modules/store/related-rules";
+import { complementaryCategories, complementsFor, fillSuggestions, pickRelated, universalCategories, type RelatedInput } from "../src/modules/store/related-rules";
 
 const input = (overrides: Partial<RelatedInput>): RelatedInput =>
-  ({ complements: [], fitScore: null, hasFitData: new Set(), exclude: new Set(), perCategory: 4, ...overrides });
+  ({ complements: [], fitScore: new Map(), exclude: new Set(), perCategory: 4, ...overrides });
 
 test("the complementary category map is well formed", () => {
   for (const [key, complements] of Object.entries(complementaryCategories)) {
@@ -29,30 +29,29 @@ test("the deepest category with complements decides", () => {
 test("categories take turns so the first picks cover different parts", () => {
   const picked = pickRelated(input({ complements: [
     { categoryId: 268, ids: ["p1", "p2", "p3"] }, { categoryId: 281, ids: ["s1"] }, { categoryId: 960, ids: ["f1", "f2"] },
-  ] }));
+  ], fitScore: new Map([["p1", 1], ["p2", 1], ["p3", 1], ["s1", 1]]) }));
   assert.deepEqual(picked.map(pick => pick.id), ["p1", "s1", "f1", "p2", "f2", "p3"]);
   assert.deepEqual(picked.slice(0, 3).map(pick => pick.categoryId), [268, 281, 960]);
 });
 
-test("without a vehicle the order is by category and id only", () => {
-  const picked = pickRelated(input({ complements: [{ categoryId: 268, ids: ["c", "a", "b"] }], hasFitData: new Set(["a"]) }));
-  assert.deepEqual(picked.map(pick => pick.id), ["a", "b", "c"]);
+test("without a known vehicle only fluids are suggested", () => {
+  const picked = pickRelated(input({ complements: [{ categoryId: 268, ids: ["a", "b"] }, { categoryId: 960, ids: ["f2", "f1"] }], fitScore: null }));
+  assert.deepEqual(picked.map(pick => pick.id), ["f1", "f2"]);
 });
 
-test("with a vehicle the best fitting come first and known misfits are dropped", () => {
+test("with a vehicle the best fitting come first; parts not known to fit are dropped, fluids kept", () => {
   const picked = pickRelated(input({
     complements: [{ categoryId: 268, ids: ["a", "b", "c", "d"] }, { categoryId: 960, ids: ["fluid"] }],
     fitScore: new Map([["c", 3], ["d", 1]]),
-    hasFitData: new Set(["a", "c", "d", "fluid"]),
   }));
-  // a: fitted elsewhere, not to this vehicle → dropped; b: no fitment data → kept last; fluid: universal → kept.
-  assert.deepEqual(picked.map(pick => pick.id), ["c", "fluid", "d", "b"]);
+  // a and b: no shared model (fitted elsewhere or fit unknown) → dropped; fluid: universal → kept.
+  assert.deepEqual(picked.map(pick => pick.id), ["c", "fluid", "d"]);
 });
 
 test("excluded ids, duplicates and the per-category limit are respected", () => {
   const picked = pickRelated(input({
     complements: [{ categoryId: 268, ids: ["x", "a", "a", "b", "c"] }, { categoryId: 269, ids: ["a", "d"] }],
-    exclude: new Set(["x"]), perCategory: 2,
+    fitScore: new Map(["x", "a", "b", "c", "d"].map(id => [id, 1])), exclude: new Set(["x"]), perCategory: 2,
   }));
   assert.deepEqual(picked, [{ id: "a", categoryId: 268 }, { id: "d", categoryId: 269 }, { id: "b", categoryId: 268 }]);
 });
@@ -61,4 +60,14 @@ test("ties break by id so the result is stable", () => {
   const run = () => pickRelated(input({ complements: [{ categoryId: 268, ids: ["z", "m", "a"] }], fitScore: new Map([["z", 1], ["m", 1], ["a", 1]]) }));
   assert.deepEqual(run().map(pick => pick.id), ["a", "m", "z"]);
   assert.deepEqual(run(), run());
+});
+
+test("the home products fill only the missing places, skipping offers already taken", () => {
+  const p = (id: string, offer_id?: string, available = true) => ({ id, offer_id, available, price_kurus: available ? 100 : null });
+  const related = [p("r1", "r1s")];
+  const home = [p("added"), p("cartPrimary"), p("r1"), p("h0", "r1s"), p("gone", undefined, false), p("h1"), p("h2"), p("h3")];
+  assert.deepEqual(fillSuggestions(related, home, new Set(["added", "cartPrimary", "cartSecondary"]), 3).map(item => item.id), ["r1", "h1", "h2"]);
+  const full = [p("r1"), p("r2"), p("r3")];
+  assert.deepEqual(fillSuggestions(full, home, new Set(), 3), full);
+  assert.deepEqual(fillSuggestions([], [], new Set(), 3), []);
 });
