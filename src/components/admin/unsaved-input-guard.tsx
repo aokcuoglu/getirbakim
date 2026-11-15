@@ -14,11 +14,12 @@ import {
 export function UnsavedInputGuard({ dirty }: { dirty: boolean }) {
   const router = useRouter();
   const bypass = useRef(false);
+  const leaving = useRef(false);
   const [pending, setPending] = useState<{ anchor: HTMLAnchorElement; href: string } | null>(null);
 
   useEffect(() => {
     if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const warn = (event: BeforeUnloadEvent) => { if (leaving.current) return; event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
@@ -47,6 +48,8 @@ export function UnsavedInputGuard({ dirty }: { dirty: boolean }) {
     if (!pending) return;
     const { anchor, href } = pending;
     setPending(null);
+    leaving.current = true;
+    // The bypass relies on anchor.click() dispatching its click event synchronously.
     bypass.current = true;
     if (anchor.isConnected) anchor.click(); else router.push(href);
     bypass.current = false;
@@ -56,7 +59,7 @@ export function UnsavedInputGuard({ dirty }: { dirty: boolean }) {
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>Kaydedilmemiş değişiklikler var</AlertDialogTitle>
-        <AlertDialogDescription>Bu bölümden ayrılırsanız girdiğiniz değişiklikler kaybolur. Önce kaydedin ya da kaydetmeden ayrılın.</AlertDialogDescription>
+        <AlertDialogDescription>Bu sayfadan ayrılırsanız girdiğiniz değişiklikler kaybolur. Önce kaydedin ya da kaydetmeden ayrılın.</AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
         <AlertDialogCancel>Sayfada kal</AlertDialogCancel>

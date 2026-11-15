@@ -49,6 +49,9 @@ test("leavesPage returns the URL only for a plain same-tab navigation to another
   assert.equal(at(`/yonetim/urunler/${id}?tab=bilgiler#b`), null);
   assert.equal(at("#b"), null);
   assert.equal(at(null), null);
+  assert.equal(at(`/yonetim/urunler/${id}?tab=bilgiler&split=1&linked=2`), null);
+  assert.equal(at(`/yonetim/urunler/${id}?tab=gecmis&split=1`), `https://example.com/yonetim/urunler/${id}?tab=gecmis&split=1`);
+  assert.equal(at(`/yonetim/urunler/${id}`), `https://example.com/yonetim/urunler/${id}`);
   assert.equal(at("/yonetim/siparisler", { target: "_blank" }), null);
   assert.equal(at("/yonetim/siparisler", { target: "_self" }), "https://example.com/yonetim/siparisler");
   assert.equal(at("/yonetim/siparisler", { modified: true }), null);
