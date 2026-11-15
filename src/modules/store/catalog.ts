@@ -362,7 +362,9 @@ async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean
 // Secondary offers of a product sold by several suppliers are reached through the product listing them. An unavailable
 // card is never hidden by product_offers, which only the next matching refresh rebuilds. NOT IN is planned as one
 // hashed set; the correlated NOT EXISTS under the OR ran per row (~0.7 s instead of ~0.3 s for a full listing).
-export const listedOnly="(catalog.unavailable OR catalog.id NOT IN (SELECT o.item_id FROM product_offers o WHERE o.primary_id<>o.item_id))";
+/** The secondary-offer test alone, for a query over commerce_catalog (supplied rows only, no `unavailable` column). */
+export const notSecondaryOffer="catalog.id NOT IN (SELECT o.item_id FROM product_offers o WHERE o.primary_id<>o.item_id)";
+export const listedOnly=`(catalog.unavailable OR ${notSecondaryOffer})`;
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {

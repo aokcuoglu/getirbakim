@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
-import { catalogSql, categoryProductIds, listedOnly, typeFittedIds, withBestOffers, type CatalogProduct } from "./catalog";
+import { catalogSql, categoryProductIds, notSecondaryOffer, typeFittedIds, withBestOffers, type CatalogProduct } from "./catalog";
 import { productPath } from "@/modules/seo/product-path";
 import { getCatalogProductImages, type CatalogProductImage } from "./product-enrichment";
 import { getManufacturerLogos, type ManufacturerLogo } from "./manufacturer-logos";
@@ -35,10 +35,10 @@ export type MaintenanceKitOptions = { slots: KitSlotOptions[]; oilSpec: VehicleO
 const perBrandLimit = 6;
 const sellable = (product: CatalogProduct) => product.available && product.price_kurus !== null && product.max_quantity > 0;
 
-/** Listed, sellable catalog rows among `ids`, priced by their best offer. */
-async function sellableProducts(ids: string[]) {
+/** Listed, sellable catalog rows among `ids`, priced by their best offer: commerce_catalog holds supplied rows only (#677). */
+export async function sellableProducts(ids: string[]) {
   if (!ids.length) return [];
-  const rows = (await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[]) AND ${listedOnly}`,
+  const rows = (await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[]) AND ${notSecondaryOffer}`,
     [storefrontCompanies(), ids])).rows;
   return (await withBestOffers(rows)).filter(sellable).sort((a, b) => a.price_kurus! - b.price_kurus! || a.code.localeCompare(b.code, "tr"));
 }
