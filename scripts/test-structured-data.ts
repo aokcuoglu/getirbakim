@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
 import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
-import { productPath } from "../src/modules/seo/paths";
+import { listingPath, makePath, productPath } from "../src/modules/seo/paths";
+import { organizationId, siteJsonLd } from "../src/lib/site";
 
 const base = "https://getirbakim.com";
 const now = new Date("2026-11-15T10:00:00Z");
@@ -160,4 +161,18 @@ test("every stock label is in the SQL and maps to InStock, OutOfStock or no offe
     const offer = offers(product({ available, stockLabel: label }));
     assert.equal(offer ? String(offer.availability).split("/").pop() : null, expected, `${label} / ${available}`);
   }
+});
+
+test("the seller is the site's Organization", () => {
+  const organization = siteJsonLd["@graph"].find(node => node["@type"] === "Organization");
+  assert.equal((offers(product({}))!.seller as { "@id": string })["@id"], organization?.["@id"]);
+  assert.equal(organization?.["@id"], organizationId);
+});
+
+test("listing and product addresses", () => {
+  assert.equal(listingPath(), "/katalog");
+  assert.equal(listingPath({ categorySlug: "x" }), "/katalog?category=x");
+  assert.equal(listingPath({ makeSlug: "vw" }), makePath("vw"));
+  assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/car-parts/vw?category=x");
+  assert.equal(productPath("p1"), "/urun/p1");
 });
