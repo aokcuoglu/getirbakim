@@ -3,7 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { pageMetadata } from "@/lib/site";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageTrail } from "@/modules/seo/structured-data";
+import { pageMetadata, siteUrl } from "@/lib/site";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
 
 // Render only semantic text and links from the reviewed local content.
@@ -47,6 +49,7 @@ export function LegalPage({ slug }: { slug: string }) {
   const card = legalCardClass;
   const heading = legalHeadingClass;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1200px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10 [&_a:not([data-back])]:text-primary [&_a:not([data-back])]:underline [&_a:not([data-back])]:underline-offset-3 [&_a:not([data-back])]:wrap-anywhere">
+    <JsonLd data={breadcrumbJsonLd(pageTrail(legalTitle(slug) ?? page.title, `/${slug}`), siteUrl)}/>
     <Link data-back href="/" className="mb-[25px] block w-fit text-xs leading-5 text-muted-foreground hover:text-primary">← Ana sayfa</Link>
     <div className="mb-8 max-w-[780px] max-[600px]:mb-6">
       <p className="mb-2 block text-base leading-[1.8] font-medium tracking-[1.2px] text-muted-foreground">GETİRBAKİM / KURUMSAL BİLGİLER</p>

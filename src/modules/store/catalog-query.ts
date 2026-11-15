@@ -24,3 +24,8 @@ export type CatalogQuery = z.infer<typeof schema>;
 export function parseCatalogQuery(params: SearchParams): CatalogQuery {
   return schema.parse(normalizeSearchParams(params));
 }
+
+/** A plain listing (no search, filter, sort or page): the only kind search engines index and the one structured data lists. */
+export function isIndexableListing(query: CatalogQuery): boolean {
+  return !(query.q || query.brand || query.brands || query.attributes || query.availability || query.fits || query.oil || query.sort || query.page);
+}

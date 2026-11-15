@@ -1,4 +1,4 @@
-import type { CatalogQuery } from "@/modules/store/catalog-query";
+import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -24,6 +24,11 @@ import {CategoryCards} from "@/components/category-cards";
 import {VehicleOilBanner} from "@/components/vehicle-oil-banner";
 import {getVehicleOilSpec} from "@/modules/store/vehicle-oil.server";
 import {engineOilCategoryId,oilFilterParam,parseOilFilters,type OilFilter} from "@/modules/store/vehicle-oil";
+import {JsonLd} from "@/components/json-ld";
+import {breadcrumbJsonLd,catalogTrail,collectionJsonLd} from "@/modules/seo/structured-data";
+import {listingPath} from "@/modules/seo/paths";
+import {catalogCardTitle} from "@/modules/store/product-override-display";
+import {siteUrl} from "@/lib/site";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
@@ -93,6 +98,11 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const vehicleNotice=scope&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">
   {scope.fitted?<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünleri gösteriliyor. <Link className="font-semibold text-primary hover:underline" href={partHref!}>Tüm “{scope.productText}” sonuçları</Link></>
    :<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünü bulunamadı; tüm “{scope.productText}” sonuçları gösteriliyor. Aracına uyduğunu OEM numarasıyla kontrol et.</>}</p>;
+ const trail=catalogTrail({make:make&&{name:makeName!,slug:params.make!},categories:category?categoryPath(categories,category.id):[]});
+ // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
+ const intro=params.q?undefined:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
+ const collection=isIndexableListing(params)&&products.length>0
+  ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,categorySlug:category?.slug}),items:products.map(product=>({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} category={category?.slug} vehicle={vehicle}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
@@ -106,18 +116,15 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
      {finder(false)}
     </div>
    </section>
+   <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/>
    <CatalogStickyFinder brakes={Boolean(isBrakeCategory)}>{finder(true)}</CatalogStickyFinder>
    <section className="mx-auto w-[calc(100%-30px)] max-w-[1320px] pb-[50px]">
     <Breadcrumb aria-label="Sayfa yolu" className="min-h-[45px] pt-2 pb-4">
      <BreadcrumbList className="gap-[5px] text-[13px] leading-[21px] text-[#54626e] max-[600px]:text-xs">
-      <BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/"/>}>Ana sayfa</BreadcrumbLink></BreadcrumbItem>
-      {make&&<>{crumbSeparator}<BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/automakers"/>}>Araç markaları</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}
-       <BreadcrumbItem>{category?<BreadcrumbLink className={crumbLink} render={<Link href={home}/>}>{makeName}</BreadcrumbLink>:<BreadcrumbPage className="text-inherit">{makeName}</BreadcrumbPage>}</BreadcrumbItem></>}
-      {!category&&!make&&<>{crumbSeparator}<BreadcrumbItem><span>Katalog</span></BreadcrumbItem></>}
-      {category && categoryPath(categories,category.id).map((node,index,path)=><Fragment key={node.id}>{crumbSeparator}<BreadcrumbItem>{index===path.length-1?<BreadcrumbPage className="text-inherit">{node.name}</BreadcrumbPage>:<BreadcrumbLink className={crumbLink} render={<Link href={`${home}?category=${node.slug}`}/>}>{node.name}</BreadcrumbLink>}</BreadcrumbItem></Fragment>)}
+      {trail.map((crumb,index)=><Fragment key={crumb.path}>{index>0&&crumbSeparator}<BreadcrumbItem>{index===trail.length-1?<BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage>:<BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink>}</BreadcrumbItem></Fragment>)}
      </BreadcrumbList>
     </Breadcrumb>
-    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="min-h-[54px] text-[13px] leading-[18px]">{make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et."}</p></div>}
+    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="min-h-[54px] text-[13px] leading-[18px]">{intro}</p></div>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:max-h-12 max-[600px]:overflow-auto">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={"/car-parts/"+vehicleBrandSlug(make.name)}>{make.name==="VOLKSWAGEN"?"VW":make.name}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
      <CatalogSidebar categories={[...categories]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
