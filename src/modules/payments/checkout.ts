@@ -149,22 +149,19 @@ export const INTERACTIVE_RECONCILE_MS = 4500;
  */
 export async function reconcileOrderPayments(orderId: string, { minIntervalSeconds = 0, deadlineMs }: { minIntervalSeconds?: number; deadlineMs?: number } = {}): Promise<{ uncertain: boolean }> {
   // Claiming marks the attempts checked before TAMI is asked, so concurrent throttled callers ask once per attempt.
-  const attempts = (await db.query<Attempt>(
+  // The open count comes from the same statement snapshot: an attempt left to another caller (or checked moments
+  // ago) has no answer here, and its last answer may have been uncertain.
+  const claim = (await db.query<{ open: string } & { [K in keyof Attempt]: Attempt[K] | null }>(
     `WITH claimed AS (
        UPDATE commerce_payments SET checked_at=now() WHERE order_id=$1 AND status IN ('initiated','pending')
          AND ($2::float8=0 OR checked_at IS NULL OR checked_at<now()-make_interval(secs=>$2::float8))
-       RETURNING id,provider_order_id,amount_kurus,status,hosted_url,created_at,provider_result)
-     SELECT * FROM claimed ORDER BY created_at`,
+       RETURNING id,provider_order_id,amount_kurus,status,hosted_url,created_at,provider_result),
+     open AS (SELECT count(*) AS open FROM commerce_payments WHERE order_id=$1 AND status IN ('initiated','pending'))
+     SELECT open.open,claimed.* FROM open LEFT JOIN claimed ON true ORDER BY claimed.created_at`,
     [orderId, minIntervalSeconds],
   )).rows;
-  // An open attempt left to another caller (or checked moments ago) has no answer here; it may have been uncertain.
-  let skipped = false;
-  if (minIntervalSeconds > 0) {
-    const open = Number((await db.query<{ count: string }>(
-      "SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND status IN ('initiated','pending')", [orderId],
-    )).rows[0].count);
-    skipped = open > attempts.length;
-  }
+  const attempts = claim.filter((row): row is typeof row & Attempt => row.id !== null);
+  const skipped = minIntervalSeconds > 0 && Number(claim[0]?.open ?? 0) > attempts.length;
   // With a budget the queries run together; results are still applied one by one in attempt order.
   const answers = deadlineMs === undefined ? null : await Promise.all(attempts.map(attempt => answer(attempt, deadlineMs)));
   let uncertain = false;

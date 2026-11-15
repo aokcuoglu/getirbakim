@@ -14,13 +14,15 @@ export type CheckoutRefreshers = {
 };
 
 export async function refreshSuppliersConcurrently(scopes: CheckoutRefreshScope[], run: CheckoutRefreshers): Promise<void> {
-  const branches: Promise<unknown>[] = [];
-  if (scopes.some(scope => scope.supplier === "seta")) branches.push(run.seta());
+  const branches: { supplier: CheckoutRefreshScope["supplier"]; work: Promise<unknown> }[] = [];
+  if (scopes.some(scope => scope.supplier === "seta")) branches.push({ supplier: "seta", work: run.seta() });
   const basbug = scopes.filter(scope => scope.supplier === "basbug");
-  if (basbug.length) branches.push((async () => { for (const scope of basbug) await run.basbug(scope); })());
-  if (scopes.some(scope => scope.supplier === "dinamik")) branches.push(run.dinamik());
+  if (basbug.length) branches.push({ supplier: "basbug", work: (async () => { for (const scope of basbug) await run.basbug(scope); })() });
+  if (scopes.some(scope => scope.supplier === "dinamik")) branches.push({ supplier: "dinamik", work: run.dinamik() });
   // Wait for every branch before failing: a retry while an import still holds its lock would only get "busy".
-  const results = await Promise.allSettled(branches);
-  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failed) throw failed.reason;
+  const results = await Promise.allSettled(branches.map(branch => branch.work));
+  const failures = results.flatMap((result, index) => result.status === "rejected" ? [{ supplier: branches[index].supplier, reason: result.reason as unknown }] : []);
+  for (const { supplier, reason } of failures)
+    console.error("Checkout supplier refresh failed", { supplier, reason: reason instanceof Error ? reason.message : reason });
+  if (failures.length) throw failures[0].reason;
 }
