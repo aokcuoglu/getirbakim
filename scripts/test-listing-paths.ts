@@ -5,6 +5,9 @@ import { test } from "node:test";
 import { NextRequest } from "next/server";
 import { config, proxy } from "../src/proxy";
 import { legacyRedirect } from "../src/modules/seo/legacy-redirects";
+import { resolveListing } from "../src/modules/store/listing-resolve";
+import type { StoreCategory } from "../src/modules/store/category-tree";
+import type { VehicleBrand } from "../src/modules/store/vehicle-catalog";
 import { catalogPath, categoryPath, legacyListingPaths, listingPath, listingPaths, listingUrl, makePath, makesPath, searchPath } from "../src/modules/seo/paths";
 
 // The Turkish listing addresses and the one-step 301s from the old ones (#638).
@@ -49,6 +52,8 @@ test("old listing addresses move to the new ones in one step", () => {
     ["/car-parts/bmw?page=2", "/yedek-parca/bmw?page=2"],
     ["/car-parts/bmw?category=fren&page=2", "/kategori/fren/bmw?page=2"],
     ["/car-parts/bmw?category=fren&sort=newest", "/kategori/fren/bmw?sort=newest"],
+    ["/car-parts/bmw?make=audi&page=2", "/yedek-parca/bmw?page=2"],
+    ["/katalog?category=fren&make=audi", "/kategori/fren"],
     ["/katalog?category=fren", "/kategori/fren"],
     ["/katalog?category=fren-diskleri-269&brands=%5B%22BOSCH%22%5D&page=2", "/kategori/fren-diskleri-269?brands=%5B%22BOSCH%22%5D&page=2"],
     ["/katalog?category=fren&category=yag", "/kategori/fren"],
@@ -65,6 +70,37 @@ test("old listing addresses move to the new ones in one step", () => {
     ["/car-parts", null],
   ];
   for (const [from, to] of cases) assert.equal(redirect(from), to, from);
+});
+
+const categories: StoreCategory[] = [
+  { id: 252, parentId: 3, name: "Fren sistemi", slug: "fren", path: [3, 252], position: 0 },
+  { id: 956, parentId: null, name: "Yağlar", slug: "yag", path: [956], position: 1 },
+];
+const makes: VehicleBrand[] = [{ id: "16", name: "BMW", popular: true }, { id: "5", name: "AUDI", popular: true }];
+const lookups = {
+  categories: async () => categories,
+  findMake: async (slug: string) => makes.find(make => make.name.toLowerCase() === slug),
+};
+const resolve = (input: { category?: string; make?: string; search?: Record<string, string> }) =>
+  resolveListing({ ...input, search: input.search ?? {} }, lookups);
+
+test("a listing's path segments win over the query and an unknown segment is a 404", async () => {
+  const category = await resolve({ category: "fren", search: { category: "yag", page: "2" } });
+  assert.equal(category?.query.category, "fren");
+  assert.equal(category?.category?.id, 252);
+  assert.equal(category?.query.page, "2");
+  const make = await resolve({ make: "bmw", search: { make: "audi" } });
+  assert.equal(make?.query.make, "bmw");
+  assert.equal(make?.make?.name, "BMW");
+  const both = await resolve({ category: "yag", make: "audi", search: { category: "fren", make: "bmw" } });
+  assert.deepEqual([both?.query.category, both?.query.make, both?.make?.name], ["yag", "audi", "AUDI"]);
+  // /yedek-parca/<make> and /katalog ignore a query category; /katalog ignores a query make.
+  assert.equal((await resolve({ make: "bmw", search: { category: "fren" } }))?.query.category, undefined);
+  const catalog = await resolve({ search: { category: "fren", make: "bmw", q: "disk" } });
+  assert.deepEqual([catalog?.query.category, catalog?.query.make, catalog?.query.q, catalog?.category, catalog?.make], [undefined, undefined, "disk", undefined, undefined]);
+  for (const input of [{ category: "Fren" }, { make: "BMW" }, { category: "fren", make: "BMW" }, { category: "fren disk" },
+    { category: "yok-1" }, { make: "yok" }, { category: "fren", make: "yok" }, { category: "yok", make: "bmw" }])
+    assert.equal(await resolve(input), null, JSON.stringify(input));
 });
 
 test("no redirect chain: a target and every new address is left alone", () => {

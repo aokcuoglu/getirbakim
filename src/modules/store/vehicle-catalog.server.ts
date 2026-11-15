@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { binder, correctSearch, vehicleTypeMatch } from "@/modules/search/sql";
 import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } from "@/modules/search/query";
@@ -28,10 +29,11 @@ function formatVehicle(row: VehicleRow): CatalogVehicle {
     engine: row.name, power: `${row.hp} hp / ${row.kwt} kW`, cc: row.cc };
 }
 
-export async function getVehicleBrands(): Promise<VehicleBrand[]> {
+// One read per request: a make page asks for the list in its metadata, its page and the catalog view (#638).
+export const getVehicleBrands = cache(async (): Promise<VehicleBrand[]> => {
   const { rows } = await db.query<VehicleBrand>("SELECT id::text, display_name AS name, popular FROM vehicle_brands");
   return rows.sort((a, b) => a.name.localeCompare(b.name, "tr"));
-}
+});
 
 export async function getVehicleBrandBySlug(slug: string) {
   return (await getVehicleBrands()).find(brand => vehicleBrandSlug(brand.name) === slug);

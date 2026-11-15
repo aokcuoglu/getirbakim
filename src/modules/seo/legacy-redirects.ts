@@ -4,7 +4,9 @@ import { categoryPath, listingPath, makesPath, slugPattern } from "./paths";
 
 function withQuery(path: string, search: URLSearchParams) {
   const rest = new URLSearchParams(search);
+  // The category moves into the path; a make was only ever read from the path, so a query one is dead weight.
   rest.delete("category");
+  rest.delete("make");
   rest.delete("_rsc");
   return rest.size ? `${path}?${rest}` : path;
 }

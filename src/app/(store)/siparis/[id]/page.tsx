@@ -23,6 +23,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils";
 import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/store/returns";
 import { carrierLabel } from "@/modules/store/shipment";
+import { catalogPath } from "@/modules/seo/paths";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const title="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]";
@@ -99,6 +100,6 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {order.shipped_at && <p className={panelMuted}>Kargoya veriliş: {time(order.shipped_at)}</p>}
         {order.delivered_at && <p className={panelMuted}>Teslim: {time(order.delivered_at)}</p>}</article>}
       <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article>
-      {agreement && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></article>}</div></div><Button nativeButton={false} className={cta} render={<Link href="/katalog"/>}>Kataloğa dön →</Button>
+      {agreement && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></article>}</div></div><Button nativeButton={false} className={cta} render={<Link href={catalogPath}/>}>Kataloğa dön →</Button>
   </section>;
 }

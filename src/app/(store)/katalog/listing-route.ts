@@ -1,28 +1,17 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { isIndexableListing, parseCatalogQuery, type CatalogQuery } from "@/modules/store/catalog-query";
+import { isIndexableListing } from "@/modules/store/catalog-query";
 import type { SearchParams } from "@/lib/search-params";
 import { getStoreCategories } from "@/modules/store/categories";
-import type { StoreCategory } from "@/modules/store/category-tree";
 import { getVehicleBrandBySlug } from "@/modules/store/vehicle-catalog.server";
-import type { VehicleBrand } from "@/modules/store/vehicle-catalog";
+import { resolveListing, type Listing } from "@/modules/store/listing-resolve";
 import { listingPath } from "@/modules/seo/paths";
 import { pageMetadata } from "@/lib/site";
 import { catalogDescription } from "./catalog-view";
 
-export type Listing = { query: CatalogQuery; category?: StoreCategory; make?: VehicleBrand };
-
-/**
- * The listing behind /katalog, /kategori/<category>[/<make>] and /yedek-parca/<make> (#638). The path segments win
- * over query parameters of the same name; an unknown category or make is a 404, not an unfiltered catalog.
- */
-export async function loadListing({ category, make, search }: { category?: string; make?: string; search: SearchParams }): Promise<Listing> {
-  const query = parseCatalogQuery({ ...search, category, make });
-  const found = category === undefined ? undefined : (await getStoreCategories()).find(node => node.slug === category);
-  if (category !== undefined && (query.category !== category || !found)) notFound();
-  const brand = make === undefined ? undefined : query.make === make ? await getVehicleBrandBySlug(make) : undefined;
-  if (make !== undefined && !brand) notFound();
-  return { query, category: found, make: brand };
+/** The listing behind /katalog, /kategori/<category>[/<make>] and /yedek-parca/<make>; see resolveListing for the rules. */
+export async function loadListing(input: { category?: string; make?: string; search: SearchParams }): Promise<Listing> {
+  return await resolveListing(input, { categories: getStoreCategories, findMake: getVehicleBrandBySlug }) ?? notFound();
 }
 
 export function listingMetadata({ query, category, make }: Listing): Metadata {

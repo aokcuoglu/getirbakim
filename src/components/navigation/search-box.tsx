@@ -9,13 +9,12 @@ import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { catalogPath, categoryPath } from "@/modules/seo/paths";
+import { catalogPath } from "@/modules/seo/paths";
 
 type SearchBoxProps = {
   variant?: "header" | "hero" | "catalog";
   defaultQuery?: string;
   defaultMode?: "all" | "code";
-  category?: string;
   className?: string;
 };
 
@@ -63,7 +62,7 @@ function useSuggestions(query: string, mode: "all" | "code") {
   return active && result?.key === key ? result.data : null;
 }
 
-export function SearchBox({ variant = "header", defaultQuery = "", defaultMode = "all", category, className }: SearchBoxProps) {
+export function SearchBox({ variant = "header", defaultQuery = "", defaultMode = "all", className }: SearchBoxProps) {
   const [mode, setMode] = useState(defaultMode);
   const [query, setQuery] = useState(defaultQuery);
   const [open, setOpen] = useState(false);
@@ -91,7 +90,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
   const notice = suggestions?.vehicleScope ? `“${suggestions.vehicleScope.vehicleText}” için “${suggestions.vehicleScope.productText}”`
     : suggestions?.correctedQuery ? `“${suggestions.correctedQuery}” için öneriler` : null;
   return (
-    <form ref={form} action={category ? categoryPath(category) : catalogPath} role="search" aria-label={variant === "header" ? "Site genelinde parça ara" : "Katalogda parça ara"}
+    <form ref={form} action={catalogPath} role="search" aria-label={variant === "header" ? "Site genelinde parça ara" : "Katalogda parça ara"}
       onSubmit={() => setOpen(false)}
       className={cn("relative flex min-w-0 items-center gap-0 border bg-white text-sm leading-5 transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:shadow-[0_0_0_3px_#0077c714]", v.form, className)}>
       <Select name="searchBy" label="Arama türü" value={mode} className={cn("shrink-0", v.select)}
