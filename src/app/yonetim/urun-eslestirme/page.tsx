@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { candidateNames, candidateReasons, productMatchingData, type BrandSuggestion, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffer, undoSplit } from "./actions";
+import { productIdPath } from "@/modules/seo/product-id";
 
 const number = formatNumber;
 const percent = (value: number | null) => value === null ? null : `%${Math.round(value * 100)}`;
@@ -200,7 +201,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               const primary = group.offers[0];
               const saving = group.selling === "dinamik" && group.primary_price && group.selling_price ? Math.round((1 - group.selling_price / group.primary_price) * 100) : 0;
               return <TableRow key={group.primary_id}>
-                <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
+                <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={productIdPath(group.primary_id)} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
                 <TableCell><div className="flex flex-col items-start gap-1">{primary.manual && manualBadge}<OfferCell offer={primary}/></div></TableCell>
                 <TableCell><div className="flex flex-col gap-3">{group.offers.slice(1).map(offer => <div key={offer.id} className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 flex-col items-start gap-1"><div className="flex flex-wrap items-center gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge>{offer.manual && manualBadge}</div><OfferCell offer={offer}/></div>
@@ -221,7 +222,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.dinamik.length ? <Table server><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
           <TableHeader><TableRow><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="name">Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.dinamik.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
+            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={productIdPath(item.id)} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-28 truncate text-muted-foreground" title={item.brand ?? ""}>{item.brand || "—"}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
@@ -241,7 +242,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.seta.length ? <Table server><caption className="sr-only">SETA muadilleri</caption>
           <TableHeader><TableRow><TableHead sortKey="code">SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead sortKey="price" className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead sortKey="linked" className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.seta.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
+            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={productIdPath(item.id)} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>

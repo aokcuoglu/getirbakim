@@ -3,7 +3,8 @@ import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { contentSignals, hasMinimumContent, minimumContentSql, productContent, productIndexable, productIndexPolicy, type ProductContent }
   from "../src/modules/seo/indexing";
-import { absoluteUrl, categoryPath, makePath, productPath } from "../src/modules/seo/paths";
+import { absoluteUrl, categoryPath, makePath } from "../src/modules/seo/paths";
+import { productPath } from "../src/modules/seo/product-path";
 import { parseSitemapFile, productChunkRange, productChunks, renderSitemapIndex, renderUrlset, sitemapEnabled, sitemapFiles,
   sitemapUrlLimit, staticPaths, withAncestors } from "../src/modules/seo/sitemap";
 import { siteUrl } from "../src/lib/site";
@@ -101,7 +102,7 @@ describe("sitemap helpers", () => {
   });
 
   test("page paths match the pages' canonicals; legal pages carry their date", () => {
-    assert.equal(productPath("abc"), "/urun/abc");
+    assert.equal(productPath({ id: "abc", name: "Fren", display_brand: "BOSCH", display_code: "1" }), "/urun/bosch-fren-1-abc");
     assert.equal(categoryPath("fren-252"), "/kategori/fren-252");
     assert.equal(makePath("alfa-romeo"), "/yedek-parca/alfa-romeo");
     assert.equal(absoluteUrl(siteUrl, "/katalog"), `${siteUrl}/katalog`);
@@ -172,6 +173,8 @@ describe("sitemap queries", () => {
     await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1),($3,$3),($4,$3)",
       [ids.primary, ids.secondary, ids.offerPrimary, ids.offerSecondary]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hidden]);
+    // An admin's name, brand and part number (#602, #575) move the address with the page's shown values.
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,brand,part_number) VALUES($1,$1,'Özel Ürün Adı','ÖZEL MARKA','ÖZ 1')", [ids.listed]);
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hide_oem) VALUES($1,$1,true)", [ids.oemHidden]);
     // Category tree: 100 > 101 (enriched product) and 100 > 102 (empty); 200 empty root; 252 = legacy "fren", 241 = legacy "filtre".
     await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
@@ -207,6 +210,18 @@ describe("sitemap queries", () => {
     const listed = (await allChunks()).map(row => row.id);
     assert.equal(new Set(listed).size, listed.length);
     assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store, ids.fitOnly, ids.offerPrimary].sort());
+  });
+
+  test("a listed product's address is the page's canonical one, overrides and store rows included", async () => {
+    const rows = await allChunks();
+    assert.equal(rows.length, 6);
+    for (const row of rows) {
+      const product = await catalog.getStorefrontProduct(row.id);
+      assert.ok(product, row.id);
+      assert.equal(row.path, productPath(product), row.id);
+    }
+    assert.equal(rows.find(row => row.id === ids.listed)?.path, `/urun/ozel-marka-ozel-urun-adi-oz-1-${ids.listed}`);
+    assert.equal(rows.find(row => row.id === ids.store)?.path, `/urun/bosch-magaza-parca-store-1-${ids.store}`);
   });
 
   test("a product is in the sitemap exactly when its page is indexable", async () => {

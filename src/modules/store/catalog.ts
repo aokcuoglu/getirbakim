@@ -4,6 +4,8 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
+import { productPath } from "@/modules/seo/product-path";
+import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
@@ -123,19 +125,22 @@ export async function getSetaEquivalents(id: string) {
 export async function getDecidedEquivalents(id: string) {
  if (!z.uuid().safeParse(id).success) return [];
  // An admin's store brand and part number of the equivalent (#602) win, as on its own page.
- return (await db.query<{ id: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+ return (await db.query<{ id: string | null; name: string | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+   listed.name, listed.display_brand, listed.display_code,
    COALESCE(qo.brand,b.name,q.brand_label) AS brand, COALESCE(qo.part_number,listed.code,q.code) AS code, listed.available
   FROM product_sources s
   JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
   JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
   LEFT JOIN product_overrides qo ON qo.product_id=q.id
-  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available FROM product_sources o
+  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available, priced.name, priced.display_brand, priced.display_code FROM product_sources o
    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
    WHERE o.product_id=q.id
     AND NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)
    ORDER BY o.supplier_item_id=q.id DESC, priced.available DESC, o.supplier_item_id LIMIT 1) listed ON true
   WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48`, [company(), id])).rows
-  .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code));
+  .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code))
+  // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
+  .map(({ id, name, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && display_brand !== null && display_code !== null ? productPath({ id, name, display_brand, display_code }) : id && productIdPath(id) }));
 }
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
 export { money } from "./money";

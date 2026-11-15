@@ -30,6 +30,7 @@ import {engineOilCategoryId,oilFilterParam,parseOilFilters,type OilFilter} from 
 import {JsonLd} from "@/components/json-ld";
 import {breadcrumbJsonLd,catalogTrail,collectionJsonLd} from "@/modules/seo/structured-data";
 import {listingPath,listingUrl,makePath} from "@/modules/seo/paths";
+import {productPath} from "@/modules/seo/product-path";
 import {catalogCardTitle} from "@/modules/store/product-override-display";
 import {siteUrl} from "@/lib/site";
 import {TrackItemList} from "@/components/privacy/track-events";
@@ -116,7 +117,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
  const intro=params.q?undefined:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(modelTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
  const collection=isIndexableListing(params)&&products.length>0
-  ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug}),items:products.map(product=>({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
+  ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} vehicle={vehicle}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;

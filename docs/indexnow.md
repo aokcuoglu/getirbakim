@@ -54,6 +54,13 @@ Tablolar `db:setup` ile boş kurulur. Üç seçenek:
 2. **`--limit=0`:** tek koşuda tüm adresler (~64 istek, birkaç dakika).
 3. **`--seed`:** hiçbir şey bildirmeden mevcut durumu kaydet; sonrası yalnız fark. Mevcut adresler site haritasından zaten taranıyor.
 
+### Ürün adresi geçişi (#640)
+
+Ürün adresi `/urun/<marka>-<ad>-<parça-no>-<id>` biçimine geçer (`productPath`, `src/modules/seo/product-path.ts`); site haritası ve IndexNow aynı SQL sütunlarını (`productAddressColumns`) ve aynı işlevi kullanır. Ad, marka ya da parça no değişen ürünün adresi de değişir: eski ve yeni adres birlikte bildirilir (eski adres kalıcı yönlendirme verir).
+
+- **#645 ile #640 aynı yayında canlıya çıkarsa** `indexnow_urls` boştur; her ürün yeni adresiyle "yeni" sayılır, eski adres bildirilmez. Ek işlem yok (yukarıdaki "İlk yayın" seçenekleri geçerli).
+- **#645 önce canlıdaysa** geçişte her satırın yolu değişir: koşu her ürün için eski + yeni adresi (~2 × 532 bin) bildirmeye çalışır. Toplu çıkış koruması devreye girmez (sayfalar çıkmıyor, taşınıyor); yalnız günlük bütçe (`INDEXNOW_MAX_URLS`) yavaşlatır, ~21 gün sürer ve çoğu eski adres arama motorunun zaten bilmediği bir adrestir. Geçişten hemen sonra bir kez `npm run seo:indexnow -- --seed` koşun: yeni adresleri bildirmeden kaydeder, sonrası yalnız fark gider. Motorlar yeni adresleri site haritasından, eskileri `308` yönlendirmesinden öğrenir.
+
 ## AWS gereksinimleri
 
 - `INDEXNOW_KEY` secret'ı hem `app` (anahtar dosyası) hem `operations` (komut) görevine verilir. `operations` görevinde `APP_ENV=production` ve `SITE_URL` de bulunmalı; `SITE_URL` yoksa komut `disabled` yazar.

@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { confirmBrand, mergeBrand, moveBrandLabel, renameBrand } from "@/app/yonetim/urun-eslestirme/actions";
+import { productIdPath } from "@/modules/seo/product-id";
 
 function DetailTrigger({ label }: { label: string }) {
   return <DialogTrigger render={<Button variant="ghost" size="icon" aria-label={label} title={label}/>}><Maximize2 aria-hidden="true"/></DialogTrigger>;
@@ -32,7 +33,7 @@ export function SetaDialog({ title, description, products }: { title: string; de
       </TableRow></TableHeader>
         <TableBody>{products.map(product => <TableRow key={product.id}>
           <TableCell>{product.supplier}</TableCell>
-          <TableCell className="max-w-40 truncate font-mono" title={product.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={`/urun/${product.id}`} target="_blank" rel="noreferrer"/>}>{product.code}</Button></TableCell>
+          <TableCell className="max-w-40 truncate font-mono" title={product.code}><Button variant="link" className="h-auto p-0 font-mono" nativeButton={false} render={<a href={productIdPath(product.id)} target="_blank" rel="noreferrer"/>}>{product.code}</Button></TableCell>
           <TableCell className="max-w-64 truncate" title={product.name ?? ""}>{product.name || "—"}</TableCell>
           <TableCell className="max-w-40 truncate font-mono text-muted-foreground" title={product.via}>{product.via}</TableCell>
         </TableRow>)}</TableBody></Table>

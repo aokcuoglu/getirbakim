@@ -4,6 +4,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { legacyCategoryIds } from "@/modules/store/category-tree";
 import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
 import { minimumContentSql, productIndexPolicy } from "./indexing";
+import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, sitemapUrlLimit, withAncestors } from "./sitemap";
 
 const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
@@ -33,18 +34,29 @@ export function indexableProductsSql(columns: { supplier: string; store: string 
   return productIndexPolicy.supplierCatalog ? `SELECT ${columns.supplier} ${supplierRows}\n UNION ALL\n ${store}` : store;
 }
 
-export type ProductSitemapRow = { id: string; lastmod: string };
+/**
+ * The columns a product address is built from (productPath): the shown name, brand and part number. The expressions are
+ * those of commerce_catalog_entries (db/commerce.sql), so a page's canonical address and the one listed here are the same.
+ */
+export const productAddressColumns = {
+  supplier: `i.id::text AS id,COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,
+   COALESCE(h.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
+  store: "p.id::text AS id,p.name AS name,p.brand AS display_brand,p.code AS display_code",
+};
+
+export type ProductSitemapRow = { id: string; path: string; lastmod: string };
 
 // A secondary offer is left out even when its primary is hidden or not saleable (its page then shows itself): deliberate.
-/** Product ids of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
+/** Product addresses of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
   const branches = indexableProductsSql({
-    supplier: `i.id::text AS id,${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod`,
-    store: `p.id::text AS id,${isoUtc("p.updated_at")} AS lastmod`,
+    supplier: `${productAddressColumns.supplier},${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod`,
+    store: `${productAddressColumns.store},${isoUtc("p.updated_at")} AS lastmod`,
   });
-  return (await boundedQuery<ProductSitemapRow>(`SELECT id,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
-    [storefrontCompanies(), from, to])).rows;
+  const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
+    [storefrontCompanies(), from, to]);
+  return rows.map(row => ({ id: row.id, path: productPath(row), lastmod: row.lastmod }));
 }
 
 // Categories with a product of their own, as the catalog filter finds them (categoryProductIds in catalog.ts): Trodo

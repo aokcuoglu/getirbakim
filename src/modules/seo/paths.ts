@@ -28,8 +28,6 @@ export function absoluteUrl(site: string, path: string) {
   return `${site}${path}`;
 }
 
-export const productPath = (id: string) => `/urun/${id}`;
-
 /**
  * A listing: the catalog, a vehicle make's or model's page, optionally narrowed to a category. A model counts only
  * with its make.
