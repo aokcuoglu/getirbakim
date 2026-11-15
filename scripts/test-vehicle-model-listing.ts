@@ -28,12 +28,6 @@ const listed = async (query: { make: string; model?: string }) => (await catalog
 
 before(async () => {
   schema = await isolatedSchema("vehicle_model_listing_test");
-  // The fit tables' foreign keys point at the shared-links table, which these tests do not fill.
-  await schema.pool.query(`DO $$ DECLARE c record; BEGIN
-    FOR c IN SELECT conrelid::regclass AS t, conname FROM pg_constraint WHERE contype='f' AND conrelid IN ('storefront_model_fits'::regclass,'storefront_make_fits'::regclass)
-     AND confrelid='product_enrichment_shared_links'::regclass LOOP
-      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', c.t, c.conname);
-    END LOOP; END $$`);
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES
      (10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01'),(11,1,'GOLF VII Variant (BA5)','2013-08-01','2020-12-01'),
@@ -48,11 +42,13 @@ before(async () => {
   await fit("product_model_fitments", 10, "g5"); await fit("product_model_fitments", 10, "g6"); await fit("product_model_fitments", 10, "g7");
   await fit("product_model_fitments", 10, "g8"); await fit("product_model_fitments", 10, "g9"); await fit("product_model_fitments", 10, "g10");
   await fit("product_model_fitments", 11, "g4s"); await fit("product_model_fitments", 11, "g11");
-  // polo-6: two products (below the indexing minimum); passat-b8: fits only on an item an admin hid and on one that no longer exists.
+  // polo-6: two products (below the indexing minimum); passat-b8: fits only on an item an admin hid and on a secondary offer (listed through its primary, not by itself).
   await fit("storefront_model_fits", 20, "p1"); await fit("product_model_fitments", 20, "p2");
   await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,gen_random_uuid(),true)", [ids.hidden]);
   await fit("product_model_fitments", 40, "hidden");
-  await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES(40,gen_random_uuid())");
+  await item("gone");
+  await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$2)", [ids.gone, ids.g1]);
+  await fit("storefront_model_fits", 40, "gone");
   // The make list holds only g1: a model page must not intersect with it.
   await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) VALUES(1,$1)", [ids.g1]);
   const [{ db }, module, listing] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"), import("../src/modules/store/listing-load")]);
