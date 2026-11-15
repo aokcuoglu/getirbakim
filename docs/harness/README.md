@@ -61,7 +61,7 @@ Nerede koşar:
 - **CI kotası** — repo private, CI ~3-4 dk/koşu, 2000 dk/ay kotaya sığıyor (2026-11-14 ölçümü ~700 dk/ay); gereksiz push/rerun yapılmaz.
 - **Her düzenlemeden sonra** — `.claude/settings.json` PostToolUse hook'u (`post-edit-check.mjs`) düzenlenen yönetim dosyasını, dosyanın ait olduğu checkout'ta (worktree dahil) lint'ler ve bulguyu ajana bağlam olarak verir. Engellemez.
 - **İstek üzerine** — `npm run harness:lint`, `npm run harness:test` (lint ve guard regresyon testleri).
-- **CLS ölçümü** — `npm run harness:cls -- <url> [mobile|desktop] [slow]` (başsız Chrome + CDP; toplam CLS ve her kaymanın düğümü/dikdörtgeni; CI'da koşmaz, `CHROME_PATH`/`W` ile ayarlanır).
+- **CLS ölçümü** — `npm run harness:cls -- <url> [mobile|desktop] [slow]` (başsız Chrome + CDP; toplam CLS ve her kaymanın düğümü/dikdörtgeni; CI'da koşmaz, `CHROME_PATH`/`CLS_WIDTH` ile ayarlanır).
 - **CI** — `.github/workflows/ci.yml` lint'ten sonra `harness:lint` + `harness:test` koşar.
 
 ## Yerel ortam notları
