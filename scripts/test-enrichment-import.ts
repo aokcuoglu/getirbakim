@@ -64,6 +64,30 @@ test("a new image that fails verification is not retried", () => withImage(async
   assert.deepEqual(storage.calls, ["PutObjectCommand", "HeadObjectCommand"]);
 }, false));
 
+/** A client whose known row is media-1 and whose upsert returns `upserted`; records the SQL it receives. */
+function upsertClient(upserted: string) {
+  const sql: string[] = [];
+  return { sql, client: { query: async (text: string) => {
+    sql.push(text);
+    return { rows: [{ id: text.startsWith("SELECT") ? "media-1" : upserted }] };
+  } } as unknown as PoolClient };
+}
+
+test("storing a known image marks its row as stored now, so the media collection leaves it", () => withImage(async file => {
+  const { sql, client } = upsertClient("media-1");
+  const storage = fakeStorage({ length: jpeg.length, sha256 });
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
+  assert.match(sql.at(-1)!, /ON CONFLICT\(sha256\) DO UPDATE SET stored_at=now\(\) RETURNING id/);
+  assert.deepEqual(storage.calls, ["HeadObjectCommand"]);
+}));
+
+test("a known row the collection removed meanwhile gets its object written again", () => withImage(async file => {
+  const { client } = upsertClient("media-2");
+  const storage = fakeStorage({ length: jpeg.length, sha256 });
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-2");
+  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+}));
+
 test("a vehicle-list make without model_list parses and leaves its vehicles unresolved", async () => {
   const view = parseView([{ relationships: { oe_numbers: null, attributes: { criteria: [] }, vehicle_ids: ["555001"],
     vehicle_list: { list: { "81234": { automaker_id: "81234", automaker_label: { name: "TEST" } } } } } }]);

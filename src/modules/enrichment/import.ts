@@ -43,9 +43,16 @@ export async function storeProductImageBytes(client: Pick<PoolClient, "query">, 
     await put();
     if (!await verified()) throw new Error("Object verification failed");
   }
-  return (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
-    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,
+  // stored_at keeps the row young for npm run media:gc until the caller references it (src/modules/enrichment/media-gc.ts).
+  const id = (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET stored_at=now() RETURNING id`,
     [bucket, key, hash, contentType, bytes.length, source])).rows[0].id as string;
+  // A different id means the collection removed the known row (and its object) after the check above: store again.
+  if (existing && existing.id !== id) {
+    await put();
+    if (!await verified()) throw new Error("Object verification failed");
+  }
+  return id;
 }
 
 export async function importEnrichments(pool: Pool, entries: unknown[], matcher: (client: PoolClient)=>ReturnType<typeof loadFitmentMatcher> = loadFitmentMatcher) {

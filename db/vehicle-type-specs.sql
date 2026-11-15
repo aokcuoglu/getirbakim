@@ -32,3 +32,4 @@ CREATE TABLE IF NOT EXISTS vehicle_type_images (
 CREATE INDEX IF NOT EXISTS vehicle_type_images_media_idx ON vehicle_type_images(media_id);
 -- Set once scripts/vehicle-image-cutout.ts replaced media_id with a transparent cut-out: the REPXPERT original it came from.
 ALTER TABLE vehicle_type_images ADD COLUMN IF NOT EXISTS original_media_id uuid REFERENCES product_media_objects(id);
+CREATE INDEX IF NOT EXISTS vehicle_type_images_original_media_idx ON vehicle_type_images(original_media_id) WHERE original_media_id IS NOT NULL;

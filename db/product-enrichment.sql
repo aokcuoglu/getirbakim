@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS product_media_objects (
  source_url text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(bucket,object_key)
 );
+-- Last time an import stored (or re-confirmed) these bytes; npm run media:gc only collects rows unreferenced and
+-- older than its threshold by GREATEST(created_at, stored_at), so an object an import is about to reference stays.
+ALTER TABLE product_media_objects ADD COLUMN IF NOT EXISTS stored_at timestamptz;
 CREATE TABLE IF NOT EXISTS product_enrichments (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  supplier_code text NOT NULL, supplier_brand text NOT NULL,
@@ -18,6 +21,8 @@ CREATE TABLE IF NOT EXISTS product_enrichments (
  imported_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE product_enrichments ADD COLUMN IF NOT EXISTS match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
+-- Deleting a media object checks this foreign key; without the index every check scans product_enrichments.
+CREATE INDEX IF NOT EXISTS product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS product_enrichment_jobs (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','complete','partial','not_found','review','blocked','failed')),
