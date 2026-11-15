@@ -161,6 +161,61 @@ export function shownProductName(product: { name: string; name_overridden: boole
   return product.name_overridden ? product.name : readableProductName(product.name);
 }
 
+/** Letters and digits only, folded: "DF 7458-S" and "df7458s" compare equal. */
+function compact(text: string): string {
+  return foldText(text).replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * The title without the brand and part number a supplier name ends with ("… 4X4 TRW DF7458S" → "… 4X4"); the page prints both
+ * in their own block (#702). Case, spacing and dashes of the code do not matter. Rules, so vehicle years and specs survive:
+ * - several trailing words are joined to match the code only when the code itself is written split ("DF 7458", "W-712");
+ * - a purely numeric code of up to 4 digits is stripped only when the brand stands right before it;
+ * - the brand is stripped only together with the code (before or after it), never alone: "Yağ Filtresi Fiat" keeps Fiat,
+ *   because for original-part brands (FIAT, FORD) the brand is also the vehicle make.
+ * A title that would end up empty, or as just the brand or the code, is returned as is.
+ */
+export function titleWithoutIdentity(title: string, brand: string, partNumber: string): string {
+  const brandKeys = [...new Set([compact(brand), compact(brand.trim().split(/[\s-]+/)[0])].filter(Boolean))], codeKey = compact(partNumber);
+  if (!codeKey) return title;
+  const split = /[\s\-.]/.test(partNumber.trim());
+  const shortNumber = /^\d{1,4}$/.test(codeKey);
+  const tailLength = (words: string[], keys: string[], joined: boolean): number => {
+    for (let take = joined ? Math.min(4, words.length) : 1; take >= 1; take--) {
+      if (words.length >= take && keys.includes(compact(words.slice(-take).join("")))) return take;
+    }
+    return 0;
+  };
+  const words = title.trim().split(/\s+/);
+  const stripBrand = (list: string[]): boolean => {
+    const take = tailLength(list, brandKeys, true);
+    if (take === 0 || take >= list.length) return false;
+    list.length -= take;
+    return true;
+  };
+  let changed = false;
+  for (;;) {
+    const take = tailLength(words, [codeKey], split);
+    if (take > 0 && take < words.length) {
+      const rest = words.slice(0, -take);
+      if (shortNumber && !(tailLength(rest, brandKeys, true) > 0 && tailLength(rest, brandKeys, true) < rest.length)) break;
+      words.length -= take;
+      stripBrand(words);
+      changed = true;
+      continue;
+    }
+    const trial = [...words];
+    if (stripBrand(trial) && tailLength(trial, [codeKey], split) > 0 && tailLength(trial, [codeKey], split) < trial.length) {
+      words.length = trial.length;
+      continue;
+    }
+    break;
+  }
+  const result = words.join(" ").replace(/[\s,;:\-–/(]+$/, "");
+  if (!changed || !result || brandKeys.includes(compact(result)) || compact(result) === codeKey) return title;
+  return result;
+}
+
 const twoWordMakes = new Set(["ALFA ROMEO", "ASIA MOTORS", "ASTON MARTIN", "AUTO UNION", "DE LOREAN", "DE TOMASO", "EON MOTORS", "FORD AUSTRALIA", "FORD OTOSAN",
   "FORD USA", "GREAT WALL", "KG MOBILITY", "LAND ROVER", "LIVAN AUTO", "MIA ELECTRIC", "MPM MOTORS", "RAYTON FISSORE", "SWM MOTORS"]);
 

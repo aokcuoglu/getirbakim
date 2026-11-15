@@ -11,7 +11,7 @@ import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
 import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
-import { shownProductName } from "@/modules/store/product-name";
+import { shownProductName, titleWithoutIdentity } from "@/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
@@ -21,11 +21,12 @@ import { translateSpecificationLabel, translateSpecificationValue } from "@/modu
 import { applySpecOverrides } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
-import { productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
+import { CopyCodeButton } from "@/components/copy-code-button";
 import { ProductGallery } from "@/components/product-gallery";
 import { getItemImages } from "@/modules/store/product-images";
 import { galleryImages, socialImage } from "@/modules/store/product-image-display";
@@ -161,13 +162,15 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
   // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
-  // An admin's part number (#602) wins as entered.
-  const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
+  // An admin's part number (#602) wins over the automatic one; either way a leading brand (label, raw brand or its first word,
+  // followed by a space) is dropped, since the brand has its own row (#702).
+  const displayPartNumber = withoutBrandPrefix(shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber), [product.display_brand, product.brand]);
   const brand = product.display_brand;
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));
+  const heading = titleWithoutIdentity(title, brand, displayPartNumber);
   const description = productDescription(override, enrichment?.description, product.description);
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
-  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, path: productPath(product) });
+  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: heading, path: productPath(product) });
   const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
     images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
@@ -238,9 +241,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {images.length ? <ProductGallery key={product.id} images={images} alt={`${brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>
-        <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{title} {brand} {displayPartNumber}</h1>
+        <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{heading}</h1>
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).map(vehicleSeriesLabel).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
-        <p className="my-3 text-[13px] text-[#53677d]">Ürün kodu: {product.display_code}</p>
+        <dl className="my-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
+          {brand && <div className="flex items-center gap-2"><dt className="text-[#53677d]">Marka</dt><dd className="m-0 font-semibold">{brand}</dd></div>}
+          <div className="flex min-w-0 items-center gap-2"><dt className="text-[#53677d]">Ürün kodu</dt><dd className="m-0 flex min-w-0 items-center gap-1"><span className="min-w-0 rounded-lg border border-border bg-[#f7f8fa] px-2.5 py-1 font-mono text-sm font-semibold wrap-anywhere">{displayPartNumber}</span><CopyCodeButton code={displayPartNumber}/></dd></div>
+        </dl>
         {product.unavailable ? <>
           <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>
           <PurchaseForm productId={product.id} name={product.display_code} available={false} maxQuantity={1} variant="product"/>
