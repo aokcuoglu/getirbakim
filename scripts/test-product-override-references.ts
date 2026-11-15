@@ -105,6 +105,31 @@ test("enrichment OEM numbers are compacted into one indexed search text", async 
   assert.equal((await schema.pool.query("SELECT 1 FROM pg_indexes WHERE schemaname=$1 AND indexname='product_enrichments_oem_search_idx'", [schema.name])).rowCount, 1);
 });
 
+test("the /yonetim/urun-verileri search reaches supplier codes, the part number and OEM numbers through indexed sets", async () => {
+  const { enrichmentStateMatch, binder } = await import("../src/modules/search/sql");
+  const { parseSearchQuery } = await import("../src/modules/search/query");
+  // An enrichment row whose state is not enriched (a review row keeps the row, not its data) must not be searched.
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+    VALUES($1,'NGK 30030','NGK','https://www.trodo.com/ngk','test','NGK','BKR6E',$2)`, [ids.ngk, JSON.stringify({ specifications: [], vehicles: [], oemNumbers: { VW: ["7PP 999 111"] } })]);
+  await schema.pool.query("SELECT enrichment_product_states_sync()");
+  const ngk = await productOf("ngk");
+  await schema.pool.query("UPDATE enrichment_product_states SET enriched=false WHERE product_id=$1", [ngk]);
+  const matched = async (q: string) => {
+    const values: unknown[] = [];
+    const sql = `SELECT j.product_id::text FROM enrichment_product_states j WHERE ${enrichmentStateMatch("j", parseSearchQuery(q), binder(values))}`;
+    return (await schema.pool.query<{ product_id: string }>(sql, values)).rows.map(row => row.product_id).sort();
+  };
+  const febi = await productOf("febiDinamik"), mahle = await productOf("mahle");
+  assert.deepEqual(await matched("1K0 615 301"), [febi], "enrichment OEM with any spacing");
+  assert.deepEqual(await matched("10010"), [febi], "supplier code and part number");
+  assert.deepEqual(await matched("MAH 20020"), [mahle]);
+  assert.deepEqual(await matched("7PP999111"), [], "OEM of a row that is not enriched");
+  assert.ok(Array.isArray(await matched("ab")), "a two-letter query runs");
+  assert.equal((await schema.pool.query("SELECT 1 FROM pg_indexes WHERE schemaname=$1 AND indexname='enrichment_product_states_part_number_search_idx'", [schema.name])).rowCount, 1);
+  await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.ngk]);
+  await schema.pool.query("SELECT enrichment_product_states_sync()");
+});
+
 test("added numbers reach every supplier row of the product; the admin list shows the automatic ones", async () => {
   const febi = await productOf("febiBasbug");
   assert.deepEqual(await add(febi, "oem", "SKODA", "5Q0 615 301"), { ok: true });

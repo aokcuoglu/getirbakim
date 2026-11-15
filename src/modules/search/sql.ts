@@ -24,6 +24,27 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
+/**
+ * Condition over an enrichment_product_states row `alias` (/yonetim/urun-verileri search, #617): its supplier item
+ * matches like the storefront, or its manufacturer part number or one of its enrichment's OEM numbers holds the code.
+ * Each branch is an indexed id set (db/search.sql, db/enrichment-search.sql) reached through the primary key; as an
+ * OR over joined rows the same test computed the search text of every row of the tab (6 s complete, 21 s pending).
+ */
+export function enrichmentStateMatch(alias: string, parsed: ParsedSearch, bind: Bind) {
+  const sets = [`SELECT x.product_id FROM enrichment_product_states x
+    WHERE x.supplier_item_id IN (SELECT s.id FROM supplier_items s WHERE ${supplierItemMatch("s", parsed, bind)})`];
+  // compact is [a-z0-9] only, so it needs no LIKE escaping.
+  if (parsed.compact.length >= 3) {
+    const key = bind(`%${parsed.compact}%`);
+    sets.push(`SELECT x.product_id FROM enrichment_product_states x
+      WHERE x.manufacturer_part_number IS NOT NULL AND search_compact(x.manufacturer_part_number) LIKE ${key}`,
+    // Only an enriched row reads its enrichment. The key has no space, so a hit in the space-separated text lies inside one number.
+    `SELECT x.product_id FROM product_enrichments e JOIN enrichment_product_states x ON x.supplier_item_id=e.supplier_item_id AND x.enriched
+      WHERE enrichment_oem_search(e.payload) LIKE ${key}`);
+  }
+  return `${alias}.product_id IN (${sets.join(" UNION ALL ")})`;
+}
+
 // Turkish letters a normalized (ASCII) query letter stands for; ~* covers the ASCII case pair.
 const turkishVariants: Record<string, string> = { c: "cçÇ", g: "gğĞ", i: "iıİ", o: "oöÖ", s: "sşŞ", u: "uüÜ" };
 
