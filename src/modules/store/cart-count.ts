@@ -1,8 +1,9 @@
 /**
  * The header's cart quantity as a tiny client store. Add-to-cart actions return the new total instead of
  * revalidating the layout (which re-rendered the whole page and wiped the client router cache), and other
- * tabs follow through a BroadcastChannel. Server renders seed it with a stamp: a seed is adopted only when
- * the stamp is new, so an older render cannot override a value an action has just set.
+ * tabs follow through a BroadcastChannel. Server renders seed it with their render time: a seed is adopted
+ * only when its stamp is newer than the last seed and not older than the last set() (minus a small tolerance
+ * for clock skew between the server and the browser), so an older render cannot override a fresher value.
  */
 export type CartCountStore = {
   seed(count: number, stamp: number): void;
@@ -11,9 +12,13 @@ export type CartCountStore = {
   subscribe(listener: () => void): () => void;
 };
 
-export function createCartCount(channelName?: string): CartCountStore {
+/** How far a server render may lag behind the browser clock and still override a set() value. */
+export const seedClockTolerance = 2000;
+
+export function createCartCount(channelName?: string, now: () => number = Date.now): CartCountStore {
   let value: number | null = null;
   let lastStamp: number | null = null;
+  let lastSetAt: number | null = null;
   let channel: BroadcastChannel | null = null;
   const listeners = new Set<() => void>();
   const notify = () => { for (const listener of listeners) listener(); };
@@ -31,11 +36,13 @@ export function createCartCount(channelName?: string): CartCountStore {
   };
   return {
     seed(count, stamp) {
-      if (stamp === lastStamp) return;
+      if (lastStamp !== null && stamp <= lastStamp) return;
+      if (lastSetAt !== null && stamp < lastSetAt - seedClockTolerance) return;
       lastStamp = stamp;
       write(count);
     },
     set(count) {
+      lastSetAt = now();
       write(count);
       channel?.postMessage(count);
     },

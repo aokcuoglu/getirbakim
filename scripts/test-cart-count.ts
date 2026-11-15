@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { createCartCount } from "../src/modules/store/cart-count";
+import { createCartCount, seedClockTolerance } from "../src/modules/store/cart-count";
 
 test("a server seed is adopted", () => {
   const store = createCartCount();
@@ -19,20 +19,40 @@ test("the same seed stamp does not override a value set by an action", () => {
 });
 
 test("a new server stamp overrides the stored value", () => {
-  const store = createCartCount();
-  store.seed(3, 100);
+  let clock = 1_000_000;
+  const store = createCartCount(undefined, () => clock);
+  store.seed(3, 999_000);
   store.set(5);
-  store.seed(1, 200);
+  clock = 1_001_000;
+  store.seed(1, 1_000_500);
   assert.equal(store.get(), 1);
 });
 
-test("listeners are notified on change until unsubscribed", () => {
+test("a seed older than the last seed is ignored", () => {
   const store = createCartCount();
+  store.seed(3, 200);
+  store.seed(1, 100);
+  assert.equal(store.get(), 3);
+});
+
+test("a seed rendered before the last set() is ignored, within the clock-skew tolerance it is adopted", () => {
+  let clock = 1_000_000;
+  const store = createCartCount(undefined, () => clock);
+  store.set(5);
+  clock = 1_010_000;
+  store.seed(2, 1_000_000 - seedClockTolerance - 1);
+  assert.equal(store.get(), 5);
+  store.seed(4, 1_000_000 - seedClockTolerance + 1);
+  assert.equal(store.get(), 4);
+});
+
+test("listeners are notified on change until unsubscribed", () => {
+  const store = createCartCount(undefined, () => 1_000);
   let calls = 0;
   const unsubscribe = store.subscribe(() => { calls++; });
   store.set(2);
   store.set(2);
-  store.seed(4, 1);
+  store.seed(4, 2_000);
   assert.equal(calls, 2);
   unsubscribe();
   store.set(7);
