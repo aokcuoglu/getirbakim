@@ -50,6 +50,8 @@
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
     "test:unavailable": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-unavailable-catalog.ts",
     "test:sitemap": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-sitemap.ts",
+    "test:indexnow": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-indexnow.ts",
+    "seo:indexnow": "node --env-file=.env.local --conditions=react-server --import tsx scripts/indexnow.ts",
     "test:restock": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-restock.ts",
     "search:vocabulary": "node --env-file=.env.local --import tsx scripts/refresh-search-vocabulary.ts",
     "test:vehicles": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-catalog.ts",
