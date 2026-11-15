@@ -2,9 +2,13 @@ import Image from "next/image";
 import Link from "next/link";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,popularVehicleMakes} from "@/modules/store/vehicle-catalog";
-import {pageMetadata} from "@/lib/site";
+import {pageMetadata,siteUrl} from "@/lib/site";
 import {getVehicleLogo} from "@/modules/store/storefront-logos";
 import {Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator} from "@/components/ui/breadcrumb";
+
+import {JsonLd} from "@/components/json-ld";
+import {breadcrumbJsonLd,pageTrail} from "@/modules/seo/structured-data";
+import {makesPath} from "@/modules/seo/paths";
 
 export const metadata=pageMetadata({title:"Araç markaları",
  description:"Tüm araç markalarını incele ve aracının markasına uygun yedek parçaları keşfet.",
@@ -27,6 +31,7 @@ export default async function Automakers() {
  const h2="mt-8 mb-4 text-[22px] leading-7 font-semibold tracking-[-.4px]";
  return <div className="bg-white text-foreground">
   <section className="mx-auto w-full max-w-[1280px] px-8 pt-6 pb-16 max-[37.5rem]:px-5">
+   <JsonLd data={breadcrumbJsonLd(pageTrail("Araç markaları",makesPath),siteUrl)}/>
    <Breadcrumb aria-label="Sayfa yolu" className="mb-7"><BreadcrumbList className="gap-[9px] text-[13px] leading-5"><BreadcrumbItem><BreadcrumbLink render={<Link href="/"/>} className="inline-flex min-h-8 items-center hover:text-brand hover:underline">Ana sayfa</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="[&>svg]:size-[13px]"/><BreadcrumbItem><BreadcrumbPage className="text-muted-foreground">Araç markaları</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb>
    <h1 className="mt-4 mb-2 text-[32px] leading-10 font-semibold tracking-[-.5px] max-md:text-[26px] max-md:leading-8">Araç markaları</h1>
    <p className="mb-8 max-w-[720px] text-[15px] leading-[22px] text-muted-foreground">Aracının markasını seç, o markanın modellerine uygun listelenen yedek parçaları kategori ve üreticiye göre incele.</p>

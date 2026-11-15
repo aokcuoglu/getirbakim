@@ -14,16 +14,15 @@ import {cn} from "@/lib/utils";
 import {campaignEndText,listPrice,saleUntil} from "@/modules/store/best-offer";
 import "@/app/catalog-card.css";
 import {CardSpecifications,CompareCheckbox} from "./catalog-card-controls";
-import {cardPartNumber} from "@/modules/store/product-override-display";
+import {catalogCardTitle} from "@/modules/store/product-override-display";
 type Details={specifications:[string,string][];vehicleSpecific:boolean;partNumber:string};
 
 // Rendered inside CatalogResults (`group/listing`, data-view="list"|"grid"): every `group-data-[view=grid]/listing:` class is the grid layout.
 /** `fitsVehicle`: linked to the garage vehicle's engine type. */
 export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle=false}:{product:CatalogEntry;image?:CatalogProductImage;logo?:ManufacturerLogo;account:Account|null;details?:Details;fitsVehicle?:boolean}){
  const discounted=Boolean(account?.approved&&account.role==="service"),category=categories.find(c=>c.slug===p.category);
- const displayName=p.name.toLowerCase().replace(/\bon\b/g,"ön").split(" ").map(word=>word.charAt(0).toLocaleUpperCase("tr")+word.slice(1)).join(" ");
  // The store brand and part number (#602): an admin's, else the supplier's.
- const title=displayName+" "+p.display_brand+" "+cardPartNumber(p,details?.partNumber??p.code);
+ const title=catalogCardTitle(p,details?.partNumber);
  const specifications=details?.specifications??([["Üretici",p.display_brand],...(p.oem?[["OEM",p.oem]]:[])] as [string,string][]);
  const brandClass=details?.specifications.find(s=>s[0]==="Brand class")?.[1];
  // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock.

@@ -61,7 +61,7 @@ export function pageMetadata({ title, description, path, absoluteTitle, image, r
   };
 }
 
-const organizationId = `${siteUrl}/#organization`;
+export const organizationId = `${siteUrl}/#organization`;
 
 /** schema.org Organization and WebSite, printed once by the storefront layout. */
 export const siteJsonLd = {

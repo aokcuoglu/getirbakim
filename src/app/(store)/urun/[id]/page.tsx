@@ -33,6 +33,8 @@ import { ProductFitment } from "@/components/product-fitment";
 import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
 import { productIndexable } from "@/modules/seo/indexing";
 
@@ -104,13 +106,16 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // An admin's part number (#602) wins as entered.
   const displayPartNumber = shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber);
   const brand = product.display_brand;
-  // No Offer until payment, final tax/shipping and availability are verified.
   const title = productTitle(override, enrichment?.displayName, product.name);
   const description = productDescription(override, enrichment?.description, product.description);
-  const structuredProduct = { "@context": "https://schema.org", "@type": "Product", name: title,
-    sku: product.code, mpn: displayPartNumber, brand: { "@type": "Brand", name: brand },
-    description: description || undefined, image: images.length ? images.map(image => `${siteUrl}${image.src}`) : undefined, url: `${siteUrl}/urun/${product.id}`,
-    ...gtin ? { [gtin]: refs.eans[0] } : {} };
+  // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
+  const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: `${title} ${brand} ${displayPartNumber}`, productId: product.id });
+  const structuredProduct = productJsonLd({ id: product.id, supplier: product.supplier, name: title, description: description || undefined, sku: product.code, mpn: displayPartNumber, brand,
+    images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
+    category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
+    priceKurus: product.price_kurus, available: product.available, stockLabel: product.stock_label, unavailable: product.unavailable,
+    pricingSnapshot: product.pricing_snapshot,
+    vehicleModels: enrichment?.vehicles.length ? enrichment.vehicles.map(vehicle => vehicle.model) : enrichment?.vehicleModels ?? [] }, siteUrl);
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
@@ -158,14 +163,12 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
   const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
   return <div className="text-sm leading-5 text-foreground"><section className={shell}>
-    {product.supplier !== "demo" && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredProduct).replace(/</g, "\\u003c") }}/>}
+    <JsonLd data={structuredProduct}/>{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
     <Breadcrumb aria-label="Sayfa yolu" className="py-3">
       <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:text-[11px]">
-        <BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/"/>}>Ana sayfa</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}
-        <BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href="/katalog"/>}>Katalog</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}
-        {productCategoryPath.length ? productCategoryPath.map(node => <Fragment key={node.id}><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={`/katalog?category=${node.slug}`}/>}>{node.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</Fragment>)
-          : category && <><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={`/katalog?category=${category.slug}`}/>}>{category.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</>}
-        <BreadcrumbItem><BreadcrumbPage className="text-inherit">{title} {brand} {displayPartNumber}</BreadcrumbPage></BreadcrumbItem>
+        {trail.map((crumb, index) => index === trail.length - 1
+          ? <BreadcrumbItem key={crumb.path}><BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage></BreadcrumbItem>
+          : <Fragment key={crumb.path}><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</Fragment>)}
       </BreadcrumbList>
     </Breadcrumb>
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">

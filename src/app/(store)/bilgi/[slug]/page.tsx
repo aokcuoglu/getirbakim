@@ -3,7 +3,9 @@ import { LegalPage, legalMetadata } from "@/components/legal-page";
 import { legalDocument } from "@/content/legal";
 import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { contactEmail, pageMetadata } from "@/lib/site";
+import { contactEmail, pageMetadata, siteUrl } from "@/lib/site";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageTrail } from "@/modules/seo/structured-data";
 const pages:Record<string,{title:string;seoTitle:string;description:string;paragraphs:string[]}>={
  hakkimizda:{title:"Parçadan anlayan insanların yedek parça mağazası.",seoTitle:"Hakkımızda",description:"Getirbakim, ERGUL ENERJI SAN TIC LTD STI’nin servis deneyimini, stokunu ve tedarik ağını internete taşıyan yedek parça mağazasıdır. Kim olduğumuzu ve nasıl çalıştığımızı öğren.",paragraphs:["Getirbakim, araç sahipleri ve oto servisleri için, parçadan anlayan insanların yedek parça mağazasıdır. ERGUL ENERJI SAN TIC LTD STI’nin servis deneyimini, kendi stokunu ve tedarik ağını internete taşır.","Getirbakim, günlük dildeki ‘getir bir bakayım’dan geliyor. Bir parçayı eline alıp inceleyen, sorunu dinleyen ve çözüm arayan ustanın yaklaşımını taşıyor. Bir bakalım, doğru parçayı bulalım.","Mutlu Akü distribütörlüğümüz akü alanındaki deneyimimizin bir parçasıdır.","Bireysel müşteriler katalog fiyatlarını giriş yapmadan görebilir ve sepet oluşturabilir. Onaylı servis hesapları B2B fiyatlarına erişir.","Katalogdaki ürünler yetkili tedarikçilerimizin güncel fiyat ve stok bilgileriyle listelenir. Siparişler stok ve sevkiyat teyidiyle işleme alınır.",`Bize ${contactEmail} adresinden veya 0216 387 00 78 numaralı telefondan ulaşabilirsin.`]},
  uyumluluk:{title:"Doğru parçayı nasıl bulursun?",seoTitle:"Parça uyumluluğu rehberi",description:"Aracına uyan parçayı OEM kodu, motor kodu, üretim yılı ve Garajım ile nasıl doğrulayacağını adım adım öğren.",paragraphs:["Ürün veya OEM kodunu biliyorsan arama alanına yaz. Katalogda ürün adı ve markasıyla da arama yapabilirsin.","Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı parçalar kullanılır. OEM kodu, motor kodu ve araç özelliklerini karşılaştırmadan uyumluluğu varsayma.","Garajım alanına aracını eklediğinde katalog o araca göre filtrelenir. Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et; emin olamadığında bize danışabilirsin."]},
@@ -24,6 +26,7 @@ export default async function Info({params}:{params:Promise<{slug:string}>}) {
  const page=Object.hasOwn(pages,slug) ? pages[slug] : undefined;
  if(!page) notFound();
  return <section className="mx-auto min-h-[55vh] w-full max-w-[830px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
+  <JsonLd data={breadcrumbJsonLd(pageTrail(page.seoTitle,`/bilgi/${slug}`),siteUrl)}/>
   <Link className="mb-[25px] block w-fit text-xs leading-5 text-muted-foreground hover:text-primary" href="/">← Ana sayfa</Link>
   <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">{page.title}</h1>
   {page.paragraphs.map(p=><p key={p} className="mb-6 text-sm leading-[1.9] text-[#687581]">{p}</p>)}
