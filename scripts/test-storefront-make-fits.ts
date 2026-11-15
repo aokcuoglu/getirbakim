@@ -4,14 +4,19 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 
-// The make lists the storefront reads (#455) must equal the live per-make computation after every write path.
+// The make lists the storefront reads (#455) must equal the live per-make computation after every write path, with
+// the admin's added and removed types (#583) applied per offer and type.
 const live=`WITH types AS MATERIALIZED (SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1),
- fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
+ fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-  WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
- SELECT DISTINCT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`;
+  WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits)),
+ decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM types
+  JOIN product_override_fitments o ON o.vehicle_type_id=types.id JOIN product_sources ps ON ps.product_id=o.product_id)
+ SELECT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index
+  WHERE NOT EXISTS (SELECT 1 FROM decided d WHERE d.mode='remove' AND d.supplier_item_id=t.supplier_item_id AND d.vehicle_type_id=f.vehicle_type_id)
+ UNION SELECT supplier_item_id::text FROM decided WHERE mode='add'`;
 
 test('storefront make lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
  const schema='make_fits_test_'+randomUUID().replaceAll('-','');
@@ -26,10 +31,12 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
    CREATE TABLE brands(id bigint PRIMARY KEY,key text,name text);CREATE TABLE supplier_brands(supplier text,label text,brand_id bigint,PRIMARY KEY(supplier,label));
    CREATE TABLE vehicle_brands(id integer PRIMARY KEY,name text);
    CREATE TABLE vehicle_models(id integer PRIMARY KEY,brand_id integer NOT NULL REFERENCES vehicle_brands(id),name text);
-   CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL REFERENCES vehicle_models(id),name text);`);
+   CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL REFERENCES vehicle_models(id),name text);
+   CREATE TABLE accounts(id uuid PRIMARY KEY);
+   CREATE TABLE product_override_changes(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,product_id uuid,field text,old_value text,new_value text,changed_by uuid,reason text);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
-  for(const file of ['product-enrichment','enrichment-worker','product-fitments','enrichment-products','enrichment-shared-links','storefront-make-fits'])
+  for(const file of ['product-enrichment','enrichment-worker','product-fitments','product-override-fitments','enrichment-products','enrichment-shared-links','storefront-make-fits'])
    await pool.query(await readFile(`db/${file}.sql`,'utf8'));
   const brandIds=[1,2];
   const table=async(brand:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1 ORDER BY 1',[brand])).rows.map(row=>row.id);
@@ -83,6 +90,21 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   assert.deepEqual(lists[1],[donor,unlinked].sort());
   // Removed fitments leave no make behind.
   await pool.query('DELETE FROM product_vehicle_fitments WHERE supplier_item_id=$1',[unlinked]);
+  lists=await consistent();
+  assert.deepEqual(lists[1],[donor]);
+  // An admin removes the product's last VW fitment (#583): its make goes; an added BMW type lists the product and the
+  // target that left it gets its own product with an added type, without any enrichment link.
+  await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123X')",[target]);
+  await pool.query('INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1)',[target]);
+  await pool.query("INSERT INTO vehicle_types VALUES(201,20,'318i')");
+  await pool.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,200,'remove'),($1,201,'add'),($2,201,'add')`,[donor,target]);
+  lists=await consistent();
+  assert.deepEqual(lists[1],[]);
+  assert.deepEqual(lists[2],[donor,target].sort());
+  await pool.query("DELETE FROM product_override_fitments WHERE mode='add'");
+  lists=await consistent();
+  assert.deepEqual(lists[2],[]);
+  await pool.query('DELETE FROM product_override_fitments');
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}

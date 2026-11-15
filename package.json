@@ -25,6 +25,7 @@
     "test:product-override-images": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-images.ts",
     "test:product-override-references": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-references.ts",
     "test:product-override-specs": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-specs.ts",
+    "test:product-override-fitments": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-fitments.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
