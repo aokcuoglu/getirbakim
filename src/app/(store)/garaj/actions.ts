@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { vehicleSchema, chooseVehicle, forgetVehicle, savedVehicles, currentVehicle, vehicleKey } from "@/modules/store/garage";
 import { savedCatalogVehicle } from "@/modules/store/vehicle-catalog.server";
+import { garageFormChange } from "@/modules/store/garage-form";
 import { shownVehicle } from "@/modules/store/vehicle-label";
 import type { ShownVehicle } from "@/modules/store/vehicle-catalog";
 
@@ -39,9 +40,16 @@ export async function removeGarageVehicle(key: string) {
  return {success:true};
 }
 export async function saveVehicle(form:FormData) {
- const parsed=vehicleSchema.safeParse(Object.fromEntries(form));
+ const parsed=vehicleSchema.pick({make:true,model:true,year:true}).safeParse(Object.fromEntries(form));
  if(!parsed.success) redirect("/garaj?error=1");
- await chooseVehicle(parsed.data);
+ const change=garageFormChange(parsed.data,await currentVehicle());
+ if(change.kind==="catalog-year") {
+  if((await selectCatalogVehicle(change.vehicleId,change.year)).error) redirect("/garaj?error=1");
+ } else {
+  const checked=vehicleSchema.safeParse(change.kind==="keep" ? change.vehicle : {make:change.make,model:change.model,year:change.year});
+  if(!checked.success) redirect("/garaj?error=1");
+  await chooseVehicle(checked.data);
+ }
  redirect("/garaj?saved=1");
 }
 export async function removeVehicle() { await clearCatalogVehicle();redirect("/garaj"); }
