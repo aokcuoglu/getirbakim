@@ -368,3 +368,7 @@ DO $$ DECLARE c text; BEGIN
    CHECK(payment_status IN ('none','awaiting','paid','expired','cancelled','refund_required','refunded'));
  END IF;
 END $$;
+-- GA4 purchase measurement (#675). Set once by the order's own customer when the purchase event is handed to the browser;
+-- NULL = not sent yet. No backfill: orders paid before this change can still be measured within the 7-day window.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS purchase_tracked_at timestamptz;
+COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for this order (#675); claimed once by the order''s own customer';
