@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { storeDialogAction, storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
 import { paymentState } from "@/app/(store)/siparis/[id]/actions";
-import { PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
+import { PAYMENT_NOTICE, PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
 
 type Phase = "open" | "returned" | "closed" | "paid" | "blocked" | { error: string };
 
@@ -88,7 +88,7 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
   const dismiss = () => { windowRef.current?.close(); setOpen(false); onDismiss(); };
 
   const error = typeof phase === "object" ? paymentErrors[phase.error] ?? paymentErrors.closed : null;
-  const title = paid ? "Ödemen alındı" : error ? "Ödeme başlatılamadı" : phase === "open" ? "Ödeme penceresi açık" : "Ödeme tamamlanmadı";
+  const title = paid ? "Ödemen alındı" : error ? "Ödeme başlatılamadı" : phase === "open" ? "Ödemeni tamamla" : "Ödeme henüz tamamlanmadı";
   const text = paid ? "Siparişine yönlendiriliyorsun…"
     : error ?? (phase === "open" ? "Kart bilgilerini açılan TAMI güvenli ödeme penceresine gir. Ödeme tamamlanınca bu ekran kendiliğinden güncellenir."
       : phase === "blocked" ? "Tarayıcın ödeme penceresini engelledi. Aşağıdaki butonla pencereyi aç."
@@ -113,7 +113,7 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
             : canRetry && <Button className={cn(action, "font-semibold hover:bg-brand-strong")} onClick={retry}><LockKeyhole className="size-[18px]" aria-hidden/>{phase === "blocked" ? "Ödeme penceresini aç" : "Yeniden dene"}</Button>}
           <Button variant="outline" className={cn(action, "border-input bg-white font-medium text-foreground hover:bg-muted")} onClick={dismiss}>Daha sonra öde</Button>
         </div>}
-        {!paid && <small className="mt-[18px] block text-xs leading-[18px] text-muted-foreground">Kart bilgilerin TAMI’de işlenir, Getirbakım’a iletilmez. Siparişin ödeme süresi boyunca sipariş sayfasından tekrar ödeyebilirsin.</small>}
+        {!paid && <small className="mt-[18px] block text-xs leading-[18px] text-muted-foreground">{PAYMENT_NOTICE} Siparişin ödeme süresi boyunca sipariş sayfasından tekrar ödeyebilirsin.</small>}
     </DialogContent>
   </Dialog>;
 }
