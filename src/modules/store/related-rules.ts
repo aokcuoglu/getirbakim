@@ -97,9 +97,9 @@ export const unrelatedFluids: Readonly<Record<number, readonly number[]>> = {
  * may suggest a product named like one (a second "oil filter" reads as a duplicate). Matched against the product name.
  */
 export const sameTypeNames: Readonly<Record<number, RegExp>> = {
-  242: /ya[gğ]\s*f[iıİ]ltre/i,
-  245: /ya[gğ]\s*f[iıİ]ltre/i,
-  685: /ya[gğ]\s*f[iıİ]ltre/i,
+  242: /ya[gğ][ıiİ]?\s*f[iıİ]ltre/i,
+  245: /ya[gğ][ıiİ]?\s*f[iıİ]ltre/i,
+  685: /ya[gğ][ıiİ]?\s*f[iıİ]ltre/i,
 };
 
 /** The name pattern of the kind of product in `path` (root first), by its deepest category with one; null when none. */

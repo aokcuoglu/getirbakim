@@ -171,7 +171,7 @@ export async function relatedSuggestions(productId: string, context: RelatedCont
     const [lists, fluidLists, specificIds, equivalents, ownCategoryIds] = await Promise.all([
       Promise.all(complements.map(idsOf)), Promise.all(fluids.map(idsOf)),
       specific.length ? categoryProductIds([], specific) : Promise.resolve<string[]>([]),
-      equivalentIds(group), categoryProductIds([], categories),
+      equivalentIds(group), categoryProductIds([], [...categories].sort((a, b) => a - b)),
     ]);
     const own = new Set([...group, ...equivalents]);
     // A category the cart already holds a part of (other than the added product) is covered.

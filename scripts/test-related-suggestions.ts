@@ -32,7 +32,7 @@ test("a category's own kind is recognised by name, so another category's oil fil
   for (const key of Object.keys(sameTypeNames)) assert.ok(Number.isInteger(Number(key)) && Number(key) > 0);
   const rule = sameTypeName([3, 241, 242]);
   assert.ok(rule);
-  for (const name of ["YAG FILTRESI", "YAĞ FİLTRESİ", "Yağ filtresi", "SANZIMAN YAG FILTRESI", "DIREKSIYON YAG FILTRESI"]) assert.ok(rule.test(name), name);
+  for (const name of ["YAG FILTRESI", "YAĞ FİLTRESİ", "Yağ filtresi", "SANZIMAN YAG FILTRESI", "DIREKSIYON YAG FILTRESI", "SANZIMAN YAGI FILTRESI", "MOTOR YAĞI FİLTRESİ"]) assert.ok(rule.test(name), name);
   for (const name of ["YAKIT FILTRESI", "HAVA FILTRESI", "HIDROLIK FILTRESI"]) assert.ok(!rule.test(name), name);
   assert.ok(sameTypeName([241, 245]));
   assert.equal(sameTypeName([252, 269]), null);

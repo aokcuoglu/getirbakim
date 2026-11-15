@@ -151,10 +151,12 @@ test("an oil filter gets one engine oil in a can, the garage vehicle's grade whe
   const forGolf = await suggested("oilFilter", { vehicle: golf });
   assert.equal(forGolf[0], "canOther", forGolf.join());
   assert.ok(!forGolf.some(key => cans.includes(key!) && key !== "canOther"), forGolf.join());
+  for (const key of ["miscatFilter", "gearFilter", "dualFilter"]) assert.ok(!forGolf.includes(key), `${key} in ${forGolf.join()}`);
   // Without a garage vehicle, the vehicle types the filter fits decide (type 1 through its enrichment).
   const forTyped = await suggested("typedFilter");
   assert.equal(forTyped[0], "canOther", forTyped.join());
   assert.ok(!forTyped.some(key => cans.includes(key!) && key !== "canOther"), forTyped.join());
+  for (const key of ["miscatFilter", "gearFilter", "dualFilter"]) assert.ok(!forTyped.includes(key), `${key} in ${forTyped.join()}`);
   // An oil in the cart, also one recognised by its name only, covers engine oil.
   assert.deepEqual(await suggested("oilFilter", { cartIds: [ids.namedOil] }), []);
 });
