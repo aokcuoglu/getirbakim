@@ -244,7 +244,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).map(vehicleSeriesLabel).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
         <dl className="my-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
           {brand && <div className="flex items-center gap-2"><dt className="text-[#53677d]">Marka</dt><dd className="m-0 font-semibold">{brand}</dd></div>}
-          <div className="flex items-center gap-1"><dt className="mr-1 text-[#53677d]">Ürün kodu</dt><dd className="m-0 rounded-[5px] border border-[#dce2e9] bg-[#f7f8fa] px-2.5 py-1 font-mono text-sm font-semibold wrap-anywhere">{displayPartNumber}</dd><CopyCodeButton code={displayPartNumber}/></div>
+          <div className="flex min-w-0 items-center gap-2"><dt className="text-[#53677d]">Ürün kodu</dt><dd className="m-0 flex min-w-0 items-center gap-1"><span className="min-w-0 rounded-lg border border-border bg-[#f7f8fa] px-2.5 py-1 font-mono text-sm font-semibold wrap-anywhere">{displayPartNumber}</span><CopyCodeButton code={displayPartNumber}/></dd></div>
         </dl>
         {product.unavailable ? <>
           <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>

@@ -258,7 +258,20 @@ test("apostrophes: the ending is lower case, after a count it follows the number
 test("titleWithoutIdentity drops the brand and code a title ends with", async () => {
   const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
   assert.equal(titleWithoutIdentity("Ön Fren Disk Aynası Nissan Navara 4X4 TRW DF7458S", "TRW", "DF7458S"), "Ön Fren Disk Aynası Nissan Navara 4X4");
-  assert.equal(titleWithoutIdentity("Fren Balata 4x4 df 7458-s", "TRW", "DF7458S"), "Fren Balata 4x4");
+  assert.equal(titleWithoutIdentity("Fren Balata 4x4 DF7458-S", "TRW", "DF7458S"), "Fren Balata 4x4");
   assert.equal(titleWithoutIdentity("Yağ Filtresi", "MANN", "W 712"), "Yağ Filtresi");
   assert.equal(titleWithoutIdentity("DF7458S", "TRW", "DF7458S"), "DF7458S");
+});
+
+test("titleWithoutIdentity keeps years, specs, a lone brand and a bare title", async () => {
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(titleWithoutIdentity("Ön Fren Balata Ford Focus 2002 2006", "TRW", "20022006"), "Ön Fren Balata Ford Focus 2002 2006");
+  assert.equal(titleWithoutIdentity("Disk Aynası Nissan Navara 2015→", "TRW", "2015"), "Disk Aynası Nissan Navara 2015→");
+  assert.equal(titleWithoutIdentity("Motor Yağı 5W-30 4 L", "ELF", "5W304L"), "Motor Yağı 5W-30 4 L");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi Fiat", "FIAT", "55253"), "Yağ Filtresi Fiat");
+  assert.equal(titleWithoutIdentity("TRW DF7458S", "TRW", "DF7458S"), "TRW DF7458S");
+  assert.equal(titleWithoutIdentity("Yağ Filtresi Fiat 55253", "FIAT", "55253"), "Yağ Filtresi");
+  assert.equal(titleWithoutIdentity("Balata TRW DF 7458 -", "TRW", "DF 7458"), "Balata");
+  assert.equal(titleWithoutIdentity("Balata DF7458S TRW", "TRW", "DF7458S"), "Balata");
+  assert.equal(titleWithoutIdentity("Balata TRW 2015", "TRW", "2015"), "Balata");
 });

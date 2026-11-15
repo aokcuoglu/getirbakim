@@ -168,20 +168,53 @@ function compact(text: string): string {
 
 /**
  * The title without the brand and part number a supplier name ends with ("… 4X4 TRW DF7458S" → "… 4X4"); the page prints both
- * in their own block (#702). Case, spacing and dashes of the code do not matter. A title that would end up empty is returned as is.
+ * in their own block (#702). Case, spacing and dashes of the code do not matter. Rules, so vehicle years and specs survive:
+ * - several trailing words are joined to match the code only when the code itself is written split ("DF 7458", "W-712");
+ * - a purely numeric code of up to 4 digits is stripped only when the brand stands right before it;
+ * - the brand is stripped only together with the code (before or after it), never alone: "Yağ Filtresi Fiat" keeps Fiat,
+ *   because for original-part brands (FIAT, FORD) the brand is also the vehicle make.
+ * A title that would end up empty, or as just the brand or the code, is returned as is.
  */
 export function titleWithoutIdentity(title: string, brand: string, partNumber: string): string {
-  const words = title.trim().split(/\s+/);
-  const targets = [partNumber, brand].map(compact).filter(Boolean);
-  const stripTail = (): boolean => {
-    for (let take = Math.min(4, words.length - 1); take >= 1; take--) {
-      const tail = compact(words.slice(-take).join(""));
-      if (tail && targets.includes(tail)) { words.length -= take; return true; }
+  const brandKey = compact(brand), codeKey = compact(partNumber);
+  if (!codeKey) return title;
+  const split = /[\s\-.]/.test(partNumber.trim());
+  const shortNumber = /^\d{1,4}$/.test(codeKey);
+  const tailLength = (words: string[], key: string, joined: boolean): number => {
+    if (!key) return 0;
+    for (let take = joined ? Math.min(4, words.length) : 1; take >= 1; take--) {
+      if (words.length >= take && compact(words.slice(-take).join("")) === key) return take;
     }
-    return false;
+    return 0;
   };
-  while (stripTail());
-  return words.join(" ") || title;
+  const words = title.trim().split(/\s+/);
+  const stripBrand = (list: string[]): boolean => {
+    const take = tailLength(list, brandKey, true);
+    if (take === 0 || take >= list.length) return false;
+    list.length -= take;
+    return true;
+  };
+  let changed = false;
+  for (;;) {
+    const take = tailLength(words, codeKey, split);
+    if (take > 0 && take < words.length) {
+      const rest = words.slice(0, -take);
+      if (shortNumber && !(brandKey && tailLength(rest, brandKey, true) > 0 && tailLength(rest, brandKey, true) < rest.length)) break;
+      words.length -= take;
+      stripBrand(words);
+      changed = true;
+      continue;
+    }
+    const trial = [...words];
+    if (brandKey && stripBrand(trial) && tailLength(trial, codeKey, split) > 0 && tailLength(trial, codeKey, split) < trial.length) {
+      words.length = trial.length;
+      continue;
+    }
+    break;
+  }
+  const result = words.join(" ").replace(/[\s,;:\-–/(]+$/, "");
+  if (!changed || !result || compact(result) === brandKey || compact(result) === codeKey) return title;
+  return result;
 }
 
 const twoWordMakes = new Set(["ALFA ROMEO", "ASIA MOTORS", "ASTON MARTIN", "AUTO UNION", "DE LOREAN", "DE TOMASO", "EON MOTORS", "FORD AUSTRALIA", "FORD OTOSAN",
