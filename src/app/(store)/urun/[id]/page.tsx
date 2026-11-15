@@ -14,6 +14,8 @@ import { getProductEnrichment } from "@/modules/store/product-enrichment";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
+import { getItemSpecs } from "@/modules/store/product-specs";
+import { applySpecOverrides } from "@/modules/store/product-spec-display";
 import { productDescription, productMeta, productTitle, shownPartNumber } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
@@ -74,8 +76,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   // list (a dropped duplicate, a code sold from another list) on the page that shows the product now (#475).
   if (primaryId) redirect(`/urun/${primaryId}`);
   if (!product) notFound();
-  const [enrichment, override, uploads, referenceOverrides] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
-    getItemImages(product.id), getItemReferences(product.id)]);
+  const [enrichment, override, uploads, referenceOverrides, specOverrides] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
+    getItemImages(product.id), getItemReferences(product.id), getItemSpecs(product.id)]);
   // The enrichment's OEM / cross-reference numbers with the admin's hidden ones left out and added ones in (#582).
   const refs = applyReferenceOverrides({ oemNumbers: enrichment?.oemNumbers ?? {}, crossReferences: enrichment?.crossReferences ?? {} }, referenceOverrides);
   const gtin = refs.eans[0] && gtinProperty(refs.eans[0]);
@@ -114,7 +116,8 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const descriptionModels = enrichment?.vehicles.length || enrichment?.vehicleModels.length ? [] : await getDescriptionFitments(product.id);
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     enrichment?.vehicles.length ? enrichment.vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
-  const specifications: [string, string][] = [...(enrichment?.specifications || []), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
+  // The enrichment's specifications with the admin's edited, hidden and added keys (#603).
+  const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
   const hasFitment = Boolean(enrichment && (enrichment.vehicles.length || enrichment.vehicleModels.length)) || descriptionModels.length > 0;
