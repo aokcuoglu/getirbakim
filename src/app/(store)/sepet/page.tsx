@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import Image from "next/image";
@@ -18,6 +20,7 @@ import { updateCart } from "./actions";
 
 const benefit = "flex-row gap-3.5 rounded-[5px] p-5 text-sm leading-[22px] ring-0 border border-border [&>svg]:size-[23px] [&>svg]:shrink-0";
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Cart({searchParams}:{searchParams:Promise<SearchParams>}) {
   const [account,owner,params]=await Promise.all([currentAccount(),currentCartOwner(),searchParams.then(normalizeSearchParams)]);
   const [items,shipping]=await Promise.all([cartFor(owner),shippingRule()]);

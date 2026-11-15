@@ -17,6 +17,7 @@
     "supplier:basbug:inspect": "node --env-file=.env.local --import tsx scripts/inspect-basbug.ts",
     "supplier:basbug:import": "node --env-file=.env.local --import tsx scripts/import-basbug.ts",
     "supplier:dinamik:import": "node --env-file=.env.local --import tsx scripts/import-dinamik.ts",
+    "test:seo": "node --import tsx --test scripts/test-seo.ts",
     "test:pick-key": "node --import tsx --test scripts/test-pick-key.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",

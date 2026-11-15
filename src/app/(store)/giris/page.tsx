@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { login } from "@/modules/auth/actions";
@@ -12,6 +14,7 @@ const label="text-sm leading-5 font-normal";
 const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 md:text-base placeholder:text-sm";
 const serviceLink="mt-5 flex w-fit items-center gap-1.5 text-sm leading-5 text-primary hover:underline";
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Login({searchParams}:{searchParams:Promise<SearchParams>}) {
  const {error,next}=normalizeSearchParams(await searchParams);
  const returnTo=safeReturnTo(next);

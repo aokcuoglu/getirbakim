@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { currentOrder, orderRefundedKurus } from "@/modules/store/order-read";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -35,6 +37,7 @@ const cta="h-auto min-h-12 gap-2.5 rounded-lg border-primary px-[27px] py-[13px]
 
 const time=(value:Date)=>new Date(value).toLocaleString("tr-TR",{timeZone:"Europe/Istanbul"});
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Order({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<SearchParams>}) {
   const [{id},query]=await Promise.all([params,searchParams.then(normalizeSearchParams)]);
   let result=await currentOrder(id);
