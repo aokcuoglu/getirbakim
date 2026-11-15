@@ -284,3 +284,13 @@ test("withoutBrandPrefix strips the brand label, the raw brand or its first word
   assert.equal(withoutBrandPrefix("TRW", ["TRW"]), "TRW");
   assert.equal(withoutBrandPrefix("TRWX 123", ["TRW"]), "TRWX 123");
 });
+
+test("brand prefix needs whitespace; hyphenated codes and brand-first titles", async () => {
+  const { withoutBrandPrefix } = await import("../src/modules/store/product-override-display");
+  const { titleWithoutIdentity } = await import("../src/modules/store/product-name");
+  assert.equal(withoutBrandPrefix("PSA-E 1617292380", ["PSA ORIJINAL", "PSA"]), "PSA-E 1617292380");
+  assert.equal(withoutBrandPrefix("CDF-142V", ["CDF"]), "CDF-142V");
+  assert.equal(withoutBrandPrefix("TRW - DF1", ["TRW"]), "DF1");
+  assert.equal(titleWithoutIdentity("Rulman SNR 3TM-6312", "SNR-AV", "3TM-6312"), "Rulman");
+  assert.equal(titleWithoutIdentity("Rulman SNR", "SNR-AV", "3TM-6312"), "Rulman SNR");
+});

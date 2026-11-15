@@ -30,7 +30,7 @@ export function shownPartNumber(product: { code: string; display_code: string },
 
 /**
  * A part number without the brand it is written with ("SNR 3TM-6312" → "3TM-6312"). The prefix may be the full brand label,
- * the raw brand of the row or the first word of either ("SNR-AV" → "SNR"), compared folded and followed by a space or hyphen;
+ * the raw brand of the row or the first word of either ("SNR-AV" → "SNR"), compared folded and followed by whitespace only (a hyphen belongs to the number: "PSA-E 1617", "CDF-142V");
  * the longest match wins and a number that would end up empty is returned as is (#702).
  */
 export function withoutBrandPrefix(number: string, brands: string[]): string {
@@ -38,7 +38,7 @@ export function withoutBrandPrefix(number: string, brands: string[]): string {
   const folded = foldText(number);
   for (const brand of candidates) {
     const key = foldText(brand);
-    if (folded.startsWith(key) && /^[\s-]/.test(folded.slice(key.length)) && number.length === folded.length) {
+    if (folded.startsWith(key) && /^\s/.test(folded.slice(key.length)) && number.length === folded.length) {
       const rest = number.slice(key.length).replace(/^[\s-]+/, "");
       if (rest) return rest;
     }

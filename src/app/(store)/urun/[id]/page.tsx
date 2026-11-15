@@ -162,7 +162,8 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const ownPartNumber = product.code.startsWith(`${product.brand} `) ? product.code.slice(product.brand.length + 1) : product.code;
   // Dinamik codes carry the brand ("BOSCH 0986424285"); the brand is printed next to the number already.
   // Only an exact match may print the source's spelling; OEM and cross-reference donors are other manufacturers' parts.
-  // An admin's part number (#602) wins as entered.
+  // An admin's part number (#602) wins over the automatic one; either way a leading brand (label, raw brand or its first word,
+  // followed by a space) is dropped, since the brand has its own row (#702).
   const displayPartNumber = withoutBrandPrefix(shownPartNumber(product, enrichment?.matchBasis.type === "exact_part" ? enrichment.partNumber || ownPartNumber : ownPartNumber), [product.display_brand, product.brand]);
   const brand = product.display_brand;
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));

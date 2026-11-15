@@ -176,44 +176,43 @@ function compact(text: string): string {
  * A title that would end up empty, or as just the brand or the code, is returned as is.
  */
 export function titleWithoutIdentity(title: string, brand: string, partNumber: string): string {
-  const brandKey = compact(brand), codeKey = compact(partNumber);
+  const brandKeys = [...new Set([compact(brand), compact(brand.trim().split(/[\s-]+/)[0])].filter(Boolean))], codeKey = compact(partNumber);
   if (!codeKey) return title;
   const split = /[\s\-.]/.test(partNumber.trim());
   const shortNumber = /^\d{1,4}$/.test(codeKey);
-  const tailLength = (words: string[], key: string, joined: boolean): number => {
-    if (!key) return 0;
+  const tailLength = (words: string[], keys: string[], joined: boolean): number => {
     for (let take = joined ? Math.min(4, words.length) : 1; take >= 1; take--) {
-      if (words.length >= take && compact(words.slice(-take).join("")) === key) return take;
+      if (words.length >= take && keys.includes(compact(words.slice(-take).join("")))) return take;
     }
     return 0;
   };
   const words = title.trim().split(/\s+/);
   const stripBrand = (list: string[]): boolean => {
-    const take = tailLength(list, brandKey, true);
+    const take = tailLength(list, brandKeys, true);
     if (take === 0 || take >= list.length) return false;
     list.length -= take;
     return true;
   };
   let changed = false;
   for (;;) {
-    const take = tailLength(words, codeKey, split);
+    const take = tailLength(words, [codeKey], split);
     if (take > 0 && take < words.length) {
       const rest = words.slice(0, -take);
-      if (shortNumber && !(brandKey && tailLength(rest, brandKey, true) > 0 && tailLength(rest, brandKey, true) < rest.length)) break;
+      if (shortNumber && !(tailLength(rest, brandKeys, true) > 0 && tailLength(rest, brandKeys, true) < rest.length)) break;
       words.length -= take;
       stripBrand(words);
       changed = true;
       continue;
     }
     const trial = [...words];
-    if (brandKey && stripBrand(trial) && tailLength(trial, codeKey, split) > 0 && tailLength(trial, codeKey, split) < trial.length) {
+    if (stripBrand(trial) && tailLength(trial, [codeKey], split) > 0 && tailLength(trial, [codeKey], split) < trial.length) {
       words.length = trial.length;
       continue;
     }
     break;
   }
   const result = words.join(" ").replace(/[\s,;:\-–/(]+$/, "");
-  if (!changed || !result || compact(result) === brandKey || compact(result) === codeKey) return title;
+  if (!changed || !result || brandKeys.includes(compact(result)) || compact(result) === codeKey) return title;
   return result;
 }
 
