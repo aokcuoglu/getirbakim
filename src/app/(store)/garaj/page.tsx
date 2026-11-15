@@ -4,6 +4,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { CarFront,ChevronRight,Check,Trash2 } from "lucide-react";
 import { currentVehicle,savedVehicles,vehicleKey,garageVehicleLabel } from "@/modules/store/garage";
+import { shownVehicle } from "@/modules/store/vehicle-label";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,6 +18,7 @@ const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 m
 export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Garage({searchParams}:{searchParams:Promise<SearchParams>}) {
  const [vehicle,saved,params]=await Promise.all([currentVehicle(),savedVehicles(),searchParams.then(normalizeSearchParams)]);
+ const shown=shownVehicle(vehicle);
  const others=saved.vehicles.filter(entry=>!vehicle||entry.key!==vehicleKey(vehicle));
  return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
   <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Garajım</span></nav>
@@ -33,16 +35,16 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
     {params.error && <Alert className="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">Marka, model ve yılı kontrol et.</Alert>}
     <h2 className="text-[23px] leading-[34px] font-semibold">{vehicle ? "Araç bilgilerini güncelle" : "Garajına araç ekle"}</h2>
     <form action={saveVehicle} className="grid gap-5">
-     <Field className="gap-2"><FieldLabel htmlFor="garage-make" className={label}>Marka</FieldLabel><Input id="garage-make" className={input} name="make" defaultValue={params.make?.slice(0,40) ?? vehicle?.make ?? ""} placeholder="Örn. Volkswagen" minLength={2} maxLength={40} required list="vehicle-makes"/></Field>
+     <Field className="gap-2"><FieldLabel htmlFor="garage-make" className={label}>Marka</FieldLabel><Input id="garage-make" className={input} name="make" defaultValue={params.make?.slice(0,40) ?? shown?.makeLabel ?? ""} placeholder="Örn. Volkswagen" minLength={2} maxLength={40} required list="vehicle-makes"/></Field>
      <datalist id="vehicle-makes">{vehicleMakes.map(m=><option key={m} value={m}/>)}</datalist>
-     <Field className="gap-2"><FieldLabel htmlFor="garage-model" className={label}>Model</FieldLabel><Input id="garage-model" className={input} name="model" defaultValue={vehicle?.model} placeholder="Örn. Golf 1.6 TDI" maxLength={60} required/></Field>
+     <Field className="gap-2"><FieldLabel htmlFor="garage-model" className={label}>Model</FieldLabel><Input id="garage-model" className={input} name="model" defaultValue={shown?.modelLabel} placeholder="Örn. Golf 1.6 TDI" maxLength={60} required/></Field>
      <Field className="gap-2"><FieldLabel htmlFor="garage-year" className={label}>Model yılı</FieldLabel><Input id="garage-year" className={input} name="year" type="number" min={1950} max={new Date().getFullYear()+1} defaultValue={vehicle?.year} placeholder="Örn. 2018" required/></Field>
      <Button type="submit" className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong">Aracımı kaydet <ChevronRight className="size-4" aria-hidden/></Button>
     </form>
     {vehicle && <form action={removeVehicle}><Button type="submit" variant="link" className="mt-3 h-auto min-h-0 border-0 bg-transparent px-0 py-[5px] text-sm leading-5 font-normal text-primary hover:bg-transparent hover:text-brand-strong hover:no-underline">Aracı garajımdan kaldır</Button></form>}
     {others.length>0 && <><h2 className="mt-6 mb-2 text-lg leading-7 font-semibold">Diğer kayıtlı araçlar</h2><ul className="grid divide-y divide-border">{others.map(entry=><li key={entry.key} className="flex items-center gap-3 py-2.5 text-sm leading-5"><span className="min-w-0 flex-1 wrap-anywhere">{garageVehicleLabel(entry)}</span>
      <form action={switchVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="link" className="h-auto min-h-0 px-0 text-sm font-normal text-primary">Bu aracı seç</Button></form>
-     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" aria-label={`${entry.make} ${entry.model} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
+     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
    </Card>
   </div>
  </section>;

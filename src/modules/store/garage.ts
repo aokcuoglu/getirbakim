@@ -2,13 +2,15 @@ import "server-only";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { shownVehicle, vehicleText } from "./vehicle-label";
 export const vehicleSchema = z.object({make:z.string().trim().min(2).max(40),model:z.string().trim().min(1).max(60),year:z.coerce.number().int().min(1900).max(new Date().getFullYear()+1),vehicleId:z.string().max(80).optional(),generation:z.string().max(100).optional(),fuel:z.string().max(30).optional(),engine:z.string().max(60).optional(),power:z.string().max(40).optional()});
 export type GarageVehicle = z.infer<typeof vehicleSchema>;
 export type GarageEntry = GarageVehicle & { key: string };
 export function parseGarageVehicle(value: unknown): GarageVehicle | null {
  const parsed=vehicleSchema.safeParse(value);return parsed.success ? parsed.data : null;
 }
-export const garageVehicleLabel=(vehicle:GarageVehicle)=>[vehicle.make,vehicle.model,vehicle.engine,vehicle.year].filter(Boolean).join(" ");
+/** The vehicle as a text names it, in reading form ("Volkswagen Golf VII (5G1) 1.0 TSI 2016"); the stored values stay as they are. */
+export const garageVehicleLabel=(vehicle:GarageVehicle)=>[vehicleText(shownVehicle(vehicle)),vehicle.year].filter(Boolean).join(" ");
 /** The same vehicle selected twice is one garage entry: catalog type + model year, or the free-text fields. */
 export function vehicleKey(vehicle: GarageVehicle) {
  return vehicle.vehicleId ? `type:${vehicle.vehicleId}:${vehicle.year}` : `text:${[vehicle.make,vehicle.model,vehicle.year].join("|").toLocaleLowerCase("tr")}`.slice(0,200);
