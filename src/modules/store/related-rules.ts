@@ -91,6 +91,26 @@ export const unrelatedFluids: Readonly<Record<number, readonly number[]>> = {
   958: [957],
 };
 
+/**
+ * Categories whose own kind of product is also named in other categories (#733): "yağ filtresi" products sit under yakıt
+ * filtreleri, şanzıman and direksiyon hidrolik filtreleri, so neither the complement list nor the filler of an oil filter
+ * may suggest a product named like one (a second "oil filter" reads as a duplicate). Matched against the product name.
+ */
+export const sameTypeNames: Readonly<Record<number, RegExp>> = {
+  242: /ya[gğ]\s*f[iıİ]ltre/i,
+  245: /ya[gğ]\s*f[iıİ]ltre/i,
+  685: /ya[gğ]\s*f[iıİ]ltre/i,
+};
+
+/** The name pattern of the kind of product in `path` (root first), by its deepest category with one; null when none. */
+export function sameTypeName(path: readonly number[]): RegExp | null {
+  for (let i = path.length - 1; i >= 0; i--) {
+    const rule = sameTypeNames[path[i]];
+    if (rule) return rule;
+  }
+  return null;
+}
+
 /** The categories suggested for a product in `path` (root first): the deepest category with an entry. */
 export function complementsFor(path: readonly number[]): readonly number[] {
   for (let i = path.length - 1; i >= 0; i--) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { complementaryCategories, complementsFor, fillerSection, pickRelated, rankOils, stableHash, targetCapacity, universalCategories, unrelatedFluids,
+import { complementaryCategories, complementsFor, fillerSection, pickRelated, rankOils, sameTypeName, sameTypeNames, stableHash, targetCapacity, universalCategories, unrelatedFluids,
   type OilCandidate, type OilTarget, type RelatedInput } from "../src/modules/store/related-rules";
 import { productOilSpec, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
 
@@ -26,6 +26,17 @@ test("the deepest category with complements decides", () => {
   assert.deepEqual(complementsFor([252, 269, 99999]), [268, 281, 960]);
   assert.deepEqual(complementsFor([252]), []);
   assert.deepEqual(complementsFor([]), []);
+});
+
+test("a category's own kind is recognised by name, so another category's oil filter is not suggested (#733)", () => {
+  for (const key of Object.keys(sameTypeNames)) assert.ok(Number.isInteger(Number(key)) && Number(key) > 0);
+  const rule = sameTypeName([3, 241, 242]);
+  assert.ok(rule);
+  for (const name of ["YAG FILTRESI", "YAĞ FİLTRESİ", "Yağ filtresi", "SANZIMAN YAG FILTRESI", "DIREKSIYON YAG FILTRESI"]) assert.ok(rule.test(name), name);
+  for (const name of ["YAKIT FILTRESI", "HAVA FILTRESI", "HIDROLIK FILTRESI"]) assert.ok(!rule.test(name), name);
+  assert.ok(sameTypeName([241, 245]));
+  assert.equal(sameTypeName([252, 269]), null);
+  assert.equal(sameTypeName([]), null);
 });
 
 test("categories take turns so the first picks cover different parts", () => {
