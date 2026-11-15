@@ -2,11 +2,18 @@ import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { currentAccount } from "@/modules/auth/session";
-import { currentCartOwner, currentGuestCartOwner } from "./cart";
+import { currentCartOwner, currentGuestCartOwner, type CartOwner } from "./cart";
 import type { CommerceOrder, OrderItem } from "./orders";
 import type { OrderAgreementDocument } from "./order-agreement";
 
-export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,refunded_at,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
+export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,refunded_at,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at,cancelled_by,cancelled_at";
+
+/** Every owner whose orders the visitor may see: the account (or guest cart) and the guest cart of this browser. */
+export async function currentOrderOwners():Promise<CartOwner[]> {
+ const [owner,guest]=await Promise.all([currentCartOwner(),currentGuestCartOwner()]);
+ if(!owner) return [];
+ return guest && (guest.kind!==owner.kind || guest.id!==owner.id) ? [owner,guest] : [owner];
+}
 
 export async function currentOrders() {
  const [owner,guest]=await Promise.all([currentCartOwner(),currentGuestCartOwner()]);
@@ -33,7 +40,9 @@ export async function currentOrder(id:string) {
    vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id`,[id]),
   db.query<{accepted_at:Date;legal_version:string}>("SELECT accepted_at,legal_version FROM commerce_order_agreements WHERE order_id=$1",[id]),
  ]);
- return {order,items:items.rows,agreement:agreement.rows[0] ?? null};
+ // false when an admin opens someone else's order: only the order's own customer may cancel it.
+ const mine=(order.owner_kind===owner.kind && order.owner_id===owner.id) || (order.owner_kind==='guest' && order.owner_id===guest?.id);
+ return {order,items:items.rows,agreement:agreement.rows[0] ?? null,mine};
 }
 
 /** The order's stored pre-contract copy, under the same access rule as the order page; null when none was recorded. */
