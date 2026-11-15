@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
-import {applySpecOverrides} from "../src/modules/store/product-spec-display";
+import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../src/modules/store/product-spec-display";
 import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 
@@ -133,4 +133,17 @@ test("frequent English facet values are Turkish (#703)", () => {
   assert.equal(translateSpecificationList("with sealing cap"), "Sızdırmazlık kapaklı");
   assert.equal(translateSpecificationList("Bracket wiper blade without spoiler"), "Klasik (kollu) silecek, spoilersiz");
   assert.equal(translateSpecificationList("hard version"), "Sert tip");
+});
+
+test("the page's own maker, part number and barcode win over the enrichment's rows (#712)", () => {
+  const rows:[string,string][]=[["Manufacturer","MAHLE"],["Manufacturer Part Number","X1"],["EAN","123"],["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]];
+  assert.deepEqual(pageSpecifications(rows,true,true),[["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]]);
+  assert.deepEqual(pageSpecifications(rows,true,false),[["EAN","123"],["Brand class","Premium"],["Trade numbers","T1"],["Height [mm]","10"]]);
+  assert.deepEqual(pageSpecifications(rows,false,false),[["Height [mm]","10"]]);
+});
+
+test("mergeSpecificationRows merges equal labels, keeps every distinct value and drops empty rows (#712)", () => {
+  assert.deepEqual(mergeSpecificationRows([["A","Febi"],["B","1 kg"],["A","FEBI"],["A","Febi Bilstein"],["C",""],["D"," "],["D","x"]]),
+    [["A","Febi, Febi Bilstein"],["B","1 kg"],["D","x"]]);
+  assert.deepEqual(mergeSpecificationRows([["E",""]]),[]);
 });

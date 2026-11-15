@@ -18,7 +18,7 @@ import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
 import { getItemSpecs } from "@/modules/store/product-specs";
 import { translateSpecificationLabel, translateSpecificationList } from "@/modules/store/specification-translations";
-import { applySpecOverrides } from "@/modules/store/product-spec-display";
+import { applySpecOverrides, mergeSpecificationRows, pageSpecifications } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
 import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
@@ -185,9 +185,10 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
   // The enrichment's specifications with the admin's edited, hidden and added keys (#603), labelled in Turkish like the catalog cards (#622).
-  const specifications: [string, string][] = [...applySpecOverrides(enrichment?.specifications || [], specOverrides).map(([key, value]): [string, string] => [translateSpecificationLabel(key), translateSpecificationList(value)]), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
+  const specifications: [string, string][] = [...applySpecOverrides(pageSpecifications(enrichment?.specifications || [], enrichment?.matchBasis.type === "exact_part", refs.eans.length > 0), specOverrides).map(([key, value]): [string, string] => [translateSpecificationLabel(key), translateSpecificationList(value)]), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
   if (refs.eans.length) specifications.push(["Barkod (EAN)", refs.eans.join(", ")]);
+  const specificationRows = mergeSpecificationRows(specifications);
   const hasFitment = vehicles.length > 0 || fallbacks.vehicleModels.length > 0 || descriptionModels.length > 0;
   // With an admin's decisions the enrichment's model list is not used (modelFallbacks): the shown vehicles' models instead.
   const fitmentSummary = fallbacks.vehicleModels.length ? fallbacks.vehicleModels
@@ -268,7 +269,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
-        <dl className="mt-[18px] mb-1.5">{specifications.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
+        <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
         {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1 text-[#0065c3]"><LoginButton className="min-h-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[#53677d] hover:text-[#0065c3]">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
       </div>
@@ -281,7 +282,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
     <div className="min-w-0 max-[750px]:w-full">
       <section className="scroll-mt-[110px]" id="product-specifications" aria-labelledby="specifications-title">
         <h2 id="specifications-title" className={sectionTitle}>{title} {brand} {displayPartNumber} teknik bilgileri</h2>
-        <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specifications.length / 2) } as CSSProperties}>{specifications.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
+        <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specificationRows.length / 2) } as CSSProperties}>{specificationRows.map(([label, value]) => <div key={label} className="grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
         {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
       {vehicles.length > 0 ? <ProductFitment vehicles={vehicles.map(row => ({ ...row, ...fitmentLabels(row, makeNames) }))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
