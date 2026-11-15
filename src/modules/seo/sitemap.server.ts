@@ -1,0 +1,67 @@
+import "server-only";
+import { boundedQuery } from "@/lib/db";
+import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
+import { legacyCategoryIds } from "@/modules/store/category-tree";
+import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
+import { productIndexPolicy } from "./indexing";
+import { productChunkRange, sitemapUrlLimit, withAncestors } from "./sitemap";
+
+const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+// The supplier branch selects what productIndexable (./indexing) accepts: the rows the store lists (commerce_supplier_items
+// as in commerce_catalog, without secondary offers like `listedOnly` in src/modules/store/catalog.ts), not hidden by an
+// admin. Unavailable cards (commerce_unavailable_items) and demo rows stay out. Plan: a bitmap scan of
+// supplier_items_saleable_order_v3_idx per file (~0.1-0.3 s locally), no sequential scan of supplier_items.
+const supplierBranch = `SELECT i.id::text AS id,${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod
+ FROM commerce_supplier_items i
+ LEFT JOIN product_enrichment_shared_links l ON l.supplier_item_id=i.id
+ WHERE i.company=ANY($1::text[]) AND i.id BETWEEN $2::uuid AND $3::uuid
+  AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id<>o.item_id)
+  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=i.id AND h.hidden)`;
+const storeBranch = `SELECT p.id::text,${isoUtc("p.updated_at")} FROM store_products p
+ WHERE p.supplier<>'demo' AND p.id BETWEEN $2::uuid AND $3::uuid`;
+
+export type ProductSitemapRow = { id: string; lastmod: string };
+
+/** Product ids of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
+export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
+  const { from, to } = productChunkRange(index);
+  const branches = productIndexPolicy.supplierCatalog ? `${supplierBranch}\n UNION ALL\n ${storeBranch}` : storeBranch;
+  return (await boundedQuery<ProductSitemapRow>(`SELECT id,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
+    [storefrontCompanies(), from, to])).rows;
+}
+
+// Categories with a product of their own, as the catalog filter finds them (categoryProductIds in catalog.ts): Trodo
+// categories of enriched supplier items and an admin's category (#575). One hashed pass over the enrichments for the
+// whole tree (~0.2-0.5 s locally).
+const categorySql = `SELECT c.category_id AS id,c.path_ids AS path,l.slug,
+ (EXISTS (SELECT 1 FROM product_source_categories pc
+   JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
+   JOIN commerce_supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
+   WHERE pc.source='trodo' AND pc.category_id=c.category_id)
+  OR EXISTS (SELECT 1 FROM product_overrides o WHERE o.category_id=c.category_id AND NOT o.hidden)) AS direct
+FROM source_categories c
+JOIN source_category_labels l ON l.source=c.source AND l.category_id=c.category_id AND l.locale='tr'
+WHERE c.source='trodo'
+ORDER BY COALESCE((c.raw->>'l')::int,0),c.category_id`;
+// Old storefront categories (supplier_items_legacy_category_idx) that still hold a product.
+const legacySql = `SELECT slug FROM unnest($1::text[]) slug
+WHERE EXISTS (SELECT 1 FROM supplier_items s WHERE s.product_data->>'category'<>'' AND s.product_data->>'category'=slug)`;
+
+/** Slugs of the categories holding products and of their ancestors. */
+export async function loadCategorySlugs(): Promise<string[]> {
+  const [nodes, legacy] = await Promise.all([
+    boundedQuery<{ id: number; path: number[]; slug: string; direct: boolean }>(categorySql, []),
+    boundedQuery<{ slug: string }>(legacySql, [Object.keys(legacyCategoryIds)]),
+  ]);
+  const direct = [...nodes.rows.filter(node => node.direct).map(node => node.id), ...legacy.rows.map(row => legacyCategoryIds[row.slug])];
+  return withAncestors(nodes.rows, direct).map(node => node.slug);
+}
+
+/** Slugs of the vehicle makes with a fitted product (/car-parts/<slug>). */
+export async function loadMakeSlugs(): Promise<string[]> {
+  const { rows } = await boundedQuery<{ name: string }>(`SELECT b.display_name AS name FROM vehicle_brands b
+   WHERE EXISTS (SELECT 1 FROM storefront_make_fits f WHERE f.brand_id=b.id) ORDER BY b.id`, []);
+  return [...new Set(rows.map(row => vehicleBrandSlug(row.name)))];
+}

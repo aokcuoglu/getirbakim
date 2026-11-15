@@ -34,6 +34,7 @@ import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
+import { productIndexable } from "@/modules/seo/indexing";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -65,7 +66,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     alternates: { canonical: `/urun/${id}` },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description.slice(0, 180), url: `/urun/${id}`,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
-    robots: product.supplier === "demo" || product.source === "supplier" ? { index: false, follow: true } : undefined,
+    robots: productIndexable(product) ? undefined : { index: false, follow: true },
   };
 }
 
