@@ -1,10 +1,15 @@
 export const CONSENT_COOKIE = "gb_consent";
 /** The pre-#644 localStorage record; removed on first read, never trusted. */
 export const LEGACY_CONSENT_KEY = "gb_cookie_consent";
+export const CONSENT_CHANNEL = "gb-consent";
 export const CONSENT_EVENT = "gb:cookie-consent";
 export const CONSENT_MAX_AGE = 180 * 24 * 60 * 60 * 1000;
 /** Bumped whenever a new cookie or integration needs a fresh choice (the cookie policy requires it). */
 export const CONSENT_VERSION = 2;
+/** A record this far ahead of the reader's clock is still accepted (small clock differences). */
+export const CONSENT_FUTURE_TOLERANCE = 5 * 60 * 1000;
+/** How far a client's reported save time may differ from the server clock before the request is refused. */
+export const CONSENT_CLIENT_SKEW = 7 * 24 * 60 * 60 * 1000;
 
 export type CookieConsent = {
   version: typeof CONSENT_VERSION;
@@ -31,8 +36,14 @@ export function parseConsent(raw: string | null, now = Date.now()): CookieConsen
   const match = raw ? /^(\d+)\.([01])\.([01])\.(\d{1,12})$/.exec(raw) : null;
   if (!match || Number(match[1]) !== CONSENT_VERSION) return null;
   const savedAt = Number(match[4]) * 1000;
-  if (savedAt > now || now - savedAt >= CONSENT_MAX_AGE) return null;
+  if (savedAt > now + CONSENT_FUTURE_TOLERANCE || now - savedAt >= CONSENT_MAX_AGE) return null;
   return { version: CONSENT_VERSION, necessary: true, analytics: match[2] === "1", marketing: match[3] === "1", savedAt };
+}
+
+/** The save time the server writes: the client's own time, never later than the server clock; null when it is implausible. */
+export function consentSavedAt(client: number | undefined, now: number) {
+  if (client === undefined) return now;
+  return Math.abs(client - now) <= CONSENT_CLIENT_SKEW ? Math.min(client, now) : null;
 }
 
 /** Consent Mode v2 signals: analytics_storage follows analytics; the three advertising signals follow marketing. */
@@ -65,17 +76,28 @@ export function saveConsent(analytics: boolean, marketing: boolean) {
   // The server writes the same cookie, so Safari keeps it for the full 180 days instead of 7.
   void fetch("/api/consent", {
     method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ analytics, marketing }),
+    body: JSON.stringify({ analytics, marketing, savedAt: consent.savedAt }),
   }).catch(() => undefined);
+  if (typeof BroadcastChannel === "function") {
+    const channel = new BroadcastChannel(CONSENT_CHANNEL);
+    channel.postMessage(value);
+    channel.close();
+  }
 }
 
 export function subscribeConsent(callback: () => void) {
   const onVisible = () => { if (document.visibilityState === "visible") callback(); };
   window.addEventListener(CONSENT_EVENT, callback);
   document.addEventListener("visibilitychange", onVisible);
+  // A choice made in another tab: the cookie is shared, so a nudge is enough; `focus` is the fallback.
+  const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel(CONSENT_CHANNEL) : null;
+  if (channel) channel.onmessage = callback;
+  else window.addEventListener("focus", callback);
   return () => {
     window.removeEventListener(CONSENT_EVENT, callback);
     document.removeEventListener("visibilitychange", onVisible);
+    if (channel) channel.close();
+    else window.removeEventListener("focus", callback);
   };
 }
 

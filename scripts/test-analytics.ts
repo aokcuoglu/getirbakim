@@ -15,7 +15,7 @@ test("consent cookie: round trip, old versions, expiry and future records", () =
   assert.equal(parseConsent(`1.1.1.${now / 1000}`, now), null);
   assert.equal(parseConsent(JSON.stringify({ version: 1, necessary: true, analytics: true, marketing: true, savedAt: now }), now), null);
   assert.equal(parseConsent(raw, now + CONSENT_MAX_AGE), null);
-  assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + 60_000 }), now), null);
+  assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + 600_000 }), now), null);
   assert.equal(parseConsent(null, now), null);
   assert.equal(parseConsent("2.2.0.1", now), null);
 });
@@ -63,4 +63,79 @@ test("the admin area never loads the tag and no id is baked in at build", () => 
     assert.doesNotMatch(readFileSync(file, "utf8"), /modules\/analytics|privacy\/tag-manager|privacy\/store-tags/, file);
   }
   for (const file of sources("src")) assert.doesNotMatch(readFileSync(file, "utf8"), /NEXT_PUBLIC_GA/, file);
+});
+
+// A minimal browser: a cookie jar, an event target and the globals the modules read.
+function browser(cookie = "") {
+  const target = new EventTarget();
+  const fake = {
+    cookie, window: Object.assign(target, { localStorage: { removeItem() {} }, location: { protocol: "https:", hostname: "getirbakim.com" } }) as unknown as Window & typeof globalThis,
+  };
+  Object.assign(globalThis, { window: fake.window, document: fake });
+  return fake;
+}
+
+test("an event sent before the tag boots is refused, then queued after the boot (hydration order)", async () => {
+  const { consentSnapshot } = await import("../src/lib/cookie-consent");
+  const { TAG_READY_EVENT, bootGtag, stopGtag, track } = await import("../src/modules/analytics/track");
+  browser(`other=1; gb_consent=${serializeConsent({ analytics: true, marketing: false, savedAt: Date.now() })}`);
+  assert.ok(consentSnapshot());
+  let ready = 0;
+  window.addEventListener(TAG_READY_EVENT, () => { ready += 1; });
+  assert.equal(track("view_item", {}), false);
+  assert.equal(window.dataLayer, undefined);
+  bootGtag("G-TEST0000000", "b2c", false);
+  assert.equal(ready, 1);
+  const commands = () => (window.dataLayer ?? []).map(entry => Array.from(entry as ArrayLike<unknown>));
+  assert.deepEqual(commands().map(command => command.slice(0, 2).join(":")).slice(0, 5),
+    ["consent:default", "consent:update", "js:" + commands()[2][1], "set:user_properties", "config:G-TEST0000000"]);
+  assert.equal(track("view_item", { a: 1 }), true);
+  assert.deepEqual(commands().at(-1), ["event", "view_item", { a: 1 }]);
+  // Signing in later changes the user property without a second config.
+  bootGtag("G-TEST0000000", "b2b", false);
+  assert.equal(commands().filter(command => command[0] === "config").length, 1);
+  assert.deepEqual(commands().filter(command => command[0] === "set").at(-1), ["set", "user_properties", { customer_type: "b2b" }]);
+  stopGtag("G-TEST0000000");
+  assert.equal((window as unknown as Record<string, boolean>)["ga-disable-G-TEST0000000"], true);
+  assert.equal(commands().at(-1)?.[2] && (commands().at(-1)![2] as { analytics_storage: string }).analytics_storage, "denied");
+});
+
+test("without analytics consent nothing is queued", async () => {
+  const { track } = await import("../src/modules/analytics/track");
+  for (const cookie of ["", `gb_consent=${serializeConsent({ analytics: false, marketing: true, savedAt: Date.now() })}`]) {
+    browser(cookie);
+    window.dataLayer = [];
+    window.gtag = (...args: unknown[]) => { window.dataLayer!.push(args); };
+    assert.equal(track("view_item", {}), false);
+    assert.equal(window.dataLayer.length, 0);
+  }
+});
+
+test("a save time from a slow clock stays valid; the server never writes a later one", async () => {
+  const { consentSavedAt, CONSENT_FUTURE_TOLERANCE } = await import("../src/lib/cookie-consent");
+  const client = now - 3_600_000;
+  assert.equal(consentSavedAt(client, now), client);
+  assert.equal(consentSavedAt(now + 60_000, now), now);
+  assert.equal(consentSavedAt(undefined, now), now);
+  assert.equal(consentSavedAt(now - 30 * 86_400_000, now), null);
+  assert.equal(consentSavedAt(now + 30 * 86_400_000, now), null);
+  const written = serializeConsent({ analytics: true, marketing: true, savedAt: consentSavedAt(client, now)! });
+  assert.notEqual(parseConsent(written, now), null);
+  assert.notEqual(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + CONSENT_FUTURE_TOLERANCE - 1000 }), now), null);
+  assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + CONSENT_FUTURE_TOLERANCE + 2000 }), now), null);
+});
+
+test("POST /api/consent: 204, 400 and 403", async () => {
+  const { consentRequest } = await import("../src/modules/analytics/consent-request");
+  const base = { hosts: ["shop.test"], siteOrigin: "https://getirbakim.com", now, body: { analytics: true, marketing: false } };
+  assert.deepEqual(consentRequest({ ...base, origin: "https://shop.test" }), { status: 204, analytics: true, marketing: false, savedAt: now });
+  assert.equal(consentRequest({ ...base, origin: "https://getirbakim.com" }).status, 204);
+  assert.deepEqual(consentRequest({ ...base, origin: "https://getirbakim.com", body: { analytics: true, marketing: true, savedAt: now - 1000 } }),
+    { status: 204, analytics: true, marketing: true, savedAt: now - 1000 });
+  assert.equal(consentRequest({ ...base, origin: "https://evil.example" }).status, 403);
+  assert.equal(consentRequest({ ...base, origin: null }).status, 403);
+  assert.equal(consentRequest({ ...base, origin: "not a url" }).status, 403);
+  assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: { analytics: "x" } }).status, 400);
+  assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: null }).status, 400);
+  assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: { analytics: true, marketing: true, savedAt: 1 } }).status, 400);
 });
