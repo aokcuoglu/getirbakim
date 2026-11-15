@@ -56,6 +56,7 @@
     "test:app-version": "node --import tsx --test scripts/test-app-version.ts",
     "test:vehicle-repxpert": "node --import tsx --test scripts/test-vehicle-repxpert.ts",
     "test:structured-data": "node --import tsx --test scripts/test-structured-data.ts",
+    "test:listing-paths": "node --import tsx --test scripts/test-listing-paths.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "verify:catalog": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog.ts",
     "db:brand:migrate": "node --env-file=.env.local --import tsx scripts/migrate-brand-launch.ts",

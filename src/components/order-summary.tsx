@@ -5,6 +5,7 @@ import { money, servicePrice } from "@/modules/store/catalog";
 import { orderTotals, type ShippingRule } from "@/modules/store/orders";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { catalogPath } from "@/modules/seo/paths";
 
 const action = "h-auto min-h-[42px] w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
 
@@ -29,7 +30,7 @@ export function OrderSummary({items,discount,shipping,checkout=false,className}:
     </dl>
     <div className="mt-5 mb-4 flex items-start justify-between gap-3 text-base font-semibold"><span>Toplam <small className="mt-1 block text-xs font-normal text-muted-foreground">KDV dahil</small></span><strong className="text-lg font-semibold tabular-nums">{money(totals.total)}</strong></div>
     {!checkout && <div className="grid gap-4">
-      <Button variant="outline" nativeButton={false} className={cn(action, "border-input bg-white font-medium text-foreground hover:bg-muted")} render={<Link href="/katalog"/>}>Alışverişe devam et</Button>
+      <Button variant="outline" nativeButton={false} className={cn(action, "border-input bg-white font-medium text-foreground hover:bg-muted")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
       {valid ? <Button nativeButton={false} className={cn(action, "font-semibold hover:bg-brand-strong")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
         : <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Siparişe devam etmek için uygun olmayan ürünleri kaldır veya adetlerini güncelle.</p>}
     </div>}

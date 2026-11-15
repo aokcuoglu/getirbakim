@@ -41,8 +41,8 @@ test("production has a general group and an AI crawler group with identical bodi
 });
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
-  const open = ["/", "/katalog", "/katalog?category=fren", "/katalog?category=fren&page=2", "/katalog?brand=BOSCH", "/car-parts/bmw?category=fren", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt"];
-  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/katalog?category=fren&sort=price-asc", "/katalog?category=fren&brands=%5B%22BOSCH%22%5D&page=2", "/car-parts/bmw?fits=vehicle", "/katalog?q=0986&searchBy=code"];
+  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt"];
+  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
     for (const url of closed) assert.equal(allowed(group, url), false, `${url} should be blocked`);
@@ -57,7 +57,7 @@ test("llms.txt links are absolute, cover the legal pages and categories, and avo
   assert.ok(targets.length > 10);
   for (const target of targets) assert.ok(target.startsWith(`${site}/`), target);
   for (const { slug } of legalLinks) assert.ok(text.includes(`${site}/${slug})`), slug);
-  for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`category=${slug})`), slug);
+  for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
   for (const target of targets) {
     const path = target.slice(site.length);
     for (const blocked of privatePaths) assert.ok(!path.startsWith(blocked), `${path} is private`);

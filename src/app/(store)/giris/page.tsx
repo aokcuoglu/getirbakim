@@ -8,6 +8,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { catalogPath } from "@/modules/seo/paths";
 
 const field="gap-2";
 const label="text-sm leading-5 font-normal";
@@ -32,6 +33,6 @@ export default async function Login({searchParams}:{searchParams:Promise<SearchP
   <p className="mt-4 text-[13px] leading-[1.8] [&_a]:text-primary [&_a]:underline"><Link href="/kvkk-aydinlatma-metni">KVKK Aydınlatma Metni</Link> · <Link href="/gizlilik-politikasi">Gizlilik Politikası</Link></p>
   <p className="mt-[25px] text-sm leading-[22px] text-muted-foreground">Hesaplar Getirbakim yönetimi tarafından servis onayından sonra açılır.</p>
   <p><Link className={serviceLink} href="/servisler/basvuru">Servis hesabına başvur →</Link></p>
-  <Link className={serviceLink} href="/katalog">Bireysel alışverişe devam et →</Link>
+  <Link className={serviceLink} href={catalogPath}>Bireysel alışverişe devam et →</Link>
  </section>;
 }

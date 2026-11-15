@@ -37,6 +37,9 @@ const nextConfig: NextConfig = {
       { source: "/:locale(tr|en)/admin/:path*", destination: "/yonetim", permanent: true },
       { source: "/:locale(tr|en)/search", destination: "/katalog", permanent: true },
       { source: "/:locale(tr|en)/:path*", destination: "/:path*", permanent: true },
+      // The bare roots of the listing paths (#638); the old listing addresses move in src/proxy.ts.
+      { source: "/yedek-parca", destination: "/arac-markalari", statusCode: 301 },
+      { source: "/kategori", destination: "/katalog", statusCode: 301 },
     ];
   },
 };

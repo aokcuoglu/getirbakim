@@ -62,8 +62,8 @@ describe("sitemap helpers", () => {
   });
 
   test("XML is escaped and a file stops at the URL limit", () => {
-    const xml = renderUrlset([{ url: "https://a.test/katalog?category=a&b", lastModified: "2026-11-15T00:00:00Z" }, { url: "https://a.test/<x>" }]);
-    assert.match(xml, /<loc>https:\/\/a\.test\/katalog\?category=a&amp;b<\/loc><lastmod>2026-11-15T00:00:00Z<\/lastmod>/);
+    const xml = renderUrlset([{ url: "https://a.test/katalog?brand=a&b", lastModified: "2026-11-15T00:00:00Z" }, { url: "https://a.test/<x>" }]);
+    assert.match(xml, /<loc>https:\/\/a\.test\/katalog\?brand=a&amp;b<\/loc><lastmod>2026-11-15T00:00:00Z<\/lastmod>/);
     assert.match(xml, /<loc>https:\/\/a\.test\/&lt;x&gt;<\/loc><\/url>/);
     assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
     const original = console.error;
@@ -102,8 +102,8 @@ describe("sitemap helpers", () => {
 
   test("page paths match the pages' canonicals; legal pages carry their date", () => {
     assert.equal(productPath("abc"), "/urun/abc");
-    assert.equal(categoryPath("fren-252"), "/katalog?category=fren-252");
-    assert.equal(makePath("alfa-romeo"), "/car-parts/alfa-romeo");
+    assert.equal(categoryPath("fren-252"), "/kategori/fren-252");
+    assert.equal(makePath("alfa-romeo"), "/yedek-parca/alfa-romeo");
     assert.equal(absoluteUrl(siteUrl, "/katalog"), `${siteUrl}/katalog`);
     assert.equal(staticPaths[0].path, "");
     assert.equal(staticPaths.length, 8 + legalLinks.length);

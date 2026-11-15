@@ -19,7 +19,7 @@ Yerel `.env.local` hazırdır ve Git dışında tutulur. PostgreSQL 18 Homebrew 
 
 ## B2C ve B2B
 
-- **Bireysel müşteriler:** `/katalog` üzerinden ürün adı, marka, ürün veya OEM koduyla arama; kategori/marka filtreleri ve fiyat sıralaması; açık bireysel fiyatlar; üyelik olmadan detay ve kalıcı ziyaretçi sepeti.
+- **Bireysel müşteriler:** `/katalog` üzerinden ürün adı, marka, ürün veya OEM koduyla arama; kategori sayfaları `/kategori/<kategori>`, araç markası sayfaları `/yedek-parca/<marka>` (adres düzeni: [lansman planı](docs/launch-roadmap.md#adres-düzeni)); kategori/marka filtreleri ve fiyat sıralaması; açık bireysel fiyatlar; üyelik olmadan detay ve kalıcı ziyaretçi sepeti.
 - **Servisler:** `/giris` üzerinden onaylı hesapla giriş; servise tanımlı indirimle B2B fiyatları; ziyaretçi sepetinin girişte hesap sepetine aktarılması. Hesap sepeti veritabanında kalıcıdır.
 - **Yönetim:** `/yonetim`, yalnızca yöneticilere açıktır. Yönetici e-posta/şifresi `.env.local` içindeki `ADMIN_EMAIL` ve `ADMIN_PASSWORD` alanlarındadır. Servis onayı ve indirim tanımı burada yapılır.
 - **Başbuğ verileri:** `/yonetim/tedarikciler/basbug` admin için parça/OEM/ad/marka araması, grup/marka/para birimi/stok sinyali/veri kalitesi filtreleri, 50 satırlık sayfalama ve ürün detaylarını sunar. Kaynak fiyatlar, MRK depo sinyalleri, kur yanıtı, çekilme zamanları ve veri kalitesi sayıları gösterilir. “Seçili grubu API’den güncelle” yeni bir DB gözlemi oluşturur. Başbuğ’un 15 liste grubunun tamamı hazır; güncel veriler ve değişiklik geçmişi ayrı saklanır. [İşleyiş ve sınırlar](docs/basbug-admin.md).
@@ -41,7 +41,7 @@ Kaynak URL, yerel yol, içerik türü, boyut ve SHA-256 özeti [materyal manifes
 
 ## Katalog ve entegrasyon sınırı
 
-Başbuğ ürünleri genel `/katalog` sayfasında listelenir. Kategori bilgisi olmayan kayıtlar kategorisiz kalır ve kategori filtrelerinde görünmez; açık bir `product_data.category` değeri varsa ilgili kategoride görünür. Arama ürün kodu, OEM, ad ve markayı kapsar; sonuçlar 60 ürünlük sayfalarla gösterilir. Yalnızca mevcut (`present`), çelişkisiz MRK kayıtları yayınlanır. Satışa hazırlanmış aynı tedarikçi/kod `products` içinde varsa o kayıt önceliklidir. Ham maliyet ve stok işaretleri doğrudan satış fiyatı/adet olarak gösterilmez. Geçerli maliyet ve kurdan hesaplanan KDV dahil satış fiyatı gösterilir; fiyat verisi eksik veya eski olan ürünlerde hazırlık bilgisi görünür ve satın alma formu bulunmaz.
+Başbuğ ürünleri genel `/katalog` sayfasında listelenir. Kategori bilgisi olmayan kayıtlar kategorisiz kalır ve kategori sayfalarında (`/kategori/<kategori>`) görünmez; açık bir `product_data.category` değeri varsa ilgili kategoride görünür. Arama ürün kodu, OEM, ad ve markayı kapsar; sonuçlar 60 ürünlük sayfalarla gösterilir. Yalnızca mevcut (`present`), çelişkisiz MRK kayıtları yayınlanır. Satışa hazırlanmış aynı tedarikçi/kod `products` içinde varsa o kayıt önceliklidir. Ham maliyet ve stok işaretleri doğrudan satış fiyatı/adet olarak gösterilmez. Geçerli maliyet ve kurdan hesaplanan KDV dahil satış fiyatı gösterilir; fiyat verisi eksik veya eski olan ürünlerde hazırlık bilgisi görünür ve satın alma formu bulunmaz.
 
 `npm run verify:catalog` yerel veriyle katalog, arama, filtre, sayfalama ve detay akışını salt okunur doğrular (varsayılan adres `http://localhost:3000`).
 

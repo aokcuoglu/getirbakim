@@ -8,6 +8,7 @@ import {Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious,
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {cn} from "@/lib/utils";
 import type {StoreCategory} from "@/modules/store/category-tree";
+import {categoryPath} from "@/modules/seo/paths";
 
 function useMobile() {
   const [mobile, setMobile] = useState(false);
@@ -81,7 +82,7 @@ export function HomeCategoryTabs({categories}:{categories:StoreCategory[]}) {
       {roots.map(root=>{
         const children=categories.filter(category=>category.parentId===root.id);
         return <TabsContent key={root.id} value={root.id} className="pb-4">{children.length>0&&<div className="-mx-0.5 grid grid-cols-6 gap-4 max-[68.75rem]:grid-cols-4 max-md:mx-0 max-md:grid-cols-3 max-md:gap-3 max-[37.5rem]:grid-cols-2">
-          {children.map(category=><Link key={category.id} href={"/katalog?category="+category.slug} className="flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5">
+          {children.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5">
             <div className="grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center">{category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" unoptimized className="h-[90px] w-[135px] object-contain"/>:<Package size={48} aria-hidden="true"/>}</div>
             <strong className="flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium">{category.name}</strong>
           </Link>)}

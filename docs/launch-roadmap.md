@@ -42,6 +42,22 @@ Kargo için startup şirketlerle anlaşma yapılacak. **Acil B2B parça ihtiyaç
 
 Ürün sayfası dizin politikası (#641, tek kaynak `src/modules/seo/indexing.ts`; site haritası aynı ölçütü SQL'de uygular ve `npm run test:sitemap` ikisini eşit tutar): tedarikçi ürünü yalnız asgari içerikle dizine açıktır; ad, marka ve parça numarası dışında en az biri gerekir: kod ve markası eşleşen zenginleştirme, tedarikçi açıklamasından çıkarılmış uyumlu araç modeli (ürünün ya da gruptaki tekliflerinin) veya yöneticinin gizlemediği tedarikçi OEM numarası. Mağaza ürünleri dizine açıktır; demo ürünleri dizine kapalıdır. Ölçüt dışı kalan sayfalar `noindex,follow` ile erişilebilir kalır ve sinyal kazanınca kendiliğinden dizine girer. Stok ölçüte girmez (30 dakikalık senkronla değişir, site haritasını çalkalar). Yerel ölçüm (2026-11-15, listelenen 773.118 tedarikçi satırı): yalnız zenginleştirme 80.207 (%10,4), zenginleştirme veya açıklamadan uyumluluk ~353 bin (%45,6), seçilen ölçüt (artı tedarikçi OEM'i) 536.560 (%69,4); hiçbir sinyali olmayan ~236,5 bin sayfa dizin dışında. Tedarik edilemeyen kart (hiçbir tedarikçi şu an satmıyor) 200 döner, "Şu an tedarik edilemiyor" yazar, `noindex,follow` alır, site haritasında yer almaz ve JSON-LD'de Offer basmaz; fiyatı olmayan ürün de Offer basmaz. Geçersiz/bilinmeyen id, yöneticinin gizlediği ve kanonik karşılığı olmayan satır gerçek 404 döner; ikincil teklif ve düşmüş mükerrer satır 307 ile birincil/kanonik sayfaya yönlenir. 410 ve "kalıcı kalkmış" tanımı henüz yok.
 
+## Adres düzeni
+
+Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `src/modules/seo/paths.ts`. Kategori slug'ı sayısal son ekini (`fren-diskleri-269`) korur.
+
+| Sayfa | Adres | Not |
+| --- | --- | --- |
+| Tüm ürünler ve arama | `/katalog`, `/katalog?q=…` | Arama ve süzgeçli adresler `noindex,follow` |
+| Araç markaları | `/arac-markalari` | |
+| Araç markası | `/yedek-parca/<marka>` | |
+| Kategori | `/kategori/<kategori>` | |
+| Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
+| Model, model × kategori | `/yedek-parca/<marka>/<model>`, `/kategori/<kategori>/<marka>/<model>` | #639 için ayrıldı |
+| Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
+
+Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori veya marka `404` döner. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
+
 ## Bütçe ve karar kuralı
 
 Reklam bütçesi yazılım/logo/içerikten ayrı: ilk ay **15.000 TL**. Google Arama %70 = 10.500 TL, Instagram/Meta %20 = 3.000 TL, test %10 = 1.500 TL. Üst sınır 30.000 TL’de aynı paylar 21.000 / 6.000 / 3.000 TL. Google’da ürün/OEM ve marka-model-parça aramaları; yerel akü hizmeti ayrı kampanya. 50–100 ürün stok doğruluğu, talep, sevk ve katkıyla seçilir.

@@ -57,7 +57,8 @@ export async function confirmManualDraft(form: FormData) {
     error = cause.reason; detail = cause.detail ?? "";
   }
   revalidatePath(base);
-  revalidatePath("/katalog");
+  // Every storefront listing (/katalog, /kategori, /yedek-parca) can show the imported products.
+  revalidatePath("/", "layout");
   redirect(`${base}?${new URLSearchParams(error ? { liste: list, taslak: id, error, ...(detail ? { detail } : {}) } : { liste: list, imported: "1" })}`);
 }
 
