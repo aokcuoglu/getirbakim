@@ -47,16 +47,22 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus, onSaved }: {
   // A stored link that the carrier template produced is shown as automatic, not as a hand-entered one.
   const startUrl = initial?.trackingUrl && initial.trackingUrl !== resolveTrackingUrl(startCarrier, startNo, null) ? initial.trackingUrl : "";
   const [values, setValues] = useState({ carrier: startCarrier, carrierName: initial?.carrierName ?? "", trackingNo: startNo, trackingUrl: startUrl });
+  // Server errors of fields edited since the last submit; the next submit is validated again.
+  const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
   const [result, action, pending] = useActionState(async (previous: ShipmentResult, form: FormData): Promise<ShipmentResult> => {
     const next = await saveShipment(previous, form);
+    setCleared(new Set());
     // Back to the same tab, sort and page, where the list shows "Sipariş güncellendi."
     if (next.status === "success") { onSaved(); if (next.next) router.replace(next.next, { scroll: false }); }
     return next;
   }, { status: "idle" });
-  const errors = result.errors ?? {};
+  const errors = Object.fromEntries(Object.entries(result.errors ?? {}).filter(([field]) => !cleared.has(field)));
   const set = (field: keyof typeof values) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = event.currentTarget.value;
     setValues(previous => ({ ...previous, [field]: value }));
+    // Another carrier has other number and name rules, so their errors go too.
+    const stale = field === "carrier" ? ["carrier", "trackingNo", "carrierName"] : [field];
+    setCleared(previous => new Set([...previous, ...stale]));
   };
   const preview = resolveTrackingUrl(values.carrier, values.trackingNo.replace(/\s+/g, ""), values.trackingUrl.trim() || null);
   const automatic = hasTrackingTemplate(values.carrier);
