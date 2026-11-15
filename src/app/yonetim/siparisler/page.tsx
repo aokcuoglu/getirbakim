@@ -63,7 +63,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar İade bekleyen sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar &quot;İade bekleyen&quot; sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
@@ -145,7 +145,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               <OrderStatusBadge status={o.status}/>
               {o.status === "cancelled" && o.cancelled_by === "customer" && <>
                 <Badge variant="info"><Info data-icon="inline-start"/>Müşteri iptal etti</Badge>
-                {o.cancelled_at && <span className="text-muted-foreground">{time(o.cancelled_at)}</span>}
+                {o.cancelled_at && <span className="text-muted-foreground tabular-nums">{time(o.cancelled_at)}</span>}
               </>}
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
             </div></TableCell>

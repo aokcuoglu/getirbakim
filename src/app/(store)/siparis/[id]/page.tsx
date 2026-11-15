@@ -68,7 +68,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const pendingCancel=mine && order.status==="pending" && ["paid","none"].includes(order.payment_status);
   const awaitingCancel=mine && awaiting;
   const total=money(Number(order.total_kurus));
-  const cancelButton=(expected:"awaiting_payment"|"pending")=><CancelOrderButton orderId={order.id} number={order.number} expected={expected} total={total}/>;
+  const cancelButton=(expected:"awaiting_payment"|"pending")=><CancelOrderButton orderId={order.id} number={order.number} expected={expected} total={total} paid={order.payment_status==="paid"}/>;
   const returned=query.odeme==="sonuc",created=query.odeme==="yeni";
   const shipment=order.status==="shipped" || order.status==="delivered";
   // Shipment outranks the payment notes: shipped and delivered orders are paid (or legacy offline) orders.
@@ -87,7 +87,10 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       : "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir.")
     : order.status==="pending" ? "Sipariş kaydın oluşturuldu. Fiyat, stok ve sevkiyat teyidi için iletişime geçilecektir. Ödeme alınmadı." : `Sipariş durumu: ${orderStatus[order.status]}.`;
   const error=query.odeme ? paymentErrors[query.odeme] ?? null : null;
-  const cancelMessage=query.iptal ? cancelMessages[query.iptal] ?? null : null;
+  // An order already cancelled (expiry, operations) needs no "cannot cancel" message: its notice explains it.
+  // "odendi" invites a cancel from the button below, so it shows only while that button does.
+  const hiddenCancelMessage=(query.iptal==="kapali" && order.status==="cancelled") || (query.iptal==="odendi" && !pendingCancel && !awaitingCancel);
+  const cancelMessage=query.iptal && !hiddenCancelMessage ? cancelMessages[query.iptal] ?? null : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><p className={eyebrow}>SİPARİŞ #{order.number}</p><h1 className={title}>{orderStatus[order.status]}</h1>
     {error && <Alert className={errorBox}>{error}</Alert>}
     {admin && query.iade==="kaydedildi" && <Alert role="status" className={noticeBox}>İade kaydedildi.</Alert>}

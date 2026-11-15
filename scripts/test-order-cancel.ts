@@ -204,6 +204,13 @@ test("a payment landing after the customer cancelled keeps the order cancelled a
   assert.match(current.payment_note, /Mükerrer ödeme alındı/);
   assert.equal(refundRules.refundablePayments(current, await payments(id), []).length, 2);
   assert.equal(await stock(), 10);
+  // Without a recorded customer cancel the note does not claim one.
+  const unattributed = await order("cancelled", "cancelled", [{ quantity: 1, reserved: 0 }]);
+  const third = await attempt(unattributed);
+  paid.set(third.providerOrderId, 200);
+  await checkout.reconcileOrderPayments(unattributed);
+  const note = (await row(unattributed)).payment_note;
+  assert.match(note, /İptal edilen siparişe ödeme alındı/); assert.doesNotMatch(note, /Müşteri/);
 });
 
 test("confirmed, shipped, delivered and orders cancelled by operations or expiry are closed to the customer", async () => {

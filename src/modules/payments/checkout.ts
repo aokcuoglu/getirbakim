@@ -172,8 +172,8 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const order = (await client.query<{ status: string; payment_status: string; number: string }>(
-      "SELECT status,payment_status,number FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
+    const order = (await client.query<{ status: string; payment_status: string; number: string; cancelled_by: string | null }>(
+      "SELECT status,payment_status,number,cancelled_by FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
     )).rows[0];
     const updated = await client.query(
       `UPDATE commerce_payments SET status='succeeded',paid_at=now(),checked_at=now(),provider_result=$2,
@@ -191,9 +191,9 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
       await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now() WHERE id=$1", [orderId]);
       await clearPurchasedCart(client, orderId);
     } else if (order.status === "cancelled" && order.payment_status === "cancelled") {
-      // The customer cancelled before this capture landed (#607): the order stays cancelled and the money goes back.
+      // Cancelled unpaid (by the customer, #607) before this capture landed: the order stays cancelled and the money goes back.
       await client.query("UPDATE commerce_orders SET payment_status='refund_required',paid_at=now() WHERE id=$1", [orderId]);
-      await appendNote(client, orderId, `Müşteri iptal ettikten sonra ödeme alındı (${attempt.provider_order_id}); Siparişler'den TAMI ile iade edin.`);
+      await appendNote(client, orderId, `${order.cancelled_by === "customer" ? "Müşteri iptal ettikten sonra ödeme alındı" : "İptal edilen siparişe ödeme alındı"} (${attempt.provider_order_id}); Siparişler'den TAMI ile iade edin.`);
     } else if (order.status === "cancelled" && order.payment_status === "expired") {
       // Paid after the window closed: take the order back if in-house stock still allows it.
       const short = await reserveStoreStock(client, orderId);

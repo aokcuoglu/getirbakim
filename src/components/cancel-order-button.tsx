@@ -1,4 +1,5 @@
 "use client";
+import { useRef, type Ref } from "react";
 import { useFormStatus } from "react-dom";
 import { CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,20 +13,30 @@ function ConfirmButton() {
   return <Button type="submit" variant="destructive" disabled={pending} className={cn(storeDialogAction, "font-semibold")}>{pending ? "İptal ediliyor…" : "Siparişi iptal et"}</Button>;
 }
 
+function KeepButton({ ref }: { ref: Ref<HTMLButtonElement> }) {
+  const { pending } = useFormStatus();
+  return <DialogClose ref={ref} disabled={pending} render={<Button type="button" variant="outline" className={cn(storeDialogAction, "border-input bg-white font-medium text-foreground hover:bg-muted")}/>}>Vazgeç</DialogClose>;
+}
+
 /**
  * Customer cancel (#607) with a confirmation step. The stock Dialog is used as an alert dialog (role="alertdialog",
  * no outside-click dismissal) because it takes the storefront overlay, which the stock AlertDialog does not.
- * `expected` is the status the customer saw; the server refuses the cancel if it changed meanwhile.
+ * `expected` is the status the customer saw; the server refuses the cancel if it changed meanwhile. `paid` tells whether a
+ * refund follows. Focus opens on "Vazgeç", the safe choice.
  */
-export function CancelOrderButton({ orderId, number, expected, total }: {
-  orderId: string; number: string; expected: "awaiting_payment" | "pending"; total: string;
+export function CancelOrderButton({ orderId, number, expected, total, paid }: {
+  orderId: string; number: string; expected: "awaiting_payment" | "pending"; total: string; paid: boolean;
 }) {
-  const body = expected === "awaiting_payment"
-    ? `#${number} numaralı siparişin iptal edilecek. Kartından tahsilat yapılmadı. Sepetin korunur; istersen yeniden sipariş verebilirsin. Bu işlem geri alınamaz.`
-    : `#${number} numaralı siparişin iptal edilecek. ${total} tutarındaki ödemenin iadesini ekibimiz başlatır; iade tamamlanınca bu sayfada görürsün. Kartına yansıması bankana göre birkaç iş günü sürebilir. Bu işlem geri alınamaz.`;
+  const keep = useRef<HTMLButtonElement>(null);
+  // An unpaid order's cart is untouched (it is only cleared once a payment is recorded), so the customer can reorder.
+  const body = paid
+    ? `#${number} numaralı siparişin iptal edilecek. ${total} tutarındaki ödemenin iadesini ekibimiz başlatır; iade tamamlanınca bu sayfada görürsün. Bu işlem geri alınamaz.`
+    : expected === "awaiting_payment"
+      ? `#${number} numaralı siparişin iptal edilecek. Kartından tahsilat yapılmadı. Sepetin korunur; istersen yeniden sipariş verebilirsin. Bu işlem geri alınamaz.`
+      : `#${number} numaralı siparişin iptal edilecek. Bu sipariş için ödeme alınmadı. Bu işlem geri alınamaz.`;
   return <Dialog disablePointerDismissal>
     <DialogTrigger render={<Button variant="outline" className="h-auto min-h-12 gap-2.5 rounded-lg border-input bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted"/>}>Siparişi iptal et</DialogTrigger>
-    <DialogContent showCloseButton={false} role="alertdialog" overlayClassName={storeDialogOverlay} className={storeDialogContent}>
+    <DialogContent showCloseButton={false} role="alertdialog" initialFocus={keep} overlayClassName={storeDialogOverlay} className={storeDialogContent}>
       <div className="mx-auto grid size-14 place-items-center rounded-full bg-[#fff0ec] text-[#a74130]"><CircleAlert className="size-7" aria-hidden/></div>
       <DialogTitle className="mt-4 mb-2 text-[22px] leading-7 font-semibold tracking-[-0.4px]">Siparişi iptal edelim mi?</DialogTitle>
       <DialogDescription className="m-0 text-sm leading-[22px] text-[#454f5b]">{body}</DialogDescription>
@@ -33,7 +44,7 @@ export function CancelOrderButton({ orderId, number, expected, total }: {
         <input type="hidden" name="orderId" value={orderId}/>
         <input type="hidden" name="expected" value={expected}/>
         <ConfirmButton/>
-        <DialogClose render={<Button type="button" variant="outline" className={cn(storeDialogAction, "border-input bg-white font-medium text-foreground hover:bg-muted")}/>}>Vazgeç</DialogClose>
+        <KeepButton ref={keep}/>
       </form>
     </DialogContent>
   </Dialog>;
